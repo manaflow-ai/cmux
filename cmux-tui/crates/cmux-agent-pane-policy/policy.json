@@ -61,6 +61,7 @@
     "_acpmux/agent_login/start": "always",
     "_acpmux/agent_login/api_key": "always"
   },
+  "act_as_me_covers": ["session/prompt", "_acpmux/queue_approve"],
   "non_trusting_levels": ["untrusted", "unknown"],
   "setting_methods": ["session/set_mode", "session/set_config_option"],
   "known_params": {

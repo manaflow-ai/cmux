@@ -168,7 +168,7 @@ final class CloudService {
         self.machines = machines
         self.mainWork = mainWork
         self.work = work
-        configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild)
+        configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild) // a capture build's bench hooks: CloudConfiguration.benchHooksCompiled
         auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture)
         paths = CloudPaths.standard(bundleID: configuration.bundleID)
         deviceID = CloudDeviceID(paths: paths, work: work)
@@ -445,8 +445,8 @@ final class CloudService {
     }
 
     /// The quit coordinator awaits this before AppKit may terminate the
-    /// process, while Cloud transports can still erase delivered access.
-    func prepareForTermination() async { await codexBroker.shutdown() }
+    /// process. Delivered Codex access stays on each Cloud machine (#33482).
+    func prepareForTermination() async { await codexBroker.detachForQuit() }
 
     /// Serves the `credential` family on the local daemon: answers its
     /// calls on the connection that sent them, and registers again after
@@ -539,7 +539,7 @@ final class CloudService {
             hasLoadedMachines = true
             loadedAccount = account
             listedMachineIDs = Set(list.filter { $0.status != .destroyed }.map(\.id))
-            listLoadedAt = .now
+            listLoadedAt = .now; codexBroker.machinesListed(list)
             await startHubForSSHRoutes()
             return true
         } catch {

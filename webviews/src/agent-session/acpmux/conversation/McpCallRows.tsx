@@ -13,7 +13,9 @@ import { menuPartRef } from "./menuParts";
 import {
   cleanText,
   mcpCall,
+  mcpDescription,
   mcpLabel,
+  mcpOutcome,
   McpNamesContext,
   mcpOutputResult,
   mcpRawName,
@@ -126,12 +128,19 @@ function McpCallRow({ item }: { item: AcpmuxActivity; grouped?: boolean }) {
   // names the video (videoFrames.ts); opened, the call's response is the tool's note without the frames.
   const video = useMemo(() => videoFrames(tool), [tool]);
   const running = isRunning(tool);
+  // A described call is titled with its description, as a shell call is (mcpDescription).
   const label = useMemo(
     () =>
       video
         ? t("tools.videoFrames", { n: video.count })
-        : (cmuxTitle(t, [call], [tool], names) ?? mcpLabel(t, [call], names, running)),
+        : (mcpDescription(call) ?? cmuxTitle(t, [call], [tool], names) ?? mcpLabel(t, [call], names, running)),
     [t, video, call, tool, names, running],
+  );
+  // A condensed tool's one-line outcome trails its words, muted; its own "failed" reads as a
+  // failed call does (mcpOutcome).
+  const outcome = useMemo(
+    () => (running || video ? undefined : mcpOutcome(tool.output, call)),
+    [running, video, tool, call],
   );
   const exec = isCmuxExec(call);
   const images = useMemo(() => (video ? [] : toolImages(tool)), [video, tool]);
@@ -152,7 +161,12 @@ function McpCallRow({ item }: { item: AcpmuxActivity; grouped?: boolean }) {
         </span>
         <span className="cv-tool__text" data-find-skip>
           <ToolLabel text={label} />
-          {failure && <span className="cv-tool__failed"> {failureWord(t, failure)}</span>}
+          {failure ? (
+            <span className="cv-tool__failed"> {failureWord(t, failure)}</span>
+          ) : (
+            outcome?.failed && <span className="cv-tool__failed"> {t("tools.failed")}</span>
+          )}
+          {outcome?.summary && <span className="cv-tool__detail">{`  ${outcome.summary}`}</span>}
           <InlineFailureCause failure={failure} />
         </span>
         {/* The person approved this call's ask: it says so on its row (ApprovedMark.tsx). */}

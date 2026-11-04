@@ -8,7 +8,7 @@
 // the first output (cx-ncc.58). Only the status is the live region. While the chat waits on the person (an
 // ask above the composer, waitingOn.ts), the line says that instead, with no time and no sweep:
 // never "Thinking" while the agent is blocked on them.
-import { useContext, useLayoutEffect, useState } from "react";
+import { useContext, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { usePaneLanguage, useT } from "../i18n";
 import { agentStartLook } from "./agentStart.experiment";
@@ -22,6 +22,29 @@ import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 import { compactTokens, hasTokens, tokenDetail, TurnTokens } from "./TurnTokens";
 import { verbLeads } from "./ToolVerb";
 import { useTicking, WorkingCountsContext, workingParts } from "./WorkingFor";
+import type { AcpmuxTurnRetry } from "../model";
+import type { Translate } from "../i18n";
+
+/// A rate limit or an overloaded model: the model answered and is busy, not out of reach.
+const BUSY = /\b(?:rate.?limit|overloaded|too many requests|capacity)\b/i;
+
+/// What the live line says while the harness retries a failed model request (acpmux
+/// `turn_retrying`): the cause in plain words, the retry's count, and the harness's error when it
+/// names one ("Can't reach the model · retrying (7 of 10) · 503 server error"). Calm: no sweep and
+/// no clock, since nothing works on the reply while it waits.
+export function retryParts(t: Translate, retry: AcpmuxTurnRetry): { label: string; count: string; error?: string } {
+  const words = retry.error?.replaceAll("_", " ");
+  const busy = retry.errorStatus === 429 || retry.errorStatus === 529 || BUSY.test(words ?? "");
+  const label = t(busy ? "turn.live.retry.busy" : "turn.live.retry.unreachable");
+  const count =
+    retry.attempt === undefined
+      ? t("turn.live.retry.retrying")
+      : retry.maxRetries === undefined
+        ? t("turn.live.retry.attemptOnly", { attempt: retry.attempt })
+        : t("turn.live.retry.attempt", { attempt: retry.attempt, max: retry.maxRetries });
+  const error = [retry.errorStatus, words].filter((part) => part !== undefined && part !== "").join(" ");
+  return { label, count, ...(error && { error }) };
+}
 
 /// How long streaming text must hold still before the live line comes back under it.
 export const QUIET_MS = 1200;
@@ -29,8 +52,14 @@ export const QUIET_MS = 1200;
 export const WRITING_MS = 5000;
 
 /// False while `key` changed in the last `ms`, true once it held still that long (or there is none).
-function useQuiet(key: string | undefined, ms = QUIET_MS): boolean {
-  const [quiet, setQuiet] = useState(key === undefined);
+/// `since`, when known, is when the key's text was written: a key that was already that old when the
+/// line mounted (a chat opened long after its reply paused) is quiet from the first frame, instead
+/// of counting `ms` from the mount as if it had just moved.
+function useQuiet(key: string | undefined, ms = QUIET_MS, since?: number, now: () => number = Date.now): boolean {
+  const age = () => (since === undefined ? 0 : Math.max(0, now() - since));
+  const [quiet, setQuiet] = useState(() => key === undefined || age() >= ms);
+  // The key the line mounted with: only that one is timed from `since`; a later key just moved.
+  const mounted = useRef(key);
   // The first streamed assistant chunk inserts the answer and changes `key` in the same commit.
   // Hide the live line before that commit paints; an effect would leave one frame of "Thinking"
   // underneath the first token. The timer remains an ordinary effect so it never blocks layout.
@@ -39,9 +68,15 @@ function useQuiet(key: string | undefined, ms = QUIET_MS): boolean {
       setQuiet(true);
       return;
     }
+    const left = key === mounted.current ? ms - age() : ms;
+    if (left <= 0) {
+      setQuiet(true);
+      return;
+    }
     setQuiet(false);
-    const timer = setTimeout(() => setQuiet(true), ms);
+    const timer = setTimeout(() => setQuiet(true), left);
     return () => clearTimeout(timer);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `since` only seeds the mounted key
   }, [key, ms]);
   return quiet;
 }
@@ -90,8 +125,10 @@ export function Thinking({
   turnTotal = false,
   untimed = false,
   quietKey,
+  quietAt,
   below = false,
   command = false,
+  retry,
 }: {
   /// The prompt waits for its agent to start (harnessSwitch.ts): the start look's arm draws it.
   starting?: boolean;
@@ -120,11 +157,17 @@ export function Thinking({
   turnTotal?: boolean;
   untimed?: boolean;
   quietKey?: string;
+  /// When the reply `quietKey` names was written (turns.ts `codexLiveTurn`): a reply already
+  /// still past WRITING_MS when the line mounts reads "Thinking" at once.
+  quietAt?: number;
   /// The turn's last row (conversation/turns.ts): as tall as the footer that replaces it.
   below?: boolean;
   /// The call in flight is a command: the line offers ⌃B, as the command's own row does
   /// (BackgroundHint.tsx), since the row is not drawn while it runs.
   command?: boolean;
+  /// The harness retries a failed model request (acpmux `turn_retrying`): the line says that,
+  /// never "Thinking" (`retryParts`).
+  retry?: AcpmuxTurnRetry;
 } = {}) {
   const t = useT();
   const language = usePaneLanguage();
@@ -138,7 +181,7 @@ export function Thinking({
   const quiet = useQuiet(waiting || doing !== undefined ? undefined : quietKey);
   // A reply that paused only a moment is still being written; one silent for longer is the agent
   // thinking before its next step, which reads "Thinking" (Leo, 2026-11-03).
-  const stillWriting = !useQuiet(liveState === "writing" ? quietKey : undefined, WRITING_MS);
+  const stillWriting = !useQuiet(liveState === "writing" ? quietKey : undefined, WRITING_MS, quietAt, now);
   const sendName = useSubsessionInfo(sendSession)?.name ?? sendTo;
   const waitsOnAgents = liveState === "subagents" && liveAgents > 0;
   const writing = liveState === "writing" && stillWriting;
@@ -177,14 +220,48 @@ export function Thinking({
   // (App.tsx counts nothing while the tray lists it).
   const counts = useContext(WorkingCountsContext);
   const tokens = counts?.tokens;
-  const showTokens = Boolean(tokens) && timed;
+  // A send's line names who it goes to and for how long; the turn's token counts there are noise
+  // (Leo, 2026-11-02, on "Sending message to … 3m 56s · ↓1.4K out ↑819.5K in" among the message
+  // rows: "i also think this is quite weird looking").
+  const sending = doing !== undefined && sendName !== undefined;
+  const showTokens = Boolean(tokens) && timed && !sending;
   // One count, as Claude Code's live line says it ("47.4K tokens"): the turn's output, with the
-  // split on hover (liveLineTokens.experiment.ts).
+  // split on hover (liveLineTokens.experiment.ts). Never "↓ out ↑ in" in the line's words (the
+  // coordinator, relaying Leo's capture of "Thinking 7m 34s · ↓ 4.5K out ↑ 1.4M in").
   const oneCount = experimentArm(liveLineTokens) === "total";
   // The label already names the subagents it waits on: no second count of them.
   const parts = (counts && !waiting ? workingParts(t, counts) : []).filter(
     (part) => !(liveState === "subagents" && part.key === "agents"),
   );
+  // A model the harness cannot reach: said calmly in the line's own box, so nothing moves when it
+  // starts or ends (Leo, 2026-11-03). What the chat waits on the person for still comes first.
+  if (retry && !waiting) {
+    const parts = retryParts(t, retry);
+    return (
+      <div
+        className={`cv-worked cv-worked--live${below ? " is-below" : ""}`}
+        data-find-skip
+        data-lead-slot
+        data-retrying=""
+      >
+        <output className="cv-thinking cv-retrying">{parts.label}</output>
+        <span className="cv-worked__count">
+          <span className="cv-worked__sep" aria-hidden="true">
+            ·
+          </span>
+          {parts.count}
+        </span>
+        {parts.error && (
+          <span className="cv-worked__count cv-retrying__error" title={parts.error}>
+            <span className="cv-worked__sep" aria-hidden="true">
+              ·
+            </span>
+            <span className="cv-retrying__words">{parts.error}</span>
+          </span>
+        )}
+      </div>
+    );
+  }
   // The `silent` and `spinner` start looks keep the line's box (`.cv-worked`'s height) with no words.
   if (startLook !== "thinking")
     return (
@@ -196,8 +273,13 @@ export function Thinking({
       </div>
     );
   return (
-    // `cv-worked--live`: its words start on the icon rows' text column (conversation.css).
-    <div className={`cv-worked cv-worked--live${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`} data-find-skip>
+    // `cv-worked--live`: its words start on the icon rows' text column (conversation.css), its icon
+    // slot empty (`data-lead-slot`: gallery/invariants.ts reads its lead edge from the box, not the words).
+    <div
+      className={`cv-worked cv-worked--live${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`}
+      data-find-skip
+      data-lead-slot
+    >
       {waiting ? (
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
           {t(WAITING_LABEL[waiting])}

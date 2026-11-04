@@ -19,6 +19,8 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
     private var reviewETag: String?
     private var checksETag: String?
     private var heldETag: String?
+    /// Dedupe keys of the held pull requests the last fresh answer listed.
+    private var heldKeys: Set<String> = []
     private(set) public var lastError: String?
     public private(set) var githubDetails: [String: GitHubFeedDetail] = [:]
 
@@ -114,14 +116,22 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
                 }
             }
             // Needs you: the user's own PRs held for their trial are open requests, pinned with
-            // the other asks until the PR lands or the hold comes off (the item then expires).
+            // the other asks until the PR lands, closes or loses the hold. Then it leaves the held
+            // list, and a fresh answer without it withdraws the request (a 304 or an error does not).
             let held = try await client.heldForTrial(etag: heldETag)
             heldETag = held.etag ?? heldETag
             if let value = held.value, !held.notModified {
+                var listed: Set<String> = []
                 for pull in value {
                     let (item, detail) = makeHeldItem(from: pull)
+                    listed.insert(item.dedupeKey ?? item.id)
                     post(item, detail: detail)
                 }
+                for gone in heldKeys.subtracting(listed) {
+                    owner.withdraw(dedupeKey: gone)
+                    githubDetails[gone] = nil
+                }
+                heldKeys = listed
             }
             lastError = nil
         } catch {

@@ -4,6 +4,233 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Row data for Gmail threads (subject, sender, date, snippet, unread) by id, for feed rows; held in client memory only.
+    MailThreadsPeekOp {
+        name: "mail.threads.peek",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConnectionDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: MailThreadsPeekParams,
+        result: Value,
+        error: MailThreadsPeekError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MailThreadsPeekParams {
+    pub connection: ConnectionId,
+    pub thread_ids: Vec<String>,
+}
+
+wire_errors! {
+    /// The error codes mail.threads.peek declares.
+    MailThreadsPeekError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IntegrationUnavailable = "integration.unavailable",
+        PolicyDenied = "policy.denied",
+        ProviderError = "provider.error",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
+wire_op! {
+    /// Replace the parts of one of your messages (not after it was retracted).
+    MessageEditOp {
+        name: "message.edit",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: MessageEditParams,
+        result: HomeConversationCommit,
+        error: MessageEditError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MessageEditParams {
+    pub conversation: ConversationId,
+    pub message_id: MessageId,
+    pub parts: Vec<HomePart>,
+}
+
+wire_errors! {
+    /// The error codes message.edit declares.
+    MessageEditError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParts = "invalid_parts",
+        KindForbids = "kind_forbids",
+        NotAuthor = "not_author",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        Retracted = "retracted",
+        UnknownConversation = "unknown_conversation",
+        UnknownMessage = "unknown_message",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Retract one of your messages: its parts and reactions are cleared and it leaves search.
+    MessageRetractOp {
+        name: "message.retract",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: MessageRetractParams,
+        result: HomeConversationCommit,
+        error: MessageRetractError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MessageRetractParams {
+    pub conversation: ConversationId,
+    pub message_id: MessageId,
+}
+
+wire_errors! {
+    /// The error codes message.retract declares.
+    MessageRetractError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        KindForbids = "kind_forbids",
+        NotAuthor = "not_author",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        Retracted = "retracted",
+        UnknownConversation = "unknown_conversation",
+        UnknownMessage = "unknown_message",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message. thread_root replies in the thread of a top-level message (one level). A send moves the sender's read cursor to the new message when the sender had read everything before it.
+    MessageSendOp {
+        name: "message.send",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: MessageSendParams,
+        result: HomeConversationCommit,
+        error: MessageSendError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MessageSendParams {
+    pub conversation: ConversationId,
+    pub client_msg_id: ClientToken,
+    pub parts: Vec<HomePart>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<HomePartRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_root: Option<MessageId>,
+}
+
+wire_errors! {
+    /// The error codes message.send declares.
+    MessageSendError {
+        AddressCannotAct = "address_cannot_act",
+        AgentBudget = "agent_budget",
+        AgentRate = "agent_rate",
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        IdempotencyConflict2 = "idempotency_conflict",
+        InvalidClientMsgId = "invalid_client_msg_id",
+        InvalidParts = "invalid_parts",
+        InvalidThreadRoot = "invalid_thread_root",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// The chief's brain host acknowledges its wakes in a conversation up to seq (moves its catch-up cursor).
+    MuxAckOp {
+        name: "mux.ack",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:MuxDO",
+        risk: "mutate-own",
+        principals: [Install],
+        params: MuxAckParams,
+        result: MuxAckResult,
+        error: MuxAckError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MuxAckParams {
+    pub agent: AgentId,
+    pub conversation: ConversationId,
+    pub seq: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MuxAckResult {
+    pub cursor: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cleared: Option<i64>,
+}
+
+wire_errors! {
+    /// The error codes mux.ack declares.
+    MuxAckError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParams = "invalid_params",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Run a chief's brain locally (on a host) or in the cloud (the chief's owner).
+    MuxConfigureOp {
+        name: "mux.configure",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:MuxDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: MuxConfigureParams,
+        result: Value,
+        error: MuxConfigureError,
+    }
+}
+
+wire_enum! {
+    MuxConfigureParamsBrain {
+        Local = "local",
+        Cloud = "cloud",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MuxConfigureParams {
     pub agent: AgentId,
@@ -666,240 +893,5 @@ wire_op! {
         params: RunListParams,
         result: RunListResult,
         error: RunListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RunListParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub automation: Option<AutomationId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub state: Option<RunState>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub limit: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RunListResult {
-    pub runs: Vec<Run>,
-    pub next_cursor: Option<String>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes run.list declares.
-    RunListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// The paired daemon confirms its approved network reservation with a fresh signed policy read. Tenant, device and public keys must match the current owners. This records identity only; it does not activate transport or serving roles.
-    ServerNetworkConfirmOp {
-        name: "server.network.confirm",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-own",
-        principals: [Install],
-        params: ServerNetworkConfirmParams,
-        result: ServerNetworkConfirmResult,
-        error: ServerNetworkConfirmError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerNetworkConfirmParams {
-    pub host: HostId,
-    pub mesh: NativeMeshId,
-    pub device: NativeDeviceId,
-    pub proof: ServerNetworkProof,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerNetworkConfirmResult {
-    pub host: HostId,
-    pub network: ServerNetworkBinding,
-}
-
-wire_errors! {
-    /// The error codes server.network.confirm declares.
-    ServerNetworkConfirmError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Approve a pairing code and register its install and host. With a Native mesh, pin the network request and deliver a short-lived key-bound enrollment code only to the waiting server. The result contains public network ids; pairing does not activate a role or grant execution.
-    ServerPairApproveOp {
-        name: "server.pair.approve",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:PairingDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: ServerPairApproveParams,
-        result: ServerPairApproveResult,
-        error: ServerPairApproveError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerPairApproveParams {
-    pub code: PairingCode,
-    pub team: TeamId,
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mesh: Option<NativeMeshId>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerPairApproveResult {
-    pub host: HostId,
-    pub team: TeamId,
-    pub user: UserId,
-    pub install: InstallId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub network: Option<ServerNetworkReservation>,
-}
-
-wire_errors! {
-    /// The error codes server.pair.approve declares.
-    ServerPairApproveError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Show what a pending pairing code would add: the server's name, platform, key thumbprint and location.
-    ServerPairPreviewOp {
-        name: "server.pair.preview",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:PairingDO",
-        risk: "read",
-        principals: [Session],
-        params: ServerPairPreviewParams,
-        result: PairingPreview,
-        error: ServerPairPreviewError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerPairPreviewParams {
-    pub code: PairingCode,
-}
-
-wire_errors! {
-    /// The error codes server.pair.preview declares.
-    ServerPairPreviewError {
-        AuthUnauthenticated = "auth.unauthenticated",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Remove a server from the team directory and revoke its install key (the owner; a team admin removes it from the directory).
-    ServerRevokeOp {
-        name: "server.revoke",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "destructive",
-        principals: [Session],
-        params: ServerRevokeParams,
-        result: ServerRevokeResult,
-        error: ServerRevokeError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerRevokeParams {
-    pub host: HostId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerRevokeResult {
-    pub host: HostId,
-    pub install_revoked: bool,
-}
-
-wire_errors! {
-    /// The error codes server.revoke declares.
-    ServerRevokeError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Post a message to a Slack channel as the cmux bot.
-    SlackPostAsBotOp {
-        name: "slack.post_as_bot",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "send-external",
-        principals: [Session, Install],
-        params: SlackPostAsBotParams,
-        result: Value,
-        error: SlackPostAsBotError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SlackPostAsBotParams {
-    pub connection: ConnectionId,
-    pub channel: String,
-    pub text: String,
-}
-
-wire_errors! {
-    /// The error codes slack.post_as_bot declares.
-    SlackPostAsBotError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        IntegrationUnavailable = "integration.unavailable",
-        MutationIndeterminate = "mutation.indeterminate",
-        PolicyDenied = "policy.denied",
-        ProviderError = "provider.error",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Fetch the issuer's OpenID discovery document and activate the connection (owners and admins). Needs the secret and every domain verified by this team.
-    SsoConnectionActivateOp {
-        name: "sso.connection.activate",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: SsoConnectionActivateParams,
-        result: SsoConnection,
-        error: SsoConnectionActivateError,
     }
 }
