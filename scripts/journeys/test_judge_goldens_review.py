@@ -1251,6 +1251,161 @@ class SeventhReviewTests(unittest.TestCase):
             w.close()
 
 
+class NinthReviewTests(unittest.TestCase):
+    """Review 9 of #33930 at d9c319fc23f (FIX, comment 6630483631). A: no test held that a snapshot keeps the store's
+    lock while it works. Notes: a killed snapshot left a folder no later snapshot could complete (1); an empty or null
+    `expect` (2); a new film name with a dot, or named as a folder file (3); a KeyboardInterrupt in the link loop (5)."""
+
+    cli = staticmethod(SixthReviewTests.cli)
+
+    def test_the_snapshot_holds_the_lock_while_it_copies(self):
+        import fcntl
+        import threading
+        w = base.Workspace()
+        copying, go, result = threading.Event(), threading.Event(), {}
+        real = jg.copy_reflink
+
+        def slow_copy(src, dst):
+            copying.set()
+            go.wait(30)
+            return real(src, dst)
+
+        def snapshot():
+            result["code"], result["out"] = w.snapshot()
+
+        try:
+            jg.copy_reflink = slow_copy
+            t = threading.Thread(target=snapshot)
+            t.start()
+            self.assertTrue(copying.wait(30), "the snapshot never started copying")
+            with open(w.store / jg.STORE_LOCK, "a") as other:
+                try:
+                    fcntl.flock(other, fcntl.LOCK_SH | fcntl.LOCK_NB)  # even a shared lock: the snapshot's is exclusive
+                    held = False
+                    fcntl.flock(other, fcntl.LOCK_UN)
+                except BlockingIOError:
+                    held = True
+            go.set()
+            t.join(60)
+            self.assertTrue(held, "another holder took the store's lock while the snapshot copied")
+            self.assertEqual(result.get("code"), 0, result.get("out"))
+        finally:
+            go.set()
+            jg.copy_reflink = real
+            w.close()
+
+    def test_a_killed_snapshot_leaves_a_store_the_next_snapshot_completes(self):
+        # SIGTERM (what timeout, a sandbox stop or a tool timeout sends) at the 2nd link: no finally runs; the next
+        # snapshot completes and pins every file of the folder
+        import signal
+        for name in ("SIGTERM", "SIGKILL"):
+            with self.subTest(signal=name):
+                w = base.Workspace()
+                try:
+                    child = w.root / "child.py"
+                    child.write_text(textwrap.dedent(f"""
+                        import os, signal, sys
+                        sys.path.insert(0, {str(HERE)!r})
+                        import judge_goldens as jg
+                        real, calls = os.link, []
+                        def link(src, dst, *a, **k):
+                            calls.append(dst)
+                            if len(calls) == 2:
+                                os.kill(os.getpid(), signal.{name})
+                            return real(src, dst, *a, **k)
+                        jg.os.link = link
+                        sys.exit(jg.guarded_main(["snapshot", "--store", {str(w.store)!r}, "--manifest",
+                                                  {str(w.manifest)!r}, "--source", {str(w.gallery)!r},
+                                                  "--settled-minutes", "0"]))
+                        """))
+                    done = subprocess.run([sys.executable, "-I", str(child)], capture_output=True, text=True, timeout=120)
+                    self.assertEqual(done.returncode, -getattr(signal, name), done.stdout + done.stderr)
+                    code, out = w.snapshot()
+                    self.assertEqual(code, 0, out)
+                    doc = json.loads((w.manifest / "films.json").read_text())
+                    table = jg.files_table(w.store, doc)
+                    for folder in ("build-a-120x2", "build-b-120x1"):
+                        on_disk = sorted(p.name for p in (w.gallery / folder).iterdir() if p.name.endswith(jg.KEEP_SUFFIXES))
+                        self.assertEqual(sorted(table.get(folder, {})), on_disk, out)
+                finally:
+                    for d, _, _ in os.walk(w.root):
+                        os.chmod(d, 0o755)
+                    w.close()
+
+    def test_an_empty_or_null_expect_is_refused(self):
+        import test_judge_goldens_truth as truth
+        for value in (None, {}, [], "", 0, False):
+            with self.subTest(expect=value):
+                w = truth.TruthWorkspace()
+                try:
+                    w.write_truth()
+                    path = w.manifest / "truth.json"
+                    doc = json.loads(path.read_text())
+                    doc["facts"][0]["expect"] = value
+                    path.write_text(json.dumps(doc))
+                    self.assertEqual(w.snapshot()[0], 0)
+                    code, out = w.bless()
+                    self.assertEqual(code, 2, out)
+                    self.assertIn("truth.json has facts that cannot be checked", out)
+                finally:
+                    w.close()
+
+    def test_a_new_film_name_with_a_dot_is_refused(self):
+        # a film name is the part of its files' names before the first dot: row.v2 would make row.v2.* files of row
+        w = base.Workspace()
+        try:
+            (w.gallery / "build-a-120x2" / "row.v2.trace.json").write_text(json.dumps({"t0_s": 1.0, "samples": []}))
+            code, out = w.snapshot()
+            self.assertEqual(code, 2, out)
+            self.assertIn("build-a-120x2/row.v2: a film name with a dot", out)
+            self.assertFalse((w.store / "films" / "build-a-120x2" / "row.v2.trace.json").exists())
+        finally:
+            w.close()
+
+    def test_a_new_film_named_as_a_folder_file_is_refused(self):
+        # display.json and diag-tiers.json are inputs of every film of the folder: no film may bring one in
+        for name in ("display", "diag-tiers"):
+            with self.subTest(film=name):
+                w = base.Workspace()
+                try:
+                    folder = w.gallery / "build-b-120x1"
+                    (folder / f"{name}.json").unlink(missing_ok=True)
+                    self.assertEqual(w.snapshot()[0], 0)
+                    (folder / f"{name}.trace.json").write_text(json.dumps({"t0_s": 1.0, "samples": []}))
+                    (folder / f"{name}.json").write_text(json.dumps({"asked": {"scale": 1}}))
+                    code, out = w.snapshot()
+                    self.assertEqual(code, 2, out)
+                    self.assertIn(f"build-b-120x1/{name}: a film named as a file of the folder", out)
+                    self.assertFalse((w.store / "films" / "build-b-120x1" / f"{name}.json").exists())
+                finally:
+                    w.close()
+
+    def test_an_interrupt_inside_the_link_loop_leaves_no_partly_stored_film(self):
+        w = base.Workspace()
+        real = os.link
+        calls = []
+        try:
+            def interrupted(src, dst, *a, **k):
+                calls.append(dst)
+                if len(calls) == 3:
+                    raise KeyboardInterrupt
+                return real(src, dst, *a, **k)
+
+            os.link = interrupted
+            try:
+                code, out = w.snapshot()
+                self.assertNotEqual(code, 0, out)  # guarded_main turns the interrupt into an exit status
+            except KeyboardInterrupt:
+                pass
+            os.link = real
+            self.assertEqual([p.name for p in (w.store / "films").rglob("*") if p.is_file() and not p.name.startswith(".")], [])
+            code, out = w.snapshot()
+            self.assertEqual(code, 0, out)
+        finally:
+            os.link = real
+            w.close()
+
+
 class EighthReviewTests(unittest.TestCase):
     """Review 8 of #33930 at a116b2ab95d (FIX, comment 6627130937). A: two guards that the jump rule hid (fixed in the
     tests above: their own words). Notes: a failure inside the link loop leaves no partly stored film; one snapshot at a
@@ -1266,7 +1421,7 @@ class EighthReviewTests(unittest.TestCase):
         try:
             def failing(src, dst, *a, **k):
                 calls.append(dst)
-                if len(calls) == 2:
+                if len(calls) == 3:  # two files of the folder are linked by then: both must go
                     raise PermissionError(13, "Permission denied", str(dst))
                 return real(src, dst, *a, **k)
 
@@ -1317,7 +1472,7 @@ class EighthReviewTests(unittest.TestCase):
 
     def test_an_empty_ruler_is_a_ruler_of_no_form(self):
         import test_judge_goldens_truth as truth
-        for value in ({}, [], ""):
+        for value in ({}, [], "", 0, False):
             with self.subTest(ruler=value):
                 w = truth.TruthWorkspace()
                 try:
