@@ -252,6 +252,16 @@ impl WorkerLink {
         let mut reader = BufReader::new(stdout);
         let mut restart_requested = false;
         loop {
+            // Registered before the check below, so a restart or a reload between
+            // two passes is never missed: a reload swaps the config in force and
+            // notifies; a worker started with an older reading restarts.
+            let restart = self.restart_now.notified();
+            tokio::pin!(restart);
+            restart.as_mut().enable();
+            if !restart_requested && !Arc::ptr_eq(&config, &core.config()) {
+                restart_requested = true;
+                lock(&self.state).to_worker = None;
+            }
             tokio::select! {
                 line = wire::read_object(&mut reader) => {
                     let Ok(Some(message)) = line else { break };
@@ -262,7 +272,7 @@ impl WorkerLink {
                         lock(&self.state).to_worker = None; // closes stdin
                     }
                 }
-                _ = self.restart_now.notified() => {
+                _ = &mut restart => {
                     restart_requested = true;
                     lock(&self.state).to_worker = None;
                 }
