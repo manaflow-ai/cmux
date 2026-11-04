@@ -50,8 +50,8 @@
   },
   "apt": {
     "ubuntu": {
-      "uri": "https://snapshot.ubuntu.com/ubuntu/20261022T000000Z/",
-      "snapshot": "20261022T000000Z",
+      "uri": "https://snapshot.ubuntu.com/ubuntu/20261104T000000Z/",
+      "snapshot": "20261104T000000Z",
       "suites": ["noble", "noble-updates", "noble-backports", "noble-security"],
       "components": ["main", "restricted", "universe", "multiverse"],
       "signedBy": "/usr/share/keyrings/ubuntu-archive-keyring.gpg",
@@ -60,9 +60,9 @@
         "arping": "2.24-1build2",
         "at-spi2-common": "2.52.0-1build1",
         "at-spi2-core": "2.52.0-1build1",
-        "bind9-dnsutils": "1:9.18.39-0ubuntu0.24.04.8",
-        "bind9-host": "1:9.18.39-0ubuntu0.24.04.8",
-        "bind9-libs": "1:9.18.39-0ubuntu0.24.04.8",
+        "bind9-dnsutils": "1:9.18.39-0ubuntu0.24.04.9",
+        "bind9-host": "1:9.18.39-0ubuntu0.24.04.9",
+        "bind9-libs": "1:9.18.39-0ubuntu0.24.04.9",
         "bubblewrap": "0.9.0-1ubuntu0.3",
         "ca-certificates": "20260816ubuntu0.24.04.1",
         "curl": "8.5.0-2ubuntu10.16",
