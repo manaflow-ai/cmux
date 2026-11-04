@@ -61,6 +61,13 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
         }
         return inner.recordRule(tenantId, rule);
       },
+      recordRules: (tenantId: Parameters<typeof inner.recordRules>[0], rules: Parameters<typeof inner.recordRules>[1]) => {
+        if (recordFailures > 0 && rules.length > 0) {
+          recordFailures -= 1;
+          return Effect.fail(new StoreError({ operation: "mesh.recordRules", cause: "injected" }));
+        }
+        return inner.recordRules(tenantId, rules);
+      },
     })),
   ).pipe(Layer.provide(base.layer));
   /** Every mesh store call waits this long first: a stand-in for one Worker-to-database round trip. */
