@@ -254,9 +254,13 @@ fn decode_log(payload: &[u8]) -> Option<(String, &[u8])> {
 }
 
 /// A streamed agent line: synced with the next acked batch or a second later (`Class::Stream`).
+/// The hub's tap logs an ACP `session/update` under its `sessionUpdate` kind (`hub/tap.rs`), so
+/// the message's method says it, not the kind; a history replay (`*.replay`) too.
 fn streamed(record: &EventRecord) -> bool {
     record.dir == "in"
-        && (record.kind == crate::rpc::method::SESSION_UPDATE
+        && (record.msg.get("method").and_then(Value::as_str)
+            == Some(crate::rpc::method::SESSION_UPDATE)
+            || record.kind == crate::rpc::method::SESSION_UPDATE
             || record.kind.starts_with("claude.")
             || record.kind.starts_with("codex."))
 }
