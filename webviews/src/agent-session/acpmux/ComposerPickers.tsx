@@ -1826,6 +1826,7 @@ function PickerMenuItem({
         if (section.onPick(choice.id) !== "keep") close();
       }}
     >
+      <span className="acpmux-menu-hit-area" aria-hidden="true" />
       {choice.icon}
       <span className="acpmux-menu-text">
         <span className="acpmux-menu-label">{choice.name}</span>
