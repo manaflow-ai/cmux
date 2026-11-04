@@ -14,6 +14,7 @@
 //! is joined by account.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use zeroize::Zeroizing;
 
 /// `agent-session-share-invite-chat`.
@@ -129,24 +130,28 @@ pub(super) fn invite_chat(
             None => {
                 let provisioning = new_room.as_ref().map_err(|code| *code)?.is_some();
                 let created = push(all, now, ids, session.clone(), p.surface, terms, provisioning)?;
-                let share_id = created["share_id"].as_str().unwrap_or_default().to_owned();
+                let share_id =
+                    created.get("share_id").and_then(Value::as_str).unwrap_or_default().to_owned();
                 (Some(created), share_id)
             }
         };
         let fresh = made.is_some();
         let (mut answer, changed) = invite_in(all, &share_id, account, role, now)?;
-        answer["created_share"] = json!(fresh);
-        answer["expires_at"] = json!(find(all, &share_id)?.expires_at);
+        answer.set("created_share", json!(fresh));
+        let expires_at = find(all, &share_id)?.expires_at;
+        answer.set("expires_at", json!(expires_at));
         Ok(((answer, made), changed || fresh))
     })?;
     if let (Some(created), Ok(Some((room, token)))) = (made, new_room) {
-        let share_id = created["share_id"].as_str().unwrap_or_default().to_owned();
+        let share_id =
+            created.get("share_id").and_then(Value::as_str).unwrap_or_default().to_owned();
         // A refusal or no answer ends the share (and its invite) the way a link's create does.
         let provisioned = room::provision(mux, created, room, token)?;
-        answer["invite_url"] = match provisioned.get("room").and_then(Value::as_str) {
+        let invite_url = match provisioned.get("room").and_then(Value::as_str) {
             Some(origin) => json!(format!("{origin}/i/{share_id}")),
             None => Value::Null,
         };
+        answer.set("invite_url", invite_url);
     }
     Ok(answer)
 }

@@ -185,9 +185,9 @@ struct SidebarGroupFlow {
             bridge.map { SidebarGroupFlow(bridge: $0).editorItems(group) } ?? SidebarContainerView.standardGroupEditorItems()
         }
         container.onGroupEditorItem = { [weak bridge = self.bridge] group, item in
-            guard let bridge else { return }
-            SidebarGroupFlow(bridge: bridge).performEditorItem(group, item)
+            if let bridge { SidebarGroupFlow(bridge: bridge).performEditorItem(group, item) }
         }
+        container.groupSortMenu = { [weak bridge = self.bridge] in bridge?.services.registry.makeChoicesMenu(for: "workspaceGroup.setSort", in: .workspaceGroup, target: ActionTargetRef(kind: .workspaceGroup, id: $0.rawValue)) }
     }
 
     /// The standard rows with each action's current shortcut; the pin row reads as the change it makes.
