@@ -1,5 +1,5 @@
 import AppKit
-import CmuxSettings
+import struct CmuxSettings.ChiefCatalogSection
 import Foundation
 import Testing
 
