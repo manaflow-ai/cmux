@@ -408,6 +408,142 @@ struct PaneContentPolicyTests {
         #expect(afterLanding.isEmpty, "the landing asked the PTY for \(afterLanding) after the presses' grids")
     }
 
+    // MARK: The default path (switch off): one surface size per press (T5)
+
+    /// The default (switch off; review of #35470 at c4d6c936c92, T5: the base checked this path, and the m6 tests now
+    /// turn the switch on). One press: each terminal asks its PTY for one grid, the final one, by the press's first
+    /// frame; its surface takes a new size at most once in the whole press (none per frame), and none at the landing.
+    @Test(arguments: [LayoutDirection.left, .right, .up, .down])
+    func aKeyPressSizesEachSurfaceOnceWithTheSwitchOff(direction: LayoutDirection) async throws {
+        let vertical = direction == .up || direction == .down
+        let rig = Rig(PaneGroundCoversPaneTests.column(vertical ? PaneGroundCoversPaneTests.stack : PaneGroundCoversPaneTests.pair), focused: "p2")
+        defer { rig.close() }
+        defer { PaneGroundCoversPaneTests.releaseFrames() }
+        let panes: [PaneID] = ["p1", "p2"]
+        for pane in panes { _ = try await Self.grids(pane, rig) }
+        var sizes: [PaneID: [CGSize]] = [:]
+        var last: [PaneID: CGSize] = [:]
+        for pane in panes { last[pane] = try Self.surface(pane, in: rig).frame.size }
+        func note() throws {
+            for pane in panes {
+                let size = try Self.surface(pane, in: rig).frame.size
+                if size != last[pane] { sizes[pane, default: []].append(size) }
+                last[pane] = size
+            }
+        }
+        let reportsBefore = TerminalSurfaceView.gridReports
+        PaneGroundCoversPaneTests.ownFrames(false)
+        #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
+        rig.root.syncWithModel()
+        rig.root.layoutSubtreeIfNeeded()
+        try note()
+        let frames = try Self.run(rig) { _ in try note() }
+        try note()
+        #expect(frames > 3, "the press did not spring (\(frames) frames)")
+        #expect(TerminalSurfaceView.gridReports - reportsBefore <= UInt64(panes.count), "more grid reports than terminals for one press")
+        for pane in panes {
+            let grids = try await Self.grids(pane, rig)
+            let final = try #require(try Self.surface(pane, in: rig).fittedGrid)
+            #expect(grids == [final], "\(pane) asked its PTY for \(grids), not its final grid \(final) once")
+            #expect((sizes[pane] ?? []).count <= 1, "\(pane)'s surface took \(sizes[pane]?.count ?? 0) sizes in one press: \(sizes[pane] ?? [])")
+        }
+    }
+
+    /// The default (switch off; T5, base check kept). A held key (three Ctrl-Shift-H presses 4 frames apart retarget
+    /// one spring): each terminal asks its PTY for the final grid of each press, once, by that press's first frame (at
+    /// most one grid per press, the last one the final), and its surface takes a new size only in a press's turn or
+    /// first frame, never in another frame or at the landing.
+    @Test func aHeldKeySizesEachSurfaceOnlyInAPressTurnWithTheSwitchOff() async throws {
+        let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
+        defer { rig.close() }
+        defer { PaneGroundCoversPaneTests.releaseFrames() }
+        let panes: [PaneID] = ["p1", "p2"]
+        for pane in panes { _ = try await Self.grids(pane, rig) }
+        var last: [PaneID: CGSize] = [:]
+        for pane in panes { last[pane] = try Self.surface(pane, in: rig).frame.size }
+        var inFrames: [String] = [], grids: [PaneID: [TerminalGridSize]] = [:]
+        func note(_ label: String, frame: Bool) throws {
+            for pane in panes {
+                let size = try Self.surface(pane, in: rig).frame.size
+                if size != last[pane], frame { inFrames.append("\(label): \(pane) \(size)") }
+                last[pane] = size
+            }
+        }
+        var frames = 0
+        for press in 1...3 {
+            PaneGroundCoversPaneTests.ownFrames(false)
+            #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root), "press \(press) moved nothing")
+            rig.root.syncWithModel()
+            // The press's first frame is its own (S1B): its rest size and its grid go there.
+            if rig.frame() { frames += 1 }
+            try note("press \(press)", frame: false)
+            for pane in panes { grids[pane, default: []] += try await Self.grids(pane, rig) }
+            PaneGroundCoversPaneTests.ownFrames(false)
+            for _ in 1...3 where rig.frame() {
+                frames += 1
+                try note("frame \(frames)", frame: true)
+            }
+        }
+        try Self.run(rig) { _ in
+            frames += 1
+            try note("frame \(frames)", frame: true)
+        }
+        try note("after the landing", frame: true)
+        #expect(frames > 12, "the presses did not spring (\(frames) frames)")
+        #expect(inFrames.isEmpty, "a surface took a new size outside a press's turn and first frame: \(inFrames.prefix(3))")
+        for pane in panes {
+            let final = try #require(try Self.surface(pane, in: rig).fittedGrid)
+            let sent = (grids[pane] ?? []) + (try await Self.grids(pane, rig))
+            #expect(sent.count <= 3 && sent.last == final, "\(pane) asked its PTY for \(sent) over 3 presses (final \(final))")
+        }
+    }
+
+    /// The default (switch off; T5, base check kept). A press and its reverse in one key hold (Ctrl-Shift-H, then L 4
+    /// frames later, before the first lands): the panes rest where they began. Each terminal hears each press's final
+    /// grid by that press's first frame (the reverse one too, though it rests at the size the hold began at), and its
+    /// surface takes no new size at the landing.
+    @Test func aPressAndItsReverseRestsAtTheStartSizeWithTheSwitchOff() async throws {
+        let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
+        defer { rig.close() }
+        defer { PaneGroundCoversPaneTests.releaseFrames() }
+        let panes: [PaneID] = ["p1", "p2"]
+        for pane in panes { _ = try await Self.grids(pane, rig) }
+        var start: [PaneID: (size: CGSize, grid: TerminalGridSize?)] = [:]
+        for pane in panes {
+            let surface = try Self.surface(pane, in: rig)
+            start[pane] = (surface.frame.size, surface.fittedGrid)
+        }
+        PaneGroundCoversPaneTests.ownFrames(false)
+        #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
+        rig.root.syncWithModel()
+        #expect(rig.frame(), "the first press did not spring")
+        var atPress: [PaneID: [TerminalGridSize]] = [:]
+        for pane in panes { atPress[pane] = try await Self.grids(pane, rig) }
+        PaneGroundCoversPaneTests.ownFrames(false)
+        for frame in 2...4 { #expect(rig.frame(), "the first press landed after \(frame) frames") }
+        PaneGroundCoversPaneTests.ownFrames(false)
+        #expect(PaneResize.press("p2", .right, model: rig.model, view: rig.root))
+        rig.root.syncWithModel()
+        #expect(rig.frame(), "the reverse press did not spring")
+        var atReverse: [PaneID: [TerminalGridSize]] = [:], sizeAtReverse: [PaneID: CGSize] = [:]
+        for pane in panes {
+            atReverse[pane] = try await Self.grids(pane, rig)
+            sizeAtReverse[pane] = try Self.surface(pane, in: rig).frame.size
+        }
+        PaneGroundCoversPaneTests.ownFrames(false)
+        let frames = try Self.run(rig)
+        #expect(frames > 3, "the reverse press did not spring (\(frames) frames)")
+        for pane in panes {
+            let was = try #require(start[pane]), surface = try Self.surface(pane, in: rig)
+            let startGrid = try #require(was.grid, "SETUP: \(pane) fits no grid at rest")
+            #expect(atPress[pane]?.count == 1 && atPress[pane]?.first != startGrid, "\(pane): the first press sent \(atPress[pane] ?? [])")
+            #expect(atReverse[pane] == [startGrid], "\(pane): the reverse press sent \(atReverse[pane] ?? []), not the start grid \(startGrid)")
+            #expect(try await Self.grids(pane, rig).isEmpty, "\(pane) sent a grid at the landing")
+            #expect(surface.frame.size == sizeAtReverse[pane] && surface.frame.size == was.size,
+                    "\(pane)'s surface took \(surface.frame.size) at the landing (\(String(describing: sizeAtReverse[pane])) at the reverse press, \(was.size) at rest)")
+        }
+    }
+
     /// The grids `pane`'s terminal asked its PTY for since the last call (a focus report after them is the marker).
     static func grids(_ pane: PaneID, _ rig: Rig) async throws -> [TerminalGridSize] {
         let session = try #require(rig.provider.sessions[pane])

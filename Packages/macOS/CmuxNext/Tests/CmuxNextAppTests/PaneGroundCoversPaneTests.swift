@@ -151,15 +151,16 @@ struct PaneGroundCoversPaneTests {
             + "\(type(of: culprit)) at x \(Int(r.minX))..\(Int(r.maxX)) y \(Int(r.minY))..\(Int(r.maxY))"
     }
 
-    /// Turns `motion.frameOwner.terminals` on for the frames that follow (off by default until its held-key cost is fixed):
-    /// the key-resize contract tests (cmux-ad m6) run with it on. The store is process-wide and another test resets it
-    /// when it ends, so an async test calls this again after each `await`, before its next press or frame (main-actor
-    /// code between two awaits never interleaves with another test). Its value: whether the switch is on now.
+    /// Turns `motion.frameOwner.terminals` on (or, with `on` false, off) for the frames that follow (off by default
+    /// until its held-key cost is fixed): the key-resize contract tests (cmux-ad m6) run with it on, and the guards of
+    /// the default path (one surface size per press) with it off. The store is process-wide and another test sets or
+    /// resets it, so an async test calls this again after each `await`, before its next press or frame (main-actor code
+    /// between two awaits never interleaves with another test). Its value: whether the switch has the value asked for.
     @discardableResult
-    static func ownFrames() -> Bool {
+    static func ownFrames(_ on: Bool = true) -> Bool {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(TerminalDragTunables.all)
-        return TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(true)) == .bool(true)
+        return TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(on)) == .bool(on)
     }
 
     /// The switch back to its default (a test that called ``ownFrames()`` defers this).
