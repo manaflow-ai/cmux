@@ -8,7 +8,10 @@ pub(super) const SYNC_CALLBACK: &str = "cmux-repo-sync";
 impl Translator {
     pub(super) async fn answer_hook_callback(&self, rid: &str, req: &Value) {
         #[cfg(not(unix))]
-        let output = json!({});
+        let output = {
+            let _ = req;
+            json!({})
+        };
         #[cfg(unix)]
         let mut output = json!({});
         #[cfg(unix)]
