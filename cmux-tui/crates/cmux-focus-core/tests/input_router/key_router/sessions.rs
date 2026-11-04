@@ -631,7 +631,7 @@ fn the_ledger_requires_the_offers_of_a_page_to_end_in_key_order() {
     let mut silent = Ledger::new(LaneLimit::of(SCENARIO_LANE_LIMIT));
     silent.call(&InputEvent::Key(find.clone()), &[offer(1)]);
     silent.call(&InputEvent::Key(find.clone()), &[offer(2)]);
-    silent.call(&answer, &[run.clone()]);
+    silent.call(&answer, std::slice::from_ref(&run));
     let broken: Vec<_> = silent.violations().iter().map(|v| (v.invariant, v.id)).collect();
     assert_eq!(broken, vec![(Invariant::OrderKept, Some(InputId(2)))]);
 
