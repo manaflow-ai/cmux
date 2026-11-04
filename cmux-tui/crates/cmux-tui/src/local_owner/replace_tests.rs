@@ -46,6 +46,36 @@ fn connection_limit_probe_keeps_a_peer_that_sends_a_partial_line() {
 }
 
 #[test]
+fn connection_limit_probe_deadline_bounds_a_trickling_partial_line() {
+    use std::time::Instant;
+
+    let (client, mut server) = UnixStream::pair().unwrap();
+    let sender = std::thread::spawn(move || {
+        // Keep every read making progress just before its timeout. The probe
+        // must still stop at its absolute deadline without waiting for EOF.
+        for _ in 0..50 {
+            if server.write_all(b"x").is_err() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    });
+    let started = Instant::now();
+    let result = probe(Box::new(client), started + Duration::from_millis(100));
+    let elapsed = started.elapsed();
+    sender.join().unwrap();
+
+    assert!(
+        matches!(result, Probe::Answered),
+        "partial protocol data must not authorize replacement"
+    );
+    assert!(
+        elapsed < Duration::from_millis(400),
+        "probe exceeded its absolute deadline: {elapsed:?}"
+    );
+}
+
+#[test]
 fn connection_limit_recovery_gets_a_full_identify_deadline() {
     let dir = tempfile::tempdir_in("/tmp").unwrap();
     let spec = super::super::recovery_tests::owner_spec(dir.path().join("owner.sock"));
