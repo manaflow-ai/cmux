@@ -31,6 +31,10 @@ import CmuxNextWakeups
 ///   commit, the pane contents measured and their largest left or right edge distance from their pane content area,
 ///   from view frames and from model layers (``ContentEdgeProbe``); `..._before` the same at the drag's start (the state
 ///   the last commit sent: the baseline);
+/// - `liveResize.pane_edge_err_pt` / `pane_layer_edge_err_pt` (against the pane's clip view, the edge a film measures),
+///   `strip_edge_err_pt` / `strip_layer_edge_err_pt` (left edge against the pane's tab strip), with `..._before`;
+///   `liveResize.pixel_lag_px` (a terminal's shown IOSurface against its layer's size) and `liveResize.page_window_err_pt`
+///   (a page host against the page window over it), both just before the commit;
 /// - `liveResize.witness_ok`: 1 when the turn's commit showed in the witness (its `commit_inside` readings are valid), 0
 ///   when even the turn's commit did not (they mean nothing).
 @MainActor
@@ -78,8 +82,10 @@ final class LiveResizeFrameProbe {
         if let target { MotionTrace.sample("liveResize.lead_ms", (target - start) * 1000) }
         self.window = window
         if let measured = edges.measure(in: window) {
-            MotionTrace.sample("liveResize.view_edge_err_pt_before", measured.view)
-            MotionTrace.sample("liveResize.layer_edge_err_pt_before", measured.layer)
+            MotionTrace.sample("liveResize.view_edge_err_pt_before", measured.area)
+            MotionTrace.sample("liveResize.layer_edge_err_pt_before", measured.areaLayer)
+            MotionTrace.sample("liveResize.pane_edge_err_pt_before", measured.pane)
+            MotionTrace.sample("liveResize.strip_edge_err_pt_before", measured.strip)
         }
         if let root = window.contentView?.layer { witness.attach(to: root) }
         witness.arm()
@@ -131,8 +137,14 @@ final class LiveResizeFrameProbe {
         beforeCommit = nil
         guard let window, let measured = edges.measure(in: window) else { return }
         MotionTrace.sample("liveResize.content_views", Double(measured.views))
-        MotionTrace.sample("liveResize.view_edge_err_pt", measured.view)
-        MotionTrace.sample("liveResize.layer_edge_err_pt", measured.layer)
+        MotionTrace.sample("liveResize.view_edge_err_pt", measured.area)
+        MotionTrace.sample("liveResize.layer_edge_err_pt", measured.areaLayer)
+        MotionTrace.sample("liveResize.pane_edge_err_pt", measured.pane)
+        MotionTrace.sample("liveResize.pane_layer_edge_err_pt", measured.paneLayer)
+        MotionTrace.sample("liveResize.strip_edge_err_pt", measured.strip)
+        MotionTrace.sample("liveResize.strip_layer_edge_err_pt", measured.stripLayer)
+        MotionTrace.sample("liveResize.pixel_lag_px", measured.pixelLag)
+        MotionTrace.sample("liveResize.page_window_err_pt", measured.pageWindow)
     }
 
     private func commitDidEnd() {
