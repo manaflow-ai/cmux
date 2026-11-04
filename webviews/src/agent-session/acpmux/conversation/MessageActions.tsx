@@ -353,8 +353,8 @@ export function ReceivedActions({ row, more }: { row: AcpmuxRow; more?: ReactNod
   );
 }
 
-/// The row under a reply that its turn's footer does not serve (model.ts `hasReplyActions`: the
-/// person's steer follows it, which ends that part of the turn for the reader): the footer's look and
+/// The row under a reply that its turn's footer does not serve (model.ts `hasReplyActions`: a
+/// steer, another agent's message, a sent message or a tool row follows it): the footer's look and
 /// buttons for this reply, Copy, Pin, Read aloud and More, then its time (shown on hover), as Claude desktop draws
 /// under every reply. Its line is reserved; it shows on hover or keyboard focus (conversation.css).
 export function ReplyActions({ row }: { row: AcpmuxRow }) {

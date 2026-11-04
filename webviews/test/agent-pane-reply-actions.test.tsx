@@ -68,10 +68,7 @@ const run = (id: string): AcpmuxActivity => ({
 });
 const t = translatorFor("en");
 
-// The reply before the person's steer is the one exception: the steer ends that part of the turn for
-// the reader, so the reply keeps its own Copy row, open fold or running (Leo, 2026-11-03: "a lot of
-// these should've been counted as "ended"-ish turns that allow me to copy/paste your stuff").
-test("only the reply before a steer draws its own row; none before a message or work", () => {
+test("no reply inside a turn draws its own row, before a steer, a message or work", () => {
   const source = [
     row("u1", "user", 0, { text: "Give the team access to the helper." }),
     reply("a1", 1_000, BEFORE_STEER),
@@ -81,12 +78,9 @@ test("only the reply before a steer draws its own row; none before a message or 
     reply("a2", 4_000, ANSWER),
     row("f1", "turnSummary", 5_000, { durationMs: 5_000, toolCount: 1, status: "completed" }),
   ];
-  expect(marked(turnView(source, new Set([`${WORKED}-u1`]), { now: 10_000 }))).toEqual({ a1: true, a2: false });
+  expect(marked(turnView(source, new Set([`${WORKED}-u1`]), { now: 10_000 }))).toEqual({ a1: false, a2: false });
   const running = source.slice(0, 5);
-  expect(marked(turnView(running, new Set(), { now: 10_000, working: true }))).toEqual({ a1: true });
-  // Without the steer, another agent's message follows the reply: the turn's footer serves it.
-  const unsteered = source.filter((one) => one.id !== "s1");
-  expect(marked(turnView(unsteered, new Set([`${WORKED}-u1`]), { now: 10_000 }))).toEqual({ a1: false, a2: false });
+  expect(marked(turnView(running, new Set(), { now: 10_000, working: true }))).toEqual({ a1: false });
 });
 
 test("the footer copies the whole turn: every reply in order and each tool run's top-level line", () => {

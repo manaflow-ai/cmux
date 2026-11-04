@@ -1,5 +1,4 @@
 import { BUBBLE } from "./transcriptSpacing";
-import { continuesTurn } from "./turnStart";
 import {
   footerAfter,
   gridLength,
@@ -1561,18 +1560,13 @@ const messageBelow = (beforeFooter: boolean) => (beforeFooter ? META_GAP : MESSA
 /// (`below`), which the footer takes the place of at its height when the turn ends: the reply keeps
 /// the one gap, so the end moves nothing (the message gap there slid the reply down 4px at every
 /// turn's end). App.tsx marks the same rows `acpmux-row--before-footer`.
-/// Whether a reply draws its own action row (MessageActions.tsx ReplyActions). A turn has one action
-/// row, its footer at the bottom, whose Copy copies the whole turn (conversation/turnCopy.ts), as Claude
-/// Code desktop draws it (Leo, 2026-10-31: "claude code doesn't have individual copy pastable things for
-/// the entire thing, only the bottom. ironically we have literally the complete opposite. so let's
-/// invert our behaviour"). The one exception is the reply right before the person's own steer: the
-/// steer ends that part of the turn for the reader (turns.ts steerDialogueIn), so the reply gets its
-/// row as an ended turn's would, as Claude Code's does when the person comes in (Leo, 2026-11-03: "a
-/// lot of these should've been counted as "ended"-ish turns that allow me to copy/paste your stuff
-/// / cuz look claude code lets that happen if the user comes in"). It draws in the room the reply
-/// already keeps (`keepsReplyRoom`), so it moves nothing.
-export const hasReplyActions = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
-  next !== undefined && !next.incoming && continuesTurn(next) && keepsReplyRoom(row, next);
+/// Whether a reply draws its own action row (MessageActions.tsx ReplyActions). None does: a turn has
+/// one action row, its footer at the bottom, whose Copy copies the whole turn (conversation/turnCopy.ts),
+/// as Claude Code desktop draws it (Leo, 2026-10-31: "claude code doesn't have individual copy
+/// pastable things for the entire thing, only the bottom. ironically we have literally the complete
+/// opposite. so let's invert our behaviour"). This replaces the per-reply row of 2026-10-29. The
+/// callers' height plumbing stays until ReplyActions goes in a follow-up.
+export const hasReplyActions = (_row: AcpmuxRow, _next: AcpmuxRow | undefined) => false;
 /// Whether a reply keeps the room its own action row took on 2026-10-30 (its meta gap and 24px line,
 /// then the message gap: 36px under its text) though it draws no row there now. Leo, 2026-11-01, on a
 /// capture of that build: "i like this spacing kinda i prefer it to what we have now tho it's just
