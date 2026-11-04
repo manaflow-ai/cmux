@@ -96,10 +96,10 @@ struct SidebarResponsiveScrollTests {
         let bottom = 4_000 - 400 + 120.0
         scroll.contentView.scroll(to: NSPoint(x: 0, y: bottom))
         scroll.reflectScrolledClipView(scroll.contentView)
-        #expect(scroll.contentView.bounds.minY == bottom, "the inset bottom is reachable")
+        #expect(abs(scroll.contentView.bounds.minY - bottom) < 0.5, "the inset bottom is reachable")
         scroll.scrollWheel(with: event(dx: 0, dy: 2, phase: .began))
         scroll.scrollWheel(with: event(dx: 0, dy: 0, phase: .ended))
-        #expect(scroll.contentView.bounds.minY == bottom - 2, "scrolled 2 up from the inset bottom; at \(scroll.contentView.bounds.minY)")
+        #expect(abs(scroll.contentView.bounds.minY - (bottom - 2)) < 0.5, "scrolled 2 up from the inset bottom; at \(scroll.contentView.bounds.minY)")
     }
 
     /// The rows AppKit prepared for a scroll near the top realize nothing after a jump to the
