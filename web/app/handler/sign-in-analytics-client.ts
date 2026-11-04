@@ -22,6 +22,17 @@ export function useHostedSignInPageShown(step: Extract<HostedSignInStep, { event
     if (!openedAttempt || reportedPageLoads.has(openedAttempt)) return;
     reportedPageLoads.add(openedAttempt);
     reportHostedSignInStep(openedAttempt, openedStep);
+    // The first pointer or key press anywhere on the page, once: it tells
+    // "the person did something" apart from "nothing measured happened",
+    // without saying what or where.
+    const controller = new AbortController();
+    const interacted = () => {
+      controller.abort();
+      reportHostedSignInStep(openedAttempt, { event: "cmux_sign_in_page_interacted" });
+    };
+    for (const type of ["pointerdown", "keydown"] as const) {
+      document.addEventListener(type, interacted, { capture: true, passive: true, signal: controller.signal });
+    }
   }, []);
 }
 

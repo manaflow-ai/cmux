@@ -44,7 +44,8 @@ export type HostedSignInMethod =
   | "other_oauth"
   | "passkey"
   | "email_code"
-  | "password";
+  | "password"
+  | "password_sign_up";
 
 /** A bounded method name for an OAuth provider id; unknown ids are `other_oauth`. */
 export function oauthMethod(provider: string): HostedSignInMethod {
@@ -58,6 +59,10 @@ export type HostedSignInStep =
       entry: SignInEntry;
       returningFromProvider: boolean;
     }
+  /** The first pointer or key press on the page load; no target, no value. */
+  | { event: "cmux_sign_in_page_interacted" }
+  /** An account chooser action: continue as the signed-in account, a remembered account, another account, or forgetting one. */
+  | { event: "cmux_sign_in_account_chosen"; choice: "current" | "remembered" | "another" | "forget" }
   | { event: "cmux_sign_in_method_selected"; method: HostedSignInMethod }
   /** `start`: the method could not begin (provider redirect, code email). `verify`: its credential was refused. */
   | { event: "cmux_sign_in_method_failed"; method: HostedSignInMethod; stage: "start" | "verify" };
@@ -70,6 +75,10 @@ function stepProperties(step: HostedSignInStep): Record<string, string | boolean
         entry: step.entry.replace("-", "_"),
         returning_from_provider: step.returningFromProvider,
       };
+    case "cmux_sign_in_page_interacted":
+      return {};
+    case "cmux_sign_in_account_chosen":
+      return { choice: step.choice };
     case "cmux_sign_in_method_selected":
       return { method: step.method };
     case "cmux_sign_in_method_failed":

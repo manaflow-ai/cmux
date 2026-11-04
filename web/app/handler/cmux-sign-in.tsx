@@ -345,6 +345,7 @@ function ChooseAccount({ messages, current, onContinue, onSignInHere, onSwitchin
   onSwitching: (switching: boolean) => void;
 }) {
   const app = useHexclaveApp();
+  const attempt = useHostedSignInAttempt();
   const enabledProviders = app.useProject().config.oauthProviders.map(({ id }) => id);
   const headingId = useId();
   const errorId = useId();
@@ -387,6 +388,7 @@ function ChooseAccount({ messages, current, onContinue, onSignInHere, onSwitchin
   // method: a provider-only account goes straight there, any other opens the
   // form here with its email filled in.
   async function pickRemembered(account: RememberedAccount) {
+    reportHostedSignInStep(attempt, { event: "cmux_sign_in_account_chosen", choice: "remembered" });
     start(account.id, account.email ?? account.displayName ?? "");
     let sessionEnded = isSignedOut(account.id);
     if (!sessionEnded) {
@@ -443,6 +445,7 @@ function ChooseAccount({ messages, current, onContinue, onSignInHere, onSwitchin
   const listRef = useRef<HTMLUListElement>(null);
 
   function forget(account: RememberedAccount, index: number) {
+    reportHostedSignInStep(attempt, { event: "cmux_sign_in_account_chosen", choice: "forget" });
     writeStored(ACCOUNT_HISTORY_KEY, JSON.stringify(forgetAccount(readHistory(), account.id)));
     void forgetSession(account.id);
     // The focused button just went away with its row: focus the row that
@@ -468,6 +471,7 @@ function ChooseAccount({ messages, current, onContinue, onSignInHere, onSwitchin
               disabled={busy}
               className={rowClass("current")}
               onClick={() => {
+                reportHostedSignInStep(attempt, { event: "cmux_sign_in_account_chosen", choice: "current" });
                 start("current", name(shownCurrent));
                 onContinue().catch(fail);
               }}
@@ -526,7 +530,10 @@ function ChooseAccount({ messages, current, onContinue, onSignInHere, onSwitchin
             focusableWhenDisabled
             disabled={busy}
             className={rowClass("another")}
-            onClick={() => onSignInHere({ email: null, method: null, password: false, sessionEnded: false })}
+            onClick={() => {
+              reportHostedSignInStep(attempt, { event: "cmux_sign_in_account_chosen", choice: "another" });
+              onSignInHere({ email: null, method: null, password: false, sessionEnded: false });
+            }}
           >
             <span aria-hidden="true" className="grid h-7 w-7 flex-none place-items-center text-muted transition-colors group-hover:text-foreground">
               <PlusIcon />
@@ -1324,6 +1331,7 @@ function PasswordSignUp({ messages, email, onEmailChange }: {
   onEmailChange: (value: string) => void;
 }) {
   const app = useHexclaveApp();
+  const attempt = useHostedSignInAttempt();
   const [password, setPassword] = useState("");
   const [repeat, setRepeat] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1355,6 +1363,7 @@ function PasswordSignUp({ messages, email, onEmailChange }: {
     setRepeatError(badRepeat);
     if (badEmail || badPassword || badRepeat) return;
     setBusy(true);
+    reportHostedSignInStep(attempt, { event: "cmux_sign_in_method_selected", method: "password_sign_up" });
     try {
       const result = await app.signUpWithCredential({ email: email.trim(), password, noRedirect: true });
       const pending = signUpPendingHref(new URL(window.location.href));
@@ -1369,10 +1378,14 @@ function PasswordSignUp({ messages, email, onEmailChange }: {
         window.location.assign(pending);
         return;
       }
+      // An existing email returned above, like a success, so it is never
+      // told apart here either.
       setEmailError(messages.errorGeneric);
+      reportHostedSignInStep(attempt, { event: "cmux_sign_in_method_failed", method: "password_sign_up", stage: "start" });
     } catch (caught) {
       console.error("[cmux sign-in] password sign-up failed", caught);
       setEmailError(messages.errorGeneric);
+      reportHostedSignInStep(attempt, { event: "cmux_sign_in_method_failed", method: "password_sign_up", stage: "start" });
     } finally {
       setBusy(false);
     }

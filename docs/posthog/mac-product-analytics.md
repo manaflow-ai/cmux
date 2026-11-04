@@ -295,10 +295,12 @@ deployed and an app build that sends the opt-in is running.
 | Event | Fires when | Properties |
 | --- | --- | --- |
 | `cmux_sign_in_page_shown` | The hosted sign-in or sign-up page loads, once per page load. A return from an OAuth provider reloads it (`returning_from_provider = true`). | `attempt_id`, `page` (`sign_in`, `sign_up`), `entry` (`form`, `choose_account`, `continue`, `onboarding`: the screen it opened on), `returning_from_provider` (bool) |
-| `cmux_sign_in_method_selected` | The person starts a method: an OAuth provider button, the passkey button, sending an email code (also a resend), or submitting the password sign-in form. Once per click. | `attempt_id`, `method` (`google`, `github`, `apple`, `microsoft`, `gitlab`, `discord`, `other_oauth`, `passkey`, `email_code`, `password`) |
-| `cmux_sign_in_method_failed` | The method could not begin (`stage = start`: the provider redirect or the code email failed) or its credential was refused (`stage = verify`: passkey, code or password). | `attempt_id`, `method`, `stage` (`start`, `verify`) |
+| `cmux_sign_in_page_interacted` | The first pointer press or key press anywhere on the page, once per page load. Says only that the person did something, never what or where. | `attempt_id` |
+| `cmux_sign_in_account_chosen` | An account chooser action: continue as the signed-in account (`current`), a remembered account (`remembered`), "use another account" (`another`), or forgetting a remembered account (`forget`). Once per click. | `attempt_id`, `choice` |
+| `cmux_sign_in_method_selected` | The person starts a method: an OAuth provider button, the passkey button, sending an email code (also a resend), submitting the password sign-in form, or submitting the password sign-up form. Once per click. | `attempt_id`, `method` (`google`, `github`, `apple`, `microsoft`, `gitlab`, `discord`, `other_oauth`, `passkey`, `email_code`, `password`, `password_sign_up`) |
+| `cmux_sign_in_method_failed` | The method could not begin (`stage = start`: the provider redirect, the code email or the sign-up failed) or its credential was refused (`stage = verify`: passkey, code or password). A sign-up with an email that already has an account is not reported: the page treats it like a success on purpose, and analytics does too. | `attempt_id`, `method`, `stage` (`start`, `verify`) |
 
-All three also carry `source = hosted_sign_in`, `$process_person_profile =
+All hosted events also carry `source = hosted_sign_in`, `$process_person_profile =
 false` and `$geoip_disable = true`; `distinct_id` is the attempt id.
 
 **Consent.** The page never decides consent. The app adds `cmux_analytics=1`
@@ -324,25 +326,39 @@ the project's settings, as for app events.
 **What the hosted steps do and do not show.**
 
 - **Selections are counts of clicks.** One attempt can select several methods
-  or retry one. Count `method_selected` events for volume; for
-  "attempts that tried method M", use distinct `attempt_id` per `method`; an
-  attempt can be in several method cohorts.
-- **No per-method success.** No event says which method finally signed the
-  person in. The hosted page leaves for the provider or redirects on
-  success, and the app's completion does not learn the method. So native
-  `cmux_sign_in_succeeded` after a `method_selected` does **not** mean that
-  method succeeded. Do not infer it from the last click or from the
-  account's linked providers. A per-method success rate is not available.
-  What is available: "attempts that selected method M and then succeeded
-  natively" (a cohort, not causation), and "attempts with a hosted page view
-  and no selection" (observed no interaction on the page).
-- **Provider errors after redirect are unmeasured.** An OAuth provider that
-  fails on its own site and does not return shows only as no later step.
-- **Unmeasured surfaces:** the password sign-up form, the account chooser's
-  continue and switch actions, and pages reached through links that drop the
-  query (for example sign-in to sign-up, forgot password).
-- **Old app builds and opt-out launches** send no opt-in, so their pages
-  send nothing; a missing hosted event is not "no interaction".
+  or retry one. Count `method_selected` events for volume; for "attempts
+  that tried method M", use distinct `attempt_id` per `method`. An attempt
+  can be in several method cohorts.
+- **No per-method or per-provider success.** No event says which method
+  finally signed the person in. The page leaves for the provider or
+  redirects on success, and the app's completion does not learn the method.
+  So a native `cmux_sign_in_succeeded` after a `method_selected` does **not**
+  mean that method succeeded. Do not infer it from the last click or from
+  the account's linked providers. The available measure is a cohort:
+  "attempts that selected method M and then succeeded natively", which
+  includes attempts that also tried other methods.
+- **Interaction is observed, not inferred.** `page_interacted` separates a
+  page where the person pressed nothing (`no_observed_interaction`) from a
+  page where they did something that no measured control reports
+  (`no_observed_method_selection`). Neither is "abandoned".
+
+**Remaining blind spots** (a missing hosted event in these cases means
+"not measured", never "did not happen"):
+
+- Which method or provider finally completed the sign-in (above).
+- Errors and exits on an OAuth provider's own site; a provider that does not
+  return shows only as no later step.
+- A remembered account that goes straight to its provider: the page reports
+  `account_chosen = remembered`, not a method.
+- The steps after a method starts: two-factor prompts, email verification
+  after sign-up, the `/handler/after-sign-in` handoff and the native
+  callback page.
+- Pages reached through links that drop the query: sign-in to sign-up,
+  forgot password, auth error pages.
+- Old app builds, launches with analytics off, debug builds, and NEXT: no
+  opt-in, so no hosted events.
+- Requests the browser or a blocker drops: a page that loaded without a
+  `page_shown` event looks like no page view.
 
 ### Provenance
 
@@ -398,9 +414,12 @@ First match, within the step window:
 With hosted events, split `no_signal` and `closed_without_callback` by the
 furthest hosted step of the attempt: `no_page_view` (the page never
 reported; an old build, an opt-out launch, a blocked request or a page that
-did not load), `page_no_selection` (observed: the page loaded and no method
-was started), `selected_no_callback` (a method started, no callback; the
-provider or the person stopped there, which the events do not separate).
+did not load), `no_observed_interaction` (the page loaded and no pointer or key press
+was observed), `no_observed_method_selection` (the person interacted, but
+no measured method or chooser action was reported; they may have used an
+unmeasured control), `selected_no_callback` (a method or chooser action
+started, no callback; the provider or the person stopped there, which the
+events do not separate).
 
 ### Query (HogQL)
 
@@ -482,7 +501,8 @@ steps AS (
     SELECT properties.attempt_id AS attempt_id, event, timestamp,
            properties.method AS method
     FROM events
-    WHERE event IN ('cmux_sign_in_page_shown', 'cmux_sign_in_method_selected',
+    WHERE event IN ('cmux_sign_in_page_shown', 'cmux_sign_in_page_interacted',
+                    'cmux_sign_in_account_chosen', 'cmux_sign_in_method_selected',
                     'cmux_sign_in_callback_received', 'cmux_sign_in_succeeded')
       AND timestamp >= now() - INTERVAL 15 DAY
 ),
@@ -497,6 +517,8 @@ joined AS (
 per_attempt AS (
     SELECT attempt_id, any(entrypoint) AS entrypoint,
            countIf(in_window AND event = 'cmux_sign_in_page_shown') > 0 AS page_shown,
+           countIf(in_window AND event = 'cmux_sign_in_page_interacted') > 0 AS interacted,
+           countIf(in_window AND event = 'cmux_sign_in_account_chosen') > 0 AS chose_account,
            uniqExactIf(method, in_window AND event = 'cmux_sign_in_method_selected') AS methods_tried,
            countIf(in_window AND event = 'cmux_sign_in_callback_received') > 0 AS callback,
            countIf(in_window AND event = 'cmux_sign_in_succeeded') > 0 AS succeeded
@@ -506,10 +528,14 @@ per_attempt AS (
 SELECT entrypoint,
        count() AS opened_attempts,
        countIf(page_shown) AS with_page_view,
-       countIf(page_shown AND methods_tried = 0) AS page_no_selection,
+       countIf(page_shown AND NOT interacted AND methods_tried = 0 AND NOT chose_account)
+           AS no_observed_interaction,
+       countIf(page_shown AND interacted AND methods_tried = 0 AND NOT chose_account)
+           AS no_observed_method_selection,
+       countIf(chose_account) AS used_account_chooser,
        countIf(methods_tried > 0) AS selected_a_method,
        countIf(methods_tried > 1) AS selected_several_methods,
-       countIf(methods_tried > 0 AND NOT callback) AS selected_no_callback,
+       countIf((methods_tried > 0 OR chose_account) AND NOT callback) AS selected_no_callback,
        countIf(succeeded) AS succeeded
 FROM per_attempt
 GROUP BY entrypoint

@@ -105,12 +105,16 @@ describe("hosted sign-in events", () => {
       { event: "cmux_sign_in_page_shown", page: "sign-in", entry: "choose-account", returningFromProvider: true },
       { event: "cmux_sign_in_method_selected", method: oauthMethod("okta") },
       { event: "cmux_sign_in_method_failed", method: "email_code", stage: "verify" },
+      { event: "cmux_sign_in_page_interacted" },
+      { event: "cmux_sign_in_account_chosen", choice: "remembered" },
     ] as const;
     const keys = steps.map((step) => Object.keys(hostedSignInCapture(attempt, step, now).properties).sort());
     const common = ["$geoip_disable", "$lib", "$process_person_profile", "attempt_id", "distinct_id", "source"];
     expect(keys[0]).toEqual([...common, "entry", "page", "returning_from_provider"].sort());
     expect(keys[1]).toEqual([...common, "method"].sort());
     expect(keys[2]).toEqual([...common, "method", "stage"].sort());
+    expect(keys[3]).toEqual([...common].sort());
+    expect(keys[4]).toEqual([...common, "choice"].sort());
     const shown = hostedSignInCapture(attempt, steps[0], now).properties;
     expect(shown).toMatchObject({ page: "sign_in", entry: "choose_account", returning_from_provider: true });
     expect(hostedSignInCapture(attempt, steps[1], now).properties).toMatchObject({ method: "other_oauth" });
