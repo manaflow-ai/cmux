@@ -952,7 +952,7 @@ mod tests {
         parent.meta.lock().unwrap().races = Arc::new(vec![race]);
         hub.save_meta(&parent);
 
-        hub.finish_review_cleanup(&parent, "race-recovery").await.unwrap();
+        hub.run_race(&parent, "race-recovery", true).await.unwrap();
         let done = hub.race_get(&parent, "race-recovery").unwrap();
         assert_eq!(done.state, "completed");
         assert_eq!(done.winner_id.as_deref(), Some("c1"));
@@ -962,7 +962,13 @@ mod tests {
         assert_eq!(done.reviewer_session_id.as_deref(), Some("reviewer"));
         assert_eq!(done.reviewer_turn_id.as_deref(), Some("review-turn"));
         assert_eq!(done.candidates.iter().filter(|c| c.state == "discarded").count(), 1);
-        assert_eq!(hub.race_stats(&parent)["models"].as_array().unwrap().len(), 2);
+        let stats = hub.race_stats(&parent);
+        let models = stats["models"].as_array().unwrap();
+        assert_eq!(models.len(), 2);
+        assert!(models.iter().all(|model| model["races"] == 1));
+        assert_eq!(models.iter().filter(|model| model["wins"] == 1).count(), 1);
+        hub.run_race(&parent, "race-recovery", true).await.unwrap();
+        assert_eq!(hub.race_stats(&parent), stats);
     }
 
     #[tokio::test]
