@@ -1,9 +1,0 @@
-g g	markdownGoToTop	pageId == cmux.markdown && markdownReadOnlyFocused
-// keybindings.json
-[
-  {
-    "key": "g g",
-    "command": "markdownGoToTop",
-    "when": "pageId == cmux.markdown && markdownReadOnlyFocused"
-  }
-]

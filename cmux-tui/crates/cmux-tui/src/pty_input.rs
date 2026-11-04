@@ -1458,8 +1458,6 @@ fn prune_lane_to_recovery_releases(
     canceled
 }
 
-#[cfg(feature = "fuzzing")]
-pub(crate) mod fuzz;
 mod session_mutation;
 
 #[cfg(test)]

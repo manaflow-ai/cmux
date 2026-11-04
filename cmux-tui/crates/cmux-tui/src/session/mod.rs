@@ -286,10 +286,9 @@ fn normalize_remote_viewport_width_error(error: anyhow::Error, pane: PaneId) -> 
 
 #[cfg(test)]
 mod local_actor_tests;
-#[cfg(any(test, feature = "fuzzing"))]
-#[cfg_attr(not(test), allow(dead_code))] // fuzzing uses only some constructors
+#[cfg(test)]
 mod test_errors;
-#[cfg(any(test, feature = "fuzzing"))]
+#[cfg(test)]
 pub(crate) use test_errors::*;
 
 pub struct SidebarPluginSurface {

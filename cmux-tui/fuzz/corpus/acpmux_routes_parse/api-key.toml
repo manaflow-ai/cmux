@@ -1,3 +1,0 @@
-name = "Anthropic API"
-kind = "direct-api-key"
-secret = "keychain:anthropic"

@@ -1,9 +1,0 @@
-] f	diffViewerNextFile	diffViewerFocused
-// keybindings.json
-[
-  {
-    "key": "] f",
-    "command": "diffViewerNextFile",
-    "when": "diffViewerFocused"
-  }
-]

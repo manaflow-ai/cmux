@@ -1,3 +1,0 @@
-kind = "direct-subscription"
-families = ["claude"]
-account_home = "/Users/me/.claude-work"

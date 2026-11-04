@@ -689,17 +689,10 @@ pub(crate) use shared::codec::{
 };
 #[cfg(any(unix, windows))]
 pub use shared::codec::{decode_host_snapshot_payload, encode_host_snapshot_payload};
-pub(crate) use shared::host_crash::append_to_panic_log as append_host_crash_to_panic_log;
-pub use shared::host_crash::{HostPanicLog, PANIC_LOG_SOURCE};
-// The decoders the cmux-tui/fuzz targets drive (crate::fuzz_entry).
-#[cfg(all(any(unix, windows), feature = "fuzz"))]
-pub(crate) use shared::codec::{
-    HostLaunch, decode_default_colors_payload, decode_hex_array, decode_lower_hex_array,
-    decode_snapshot_with_program_status, encode_default_colors_payload, encode_hex,
-    encode_kitty_graphics_limits, encode_resize, encode_snapshot_for_version,
-};
 #[cfg(any(unix, windows))]
 pub(crate) use shared::control_responses::{ControlResponses, DeferredCellPixelResolution};
+pub(crate) use shared::host_crash::append_to_panic_log as append_host_crash_to_panic_log;
+pub use shared::host_crash::{HostPanicLog, PANIC_LOG_SOURCE};
 #[cfg(any(unix, windows))]
 pub use shared::host_serve::{serve_terminal_host_process, serve_terminal_host_stdio};
 

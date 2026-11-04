@@ -1201,9 +1201,6 @@ fn dispatch(event: &BrowserInputEvent) -> anyhow::Result<bool> {
     }
 }
 
-#[cfg(feature = "fuzzing")]
-pub(crate) mod fuzz;
-
 #[cfg(test)]
 mod tests {
     use super::*;

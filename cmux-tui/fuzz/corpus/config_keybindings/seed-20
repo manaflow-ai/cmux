@@ -1,9 +1,0 @@
-g g	markdownGoToTop	markdownEditorFocused
-// keybindings.json
-[
-  {
-    "key": "g g",
-    "command": "markdownGoToTop",
-    "when": "markdownEditorFocused"
-  }
-]

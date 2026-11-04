@@ -37,8 +37,6 @@ mod coderouter_usage;
 mod codex_wrapper;
 mod config;
 mod daemon_build;
-#[cfg(feature = "fuzzing")]
-pub mod fuzzing;
 mod headless;
 #[cfg(unix)]
 mod host_orphan_policy;

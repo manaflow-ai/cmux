@@ -39,7 +39,7 @@ impl RequestHead {
     }
 
     /// Every field name, in order, as sent.
-    #[cfg(any(test, feature = "fuzz"))]
+    #[cfg(test)]
     pub fn names(&self) -> impl Iterator<Item = &str> {
         self.headers.iter().map(|(name, _)| name.as_str())
     }

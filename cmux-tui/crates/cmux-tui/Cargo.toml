@@ -27,10 +27,6 @@ windows-thin-exe = []
 # Off by default; release builds never have it. A release-codegen bench daemon
 # builds `--release --features bench`.
 bench = ["cmux-tui-core/bench", "acpmux/bench"]
-# Fuzz entry points (`cmux_tui::fuzzing`) for the cmux-tui/fuzz workspace, which
-# drives the input schedulers and key decoding without a terminal or session.
-# Off by default; only that workspace turns it on.
-fuzzing = []
 # The lab's tokio slow-poll detector (cmux-blocking; RUSTFLAGS="--cfg tokio_unstable").
 cmux-stability = ["cmux-blocking/cmux-stability"]
 

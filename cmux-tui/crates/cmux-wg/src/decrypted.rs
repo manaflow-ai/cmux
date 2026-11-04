@@ -1,7 +1,6 @@
 //! What each engine does with a decrypted packet its peer is allowed to
 //! send. The drivers check crypto-key routing and act on the result; the
-//! parsing, the pacer's accounting and the stale-ACK refresh are here, so the
-//! `fuzzing` module runs the same code as the drivers.
+//! parsing, the pacer's accounting and the stale-ACK refresh are here.
 
 use std::net::{IpAddr, SocketAddr};
 

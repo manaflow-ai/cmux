@@ -1,8 +1,0 @@
-ctrl+k a b c	toggleSidebar	
-// keybindings.json
-[
-  {
-    "key": "ctrl+k a b c",
-    "command": "toggleSidebar"
-  }
-]

@@ -1,9 +1,0 @@
-g g	markdownGoToTop	markdownReadOnlyFocused
-// keybindings.json
-[
-  {
-    "key": "g g",
-    "command": "markdownGoToTop",
-    "when": "markdownReadOnlyFocused"
-  }
-]
