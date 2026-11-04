@@ -12,6 +12,7 @@ import {
   restoreSubagentDraft,
   subagentDraft,
   subagentDraftUnsaved,
+  sendingSubagentDraft,
   subscribeSubagentDraft,
   takeUnsavedSubagentDrafts,
   wakeIntoSubagentDrafts,
@@ -134,6 +135,30 @@ describe("subagent drafts", () => {
     // One the storage took stays there.
     expect(subagentDraft("chat-1\u0000agent-2")).toEqual(draft("stored"));
     expect(takeUnsavedSubagentDrafts()).toEqual([]);
+  });
+
+  test("a send the chat has not taken yet is handed on above the draft, and holds the page until it settles", () => {
+    const now = Date.UTC(2026, 10, 4);
+    keepSubagentDraft(KEY, draft(""), now);
+    const settled = sendingSubagentDraft(KEY, "the message");
+    keepSubagentDraft(KEY, draft("typed since"), now + 1_000);
+    expect(subagentDraftUnsaved()).toBe(true);
+    expect(wakeSubagentDrafts("chat-1", now + 2_000)).toEqual({
+      [KEY]: { text: "the message\n\ntyped since", at: now + 2_000 },
+    });
+    settled();
+    expect(subagentDraftUnsaved()).toBe(false);
+    expect(wakeSubagentDrafts("chat-1", now + 3_000)).toEqual({ [KEY]: { text: "typed since", at: now + 1_000 } });
+  });
+
+  test("a closing page takes the sends in flight, as drafts of their chats", () => {
+    sendingSubagentDraft(KEY, "first");
+    sendingSubagentDraft(KEY, "first");
+    expect(takeUnsavedSubagentDrafts()).toEqual([
+      { chat: "chat-1", draft: draft("first") },
+      { chat: "chat-1", draft: draft("first") },
+    ]);
+    expect(subagentDraftUnsaved()).toBe(false);
   });
 
   test("a draft nobody came back to in two weeks is forgotten when a page loads", () => {

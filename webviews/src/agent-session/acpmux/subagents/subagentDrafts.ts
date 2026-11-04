@@ -33,6 +33,10 @@ const keptAt = new Map<string, number>();
 /// no tab carries other tabs' drafts.
 const keptHere = new Set<string>();
 const unsaved = new Set<string>();
+/// Messages sent from a subagent's composer that the chat has not taken yet, by draft key: the
+/// composer cleared them, so until the send settles they live only here (review of #33280).
+const sending = new Map<string, Set<string>>();
+let sends = 0;
 const listeners = new Map<string, Set<(draft: Draft) => void>>();
 let loaded = false;
 
@@ -135,10 +139,32 @@ export function subscribeSubagentDraft(key: string, listener: (draft: Draft) => 
   };
 }
 
-/// Whether a draft is kept only in memory (the storage refused it): the page must not be let go or
-/// reloaded while one is.
+/// Marks `message` as sent from `key`'s composer and not yet taken; call the answer once the send
+/// settled (after a failed one is restored). Until then it is part of what the page hands on: a page
+/// let go, quit or closed meanwhile keeps it as a draft, which may repeat a send that went through
+/// after all, never lose one that did not.
+export function sendingSubagentDraft(key: string, message: string): () => void {
+  const set = sending.get(key) ?? new Set();
+  // A token per send, so two equal messages in flight are two.
+  sends += 1;
+  const token = `${sends}\u0001${message}`;
+  set.add(token);
+  sending.set(key, set);
+  return () => {
+    set.delete(token);
+    if (set.size === 0 && sending.get(key) === set) sending.delete(key);
+  };
+}
+
+/// The messages in flight for `key`, oldest first.
+function inFlight(key: string): string[] {
+  return [...(sending.get(key) ?? [])].map((token) => token.slice(token.indexOf("\u0001") + 1));
+}
+
+/// Whether a draft is kept only in memory (the storage refused it, or a send has not settled): the
+/// page must not be let go or reloaded while one is.
 export function subagentDraftUnsaved(): boolean {
-  return unsaved.size > 0;
+  return unsaved.size > 0 || sending.size > 0;
 }
 
 /// The drafts kept only in memory (the storage refused them), each with its chat, forgotten here: a
@@ -146,10 +172,20 @@ export function subagentDraftUnsaved(): boolean {
 /// outlives the page (App.tsx `pane.wakeState`, review of #33280).
 export function takeUnsavedSubagentDrafts(): { chat: string; draft: Draft }[] {
   const taken: { chat: string; draft: Draft }[] = [];
+  const chatOf = (key: string) => {
+    const split = key.indexOf("\u0000");
+    return split > 0 ? key.slice(0, split) : undefined;
+  };
+  // Sends in flight first, as a failed one comes back above the draft (afterFailedSend).
+  for (const key of sending.keys()) {
+    const chat = chatOf(key);
+    if (chat !== undefined) for (const text of inFlight(key)) taken.push({ chat, draft: { text, attachments: [] } });
+  }
+  sending.clear();
   for (const key of unsaved) {
     const draft = drafts.get(key);
-    const split = key.indexOf("\u0000");
-    if (draft && split > 0) taken.push({ chat: key.slice(0, split), draft });
+    const chat = chatOf(key);
+    if (draft && chat !== undefined) taken.push({ chat, draft });
     drafts.delete(key);
     keptAt.delete(key);
     keptHere.delete(key);
@@ -159,7 +195,7 @@ export function takeUnsavedSubagentDrafts(): { chat: string; draft: Draft }[] {
 }
 
 // A web update waits while a draft is kept only in memory: reloading would lose it.
-holdWebSwap(() => (unsaved.size > 0 ? "subagents.draft-unsaved" : null));
+holdWebSwap(() => (unsaved.size > 0 || sending.size > 0 ? "subagents.draft-unsaved" : null));
 
 /// What `draft` says as one message: its pasted chips' text in their places (one not placed goes
 /// after), since the relay to the subagent is text only.
@@ -188,14 +224,17 @@ export type WokenDraft = { text: string; at: number };
 export function wakeSubagentDrafts(chat?: string, now = Date.now()): Record<string, WokenDraft> | undefined {
   load(now);
   const out: Record<string, WokenDraft> = {};
-  const keys = new Set(keptHere);
+  const keys = new Set([...keptHere, ...sending.keys()]);
   if (chat !== undefined) for (const key of drafts.keys()) if (key.startsWith(`${chat}\u0000`)) keys.add(key);
   for (const key of keys) {
     const draft = drafts.get(key);
-    const at = keptAt.get(key) ?? now;
+    const pending = inFlight(key);
+    // A send in flight goes as part of the draft, above it, and as of now: it is newer than any copy.
+    const at = pending.length ? now : (keptAt.get(key) ?? now);
     // A cleared draft is handed on only while an older copy could still be around.
-    if (!draft && now - at > DRAFT_DAYS * 86_400_000) continue;
-    out[key] = { text: draft ? draftMessage(draft) : "", at };
+    if (!draft && !pending.length && now - at > DRAFT_DAYS * 86_400_000) continue;
+    const text = [...pending, draft ? draftMessage(draft) : ""].filter((part) => part).join("\n\n");
+    out[key] = { text, at };
   }
   return Object.keys(out).length ? out : undefined;
 }
@@ -221,6 +260,7 @@ export function resetSubagentDraftsForTests() {
   keptAt.clear();
   keptHere.clear();
   unsaved.clear();
+  sending.clear();
   listeners.clear();
   loaded = false;
 }

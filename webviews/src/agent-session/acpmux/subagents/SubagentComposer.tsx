@@ -14,6 +14,7 @@ import {
   draftMessage,
   keepSubagentDraft,
   restoreSubagentDraft,
+  sendingSubagentDraft,
   subagentDraft,
   subscribeSubagentDraft,
   type Draft,
@@ -98,12 +99,16 @@ export function SubagentComposer({
     if (!onSend || !message) return;
     const typed = text;
     const held = attachmentsRef.current;
+    // Until the chat takes it, the message is kept as in flight, so a page closed or let go
+    // meanwhile still hands it on (subagentDrafts.ts).
+    const settled = sendingSubagentDraft(draftKey, message);
     setText("");
     setAttachments([]);
     setFailed(undefined);
-    onSend(message).catch(() => {
+    onSend(message).then(settled, () => {
       // The message comes back to the prompt whole (afterFailedSend), over the draft kept now.
       restoreSubagentDraft(draftKey, afterFailedSend(subagentDraft(draftKey), { typed, held, message }));
+      settled();
     });
   };
   return (
