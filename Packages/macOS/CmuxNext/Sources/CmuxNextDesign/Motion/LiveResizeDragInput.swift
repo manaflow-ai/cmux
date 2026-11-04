@@ -116,9 +116,10 @@ public final class LiveResizeDragInput {
             if applyingDepth == 0 { frameApplied() }
         }
         #if DEBUG || CMUX_BENCH_HOOKS
-        let applied = nextApplied
-        nextApplied = nil
-        let frame = window.flatMap { probe.frameWillApply(in: $0, eventTime: applied?.eventTime, atTick: applied?.atTick == true) }
+        // The outermost `setFrame` only: one sample per applied drag.
+        let applied = applyingDepth == 1 ? nextApplied : nil
+        if applyingDepth == 1 { nextApplied = nil }
+        let frame = applyingDepth == 1 ? window.flatMap { probe.frameWillApply(in: $0, eventTime: applied?.eventTime, atTick: applied?.atTick == true) } : nil
         defer { if let frame { probe.frameDidApply(frame) } }
         #endif
         guard isFramed, let window else { return apply() }
