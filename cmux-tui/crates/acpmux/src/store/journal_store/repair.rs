@@ -79,7 +79,9 @@ impl Inner {
     /// keeps its lines in `journal-unapplied/` and the open goes on; only a failure to keep them
     /// fails it.
     pub(super) fn apply(&self, replay: Replay) -> Result<()> {
-        let Replay { chats, metas } = replay;
+        // `frozen` was read at the open into `Order::rewrite_all`, which `repair` reads for every
+        // replayed chat: a replayed freeze makes the open write every chat's lines again.
+        let Replay { chats, metas, frozen: _ } = replay;
         let replayed: Vec<String> = chats
             .iter()
             .filter(|(_, lines)| !lines.is_empty())
