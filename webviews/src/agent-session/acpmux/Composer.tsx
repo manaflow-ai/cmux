@@ -1359,8 +1359,9 @@ export function Composer({
     setEmojiRecents(rememberEmoji(match.emoji));
     // Markdown doesn't show trailing whitespace, so what follows an end-of-prompt caret is dropped.
     const after = text.slice(markdownOffset(text, caret)).replace(/^\s+$/, "");
-    // One space after the emoji: the text's own when it already starts with one (a mid-line pick).
-    const space = /^\s/.test(after) ? "" : " ";
+    // One space after the emoji: the text's own when it already starts with one (a mid-line pick);
+    // a line break is not a space, so a pick at a line's end still adds one.
+    const space = /^[ \t]/.test(after) ? "" : " ";
     const at = caret - emojiAt.token.length + match.emoji.length + 1;
     pendingCaret.current = at;
     edit(`${text.slice(0, emojiAt.start)}${match.emoji}${space}${after}`, at);
