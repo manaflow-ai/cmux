@@ -1,5 +1,7 @@
 //! Model races use the daemon's guarded sub-session lifecycle. The CLI only submits an
 //! intent or reads its durable result; exiting this command never ends the race.
+//! CLI callers must run inside an authenticated agent session. Ordinary terminals use
+//! the app's Race models control; naming a parent does not authenticate the caller.
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
@@ -10,24 +12,33 @@ use super::errors::AppError;
 use super::orchestrate::{expand_session_key, split_target};
 use super::output::{arg_or_stdin, print_json};
 
+const AUTH_HELP: &str = "Run race commands inside an authenticated acpmux agent session. \
+    --parent may name that session or a descendant it can manage. \
+    From an ordinary terminal, use the chat's menu → Tools → Race models in cmux NEXT.";
+
 #[derive(Subcommand)]
 pub enum RaceCmd {
-    /// Start candidates in parallel, then let the reviewer choose which worktree to keep.
+    /// From an authenticated agent session, start candidates and let a reviewer choose.
+    #[command(after_help = AUTH_HELP)]
     New(NewRace),
     /// Read a race and the reviewer's result.
+    #[command(after_help = AUTH_HELP)]
     Show(RaceKey),
     /// Stop this race's agents; keep its recorded results.
+    #[command(after_help = AUTH_HELP)]
     Stop(RaceKey),
     /// List this chat's races.
-    #[command(alias = "list")]
+    #[command(alias = "list", after_help = AUTH_HELP)]
     Ls(Parent),
     /// Wins and completed races for each model in this chat.
+    #[command(after_help = AUTH_HELP)]
     Stats(Parent),
 }
 
 #[derive(Args)]
 pub struct Parent {
-    /// Parent chat, by name or id. Inside an agent, defaults to its own chat.
+    /// Your authenticated agent session or a descendant it can manage, by name or id.
+    /// Defaults to the calling agent's own chat; this flag does not authenticate a terminal.
     #[arg(long)]
     parent: Option<String>,
 }
