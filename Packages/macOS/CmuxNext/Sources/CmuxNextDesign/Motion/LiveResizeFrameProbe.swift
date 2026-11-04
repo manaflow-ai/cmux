@@ -58,8 +58,8 @@ import CmuxNextWakeups
 ///   just before and just after each commit of the resize (by window; compared only with each other): just before it,
 ///   `liveResize.window_step_pt` / `page_step_pt` (how far AppKit moved the window and its page windows since the last
 ///   read) and `liveResize.ws_window_moved_before_commit_pt` / `ws_page_moved_before_commit_pt` (how far the window
-///   server's frames moved then: about the step, to within 1 pt, when the move reached it ahead of the commit, 0 when
-///   not; on a fleet display its frame is AppKit's inset by 2-3 pt); just after it,
+///   server's frames moved then: about the step, to within 4 pt, when the move reached it ahead of the commit, 0 when
+///   not; on a fleet display its frame is AppKit's inset by 2-4 pt, and the inset changes between reads); just after it,
 ///   `liveResize.ws_window_moved_in_commit_pt` / `ws_page_moved_in_commit_pt` (how far they moved across the commit: the
 ///   step when the commit took it there); `liveResize.ws_query_ms` the read's time before the commit (it delays the
 ///   commit by that much).

@@ -7,8 +7,8 @@ import Testing
 /// The S7 live-resize probe's page window steps (`liveResize.page_moved_*_pt`, FRAME OWNER REFACTOR S7): a step measures
 /// how far each shown page window moved since the step before, matched by window (not by place), so a panel or a page
 /// window that appears adds nothing; a step after another resize's only notes the frames. The window server check
-/// (`liveResize.ws_*_moved_*_pt`) sees a window's move as AppKit made it, to within 1 pt, in its own space (no flip: on a
-/// fleet display the window server's frame is AppKit's inset by 2-3 pt).
+/// (`liveResize.ws_*_moved_*_pt`) sees a window's move as AppKit made it, to within 4 pt, in its own space (no flip: on a
+/// fleet display the window server's frame is AppKit's inset by 2-4 pt, and the inset changes between reads).
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct PageWindowMovesTests {
@@ -73,9 +73,9 @@ struct PageWindowMovesTests {
         #expect(PageWindowMoves.largestMove(from: appKitBefore, to: appKitAfter, of: [number]) == 30, "AppKit's step")
         let moved = PageWindowMoves.largestMove(from: before, to: after, of: [number])
         let seen = "window server \(listed) to \(String(describing: after[number])), AppKit \(String(describing: appKitBefore[number])) to \(shown.frame)"
-        // On a fleet display the window server's frame is AppKit's inset by 2-3 pt, and its edges follow a step to within
-        // 1 pt (step d3a1a966: 30 pt read 29).
-        #expect(moved.map { abs($0 - 30) <= 1 } == true, "the window server's frame moved \(String(describing: moved)) pt: \(seen)")
+        // On a fleet display the window server's frame is AppKit's inset by 2-4 pt, and the inset changes between reads
+        // (step d3a1a966: 30 pt read 29; step 3dff5b8f on cmux14: 28, insets 4 then 2 pt).
+        #expect(moved.map { $0 > 0 && abs($0 - 30) <= 4 } == true, "the window server's frame moved \(String(describing: moved)) pt: \(seen)")
         #expect(PageWindowMoves.largestMove(from: before, to: after, of: [number + 1_000_000]) == nil, "a window in neither read")
         #expect(PageWindowMoves.pages(of: shown).isEmpty && after.count == 1, "only the window: \(after)")
     }
