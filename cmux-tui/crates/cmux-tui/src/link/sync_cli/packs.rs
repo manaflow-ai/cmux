@@ -159,7 +159,7 @@ fn make_pack(common: &Path, kept: &Path, ids: &[&Id]) -> Option<String> {
         .arg(common)
         .args(["pack-objects", "-q", "--delta-base-offset"])
         .arg(scratch.path().join("pack"))
-        .open_stdin_path(&names)
+        .stdin(std::fs::File::open(&names).ok()?)
         .stderr(cmux_process::Stdio::null())
         .output()
         .ok()?;
