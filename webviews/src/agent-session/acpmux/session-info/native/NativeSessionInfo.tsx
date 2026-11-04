@@ -5,7 +5,7 @@
 // Reconnect under way) are kept here, since the App's rows have none.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePaneLanguage, useT, type Translate } from "../../i18n";
-import type { AcpmuxRow } from "../../model";
+import type { AcpmuxRow, AcpmuxSnapshot } from "../../model";
 import { postNative } from "../../native";
 import { opensProcessTerminal } from "../../processTerminal";
 import type { StartedSession } from "../../started/startedSessions";
@@ -89,6 +89,7 @@ export type NativeSessionInfoProps = {
   artifacts: number;
   documents: readonly OutputArtifact[];
   rows: readonly AcpmuxRow[];
+  progress?: AcpmuxSnapshot["progress"];
   agents: readonly Subagent[];
   waiting: ReadonlySet<string>;
   statuses: Readonly<Record<string, SessionInfoPullRequestStatus>>;
@@ -340,6 +341,26 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
         actions,
         t,
       ),
+      props.progress && props.progress.plan.length > 0
+        ? {
+            id: "progress",
+            group: "running",
+            title: t("sessionInfo.progress"),
+            meta: t(props.progress.plan.length === 1 ? "plan.progress.one" : "plan.progress", {
+              done: props.progress.plan.filter((entry) => entry.status === "completed").length,
+              total: props.progress.plan.length,
+            }),
+            open: state.sections.progress,
+            foldable: true,
+            reorderable: true,
+            rows: props.progress.plan.map((entry, index) => ({
+              id: `progress:${index}`,
+              title: entry.content,
+              tone: entry.status === "completed" ? "muted" : entry.status === "in_progress" ? "running" : "waiting",
+              working: entry.status === "in_progress" && !props.progress?.ended,
+            })),
+          }
+        : undefined,
       connectorsSection(
         {
           servers: summary?.mcpServers ?? [],

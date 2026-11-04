@@ -83,6 +83,7 @@ import { SessionInfoSectionList, type SessionInfoCompactLook } from "./SessionIn
 import { sectionOrder, tuckedSections } from "./sectionOrder";
 import { SessionInfoSection } from "./SessionInfoSection";
 import { SourcesSection } from "./SourcesSection";
+import { ProgressSection } from "./ProgressSection";
 import { SUBAGENT_HEADER, SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
 import {
   subagentBackLabel,
@@ -1043,6 +1044,9 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
       [drawn, scopedAgent, snapshot.summary, rows],
     ),
   );
+  // A subagent panel receives the parent's snapshot plus its own rows; never leak the parent's
+  // checklist into that scoped view. The producer keeps this projection stable across token frames.
+  const liveProgress = scopedAgent ? undefined : snapshot.progress;
   // After `summary`: read before its declaration, it threw on every render (a temporal dead zone).
   const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
   const made = useSameValue(
@@ -1191,6 +1195,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           artifacts={artifacts}
           documents={documents}
           rows={rows}
+          progress={liveProgress}
           agents={agents}
           waiting={waiting}
           statuses={statuses}
@@ -1269,6 +1274,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         artifacts={artifacts}
         documents={documents}
         rows={sectionRows}
+        progress={liveProgress}
         toolCalls={toolCalls}
         agents={agents}
         waiting={waiting}
@@ -1525,6 +1531,7 @@ export function SessionInfo({
   artifacts = 0,
   documents = [],
   rows = [],
+  progress,
   toolCalls,
   agents = [],
   waiting = new Set(),
@@ -1589,6 +1596,8 @@ export function SessionInfo({
   onOpenDocument?: (artifact: Artifact) => void;
   /// The chat's rows, for its gallery.
   rows?: readonly AcpmuxRow[];
+  /// The daemon's latest live TodoWrite/update_plan checklist, updated without a transcript scan.
+  progress?: AcpmuxSnapshot["progress"];
   /// The tool calls the loaded transcript holds (toolCallIds), where the caller reads them; else read
   /// from `rows`.
   toolCalls?: ReadonlySet<string>;
@@ -1796,7 +1805,7 @@ export function SessionInfo({
     onSetRunningLimit && chatId && !summary?.peer
       ? (maxRunning: number | null, from?: number) => onSetRunningLimit(chatId, maxRunning, from)
       : undefined;
-  const progress = !known && agent ? subagentProgress(t, language, agent) : [];
+  const fallbackProgress = !known && agent ? subagentProgress(t, language, agent) : [];
   const value = (text: string) => <span className="acpmux-session-info-section__value">{text}</span>;
   const glance = layout === "glance";
   // In the top block (glance), Context and Connectors are rows like the Environment's: an icon first.
@@ -1843,15 +1852,31 @@ export function SessionInfo({
       <ContextSection usage={usage} percent={percent} breakdown={summary?.contextBreakdown} onCompact={onCompact} />
     </SessionInfoSection>
   ) : (
-    progress.length > 0 && (
+    fallbackProgress.length > 0 && (
       <SessionInfoSection
         id="context"
         title={t("rail.context")}
         icon={rowIcon("context.usage")}
         open
-        meta={value(progress.join(" · "))}
+        meta={value(fallbackProgress.join(" · "))}
       />
     )
+  );
+  const progressSection = progress && progress.plan.length > 0 && (
+    <SessionInfoSection
+      id="progress"
+      title={t("sessionInfo.progress")}
+      open={state.progress}
+      onOpenChange={fold("progress")}
+      meta={value(
+        t(progress.plan.length === 1 ? "plan.progress.one" : "plan.progress", {
+          done: progress.plan.filter((entry) => entry.status === "completed").length,
+          total: progress.plan.length,
+        }),
+      )}
+    >
+      <ProgressSection plan={progress.plan} ended={progress.ended} />
+    </SessionInfoSection>
   );
   const connectors = (mcp.length > 0 || imessage) && (
     <SessionInfoSection
@@ -2029,6 +2054,7 @@ export function SessionInfo({
           sources: sourcesSection,
           outputs: outputsSection,
           subagents: subagentsSection,
+          progress: progressSection,
           tasks,
           ...appNodes,
         }}

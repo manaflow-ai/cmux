@@ -34,6 +34,7 @@ export type SessionInfoSectionId =
   | "sources"
   | "servers"
   | "subagents"
+  | "progress"
   | "tasks"
   | "outputs"
   | `app:${string}#${string}`;
@@ -56,6 +57,7 @@ export const DEFAULT_SECTIONS: SessionInfoSections = {
   sources: true,
   servers: true,
   subagents: true,
+  progress: true,
   tasks: true,
   outputs: true,
 };

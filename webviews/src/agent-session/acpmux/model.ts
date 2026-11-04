@@ -919,6 +919,12 @@ export type AcpmuxSnapshot = {
   autoResume?: AutoResumeStatus;
   protocolVersion: number;
   rows: AcpmuxRow[];
+  /// The latest live TodoWrite/update_plan checklist, kept beside rows so Session Info can update
+  /// without rescanning the transcript on every streamed token.
+  progress?: {
+    plan: AcpmuxPlanEntry[];
+    ended?: boolean;
+  };
   /// Each subagent's own view by subagent id: its rows, opened from its line in a group
   /// (subagents/childRows.ts).
   subagentViews?: Record<string, AcpmuxRow[]>;

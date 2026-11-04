@@ -19,6 +19,7 @@ import type { Play, PlayContext } from "../../../gallery/play";
 import { WAVE_CLASS, WAVE_KEYFRAMES } from "../../../ui/wave";
 import { activity, assistant, chat, CONTEXT_BREAKDOWN, CWD, tool } from "../../../gallery/fixtures/acpmux";
 import type { StartedSession } from "../started/startedSessions";
+import type { AcpmuxSnapshot } from "../model";
 import type { Subagent } from "../subagents/subagentFold";
 import { createWorkflowAdapter } from "../summary/foldWorkflows";
 import { sessionSummary } from "../summary/sessionSummary";
@@ -726,6 +727,14 @@ const full: Props = {
   // Every section in view: the variants below compare the sections themselves. The default view
   // (Show more closed) is `compact-more`.
   more: true,
+};
+
+const progress: NonNullable<AcpmuxSnapshot["progress"]> = {
+  plan: [
+    { content: "Inspect the current transcript", status: "completed" },
+    { content: "Align the Session Info rail", status: "in_progress" },
+    { content: "Run the focused checks", status: "pending" },
+  ],
 };
 
 /// A busy coordinator, as in Leo's 2026-10-21 screenshot: twelve subagents and five chats it started
@@ -1554,6 +1563,25 @@ export default componentEntry<Props>({
     "subagents-busy": {
       note: "A busy coordinator: the first five of seventeen running subagents and chats, the one waiting on the person first, then Show 12 more and the 94 done · 1 failed row.",
       props: busy,
+    },
+    "progress-live": {
+      note: "Chosen live Progress section: the current TodoWrite/update_plan checklist stays in the running group, with one completed step, the active step and the next pending step.",
+      props: { ...full, progress },
+    },
+    "progress-ended": {
+      note: "Ended progress: the last active step keeps its quiet ring after the turn ends, so the checklist does not freeze a spinner.",
+      props: { ...full, progress: { ...progress, ended: true } },
+    },
+    "progress-minimal": {
+      note: "Minimal progress: a one-step checklist keeps the section's compact 0 of 1 summary while the step runs.",
+      props: {
+        ...full,
+        progress: { plan: [{ content: "Review the result", status: "in_progress" }] },
+        agents: [],
+        sessions: [],
+        processes: [],
+        transcriptTasks: [],
+      },
     },
     "subagents-busy-more": {
       note: "Show 12 more opens every running line; Show less folds them back to five.",
