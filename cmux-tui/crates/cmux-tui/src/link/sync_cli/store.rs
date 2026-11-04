@@ -78,10 +78,16 @@ fn configured() -> Option<&'static Config> {
 
 /// Whether the machine at `socket` serves `blob-fetch-v2`: a fetch job of an
 /// earlier push may still be running there. `None` when `identify` did not
-/// answer: such a machine may serve it, so the caller still fences.
+/// answer or answered with no list of capabilities: such a machine may serve
+/// it, so the caller still fences.
 pub(super) fn fetch_served(socket: &std::path::Path) -> Option<bool> {
-    let identity = super::super::machine_gate::identify(socket)?;
-    Some(super::super::machine_gate::served(&identity).is_some_and(|served| {
+    serves_fetch(&super::super::machine_gate::identify(socket)?)
+}
+
+/// [`fetch_served`] for one `identify` answer: `None` when it has no list of
+/// capabilities, which says nothing about what the machine serves.
+fn serves_fetch(identity: &Value) -> Option<bool> {
+    Some(super::super::machine_gate::served(identity).is_some_and(|served| {
         served.contains(&cmux_tui_core::blob_fetch::BLOB_FETCH_CAPABILITY)
     }))
 }
@@ -640,7 +646,18 @@ fn hex(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{CHUNK_MAX, CHUNK_MIN, chunks};
+    use serde_json::json;
+
+    use super::{CHUNK_MAX, CHUNK_MIN, chunks, serves_fetch};
+
+    #[test]
+    fn an_identify_answer_without_capabilities_says_nothing_about_fetch() {
+        // Unknown, so the push takes the fence of a machine it cannot read.
+        assert_eq!(serves_fetch(&json!({"build_id": "b"})), None);
+        assert_eq!(serves_fetch(&json!({"capabilities": "blob-fetch-v2"})), None);
+        assert_eq!(serves_fetch(&json!({"capabilities": ["fs-v1"]})), Some(false));
+        assert_eq!(serves_fetch(&json!({"capabilities": ["fs-v1", "blob-fetch-v2"]})), Some(true));
+    }
 
     fn noise(len: usize, seed: u64) -> Vec<u8> {
         let mut state = seed;
