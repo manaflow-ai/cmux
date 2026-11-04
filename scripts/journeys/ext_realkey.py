@@ -302,11 +302,41 @@ def windows_at(rows, point):
     return [r for r in rows if r["bounds"][0] <= x < r["bounds"][0] + r["bounds"][2] and r["bounds"][1] <= y < r["bounds"][1] + r["bounds"][3]]
 
 
+def app_window_index(rows, app_pid):
+    """The index in ROWS (frontmost first) of the app's frontmost layer-0 window, or None."""
+    return next((i for i, r in enumerate(rows) if r["pid"] == app_pid and r["layer"] == 0), None)
+
+
 def covering_rows(rows, app_pid, point):
     """The windows of another process above the app's frontmost layer-0 window (before it in the list, or on a layer above
-    0) that contain POINT: a click or a drag there goes to them, not to the app."""
-    mine = next((i for i, r in enumerate(rows) if r["pid"] == app_pid and r["layer"] == 0), len(rows))
+    0) that contain POINT: a click or a drag there goes to them, not to the app. ROWS must have the app's window
+    (require_input_clear checks that first)."""
+    mine = app_window_index(rows, app_pid)
+    if mine is None:
+        raise ValueError("covering_rows: the list has no layer-0 window of the app")
     return [r for i, r in enumerate(rows) if r["pid"] != app_pid and r in windows_at(rows, point) and (r["layer"] > 0 or i < mine)]
+
+
+UNITS_TOLERANCE_PT = 2.0  # CuaDriver's bounds and debug.layers' frame of the same window (points both; a 2x error is 100s)
+
+
+def check_units(j, rows):
+    """Once per journey: CuaDriver's bounds of the app's main window (points from the top-left) against debug.layers' frame
+    of it in the same space. NotRun with both when they differ (a list in pixels on a 2x display would check the wrong
+    place on the screen)."""
+    if getattr(j, "input_units_ok", False):
+        return
+    win = _layers_window(j)
+    if not win or not win.get("primary_max_y"):
+        return
+    wx, wy, ww, wh = (float(v) for v in win["frame"])
+    want = [wx, win["primary_max_y"] - (wy + wh), ww, wh]
+    mine = [r for r in rows if r["pid"] == j.app.pid and r["layer"] == 0]
+    best = min(mine, key=lambda r: sum(abs(a - b) for a, b in zip(r["bounds"], want))) if mine else None
+    if best is None or max(abs(a - b) for a, b in zip(best["bounds"], want)) > UNITS_TOLERANCE_PT:
+        raise D.NotRun(f"real input: CuaDriver's window list and debug.layers disagree on the app's window (list "
+                       f"{best['bounds'] if best else None}, debug.layers {want} pt): the input guard cannot place the point")
+    j.input_units_ok = True
 
 
 def describe_rows(rows):
@@ -334,9 +364,19 @@ def require_input_clear(j, point=None):
     prompts = prompt_rows(rows)
     if prompts:
         raise D.NotRun(f"real input: a password prompt is on screen ({describe_rows(prompts)}); no real key or click is sent")
+    # Fail closed: a list that cannot be read, or that does not show the app's own window, proves nothing.
+    if app_window_index(rows, j.app.pid) is None:
+        raise D.NotRun(f"real input: CuaDriver's window list does not show the app's window (pid {j.app.pid}, {len(rows)} rows): "
+                       "the input guard cannot check")
     if point is not None:
+        # The units matter only where a point is placed (a key goes to the frontmost app, wherever its window is).
+        check_units(j, rows)
         screen = window_to_screen(j, point)
-        cover = covering_rows(rows, j.app.pid, screen) if screen is not None else []
+        if screen is None:
+            raise D.NotRun("real input: no window frame in debug.layers: the input guard cannot place the point")
+        at = windows_at(rows, screen)
+        j.input_rows_at = {"point": list(point), "screen": list(screen), "rows": at[:6]}
+        cover = covering_rows(rows, j.app.pid, screen)
         if cover:
             raise D.NotRun(f"real input: {describe_rows(cover)} covers the input point {list(point)} (screen {list(screen)})")
     j.input_clear_at = D.now()

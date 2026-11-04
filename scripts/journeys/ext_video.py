@@ -432,7 +432,8 @@ def step_hid_drag(j, step):
             j.hid_drag_mode = mode
             return {"mode": mode, "from": list(start), "to": list(end), "args": args, "scale": scale,
                     "duration_ms": duration, "steps": steps, "sent": round(sent, 6), "returned": round(returned, 6),
-                    "drag_s": round(returned - sent, 4), "app_mouse_events": len(got), "first": got[:2], "last": got[-2:]}
+                    "drag_s": round(returned - sent, 4), "app_mouse_events": len(got), "first": got[:2], "last": got[-2:],
+                    "windows_at_start": getattr(j, "input_rows_at", None)}
     screen = R.window_to_screen(j, start)
     at = R.describe_rows(R.windows_at(R._window_rows(j), screen)) if screen is not None else "unknown (no window frame)"
     raise D.NotRun(f"hid_drag: no CuaDriver drag reached the app (its journal has no mouse-down): {json.dumps(tried)[:700]}; "

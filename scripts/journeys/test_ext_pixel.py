@@ -2029,30 +2029,78 @@ class InputGuardTests(unittest.TestCase):
         self.assertEqual(R.covering_rows(self.rows(), self.APP, (200, 200)), [])
         self.assertEqual(R.covering_rows(self.rows(), self.APP, (1400, 800)), [])
 
-    def test_the_guard_refuses_a_prompt_and_a_covered_point(self):
+    def test_another_app_s_normal_window_in_front_covers_the_point(self):
+        """A layer-0 window of another process BEFORE the app's in the list (in front of it) covers the point; the same
+        window after the app's (behind it) does not (R-HARNESS: the order rule had no test)."""
+        R = X.V.R
+        front = {"app": "TextEdit", "pid": 93, "layer": 0, "title": "front", "bounds": [800, 250, 300, 300]}
+        app = {"app": "cmux", "pid": self.APP, "layer": 0, "title": "main", "bounds": [0, 49, 1512, 883]}
+        self.assertEqual([r["app"] for r in R.covering_rows([front, app], self.APP, (900, 300))], ["TextEdit"])
+        self.assertEqual(R.covering_rows([app, dict(front, title="behind")], self.APP, (900, 300)), [])
+
+    def test_window_points_flip_to_screen_points(self):
+        """window_to_screen: window points from the window's top-left to screen points from the screen's top-left, with
+        debug.layers' bottom-left frame and the primary screen's top (R-HARNESS: the flip had no test)."""
+        R = X.V.R
+        saved = R._layers_window
+        try:
+            R._layers_window = lambda j: {"frame": [100, 50, 1200, 800], "primary_max_y": 982}
+            self.assertEqual(R.window_to_screen(None, (10, 20)), (110.0, 982 - (50 + 800) + 20.0))
+            R._layers_window = lambda j: None
+            self.assertIsNone(R.window_to_screen(None, (10, 20)))
+        finally:
+            R._layers_window = saved
+
+    def guard_env(self, rows, frame=(0, 50, 1512, 883)):
         R = X.V.R
         saved = (R._window_rows, R._layers_window, R.D.now)
-        rows = self.rows()
-        try:
-            R._window_rows = lambda j: list(rows)
-            R._layers_window = lambda j: {"frame": [0, 50, 1512, 883], "primary_max_y": 982}
-            R.D.now = lambda: 100.0
+        R._window_rows = lambda j: list(rows)
+        R._layers_window = lambda j: {"frame": list(frame), "primary_max_y": 982}
+        R.D.now = lambda: 100.0
+        self.addCleanup(lambda: setattr(R, "_window_rows", saved[0]) or setattr(R, "_layers_window", saved[1])
+                        or setattr(R.D, "now", saved[2]))
 
-            class J:
-                class app:
-                    pid = self.APP
-            with self.assertRaisesRegex(R.D.NotRun, "password prompt"):
-                R.require_input_clear(J())
-            rows.pop(0)
-            # window point (900, 251) is screen (900, 300) on a window whose top is at 982 - 933 = 49
-            with self.assertRaisesRegex(R.D.NotRun, "UserNotificationCenter window .* covers the input point"):
-                R.require_input_clear(J(), (900, 251))
-            rows.pop(0)
-            j = J()
+        class J:
+            class app:
+                pid = self.APP
+        return J()
+
+    def test_the_guard_refuses_a_prompt_and_a_covered_point(self):
+        R = X.V.R
+        rows = self.rows()
+        j = self.guard_env(rows)
+        with self.assertRaisesRegex(R.D.NotRun, "password prompt"):
+            R.require_input_clear(j)
+        rows.pop(0)
+        # window point (900, 251) is screen (900, 300) on a window whose top is at 982 - 933 = 49
+        with self.assertRaisesRegex(R.D.NotRun, "UserNotificationCenter window .* covers the input point"):
             R.require_input_clear(j, (900, 251))
-            self.assertEqual(j.input_clear_at, 100.0)
-        finally:
-            R._window_rows, R._layers_window, R.D.now = saved
+        rows.pop(0)
+        R.require_input_clear(j, (900, 251))
+        self.assertEqual(j.input_clear_at, 100.0)
+        self.assertEqual(j.input_rows_at["screen"], [900.0, 300.0])
+        self.assertEqual([r["app"] for r in j.input_rows_at["rows"]], ["cmux"])
+
+    def test_the_guard_fails_closed_without_the_app_s_window(self):
+        """An unreadable list ([]), or one with no layer-0 window of the app, gives not run: it proves nothing."""
+        R = X.V.R
+        for rows in ([], [r for r in self.rows()[1:] if r["pid"] != self.APP]):
+            j = self.guard_env(rows)
+            with self.assertRaisesRegex(R.D.NotRun, "does not show the app's window"):
+                R.require_input_clear(j)
+
+    def test_the_units_check_refuses_a_list_in_pixels(self):
+        """Once per journey the app's window in the list must match debug.layers' frame (points); a 2x list is refused."""
+        R = X.V.R
+        app2x = {"app": "cmux", "pid": self.APP, "layer": 0, "title": "main", "bounds": [0, 98, 3024, 1766]}
+        j = self.guard_env([app2x])
+        R.require_input_clear(j)  # a key places no point: no units check
+        self.assertFalse(getattr(j, "input_units_ok", False))
+        with self.assertRaisesRegex(R.D.NotRun, "disagree on the app's window"):
+            R.require_input_clear(j, (900, 251))
+        j = self.guard_env([{"app": "cmux", "pid": self.APP, "layer": 0, "title": "main", "bounds": [0, 49, 1512, 883]}])
+        R.require_input_clear(j, (900, 251))
+        self.assertTrue(j.input_units_ok)
 
 
 class FilmNotRunTests(unittest.TestCase):
