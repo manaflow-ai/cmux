@@ -226,6 +226,14 @@ mod tests {
     }
 
     #[test]
+    fn override_block_is_hidden_context_and_has_approximate_tokens() {
+        let block = override_block("read concurrently", "project");
+        assert!(crate::prompt_context::is_context(&block));
+        assert!(crate::prompt_context::is_context_text(block["text"].as_str().unwrap()));
+        assert_eq!(estimated_tokens("12345678"), 2);
+    }
+
+    #[test]
     fn overrides_choose_project_over_user_and_clear() {
         let mut overrides = ContextOverrides { user: Some("u".into()), projects: Default::default() };
         let cwd = Path::new("/repo");
