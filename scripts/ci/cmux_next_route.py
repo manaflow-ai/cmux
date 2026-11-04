@@ -141,6 +141,9 @@ SWIFT_JOB_INPUTS = (
     # sidebar layout reducer's cargo test.
     "cmux-tui/crates/cmux-app-ffi/",
     "cmux-tui/crates/cmux-focus-core/",
+    "cmux-tui/crates/cmux-cloud-start-core/",
+    "cmux-tui/crates/cmux-cloud-config/",
+    "cmux-tui/crates/cmux-imessage/",
     "cmux-tui/crates/cmux-layout-reducer/",
     "cmux-tui/crates/cmux-layout-reducer-ffi/",
     "cmux-tui/crates/cmux-rd-core/",
@@ -237,6 +240,10 @@ BUNDLE_INPUTS = (
     # tests/test_web_bundle_key_inputs.sh keeps this list complete).
     "web/data/model-catalog/*", "Resources/markdown-viewer/viewer-navigation.js", "config/vite-plus/*",
     "schemas/sync-motion/*", "schemas/agent-pane/*",
+    # The layout grid the transcript imports (src/agent-session/acpmux/transcriptGrid.ts).
+    "schemas/layout-grid/layout-grid.json",
+    # The design scale the shared tooltip tokens import (src/ui/tooltipTokens.ts).
+    "schemas/design-scale/design-scale.json",
     # The UI font the gallery frame imports (src/gallery/frame/uiFont.ts).
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
 )
@@ -268,7 +275,7 @@ def no_app_input(path: str) -> bool:
 
 
 CI_ONLY = (
-    ".github/workflows/*", ".github/warm-sources.json", "scripts/ci/*", "scripts/gh-merge-green",
+    ".github/workflows/*", ".github/warm-sources.json", ".github/checkout-lean.json", "scripts/ci/*", "scripts/gh-merge-green",
     "tests/test_cmux_next_route.py", "tests/test_cmux_next_route_replay.py",
     "tests/test_cmux_next_checks_workflow.py", "tests/test_gh_merge_green*.py",
     "tests/test_base_red_excuse.py", "tests/test_test_reds.py", "tests/fixtures/test_reds/*", "tests/test_ci_*.py",

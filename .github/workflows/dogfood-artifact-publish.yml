@@ -17,7 +17,7 @@ jobs:
     # requires that job and its matching GitHub artifact explicitly. A run the
     # event lists no pull request for has nothing to publish, so it never starts.
     if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion != 'cancelled' && toJSON(github.event.workflow_run.pull_requests) != '[]' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     environment: artifacts
     permissions:
       actions: write
@@ -252,7 +252,7 @@ jobs:
     # MACOS_RUNNER_DISPLAY must name the GUI-enabled capture mini. The cloud
     # fallback keeps workflow validation and fork checks deterministic; the
     # step below fails closed when capture tools are absent.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || fromJSON(vars.RUNNER_POOLS).macos_15 }}
     timeout-minutes: 20
     permissions:
       actions: write

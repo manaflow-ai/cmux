@@ -31,7 +31,8 @@ ask whether the job needed macOS. This module asks.
 * a job of an `any` class does not take portable placement's fleet Linux
   output, then its mini output, then a Blacksmith label, in that order
   (portable_order()); nightly.yml's light jobs read build-nightly-app's
-  light-job placement (its mini output, then a Blacksmith label) instead.
+  light-job placement (its mini output, then the nightly-only Mac pool) instead,
+  never fleet Linux or Blacksmith: nightlies run only on our own Mac minis.
 
 `linux_followup`, `placement_followup` and `picker_followup` exist only so the
 table can describe today's tree: an existing job that should move but has not yet. A new
@@ -82,16 +83,55 @@ NEEDS = ("macos", "linux", "any")
 PORTABLE_LINUX = re.compile(r"needs\.portable-placement\.outputs\.linux_runner$")
 PORTABLE_MINI = re.compile(r"needs\.portable-placement\.outputs\.mini_runner$")
 # nightly.yml's light jobs: build-nightly-app's last step places them (NIGHTLY=1) on a free mini, else
-# Blacksmith; build-nightly-remote-daemon, which builds beside the app, takes the Ghostty helper's owned
-# Mac pick (pick-nightly-build-runner's helper) instead. They have no fleet Linux step: a nightly job
-# never takes vars.LINUX_RUNNER as it is.
+# the nightly-only Mac pool; build-nightly-remote-daemon, which builds beside the app, takes the Ghostty helper's owned
+# Mac pick (pick-nightly-build-runner's helper) instead. A nightly job never takes vars.LINUX_RUNNER as it is;
+# a fleet Linux placement output (NIGHTLY_LINUX) is refused: nightlies run only on our own Mac minis.
 NIGHTLY_MINI = re.compile(r"needs\.(?:build-nightly-app\.outputs\.light_mini_runner|decide\.outputs\.early_mini_runner"
-                          r"|pick-nightly-build-runner\.outputs\.helper)$")
+                          r"|pick-nightly-build-runner\.outputs\.helper)$"
+                          # The nightly-only Mac pool itself: its minis run only nightly work, so a nightly control
+                          # with no placement takes it directly (nightlies run only on our own minis).
+                          r"|^vars\.CI_NIGHTLY_ONLY_RUNNER$")
 # nightly.yml's first job (decide) has no job before it to place it: attempt 1 of a nightly-next push asks for
 # glaeda's nightly slot, which only nightly jobs take, and the owned-pool rescue moves it to Blacksmith when no
 # slot takes it (its picker_followup says so).
+NIGHTLY_LINUX = ("needs.build-nightly-app.outputs.light_linux_runner", "needs.decide.outputs.early_linux_runner")
 NIGHTLY_SLOT = re.compile(r"vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER$")
 BLACKSMITH_LINUX = re.compile(r"^'blacksmith-\d+vcpu-ubuntu-2404'$")
+POOL_REFERENCE = re.compile(r"^fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)$")
+
+
+def pool_members(map_path: Path = MAP_PATH) -> dict[str, list[str]]:
+    """Return the declared runner-pool members used by pool references."""
+    document = json.loads(map_path.read_text())
+    pools = document.get("pools", {})
+    return {
+        name: list(spec.get("members", []))
+        for name, spec in pools.items()
+        if isinstance(name, str) and isinstance(spec, dict) and isinstance(spec.get("members"), list)
+    }
+
+
+def blacksmith_linux_term(term: str, pools: dict[str, list[str]] | None = None,
+                          allowed_pools: set[str] | None = None) -> bool:
+    """Whether a route term is a literal or declared pool of Blacksmith Linux labels."""
+    if BLACKSMITH_LINUX.match(term):
+        return True
+    match = POOL_REFERENCE.fullmatch(term)
+    if match is None or (allowed_pools is not None and match.group(1) not in allowed_pools):
+        return False
+    members = (pool_members() if pools is None else pools).get(match.group(1), [])
+    return bool(members) and all(re.fullmatch(r"blacksmith-\d+vcpu-ubuntu-\d+(?:-arm)?", member)
+                                  for member in members)
+
+
+# Nightlies never run on Blacksmith (user, 2026-10-30): a nightly route's overflow is our own
+# nightly-only pool, the nightly build slot, or an ephemeral hosted Ubuntu runner.
+NIGHTLY_OVERFLOW = ("'glaeda-nightly-only-m4pro'", "'glaeda-nightly-std-xcode-26.6'", "'ubuntu-24.04'")
+
+
+def nightly_overflow_term(term: str) -> bool:
+    """Whether a nightly route term is an overflow that is never Blacksmith."""
+    return term.strip() in NIGHTLY_OVERFLOW
 
 
 def nightly_reservation(term: str) -> bool:
@@ -109,6 +149,20 @@ def nightly_reservation(term: str) -> bool:
                              "vars.CI_NIGHTLY_ONLY_RUNNER"])
 
 
+def nightly_only_pool(runs_on: str) -> bool:
+    """Whether a nightly route ends on the nightly-only Mac pool (its variable, then its literal).
+
+    That pool is several minis that take only nightly work (glaeda-nightly-only-admit), not one label with
+    one host, so a nightly control that ends there needs no picker in front of it.
+    """
+    text = json.loads(runs_on) if runs_on.startswith('"') else runs_on
+    expressions = EXPRESSION.findall(text)
+    if len(expressions) != 1:
+        return False
+    terms = [term.strip() for term in value_terms(expressions[0])]
+    return terms[-2:] == ["vars.CI_NIGHTLY_ONLY_RUNNER", "'glaeda-nightly-only-m4pro'"]
+
+
 def has_nightly_reservation(runs_on: str) -> bool:
     text = json.loads(runs_on) if runs_on.startswith('"') else runs_on
     expressions = EXPRESSION.findall(text)
@@ -116,11 +170,11 @@ def has_nightly_reservation(runs_on: str) -> bool:
                                         for part in _split_top(expressions[0].strip(), "||"))
 
 
-def portable_order(runs_on: str, nightly: bool = False) -> str:
+def portable_order(runs_on: str, nightly: bool = False, pools: dict[str, list[str]] | None = None) -> str:
     """Why a portable job's runs-on is out of the routing order, or "".
 
     The order (Leo's rulebook, 2026-10-31): fleet Linux, then a free mini, then Blacksmith as the
-    overflow. The value terms must read portable placement's linux_runner before its mini_runner,
+    overflow. A nightly route instead ends on ``NIGHTLY_OVERFLOW``: nightlies never run on Blacksmith. The value terms must read portable placement's linux_runner before its mini_runner,
     and end on a Blacksmith Linux label.
     """
     expressions = EXPRESSION.findall(json.loads(runs_on) if runs_on.startswith('"') else runs_on)
@@ -144,21 +198,21 @@ def portable_order(runs_on: str, nightly: bool = False) -> str:
         admitted_terms = value_terms(admitted)
         if len(admitted_terms) != 1 or not re.fullmatch(r"needs\.decide\.outputs\.early_[a-z_]+_runner", admitted_terms[0]):
             return "early admission must use only its verified runner output"
-        if not alternatives[-1:] or alternatives[-1] not in ("'blacksmith-16vcpu-ubuntu-2404'", "'blacksmith-32vcpu-ubuntu-2404'"):
-            return "early admission must retain measured Linux overflow"
+        if not alternatives[-1:] or not nightly_overflow_term(value_terms(alternatives[-1])[-1]):
+            return "early admission must retain an overflow that is never Blacksmith"
         if "needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)" not in admitted:
             return "early admission must consume only its own attempt"
         return ""
     if nightly:
         if has_nightly_reservation(runs_on):
-            return "" if BLACKSMITH_LINUX.match(terms[-1]) else "the nightly reservation lost its fallback"
+            return "" if nightly_overflow_term(terms[-1]) else "the nightly reservation lost its fallback"
         mini = next((i for i, term in enumerate(terms) if NIGHTLY_MINI.search(term) or NIGHTLY_SLOT.search(term)), None)
         if mini is None:
             return "it does not read needs.build-nightly-app.outputs.light_mini_runner (or the nightly slot)"
+        # Nightlies run only on our own Mac minis (Lawrence, 2026-11-03): never fleet Linux.
+        if any(name in runs_on for name in NIGHTLY_LINUX):
+            return "it reads a fleet Linux placement; nightlies run only on our own Mac minis"
         linux = -1
-        if "needs.decide.outputs.early_mini_runner" in runs_on:
-            linux = next((i for i, term in enumerate(terms)
-                          if term.endswith("needs.decide.outputs.early_linux_runner")), None)
     else:
         linux = next((i for i, term in enumerate(terms) if PORTABLE_LINUX.search(term)), None)
         mini = next((i for i, term in enumerate(terms) if PORTABLE_MINI.search(term)), None)
@@ -166,7 +220,10 @@ def portable_order(runs_on: str, nightly: bool = False) -> str:
         return "it does not read needs.portable-placement.outputs.linux_runner and mini_runner"
     if linux > mini:
         return "it takes the mini before fleet Linux"
-    if not BLACKSMITH_LINUX.match(terms[-1]) or not any(BLACKSMITH_LINUX.match(t) for t in terms[mini + 1:]):
+    if nightly:
+        return "" if nightly_overflow_term(terms[-1]) else "it does not end on an overflow that is never Blacksmith"
+    if not blacksmith_linux_term(terms[-1], pools) or not any(
+            blacksmith_linux_term(term, pools) for term in terms[mini + 1:]):
         return "it does not end on a Blacksmith Linux label after the mini"
     return ""
 
@@ -442,6 +499,38 @@ def referenced_secrets(value: Any) -> set[str]:
     return names
 
 
+FORK_PR_BLACKSMITH = re.compile(
+    r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != github\.repository"
+    r" && 'blacksmith-\d+vcpu-ubuntu-2404'")
+# The CI_TRUSTED_RUNNER selector (scripts/ci/validate-cla-policy.rb), split at its top-level `||`. A
+# secretless declared light job whose workflow cannot read RUNNER_POOLS may retry on it.
+TRUSTED_SELECTOR_TAIL = [
+    "contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
+    "vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER",
+    "'blacksmith-4vcpu-ubuntu-2404'",
+]
+EPHEMERAL_MIRROR_TERM = re.compile(
+    r"contains\(fromJSON\('\[\"blacksmith-\d+vcpu-ubuntu-2404\"(?:,\"blacksmith-\d+vcpu-ubuntu-2404\")*\]'\), "
+    r"vars\.LINUX_RUNNER\) && vars\.LINUX_RUNNER")
+# A pool read wrapped for forks, `(<fork pull request> && '<label>' || fromJSON(vars.RUNNER_POOLS).<pool>)`: a fork's
+# run gets no variables, so it keeps the label; every other run reads the pool. Forks are outside this exception.
+FORK_WRAPPED_POOL_READ = re.compile(
+    r"\((?:" + FORK_PR_BLACKSMITH.pattern + r") \|\| (fromJSON\(vars\.RUNNER_POOLS\)\.[a-z0-9_]+)\)")
+
+
+def _routing_environment(environment: object) -> bool:
+    """No environment, `ci-routing-agent`, or one expression whose only values are those two."""
+    if environment in (None, "", "ci-routing-agent"):
+        return True
+    if not isinstance(environment, str):
+        return False
+    expressions = EXPRESSION.findall(environment)
+    if len(expressions) != 1 or EXPRESSION.sub("", environment).strip():
+        return False
+    values = value_terms(expressions[0].strip())
+    return bool(values) and all(value in ("'ci-routing-agent'", "''") for value in values)
+
+
 def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> tuple[list[str], list[str]]:
     """Validate the central light-job exception and emit exact shell-guard lines.
 
@@ -450,13 +539,17 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
     """
     document = json.loads(map_path.read_text())
     declarations = document.get("hosted_light_jobs", {})
+    bootstraps = document.get("portable_light_jobs", {})
     classes = document.get("job_classes", {})
-    if not isinstance(declarations, dict):
-        return ["hosted_light_jobs must be an object"], []
+    if not isinstance(declarations, dict) or not isinstance(bootstraps, dict):
+        return ["hosted_light_jobs and portable_light_jobs must be objects"], []
+    declarations = {**declarations, **bootstraps}
     problems, allowed, seen = [], [], set()
     fork = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
     hosted = "github.run_attempt == 1 && 'ubuntu-24.04'"
-    paid = {"'blacksmith-16vcpu-ubuntu-2404'", "'blacksmith-32vcpu-ubuntu-2404'"}
+    paid = {"'blacksmith-8vcpu-ubuntu-2404'", "'blacksmith-16vcpu-ubuntu-2404'", "'blacksmith-32vcpu-ubuntu-2404'",
+            "fromJSON(vars.RUNNER_POOLS).linux_8", "fromJSON(vars.RUNNER_POOLS).linux_16",
+            "fromJSON(vars.RUNNER_POOLS).linux_32"}
     sensitive = re.compile(r"secrets\.(?:APPLE|SIGN|CMUX_RELEASE|NOTARY)|codesign|notarytool|signing-keychain|gh release upload|softprops/action-gh-release", re.I)
     for path in sorted(workflows.glob("*.y*ml")):
         source = path.read_text()
@@ -467,12 +560,13 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
                 continue
             seen.add(key)
             entry = declarations[key]
+            bootstrap = key in bootstraps
             issue = ""
             if not isinstance(entry, dict) or classes.get(entry.get("class"), {}).get("needs") != "any" or not entry.get("reason"):
                 issue = "must declare a portable class and a reason"
             elif not isinstance(job, dict) or "uses" in job:
                 issue = "must name a runnable lightweight job"
-            elif (job.get("environment") not in (None, "ci-routing-agent")
+            elif (not _routing_environment(job.get("environment"))
                   or sensitive.search(json.dumps([workflow.get("env", {}), job]))):
                 issue = "cannot authorize release/signing credentials or operations"
             elif re.search(r"(?:^|[-_])(sign|signer|signing|publish|promote|release)(?:[-_]|$)", str(name)) or str(name) in {"route-visual-gate-nightly", "published-in"}:
@@ -497,13 +591,23 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
             if used - set(permitted):
                 problems.append(f"hosted_light_jobs[{key!r}] references undeclared secrets: {', '.join(sorted(used - set(permitted)))}")
                 continue
+            if bootstrap and (used or job.get("environment")
+                    or not isinstance(job.get("permissions", {}), dict) or any(
+                    value != "read" for value in job.get("permissions", {}).values())
+                    or name != "portable-placement"):
+                problems.append(f"portable_light_jobs[{key!r}] must be a secretless read-only placement bootstrap")
+                continue
             route = job.get("runs-on", "")
             expressions = EXPRESSION.findall(route) if isinstance(route, str) else []
             if len(expressions) != 1:
                 problems.append(f"hosted_light_jobs[{key!r}] must use an explicit attempt-aware runner expression")
                 continue
-            alternatives = [part.strip() for part in _split_top(expressions[0].strip(), "||")]
+            unwrapped = FORK_WRAPPED_POOL_READ.sub(r"\1", expressions[0].strip())
+            alternatives = [part.strip() for part in _split_top(unwrapped, "||")]
             if alternatives and alternatives[0] == fork:
+                alternatives = alternatives[1:]
+            # A fork pull request's Blacksmith branch is outside this exception, like the fork branch above.
+            if alternatives and FORK_PR_BLACKSMITH.fullmatch(alternatives[0]):
                 alternatives = alternatives[1:]
             if path.name == "nightly.yml" and alternatives and nightly_reservation(alternatives[0]):
                 alternatives = alternatives[1:]
@@ -512,11 +616,23 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
                 problems.append(f"hosted_light_jobs[{key!r}] never permits hosted macOS")
                 continue
             if "ubuntu-24.04'" not in text:
-                # A declaration may precede the separate workflow routing change.
+                # An existing declaration may precede a workflow routing change.
+                # A new placement bootstrap must carry its verified fallback.
+                if bootstrap:
+                    problems.append(f"portable_light_jobs[{key!r}] must retain its hosted and Linux overflow routes")
                 continue
             track_hosted = "needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && 'ubuntu-24.04'"
-            hosted_terms = [part for part in alternatives if part in (hosted, track_hosted)]
-            if len(hosted_terms) != 1 or alternatives[-1] not in paid:
+            # Nightlies never run on Blacksmith (Lawrence, 2026-10-30): a nightly.yml light job keeps hosted
+            # Ubuntu on every attempt (a bare last term), or retries on the owned nightly-only pool.
+            nightly = path.name == "nightly.yml"
+            always_hosted = "'ubuntu-24.04'"
+            owned_tail = ["vars.CI_NIGHTLY_ONLY_RUNNER", "'glaeda-nightly-only-m4pro'"]
+            hosted_forms = (hosted, track_hosted, always_hosted) if nightly else (hosted, track_hosted)
+            hosted_terms = [part for part in alternatives if part in hosted_forms]
+            pool = "fromJSON(vars.RUNNER_POOLS).linux_2" if bootstrap else "fromJSON(vars.RUNNER_POOLS).linux"
+            secretless_tail = (alternatives[-1] == pool or alternatives[-2:] == TRUSTED_SELECTOR_TAIL) and not used
+            ours = nightly and (alternatives[-1:] == [always_hosted] or alternatives[-2:] == owned_tail)
+            if len(hosted_terms) != 1 or (not ours and alternatives[-1] not in paid and not secretless_tail):
                 problems.append(f"hosted_light_jobs[{key!r}] must use hosted Ubuntu on attempt 1 then measured paid retries")
                 continue
             hosted_term = hosted_terms[0]
@@ -527,14 +643,38 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
                 continue
             position = alternatives.index(hosted_term)
             tail = alternatives[position + 1:]
-            measured16 = "vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404'"
-            if not (len(tail) == 1 and tail[0] in paid or tail == [measured16, "'blacksmith-32vcpu-ubuntu-2404'"]):
+            measured16 = ("vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && "
+                          "'blacksmith-16vcpu-ubuntu-2404'")
+            measured16_pool = ("vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && "
+                               "fromJSON(vars.RUNNER_POOLS).linux_16")
+            # A retry may read the ephemeral LINUX_RUNNER mirror, bounded to Blacksmith labels
+            # (tests/test_ci_runner_pool_reconcile.py), then the overflow switch's failover
+            # (tests/test_ci_blacksmith_linux_failover.py), then the retry size.
+            if tail and EPHEMERAL_MIRROR_TERM.fullmatch(tail[0]):
+                tail = tail[1:]
+            switched = (len(tail) == 2 and tail[1] in paid and tail[0].startswith("vars.CI_CLOUD_OVERFLOW_SAVED && ")
+                        and tail[0].split(" && ", 1)[1] in paid)
+            # Or, for a job that holds no secret, the reconciled Linux pool's live member.
+            pooled = tail == [pool] and not used
+            # Or, for a secretless job in a reusable workflow (which must not fromJSON a variable),
+            # the reviewed CI_TRUSTED_RUNNER selector: its own allowlist, else one ephemeral label.
+            trusted = tail == TRUSTED_SELECTOR_TAIL and not used
+            owned = nightly and (tail == [] and hosted_term == always_hosted or tail == owned_tail and hosted_term != always_hosted)
+            if not (len(tail) == 1 and tail[0] in paid or switched or pooled or trusted or owned
+                    or tail == [measured16, "'blacksmith-32vcpu-ubuntu-2404'"]
+                    or tail == [measured16_pool, "fromJSON(vars.RUNNER_POOLS).linux_32"]):
                 problems.append(f"hosted_light_jobs[{key!r}] contains an undeclared retry runner")
                 continue
-            if any(not _picker_value_term(value) for part in alternatives[:position] for value in value_terms(part)):
+            if bootstrap:
+                if alternatives[:position]:
+                    problems.append(f"portable_light_jobs[{key!r}] must start with hosted Ubuntu; fixed labels cannot bootstrap placement")
+                    continue
+            elif any(not _picker_value_term(value) for part in alternatives[:position] for value in value_terms(part)):
                 problems.append(f"hosted_light_jobs[{key!r}] has an unverified label before hosted overflow")
                 continue
-            if any("needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)" not in part for part in alternatives[:position]):
+            current_attempt = ("needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)",
+                               "needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)")
+            if not bootstrap and any(not any(marker in part for marker in current_attempt) for part in alternatives[:position]):
                 problems.append(f"hosted_light_jobs[{key!r}] must consume only current-attempt placement")
                 continue
             if value_terms(text).count("'ubuntu-24.04'") != 1:
@@ -559,6 +699,8 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
 
 def check(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> list[str]:
     classes, table = load_table(map_path)
+    pools = pool_members(map_path)
+    bootstraps = json.loads(map_path.read_text()).get("portable_light_jobs", {})
     problems, _ = hosted_light_policy(map_path, workflows)
     seen: dict[str, bool] = {}
     for job, on_macos in iter_jobs(workflows):
@@ -577,6 +719,10 @@ def check(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> list[str]:
         if spec is None:
             problems.append(f"{job.key}: unknown job class {entry['class']!r}")
             continue
+        # A bootstrap cannot depend on its own placement output. Its narrow
+        # secretless hosted/overflow route is checked above instead.
+        if job.key in bootstraps:
+            continue
         bypass = bypasses_placement(job.runs_on)
         if bypass and not entry.get("placement_followup"):
             problems.append(
@@ -587,7 +733,8 @@ def check(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> list[str]:
         elif entry.get("placement_followup") and not bypass:
             problems.append(f"{job.key} no longer bypasses placement; remove its placement_followup")
         # A bypass is already one pin, recorded by its placement_followup.
-        reserved = job.key.startswith("nightly.yml#") and has_nightly_reservation(job.runs_on)
+        reserved = job.key.startswith("nightly.yml#") and (has_nightly_reservation(job.runs_on)
+                                                           or nightly_only_pool(job.runs_on))
         pin = not bypass and not job.from_picker and not reserved
         if pin and not entry.get("picker_followup"):
             problems.append(
@@ -600,7 +747,7 @@ def check(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> list[str]:
         elif entry.get("picker_followup") and not pin:
             problems.append(f"{job.key} no longer runs on a fixed label; remove its picker_followup")
         if spec["needs"] == "any":
-            why = portable_order(job.runs_on, nightly=job.key.startswith("nightly.yml#"))
+            why = portable_order(job.runs_on, nightly=job.key.startswith("nightly.yml#"), pools=pools)
             if why:
                 problems.append(f"{job.key} is class {entry['class']!r} (fleet Linux, then a free mini, then "
                                 f"Blacksmith), but {why}.")

@@ -11,12 +11,17 @@ use std::time::Duration;
 /// Deadlines of one link. `ACPMUX_PEER_TIMEOUT_SECS` sets the connect
 /// deadline (the handshake gets three times it), `ACPMUX_PEER_PING_SECS`
 /// the keepalive interval, for a host that is slow even when well, and
-/// `ACPMUX_PEER_REQUEST_SECS` how long one request waits for its answer.
+/// `ACPMUX_PEER_REQUEST_SECS` how long one request waits for its answer, and
+/// `ACPMUX_PEER_START_SECS` how long a forwarded `session/new` waits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LinkTimings {
     /// ssh, the tunnel and the WebSocket upgrade; also the remote config read.
+    // timeout: a dead route must fail connection setup so the reconnect loop can choose a new
+    // route; once connected, peer traffic uses the link's liveness path.
     pub connect: Duration,
     /// `initialize` and `_acpmux/watch` once the WebSocket is open.
+    // timeout: a peer that never completes its handshake is not usable; the link retries while
+    // the socket remains open and this is the long hazard bound for a wedged handshake.
     pub handshake: Duration,
     /// A ping goes out this often; any frame from the peer counts as an answer.
     pub ping_every: Duration,
@@ -26,8 +31,20 @@ pub struct LinkTimings {
     /// A link that stayed ready this long starts its next backoff over.
     pub stable_after: Duration,
     /// How long one request waits for the peer's answer.
+    // timeout: a connected peer that never answers and never closes needs a finite diagnostic
+    // bound; keepalive detects a dead transport earlier.
     pub request: Duration,
+    /// How long a forwarded `session/new` waits for the peer's answer: past the peer's own
+    /// start envelope. `Peer::send_request` takes the larger of this and `request`, so a slow
+    /// live start is not cut off by the old pooled-start budget.
+    // timeout: a remote handler that stays connected but never answers needs a finite forwarding
+    // hazard bound; a dead peer is detected by the transport keepalive.
+    pub start: Duration,
 }
+
+/// The peer's whole `session/new` budget (`hub::SESSION_NEW_BUDGET`), plus room for the link.
+pub const START_DEFAULT: Duration =
+    Duration::from_secs(crate::hub::SESSION_NEW_BUDGET.as_secs() + 15);
 
 impl Default for LinkTimings {
     fn default() -> Self {
@@ -38,6 +55,7 @@ impl Default for LinkTimings {
             ping_misses: 4,
             stable_after: Duration::from_secs(60),
             request: Duration::from_secs(600),
+            start: START_DEFAULT,
         }
     }
 }
@@ -57,6 +75,9 @@ impl LinkTimings {
         }
         if let Some(n) = secs("ACPMUX_PEER_REQUEST_SECS") {
             t.request = Duration::from_secs(n);
+        }
+        if let Some(n) = secs("ACPMUX_PEER_START_SECS") {
+            t.start = Duration::from_secs(n);
         }
         t
     }
@@ -151,8 +172,11 @@ impl SleepWatch {
 }
 
 /// After a wake, how long an open link has to answer a ping before it is dropped and redialed
-/// (its ssh tunnel and TCP connection often died while the computer slept).
-pub const WAKE_PROBE: Duration = Duration::from_secs(10);
+/// (its ssh tunnel and TCP connection often died while the computer slept). This is only for a
+/// stale post-sleep transport; ordinary busy-peer traffic stays on the link.
+// timeout: a socket that survived sleep but cannot answer this probe is a dead transport, so
+// redialing is safer than holding every queued write indefinitely.
+pub const WAKE_PROBE: Duration = Duration::from_secs(30);
 
 /// When a write that starts at `now` gives up: after the send `budget`, or at a running wake
 /// probe's deadline when that comes first, so a write to a link that died while the computer
@@ -407,13 +431,13 @@ pub fn describe(name: &str, link: &Link, error: Option<&str>, now: u64) -> Strin
 /// request was not sent, so retrying it never runs it twice.
 pub fn unreachable_error(name: &str, link: &Link, error: Option<&str>, now: u64) -> RpcError {
     RpcError::internal(format!(
-        "peer_unreachable: {}; the request was not sent; run `acpmux host ls` and retry after the peer reconnects",
+        "peer_unreachable: {}; the request was not sent; run `acpmux machine ls` and retry after the peer reconnects",
         describe(name, link, error, now)
     )).with_data(
         json!({
             "reason": "peer_unreachable",
             "retryable": true,
-            "try": "acpmux host ls",
+            "try": "acpmux machine ls",
             "detail": "the request was not sent",
             "peer": name,
             "peerState": link.state().as_str(),
@@ -627,11 +651,11 @@ mod tests {
         assert!(
             e.message.contains("huge-blue (reconnecting, last seen 40s ago: connect timed out)")
         );
-        assert!(e.message.contains("acpmux host ls"));
+        assert!(e.message.contains("acpmux machine ls"));
         let data = e.data.unwrap();
         assert_eq!(data["reason"], "peer_unreachable");
         assert_eq!(data["retryable"], true);
-        assert_eq!(data["try"], "acpmux host ls");
+        assert_eq!(data["try"], "acpmux machine ls");
         assert_eq!(data["peerState"], "reconnecting");
         assert_eq!(data["lastSeen"], 0);
         let never = describe("gone", &Link::default(), None, 5);

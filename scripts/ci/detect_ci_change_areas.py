@@ -175,6 +175,9 @@ CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
 # that tree can execute cannot change what a pull request's lanes do.
 _LOCAL_WORKFLOW_CALL_RE = re.compile(r"""uses:\s*["']?\./(\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml)""")
 _DOCUMENTATION_SUFFIXES = (".md", ".mdx", ".txt")
+# Data files that name helpers without running them: git attributes and the
+# warm-source table, whose entries describe a source in prose (#28568).
+_NON_RUNNING_FILES = frozenset({".gitattributes", ".github/warm-sources.json"})
 
 
 def routed_workflows(root: Path) -> Optional[frozenset[str]]:
@@ -264,12 +267,20 @@ _CI_GUARD_ENTRYPOINT = "scripts/ci/workloads/ci-guard.sh"
 # one. That job runs the same Linux guard tests, not the app's macOS lanes, so
 # the term does not make the tests it names macOS-relevant.
 _PORTABLE_RUNNER_TERM = "inputs.guard_tests_runner != '' && inputs.guard_tests_runner ||"
+# The credentialed `changes` router accepts only the current attempt's
+# validated Linux placement. Its test-path references still run on Linux;
+# an unknown needs expression must continue to fail open below.
+_PORTABLE_ROUTER_LINUX_TERM = (
+    "needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && "
+    "contains(needs.portable-placement.outputs.linux_jobs, ' changes ') && "
+    "needs.portable-placement.outputs.linux_runner ||"
+)
 
 
 def is_plainly_linux_runner(runs_on: str) -> bool:
     # Anything else counts as macOS: a matrix or needs expression, a list or
     # group on the following lines, or a label this does not recognize.
-    value = runs_on.strip().replace(_PORTABLE_RUNNER_TERM, "")
+    value = runs_on.strip().replace(_PORTABLE_RUNNER_TERM, "").replace(_PORTABLE_ROUTER_LINUX_TERM, "")
     if not value or re.search(r"macos|matrix\.|needs\.|inputs\.", value, re.IGNORECASE):
         return False
     return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu", value))
@@ -530,10 +541,14 @@ _ROUTING_TABLES = frozenset({
     "scripts/ci/detect_linux_guard_changes.py",
     "scripts/ci/workflow_guard_groups.py",
 })
-# Files that list test paths without running them: the routing tables and
-# cmux-next.yml's path router.
+# Files that list test paths without running them: the routing tables,
+# cmux-next.yml's path router, the guard wiring test's manual-lane list, and
+# base_red_excuse.py's guard-test input table with its test's fixtures (#30467).
 _TEST_PATH_LISTS = _ROUTING_TABLES | frozenset({
+    "scripts/ci/base_red_excuse.py",
     "scripts/ci/cmux_next_route.py",
+    "tests/test_base_red_excuse.py",
+    "tests/test_ci_workflow_guards_are_wired.py",
 })
 # The execution registry runs its entries: ci-macos.yml's
 # `run_python_test_lane.py --lane ...` step executes every test in the lanes it
@@ -585,6 +600,44 @@ def _python_names(text: str, token: str, *, imports_only: bool = False) -> Optio
                 and id(node) not in docstrings and whole_name.search(node.value)):
             return True
     return False
+
+
+def _python_runner_names(root: Path, runner: str, test: str) -> Optional[bool]:
+    """Whether the Python file `runner` names `test` outside comments and
+    docstrings, or None when it cannot be read or parsed (fail open)."""
+    try:
+        text = (root / runner).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return _python_names(text, test)
+
+
+def _nothing_imports_test(root: Path, test: str) -> bool:
+    """True when no tracked file but the test, its inert registry entry, the
+    test path lists and documentation names its module, outside a Python file
+    that names it only as a string (a path) rather than importing it."""
+    # Only a test the registry declares in a lane no job runs (manual, say)
+    # counts; an unregistered test nothing names still fails open.
+    if not _registry_lane_is_inert(root, test):
+        return False
+    stem = Path(test).stem
+    namers = _files_naming(root, stem)
+    if namers is None:
+        return False
+    for namer in namers:
+        if namer == test or namer in _TEST_PATH_LISTS or namer.endswith(_DOCUMENTATION_SUFFIXES):
+            continue
+        if namer == _TEST_REGISTRY_PATH and _registry_lane_is_inert(root, test):
+            continue
+        if namer.endswith(".py"):
+            try:
+                text = (root / namer).read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                return False
+            if _python_names(text, stem, imports_only=True) is False:
+                continue
+        return False
+    return True
 
 
 def _jobs_naming(jobs: dict[str, str], token: str) -> frozenset[str]:
@@ -712,7 +765,7 @@ def ci_helper_areas(
             referenced = True
             if referrer.endswith(_DOCUMENTATION_SUFFIXES) or referrer.startswith(".github/workflows/"):
                 continue
-            if referrer == ".gitattributes":
+            if referrer in _NON_RUNNING_FILES:
                 continue
             if referrer.startswith(("scripts/", ".github/actions/")):
                 try:
@@ -737,11 +790,23 @@ def ci_helper_areas(
                     runners = _files_naming(root, referrer)
                     if runners is None:
                         return every_area(f"could not search for {referrer}")
+                    # The test itself, documentation and a Python test that
+                    # names it only in a comment or docstring do not run it
+                    # (docs/ci/cmux-next-tiers.md and a route test naming its
+                    # own path as a routing input made these fail open).
                     runners = [
                         runner for runner in runners
-                        if runner not in _TEST_PATH_LISTS
+                        if runner != referrer
+                        and runner not in _TEST_PATH_LISTS
+                        and not runner.endswith(_DOCUMENTATION_SUFFIXES)
                         and not (runner == _TEST_REGISTRY_PATH and _registry_lane_is_inert(root, referrer))
+                        and not (runner.startswith("tests/") and runner.endswith(".py")
+                                 and _python_runner_names(root, runner, referrer) is False)
                     ]
+                    if not runners and _nothing_imports_test(root, referrer):
+                        # Nothing runs it or imports it: a manual-lane test
+                        # people run by hand, which no pull request job reaches.
+                        continue
                     if runners and all(
                         (runner.startswith(".github/workflows/") and runner not in routed)
                         or runner.startswith("scripts/")

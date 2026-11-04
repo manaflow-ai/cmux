@@ -19,6 +19,8 @@ import type { AcpmuxSnapshot } from "../model";
 import { homePath } from "../sessionList";
 import { chatProject } from "./chatFolders";
 import { openCloudEnvironment } from "../cloudEnvironment";
+import { Switch } from "../../../ui/Switch";
+import "../../../ui/controls.css";
 import {
   CloudRepositoryPicker,
   loadAttachedCloudRepos,
@@ -260,6 +262,14 @@ export function EnvironmentSection({
           </button>
         )}
       </li>
+      {machine.kind === "cloud" && (
+        // What a Cloud machine is and how long its files last, said plainly beside the chat
+        // (Leo, 2026-11-02, on Claude Code's cloud session that says so: "i want us to be able to
+        // do this too"). The agent says the same when asked (acpmux cloud_repo_mcp.rs INSTRUCTIONS).
+        <li className="acpmux-session-info-note" data-note="cloud-lifetime">
+          {t("cloudRepository.lifetime")}
+        </li>
+      )}
       {canUseCloudRepositories && cloudSession && (
         <>
           <li className="acpmux-session-info-row acpmux-cloud-environment-row">
@@ -280,6 +290,7 @@ export function EnvironmentSection({
               ref={addRepositoryButton}
               type="button"
               className="acpmux-session-info-row acpmux-session-info-row--button"
+              data-action="add-repository"
               aria-haspopup="dialog"
               aria-expanded={repositoryPickerOpen}
               data-open={repositoryPickerOpen ? "" : undefined}
@@ -350,12 +361,12 @@ export function EnvironmentSection({
           <Icon name={remoteControlIcon} size={ROW_ICON} row fit />
           <label className="acpmux-session-info-switch" title={t("sessionInfo.environment.remoteControl.help")}>
             <span className="acpmux-session-info-row__name">{t("sessionInfo.environment.remoteControl")}</span>
-            <input
-              type="checkbox"
+            <Switch
               className="acpmux-session-info-switch__input"
+              size="md"
               aria-label={t("sessionInfo.environment.remoteControl")}
               checked={remoteControl.on}
-              onChange={(event) => remoteControl.set(event.currentTarget.checked)}
+              onCheckedChange={remoteControl.set}
             />
           </label>
         </li>

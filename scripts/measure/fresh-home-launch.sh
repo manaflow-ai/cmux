@@ -33,8 +33,12 @@ if [[ -n "$ref" && "$ref" != "$(git rev-parse HEAD)" ]]; then
   # is fetchable there by sha).
   if ! git cat-file -e "$ref^{commit}" 2>/dev/null; then
     fetched=false
+    # --depth only on an already-shallow checkout: in a full clone it would truncate history for
+    # every worktree sharing it (tests/test_ci_no_shallow_dev_fetch.py).
+    depth=()
+    [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
     for remote in origin /Users/Shared/cmux-build-fleet/git/cmux.git https://github.com/manaflow-ai/cmux.git; do
-      git fetch --quiet --depth 1 "$remote" "$ref" 2>/dev/null && { fetched=true; break; }
+      git fetch --quiet ${depth[@]+"${depth[@]}"} "$remote" "$ref" 2>/dev/null && { fetched=true; break; }
     done
     $fetched || { echo "cannot fetch $ref" >&2; exit 3; }
   fi

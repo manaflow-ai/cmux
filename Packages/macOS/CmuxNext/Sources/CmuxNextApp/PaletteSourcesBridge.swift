@@ -117,8 +117,11 @@ enum PaletteSourcesBridge {
                 for id in group.workspaceIDs where groupNames[id] == nil { groupNames[id] = group.name }
             }
             let subagents = ChiefSubagentIDs.live
+            let closing = TabSearchFactsBuilder.closing(services), resolver = TabTitleResolver(services: services)
             return services.machines.allWorkspaces.map { workspace, daemon in // another machine's rows name it
                 let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+                // A lone tab is its workspace (Go to Workspace lists no row of its own): its words find this row.
+                let live = tabs.filter { !closing.contains($0.id) }, lone = live.count == 1 && !HomeRules.isHome(workspace) ? live.first : nil
                 let cwd = tabs.first { $0.cwd != nil }?.cwd
                 // A Chief subagent's workspace is found by the id the Chief gave it (`a612`).
                 let agentID = subagents.id(name: workspace.displayName, chats: tabs.compactMap(\.agentSession))
@@ -128,16 +131,15 @@ enum PaletteSourcesBridge {
                 return PaletteWorkspace(id: workspace.id, title: services.shownWorkspaceName(workspace), directory: cwd,
                                         isSelected: workspace.id == shown, unreadCount: workspace.unreadCount,
                                         groupName: groupNames[workspace.id], machineName: onThisMac ? nil : services.machines.machineName(daemon.machineID),
-                                        agentID: agentID)
+                                        agentID: agentID,
+                                        keywords: lone.map { PaletteWorkspace.loneTabWords(title: resolver.title($0), url: $0.url, session: $0.agentSession?.session) } ?? [])
             }
         }
 
+        func hasWorkspace(id: String) -> Bool { services.machines.workspace(id: id) != nil } // perf-hot: 0.01ms workspace-switch (O(1) per daemon, no row built)
         func selectWorkspace(id: String) {
             // No active window (all closed, CLI run): show it in its own window, else a new one.
-            guard let window = services.windows.active else {
-                services.windows.reveal(workspaceID: id)
-                return
-            }
+            guard let window = services.windows.active else { _ = services.windows.reveal(workspaceID: id); return }
             // Keep a workspace already listed in this window on the same selection path as a sidebar
             // click and the numbered navigation shortcuts, so its row highlight moves in the same turn.
             // A workspace owned by another window keeps the palette's global show behavior.

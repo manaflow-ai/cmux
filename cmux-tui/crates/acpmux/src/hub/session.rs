@@ -63,6 +63,7 @@ pub struct Session {
     /// Held while a child is spawned and initialized, so concurrent
     /// requests for a stopped session start one agent, not several.
     pub(super) spawn_lock: Mutex<()>,
+    pub(super) fork_lock: Mutex<()>,
     /// Serializes close/purge with transfer retirement before an ID can be reused.
     pub(super) close_lock: Mutex<()>,
     /// Held shared by a request that reaches the harness outside a turn (a start, a mode
@@ -126,6 +127,8 @@ pub struct Session {
     /// that cancel is handed to the child prevents the next turn's prompt from overtaking it.
     pub(super) input_handoff: std::sync::Arc<Mutex<()>>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
+    /// When the person left it and the recap made meanwhile (`away_recap.rs`).
+    pub(super) away: StdMutex<super::away_recap::Away>,
     /// The turn `finish_turn` took and has not ended yet: a shutdown settles it if its end does
     /// not land within the grace (`shutdown.rs` `settle_ends`).
     pub(super) ending: StdMutex<Option<TurnInfo>>,
@@ -147,6 +150,12 @@ pub struct Session {
     /// Being moved to another daemon (`transfer_out.rs`): the transfer id. It takes no prompt
     /// and starts nothing queued until the move commits (it closes) or aborts.
     pub(super) moving: StdMutex<Option<String>>,
+    /// Fencing epoch for the daemon that owns this session. A move increments it; transfer
+    /// requests carry the value so a delayed writer from the previous owner cannot mutate state.
+    pub(super) ownership_epoch: AtomicU64,
+    /// Cleared when durable transfer history cannot be read; ownership must fail closed until
+    /// the daemon can establish the fencing floor.
+    pub(super) ownership_epoch_valid: AtomicBool,
     /// Latest durable transfer event (sequence, blocked), rebuilt once from the log.
     /// None until a restored log has been read successfully.
     pub(super) transfer_authority: StdMutex<Option<(u64, bool)>>,
@@ -390,6 +399,29 @@ pub struct Session {
 }
 
 impl Session {
+    /// The fencing epoch currently held by this session owner.
+    pub(crate) fn ownership_epoch(&self) -> u64 {
+        self.ownership_epoch.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn ownership_epoch_is_valid(&self) -> bool {
+        self.ownership_epoch_valid.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn invalidate_ownership_epoch(&self) {
+        self.ownership_epoch_valid.store(false, Ordering::SeqCst);
+    }
+
+    /// Transfer ownership to a new daemon incarnation. Epoch zero is the legacy value; every
+    /// move gets a strictly larger value, including a move retried after an abort.
+    pub(super) fn bump_ownership_epoch(&self) -> u64 {
+        self.ownership_epoch.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// Restore an epoch observed in the durable transfer log without ever moving it backwards.
+    pub(super) fn restore_ownership_epoch(&self, epoch: u64) {
+        self.ownership_epoch.fetch_max(epoch, Ordering::SeqCst);
+    }
     /// The person wrote to this chat (`Session::person`): its next agent start waits as long as
     /// its harness works on it.
     pub(crate) fn person_wrote(&self) {

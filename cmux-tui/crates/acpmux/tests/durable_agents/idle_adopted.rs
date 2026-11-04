@@ -72,3 +72,59 @@ async fn an_adopted_harness_running_only_its_mcp_servers_hibernates() {
     assert!(ended, "the adopted idle harness kept running with only its MCP servers under it");
     assert!(servers_ended, "its MCP servers outlived the hibernation");
 }
+
+/// A Claude Code harness an older build started, so its session kept none of its servers
+/// (`idleLaunch`), adopted with only the server its user config names (`.claude.json`) running
+/// under it: the next daemon reads its servers from the running harness and it hibernates. Before,
+/// none were known, so that server kept it up for good (27 idle harnesses, 8.3 GB, on one lane VM,
+/// 2026-11-03). Its next prompt wakes it and is answered.
+#[tokio::test]
+async fn an_adopted_harness_whose_servers_were_never_kept_hibernates_and_wakes() {
+    let pids_file =
+        std::env::temp_dir().join(format!("amd-idlelegacy-pids-{}", std::process::id()));
+    let mut daemon = Daemon::claude_router(
+        "idlelegacy",
+        &[("FAKE_CLAUDE_RUN_USER_MCP", pids_file.to_str().unwrap())],
+    );
+    std::fs::write(
+        daemon.home.join("claude").join(".claude.json"),
+        json!({"mcpServers": {"side": {"type": "stdio", "command": "/bin/sleep", "args": ["3597"]}}})
+            .to_string(),
+    )
+    .unwrap();
+    let session = new_session(&daemon).await;
+    let prompt =
+        |text: &str| json!({"sessionId": session, "prompt": [{"type": "text", "text": text}]});
+    daemon.rpc().await.call("session/prompt", prompt("hello")).await;
+    let harness = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    let servers: Vec<i64> = std::fs::read_to_string(&pids_file)
+        .unwrap()
+        .lines()
+        .filter_map(|l| l.trim().parse().ok())
+        .collect();
+    let _ = std::fs::remove_file(&pids_file);
+    assert_eq!(servers.len(), 1, "the harness did not start its user config's server");
+    assert!(alive(servers[0]), "the server exited at its start");
+    daemon.sigterm();
+    // What a build before `StoredLaunch` left: a session that kept none of its servers.
+    let meta_path = daemon.home.join("sessions").join(&session).join("session.json");
+    let mut meta: Value = serde_json::from_slice(&std::fs::read(&meta_path).unwrap()).unwrap();
+    assert!(!meta["idleLaunch"].is_null(), "this build kept no servers to drop");
+    meta.as_object_mut().unwrap().remove("idleLaunch");
+    std::fs::write(&meta_path, meta.to_string()).unwrap();
+    daemon.env.push(("ACPMUX_IDLE_CHILD_SECS".into(), "1".into()));
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    let ended = gone_within(harness, Duration::from_secs(20));
+    let server_ended = gone_within(servers[0], Duration::from_secs(10));
+    if !ended {
+        daemon.rpc().await.call("_acpmux/kill", json!({"sessionId": session})).await;
+    }
+    assert!(ended, "the adopted idle harness kept running with only its user config's server");
+    assert!(server_ended, "its MCP server outlived the hibernation");
+    // The first message after idle just works: a new harness answers it.
+    let answer = daemon.rpc().await.call("session/prompt", prompt("again")).await;
+    assert_eq!(answer["stopReason"], "end_turn", "the woken agent did not answer: {answer}");
+    let woken = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    assert_ne!(woken, harness, "the prompt was not answered by a new harness");
+}

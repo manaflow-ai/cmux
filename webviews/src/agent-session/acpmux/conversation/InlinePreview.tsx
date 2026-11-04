@@ -39,11 +39,15 @@ export function InlinePreview({
   code,
   lang,
   actions,
+  artifactIdentity,
+  artifactRevision,
 }: {
   kind: "html" | "svg";
   code: string;
   lang: string;
   actions?: ReactNode;
+  artifactIdentity?: string;
+  artifactRevision?: number;
 }) {
   const t = useT();
   const [showCode, setShowCode] = useState(false);
@@ -57,7 +61,16 @@ export function InlinePreview({
   );
   // Only the native frame or the gallery can draw it; anywhere else (the dev server) shows the source.
   const framed = artifactFrameURL() !== undefined || artifactGallery();
-  if (scripted || left || !framed) return <CodeBlock code={code} lang={lang} actions={actions} />;
+  if (scripted || left || !framed)
+    return (
+      <CodeBlock
+        code={code}
+        lang={lang}
+        actions={actions}
+        artifactIdentity={artifactIdentity}
+        artifactRevision={artifactRevision}
+      />
+    );
   const toggle = (
     <button
       type="button"
@@ -73,6 +86,8 @@ export function InlinePreview({
       <CodeBlock
         code={code}
         lang={lang}
+        artifactIdentity={artifactIdentity}
+        artifactRevision={artifactRevision}
         actions={
           <>
             {toggle}
@@ -92,7 +107,7 @@ export function InlinePreview({
       head={
         <>
           {toggle}
-          <OpenPreview code={code} lang={lang} />
+          <OpenPreview code={code} lang={lang} identity={artifactIdentity} revision={artifactRevision} />
           <CopyButton text={code} label={t("code.copy")} />
           {actions}
         </>

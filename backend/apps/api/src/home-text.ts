@@ -1,4 +1,5 @@
-import { invites } from "@cmux/home-core"
+import { address, invites } from "@cmux/home-core"
+import { textChiefOn } from "./text-chief.ts"
 import { CONTACT_PHOTO_JPEG_BASE64 } from "./contact-photo.ts"
 import type { Env } from "./env.ts"
 
@@ -45,6 +46,12 @@ export interface SendblueMessage {
   readonly is_outbound: boolean
   readonly content: string
   readonly opted_out: boolean
+  /** Our line (inbound: `to_number`; SendBlue also names it `sendblue_number`). */
+  readonly line?: string
+  readonly service?: string
+  readonly media_url?: string
+  readonly group_id?: string
+  readonly date_sent?: string
 }
 
 /** SendBlue's own record of a message; null when it does not exist or the API refuses. */
@@ -55,7 +62,11 @@ export const fetchSendblueMessage = async (env: Env, handle: string, fetcher: ty
   const body = (await res.json().catch(() => null)) as Record<string, unknown> | null
   const m = (body && typeof body.data === "object" && body.data ? body.data : body) as Record<string, unknown> | null
   if (!m || m.message_handle !== handle || typeof m.status !== "string" || typeof m.number !== "string") return null
-  return { message_handle: handle, status: m.status, number: m.number, is_outbound: m.is_outbound !== false, content: typeof m.content === "string" ? m.content : "", opted_out: m.opted_out === true }
+  const str = (v: unknown) => (typeof v === "string" && v.length > 0 ? v : undefined)
+  return {
+    message_handle: handle, status: m.status, number: m.number, is_outbound: m.is_outbound !== false, content: typeof m.content === "string" ? m.content : "", opted_out: m.opted_out === true,
+    line: str(m.to_number) ?? str(m.sendblue_number), service: str(m.service), media_url: str(m.media_url), group_id: str(m.group_id), date_sent: str(m.date_sent)
+  }
 }
 
 /**
@@ -77,7 +88,15 @@ export const handleSendblueHook = async (request: Request, env: Env, fetcher: ty
   const phone = invites.normalizePhone(message.number)
   if (!invites.isAddress(phone)) return new Response(null, { status: 200 })
   const id = invites.addressId(env.HOME_ADDRESS_KEY, phone)
-  const stub = env.ADDRESS_DO.get(env.ADDRESS_DO.idFromName(id)) as unknown as { textEvent(address: string, m: SendblueMessage): Promise<void> }
+  const stub = env.ADDRESS_DO.get(env.ADDRESS_DO.idFromName(id)) as unknown as { textEvent(address: string, m: SendblueMessage): Promise<void>; textInbound(address: string, phone: string, m: SendblueMessage): Promise<string> }
+  // Texting Chief (text-chief.ts): a fresh inbound text that is not an opt-out goes to the sender's Chief.
+  const sent = message.date_sent ? Date.parse(message.date_sent) : NaN
+  const fresh = Number.isFinite(sent) && Date.now() - sent <= address.INBOUND_MAX_AGE_MS && sent - Date.now() <= 60_000
+  if (!message.is_outbound && textChiefOn(env) && fresh && !message.opted_out && address.keywordOf(message.content) !== "stop") {
+    const outcome = await stub.textInbound(id, phone.value, message)
+    console.log(JSON.stringify({ msg: "text chief inbound", outcome }))
+    return new Response(null, { status: 200 })
+  }
   await stub.textEvent(id, message)
   return new Response(null, { status: 200 })
 }

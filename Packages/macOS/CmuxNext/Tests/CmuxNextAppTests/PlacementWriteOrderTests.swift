@@ -26,9 +26,9 @@ struct PlacementWriteOrderTests {
     private static func burst(mixed: Bool, mode: String = "") async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
-        let savedDocument = SidebarDocStore.current
-        SidebarDocStore.current = nil
-        defer { SidebarDocStore.current = savedDocument }
+        final class Notices { var shown: [String] = [] }
+        let notices = Notices()
+        services.registry.remoteFailureObserver = { _, notice in notices.shown.append(notice) }
         let bridge = DaemonBridge.fakePython(["-c", PlacementStaleRowsGalleryTests.daemonScript, mixed ? "1" : "0", mode])
         let connection = DaemonConnection(endpoint: .init(socketPath: "/tmp/cmux-placement-order-\(UUID().uuidString).sock", bridge: bridge),
                                           configuration: .init(requiredCapabilities: [], terminalEnvironment: nil))
@@ -59,7 +59,24 @@ struct PlacementWriteOrderTests {
             }
             #expect(scope.isIdle)
             if mode == "disconnect" {
+                // The action reads that the moves may still apply; the rows keep them, sent again until the daemon
+                // answers (Leo, 2026-11-03: "THEN WE UNDO IT!!! WHICH IS BAD!!!").
                 #expect(!scope.failures.isEmpty)
+                #expect(controller.sidebar.model.selectableWorkspaces.map(\.id.rawValue) == ["k1", "k2", "k3", "k4"],
+                        "a lost connection undid the optimistic moves")
+                #expect(notices.shown.isEmpty, "a lost connection showed a notice: \(notices.shown)")
+            } else if mode == "timeout" {
+                // The first placement missed its deadline: it is sent again, nothing is undone or reported, and the
+                // queue lands every move in order.
+                try await ControlDeadline.shared.run(method: "placement retry", deadline: .now + .seconds(20)) {
+                    await services.personalPlacements.drained()
+                }
+                let captured = try await connection.request(Report())
+                #expect(notices.shown.isEmpty, "a missed deadline showed a notice: \(notices.shown)")
+                #expect(captured.order == ["k1", "k2", "k3", "k4"])
+                #expect(captured.writes.map(\.workspace_key) == ["k2", "k3", "k4"])
+                #expect(captured.attempts == 4, "the unanswered placement is sent once more")
+                #expect(controller.sidebar.model.selectableWorkspaces.map(\.id.rawValue) == ["k1", "k2", "k3", "k4"])
             } else {
                 let captured = try await connection.request(Report())
                 if mode.isEmpty {
@@ -67,6 +84,13 @@ struct PlacementWriteOrderTests {
                     #expect(captured.order == ["k1", "k2", "k3", "k4"])
                     #expect(captured.writes.map(\.workspace_key) == ["k2", "k3", "k4"])
                     #expect(captured.writes.map(\.index) == [3, 3, 3])
+                } else if mode == "gone" {
+                    // k2 ended before its placement ran (Leo, 2026-11-03: a "Move did not apply ... no workspace matches"
+                    // notice after an agent open timed out under load): its step is dropped, nothing says a move failed,
+                    // and the placements queued after it still apply.
+                    #expect(scope.failures.isEmpty, "a gone workspace's placement failed the run: \(scope.failures)")
+                    #expect(notices.shown.isEmpty, "a gone workspace's placement showed a notice: \(notices.shown)")
+                    #expect(captured.writes.map(\.workspace_key) == ["k3", "k4"])
                 } else if mode == "closed" {
                     // Every placement skips its closed window; a skip is not a failure.
                     #expect(scope.failures.isEmpty)
@@ -93,6 +117,17 @@ struct PlacementWriteOrderTests {
     @Test(arguments: ["fail", "disconnect", "closed"])
     func failedOrAbandonedPlacementReleasesTheQueuedCommands(mode: String) async throws {
         try await Self.burst(mixed: false, mode: mode)
+    }
+
+    /// A placement the daemon did not answer in time is not a refusal: it is sent again, the moves stay as the person
+    /// made them and no notice shows (Leo, 2026-11-03, "Move did not apply: set-personal-workspace: timed out").
+    @Test func anUnansweredPlacementIsSentAgainNotUndone() async throws {
+        try await Self.burst(mixed: false, mode: "timeout")
+    }
+
+    /// A placement whose workspace the daemon no longer has (`selector.not_found`) is dropped quietly, never toasted.
+    @Test func aPlacementForAGoneWorkspaceIsDroppedWithoutANotice() async throws {
+        try await Self.burst(mixed: false, mode: "gone")
     }
 
     /// A placement that skips (its window closed, its workspace deleted

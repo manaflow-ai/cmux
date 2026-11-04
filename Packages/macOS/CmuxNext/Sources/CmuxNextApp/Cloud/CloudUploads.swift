@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCloud
 import CmuxNextWakeups
 import Foundation
 
@@ -10,12 +11,7 @@ import Foundation
 /// from anywhere else on this Mac, and the machine can't start an upload.
 @MainActor
 final class CloudUploads {
-    /// `cmux-pastes` in the temporary folder the upload CLI (a child of this app, with its
-    /// environment) resolves: `TMPDIR`. Nil without one (the CLI would look elsewhere): no upload.
-    nonisolated static var pastes: URL? {
-        guard let temporary = ProcessInfo.processInfo.environment["TMPDIR"], temporary.hasPrefix("/") else { return nil }
-        return URL(fileURLWithPath: temporary, isDirectory: true).appendingPathComponent("cmux-pastes", isDirectory: true)
-    }
+    nonisolated static var pastes: URL? { AgentPaneCloudAttachments.pastes }
 
     /// Where one tab's upload goes: the moved chat's machine and its work root.
     private struct Target {
@@ -79,7 +75,7 @@ final class CloudUploads {
         defer { try? FileManager.default.removeItem(at: folder) }
         let paths: [String]
         do {
-            paths = try await Task.detached { try CloudUploads.write(files, in: folder) }.value
+            paths = try await Task.detached { try AgentPaneCloudAttachments.write(files, in: folder) }.value
         } catch {
             // The error's domain and code only: its description can name the file.
             let failure = error as NSError
@@ -175,23 +171,6 @@ final class CloudUploads {
     static func beginRefusal(name: String, size: Int, manifest: [AgentPaneUploadBatchEntry]?) -> [String: Any]? {
         AgentPaneStagedUploads<Target>.acceptsBegin(name: name, size: size, manifest: manifest)
             ? nil : AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed)
-    }
-
-    /// Writes each file owner-only to `folder/<index>/<name>` (its own folder, so two files may share
-    /// a name), with `cmux-pastes` and `folder` owner-only too; the paths, in order.
-    private nonisolated static func write(_ files: [AgentPaneUpload], in folder: URL) throws -> [String] {
-        let manager = FileManager.default, owner: [FileAttributeKey: Any] = [.posixPermissions: 0o700]
-        try manager.createDirectory(at: folder.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: owner)
-        try manager.createDirectory(at: folder, withIntermediateDirectories: false, attributes: owner)
-        return try files.enumerated().map { index, file in
-            let parent = folder.appendingPathComponent(String(index), isDirectory: true)
-            try manager.createDirectory(at: parent, withIntermediateDirectories: false, attributes: owner)
-            let url = parent.appendingPathComponent(file.name, isDirectory: false)
-            guard manager.createFile(atPath: url.path, contents: file.data, attributes: [.posixPermissions: 0o600]) else {
-                throw CocoaError(.fileWriteUnknown)
-            }
-            return url.path
-        }
     }
 }
 

@@ -21,6 +21,8 @@ import { chromium, webkit, type Browser, type BrowserType, type Page } from "pla
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { sessionInfoPushAlways, papercutPane } from "./support/papercutChat";
 import { railPlacement } from "../src/agent-session/acpmux/threadMinimap/model";
+import { sessionInfoStage } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { SESSION_INFO_WIDTH } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 
 await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -69,10 +71,9 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
   };
   const closeSessionInfo = async (page: Page) => {
     const toggle = await showToggle(page);
-    if ((await page.locator("aside.acpmux-session-info").count()) > 0) {
-      await toggle.click({ force: true });
-      await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 5_000 });
-    }
+    // Pressed while it shows; a pane that waits for the person (SessionInfo.tsx sessionInfoFits) has it closed already.
+    if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click({ force: true });
+    await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 5_000 });
     await settle(page);
   };
   const openSessionInfo = async (page: Page, push: boolean) => {
@@ -114,13 +115,17 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
       const scroller = document.querySelector(".acpmux-scroll")!.getBoundingClientRect();
       const rows = [...document.querySelectorAll(".acpmux-row")].map((row) => row.getBoundingClientRect().left);
       const column = Math.min(...rows);
-      if (!nav) return { shown: false as const };
+      // Session Info's stage as the page chose it (SessionInfo.tsx sessionInfoStage, with the chat's
+      // measured overflow), not one this file computes.
+      const placement = document.querySelector("aside.acpmux-session-info")?.getAttribute("data-placement") ?? null;
+      if (!nav) return { shown: false as const, placement };
       const box = nav.getBoundingClientRect();
       // A tick's resting bar, as drawn.
       const bar = nav.querySelector(".acpmux-minimap__bar")!.getBoundingClientRect();
       return {
         shown: true as const,
         scrollbarPinned: Math.abs(scroller.right - shell.right) < 1,
+        placement,
         left: Math.round(box.left),
         occluded: nav.hasAttribute("data-occluded"),
         insidePane: box.left >= shell.left - 0.5 && box.right <= shell.right + 0.5 && bar.width > 0,
@@ -146,7 +151,8 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           if (width === 1084 && process.env.RAIL_GUTTER_SCREENSHOT) {
             await page.screenshot({ path: process.env.RAIL_GUTTER_SCREENSHOT });
           }
-          // Push always narrows the chat to the pane less the panel; the rail stays pinned to the pane
+          // Push always narrows the chat to the pane less the panel where that keeps the column (else it lies
+          // over the chat); the rail stays pinned to the pane
           // edge and uses its own spacing-token inset.
           await closeSessionInfo(page);
           await openSessionInfo(page, true);
@@ -160,8 +166,26 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
             expect(state.occluded).toBe(state.distance! < -0.5);
           }
           expect(closed.scrollbarPinned).toBe(true);
-          expect(open.scrollbarPinned).toBe(true);
-          expect(pushed.scrollbarPinned).toBe(false);
+          // The chat's scroller (and its scrollbar) leaves the pane's right edge only where Session Info
+          // pushes, read from the page's own stage. It floats where the gutter holds it (1600px), pushes only
+          // where that keeps the transcript's column at its width (1084px), and lies over the chat wherever a
+          // push would narrow the column (1200px, 800px and under; #33037, Leo 2026-11-03: "its text
+          // shouldn't be affected by the session info if it would need to be then session info should be an
+          // overlay"). Push always pushes by its whole room, so it too lies over the chat where that room
+          // narrows the column (1600px). The model's stage at the panel's default width (sessionInfoStage)
+          // still says 1084px pushes in both, so the push arm stays covered.
+          if (width === 1084) {
+            const pushesHere = (placement: "overlay" | "push") =>
+              sessionInfoStage(placement, { width, height: 700 }, SESSION_INFO_WIDTH.fallback) === "push";
+            expect([pushesHere("overlay"), pushesHere("push"), open.placement, pushed.placement]).toEqual([
+              true,
+              true,
+              "push",
+              "push",
+            ]);
+          }
+          expect(open.scrollbarPinned).toBe(open.placement !== "push");
+          expect(pushed.scrollbarPinned).toBe(pushed.placement !== "push");
           expect([closed.left, open.left, pushed.left]).toEqual([railInset, railInset, railInset]);
         } finally {
           await page.close();
@@ -180,11 +204,11 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           // Keep this same preview open while Session Info changes independently of pointer/focus.
           await card.locator(".acpmux-minimap__bookmark").focus();
           await page.evaluate(() => {
-            const samples: { rail: number; card: number | null }[] = [];
+            const samples: { pinned: number; rail: number; card: number | null }[] = [];
             const stop = window.cmuxAfterPaint(() => {
               const rail = document.querySelector(".acpmux-minimap__rail")!.getBoundingClientRect();
               const card = document.querySelector(".acpmux-minimap__card")?.getBoundingClientRect();
-              samples.push({ rail: rail.right, card: card?.left ?? null });
+              samples.push({ pinned: rail.left, rail: rail.right, card: card?.left ?? null });
               return true;
             });
             Object.assign(window, { railCardFrames: { samples, stop } });
@@ -206,7 +230,7 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           const samples = await page.evaluate(() => {
             const trace = (
               window as unknown as {
-                railCardFrames: { samples: { rail: number; card: number | null }[]; stop(): void };
+                railCardFrames: { samples: { pinned: number; rail: number; card: number | null }[]; stop(): void };
               }
             ).railCardFrames;
             trace.stop();
@@ -214,8 +238,10 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           });
           expect(samples.length).toBeGreaterThan(0);
           // The rail is pinned to the pane edge (model.ts railPlacement), so Session Info and these
-          // resizes never move it; the card must stay on it on every painted frame.
-          expect(new Set(samples.map((sample) => Math.round(sample.rail))).size).toBe(1);
+          // resizes never move its left edge; where Session Info pushes the chat (1084px, Leo
+          // 2026-11-01), the narrower gutter may narrow the rail. The card must stay on it on every
+          // painted frame.
+          expect(new Set(samples.map((sample) => Math.round(sample.pinned))).size).toBe(1);
           expect(samples.filter((sample) => sample.card === null || Math.abs(sample.card - sample.rail) > 1)).toEqual(
             [],
           );

@@ -13,9 +13,11 @@
 // Cost: nothing in WebKit (no listeners, no elements). In Chromium, while one surface is open: one
 // hidden <svg> with a filter per covered element, a ResizeObserver on the surface, its parent and
 // the candidates, a MutationObserver (direct children only, never the subtree) on the candidates'
-// parents, and a requestAnimationFrame loop that follows the surface while its rect, opacity or
-// visibility changes (its enter and exit, a resize, a banner or Find bar coming in) and stops after
-// STABLE_FRAMES unchanged frames. Each frame reads every rect first and writes only what changed.
+// parents and on the surface's own inline style, and a requestAnimationFrame loop that follows the
+// surface while its rect, opacity or visibility changes (its enter and exit, a resize, a move, a
+// banner or Find bar coming in) and stops after STABLE_FRAMES unchanged frames. Each frame reads every rect first and writes only what changed.
+// A change of the surface's own inline style alone (the rail's preview card moving to the next row by
+// its transform) measures once on the next frame, not the loop: the new place is final when written.
 // Closing the surface removes all of it. A window without those observers (a test DOM) gets nothing.
 import { type RefObject, useLayoutEffect } from "react";
 
@@ -40,8 +42,6 @@ export type BlurHole = {
   radius: number;
   /** The Gaussian's standard deviation, CSS px: CSS `blur(r)` is a deviation of r. */
   blur: number;
-  /** The surface's opacity: the blur fades in and out with it. */
-  opacity: number;
 };
 
 /** The blur radius in a `backdrop-filter` value ("blur(24px) saturate(1.8)" is 24), else `fallback`. */
@@ -60,7 +60,7 @@ export function overlaps(a: DOMRectReadOnly, b: DOMRectReadOnly): boolean {
 export function holeIn(
   surface: DOMRectReadOnly,
   target: DOMRectReadOnly,
-  style: { radius: number; blur: number; opacity: number },
+  style: { radius: number; blur: number },
 ): BlurHole {
   return {
     x: surface.left - target.left,
@@ -69,7 +69,6 @@ export function holeIn(
     height: surface.height,
     radius: Math.min(style.radius, surface.width / 2, surface.height / 2),
     blur: style.blur,
-    opacity: Math.min(1, Math.max(0, style.opacity)),
   };
 }
 
@@ -90,7 +89,10 @@ function primitive(doc: Document, name: string, attributes: Record<string, strin
 }
 
 /** Builds a covered element's filter: the element as it is outside the hole, and inside it its own
- * pixels blurred (mixed with the sharp ones by the surface's opacity), cut to the rounded hole. */
+ * pixels blurred, cut to the rounded hole. The blur is all or nothing: a surface fading in or out
+ * never draws its pixels part sharp, part blurred (Leo, 2026-10-26: "If we're doing blur, we're
+ * doing blur. If we're not doing blur, we're not doing blur. We shouldn't have in-between states
+ * ever. That cause flicker"). */
 export function createHoleFilter(doc: Document, id: string): SVGFilterElement {
   const filter = primitive(doc, "filter", {
     id,
@@ -100,16 +102,8 @@ export function createHoleFilter(doc: Document, id: string): SVGFilterElement {
   }) as SVGFilterElement;
   filter.append(
     primitive(doc, "feGaussianBlur", { in: "SourceGraphic", result: "blurred" }),
-    primitive(doc, "feComposite", {
-      in: "blurred",
-      in2: "SourceGraphic",
-      operator: "arithmetic",
-      k1: "0",
-      k4: "0",
-      result: "mixed",
-    }),
     primitive(doc, "feImage", { preserveAspectRatio: "none", result: "hole" }),
-    primitive(doc, "feComposite", { in: "mixed", in2: "hole", operator: "in", result: "inside" }),
+    primitive(doc, "feComposite", { in: "blurred", in2: "hole", operator: "in", result: "inside" }),
     primitive(doc, "feComposite", { in: "SourceGraphic", in2: "hole", operator: "out", result: "outside" }),
   );
   const merge = primitive(doc, "feMerge", {});
@@ -129,10 +123,9 @@ export function writeHoleFilter(
     for (const [key, value] of Object.entries(attributes)) element?.setAttribute(key, String(value));
   };
   const region = { x: hole.x, y: hole.y, width: hole.width, height: hole.height };
-  const [blur, mixed, image] = [...filter.children];
+  const [blur, image] = [...filter.children];
   set(filter, { x: 0, y: 0, width: Math.max(1, box.width), height: Math.max(1, box.height) });
   set(blur, { ...region, stdDeviation: hole.blur });
-  set(mixed, { ...region, k2: hole.opacity, k3: 1 - hole.opacity });
   set(image, { ...region, href: holeMask(hole.width, hole.height, hole.radius) });
 }
 
@@ -155,15 +148,35 @@ function canFollow(view: Window): boolean {
 
 let nextId = 0;
 
+/** Every surface's filter on each covered element, by surface: two glasses over one element (the
+ * rail's preview card and the Summary popover, both over the transcript) each keep their own hole.
+ * The element draws their filters one after the other and carries every owner, so one surface's
+ * release takes out its own hole alone. */
+const holesOn = new WeakMap<HTMLElement, Map<number, { owner: string; filter: string }>>();
+
+/** Writes `target`'s filter list and owners from its holes, or clears both when it has none. */
+function writeHoles(target: HTMLElement): void {
+  const holes = [...(holesOn.get(target)?.values() ?? [])];
+  if (holes.length === 0) {
+    holesOn.delete(target);
+    target.removeAttribute(UNDER_ATTRIBUTE);
+    target.style.removeProperty(UNDER_FILTER_PROPERTY);
+    return;
+  }
+  target.setAttribute(UNDER_ATTRIBUTE, [...new Set(holes.map((hole) => hole.owner))].join(" ").trim());
+  target.style.setProperty(UNDER_FILTER_PROPERTY, holes.map((hole) => `url(#${hole.filter})`).join(" "));
+}
+
 /** The elements a surface may cover: by default its siblings. */
 export type CoveredCandidates = (surface: HTMLElement) => Iterable<Element>;
 
 const siblings: CoveredCandidates = (surface) => surface.parentElement?.children ?? [];
 
 export type SeeThroughOptions = {
-  /** The value of data-glass-under on what this surface covers, so a stylesheet can switch off
-   * one surface's filters. A surface CSS hides with `visibility` must: its holes stay (summary.css
-   * does it for the Summary card under Find, review and inspect). */
+  /** A word of data-glass-under on what this surface covers (a list, matched with `~=`, when
+   * several glasses cover one element), so a stylesheet can switch off one surface's filters. A
+   * surface CSS hides with `visibility` must: its holes stay (summary.css does it for the Summary
+   * card under Find, review and inspect). */
   owner?: string;
   /** Elements that must not take a filter (one would re-anchor their fixed menus: the composer).
    * While the surface overlaps one, it keeps its underlay, which hides what is under it there. */
@@ -182,6 +195,7 @@ export function attachSeeThroughBlur(
   const view = doc.defaultView;
   const parent = surface.parentElement;
   if (!view || !parent || !drawsBackdropOver(view) || !canFollow(view)) return () => {};
+  const self = ++nextId;
   const svg = doc.createElementNS(SVG_NS, "svg");
   svg.setAttribute("aria-hidden", "true");
   svg.setAttribute("width", "0");
@@ -192,6 +206,9 @@ export function attachSeeThroughBlur(
   let frame = 0;
   let stable = 0;
   let last = "";
+  /// Whether the frame asked for follows until STABLE_FRAMES unchanged frames (`kick`), or measures
+  /// once (`moved`).
+  let following = false;
   // Re-measure when anything the hole depends on changes: the surface (its size, its transitions),
   // each candidate's size, and the children of each candidate's parent (a banner or a Find bar
   // coming in moves the blocks, or hides the surface through a :has() rule, without resizing them).
@@ -210,8 +227,8 @@ export function attachSeeThroughBlur(
     const entry = covered.get(target);
     if (!entry) return;
     entry.filter.remove();
-    target.removeAttribute(UNDER_ATTRIBUTE);
-    target.style.removeProperty(UNDER_FILTER_PROPERTY);
+    holesOn.get(target)?.delete(self);
+    writeHoles(target);
     covered.delete(target);
   };
 
@@ -225,7 +242,7 @@ export function attachSeeThroughBlur(
       opacity: Number.parseFloat(style.opacity),
     };
     if (!Number.isFinite(look.opacity)) look.opacity = 1;
-    // A faded-out or empty surface covers nothing. One CSS hides with visibility (the Summary card
+    // A faded-out or empty surface covers nothing; any other covers in full. One CSS hides with visibility (the Summary card
     // under Find) keeps its holes, so they are right the moment it shows again with no event to see
     // it; the same CSS switches its blocks' filters off meanwhile (owner, summary.css).
     const shown = look.opacity > 0 && rect.width > 0 && rect.height > 0;
@@ -256,8 +273,10 @@ export function attachSeeThroughBlur(
         svg.append(filter);
         entry = { filter, key: "" };
         covered.set(target, entry);
-        target.setAttribute(UNDER_ATTRIBUTE, owner);
-        target.style.setProperty(UNDER_FILTER_PROPERTY, `url(#${filter.id})`);
+        let holes = holesOn.get(target);
+        if (!holes) holesOn.set(target, (holes = new Map()));
+        holes.set(self, { owner, filter: filter.id });
+        writeHoles(target);
       }
       if (entry.key !== key) {
         writeHoleFilter(entry.filter, box, hole);
@@ -272,18 +291,35 @@ export function attachSeeThroughBlur(
     const key = measure();
     stable = key === last ? stable + 1 : 0;
     last = key;
-    if (stable < STABLE_FRAMES) frame = view.requestAnimationFrame(tick);
+    if (following && stable < STABLE_FRAMES) frame = view.requestAnimationFrame(tick);
+    else following = false;
   };
   const kick = () => {
+    following = true;
     stable = 0;
     if (!frame) frame = view.requestAnimationFrame(tick);
   };
+  /// The surface's inline style changed (a transform written in place, the rail's card reaching the
+  /// next row): one measure on the next frame finds it where it draws. A move animates through CSS,
+  /// whose transitionrun follows it (`kick`), and a size change is the ResizeObserver's. The loop
+  /// restarted on every row a sweep crossed, about every 40 ms, so it never stopped: every frame of
+  /// the sweep re-read the surface's rect and style and each covered element's rect (Leo,
+  /// 2026-11-04: "hover previews kinda lag across me hovering over the sidebar stuff").
+  const moved = () => {
+    if (!frame) frame = view.requestAnimationFrame(tick);
+  };
+  const restyled = new view.MutationObserver(moved);
 
   watch(surface, false);
   watch(parent, true);
+  // A surface placed by its own inline style (the rail's preview card follows the pointer from row
+  // to row by its transform) moves with no resize or child change: its style measures again.
+  restyled.observe(surface, { attributes: true, attributeFilter: ["style"] });
   measure();
   kick();
   surface.addEventListener("transitionrun", kick);
+  // The loop may stop mid-fade (opacity is not in its key once shown): the fade's end measures again.
+  surface.addEventListener("transitionend", kick);
   surface.addEventListener("animationstart", kick);
   view.addEventListener("resize", kick);
   return () => {
@@ -291,7 +327,9 @@ export function attachSeeThroughBlur(
     frame = 0;
     resize.disconnect();
     mutations.disconnect();
+    restyled.disconnect();
     surface.removeEventListener("transitionrun", kick);
+    surface.removeEventListener("transitionend", kick);
     surface.removeEventListener("animationstart", kick);
     view.removeEventListener("resize", kick);
     for (const target of covered.keys()) release(target);

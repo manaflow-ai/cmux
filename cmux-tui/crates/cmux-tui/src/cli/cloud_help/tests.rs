@@ -39,6 +39,7 @@ fn every_row_starts_its_description_in_one_column() {
         let text = overview(japanese);
         let columns = listed_verbs()
             .into_iter()
+            .filter(|name| renamed(name).is_none())
             .map(|name| {
                 let prefix = format!("  {name} ");
                 let row = text
@@ -174,20 +175,83 @@ fn quick_start_commands_parse() {
             .lines()
             .map(str::trim)
             .filter(|line| line.starts_with("cmux cloud ") && !line.contains('<'))
+            // These run in this CLI, not through the app's catalog; `cloud env` lines parse in
+            // `cloud_environment.rs` (`the_help_env_lines_parse`).
             .filter(|line| !line.contains("secret") && !line.contains("client-session"))
+            .filter(|line| !line.starts_with("cmux cloud env "))
             .collect::<Vec<_>>();
-        assert_eq!(commands.len(), 6, "{commands:?}");
+        // Two start-chat lines, three follow-ups and five machine lines; the quick start's
+        // create is `cmux machine new`.
+        assert_eq!(commands.len(), 10, "{commands:?}");
+        assert!(
+            commands[0].starts_with("cmux cloud start-chat "),
+            "start-chat leads: {commands:?}"
+        );
         for command in commands {
             let words = shell_words(command)
                 .into_iter()
                 .skip(1)
                 .filter(|word| word != "--json")
                 .collect::<Vec<_>>();
+            if words[1] == START_CHAT {
+                assert!(
+                    matches!(
+                        crate::cli::cloud_start_chat::parse(&words[2..], || Err(String::new())),
+                        Ok(crate::cli::cloud_start_chat::Parsed::Run(_))
+                    ),
+                    "quick start command does not parse: {command}"
+                );
+                continue;
+            }
             assert!(find(&words[1]).is_some(), "{command}");
             assert!(
                 matches!(crate::cli::app::parse(&words), Ok(Some(_))),
                 "quick start command does not parse: {command}"
             );
         }
+    }
+}
+
+/// `cloud new-machine` is `cmux machine new`'s old name: the overview shows
+/// only the new one, and the old verb's own help names it.
+#[test]
+fn renamed_verbs_are_hidden_and_point_at_their_new_name() {
+    for japanese in [false, true] {
+        let text = overview(japanese);
+        assert!(!text.lines().any(|line| line.starts_with("  new-machine ")), "{text}");
+        assert!(!text.contains("cmux cloud new-machine"), "{text}");
+        assert!(text.contains("cmux machine new"), "{text}");
+        let help = verb_help("new-machine", japanese).unwrap();
+        assert!(help.contains("cmux machine new"), "{help}");
+        assert!(help.contains("cmux cloud new-machine [--size"), "{help}");
+    }
+    for (old, _) in HIDDEN {
+        assert!(find(old).is_some(), "{old} is hidden but not a verb");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn start_chat_help_is_its_usage_and_its_examples_parse() {
+    for japanese in [false, true] {
+        assert_eq!(verb_help(START_CHAT, japanese).as_deref(), Some(START_CHAT_USAGE));
+    }
+    assert!(START_CHAT_USAGE.starts_with("usage: cmux cloud start-chat --prompt TEXT"));
+    let examples = START_CHAT_USAGE
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("cmux cloud start-chat "))
+        .collect::<Vec<_>>();
+    assert_eq!(examples.len(), 2, "{examples:?}");
+    for example in examples {
+        let words =
+            shell_words(example).into_iter().skip(3).filter(|w| w != "--json").collect::<Vec<_>>();
+        assert!(
+            matches!(
+                crate::cli::cloud_start_chat::parse(&words, || Err(String::new())),
+                Ok(crate::cli::cloud_start_chat::Parsed::Run(_))
+            ),
+            "{example}"
+        );
     }
 }

@@ -1,5 +1,12 @@
 import CmuxNextCloud
+import Observation
 import Testing
+
+/// A machine whose new link comes up before its handshake carries the capability.
+@Observable @MainActor
+private final class Relinking {
+    var holdsTabs = false
+}
 
 @Suite
 @MainActor
@@ -11,7 +18,6 @@ struct CloudOutdatedMachineTests {
 
         await CloudOutdatedMachine.updateBeforeUsingCapability(
             holds: { holdsTabs },
-            link: { handshake },
             relink: .seconds(1),
             update: {
                 updates += 1
@@ -32,7 +38,6 @@ struct CloudOutdatedMachineTests {
 
         await CloudOutdatedMachine.updateBeforeUsingCapability(
             holds: { holdsTabs },
-            link: { "old" },
             relink: .milliseconds(10),
             update: {
                 updates += 1
@@ -48,7 +53,6 @@ struct CloudOutdatedMachineTests {
 
         await CloudOutdatedMachine.updateBeforeUsingCapability(
             holds: { true },
-            link: { "current" },
             relink: .milliseconds(10),
             update: {
                 updates += 1
@@ -56,5 +60,20 @@ struct CloudOutdatedMachineTests {
             })
 
         #expect(updates == 0)
+    }
+
+    @Test func aNewLinkWithoutTheCapabilityYetIsWaitedFor() async {
+        let machine = Relinking()
+
+        await CloudOutdatedMachine.updateBeforeUsingCapability(
+            holds: { machine.holdsTabs },
+            relink: .seconds(5),
+            update: {
+                // The link changed already; the capability arrives with the handshake a turn later.
+                Task { @MainActor in machine.holdsTabs = true }
+                return true
+            })
+
+        #expect(machine.holdsTabs)
     }
 }

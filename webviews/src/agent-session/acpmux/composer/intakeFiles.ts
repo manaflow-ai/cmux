@@ -179,7 +179,10 @@ export async function intakeFiles(
     await Promise.all(
       waiting.map(async ({ index, file }, at) => {
         const { image } = await prepared[index]!;
-        const path = sent && "paths" in sent && sent.paths.length === waiting.length ? sent.paths[at] : undefined;
+        // A later file may fail after earlier files finished. Keep every returned path, even when
+        // the batch also carries an error, so completed uploads remain attachable and only the
+        // failed/unattempted chips offer Retry.
+        const path = sent && "paths" in sent ? sent.paths[at] : undefined;
         if (path && image) {
           image.originalPath = path;
           image.originalName = file.name;

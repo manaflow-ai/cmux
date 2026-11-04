@@ -7,12 +7,15 @@ import { type ReactNode, useContext, useId, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { stripsEnvelopeImages, toolImages } from "../toolImages";
-import { ChevronRight, Spinner, ToolGroup } from "./icons";
+import { ApprovedMark } from "./ApprovedMark";
+import { ChevronRight, CodeBrackets, ToolGroup } from "./icons";
 import { menuPartRef } from "./menuParts";
 import {
   cleanText,
   mcpCall,
+  mcpDescription,
   mcpLabel,
+  mcpOutcome,
   McpNamesContext,
   mcpOutputResult,
   mcpRawName,
@@ -61,8 +64,8 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
         calls,
         items.map((item) => item.tool!),
         names,
-      ) ?? mcpLabel(t, calls, names),
-    [t, calls, items, names],
+      ) ?? mcpLabel(t, calls, names, running),
+    [t, calls, items, names, running],
   );
   const failures = items.filter((item) => isFailed(item.tool!)).length;
   return (
@@ -76,17 +79,13 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
         onClick={fold.toggle}
       >
         <span className="cv-tool__icon">
-          {running ? <Spinner size={16} /> : <ToolGroup size={16} strokeWidth={1.2} />}
+          <ToolGroup size={16} />
         </span>
         <span className="cv-tool__text" data-find-skip>
           <ToolLabel text={label} />
           {failures > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: failures })}</span>}
         </span>
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {fold.present && (
         <div {...fold.bodyProps}>
@@ -101,7 +100,7 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
   );
 }
 
-function McpCallRow({ item, grouped = false }: { item: AcpmuxActivity; grouped?: boolean }) {
+function McpCallRow({ item }: { item: AcpmuxActivity; grouped?: boolean }) {
   const t = useT();
   const names = useContext(McpNamesContext);
   // Closed, or open in the Verbose transcript view.
@@ -124,16 +123,23 @@ function McpCallRow({ item, grouped = false }: { item: AcpmuxActivity; grouped?:
   // A look at a video's frames reads as one ("Looked at 8 video frames") over its filmstrip, which
   // names the video (videoFrames.ts); opened, the call's response is the tool's note without the frames.
   const video = useMemo(() => videoFrames(tool), [tool]);
+  const running = isRunning(tool);
+  // A described call is titled with its description, as a shell call is (mcpDescription).
   const label = useMemo(
     () =>
       video
         ? t("tools.videoFrames", { n: video.count })
-        : (cmuxTitle(t, [call], [tool], names) ?? mcpLabel(t, [call], names)),
-    [t, video, call, tool, names],
+        : (mcpDescription(call) ?? cmuxTitle(t, [call], [tool], names) ?? mcpLabel(t, [call], names, running)),
+    [t, video, call, tool, names, running],
+  );
+  // A condensed tool's one-line outcome trails its words, muted; its own "failed" reads as a
+  // failed call does (mcpOutcome).
+  const outcome = useMemo(
+    () => (running || video ? undefined : mcpOutcome(tool.output, call)),
+    [running, video, tool, call],
   );
   const exec = isCmuxExec(call);
   const images = useMemo(() => (video ? [] : toolImages(tool)), [video, tool]);
-  const running = isRunning(tool);
   // An MCP server's error is often JSON: its message, in one line (toolFailure.ts).
   const failure = useMemo(() => (tool.status === "failed" ? toolFailure(tool) : undefined), [tool]);
   return (
@@ -147,18 +153,25 @@ function McpCallRow({ item, grouped = false }: { item: AcpmuxActivity; grouped?:
         onClick={fold.toggle}
       >
         <span className="cv-tool__icon">
-          {running && !grouped ? <Spinner size={16} /> : <ToolGroup size={16} strokeWidth={1.2} />}
+          <ToolGroup size={16} />
         </span>
         <span className="cv-tool__text" data-find-skip>
           <ToolLabel text={label} />
-          {failure && <span className="cv-tool__failed"> {failureWord(t, failure)}</span>}
+          {failure ? (
+            <span className="cv-tool__failed"> {failureWord(t, failure)}</span>
+          ) : (
+            outcome?.failed && <span className="cv-tool__failed"> {t("tools.failed")}</span>
+          )}
+          {outcome?.summary && <span className="cv-tool__detail">{`  ${outcome.summary}`}</span>}
           <InlineFailureCause failure={failure} />
         </span>
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        {/* The person approved this call's ask: it says so on its row (ApprovedMark.tsx). */}
+        {tool.approved && (
+          <span className="cv-command__meta cv-tool__meta">
+            <ApprovedMark />
+          </span>
+        )}
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       <ToolFailureCause failure={failure} />
       {video && <VideoFramesCard video={video} />}
@@ -389,7 +402,15 @@ export function CmuxExecDetails({
           </pre>,
         )}
       <div className="cv-cmux-exec__raw" data-find-skip>
-        <RawToggle open={rawOpen} onOpenChange={setRawOpen}>
+        <RawToggle
+          open={rawOpen}
+          onOpenChange={setRawOpen}
+          icon={
+            <span className="cv-tool__icon">
+              <CodeBrackets size={16} />
+            </span>
+          }
+        >
           <McpCallDetails
             id={`${id}-raw`}
             call={call}

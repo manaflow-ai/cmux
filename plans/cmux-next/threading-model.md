@@ -57,19 +57,21 @@ and changes both with the code).
 | **Main-thread watchdog** thread `cmux-next main-thread watchdog` | Stall/hang detection and stack samples | Its own kqueue (`MainThreadWatchdogAlarm`: a one-shot timer the main thread arms when its run loop wakes and deletes before it sleeps, and a user event for stop and task starts); a main turn shorter than the timer wakes it never | user-interactive | Rings of 128 hangs and 128 over-budget entries |
 | **Daemon connection** reader thread `cmux-tui reader <path>`; writer queue `com.cmuxterm.next.daemon.write`; `actor DaemonConnection`; `EventInbox` pump task | Socket read and line split; outbox drain; handshake and reconnect; off-main event buffer | Blocking `read(2)` (reader); `write` (writer) | user-interactive (reader), default (writer) | Line over 64 MiB closes the connection; outbox 64 MiB, past it `write` fails `.backlog`; inbox 4096 events, field events coalesced, overflow collapses to one resync; main drains 32 per slice under the visible budget |
 | **Cloud link credentials** `cmux.cloud.link-credential` (CloudLinkLauncher) | Listener lifecycle; Mutex protects peer generation and owned request tasks | Bind and peer inspection on the serial queue; socket reads/writes on utility dispatch workers, never the cooperative pool | utility | At most 32 requests including Worker calls; excess connections close. One 64 KiB line, 5 s read deadline and 5 s write timeout. Stop cancels owned tasks and invalidates the generation; each request closes its descriptor |
+| **Remote-localhost peer scan** `com.cmuxterm.next.remote-localhost.peer-scan` (`PeerProcess.isTrustedOffPool`) | Whether a machine listener's peer is this app or a helper | `proc_pidinfo`/`proc_pidfdinfo` over the app's and its children's sockets, one scan at a time | user-initiated | A caller waits at most 2 s, or less if cancelled, then counts as untrusted and its queued scan is skipped; at most 32 scans pending, past that a caller is untrusted at once |
 | **Terminal attach** (`TerminalAttachment` reader → `TerminalEventQueue`) | One terminal's output stream | The reader waits above 8 MiB queued, resumes below 2 MiB | user-interactive | The daemon's attach mailbox overflows and ends the stream |
 | **Terminal output lane** `com.cmuxterm.next.terminal.output`; local PTY `com.cmuxterm.next.localpty.read` / `.write` | Feeding `ghostty_surface_process_output`; local PTY I/O | PTY read/write | user-interactive | 2 MiB high water: the consumer task suspends |
 | **Ghostty renderer and IO threads** (per surface, inside GhosttyKit) | Rendering; termio | Renderer mailbox (64, latest-value-wins, never waits); termio queue 64 | focused user-interactive, visible user-initiated, hidden utility | cmux runs surfaces in manual IO mode: no Ghostty read thread |
 | **Swift cooperative pool and actors** (`actor`s that own I/O: daemon, cloud, remote, stores; `Task.detached` at `.utility`/`.userInitiated`) | Async I/O and domain state off main | Nothing (never a blocking call on the pool; blocking work belongs on a dedicated thread or queue) | the task's priority | Each actor's own stream bounds (`AsyncStream` with a buffering policy, never `.unbounded`) |
 | **DispatchSource handlers** (control socket `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>`; file watchers; process and signal sources) | Event delivery only | Non-blocking reads | as the queue | Coalesced by the source; main-queue sources only hop |
 | **Blocking detector drain** `com.cmuxterm.app.next.blocking-drain` | Resolving violations to image UUID + offset; the Debug log line; the sink | Nothing | utility | Ring of 64 new sites, 128 sites per launch; past either: counted in `overflow` |
-| **cmux-tui daemon (Rust)** request path: `mux-server` accept, one `mux-conn` thread per connection (max 64; over: `server.busy`), `mux-control-dispatch` per connection (terminal creates go to the terminal pool, `wait-for` to a `mux-control-wait` thread, so neither holds it), `mux-line-out` writer | Requests, model, snapshots | Socket read on its own thread | not set (PL-qos) | Per connection 256 requests / 16 MiB (over: error, not run); `wait-for` and v2 `terminal.wait` workers 8 per connection / 64 per daemon (over: error, not run); outbound 256 per stream, 4096 per connection (over: the largest stream ends); write timeout 2 s; event bus 4096 per subscriber, then disconnect. Rules D1-D8 in perf-lead.md |
+| **cmux-tui daemon (Rust)** request path: `mux-server` accept, one `mux-conn` thread per connection (max 64; over: `server.busy`), `mux-control-dispatch` per connection (terminal creates go to the terminal pool, `wait-for` to a `mux-control-wait` thread, so neither holds it), `mux-line-out` writer | Requests, model, snapshots | Socket read on its own thread | default; user-interactive for the three threads of a connection that carries the person's keys to a terminal it can type into (not a read-only viewer; server/input_qos.rs) | Per connection 256 requests / 16 MiB (over: error, not run); `wait-for` and v2 `terminal.wait` workers 8 per connection / 64 per daemon (over: error, not run); outbound 256 per stream, 4096 per connection (over: the largest stream ends); write timeout 2 s; event bus 4096 per subscriber, then disconnect. Rules D1-D8 in perf-lead.md |
 | **Journal writer** `mux-session-journal-writer` (+ `-fanout`, maintenance, hook workers) | Durable session journal | Disk | not set | `sync_channel(1024)` terminal, `(256)` durable: the producer waits for space; durable wait deadline 30 s |
 | **Effect / terminal work** (`mux/resource_effects.rs` intents through the journal writer; `mux-terminal-work` pool, 8 workers) | Registry commits; terminal jobs | Disk (writer side) | not set | 1024 queued jobs; a job that does not fit runs inline |
 | **Browser event lanes** (cmux-tui `browser/event_lanes.rs`: process-wide pool `browser-events-<n>`, 2 threads; fed by each runtime's router `browser-runtime-events`) | Serving each daemon browser surface's CDP events in order (one lane per surface, at most one thread on it); replaced `browser-surface-<id>-events` (one thread per surface) | Short in-memory locks only: CDP sends are fire-and-forget (`*_detached`); attention, popup adoption and lifecycle registry work pause just their originating lane while its existing command worker runs the effect, preserving event order without occupying the pool | not set (PL-qos) | Per-surface queue `CDP_EVENT_QUEUE_CAPACITY` events / `CDP_EVENT_QUEUE_MAX_BYTES` (over: the route closes); at most one deferred registry effect per route; 32 events per lane turn, then the lane requeues; a panicking handler ends only its lane |
 | **Per-stream lanes** | Not on feat-cmux-next yet (PL-conn, `pl-conn`) | | | Added here when it lands |
 | **Holder** (`cmux-holder`, one `poll` loop; daemon side `holder-link`) | PTYs that outlive the daemon | `poll` | not set | 1 MiB ring per terminal, 1 MiB link queue, 512 KiB credit window; daemon attached: the holder stops reading the PTY (the shell blocks); no daemon: the ring keeps the newest bytes |
 | **acpmux** (tokio multi-thread; `acpmux-socket-read` / `-write` bridges) | Agent sessions | Socket I/O on its runtime | not set | In 256 / out 4096 per connection, full outbox drops (`try_send`), oversized notices become `_acpmux/lagged`; hub broadcast 8192 with `lagged {dropped}`. Owner PL-acpmux (cmux-4f) |
+| **acpmux event journal** (`store.journal`, default off; R-DURABILITY S2/S2c): the `cmux-journal` writer thread, `acpmux-journal-checkpoint` (one thread), one outbound gate task per connection (tokio) | Durable event-log records (group commit); the checkpoint (log syncs, retirement); holding a connection's lines until what they show is durable | The writer: disk syncs. The checkpointer: log syncs. A gate task: nothing (an async wait on the durable watch). Appends and reads take the appends' lock only around memory work and one buffered log write | With the journal on, the daemon keeps the default disk tier (a reply the person waits for never waits on a throttled sync); the checkpointer runs at utility (thread scope) | The writer's queue (a refused append fails the request); a gate waits at most 10 s for the journal, then the store asks the daemon to stop for a restart (exit 74); a checkpoint every 30 s while there is work, past 64 MiB of journal, at shutdown. Owner R-DURABILITY |
 | **Chromium** (in-process browser: UI thread = the app's main thread; Chromium's own IO and worker threads; renderer, GPU and utility helper processes; out-of-process host prototype `com.cmuxterm.chromium-host.read` / `.exit`) | Web pages | Chromium's IO thread blocks on its own sockets, never the UI thread | Chromium's | Child exits on `com.cmuxterm.app.next.cef-children`; host prototype: 256 KiB send buffer, 4096 frames, over: the connection ends |
 
 ## QoS and task priority (PL-qos, 2026-10-24)
@@ -101,8 +103,12 @@ Guardrail `task-priority` (pre-push): a new Task.detached names priority:, Dispa
 DispatchQueue(label:) names qos: or target:. Escape `// qos-allow: <why>`. A plain Task { } is not counted. Rule (c) (a
 blocking call inside a Task) follows PL-blocking's BLOCKING_* list.
 
-Daemon: no cmux-tui thread sets a QoS yet. The journal writer stays at the default QoS while request paths wait on its
-durable commit (PL-daemon is removing that wait; then writer = utility, request threads = userInitiated).
+Daemon: the `mux-conn`, `mux-control-dispatch` and `mux-line-out` threads of a connection that carries the person's
+keys (`send` / `send-key` of a client that can type into the terminal: attached, not only through read-only views) raise
+themselves to user-interactive (server/input_qos.rs, STATUS 6593). Every other request thread (CLI, MCP, agents, read-only
+viewers) stays at the default, as does every other cmux-tui thread. The journal writer stays at the default QoS while
+request paths wait on its durable commit (PL-daemon is removing that wait; then writer = utility; the person's input
+threads stay user-interactive and automation's request threads stay at the default, never above the person's).
 
 Blocking rule for the two "donating waits" above (lead decision 2026-10-24): a short `Mutex` critical
 section on the main thread is allowed (a contended wait over 2 ms is recorded), but a `dispatch_sync` from the
@@ -122,13 +128,20 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 - Terminal: `com.cmuxterm.next.terminal.output`, `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write`
 - Settings and files: `com.cmuxterm.next.settings.watcher`, `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
   `com.cmuxterm.home.cache` (the `HomeCache` actor's executor, user-initiated: its file writes block this queue,
-  never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS)
-- Remote and mobile: `com.cmuxterm.next.remote-localhost`, `com.cmuxterm.next.cloud-browser-proxy`,
+  never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS),
+  `cmux.chief.movedMarker` (the Chief home's `state/moved.json` vnode watch, utility, serial: event delivery only,
+  it blocks on nothing; one re-arm per folder change; ChiefMovedMarkerAttachment)
+- Remote and mobile: `com.cmuxterm.next.remote-localhost`, `com.cmuxterm.next.remote-localhost.peer-scan`, `com.cmuxterm.next.cloud-browser-proxy`,
   `com.cmuxterm.next.cloud-hub-loopback` (Open Desktop's SOCKS connections to the app's WireGuard hub),
   `cmux.cloud.machine-io.stdin` (one Worker machine exec or file call's request into the bundled cmux's stdin,
   one thread per call: its pipe write blocks only it; it ends when the child has read the request or closed its
   stdin, and a kill at the call's deadline or a cancel closes it, so it never outlives the child; CloudMachineIO),
   `com.cmuxterm.next.remote-fetch`, `cmux.remote-view.render`, `cmux.remote-view.rd-transport`,
+  `com.cmuxterm.mac-screen.rd-stdin` (one Mac Screen session's JSON lines into its bundled `cmux rd`
+  process, user-initiated, serial: its pipe writes block only it; a few lines per session, candidates and
+  stop, so no back-pressure; MacScreenRdProcess), `com.cmuxterm.mac-screen.rd-socket` (the viewer's
+  Unix socket to `cmux rd connect`, user-initiated: Network delivers the stream's bytes here, it blocks on
+  nothing, the decode pipeline reads them; MacScreenUnixStream),
   `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane`, `com.cmuxterm.mobile.paired-devices` (the iPhone
   host's paired-phone list and its Keychain seal, utility, serial: its file and Keychain calls block this queue,
   never main; one item per save, read or withdrawal, each from a person's action or an account change, so no back-pressure;
@@ -158,7 +171,13 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 - Diagnostics: `cmux-next.hang-episodes`, `cmux-next.hang-episodes.symbols`, `com.cmuxterm.app.next.run-marker`,
   `com.cmuxterm.app.next.crash-forwarder`, `com.cmuxterm.app.next.owner-panic-forwarder`,
   `com.cmuxterm.next.typing-probe`, `com.cmuxterm.app.next.blocking-drain`, `com.cmux.host-pressure`,
-  `debug.window_record`, `com.cmuxterm.next.busy-watchdog` (the busy watchdog's kernel reads: each
+  `debug.window_record`, `debug.motion.trace` (a `debug.motion` `trace_stop`/`trace_read` with `path`: the report's JSON serialization and file
+  write, utility, serial, one item per call, so no back-pressure), `debug.motion.record` (a `debug.motion` `record_*` movie in DEBUG and bench builds: its
+  ScreenCaptureKit frames, the encoder appends and the scanline and frame-list file writes; user-initiated, serial;
+  a frame the encoder is not ready for is counted and dropped, never queued, so no back-pressure), `debug.frame_strip.screen`
+  (a `debug.new_tab` `frame_strip` with `above` in DEBUG and bench builds, when the process lacks the Screen Recording grant:
+  its ScreenCaptureKit frames, each copied and downscaled into the strip; user-initiated, serial; ScreenCaptureKit's own
+  queue depth of 8 drops frames the queue has not taken, so no back-pressure; ends with the strip), `com.cmuxterm.next.busy-watchdog` (the busy watchdog's kernel reads: each
   process's `proc_pid_rusage` and `proc_pidinfo`, the Chromium helper list, the main thread's `thread_info` and
   stack sample; utility, serial; at most one window open or close is pending, so no back-pressure; a read the
   kernel holds delays only the next window). A diagnostic never makes a system call on the main thread: the

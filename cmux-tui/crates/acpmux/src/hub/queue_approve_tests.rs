@@ -106,6 +106,7 @@ fn insert(hub: &Hub, session: &Arc<Session>, id: &str, provenance: Option<&Value
         client: "cap-test",
         prompt_id: id,
         control: Control::Local,
+        cloud_mobile: false,
         trust_gate: false,
         interrupt: false,
         interrupt_turn: None,
@@ -465,7 +466,7 @@ async fn a_capable_host_name_fronting_an_older_receiver_does_not_move_an_approve
                        "to": {"socket": "/tmp/acpmux-older-receiver.sock", "host": "capable"}});
     let result = hub.transfer_request("_acpmux/transfer_begin", &begin).await;
     if let Ok(bundle) = &result {
-        let abort = json!({"sessionId": session.id, "transferId": bundle["transferId"]});
+        let abort = json!({"sessionId": session.id, "transferId": bundle["transferId"], "epoch": bundle["epoch"]});
         hub.transfer_request("_acpmux/transfer_abort", &abort).await.unwrap();
     }
     let refused = result.expect_err("a peer record vouched for the receiver it does not front");
@@ -496,7 +497,7 @@ async fn a_capable_host_name_fronting_an_older_receiver_does_not_move_an_approve
     let refused =
         receiver.transfer_request("_acpmux/transfer_receive", &receive).await.unwrap_err();
     assert_eq!(refused.data.as_ref().unwrap()["reason"], "transfer.approved_prompts");
-    let abort = json!({"sessionId": session.id, "transferId": manifest["transferId"]});
+    let abort = json!({"sessionId": session.id, "transferId": manifest["transferId"], "epoch": manifest["epoch"]});
     hub.transfer_request("_acpmux/transfer_abort", &abort).await.unwrap();
     hub.shutdown_all().await;
 }

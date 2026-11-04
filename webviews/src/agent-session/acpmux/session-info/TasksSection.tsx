@@ -11,6 +11,7 @@
 // the top (ui/presence.ts `useArrivals`); the ones the list is drawn with are simply there.
 import { useState } from "react";
 import { useArrivals } from "../../../ui/presence";
+import { useScrollEdges } from "../../../ui/scrollEdges";
 import { formatDuration } from "../conversation/turns";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -56,6 +57,7 @@ export function TasksSection({
 }) {
   const t = useT();
   const [showFinished, setShowFinished] = useState(false);
+  const listEdges = useScrollEdges();
   const { running, finished } = splitCommands(commands);
   const now = useNow(running.length > 0);
   // Every command's id, so opening the finished fold, or a command finishing, replays nothing.
@@ -98,13 +100,13 @@ export function TasksSection({
           {state !== undefined && <span className="acpmux-session-info-task__state">{state}</span>}
         </button>
         {command.state === "running" && command.processId && onStop && (
-          <StopButton id={command.processId} name={command.command} stop={onStop} />
+          <StopButton id={command.processId} name={command.command} stop={onStop} solid />
         )}
       </li>
     );
   };
   return (
-    <div className="acpmux-session-info-scroll" data-section="tasks">
+    <div ref={listEdges} className="acpmux-session-info-scroll ui-scroll-edge-fade" data-section="tasks">
       {(running.length > 0 || scheduled.length > 0) && (
         <ul className="acpmux-session-info-list">
           {running.map((command) =>
@@ -159,12 +161,15 @@ export function StopButton({
   name,
   label: idleLabel,
   stop,
+  solid = false,
 }: {
   id: string;
   name: string;
   /// What it says before a failed stop, in place of "Stop <name>" (the tray: "Stop only this command").
   label?: string;
   stop: (id: string) => Promise<unknown>;
+  /// A filled square, as Claude Desktop's running rows draw it (Background tasks and the tray).
+  solid?: boolean;
 }) {
   const t = useT();
   const [state, setState] = useState<"idle" | "stopping" | "failed">("idle");
@@ -185,7 +190,7 @@ export function StopButton({
         stop(id).catch(() => setState("failed"));
       }}
     >
-      <Icon name="action.stop" size={12} />
+      <Icon name="action.stop" size={12} selected={solid} />
     </button>
   );
 }

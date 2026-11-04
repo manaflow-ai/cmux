@@ -24,7 +24,7 @@ import {
 } from "../attachments";
 import type { UploadCancelled, UploadProgressReport, UploadResult } from "../cloudUploads";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
-import { Close, FileDoc, ImageIcon, Retry, Spinner } from "../conversation/icons";
+import { Close, FileDoc, ImageIcon, PlayTriangle, Retry, Spinner } from "../conversation/icons";
 import { type StringKey, type Translate, usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { pasteLines, pasteName } from "../conversation/promptCollapse";
@@ -38,9 +38,8 @@ import { retryUploadLater, UPLOAD_AUTO_RETRIES } from "./uploadRetry";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
 import { FADE_BAND_PX } from "../MarkdownField";
 import { useScrollEdges } from "../summary/scrollEdges";
-import { callChipHost } from "../chips/host";
-import { isVideoAttachment, useVideoInfo, useVideoReading } from "./videoAttachments";
-import { VideoAttachmentTile } from "./VideoAttachmentTile";
+import { isVideoAttachment, isVideoName, useVideoInfo, useVideoReading } from "./videoAttachments";
+import { useAttachedVideoPlayer, VideoAttachmentTile } from "./VideoAttachmentTile";
 import { FileAttachment } from "../FileAttachment";
 import { TextAttachmentCard } from "./TextAttachmentCard";
 
@@ -146,6 +145,9 @@ export type PendingAttachment = {
   id: string;
   name: string;
   image: boolean;
+  /// A movie (videoAttachments.ts isVideoName): its tile is the square the video's poster will
+  /// fill, loading or failed, never a long strip with its name.
+  video?: boolean;
   scope?: string;
   failed?: string;
   /// Streaming to the session's machine (a file of any size). A send waits for it, as for every
@@ -215,6 +217,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const t = useT();
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [pending, setPending] = useState<PendingAttachment[]>([]);
+  const pendingRef = useRef<PendingAttachment[]>([]);
+  pendingRef.current = pending;
   const [attachError, setAttachError] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
   /// The drop overlay's state (composer/DropOverlay.tsx). Kept in a ref too: a refused drag's
@@ -317,6 +321,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       id: again ?? crypto.randomUUID(),
       name: file.name,
       image: isImageFile(file),
+      ...(isVideoName(file.name) ? { video: true } : {}),
       scope: batch.scope,
     }));
     // This read's own source for each chip: a chip cancelled and brought back (undo, `revive`) or
@@ -451,7 +456,20 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         const stop = retryUploadLater(
           tries,
           () => {
-            if (still()) retryRef.current(id);
+            if (!still()) return;
+            // A delayed retry must use the chat that owns these bytes. The user may have
+            // switched chats since this failure (including via the key/click that queued
+            // this callback). Retrying through live.options would upload this old File to
+            // the *new* chat's machine. Keep the old scoped chip with a manual Retry.
+            // `batch` is removed when its first intake settles, but a carried chip can still
+            // change scope afterward. Read the chip's current scope so an intentional carry
+            // retries through its destination chat while a plain switch still fails closed.
+            const chip = pendingRef.current.find((candidate) => candidate.id === id);
+            if (!chip || chip.scope !== live.current.options.scope) {
+              giveUp();
+              return;
+            }
+            retryRef.current(id);
           },
           giveUp,
         );
@@ -1023,7 +1041,11 @@ function PendingChip({
       </svg>
     </button>
   );
-  const kind = chip.image ? "acpmux-attachment-image" : "acpmux-attachment-file";
+  // A video (a screen recording) is the square its poster will fill, like an image's tile; only
+  // another file shows its name (Leo, 2026-10-26: "not for screen recordings. ... We know it's a
+  // video. ... Just do the square.").
+  const square = chip.image || chip.video;
+  const kind = square ? "acpmux-attachment-image" : "acpmux-attachment-file";
   // One that could not be attached keeps its shape: what it is (its kind's glyph, a file's name),
   // one small retry button, and its ×; why is in its tooltip (Leo, 2026-10-31: "video attachments
   // (big attachments?) still sucks", over a strip of empty tiles with only an underlined Retry).
@@ -1036,6 +1058,8 @@ function PendingChip({
       >
         {chip.image ? (
           <ImageIcon size={16} className="acpmux-attachment-failed-icon" />
+        ) : chip.video ? (
+          <PlayTriangle size={16} className="acpmux-attachment-failed-icon" />
         ) : (
           <>
             <FileDoc size={14} className="acpmux-attachment-failed-icon" />
@@ -1053,7 +1077,7 @@ function PendingChip({
       ) : (
         <UploadProgress value={chip.progress} name={name} />
       )}
-      {!chip.image && <span>{chip.name}</span>}
+      {!square && <span>{chip.name}</span>}
       {remove}
     </div>
   );
@@ -1147,6 +1171,7 @@ export function AttachmentChip({
   /// The image's natural size, from its thumbnail or from the image itself once it loads.
   const [size, setSize] = useState<{ width: number; height: number }>();
   const videoReading = useVideoReading(attachment.id);
+  const videoPlayer = useAttachedVideoPlayer(attachment.path, attachment.name);
   const isImage = attachment.kind === "image" && Boolean(attachment.data);
   const image = isImage && !broken;
   const source = image ? `data:${attachment.mimeType};base64,${attachment.data}` : undefined;
@@ -1315,19 +1340,28 @@ export function AttachmentChip({
       />,
     );
   }
-  // A video goes as its path too, with its poster and length once the host read them; a click plays it.
-  if (isVideoAttachment(attachment) && (attachment.video || videoReading)) {
-    const play = () => void callChipHost("video.quickLook", { src: attachment.path });
-    return menu(
-      attachment.video ? play : undefined,
-      <VideoAttachmentTile
-        name={attachment.name}
-        title={withSourceLabel(attachment.name, from)}
-        video={attachment.video}
-        remove={remove}
-        onPlay={play}
-      />,
-      t("media.play"),
+  // A video goes as its path too, with its poster and length once the host read them; a click plays it
+  // in the pane, streamed from its path (VideoAttachmentTile.tsx useAttachedVideoPlayer). One the host
+  // could not read (or never asked: a chat on another machine) keeps the square with its play glyph
+  // and no poster; Quick Look still plays it from its path when the pane may not.
+  if (isVideoAttachment(attachment)) {
+    const play = videoPlayer.play;
+    return (
+      <>
+        {menu(
+          videoReading ? undefined : play,
+          <VideoAttachmentTile
+            name={attachment.name}
+            title={withSourceLabel(attachment.name, from)}
+            video={attachment.video}
+            reading={!attachment.video && videoReading}
+            remove={remove}
+            onPlay={play}
+          />,
+          t("media.play"),
+        )}
+        {videoPlayer.viewer}
+      </>
     );
   }
   return menu(

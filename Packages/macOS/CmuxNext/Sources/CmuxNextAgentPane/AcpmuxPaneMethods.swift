@@ -114,6 +114,9 @@ nonisolated enum AcpmuxPaneMethods {
         // `peerSessionId` only picks one of that chat's paused pairs; acpmux resumes no pair the
         // chat is not in, and only for a connection that proved the person key (hub/person.rs).
         "_acpmux/agent_pair_resume",
+        // Take over a chat its manager runs, or hand it back: only the chat in scope, and acpmux
+        // takes it only from a connection that proved the person key (hub/agent_hold.rs).
+        "_acpmux/agent_hold",
         // Reply in place to another agent's message as the chat the pane shows (direct.ts reply,
         // IncomingMessageCard.tsx): acpmux checks it and answers it signed, prompting nothing, and
         // the host sends it on as that chat's cmux agent message (``AgentPaneAgentReply``).
@@ -147,6 +150,11 @@ nonisolated enum AcpmuxPaneMethods {
         // RulesNotice.tsx; acpmux server/forum.rs, hq#2570). Read only and without params: the
         // rules every agent on this Mac is told already. Posting, acking and retiring stay off the pane.
         "_acpmux/forum/rules",
+        // An agent session link or a HOST/NAME reference in the transcript opens that session
+        // (direct.ts resolveSession, conversation/sessionRefs.ts, #33027): acpmux answers the session
+        // it names (hub/locate.rs). Read only, one `query`; the pane already lists every session
+        // (`_acpmux/sessions`), so it learns nothing new.
+        "_acpmux/resolve",
         // Use tools in the summary's Sources + (direct.ts setTool, cx-thur3): turns one of a chat's
         // MCP servers off or on again for that chat only; acpmux restarts its Claude Code and
         // resumes it (now, after the running turn, or at its next start).
@@ -254,7 +262,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/inbox_thread", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/queue_approve", "_acpmux/queue_decline", "_acpmux/queue_get",
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
-        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/app_reply",
+        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
         "_acpmux/mcp/reconnect", "_acpmux/subsession/limits",
@@ -314,11 +322,11 @@ nonisolated enum AcpmuxPaneMethods {
     }
 
     /// The frames that GRANT something and so need a fresh user gesture (ad349). One switch per
-    /// method; a deny or revoke needs none.
+    /// method; a local deny or revoke needs none. Peer trust writes always need one.
     public nonisolated enum GestureRule: Sendable {
         /// Every frame of the method (the user pressed send, picked a mode or an option).
         case always
-        /// `acp.trust.set` that trusts (`level` other than `untrusted` or `unknown`).
+        /// Every peer `acp.trust.set`, or a local set with a level other than `untrusted` or `unknown`.
         case whenTrusting
         /// `_acpmux/permission_respond` whose option is not a known deny.
         case whenOptionAllows
@@ -342,6 +350,8 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/secret_submit": .always,
         // Resume runs turns: the held messages go to both chats of the pair.
         "_acpmux/agent_pair_resume": .always,
+        // Hand back delivers held messages, which runs turns.
+        "_acpmux/agent_hold": .always,
         "_acpmux/app_reply": .always,
         // Approve sends a guest's held prompt to the agent; Decline drops it: no gesture.
         "_acpmux/queue_approve": .always,
@@ -381,6 +391,7 @@ nonisolated enum AcpmuxPaneMethods {
         case .always:
             return true
         case .whenTrusting:
+            if params["peer"] != nil { return true }
             let level = params["level"] as? String
             return level != "untrusted" && level != "unknown"
         case .whenOptionAllows:

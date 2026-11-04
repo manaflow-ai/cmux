@@ -40,7 +40,7 @@ extension UpdaterService {
     /// The user ran `action` (palette, menu, shortcut, click): its tip is
     /// used. Only the user's own runs count (the App filters the origin).
     public func markTipActionUsed(_ action: String) {
-        guard !tipState.usedActions.contains(action), TipCatalog.all.contains(where: { $0.action == action }) else { return }
+        guard !tipState.usedActions.contains(action), TipCatalog.actions.contains(action) else { return }
         var state = tipState
         state.usedActions.insert(action)
         storeTipState(state)

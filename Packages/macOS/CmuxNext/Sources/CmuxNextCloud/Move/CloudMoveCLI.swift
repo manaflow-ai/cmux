@@ -151,15 +151,22 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var newName: String?
         public var createKey: String
         public var tabKey: String
+        public var targetPane: String?
+        public var createTeam: String?
+        public var createSent: Bool = false
         public var environmentId: String?
         public var setup: CloudStartSetup?
 
         public init(machine: String? = nil, newName: String? = nil, createKey: String, tabKey: String,
-                    environmentId: String? = nil, setup: CloudStartSetup? = nil) {
+                    environmentId: String? = nil, setup: CloudStartSetup? = nil, targetPane: String? = nil,
+                    createTeam: String? = nil, createSent: Bool = false) {
             self.machine = machine
             self.newName = newName
             self.createKey = createKey
             self.tabKey = tabKey
+            self.targetPane = targetPane
+            self.createTeam = createTeam
+            self.createSent = createSent
             self.environmentId = environmentId
             self.setup = setup
         }
@@ -172,7 +179,8 @@ public nonisolated struct CloudMoveCLI: Sendable {
         let start = CloudStartInfo(object: object)
         let plan = StartChatPlan(machine: object["machine"] as? String, newName: object["new_name"] as? String,
                                  createKey: object["create_key"] as? String ?? "", tabKey: object["tab_key"] as? String ?? "",
-                                 environmentId: start.environmentId, setup: start.setup)
+                                 environmentId: start.environmentId, setup: start.setup, targetPane: object["target_pane"] as? String,
+                                 createTeam: object["create_team"] as? String, createSent: object["create_sent"] as? Bool ?? false)
         // An ok answer without its keys is no answer: a create or open without them is not idempotent.
         guard !run.answer.ok || (!plan.createKey.isEmpty && !plan.tabKey.isEmpty) else {
             return (Answer(ok: false, errorCode: Self.badAnswer, error: "link start-chat plan answered ok without its keys"), plan)
@@ -186,6 +194,22 @@ public nonisolated struct CloudMoveCLI: Sendable {
         (try await run(["link", "start-chat", "pin", "--key", key, "--account", account, "--machine", machine] + (workspace.map { ["--workspace", $0] } ?? [])), ())
     }
 
+    public func startChatCreateBegin(key: String, account: String, name: String, createKey: String) async throws -> (Answer, Void) {
+        (try await run(["link", "start-chat", "create-begin", "--key", key, "--account", account, "--name", name, "--create-key", createKey]), ())
+    }
+
+    public func startChatCreateSent(key: String, account: String, team: String, createKey: String) async throws -> (Answer, Void) {
+        (try await run(["link", "start-chat", "create-sent", "--key", key, "--account", account, "--team", team, "--create-key", createKey]), ())
+    }
+
+    public func startChatCreateRefused(key: String, account: String, createKey: String) async throws -> (Answer, Void) {
+        (try await run(["link", "start-chat", "create-refused", "--key", key, "--account", account, "--create-key", createKey]), ())
+    }
+
+    public func startChatTargetPane(key: String, account: String, machine: String, pane: String) async throws -> (Answer, Void) {
+        (try await run(["link", "start-chat", "target-pane", "--key", key, "--account", account, "--machine", machine, "--pane", pane]), ())
+    }
+
     /// `cmux link start-chat import`: hands cmux-tui the sends this App kept itself before (`entries`, their JSON).
     public func startChatImport(entries: String) async throws -> (Answer, Void) {
         (try await run(["link", "start-chat", "import", "--entries", entries]), ())
@@ -196,15 +220,21 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// already finished there. The chat's folder there, whether it copied now, and whether this Mac's acpmux
     /// (its home `acpmuxHome`) trusts the chat's folder here (`source_trusted`).
     public func startChatCopy(key: String, account: String, machine: String, socket: String, local: String, subpath: String,
-                              workRoots: [String], acpmuxHome: String?, stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> (Answer, (chat: String, copied: Bool, sourceTrusted: Bool)) {
+                              workRoots: [String], acpmuxHome: String?, access: String? = nil,
+                              stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> (Answer, (chat: String, folder: String, copied: Bool, sourceTrusted: Bool)) {
         let roots = workRoots.flatMap { ["--work-root", $0] } + (acpmuxHome.map { ["--acpmux-home", $0] } ?? [])
+        // With the cmux `access` token (on stdin), the copy goes through the content-addressed store
+        // (`--store`, cmux-tui `link/sync_cli/store.rs`); the link copy stays its fallback.
+        let store = access == nil ? [] : ["--store", "default"]
         let run = try await parsed(["link", "start-chat", "copy", "--key", key, "--account", account, "--machine", machine,
-                                    "--socket", socket, "--local", local, "--subpath", subpath] + roots, stderrLine: stderrLine)
+                                    "--socket", socket, "--local", local, "--subpath", subpath] + roots + store,
+                                   stdin: access.map { Data(($0 + "\n").utf8) }, stderrLine: stderrLine)
         let chat = run.object?["chat"] as? String ?? ""
-        guard !run.answer.ok || chat.hasPrefix("/") else {
-            return (Answer(ok: false, errorCode: Self.badAnswer, error: "link start-chat copy answered ok without its folder"), (chat, false, false))
+        let folder = run.object?["folder"] as? String ?? ""
+        guard !run.answer.ok || (folder.hasPrefix("/") && (chat == folder || chat.hasPrefix(folder + "/"))) else {
+            return (Answer(ok: false, errorCode: Self.badAnswer, error: "link start-chat copy answered ok without its folder"), (chat, folder, false, false))
         }
-        return (run.answer, (chat, run.object?["copied"] as? Bool ?? false, run.object?["source_trusted"] as? Bool == true))
+        return (run.answer, (chat, folder, run.object?["copied"] as? Bool ?? false, run.object?["source_trusted"] as? Bool == true))
     }
 
     /// Longer than `link machine update`'s own wait for the machine (25 minutes) plus a first download.

@@ -219,7 +219,7 @@ def pick(variable: str, snapshot: Mapping[str, Any] | None, now: dt.datetime,
     stuck = stalled(snapshot, labels, now, pools)
     if stuck is None:
         # A snapshot too old for the stall rule still shows a dead label (dead()): never pick it unverified.
-        # dev_landing_place.py's overflow (OVERFLOW_LABEL, 12 vCPU) and nightly_build_runner.py read this pick.
+        # nightly_build_runner.py reads this pick.
         gone = dead(snapshot, now, pools)
         label = next((label for label in labels if label not in gone), labels[0])
         return label, (f"no fresh pool snapshot, so `{label}` "
@@ -350,4 +350,9 @@ def main(env: Mapping[str, str] = os.environ, read: Callable[[str, str], Any] | 
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["hosted-wait"]:
+        # The pick's read of hosted Ubuntu's start wait, which the signer route reads (hosted_queue_wait.py).
+        import hosted_queue_wait  # noqa: E402,PLC0415
+
+        sys.exit(hosted_queue_wait.main())
     sys.exit(main())

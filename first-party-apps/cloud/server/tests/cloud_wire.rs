@@ -160,6 +160,40 @@ fn a_delete_retry_after_the_delete_answers_deleted() {
     assert!(s.projection().get(&vm(2)).is_none());
 }
 
+/// At the plan's cap the backend pauses the person's idle machine, then
+/// creates (leo-workspace design/cloud.md, "At the machine cap"): the answer
+/// keeps `made_room` for the app's notice, and a refusal keeps `details.busy`
+/// for its card.
+#[test]
+fn a_create_at_the_cap_keeps_made_room_and_the_busy_list() {
+    // The vectors' create answers the machine; the test answers below add the room and the refusal.
+    let args =
+        json!({ "name": "new box", "size": { "cpu": 2, "memory_mb": 4096, "disk_mb": 16384 } });
+    let made =
+        server().handle(&mutation("cloud.machine.create", args.clone(), "key-create-1")).unwrap();
+    let mut paused = made["machine"].clone();
+    paused["id"] = json!(vm(2));
+    paused["status"] = json!("paused");
+    let mut answer = made.clone();
+    answer["made_room"] = json!({ "machine": paused });
+
+    let mut s = server();
+    s.control_plane_mut().answer("cloud.machine.create", args.clone(), Some("key-room"), answer);
+    let out = s.handle(&mutation("cloud.machine.create", args.clone(), "key-room")).unwrap();
+    assert_eq!(out["machine"]["id"], made["machine"]["id"]);
+    assert_eq!(out["made_room"]["machine"]["id"], vm(2), "{out}");
+    assert_eq!(out["made_room"]["machine"]["status"], "paused");
+    assert!(s.projection().get(&vm(2)).is_some(), "the paused machine goes into the projection");
+
+    let busy = json!([{ "machine": vm(3), "name": "busy box", "last_active_at": 1_000 }]);
+    let error = json!({ "error": { "code": "cloud.quota.exceeded", "message": "at the cap",
+        "retryable": false, "details": { "resource": "active", "limit": 5, "used": 5, "busy": busy } } });
+    s.control_plane_mut().answer("cloud.machine.create", args.clone(), Some("key-busy"), error);
+    let refused = err_json(s.handle(&mutation("cloud.machine.create", args, "key-busy")));
+    assert_eq!(refused["code"], "cmux.cloud.quota_exceeded", "{refused}");
+    assert_eq!(refused["details"]["busy"], busy);
+}
+
 #[test]
 fn quota_and_plan_errors_map_to_typed_cloud_errors() {
     let mut s = server();

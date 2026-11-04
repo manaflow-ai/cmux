@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileAgentChat
+import CmuxMobileDesign
 import CmuxMobileLive
 import CmuxMobileNotifications
 import SwiftUI
@@ -11,8 +12,8 @@ struct CloudChatsScreen: View {
     let attention: CloudChatAttention?
     @Environment(\.dismiss) private var dismiss
     @State private var selectedMac = ""
-    @State private var machines: [CloudChatMachine] = []
-    @State private var selectedMachine: CloudChatMachine?
+    @State private var locations: [CloudChatLocation] = []
+    @State private var selectedLocation: CloudChatLocation?
     @State private var loading = false
     @State private var error: String?
     @State private var refresh = 0
@@ -21,8 +22,14 @@ struct CloudChatsScreen: View {
         selectedMac.isEmpty ? shell.live?.focusedMacID ?? shell.store.activeTeam?.macs.first?.id ?? "" : selectedMac
     }
 
+    private var eligibleMacIDs: [String] {
+        guard let live = shell.live else { return [] }
+        return shell.store.activeTeam?.macs.map(\.id).filter { live.canLink(macID: $0) } ?? []
+    }
+
     private struct Load: Hashable {
         let mac: String
+        let macs: [String]
         let live: ObjectIdentifier?
         let team: String
         let refresh: Int
@@ -31,7 +38,7 @@ struct CloudChatsScreen: View {
     var body: some View {
         NavigationStack {
             List {
-                if let macs = shell.store.activeTeam?.macs, !macs.isEmpty {
+                if attention == nil, let macs = shell.store.activeTeam?.macs, !macs.isEmpty {
                     Picker("Mac", selection: Binding(get: { macID }, set: { selectedMac = $0 })) {
                         ForEach(macs) { mac in Text(mac.name).tag(mac.id) }
                     }
@@ -41,7 +48,7 @@ struct CloudChatsScreen: View {
                 } else if let error {
                     Text(error).foregroundStyle(.secondary)
                     Button("Retry") { refresh += 1 }
-                } else if machines.isEmpty {
+                } else if locations.isEmpty {
                     ContentUnavailableView(
                         attention == nil ? "No Cloud machines" : "Chat unavailable",
                         systemImage: "cloud",
@@ -50,9 +57,9 @@ struct CloudChatsScreen: View {
                             : "Choose the Mac connected to this chat’s Cloud machine.")
                     )
                 } else {
-                    ForEach(machines) { machine in
-                        Button { selectedMachine = machine } label: {
-                            Label(machine.name, systemImage: "cloud")
+                    ForEach(locations) { location in
+                        Button { selectedLocation = location } label: {
+                            Label(location.machine.name, systemImage: "cloud")
                         }
                     }
                 }
@@ -66,32 +73,40 @@ struct CloudChatsScreen: View {
                         .disabled(loading)
                 }
             }
-            .navigationDestination(item: $selectedMachine) { machine in
-                CloudMachineChatsScreen(live: shell.live, macID: macID, machine: machine,
+            .navigationDestination(item: $selectedLocation) { location in
+                CloudMachineChatsScreen(live: shell.live, macID: location.macID, machine: location.machine,
                                         preferredSession: attention?.sessionID)
             }
-            .task(id: Load(mac: macID, live: shell.live.map(ObjectIdentifier.init), team: shell.store.activeTeamID, refresh: refresh)) {
-                shell.cloudMacID = macID.isEmpty ? nil : macID
-                selectedMachine = nil
-                machines = []
+            .task(id: Load(mac: attention == nil ? macID : "", macs: eligibleMacIDs.sorted(),
+                           live: shell.live.map(ObjectIdentifier.init), team: shell.store.activeTeamID, refresh: refresh)) {
+                shell.cloudMacID = attention == nil && !macID.isEmpty ? macID : nil
+                selectedLocation = nil
+                locations = []
                 error = nil
-                guard let live = shell.live, !macID.isEmpty else {
+                guard let live = shell.live, attention != nil ? !eligibleMacIDs.isEmpty : !macID.isEmpty else {
                     loading = false
                     error = "Connect a Mac to see its Cloud chats."
                     return
                 }
                 loading = true
                 do {
-                    let listed = try await live.cloudMachines(on: macID)
+                    let found: [CloudChatLocation]
+                    if let attention {
+                        // Push routing is pinned to an exact authenticated
+                        // Cloud team/machine, even when another Mac is focused.
+                        let match = await CloudChatAttentionResolver.find(macIDs: eligibleMacIDs, attention: attention) { id in
+                            try await live.cloudMachines(on: id)
+                        }
+                        found = match.map { [$0] } ?? []
+                    } else {
+                        let listed = try await live.cloudMachines(on: macID)
+                        found = CloudChatDirectory.scopedMachines(listed, attention: nil)
+                            .map { CloudChatLocation(macID: macID, machine: $0) }
+                    }
                     try Task.checkCancellation()
-                    // A push carries Cloud's own team id. Resolve it only
-                    // against the freshly authenticated paired-Mac directory;
-                    // Stack team ids are a different namespace and are never
-                    // compared here. A stale or other-account push therefore
-                    // has no machine to open.
-                    machines = CloudChatDirectory.scopedMachines(listed, attention: attention)
+                    locations = found
                     loading = false
-                    if attention != nil, machines.count == 1 { selectedMachine = machines[0] }
+                    if attention != nil, found.count == 1 { selectedLocation = found[0] }
                 } catch {
                     guard !Task.isCancelled else { return }
                     loading = false
@@ -112,6 +127,8 @@ private struct CloudMachineChatsScreen: View {
     @State private var error: String?
     @State private var refresh = 0
     @State private var openedPreferred = false
+    /// How many of the machine's chats the list draws, newest first (Show Older Chats adds a page).
+    @State private var shown = CloudChatList.pageSize
 
     var body: some View {
         Group {
@@ -122,8 +139,9 @@ private struct CloudMachineChatsScreen: View {
                     ContentUnavailableView("Chat unavailable", systemImage: "bubble.left",
                                            description: Text("This chat is no longer listed on this Cloud machine."))
                 } else {
+                    let listed = CloudChatList.newest(relay.hub.sessions.values, shown: shown)
                     List {
-                        ForEach(relay.hub.sessions.values.filter { $0.peer == nil }.sorted { $0.id < $1.id }, id: \.id) { chat in
+                        ForEach(listed.rows, id: \.id) { chat in
                             Button { selectedSession = chat.id } label: {
                                 VStack(alignment: .leading) {
                                     Text(chat.name.isEmpty ? chat.harness : chat.name)
@@ -131,6 +149,12 @@ private struct CloudMachineChatsScreen: View {
                                         Text(prompt).lineLimit(2).foregroundStyle(.secondary)
                                     }
                                 }
+                            }
+                        }
+                        if listed.hasOlder {
+                            Section {
+                                Button("Show Older Chats") { shown += CloudChatList.pageSize }
+                                    .accessibilityIdentifier("cloudChats.more")
                             }
                         }
                     }
@@ -144,7 +168,7 @@ private struct CloudMachineChatsScreen: View {
             } else if error != nil || relay?.error != nil || relay?.hub.lastError != nil {
                 ContentUnavailableView {
                     Label("Couldn't connect", systemImage: "cloud")
-                } actions: { Button("Retry") { refresh += 1 } }
+                } actions: { RetryButton { refresh += 1 } }
             } else {
                 ProgressView("Connecting…")
             }

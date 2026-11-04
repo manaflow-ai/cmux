@@ -28,9 +28,12 @@ async fn the_session_list_and_info_carry_what_the_chats_transcript_says() {
     assert_eq!(stats["contextTokens"], 201_003, "{stats}");
     assert_eq!(stats["tokens24h"], 201_053, "{stats}");
     assert_eq!(stats["launcher"], "python3", "{stats}");
-    // This daemon started it with no cap, and its Claude home has no settings: known uncapped.
-    assert_eq!(stats["autocompact"], "none", "{stats}");
-    assert_eq!(stats["autocompactCap"], Value::Null, "{stats}");
+    // Nothing the person set decides its window (no flag, env or settings in its Claude home or
+    // folder), so this daemon started it with acpmux's own (#31936), and it reads as capped there.
+    let (_, window) = acpmux::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW;
+    let window: u64 = window.parse().unwrap();
+    assert_eq!(stats["autocompact"], "capped", "{stats}");
+    assert_eq!(stats["autocompactCap"], window, "{stats}");
     assert_eq!(stats["subagents24h"], 0, "{stats}");
     assert!(stats["costUsd24h"].as_f64().is_some_and(|c| c > 0.0), "{stats}");
 
@@ -53,6 +56,15 @@ async fn the_session_list_and_info_carry_what_the_chats_transcript_says() {
     }
     let tokens: Vec<_> = recorded.iter().map(|e| e.msg["tokens24h"].clone()).collect();
     assert_eq!(tokens, vec![json!(201_053), json!(2 * 201_053)]);
+
+    // That cap is the one the harness really runs with: a chat started the same way has it.
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let probe = s["sessionId"].as_str().unwrap().to_owned();
+    let text = "env: CLAUDE_CODE_AUTO_COMPACT_WINDOW";
+    let p = json!({"sessionId": probe, "prompt": [{"type": "text", "text": text}]});
+    c.request(method::SESSION_PROMPT, p).await.unwrap();
+    let preview = hub.session_summary(&hub.resolve(&probe).unwrap())["preview"].clone();
+    assert_eq!(preview, format!("CLAUDE_CODE_AUTO_COMPACT_WINDOW={window}"));
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }

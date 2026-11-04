@@ -9,9 +9,13 @@ import type { SessionAuth } from "./sessionAuth";
 /// once the agent reports that model) and `onEffort`.
 export type ModelPickerProps = {
   /// `top`: the harness's own model-menu order, when reported; other models fold under More models.
-  catalog: (AcpmuxSnapshot["catalog"][number] & { top?: readonly string[] })[];
+  /// `notInstalled`: a catalog harness this machine does not have; it lists, its models cannot start.
+  catalog: (AcpmuxSnapshot["catalog"][number] & { top?: readonly string[]; notInstalled?: true })[];
   harness?: string;
   model?: string;
+  /** The model the chip names before the session reports one (the harness default, or the last
+   *  pick): the model menu checks it and its level as the running model. */
+  predictedModel?: string;
   /// The chip's text: the current model's name, or its id when the catalog doesn't list it.
   label: string;
   /// The current chat or New Tab target's auth, never host-wide cached health.

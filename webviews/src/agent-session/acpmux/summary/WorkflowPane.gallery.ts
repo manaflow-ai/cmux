@@ -41,7 +41,7 @@ const realPaneSnapshot = (running: boolean) => {
     { isWorking: running, title: "File count workflow" },
   );
 };
-/// The app offers Session Info (Debug Settings `agent.inspector`, on by default): it opens shown.
+/// The app offers Session Info (Debug Settings `agent.sessionInfo`, on by default): it opens shown.
 const native = { "pane.tabState": { inspector: true } };
 const shown: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-card"), { capMs: 3000 });
@@ -67,7 +67,7 @@ export default agentPaneEntry({
       play: shown,
     },
     finished: {
-      note: "Labs: the same workflow finished. The card reads Workflow · 7 agents · 1m 20s with every dot filled; Background tasks reads Workflow · Finished · 7 agents · 432k tokens, each phase N/N.",
+      note: "Labs: the same workflow finished. The card reads Workflow · 7 agents · 1m 20s with every dot filled; Background tasks reads Finished · 7 agents · 432k tokens, each phase N/N.",
       snapshot: paneSnapshot("finished"),
       native,
       workflowLabs: true,
