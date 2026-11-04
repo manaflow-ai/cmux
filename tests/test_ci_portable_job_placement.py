@@ -695,6 +695,43 @@ class Wiring(unittest.TestCase):
                     self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)", route)
                     self.assertIn(spec["fallback"], route)
 
+    def test_portable_bootstraps_are_bounded_and_kill_switch_skips_the_job(self):
+        expected = {
+            "pr-checks.yml": ("size", "ui-review", "split"),
+            "cmux-next-fast-gates.yml": ("resolve", "post"),
+            "web-validation.yml": ("web-validation",),
+        }
+        for workflow, consumers in expected.items():
+            with self.subTest(workflow=workflow):
+                workflow_jobs = jobs(workflow)
+                placement_job = workflow_jobs["portable-placement"]
+                placement_if = str(placement_job["if"])
+                self.assertIn("CI_PORTABLE_LIGHT_JOBS_OFF != '1'", placement_if)
+                if workflow == "web-validation.yml":
+                    self.assertIn("github.event_name != 'merge_group'", placement_if)
+                route = placement_job["runs-on"]
+                self.assertIn("github.run_attempt == 1 && 'ubuntu-24.04'", route)
+                self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", route)
+                self.assertNotIn("vars.CI_LIGHT_LANE_RUNNER", route)
+                self.assertNotIn("vars.CI_SIDE_LANE_RUNNER", route)
+                # Owned labels remain inputs to capacity validation, never the
+                # bootstrap's assignment before that validation can run.
+                side_label = placement_job["steps"][-1]["env"]["SIDE_LABEL"]
+                self.assertIn("vars.CI_LIGHT_LANE_RUNNER", side_label)
+                self.assertIn("vars.CI_SIDE_LANE_RUNNER", side_label)
+                for name in consumers:
+                    condition = str(workflow_jobs[name]["if"])
+                    if name == "web-validation":
+                        self.assertEqual(condition, "always()")
+                    else:
+                        self.assertIn("always()", condition)
+                        self.assertIn("!cancelled()", condition)
+
+    def test_merge_group_skips_placement_but_keeps_web_rollup(self):
+        workflow_jobs = jobs("web-validation.yml")
+        self.assertIn("github.event_name != 'merge_group'", workflow_jobs["portable-placement"]["if"])
+        self.assertEqual(workflow_jobs["web-validation"]["if"], "always()")
+
     def test_runner_state_bootstrap_does_not_fall_through_to_github_api(self):
         state = {
             "schema": "runner-state/v1", "repository": "manaflow-ai/cmux", "complete": True,
@@ -713,7 +750,7 @@ class Wiring(unittest.TestCase):
         self.assertIsNone(queue)
 
     def test_placement_runs_the_trusted_base_copy(self):
-        for workflow in self.PLACED:
+        for workflow in (*self.PLACED, "pr-checks.yml", "cmux-next-fast-gates.yml", "web-validation.yml"):
             with self.subTest(workflow=workflow):
                 checkout = jobs(workflow)["portable-placement"]["steps"][0]
                 self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha || github.sha }}")

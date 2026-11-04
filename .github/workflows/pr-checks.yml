@@ -40,7 +40,8 @@ jobs:
   # missing publication keeps the existing hosted/Blacksmith route.
   portable-placement:
     name: portable light placement
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    if: ${{ vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 4
     permissions:
       contents: read
@@ -60,7 +61,6 @@ jobs:
           persist-credentials: false
       - name: Place the portable advisory jobs
         id: place
-        if: vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1'
         continue-on-error: true
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
@@ -252,7 +252,7 @@ jobs:
     # base-only update too: it costs one API call, and a previous head's green run
     # from before it could fail (or that a later Size: edit changed) must not
     # answer for it.
-    if: ${{ !cancelled() && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft }}
+    if: ${{ always() && !cancelled() && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft }}
     # A declared light job (.github/runners.json hosted_light_jobs): one GraphQL read, 4 s of work.
     # Hosted Ubuntu on attempt 1, the reconciled Linux pool on a re-run (no secret).
     needs: portable-placement
@@ -336,7 +336,7 @@ jobs:
   ui-review:
     name: UI review advisory
     needs: [base-only, portable-placement]
-    if: ${{ !cancelled() && needs.base-only.outputs.base_only != 'true' && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft }}
+    if: ${{ always() && !cancelled() && needs.base-only.outputs.base_only != 'true' && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft }}
     # A declared light job (.github/runners.json hosted_light_jobs): one file list read, 4 s of work.
     # Hosted Ubuntu on attempt 1, the reconciled Linux pool on a re-run (no secret).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' ui-review ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' ui-review ') && needs.portable-placement.outputs.mini_runner || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
@@ -398,7 +398,7 @@ jobs:
   split:
     name: split-plan advisory
     needs: [base-only, portable-placement]
-    if: ${{ !cancelled() && needs.base-only.outputs.base_only != 'true' && github.event.action != 'edited' }}
+    if: ${{ always() && !cancelled() && needs.base-only.outputs.base_only != 'true' && github.event.action != 'edited' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' split ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' split ') && needs.portable-placement.outputs.mini_runner || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:

@@ -25,7 +25,8 @@ jobs:
   # job to an idle owned mini; stale state fails open to the existing overflow.
   portable-placement:
     name: portable light placement
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    if: ${{ github.event_name != 'merge_group' && vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 4
     permissions:
       contents: read
@@ -45,7 +46,6 @@ jobs:
           persist-credentials: false
       - name: Place the portable web status job
         id: place
-        if: vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1'
         continue-on-error: true
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
