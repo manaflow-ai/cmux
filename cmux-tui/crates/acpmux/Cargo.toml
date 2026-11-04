@@ -28,6 +28,7 @@ tailnet = ["dep:cmux-tailnet", "dep:tokio-rustls"]
 sim = []
 
 [target.'cfg(unix)'.dependencies]
+signal-hook-registry = "1.4"
 cmux-tailnet = { workspace = true, optional = true }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
 
