@@ -83,6 +83,13 @@ describe("the running tray header counts each kind", () => {
     });
   });
 
+  // Leo, 2026-11-04: "the top of the bar not having anything is weird", over a list of stopped ones
+  // that headed only "Subagents".
+  test("what was stopped is counted, never a bare Subagents", () => {
+    expect(head([], [agent("a", "cancelled"), agent("b", "disconnected")]).text).toBe("2 stopped");
+    expect(head([], [agent("d", "completed"), agent("a", "cancelled")]).text).toBe("1 subagent done · 1 stopped");
+  });
+
   test("only failures ended and nothing runs: no empty words before the count", () => {
     expect(head([], [agent("f", "failed")])).toEqual({ text: "", failed: 1, marks: [] });
   });

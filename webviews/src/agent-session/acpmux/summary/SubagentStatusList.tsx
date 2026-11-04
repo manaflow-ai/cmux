@@ -29,7 +29,7 @@ import type { StartedSession } from "../started/startedSessions";
 import { ChildSessionRows, sessionStatus } from "../session-info/ChildSessionRows";
 import type { SummarySubagent } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
-import { AgentIdentity, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/AgentIdentity";
+import { AgentIdentity, foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/AgentIdentity";
 import { agentTone } from "../subagents/agentTones";
 import { orderedSubagents } from "./subagentOrder";
 
@@ -212,7 +212,7 @@ export function SubagentStatusList({
               <AgentLine
                 name={agent.name}
                 icon={SUBAGENT_FALLBACK}
-                mark={agent.harness ?? chatHarness}
+                mark={foreignHarness(agent.harness, chatHarness)}
                 status={status}
                 state={subagentStateText(t, agent, waiting)}
                 working={Boolean(retrying(agent))}
