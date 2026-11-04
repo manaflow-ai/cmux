@@ -2103,6 +2103,33 @@ pre.cv-math-source {
 .cv-worked.cv-worked--live {
   padding-inline-start: var(--cv-tool-text-inset);
 }
+/* By default (liveLineLead.experiment.ts `mark`) the line draws a still glyph of what it names in
+   the tool rows' icon slot, as every row around it does, so it is a row of its own, not a second
+   line hung under the one above (Leo, 2026-11-03: a bad indent, its icon column off the other
+   rows'). The slot is a tool row's (`.cv-tool__icon`): 16 wide at the row's left edge, then the
+   rows' 8px gap, so the words still start on the text column. It never moves; the words shimmer. */
+.cv-worked.cv-worked--live.has-mark {
+  padding-inline-start: 0;
+}
+.cv-worked__mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--cv-row-icon);
+  height: var(--cv-glyph-line);
+  margin-inline-end: calc(var(--cv-tool-text-inset) - var(--cv-row-icon) - var(--grid-gap));
+  color: var(--cv-text-muted);
+}
+.cv-worked.cv-worked--live.is-flush {
+  padding-inline-start: 0;
+}
+/* "Thinking · 4m 1s total · 3.2K tokens" reads as one sentence: the dot after the label sits the
+   counts' own 4px from it, never the line's 8px gap plus 2px (a wide hole that set the counts off
+   as a second column). */
+.cv-worked--live > .cv-worked__count {
+  margin-left: calc(4px - var(--grid-gap));
+}
 .cv-worked.is-below {
   /* The footer's slot (transcriptGrid.ts MARK_FOOTER_SLOT): its 32 line, 8 under a reply. */
   height: var(--cv-footer-row);
