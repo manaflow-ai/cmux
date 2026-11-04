@@ -17,6 +17,12 @@
   item sections hidden and the footer separate. Existing band caps, scrolling and scene mounts apply. A header
   drag forwards the document move within bottom or between top and bottom. Regression: `SidebarAppBottomBandTests`.
 
+- 2026-11-03: a group header's status mark draws at its rows' size. Leo, verbatim: "symbol size discrepancy groups vs
+  workspaces". The header's roll-up (`GroupHeaderRowView.activity`) drew every state in the 10 pt indicator box, scaled
+  by the indicator scale setting, while workspace rows draw the red warning and needs-you marks in 14 pt and the spinner
+  at the status glyph size, at a fixed scale (#30236, #31416, #33120 changed only `RowBadgeView`). Both row kinds now
+  read one token per state, `SidebarStyle.statusMarkSide(for:)`, centered on the one trailing column, and the header's
+  mark ignores the scale setting. Regression: `SidebarStatusGlyphParityTests`.
 - 2026-11-03: a row's working spinner draws at the row's status glyph size, not the warning's. Leo, verbatim: "i think
   the spinners are maybe a bit too big in this situation" (the compact sidebar). Since #30236's follow-up (Leo
   2026-11-01, "every icon is still f***ing small") every non-dot row badge drew in a 14 pt box, so at compact the
