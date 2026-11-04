@@ -36,6 +36,14 @@ struct DaemonDiagnosticKnobsTests {
         #expect(knobs.daemonEnvironment == ["CMUX_TUI_OWNER_KEEPERS": "0"])
     }
 
+    /// The Chief owner (`cmux-chief-*`) follows the same keepers rule, so the off switch must reach its `ensure` too;
+    /// the Chief launch keeps only a short list of variables (`DaemonLauncher.chiefEnvironment`).
+    @Test func theOwnerKeepersSwitchReachesTheChiefOwner() {
+        let environment = DaemonLauncher.chiefEnvironment(["HOME": "/h", "CMUX_NEXT_TUI_OWNER_KEEPERS": "0",
+                                                           "CMUX_NEXT_TRACE_FLOWS": "/tmp/x"])
+        #expect(environment == ["HOME": "/h", "CMUX_TUI_OWNER_KEEPERS": "0"])
+    }
+
     @Test func noKnobsPassNothing() {
         #expect(DaemonDiagnosticKnobs(processEnvironment: ["CMUX_TRACE_FLOWS": "/tmp/x"]).daemonEnvironment.isEmpty)
     }
