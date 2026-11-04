@@ -4,6 +4,7 @@ use super::*;
 use crate::heap_future::heap;
 use crate::no_panic::{JsonExt, LockExt};
 
+mod agent_setup;
 mod briefs;
 pub(super) mod cancel_refused;
 mod composer;
@@ -2162,6 +2163,8 @@ async fn dispatch_request_with_identity(
         }
         // Read or change presets (`requests/presets.rs`).
         method::MUX_PRESETS => presets::handle(hub, conn, &params).await,
+        method::MUX_AGENT_SETUP => agent_setup::handle(hub, conn, &params).await,
+        method::MUX_AGENT_SETUP_SAVE => agent_setup::save(hub, conn, &params).await,
         method::MUX_INFO => info::info(hub, conn, &params).await,
         method::MUX_SESSION_FILES => {
             super::session_files::require_local(conn.origin)?;

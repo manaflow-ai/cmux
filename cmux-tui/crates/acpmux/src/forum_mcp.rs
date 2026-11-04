@@ -14,7 +14,7 @@ pub const SERVER_NAME: &str = "cmux-forum";
 /// The session the tools act for, set in this server's env with its caller token.
 pub const SESSION_ENV: &str = "ACPMUX_SESSION_ID";
 
-fn tools() -> Value {
+pub(crate) fn tools() -> Value {
     json!([
         {
             "name": "announce",

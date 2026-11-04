@@ -222,6 +222,8 @@ export interface AcpmuxRequests {
   "_acpmux/registry": { params: unknown; result: unknown };
   "_acpmux/defaults": { params: unknown; result: unknown };
   "_acpmux/presets": { params: unknown; result: unknown };
+  "_acpmux/agent_setup": { params: unknown; result: unknown };
+  "_acpmux/agent_setup/save": { params: unknown; result: unknown };
   "_acpmux/models": { params: unknown; result: unknown };
   "_acpmux/directories": { params: unknown; result: unknown };
   "_acpmux/route/list": { params: unknown; result: unknown };
@@ -535,6 +537,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/registry", kind: "request", acp: false, typed: false },
   { name: "_acpmux/defaults", kind: "request", acp: false, typed: false },
   { name: "_acpmux/presets", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/agent_setup", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/agent_setup/save", kind: "request", acp: false, typed: false },
   { name: "_acpmux/models", kind: "request", acp: false, typed: false },
   { name: "_acpmux/directories", kind: "request", acp: false, typed: false },
   { name: "_acpmux/route/list", kind: "request", acp: false, typed: false },

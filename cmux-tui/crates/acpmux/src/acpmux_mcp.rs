@@ -75,7 +75,7 @@ fn tools() -> Value {
 
 /// What `tools/list` answers: [`tools`], and the artifact tools when this daemon has a cmux
 /// sign-in for them (`artifacts::advertised`).
-fn tools_with_artifacts(artifacts: bool) -> Value {
+pub(crate) fn tools_with_artifacts(artifacts: bool) -> Value {
     let mut all = tools();
     if artifacts && let Some(list) = all.as_array_mut() {
         list.extend(artifacts::definitions());
@@ -210,7 +210,7 @@ fn allowed(all: Value, allow: Option<&str>) -> Value {
 
 /// The server's instructions: the background steer where the background tools are listed, and
 /// the GitHub one where `github_status` is.
-fn instructions(tools: &Value) -> Option<String> {
+pub(crate) fn instructions(tools: &Value) -> Option<String> {
     let mut parts = Vec::new();
     if crate::mcp_hint::names(tools).any(|n| bg::TOOLS.contains(&n)) {
         parts.push(BG_STEER);

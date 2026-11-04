@@ -44,7 +44,7 @@ fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
     value.get(key).unwrap_or(&Value::Null)
 }
 
-fn tools() -> Value {
+pub(crate) fn tools() -> Value {
     let mut all = all_tools();
     if std::env::var(MCP_CONNECT_PREVIEW_ENV).as_deref() != Ok("1")
         && let Some(list) = all.as_array_mut()

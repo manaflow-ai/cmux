@@ -25,7 +25,7 @@ pub const MAX_TITLE_CHARS: usize = 80;
 /// Longest offer prompt, in characters after trimming.
 pub const MAX_PROMPT_CHARS: usize = 20_000;
 
-fn tools() -> Value {
+pub(crate) fn tools() -> Value {
     json!([{
         "name": "offer_session",
         "description": "Offer the user a new chat, running in parallel, for work you noticed that is outside the task at hand (a bug, a follow-up, a cleanup). cmux shows the offer as a chip in this chat; if the user accepts, a new agent session starts with your prompt (in a new git worktree when worktree is true) while this chat goes on. Returns at once: do not wait for an answer, and do not do that work here. If the user starts it, it becomes your sub-session (get_session and wait_for_sessions read it) and its reply comes back to this chat as a message when its first turn ends. Offer only work the user is likely to want, at most a few per task (a chat holds at most 8 open offers). Use it for one suggestion in the middle of a turn; for follow-ups at the end of a turn, use suggest_tasks.",

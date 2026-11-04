@@ -352,6 +352,9 @@ pub mod method {
     /// when the daemon closes the socket, so stream consumers notice.
     pub const MUX_DISCONNECTED: &str = "_acpmux/disconnected";
     pub const MUX_PRESETS: &str = "_acpmux/presets";
+    /// What a chat's agent is told beside the person's messages (`agent_setup.rs`).
+    pub const MUX_AGENT_SETUP: &str = "_acpmux/agent_setup";
+    pub const MUX_AGENT_SETUP_SAVE: &str = "_acpmux/agent_setup/save";
     pub const MUX_ATTACH: &str = "_acpmux/attach";
     pub const MUX_VIEW: &str = "_acpmux/view";
     pub const MUX_MARK_UNREAD: &str = "_acpmux/markUnread";

@@ -52,7 +52,7 @@ the workspace `current` is the one the user looks at)."
         .to_owned()
 }
 
-fn tools() -> Value {
+pub(crate) fn tools() -> Value {
     json!([
         {
             "name": "start_session",

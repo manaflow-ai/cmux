@@ -3,6 +3,14 @@
 
 use super::*;
 
+/// Whether `conn` may write a preset's system prompt: the unix socket, or the app's own agent pane
+/// proven as the person (`hub/person.rs`), which saves it from the Agent setup viewer (Leo,
+/// 2026-11-04: "some people just want to edit it a bit"). A page that is not the person, a Web
+/// client or a peer never does; args stay unix-socket only for every origin.
+pub(super) fn writes_command(conn: &Conn) -> bool {
+    conn.origin == Origin::Local || (conn.origin == Origin::LocalApp && conn.is_person())
+}
+
 /// Read or change presets: {name?, set?: {harness, model, effort, policy, env, args, mode}, clear?: bool,
 /// approveMode?: bool} (`approveMode: true` is the person's own, `hub/person.rs` (b)).
 pub(super) async fn handle(
@@ -24,9 +32,13 @@ pub(super) async fn handle(
         // REMOTE-FLOOR v3: a remote-origin client builds its settings
         // from scratch, so it never sets, changes or clears a preset
         // that shapes the harness command line (args, systemPrompt).
-        // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
+        // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay
+        // unix-socket only, but for the system prompt from the person's own pane (`writes_command`).
         let remote = conn.origin != Origin::Local;
+        let prompt_only = set.is_some_and(|s| s.get("args").is_none_or(Value::is_null))
+            && cfg.presets.get(&name).is_none_or(|p| p.args.is_empty());
         if remote
+            && !(prompt_only && writes_command(conn))
             && (cfg.presets.get(&name).is_some_and(|p| p.shapes_command())
                 || set.is_some_and(|s| {
                     ["args", "systemPrompt"].iter().any(|k| s.get(*k).is_some_and(|v| !v.is_null()))

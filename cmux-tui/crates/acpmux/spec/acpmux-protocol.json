@@ -1459,6 +1459,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/agent_setup",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_setup/save",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/models",
       "params": true,
       "result": true

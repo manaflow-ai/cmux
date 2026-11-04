@@ -396,6 +396,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_REGISTRY, Request),
         untyped(method::MUX_DEFAULTS, Request),
         untyped(method::MUX_PRESETS, Request),
+        untyped(method::MUX_AGENT_SETUP, Request),
+        untyped(method::MUX_AGENT_SETUP_SAVE, Request),
         untyped("_acpmux/models", Request),
         untyped("_acpmux/directories", Request),
         untyped(method::MUX_ROUTE_LIST, Request),

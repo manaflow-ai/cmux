@@ -40,7 +40,7 @@ pub fn is_cloud_machine() -> bool {
     std::path::Path::new("/etc/cmux/vm-kind").exists()
 }
 
-fn tools() -> Value {
+pub(crate) fn tools() -> Value {
     json!([
         {
             "name": "list_repos",
