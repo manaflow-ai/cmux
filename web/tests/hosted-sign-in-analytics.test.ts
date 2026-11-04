@@ -125,6 +125,38 @@ describe("hosted sign-in events", () => {
     );
   });
 
+  test("a page reporter cleaned up before any interaction ignores later presses", () => {
+    const calls = recordFetches();
+    const page = new EventTarget();
+    const shown = { event: "cmux_sign_in_page_shown", page: "sign-in", entry: "form", returningFromProvider: false } as const;
+    const cleanup = startHostedSignInPage("6fa459ea-ee8a-4ca4-894e-db77e160355e", shown, page);
+    cleanup();
+    // The sign-in page is gone; a press on whatever replaced it is not its interaction.
+    page.dispatchEvent(new Event("pointerdown"));
+    page.dispatchEvent(new Event("keydown"));
+    expect(calls.map((call) => JSON.parse(String(call.init.body)).event)).toEqual(["cmux_sign_in_page_shown"]);
+  });
+
+  test("effect-style setup, cleanup, setup: one page_shown, listeners again, one interaction", () => {
+    const calls = recordFetches();
+    const page = new EventTarget();
+    const shown = { event: "cmux_sign_in_page_shown", page: "sign-up", entry: "form", returningFromProvider: true } as const;
+    const replayAttempt = "16fd2706-8baf-433b-82eb-8c7fada847da";
+    const firstCleanup = startHostedSignInPage(replayAttempt, shown, page);
+    firstCleanup();
+    const cleanup = startHostedSignInPage(replayAttempt, shown, page);
+    page.dispatchEvent(new Event("pointerdown"));
+    page.dispatchEvent(new Event("pointerdown"));
+    // A later mount of the same attempt after the interaction adds nothing.
+    startHostedSignInPage(replayAttempt, shown, page)();
+    page.dispatchEvent(new Event("keydown"));
+    cleanup();
+    expect(calls.map((call) => JSON.parse(String(call.init.body)).event)).toEqual([
+      "cmux_sign_in_page_shown",
+      "cmux_sign_in_page_interacted",
+    ]);
+  });
+
   test("every step's properties are allowlisted and bounded", () => {
     const now = new Date(0);
     const steps = [

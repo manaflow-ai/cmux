@@ -119,25 +119,36 @@ export function reportHostedSignInStep(attempt: string | null, step: HostedSignI
 
 export type HostedSignInPageShown = Extract<HostedSignInStep, { event: "cmux_sign_in_page_shown" }>;
 
-/** Attempts whose page load was already reported (Strict Mode runs effects twice). */
-const startedPages = new Set<string>();
+/** Attempts whose page load, and whose first interaction, this page load already reported. */
+const shownPages = new Set<string>();
+const interactedPages = new Set<string>();
 
 /**
  * Reports `cmux_sign_in_page_shown` once per page load for `attempt`, then
  * `cmux_sign_in_page_interacted` on the first pointer or key press on
  * `target` (the document), once. It tells "the person did something" apart
  * from "nothing measured happened", without saying what or where.
+ *
+ * Returns the cleanup, which removes the listeners: after the sign-in page
+ * unmounts, a press elsewhere is not its interaction. Setting up again
+ * (Strict Mode, a remount) listens again but never repeats `page_shown`.
  */
-export function startHostedSignInPage(attempt: string | null, step: HostedSignInPageShown, target: EventTarget) {
-  if (!attempt || startedPages.has(attempt)) return;
-  startedPages.add(attempt);
-  reportHostedSignInStep(attempt, step);
+export function startHostedSignInPage(attempt: string | null, step: HostedSignInPageShown, target: EventTarget): () => void {
+  if (!attempt) return () => {};
+  if (!shownPages.has(attempt)) {
+    shownPages.add(attempt);
+    reportHostedSignInStep(attempt, step);
+  }
+  if (interactedPages.has(attempt)) return () => {};
   const controller = new AbortController();
   const interacted = () => {
     controller.abort();
+    if (interactedPages.has(attempt)) return;
+    interactedPages.add(attempt);
     reportHostedSignInStep(attempt, { event: "cmux_sign_in_page_interacted" });
   };
   for (const type of ["pointerdown", "keydown"]) {
     target.addEventListener(type, interacted, { capture: true, passive: true, signal: controller.signal });
   }
+  return () => controller.abort();
 }

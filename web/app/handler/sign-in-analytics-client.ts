@@ -12,12 +12,11 @@ export function useHostedSignInAttempt(): string | null {
 /**
  * Reports the page load and its first interaction (see
  * `startHostedSignInPage`). A page view has no event handler to hang on, so
- * this is the one effect; it reads its inputs only on the first run.
+ * this is the one effect; it reads its inputs only on the first run and
+ * removes its listeners on unmount.
  */
 export function useHostedSignInPageShown(step: HostedSignInPageShown) {
   const attempt = useHostedSignInAttempt();
   const first = useRef({ attempt, step });
-  useEffect(() => {
-    startHostedSignInPage(first.current.attempt, first.current.step, document);
-  }, []);
+  useEffect(() => startHostedSignInPage(first.current.attempt, first.current.step, document), []);
 }
