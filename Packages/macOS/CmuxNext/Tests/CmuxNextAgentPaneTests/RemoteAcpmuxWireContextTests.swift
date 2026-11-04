@@ -36,8 +36,12 @@ struct RemoteAcpmuxWireContextTests {
         wire.send(#"{"id":1,"method":"_acpmux/context","params":{"sessionId":"s"}}"#) { _ in }
         let read = await inbox.frame(containing: "\"id\":1")
         #expect(read.contains("Read early."))
-        for (id, text) in [(2, #""Read concurrently.\nReport briefly.""#), (3, #""""#), (4, "null")] {
-            wire.send(#"{"id":\#(id),"method":"_acpmux/context_override","params":{"sessionId":"s","scope":"project","cwd":"/forged","text":\#(text)}}"#) { _ in }
+        for (id, text) in [(2, Optional("Read concurrently.\nReport briefly.")), (3, Optional("")), (4, nil)] as [(Int, String?)] {
+            var params: [String: Any] = ["sessionId": "s", "scope": "project", "cwd": "/forged"]
+            if let text { params["text"] = text }
+            let frame: [String: Any] = ["id": id, "method": "_acpmux/context_override", "params": params]
+            let data = try JSONSerialization.data(withJSONObject: frame)
+            wire.send(String(decoding: data, as: UTF8.self)) { _ in }
             let reply = await inbox.frame(containing: "\"id\":\(id)")
             #expect(reply.contains("\"saved\":true"))
         }
