@@ -1,3 +1,5 @@
+import Foundation
+
 /// A message the person sent one of the Chief's agents from the agent pane's composer.
 ///
 /// User 2026-11-03 (msg 19960): the person and the Chief share the agent's composer, and the Chief sees
@@ -25,13 +27,18 @@ public struct HomeAgentNote: Hashable, Sendable {
     }
 
     /// The note's text in the Chief's chat: `[to <peer>] <text>`.
-    public var message: String { text }
+    public var message: String { "[to \(peer)] \(text)" }
 
     /// The note a message of the Chief's chat carries.
     ///
     /// - Parameter message: The message's plain text.
     /// - Returns: Nil when the message is not a note to an agent.
     public init?(parsing message: String) {
-        return nil
+        guard message.hasPrefix("[to "), let end = message.range(of: "] ") else { return nil }
+        let peer = message[message.index(message.startIndex, offsetBy: 4)..<end.lowerBound]
+        let text = message[end.upperBound...]
+        guard !peer.isEmpty, !peer.contains(where: \.isWhitespace), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        self.init(peer: String(peer), text: String(text))
     }
 }

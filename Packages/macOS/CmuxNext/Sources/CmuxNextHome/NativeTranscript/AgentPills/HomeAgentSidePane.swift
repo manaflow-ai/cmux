@@ -76,6 +76,17 @@ final class HomeAgentSidePane: NSView {
         if selected == peer { select(peer) }
     }
 
+    /// Puts `title` on `peer`'s tab (its content stays).
+    func retitle(_ peer: String, title: String) {
+        guard let index = tabs.firstIndex(where: { $0.peer == peer }), tabs[index].title != title else { return }
+        let old = tabs[index]
+        ((old.chip.subviews.first as? NSStackView)?.arrangedSubviews.first as? NSButton)?.title = title
+        tabs[index] = Tab(peer: peer, title: title, content: old.content, chip: old.chip)
+    }
+
+    /// `peer`'s tab content; nil when it has no tab.
+    func content(of peer: String) -> NSView? { tabs.first { $0.peer == peer }?.content }
+
     /// The selected tab's content.
     var selectedContent: NSView? { tabs.first { $0.peer == selected }?.content }
 
