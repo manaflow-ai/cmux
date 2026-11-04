@@ -540,10 +540,14 @@ def needs_jobs(run: Mapping[str, Any], linux_only_paths: frozenset[str], now: dt
     main's runs, and `branch_linux_only` (branch_linux_only_paths()) for a branch's, so a feat-cmux-next run of
     a workflow that branch's copy runs only on Linux is not listed. On 2026-10-31 those were 573 of the 1,324
     runs a sweep listed, each one REST request on the cmux-bot installation's budget."""
-    if run.get("path") in linux_only_paths and not follows_another_copy(run):
+    # Portable placement also needs paid Linux demand and start evidence. These
+    # three workflows must be read even when their branch copy has no Mac job.
+    portable = run.get("path") in rescue.PORTABLE_LIGHT_WORKFLOW_PATHS
+    if not portable and run.get("path") in linux_only_paths and not follows_another_copy(run):
         return False
     target = run_target_branch(run)
-    if target and target != "main" and run.get("path") in (branch_linux_only or {}).get(target, frozenset()):
+    if not portable and target and target != "main" \
+            and run.get("path") in (branch_linux_only or {}).get(target, frozenset()):
         return False
     if run.get("event") in PROTECTED_EVENTS - {"merge_group"}:
         # Deployment/tag bookkeeping never holds pool capacity worth counting.
