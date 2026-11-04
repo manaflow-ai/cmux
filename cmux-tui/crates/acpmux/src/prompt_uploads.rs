@@ -327,7 +327,7 @@ pub fn peer_unsupported(peer: &crate::peer::Peer) -> RpcError {
     let build = peer.remote_build().unwrap_or_else(|| "unknown".into());
     let message = format!(
         "peer {} runs acpmux build {build}, which does not read uploaded files in a message; run \
-         `acpmux host update {}`",
+         `acpmux machine update {}`",
         peer.name, peer.name
     );
     refused("upload.unsupported", message)
