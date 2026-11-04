@@ -116,18 +116,39 @@ def finish(result: str) -> None:
 
 
 def parsed(text: str) -> dict:
+    """The JSON answer in TEXT: the whole text, else its last line that is JSON (a CLI may print
+    progress lines on stderr before its error object, which left the evidence's stderr empty)."""
+    value: object = {}
     try:
         value = json.loads(text) if text.strip() else {}
     except json.JSONDecodeError:
-        return {}
+        for line in reversed(text.splitlines()):
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                break
+        else:
+            return {}
     value = value.get("result", value) if isinstance(value, dict) else {}
     return value if isinstance(value, dict) else {}
 
 
-def failure_text(err: str) -> str:
+def error_object(err: str, out: str = "") -> dict:
+    """The CLI's error object: on stderr, else on stdout (a CLI that answers its error there left
+    every failed step's evidence empty, runs 41816691332 and 41821353341)."""
+    for text in (err, out):
+        value = parsed(text)
+        if isinstance(value.get("code"), str) or isinstance(value.get("message"), str):
+            return value
+    return {}
+
+
+def failure_text(err: str, out: str = "") -> str:
     """The CLI's error code and message, without the command it names to run again: that command
     carries the whole prompt, the caller's context included (#35079)."""
-    error = parsed(err)
+    error = error_object(err, out)
     code = error.get("code") if isinstance(error.get("code"), str) else ""
     message = error.get("message") if isinstance(error.get("message"), str) else ""
     for cut in ("Run the same command again", "cmux cloud start-chat", "cmux cloud start-session"):
@@ -303,7 +324,10 @@ while True:  # bounded: the same start-chat again while its machine is still bei
                           "--name", args.tag, "--wait", "--timeout", "600", "--json", timeout=660)
     if code != 75 or time.monotonic() > chat_deadline:
         break
-    record("cloud start-chat (machine still starting)", code, "", failure_text(err))
+    # The stage it is stuck at (cloud_start_chat.rs StartStage): machine status, create in flight, or link.
+    pending_stage = (error_object(err, out).get("details") or {}).get("stage")
+    record("cloud start-chat (machine still starting)", code, "", failure_text(err, out) or "(no error on stderr or stdout)",
+           **({"stage": pending_stage} if isinstance(pending_stage, dict) else {}))
     time.sleep(10)
 answer = parsed(out) if code == 0 else {}
 reply = answer.get("reply")
@@ -313,14 +337,14 @@ reply_text = reply if isinstance(reply, str) else ""
 browser_marker = has_browser_proof_reply(reply_text)
 browser_tools = isinstance(tool_calls, int) and tool_calls > 0
 reply_for_evidence = BROWSER_PROOF_REPLY if browser_marker else ("[withheld: unexpected reply]" if reply_text else None)
-record("cloud start-chat", code, "", failure_text(err) if code != 0 else "", reply=reply_for_evidence,
+record("cloud start-chat", code, "", failure_text(err, out) if code != 0 else "", reply=reply_for_evidence,
        browser_proof={"url": BROWSER_PROOF_URL, "marker": BROWSER_PROOF_MARKER,
                       "reply_observed": bool(reply_text), "reply_matches": browser_marker, "tool_calls": tool_calls,
                       "tool_call_observed": browser_tools},
        **({"app_link_log": app_link_log(chat_started_at)} if code != 0 else {}))
 # A failed chat answers on stderr: the machine it made is at details.machine_id (chat.turn_failed)
 # or details.answer.machine_id (the other failures).
-failure = parsed(err).get("details") or {}
+failure = error_object(err, out).get("details") or {}
 machine = answer.get("machine_id") or failure.get("machine_id") or (failure.get("answer") or {}).get("machine_id")
 session = answer.get("session_id") or failure.get("session_id") or (failure.get("answer") or {}).get("session_id")
 if not machine:
@@ -344,7 +368,7 @@ killed = True
 if machine:
     code_k, out_k, err_k = cmux("cloud", "kill-machine", "--target", f"machine:{machine}", "--confirm", "--json",
                                 timeout=120)
-    record("cloud kill-machine", code_k, "", failure_text(err_k) if code_k != 0 else "")
+    record("cloud kill-machine", code_k, "", failure_text(err_k, out_k) if code_k != 0 else "")
     killed = code_k == 0
 
 if not (code == 0 and reply_text):
