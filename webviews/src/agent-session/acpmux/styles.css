@@ -303,6 +303,10 @@
    Copy stretches to its track instead of overflowing an intrinsically sized, centered grid item. */
 .acpmux-unavailable[data-unavailable="connecting"]{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) 40px minmax(0,1fr);gap:8px;padding-bottom:0}
 .acpmux-unavailable-spinner{color:var(--acpmux-composer-placeholder)}
+/* The resume spinner's slot is there from the card's first frame (ChatUnavailableState.tsx), so the
+   spinner that fades in past the threshold (afterDelay.ts) moves nothing. */
+.acpmux-unavailable-progress{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex:none;color:var(--acpmux-composer-placeholder)}
+.acpmux-unavailable-progress-mark{display:inline-flex}
 .acpmux-unavailable[data-unavailable="connecting"] .acpmux-unavailable-spinner{grid-row:2;align-self:center;justify-self:center}
 .acpmux-unavailable-copy{display:contents}
 .acpmux-unavailable[data-unavailable="connecting"] .acpmux-unavailable-title{grid-row:1;min-height:0;max-width:none;overflow:auto;align-self:stretch;align-content:end}
@@ -954,6 +958,10 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-project-folders { max-height: min(45vh, 300px); overflow-y: auto; }
 .acpmux-project-folders.ui-combobox-scroll { overflow: hidden; }
 /* A paused or starting Cloud machine's banner (PeerCopyBanner.tsx): the title line holds the spinner, or Resume in the inline and button arms of `paused-machine-resume`. */
+/* The peer copy's banner floats over the top of the transcript (PeerCopyBanner.tsx): its slot takes no
+   height, so the banner arriving or leaving moves no row. */
+.acpmux-peer-copy-slot{position:relative;height:0;z-index:3}
+.acpmux-peer-copy-slot>.acpmux-peer-copy{position:absolute;top:0;inset-inline:0;margin:8px 24px;padding:8px 12px;border-radius:var(--ui-popup-radius,10px);background:color-mix(in srgb,var(--agent-page-bg) 88%,transparent);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);box-shadow:var(--ui-popup-shadow,0 4px 16px rgb(0 0 0/.12))}
 .acpmux-peer-copy-title{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;margin:0}
 .acpmux-peer-copy-spinner{align-self:center;flex:none;color:var(--agent-muted)}
 .acpmux-peer-copy[data-arm=button] .acpmux-peer-copy-title{align-items:center;justify-content:space-between}

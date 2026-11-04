@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
 import { experimentArm } from "../../experiments/experiment";
 import { Spinner } from "./conversation/icons";
 import { relativeTime } from "./conversation/relativeTime";
@@ -14,7 +15,19 @@ import { pausedMachineResume } from "./pausedMachine.experiment";
 /// watch banner does. When the machine is one of the account's Cloud machines
 /// (peerCloudMachine.ts), a paused one says it is paused and offers Resume, and one starting says
 /// so with a spinner, instead of "offline" (cmuxterm-hq#4755).
-export function PeerCopyBanner({
+///
+/// A Cloud machine pauses on its own, between tool calls too, so the banner stays out of sight at
+/// first: it shows only once the machine has been away for RESUME_NOTE_DELAY_MS (afterDelay.ts), and
+/// it floats over the top of the transcript in a slot of no height, so neither its arrival nor its
+/// leaving moves a row. By then the account's machine list has been read, so a paused machine never
+/// reads "offline" first.
+export function PeerCopyBanner(props: Parameters<typeof PeerCopyBannerBody>[0] & { noteDelayMs?: number }) {
+  const { noteDelayMs = RESUME_NOTE_DELAY_MS, ...body } = props;
+  const shown = useAfterDelay(true, noteDelayMs);
+  return <div className="acpmux-peer-copy-slot">{shown && <PeerCopyBannerBody {...body} />}</div>;
+}
+
+function PeerCopyBannerBody({
   copy,
   now = Date.now(),
   machine,
