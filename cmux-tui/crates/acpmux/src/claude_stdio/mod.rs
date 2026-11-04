@@ -275,6 +275,9 @@ mod inbound;
 // What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
 mod logged_bodies;
 pub use logged_bodies::leave_out_bodies;
+mod loops;
+#[cfg(test)]
+mod loops_tests;
 mod outbound;
 pub mod prompt_cache;
 pub mod prompt_suggestions;
@@ -299,6 +302,9 @@ mod stop_spares_background_tests;
 mod subagent_route;
 #[cfg(test)]
 mod subagent_tests;
+mod task_plan;
+#[cfg(test)]
+mod task_plan_tests;
 #[cfg(test)]
 mod tests;
 mod usage_limits;
@@ -603,6 +609,11 @@ pub struct Translator {
     /// The plan usage limit windows Claude Code reported, newest each, by id
     /// (`usage_limits.rs`).
     usage_limits: Mutex<std::collections::BTreeMap<&'static str, Value>>,
+    /// Claude Code's task list, from its TaskCreate and TaskUpdate calls
+    /// (`task_plan.rs`), sent whole as the turn's ACP plan.
+    task_plan: Mutex<task_plan::TaskPlan>,
+    /// Claude Code's /loop: its tools' calls and the loops armed, the chat's goal (`loops.rs`).
+    loops: Mutex<loops::Loops>,
 }
 
 /// A running shell: the session its Bash call ran in, its command, Claude's
@@ -707,6 +718,7 @@ impl Translator {
             failed_agents: Mutex::new(Default::default()),
             workflows: Mutex::new(HashMap::new()),
             background_shells: Mutex::new(HashMap::new()),
+            task_plan: Mutex::new(Default::default()),
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
             context_from_compaction: AtomicBool::new(false),
@@ -722,6 +734,7 @@ impl Translator {
             edits: Mutex::new(HashMap::new()),
             announced: Mutex::new(HashMap::new()),
             usage_limits: Mutex::new(Default::default()),
+            loops: Mutex::new(Default::default()),
         })
     }
 

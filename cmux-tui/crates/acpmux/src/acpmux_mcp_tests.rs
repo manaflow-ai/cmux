@@ -1016,6 +1016,7 @@ fn github_status_is_listed_with_its_instruction() {
     let text = instructions(&all).unwrap();
     assert!(text.contains("call github_status"), "{text}");
     assert!(text.contains("bg_start"), "{text}");
+    assert!(text.contains("as one batch of independent tool calls"), "{text}");
     let scoped = allowed(all.clone(), Some("acpmux_github_status"));
     assert_eq!(crate::mcp_hint::names(&scoped).collect::<Vec<_>>(), ["github_status"]);
     assert_eq!(instructions(&scoped).unwrap(), crate::github_status::STEER);

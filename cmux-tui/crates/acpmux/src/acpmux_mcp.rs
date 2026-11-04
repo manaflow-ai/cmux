@@ -44,6 +44,13 @@ const BG_STEER: &str = "Long-running commands (a dev server, a watcher, a long b
 run): start them with bg_start, not as a background shell or terminal of your own. This chat's \
 agent hibernates after 2 idle minutes and its own background shells end with it; a bg_start task \
 keeps running, and bg_list and bg_output read it later by its id.";
+/// How every chat with the background tools is asked to pace its work: the reads and searches a
+/// task already needs go out as one batch, and a bg_start task runs while the agent goes on.
+/// Some chats did read early and concurrently and others went one call at a time on the same
+/// model (Leo, 2026-11-04); the harness prompts allow both, so cmux says which it wants.
+const PARALLEL_STEER: &str = "Work in parallel: at the start of a task, read the files and run \
+the searches you already know you need as one batch of independent tool calls, not one after \
+another, and while a bg_start task runs, go on with the parts that do not need its result.";
 /// Most replies `last` returns.
 const MAX_LAST: u64 = 20;
 /// How many sessions `ls` lists unless asked for another `limit`, and the most it lists: a fleet
@@ -216,12 +223,13 @@ fn allowed(all: Value, allow: Option<&str>) -> Value {
     Value::Array(all.as_array().into_iter().flatten().filter(|t| keep(t)).cloned().collect())
 }
 
-/// The server's instructions: the background steer where the background tools are listed, and
-/// the GitHub one where `github_status` is.
+/// The server's instructions: the background and parallel steers where the background tools are
+/// listed, and the GitHub one where `github_status` is.
 fn instructions(tools: &Value) -> Option<String> {
     let mut parts = Vec::new();
     if crate::mcp_hint::names(tools).any(|n| bg::TOOLS.contains(&n)) {
         parts.push(BG_STEER);
+        parts.push(PARALLEL_STEER);
     }
     if crate::mcp_hint::names(tools).any(|n| n == crate::github_status::TOOL) {
         parts.push(crate::github_status::STEER);
