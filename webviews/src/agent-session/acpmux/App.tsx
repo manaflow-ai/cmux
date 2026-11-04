@@ -1420,8 +1420,8 @@ const MessageRow = memo(
                     text={envelope ? envelope.task : (row.text ?? "")}
                     pending={
                       !readOnly && steerControls(row)
-                        ? (actions) => (
-                            <PendingSteer row={row} send={editQueued}>
+                        ? (actions, queued) => (
+                            <PendingSteer row={row} send={editQueued} queued={queued}>
                               {actions}
                             </PendingSteer>
                           )
@@ -1440,8 +1440,8 @@ const MessageRow = memo(
                 text={row.text ?? ""}
                 pending={
                   !readOnly && steerControls(row)
-                    ? (actions) => (
-                        <PendingSteer row={row} send={editQueued}>
+                    ? (actions, queued) => (
+                        <PendingSteer row={row} send={editQueued} queued={queued}>
                           {actions}
                         </PendingSteer>
                       )

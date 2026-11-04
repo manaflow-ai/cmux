@@ -5896,9 +5896,12 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   white-space: nowrap;
   letter-spacing: var(--text-caption--letter-spacing);
 }
+/* Send now is the row's last control and its text ends on the bubble's right edge, as a glyph's ink
+   does in its slot (the row overhangs the bubble by that inset). */
 .cv-user__send-now {
   border: 0;
   padding: 0;
+  padding-inline: calc((var(--cv-footer-control-slot) - var(--cv-glyph-slot)) / 2);
   background: none;
   font: inherit;
   color: inherit;
@@ -5912,6 +5915,30 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 .cv-user__actions:has(.cv-user__pending) {
   opacity: 1;
   transition: none;
+}
+/* A waiting steer's Copy, Retry, Fork and X (PendingSteer.tsx) show only on hover or focus, as a sent
+   prompt's row does, with its fade; hidden, they keep their room so Send now never moves (Leo,
+   2026-11-03: "the copy is always showing for no reason... plus the order is wrong"). */
+.cv-user__queued-hover {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cv-footer-gap);
+  opacity: 0;
+}
+.cv-user:hover .cv-user__queued-hover,
+.cv-user:has([data-popup-open]) .cv-user__queued-hover,
+.cv-user__pending:focus-within .cv-user__queued-hover,
+.cv-user__queued-hover:has([aria-haspopup="menu"][aria-expanded="true"]) {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
+  .cv-user__queued-hover {
+    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  }
+  .cv-user:hover .cv-user__queued-hover,
+  .cv-user:has([data-popup-open]) .cv-user__queued-hover {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
 }
 /* The X that takes a waiting steer back to edit (PendingSteer.tsx): a plain glyph, as muted as
    Send now's text, on the same centred line. */
