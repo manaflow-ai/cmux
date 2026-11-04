@@ -99,7 +99,7 @@ extension CloudHandlers {
                 guard let api = context.services.cloud.previewAPI else { throw ActionFailure(message: CloudPortStrings.noLink(names)) }
                 let revoked = try await wrapped(names) { try await api.revokePreviewShareLink(session.machineID, port: port, linkID: linkID) }
                 guard revoked.revoked else { throw ActionFailure(message: CloudPortStrings.failed(names, detail: "the link was already revoked")) }
-                return CloudAnswer(title: "Preview link revoked", text: "Port (port) share link revoked", fields: [
+                return CloudAnswer(title: "Preview link revoked", text: "Port \(port) share link revoked", fields: [
                     "machine_id": .string(session.machineID), "port": .int(port), "linkId": .string(linkID), "revoked": .bool(true),
                 ])
             }

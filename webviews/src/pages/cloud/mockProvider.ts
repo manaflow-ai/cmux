@@ -558,7 +558,7 @@ export class MockCloudProvider implements PageClient {
     if (action === CloudActions.previewShare) {
       if (this.unsupported.has(action)) throw pageError("cmux.cloud.unknown_op", `${action} is not a Cloud op`);
       const args = (p.args ?? {}) as Params;
-      const machine = String(args.machine);
+      const machine = targetMachine(p, args);
       const port = Number(args.port);
       const key = `${machine}:${port}`;
       const link = { linkId: `mock-link-${String(this.previewLinks.size + 1).padStart(4, "0")}`, url: `https://preview.example/${machine}/${port}?cmux_share=mock`, expiresAt: Date.now() + 86_400_000 };
@@ -569,11 +569,12 @@ export class MockCloudProvider implements PageClient {
     if (action === CloudActions.previewRevoke) {
       if (this.unsupported.has(action)) throw pageError("cmux.cloud.unknown_op", `${action} is not a Cloud op`);
       const args = (p.args ?? {}) as Params;
-      const key = `${String(args.machine)}:${Number(args.port)}`;
+      const machine = targetMachine(p, args);
+      const key = `${machine}:${Number(args.port)}`;
       const link = this.previewLinks.get(key);
       if (!link || link.linkId !== String(args.linkId)) return { confirmed: true, revoked: false };
       this.previewLinks.delete(key);
-      return { confirmed: true, machine_id: String(args.machine), port: Number(args.port), linkId: link.linkId, revoked: true };
+      return { confirmed: true, machine_id: machine, port: Number(args.port), linkId: link.linkId, revoked: true };
     }
     if (!NATIVE_ACTIONS.has(action)) throw pageError("cmux.app.unknown_action", action);
     if (this.unsupported.has(action)) throw pageError("cmux.cloud.unknown_op", `${action} is not a Cloud op`);
@@ -586,6 +587,11 @@ export class MockCloudProvider implements PageClient {
       queueMicrotask(() => this.finishTransfers());
     return { confirmed: true, ...(result as object) };
   }
+}
+
+function targetMachine(params: Params, args: Params): string {
+  const target = typeof params.target === "string" ? params.target : "";
+  return target.startsWith("machine:") ? target.slice("machine:".length) : String(args.machine);
 }
 
 /**

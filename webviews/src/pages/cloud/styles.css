@@ -723,9 +723,8 @@ select {
   overflow-wrap: anywhere;
 }
 
-.cloud-preview-share-url {
+.cloud-preview-share-status {
   flex: 1 0 100%;
-  overflow-wrap: anywhere;
   color: var(--cloud-text-2);
   font-size: 11px;
 }

@@ -77,6 +77,8 @@ export class DetailReader {
   private portRevision = 0;
   private readonly portChanges = new Map<number, { revision: number; forward: PortForward | null }>();
   private readonly portActions = new Map<string, PendingPort & { machine: string }>();
+  /** Anonymous links survive a detail reload and a trip to another machine, but never leave memory. */
+  private readonly sharedByMachine = new Map<string, Record<number, PreviewShare>>();
 
   constructor(
     private readonly client: PageClient | null,
@@ -85,6 +87,8 @@ export class DetailReader {
 
   async load(machine: string | undefined): Promise<void> {
     const generation = ++this.generation;
+    const previous = this.host.get();
+    if (previous?.machine && previous.sharedPreviews) this.sharedByMachine.set(previous.machine, previous.sharedPreviews);
     this.portChanges.clear();
     if (!machine || !this.client) {
       this.portActions.clear();
@@ -92,14 +96,19 @@ export class DetailReader {
       return;
     }
     const portRevision = this.portRevision;
-    this.host.set({ machine, loading: true, pendingPorts: this.pendingPorts(machine) });
+    this.host.set({ machine, loading: true, sharedPreviews: this.sharedByMachine.get(machine), pendingPorts: this.pendingPorts(machine) });
     const results = await Promise.allSettled(SECTIONS.map((section) => this.read(section, machine)));
     if (generation !== this.generation) return;
     // Keep what Browse, a forward or Open in browser wrote while the sections were read.
     const during = this.host.get();
     const kept =
       during?.machine === machine
-        ? { files: during.files, browser: during.browser, browserRefused: during.browserRefused, sharedPreviews: during.sharedPreviews }
+        ? {
+            files: during.files,
+            browser: during.browser,
+            browserRefused: during.browserRefused,
+            sharedPreviews: during.sharedPreviews ?? this.sharedByMachine.get(machine),
+          }
         : {};
     const detail: MachineDetail = { machine, loading: false, ...kept, pendingPorts: this.pendingPorts(machine) };
     let failed: unknown;
@@ -221,23 +230,28 @@ export class DetailReader {
 
   /** Creates and copies a one-day anonymous preview link, then leaves Revoke visible. */
   sharePreview(machine: string, port: number): Promise<boolean> {
+    const generation = this.generation;
     return this.portAction(machine, port, "share", async () => {
       const shared = await createPreviewShare(this.client!, machine, port);
       const latest = this.host.get();
-      if (!shared || latest?.machine !== machine) return false;
-      this.host.set({ ...latest, sharedPreviews: { ...latest.sharedPreviews, [port]: shared } });
+      if (!shared || generation !== this.generation || latest?.machine !== machine) return false;
+      const sharedPreviews = { ...this.sharedByMachine.get(machine), ...latest.sharedPreviews, [port]: shared };
+      this.sharedByMachine.set(machine, sharedPreviews);
+      this.host.set({ ...latest, sharedPreviews });
       return true;
     });
   }
 
   /** Revokes the link currently shown on a preview port. */
   revokePreview(machine: string, port: number, linkId: string): Promise<boolean> {
+    const generation = this.generation;
     return this.portAction(machine, port, "revoke", async () => {
       if (!(await revokePreviewShare(this.client!, machine, port, linkId))) return false;
       const latest = this.host.get();
-      if (latest?.machine !== machine) return false;
-      const sharedPreviews = { ...latest.sharedPreviews };
+      if (generation !== this.generation || latest?.machine !== machine) return false;
+      const sharedPreviews = { ...this.sharedByMachine.get(machine), ...latest.sharedPreviews };
       delete sharedPreviews[port];
+      this.sharedByMachine.set(machine, sharedPreviews);
       this.host.set({ ...latest, sharedPreviews });
       return true;
     });
@@ -280,6 +294,13 @@ export class DetailReader {
       if (generation !== this.generation && action !== "browser" && action !== "share" && action !== "revoke" && this.host.get()?.machine === machine)
         await this.reload("ports", port);
       return accepted && generation === this.generation;
+    } catch (error) {
+      // A shared action can fail before it reaches `change`, and the page must
+      // turn that rejection into the normal banner/unavailable path rather
+      // than leaking an unhandled promise from a button click. Late errors
+      // belong to the old selection and are intentionally dropped.
+      if (generation === this.generation) this.reject(this.portActionOp(action), error);
+      return false;
     } finally {
       // A session reset can start a new action at the same key before the old call settles.
       if (this.portActions.get(key) === pending) {
@@ -287,6 +308,21 @@ export class DetailReader {
         const latest = this.host.get();
         if (latest?.machine === machine) this.host.set({ ...latest, pendingPorts: this.pendingPorts(machine) });
       }
+    }
+  }
+
+  private portActionOp(action: PortAction): string {
+    switch (action) {
+      case "share":
+        return CloudActions.previewShare;
+      case "revoke":
+        return CloudActions.previewRevoke;
+      case "browser":
+        return HostActions.browserTabOpen;
+      case "forward":
+        return CloudOps.portForward;
+      case "close":
+        return CloudOps.portClose;
     }
   }
 

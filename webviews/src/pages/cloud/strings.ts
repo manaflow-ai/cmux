@@ -165,6 +165,8 @@ export const L = {
   portsClose: "ports.close",
   sharePreview: "ports.sharePreview",
   revokeShare: "ports.revokeShare",
+  shareCopied: "ports.shareCopied",
+  shareExpires: "ports.shareExpires",
   openBrowser: "ports.openBrowser",
   browserProxy: "ports.browserProxy",
   browserTabUnavailable: "ports.browserTabUnavailable",

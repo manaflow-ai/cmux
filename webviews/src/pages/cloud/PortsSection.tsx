@@ -7,6 +7,15 @@ import { HostActions } from "./ops";
 import { isUnavailable, PortField, Unavailable, type SectionProps } from "./sectionParts";
 import { format, L } from "./strings";
 
+function shareExpiry(expiresAt: number | undefined, language: string): string | undefined {
+  if (expiresAt === undefined) return undefined;
+  // Native and the mock use Unix milliseconds; accepting seconds keeps the
+  // display correct if the platform DTO is decoded from its Unix timestamp.
+  const date = new Date(expiresAt < 10_000_000_000 ? expiresAt * 1000 : expiresAt);
+  if (Number.isNaN(date.getTime())) return undefined;
+  return new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
 export function PortsSection({
   store,
   machine,
@@ -41,6 +50,7 @@ export function PortsSection({
           {detail.ports.map((forward) => {
             const pending = detail.pendingPorts?.find((pending) => pending.port === forward.port);
             const shared = detail.sharedPreviews?.[forward.port];
+            const expiry = shareExpiry(shared?.expiresAt, strings.language);
             return (
               <li key={forward.port} className="cloud-item cloud-forward">
                 <span className="cloud-item-title cloud-mono">
@@ -95,7 +105,12 @@ export function PortsSection({
                     {t(L.portsClose)}
                   </button>
                 </span>
-                {shared && <code className="cloud-mono cloud-preview-share-url">{shared.url}</code>}
+                {shared && (
+                  <span className="cloud-preview-share-status" role="status">
+                    {t(L.shareCopied)}
+                    {expiry && ` · ${format(t(L.shareExpires), { date: expiry })}`}
+                  </span>
+                )}
               </li>
             );
           })}
