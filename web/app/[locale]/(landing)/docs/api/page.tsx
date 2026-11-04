@@ -264,6 +264,16 @@ cmux send "ls -la\\n"`}
         cli={`cmux send-key --surface <id> enter`}
         socket={`{"id":"send-key-surface","method":"surface.send_key","params":{"surface_id":"<id>","key":"enter"}}`}
       />
+      <Cmd
+        name="textbox"
+        desc={t("textboxDesc")}
+        cli={`cmux textbox toggle
+cmux textbox show --surface <id> --focus
+cmux textbox hide --panel <id>
+cmux textbox state --json`}
+        socket={`{"id":"textbox","method":"surface.textbox.toggle","params":{"surface_id":"<id>"}}
+{"id":"textbox-show","method":"surface.textbox.show","params":{"surface_id":"<id>","focus":true}}`}
+      />
 
       <DocsHeading level={2} id="notification-commands">{t("notificationCommands")}</DocsHeading>
 

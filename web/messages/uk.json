@@ -2522,6 +2522,7 @@
       "sendKeyDesc": "Надсилає одне натискання клавіші. Доступні клавіші: enter, tab, escape, backspace, delete, up, down, left, right.",
       "sendSurfaceDesc": "Надіслати текст до певної поверхні.",
       "sendKeySurfaceDesc": "Надіслати натискання клавіші до певної поверхні.",
+      "textboxDesc": "Показати, приховати або перемкнути поле введення TextBox термінала. state повідомляє, чи воно показане. --focus переводить фокус клавіатури в TextBox.",
       "notificationCommands": "Команди сповіщень",
       "notifyDesc": "Надіслати сповіщення.",
       "listNotificationsDesc": "Показати всі сповіщення.",

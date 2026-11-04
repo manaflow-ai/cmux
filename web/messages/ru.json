@@ -2541,6 +2541,7 @@
       "sendKeyDesc": "Отправить нажатие клавиши. Клавиши: enter, tab, escape, backspace, delete, up, down, left, right.",
       "sendSurfaceDesc": "Отправить текст в конкретную поверхность.",
       "sendKeySurfaceDesc": "Отправить нажатие клавиши в конкретную поверхность.",
+      "textboxDesc": "Показать, скрыть или переключить поле ввода TextBox терминала. state сообщает, показано ли оно. --focus переводит фокус клавиатуры в TextBox.",
       "notificationCommands": "Команды уведомлений",
       "notifyDesc": "Отправить уведомление.",
       "listNotificationsDesc": "Список всех уведомлений.",

@@ -2541,6 +2541,7 @@
       "sendKeyDesc": "ផ្ញើការចុចគ្រាប់ចុច។ គ្រាប់ចុច: enter, tab, escape, backspace, delete, up, down, left, right។",
       "sendSurfaceDesc": "ផ្ញើអត្ថបទទៅ surface ជាក់លាក់។",
       "sendKeySurfaceDesc": "ផ្ញើការចុចគ្រាប់ចុចទៅ surface ជាក់លាក់។",
+      "textboxDesc": "បង្ហាញ លាក់ ឬបិទបើក TextBox Input របស់ terminal។ ប្រើ state ដើម្បីដឹងថាវាកំពុងបង្ហាញឬអត់។ --focus ផ្លាស់ទីការផ្តោតក្តារចុចទៅ TextBox។",
       "notificationCommands": "ពាក្យបញ្ជាជូនដំណឹង",
       "notifyDesc": "ផ្ញើជូនដំណឹង។",
       "listNotificationsDesc": "រាយជូនដំណឹងទាំងអស់។",
