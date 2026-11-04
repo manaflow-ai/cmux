@@ -1060,7 +1060,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextAppsTests",
-            dependencies: ["CmuxNextApps", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextApps", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextWakeups", "CmuxNextDesign"],
             swiftSettings: uiSwiftSettings
         ),
         // App permissions (plans/cmux-next/first-party-apps.md sections 4 and 5):

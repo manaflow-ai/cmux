@@ -341,6 +341,17 @@ mod tests {
     }
 
     #[test]
+    fn a_toast_needs_no_grant_but_not_a_preview_or_a_stopping_app() {
+        let table = ScopeTable::get();
+        let params = json!({"title": "Saved"});
+        assert_eq!(table.check("toast.show", &params, &grant(&[])), Decision::Allow(OpClass::Mutation));
+        let preview = Grant { preview: true, ..grant(&[]) };
+        assert!(matches!(table.check("toast.show", &params, &preview), Decision::ScopeMissing(_)));
+        let revoked = Grant { revoked: true, ..grant(&[]) };
+        assert!(matches!(table.check("toast.show", &params, &revoked), Decision::ScopeMissing(_)));
+    }
+
+    #[test]
     fn unknown_is_unsupported_and_ungranted_is_scope_missing() {
         let table = ScopeTable::get();
         assert_eq!(table.check("made.up", &json!({}), &grant(&[])), Decision::Unsupported);
