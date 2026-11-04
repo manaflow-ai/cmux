@@ -585,3 +585,88 @@ fn a_deflate_line_write_decodes_and_refuses_an_overrun() {
     assert_eq!(answer["error_code"], "params.invalid", "{answer}");
     assert!(!home.path.join("b.rs").exists());
 }
+
+/// `fs-write-nofollow-v1`: a write that says `no_follow` never goes through
+/// a symlink, as a folder on the way or as the file itself; one that does
+/// not say it follows links inside the root as before.
+#[test]
+fn a_no_follow_write_refuses_a_symlink_anywhere_on_its_path() {
+    use std::os::unix::fs::symlink;
+    let home = Home::new("nofollow");
+    let service = home.service();
+    let root = home.path.display().to_string();
+    std::fs::create_dir_all(home.path.join("real/deep")).unwrap();
+    std::fs::write(home.path.join("real/kept.txt"), "kept").unwrap();
+    symlink("real", home.path.join("app")).unwrap();
+    symlink("kept.txt", home.path.join("real/link.txt")).unwrap();
+    let write = |path: String, no_follow: bool| {
+        let line = json!({ "id": 1, "cmd": "fs.write", "path": path, "mode": "overwrite",
+            "text": "new", "no_follow": no_follow })
+        .to_string();
+        answer_line(Some(&service), true, "owner", &line)
+    };
+
+    for path in [
+        format!("{root}/app/a.txt"),
+        format!("{root}/app/deep/a.txt"),
+        format!("{root}/real/link.txt"),
+    ] {
+        let answer = write(path.clone(), true);
+        assert_eq!(answer["error_code"], "fs.symlink_in_path", "{path}: {answer}");
+    }
+    assert!(!home.path.join("real/a.txt").exists());
+    assert!(!home.path.join("real/deep/a.txt").exists());
+    assert_eq!(std::fs::read_to_string(home.path.join("real/kept.txt")).unwrap(), "kept");
+    assert!(std::fs::symlink_metadata(home.path.join("real/link.txt")).unwrap().is_symlink());
+    // Appending to a part file behind a linked folder is refused too.
+    std::fs::write(home.path.join("real/part"), "p").unwrap();
+    let stat = service.call("owner", "fs.stat", json!({"path": format!("{root}/real/part")}));
+    let revision = stat.unwrap()["revision"].as_str().unwrap().to_string();
+    let append = json!({ "id": 2, "cmd": "fs.write", "path": format!("{root}/app/part"),
+        "mode": "append", "expected": revision, "text": "q", "no_follow": true })
+    .to_string();
+    let answer = answer_line(Some(&service), true, "owner", &append);
+    assert_eq!(answer["error_code"], "fs.symlink_in_path", "{answer}");
+    assert_eq!(std::fs::read_to_string(home.path.join("real/part")).unwrap(), "p");
+
+    // A plain path is written, and without no_follow a link inside the
+    // root is followed as before.
+    assert_eq!(write(format!("{root}/real/deep/b.txt"), true)["ok"], true);
+    assert_eq!(write(format!("{root}/app/c.txt"), false)["ok"], true);
+    assert_eq!(std::fs::read_to_string(home.path.join("real/c.txt")).unwrap(), "new");
+}
+
+/// A no-follow write stream is refused before `ready`, and a symlink put at
+/// the target after the write began fails its commit and leaves no file.
+#[test]
+fn a_no_follow_write_stream_and_a_late_symlink_are_refused() {
+    use std::os::unix::fs::symlink;
+    let home = Home::new("nofollow-stream");
+    std::fs::create_dir_all(home.path.join("real")).unwrap();
+    symlink("real", home.path.join("app")).unwrap();
+    let write = json!({ "id": 1, "cmd": "fs.write", "path": "/home/cmux/app/up.bin",
+        "mode": "overwrite", "stream": true, "size": 5, "no_follow": true })
+    .to_string();
+    let (_, output) = routed(&home, &write, b"hello");
+    let replies = reply_lines(&output);
+    assert_eq!(replies[0]["error_code"], "fs.symlink_in_path", "{replies:?}");
+    assert!(!home.path.join("real/up.bin").exists());
+
+    let service = home.service();
+    let target = format!("{}/real/late.txt", home.path.display());
+    let mut pending = crate::fs_ops::PendingWrite::begin_no_follow(
+        service.roots(),
+        &target,
+        crate::fs_ops::WriteMode::Overwrite,
+        Some(3),
+    )
+    .unwrap();
+    pending.write(b"new").unwrap();
+    std::fs::write(home.path.join("real/elsewhere"), "theirs").unwrap();
+    symlink("elsewhere", home.path.join("real/late.txt")).unwrap();
+    assert_eq!(pending.commit().unwrap_err().code(), "fs.symlink_in_path");
+    assert!(std::fs::symlink_metadata(home.path.join("real/late.txt")).unwrap().is_symlink());
+    assert_eq!(std::fs::read_to_string(home.path.join("real/elsewhere")).unwrap(), "theirs");
+    let left: Vec<_> = std::fs::read_dir(home.path.join("real")).unwrap().collect();
+    assert_eq!(left.len(), 2, "only the link and its target remain: {left:?}");
+}

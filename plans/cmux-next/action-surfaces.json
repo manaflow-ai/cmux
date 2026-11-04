@@ -28047,6 +28047,62 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "cloud preview-share",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudPreviewShare",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Share Machine Preview…",
+      "title_key" : "action.cloudPreviewShare",
+      "title_table" : "CloudPortActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud preview-revoke",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudPreviewRevoke",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Revoke Machine Preview Link…",
+      "title_key" : "action.cloudPreviewRevoke",
+      "title_table" : "CloudPortActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "cloud machine-link",
       "context_menu" : "duplicateOfDefault",
       "context_menus" : [
@@ -42028,7 +42084,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "cloudStartSession",
+              "id" : "cloudPreviewShare",
               "kind" : "action",
               "order" : 18,
               "visible_when" : {
@@ -42040,14 +42096,40 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "cloudPreviewRevoke",
+              "kind" : "action",
+              "order" : 19,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "cloudStartSession",
+              "kind" : "action",
+              "order" : 20,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 19
+              "order" : 21
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.cloud.deleteSnapshot",
               "kind" : "action",
-              "order" : 20,
+              "order" : 22,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
