@@ -1286,3 +1286,88 @@ button.cv-subagent > :last-child {
   outline: 2px solid var(--agent-accent);
   outline-offset: -2px;
 }
+
+/* ---------- A failed subagent's line, quiet (SubagentDoneLine.tsx, failedLine.experiment.ts) ----------
+   Leo, 2026-11-03, on three failed lines all in red, their titles in grey chips cut short, and Retry
+   floating after text of every length: "this ui is pretty awkward looking". Red is on the mark only;
+   the title is plain text in the tool rows' tone and the reason is muted. */
+.cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]) > .cv-subagent-done[data-state="failed"] {
+  color: var(--cv-activity-text);
+}
+.cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]) > .cv-subagent-done .cv-tool__icon {
+  color: var(--agent-status-failure);
+}
+.cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]) .cv-subagent-done__time {
+  color: var(--cv-text-dim);
+}
+.cv-subagent-failed__text {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: var(--cv-tool-gap);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.cv-subagent-failed__title,
+.cv-subagent-failed__reason {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-subagent-failed__title {
+  flex: 0 1 auto;
+}
+.cv-subagent-failed__reason {
+  flex: 0 1000 auto;
+  color: var(--cv-text-dim);
+}
+/* A quiet Retry: the tool rows' text, no accent border; its hover plate covers only the button. */
+.cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]) .cv-subagent-retry {
+  border-color: transparent;
+  color: var(--cv-text-dim);
+}
+.cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]) .cv-subagent-retry:hover {
+  color: var(--cv-text);
+}
+
+/* The grid: every failed line has the same columns, so Retry and the time line up from row to row
+   whatever the title's or reason's length. The title and the reason split the line's room evenly,
+   each cut with an ellipsis, so the reason starts at one x on every line. */
+.cv-tool.cv-subagent-done-row[data-look="grid"] {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1fr) var(--cv-failed-retry-width, 64px) auto var(--cv-failed-time-width, 7ch)
+    var(--cv-glyph-slot, 16px);
+  align-items: center;
+  column-gap: var(--cv-tool-gap);
+}
+.cv-subagent-done-row[data-look="grid"] > .cv-subagent-done {
+  grid-column: 1;
+  grid-row: 1;
+}
+.cv-subagent-done-row[data-look="grid"] .cv-subagent-failed__text {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.cv-subagent-done-row[data-look="grid"] > :is(.cv-subagent-retry, .cv-subagent-retry-link) {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: start;
+  margin-inline-start: 0;
+}
+.cv-subagent-done-row[data-look="grid"] > :is(.cv-subagent-done__actions, .cv-subagent-done__note) {
+  grid-column: 3;
+  grid-row: 1;
+}
+.cv-subagent-done-row[data-look="grid"] > .cv-subagent-done__trail {
+  grid-column: 4;
+  grid-row: 1;
+  justify-self: end;
+  margin-inline-start: 0;
+  font-variant-numeric: tabular-nums;
+}
+.cv-subagent-done-row[data-look="grid"] > .cv-subagent-done__chevron {
+  grid-column: 5;
+  grid-row: 1;
+}
