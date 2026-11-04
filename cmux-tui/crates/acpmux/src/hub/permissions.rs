@@ -366,8 +366,8 @@ impl Hub {
                     && update.get("entries").and_then(Value::as_array).is_some()
                     && let Some(goal) = m.goal.as_mut()
                 {
-                    goal.steps =
-                        crate::goal::GoalState::from_plan_update(update).and_then(|plan| plan.steps);
+                    goal.steps = crate::goal::GoalState::from_plan_update(update)
+                        .and_then(|plan| plan.steps);
                     goal_write = true;
                 }
                 // An ordinary TodoWrite plan (no armed /loop) is not published as the chat's

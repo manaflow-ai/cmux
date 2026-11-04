@@ -2005,8 +2005,8 @@ mod line_rev_tests;
 
 #[cfg(test)]
 mod agent_session_history_tests {
-    use crate::goal::{GoalState, GoalStatus};
     use super::{META_SCHEMA, RETIRED_AGENT_SESSION_IDS, SessionMeta};
+    use crate::goal::{GoalState, GoalStatus};
     use serde_json::json;
 
     fn meta() -> SessionMeta {
