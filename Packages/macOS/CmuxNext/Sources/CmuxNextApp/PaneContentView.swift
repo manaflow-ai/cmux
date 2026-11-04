@@ -336,6 +336,8 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding {
         // the content it keeps.
         let kept = paintHold.kept.flatMap { $0.superview === contentHost ? $0 : nil }
         let shown = kept ?? hosted
+        // A parked page takes its show frame first (S7b): its paint hold compares the size it drew at with it (not in a key hold).
+        if let view, view.superview === contentHost, view.isHidden, !contentHost.isHolding, let frame = parkedFrame(of: view) { view.frame = frame }
         let holds = !isBandActive && holdsForFirstPaint(view, replacing: shown)
         // The strip's band pins end before the browser leaves (R109).
         if hosted !== view { releaseBand() }

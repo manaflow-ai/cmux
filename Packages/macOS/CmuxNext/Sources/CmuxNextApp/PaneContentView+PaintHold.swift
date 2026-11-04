@@ -22,6 +22,8 @@ extension AgentPaneView: PaneFirstPaintGated {
 /// (no-flicker audit). Content that is not a page has nothing to wait for.
 extension InternalPageView: PaneFirstPaintGated {
     public var awaitsFirstPaint: Bool { (content as? PageWebView).map { !$0.hasPainted } ?? false }
+    /// It shows a web page now (``PageWebView/shown(in:)``), which nothing holds for a redraw at a new size.
+    var showsWebPage: Bool { PageWebView.shown(in: content) != nil }
 
     public func whenFirstPainted(_ body: @escaping () -> Void) {
         guard let page = content as? PageWebView else { return body() }
