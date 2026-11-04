@@ -413,46 +413,24 @@ bun run cloud-vm:env:audit -- production --strict
 This audit is a local operator command. It intentionally does not run in GitHub Actions because
 reading all Vercel env values from Actions would require a broad Vercel env-read token.
 
-Smoke deployed API auth/list behavior without creating production VMs:
+## Internal development checks
+
+The classic `cloud-vm:smoke`, `cloud-vm:stress` and `cloud-vm:dogfood` commands
+and the startup benchmarks are retired. Their aliases fail before auth,
+network or provider access and print the NEXT development command.
+
+For current internal checks, switch to `feat-cmux-next` and run from `web/`:
 
 ```bash
-bun run cloud-vm:smoke -- staging
-bun run cloud-vm:smoke -- production
+bun scripts/cmux-vm-image/dev-e2e.ts --out-dir /tmp/cmux-next-e2e
+bun scripts/cmux-vm-image/dev-idle-e2e.ts --out-dir /tmp/cmux-next-idle-e2e
 ```
 
-Staging may run a real create/destroy smoke with tiny quotas:
-
-```bash
-bun run cloud-vm:smoke -- staging --create --provider freestyle
-```
-
-Run default-provider stress before changing provider defaults or after provider incidents:
-
-```bash
-bun run cloud-vm:stress -- staging --count 8 --concurrency 4 --provider default
-bun run cloud-vm:stress -- production --count 12 --concurrency 4 --provider default
-```
-
-## Startup benchmarks
-
-`docs/cloud-startup-latency.md` records where Cloud machine startup time goes and the
-lower-bound budget (issue #12905). The three benchmarks it is built on live beside the smoke
-scripts and only ever create, measure and delete their own resources:
-
-```bash
-cd web
-bun scripts/cloud-vm/bench-vm-startup.mjs staging --trials 5        # create → attach → exec → pause → resume → destroy, with the create route's Server-Timing stages
-bun scripts/cloud-vm/bench-freestyle-floor.ts --trials 5 --burst 3  # provider floor with the SDK: allocation, daemon listening, exec RTT, guest shell, pause/start
-bun scripts/cloud-vm/bench-private-link.ts --trials 3               # the app's transport path headlessly: driver create, attach bundle, WireGuard hub, link, prompt
-```
-
-The two SDK benchmarks read the provider credential the way the runtime does
-(`FREESTYLE_API_KEY`, or `FREESTYLE_STACK_ACCESS_TOKEN` with `FREESTYLE_TEAM_ID`,
-from `~/.secrets/cmux.env`). The API benchmark pulls the target's Vercel env, fills
-a sensitive (empty) value from the process environment, and sends its throwaway
-session only to the project's own https origin; a deployment that Vercel's API
-attributes to the project also needs `--allow-preview`, and any other https host
-`--allow-any-url`.
+The lifecycle check records timings through create, link, pause/start and
+delete against the NEXT development API. The idle-pause check verifies that
+person activity keeps a machine awake and agent-only input does not. Both
+delete only machines the run created, by exact id. Historical classic startup
+measurements remain in `docs/cloud-startup-latency.md` for reference.
 
 ## Telemetry
 
@@ -794,12 +772,9 @@ user-space WireGuard. The daemon's Noise enrollment gates sessions. The backend 
 only a hash of attach tokens to Postgres; raw tokens are returned once to the Mac client.
 Machines created by the old cmuxd-remote drivers need recreation on the private network.
 
-Operational note: before rollout, verify the deployed provider, create switch,
-image manifest, and credential presence with
-`bun run cloud-vm:env:audit -- <target> --strict`. The audit reads Vercel
-metadata for Sensitive variables and never exposes their values. Credential
-presence is not credential validity, so confirm create, attach, and daemon
-health with `bun run cloud-vm:stress -- <target> --provider default`.
+Operational note: classic runtime and customer configuration remain documented
+here for existing accounts. Internal development validation uses the NEXT
+Cloud checks above; the classic stress and smoke aliases are retired.
 
 ## Model plane
 
