@@ -114,7 +114,7 @@ public struct MobileHostMacIdentityStore: Sendable {
                 if let stored = MobileHostMacIdentity.restore(data) {
                     if fileKey != nil {
                         Self.logger.error("iPhone host identity: removing the file key beside the Keychain's (a second identity)")
-                        try? FileManager.default.removeItem(at: fallbackFile)
+                        try? FileManager.checked.removeItem(at: fallbackFile)
                     }
                     return stored
                 }
