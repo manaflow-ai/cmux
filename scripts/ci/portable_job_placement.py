@@ -269,7 +269,8 @@ def read(env: Mapping[str, str], now: dt.datetime, *, use_state: bool = True
     # retained for callers that explicitly provide one; an empty-token caller
     # fails open to its workflow's overflow route.
     state = pool.runner_state(repo, raw=env.get("CI_RUNNER_STATE", ""), now=now) if use_state else None
-    if state is not None:
+    if state is not None and (pool.document_queue_snapshot(state, now=now, branch=pool.SNAPSHOT_BRANCH) is not None
+                              or not any(env.get(name) for name in ("ROUTE_TOKEN", "ROUTE_TOKEN_FALLBACK"))):
         try:
             # Read only the validated publication.  Do not instantiate a
             # client: missing queue data must not fall through to an artifact

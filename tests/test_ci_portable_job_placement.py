@@ -500,7 +500,7 @@ class SharedWait(unittest.TestCase):
         idle_row = dict(runner("synthetic-glaeda"), id=1, os="macOS")
         doc = dict(schema="runner-state/v1", repository="manaflow-ai/cmux", complete=True,
                    generated_at=dt.datetime.now(dt.timezone.utc).isoformat(), repository_runners=[],
-                   runner_groups={"glaeda-minis": [dict(idle_row, busy=True)], "cmux-fleet-linux": []}, scale_sets={})
+                   runner_groups={"glaeda-minis": [dict(idle_row, busy=True)]}, scale_sets={})
         raw = base64.b64encode(gzip.compress(json.dumps(doc).encode())).decode()
         config = env(GITHUB_REPOSITORY="manaflow-ai/cmux", ROUTE_TOKEN="synthetic-token",
                      SNAPSHOT_TOKEN="synthetic-snapshot", JOBS="control", NIGHTLY="1",
@@ -520,12 +520,9 @@ class SharedWait(unittest.TestCase):
              mock.patch.object(placement.signal, "setitimer"), \
              mock.patch.object(placement, "write") as write, contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(placement.main(config), 0)
-        # A complete runner-state publication is the quota-safe bootstrap. Without
-        # its optional queue snapshot, capacity is unknown and placement fails open
-        # to the workflow's overflow; it does not spend a routing API read.
-        self.assertEqual(write.call_args.args[0].mini_jobs, ())
-        self.assertEqual(clock[0], 0)
-        self.assertEqual(paths, [])
+        self.assertEqual(write.call_args.args[0].mini_jobs, ("control",))
+        self.assertEqual(clock[0], 30)
+        self.assertEqual(sum("/10/runners" in path for path in paths), 1)
 
 
 class Wiring(unittest.TestCase):
@@ -695,7 +692,7 @@ class Wiring(unittest.TestCase):
         state = {
             "schema": "runner-state/v1", "repository": "manaflow-ai/cmux", "complete": True,
             "generated_at": NOW.isoformat(), "repository_runners": [],
-            "runner_groups": {"glaeda-minis": [{"id": 1, "name": "cmux1-glaeda", "status": "online", "busy": False, "os": "macOS", "labels": [{"name": "self-hosted"}, {"name": "glaeda-side-light-xcode-26.6"}]}], "cmux-fleet-linux": []},
+            "runner_groups": {"glaeda-minis": [dict(runner("cmux1-glaeda"), id=1, os="macOS")]},
             "scale_sets": {},
         }
         raw = base64.b64encode(gzip.compress(json.dumps(state).encode())).decode()

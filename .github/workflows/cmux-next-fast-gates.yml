@@ -93,7 +93,7 @@ jobs:
     name: resolve head and base
     needs: portable-placement
     # A draft is gated when it is marked ready; a dispatch always runs.
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     # Fork pull requests use the same ephemeral Blacksmith lane as other
     # Linux work; this job has read-only contents permission and no secrets.
     # The reconciled pool admits fleet first, records a three-minute no-start
@@ -215,7 +215,7 @@ jobs:
 
   fast-gates:
     name: fast gates
-    needs: [resolve]
+    needs: resolve
     outputs:
       ratchet: ${{ steps.prepare.outputs.ratchet }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || fromJSON(vars.RUNNER_POOLS).linux }}
