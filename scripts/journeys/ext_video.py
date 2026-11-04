@@ -397,6 +397,9 @@ def step_hid_drag(j, step):
     proven by the app's own input journal: a mouse-down and moves after the call. No mode that reaches it: not run."""
     R.require_front(j)
     start = _target_point(j, step["target"])
+    # The window at the drag's start must be the app's (px_key_then_drag checks before its key: cover_checked).
+    if not step.get("cover_checked"):
+        R.require_input_clear(j, start)
     if "to" in step:
         end = tuple(float(v) for v in step["to"])
     else:
@@ -430,8 +433,10 @@ def step_hid_drag(j, step):
             return {"mode": mode, "from": list(start), "to": list(end), "args": args, "scale": scale,
                     "duration_ms": duration, "steps": steps, "sent": round(sent, 6), "returned": round(returned, 6),
                     "drag_s": round(returned - sent, 4), "app_mouse_events": len(got), "first": got[:2], "last": got[-2:]}
+    screen = R.window_to_screen(j, start)
+    at = R.describe_rows(R.windows_at(R._window_rows(j), screen)) if screen is not None else "unknown (no window frame)"
     raise D.NotRun(f"hid_drag: no CuaDriver drag reached the app (its journal has no mouse-down): {json.dumps(tried)[:700]}; "
-                   f"drag schema: {json.dumps(_cua_tools(j).get('drag'))[:600]}")
+                   f"windows at the start point now: {at}; drag schema: {json.dumps(_cua_tools(j).get('drag'))[:400]}")
 
 
 def step_hid_probe(j, step):

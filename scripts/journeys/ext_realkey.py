@@ -261,11 +261,85 @@ def front_pid():
 def require_front(j):
     """Real keys go where a keyboard's go: to the frontmost app. Before a key or a line, the app must be frontmost
     (the whole-host launch activates it, smoke_make_key makes its window key); another app in front (a host prompt)
-    is the host's limit: not run, never a red."""
+    is the host's limit: not run, never a red. A password prompt on screen is not run too (require_input_clear)."""
     pid = front_pid()
     if pid != j.app.pid:
         raise D.NotRun(f"real keys: the app (pid {j.app.pid}) is not the frontmost app (front pid {pid}): a real key "
                        "would go to that app (known gap of the host)")
+    require_input_clear(j)
+
+
+# The input guard (R-HARNESS, 2026-11-04, cmux24): a SecurityAgent password prompt or a system alert is not the frontmost
+# app, but it lies above every window and takes the keys, and a desktop drag's mouse-down goes to the topmost window at its
+# point. Before real input the kit reads CuaDriver's window list (frontmost first) and gives "not run" with the window.
+PROMPT_APPS = ("SecurityAgent",)
+INPUT_CHECK_S = 1.0  # a key re-reads the window list at most once a second (dialogs come and go on that scale)
+
+
+def _window_rows(j):
+    """The on-screen windows (CuaDriver list_windows, frontmost first): app, pid, layer, title, bounds [x, y, w, h] (screen
+    points from the top-left). [] when the list cannot be read (the guard then lets the input go, as before it)."""
+    bad, data, raw = _session(j).call("list_windows", {})
+    rows = []
+    for w in (data or {}).get("windows") or []:
+        if not w.get("is_on_screen", w.get("on_screen", True)):
+            continue
+        b = w.get("bounds") or {}
+        rows.append({"app": w.get("app_name") or w.get("owner_name"), "pid": int(w.get("pid") or w.get("owner_pid") or -1),
+                     "layer": int(w.get("layer") or 0), "title": w.get("title") or w.get("name"),
+                     "bounds": [float(b.get("x") or 0), float(b.get("y") or 0), float(b.get("width") or 0), float(b.get("height") or 0)]})
+    return rows
+
+
+def prompt_rows(rows):
+    """The password prompts among ROWS."""
+    return [r for r in rows if (r.get("app") or "") in PROMPT_APPS]
+
+
+def windows_at(rows, point):
+    """The windows of ROWS (any process) that contain POINT (screen points from the top-left), frontmost first."""
+    x, y = point
+    return [r for r in rows if r["bounds"][0] <= x < r["bounds"][0] + r["bounds"][2] and r["bounds"][1] <= y < r["bounds"][1] + r["bounds"][3]]
+
+
+def covering_rows(rows, app_pid, point):
+    """The windows of another process above the app's frontmost layer-0 window (before it in the list, or on a layer above
+    0) that contain POINT: a click or a drag there goes to them, not to the app."""
+    mine = next((i for i, r in enumerate(rows) if r["pid"] == app_pid and r["layer"] == 0), len(rows))
+    return [r for i, r in enumerate(rows) if r["pid"] != app_pid and r in windows_at(rows, point) and (r["layer"] > 0 or i < mine)]
+
+
+def describe_rows(rows):
+    return "; ".join(f"{r.get('app')} window '{r.get('title') or ''}' (pid {r['pid']}, layer {r['layer']}, bounds {r['bounds']})"
+                     for r in rows[:4])
+
+
+def window_to_screen(j, point):
+    """POINT (the app's main window points from its top-left) in screen points from the top-left, or None."""
+    win = _layers_window(j)
+    if not win or not win.get("primary_max_y"):
+        return None
+    wx, wy, ww, wh = win["frame"]
+    return (wx + float(point[0]), win["primary_max_y"] - (wy + wh) + float(point[1]))
+
+
+def require_input_clear(j, point=None):
+    """Not run when a password prompt is on screen (a real key would go into it), or, with POINT (the app's window points
+    from its top-left), when a window of another process covers that point (a real click or drag would go to it)."""
+    if point is None:
+        last = getattr(j, "input_clear_at", None)
+        if last is not None and D.now() - last < INPUT_CHECK_S:
+            return
+    rows = _window_rows(j)
+    prompts = prompt_rows(rows)
+    if prompts:
+        raise D.NotRun(f"real input: a password prompt is on screen ({describe_rows(prompts)}); no real key or click is sent")
+    if point is not None:
+        screen = window_to_screen(j, point)
+        cover = covering_rows(rows, j.app.pid, screen) if screen is not None else []
+        if cover:
+            raise D.NotRun(f"real input: {describe_rows(cover)} covers the input point {list(point)} (screen {list(screen)})")
+    j.input_clear_at = D.now()
 
 
 def press(j, key, modifiers=()):

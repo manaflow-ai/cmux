@@ -1063,6 +1063,8 @@ def step_px_key_then_drag(j, step):
     video = getattr(j, "video", None)
     if video is not None:
         video["notes"].setdefault("pixel", {})["key_then_drag"] = info
+    # The input guard before the key, for the drag's press point too: the drag's call must follow the key-down AFTER_MS later.
+    V.R.require_input_clear(j, press)
     key_sent = D.now()
     j.step_rk_press({"key": step["key"], "modifiers": list(step.get("modifiers", [])), "count": 1, "gap_ms": 0,
                      "mark": step.get("mark", "kd") + "-key"})
@@ -1073,7 +1075,7 @@ def step_px_key_then_drag(j, step):
     drag_sent = D.now()
     info.update(key_sent_host=key_sent + offset, drag_sent_host=drag_sent + offset)
     j.step_hid_drag({"target": {"window_point": press}, "by": by, "duration_ms": int(drag["duration_ms"]), "hold_ms": 0,
-                     "mark": step.get("mark", "kd") + "-drag"})
+                     "mark": step.get("mark", "kd") + "-drag", "cover_checked": True})
     info["drag_returned_host"] = D.now() + offset
     # The verdict: the journal's key-down and mouse-down, and the trace around them.
     key_down, mouse_down = _journal_times(j, key_sent + offset - 0.05)

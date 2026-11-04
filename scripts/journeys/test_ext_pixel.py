@@ -1819,12 +1819,14 @@ class KeyThenDragTests(unittest.TestCase):
 
     def setUp(self):
         self.clock = FakeClock()
-        self.saved = (X.D.now, X.time, X.V._host_offset_s)
+        self.saved = (X.D.now, X.time, X.V._host_offset_s, X.V.R.require_input_clear)
         X.D.now, X.time = self.clock.monotonic, self.clock
         X.V._host_offset_s = lambda: 8000.0
+        self.guard_points = []
+        X.V.R.require_input_clear = lambda j, point=None: self.guard_points.append(point)
 
     def tearDown(self):
-        X.D.now, X.time, X.V._host_offset_s = self.saved
+        X.D.now, X.time, X.V._host_offset_s, X.V.R.require_input_clear = self.saved
 
     def run_step(self, app, target, by, response=0.6):
         j = SpringJourney(app, tempfile.mkdtemp(), self.clock)
@@ -1843,6 +1845,9 @@ class KeyThenDragTests(unittest.TestCase):
         # The drag call 60 ms after the key-down (the key-down 25 ms after its send).
         self.assertAlmostEqual(d_at - k_at, 0.085, delta=0.003)
         self.assertEqual((drag["by"], drag["duration_ms"], drag["hold_ms"]), ([150, 0], 400, 0))
+        # The input guard ran once, before the key, for the drag's press point; the drag does not check again.
+        self.assertEqual(self.guard_points, [drag["target"]["window_point"]])
+        self.assertTrue(drag["cover_checked"])
         note = j.video["notes"]["pixel"]["key_then_drag"]
         self.assertEqual(note["verdict"], "overlap")
         self.assertTrue(note["edge_moving_at_down"])
@@ -1961,6 +1966,59 @@ class KeyThenDragTests(unittest.TestCase):
         self.assertFalse(note["grabbed"])
         self.assertIn("missed the edge", j.px["film_not_run"])
         self.assertIn("a still drag", j.px["film_not_run"])
+
+
+class InputGuardTests(unittest.TestCase):
+    """ext_realkey's input guard (R-HARNESS 2026-11-04, cmux24): a password prompt on screen, or a window of another process
+    above the app at the input point, gives "not run" with the window; CuaDriver's list is frontmost first."""
+
+    APP = 4242
+
+    def rows(self):
+        R = X.V.R
+        return [
+            {"app": "SecurityAgent", "pid": 90, "layer": 1000, "title": "", "bounds": [740, 232, 439, 154]},
+            {"app": "UserNotificationCenter", "pid": 91, "layer": 8, "title": "", "bounds": [830, 189, 318, 406]},
+            {"app": "cmux", "pid": self.APP, "layer": 0, "title": "main", "bounds": [0, 49, 1512, 883]},
+            {"app": "Finder", "pid": 92, "layer": 0, "title": "behind", "bounds": [100, 100, 400, 400]},
+        ]
+
+    def test_a_password_prompt_is_found(self):
+        self.assertEqual([r["app"] for r in X.V.R.prompt_rows(self.rows())], ["SecurityAgent"])
+        self.assertEqual(X.V.R.prompt_rows(self.rows()[1:]), [])
+
+    def test_a_window_above_the_app_covers_its_point(self):
+        R = X.V.R
+        self.assertEqual([r["app"] for r in R.covering_rows(self.rows(), self.APP, (900, 300))],
+                         ["SecurityAgent", "UserNotificationCenter"])
+        # A window behind the app's (later in the list, layer 0) does not cover it; nor does anything off the point.
+        self.assertEqual(R.covering_rows(self.rows(), self.APP, (200, 200)), [])
+        self.assertEqual(R.covering_rows(self.rows(), self.APP, (1400, 800)), [])
+
+    def test_the_guard_refuses_a_prompt_and_a_covered_point(self):
+        R = X.V.R
+        saved = (R._window_rows, R._layers_window, R.D.now)
+        rows = self.rows()
+        try:
+            R._window_rows = lambda j: list(rows)
+            R._layers_window = lambda j: {"frame": [0, 50, 1512, 883], "primary_max_y": 982}
+            R.D.now = lambda: 100.0
+
+            class J:
+                class app:
+                    pid = self.APP
+            with self.assertRaisesRegex(R.D.NotRun, "password prompt"):
+                R.require_input_clear(J())
+            rows.pop(0)
+            # window point (900, 251) is screen (900, 300) on a window whose top is at 982 - 933 = 49
+            with self.assertRaisesRegex(R.D.NotRun, "UserNotificationCenter window .* covers the input point"):
+                R.require_input_clear(J(), (900, 251))
+            rows.pop(0)
+            j = J()
+            R.require_input_clear(j, (900, 251))
+            self.assertEqual(j.input_clear_at, 100.0)
+        finally:
+            R._window_rows, R._layers_window, R.D.now = saved
 
 
 class FilmNotRunTests(unittest.TestCase):
