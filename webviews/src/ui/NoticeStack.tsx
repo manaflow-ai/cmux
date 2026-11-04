@@ -52,7 +52,12 @@ export function createNoticeQueue(limit = STACK_LIMIT): NoticeQueue {
   };
   return {
     show(spec) {
-      const id = spec.id ?? `toast-${++next}`;
+      // A generated id skips any id showing, so it never replaces a caller's `toast-1`.
+      let id = spec.id;
+      if (id === undefined) {
+        do id = `toast-${++next}`;
+        while (entries.some((entry) => entry.spec.id === id));
+      }
       const at = entries.findIndex((entry) => entry.spec.id === id);
       const entry: NoticeEntry = { spec: { ...spec, id }, version: ++shown };
       // The queue changes before any onClose runs, so a callback that shows or closes a toast
