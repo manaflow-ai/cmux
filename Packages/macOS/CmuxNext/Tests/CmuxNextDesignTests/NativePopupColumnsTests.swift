@@ -132,8 +132,9 @@ import Testing
             NativePopupRow(id: "medium", kind: .action, label: "Medium", checked: true, keepOpen: true),
             NativePopupRow(id: "fast", kind: .toggle, label: "Fast", checked: false),
         ])
-        let account = NativePopupRow(id: "account", kind: .submenu, label: "Claude · Account: Leo", monogram: "L",
-                                     children: [NativePopupRow(id: "account-add", kind: .action, label: "Add account…")])
+        let account = NativePopupRow(id: "account", kind: .submenu, label: "Claude · Account: Leo",
+                                     children: [NativePopupRow(id: "account-add", kind: .action, label: "Add account…")],
+                                     monogram: "L")
         return NativePopupModel(schemaVersion: 1, id: "picker", revision: 1,
                                 anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),
                                 side: .bottom, align: .start, width: 350,
