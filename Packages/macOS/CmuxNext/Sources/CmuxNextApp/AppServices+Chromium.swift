@@ -31,8 +31,6 @@ extension AppServices {
     func configureChromiumSpares() {
         let spareAfterFirstTab = features.isEnabled(.chromiumSpareAfterFirstTab)
         cache.cef.spareAfterFirstTab = { spareAfterFirstTab }
-        // A spare's placeholder has no renderer where the fork can.
-        cache.cef.setRendererlessSpareWindows(features.isEnabled(.rendererlessSpareWindow))
         // At most one Chromium spare renderer: Chromium's own, or the placeholder's.
         cache.cef.setOneSpareRenderer(features.isEnabled(.chromiumOneSpareRenderer))
     }

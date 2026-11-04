@@ -118,9 +118,6 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let tabFlushBackForwardCache: @convention(c) (Int32) -> Int32
 
     let createWindow: (Int32, CEFParentView?, Int32, Int32, String?, String?) -> Int32
-    /// The same window whose first tab has no renderer and never navigates (the spare window's
-    /// placeholder, fork `CMUX_EXTRA_INFO_NO_RENDERER`); 0 when `placeholderSupported` is 0.
-    let createPlaceholderWindow: (Int32, CEFParentView?, Int32, Int32, String?) -> Int32
     /// 1 when the fork makes renderer-less placeholders (`cmux_tab_renderer_state`).
     let placeholderSupported: @convention(c) () -> Int32
     let tabAdd: (Int32, String?, Int32, Int32) -> Int32

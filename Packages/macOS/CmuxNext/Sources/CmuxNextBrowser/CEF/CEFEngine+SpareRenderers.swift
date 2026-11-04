@@ -3,7 +3,7 @@ import Foundation
 /// The Chromium spare renderers: the one-spare rule and what `debug.memory` lists.
 extension CEFEngine {
     /// The default-off feature `chromiumOneSpareRenderer`: at most one Chromium spare renderer
-    /// (``CEFSpareWindow/placeholderIsTheSpare``). Set before Chromium starts, like ``setRendererlessSpareWindows(_:)``.
+    /// (``CEFSpareWindow/placeholderIsTheSpare``). Set before Chromium starts.
     public func setOneSpareRenderer(_ on: Bool) {
         CEFRuntime.shared.spareWindow.oneSpareRenderer = on
     }

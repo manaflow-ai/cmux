@@ -15,16 +15,8 @@ extension CEFTab: BrowserFreezing {
     /// (``CEFTabNodeVisibility/freezeShown(of:)``).
     public func freezeShownInOffScreenWindow() -> Bool { nodeVisibility.freezeShown(of: self) }
 
-    /// The spare window's placeholder made with no renderer (`CEFPaneHost.placeholderHasNoRenderer`), as
-    /// Chrome makes restored tabs (`chrome/browser/ui/browser_tabrestore.cc`, `kNoRendererProcess`):
-    /// nothing runs in it, so it is never frozen.
-    var isRendererlessPlaceholder: Bool { host.placeholderHasNoRenderer && host.placeholder === self }
-
-    /// The spare window's placeholder that still has a renderer: an about:blank page that is never shown.
-    /// It exists only while the fork pin (API 24) has no renderer-less placeholder
-    /// (`cmux_shim_placeholder_supported`) or the `rendererlessSpareWindow` feature is off;
-    /// with both, every spare's placeholder is ``isRendererlessPlaceholder`` and this is never true.
-    var isFrozenSparePlaceholder: Bool { host.quietsPlaceholder && host.placeholder === self && !host.placeholderHasNoRenderer }
+    /// The spare window's placeholder: an about:blank page that is never shown.
+    var isFrozenSparePlaceholder: Bool { host.quietsPlaceholder && host.placeholder === self }
 
     /// Freezes a page that is never shown (``CEFTabNodeVisibility/freezeNeverShown(_:runtime:)``).
     /// It is never thawed: a take closes it on the next turn (`CEFPaneHost.closeSparePlaceholder`).

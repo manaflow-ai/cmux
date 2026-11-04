@@ -258,8 +258,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     func attach(browser: Int32) {
         browserID = browser
         isCreationPending = false
-        // A spare's renderer-less placeholder never loads or shows: no page to set up, no DevTools call.
-        if isRendererlessPlaceholder { return }
         CEFAgentURLGuard.applyShimGuard(self)
         if let url = loadAfterAttach {
             loadAfterAttach = nil

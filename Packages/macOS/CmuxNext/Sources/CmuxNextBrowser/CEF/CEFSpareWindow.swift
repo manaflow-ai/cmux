@@ -18,11 +18,7 @@ import Foundation
 /// another context replaces it, because a spare of one store cannot serve
 /// another (`content/browser/renderer_host/spare_render_process_host_manager_impl.h`).
 /// Each spare holds a placeholder tab, in no pane (its window starts at the
-/// hidden-tab viewport). With the `rendererlessSpareWindow` feature, where the
-/// fork can, the placeholder has no renderer
-/// and never navigates (`cmux_shim_create_placeholder_window`),
-/// so a spare costs a window and no renderer process; on an older fork it is
-/// an about:blank page frozen through DevTools (`CEFTab.freezeNeverShownPage`).
+/// hidden-tab viewport): an about:blank page frozen through DevTools (`CEFTab.freezeNeverShownPage`).
 /// The first host a spare's store needs
 /// takes it (`take`): it is re-keyed, the tab joins its window, and on the
 /// next main-actor turn the placeholder closes (`CEFPaneHost.closeSparePlaceholder`).
@@ -57,8 +53,8 @@ import Foundation
 /// With the Chromium Host the spare stays (`ChromiumWarmup.Placement.host`): content
 /// makes its spare RenderProcessHost only after a navigation took a process
 /// (`SpareRenderProcessHostManagerImpl::PrepareForFutureRequests`; `IsSpareProcessKeptAtAllTimes`
-/// only refills a taken one), so after a warm start only the spare's window, and its placeholder's
-/// renderer without `rendererlessSpareWindow`, are warm for the first tab.
+/// only refills a taken one), so after a warm start only the spare's window and its placeholder's
+/// renderer are warm for the first tab.
 /// The bench-only `chromiumHostNoSpareWindow` drops it, the arm that measures the host without it.
 ///
 /// The runtime owns the one instance (`CEFRuntime.spareWindow`).
@@ -86,16 +82,9 @@ final class CEFSpareWindow {
     /// Whether the warmup keeps a `pages` spare (cmux pages use Chromium and the
     /// `pagesSpareWindow` feature is on). Turning it off closes an untaken one.
     private(set) var wantsPages = false
-    /// Whether a spare's placeholder is made with no renderer where the fork can (the
-    /// `rendererlessSpareWindow` feature, `CEFEngine.setRendererlessSpareWindows`); off, every spare
-    /// holds the frozen about:blank page. Read when a spare's window is built.
-    var rendererlessPlaceholders = false
     /// The default-off feature `chromiumOneSpareRenderer` (`CEFEngine.setOneSpareRenderer`): at most one
     /// Chromium spare renderer (``placeholderIsTheSpare``). Set before Chromium starts.
     var oneSpareRenderer = false
-    /// Whether a spare's placeholder holds a renderer in the running Chromium: true until a start
-    /// finds renderer-less placeholders on and the fork able to make them (``chromiumStarting(placeholderSupported:)``).
-    private(set) var placeholdersHoldRenderers = true
     /// Memory pressure above normal (`setHeld`): no spare is made, given back or asked for.
     private(set) var isHeld = false
     /// No spare of a wanted kind is ready (a pane took it, or a window came up first): the warmup
@@ -148,25 +137,15 @@ final class CEFSpareWindow {
         Kind.allCases.filter { $0 == .browser || (wantsPages && pagesProfile != nil && !placeholderIsTheSpare) }
     }
 
-    /// The one Chromium spare renderer is a spare window's placeholder (`chromiumOneSpareRenderer` on
-    /// while placeholders hold a renderer): Chromium's own spare is off and only the `browser` kind is
-    /// kept. Chrome keeps one spare renderer, never one per profile
+    /// The one Chromium spare renderer is a spare window's placeholder (`chromiumOneSpareRenderer` on):
+    /// Chromium's own spare is off (`CEFSwitches.chromiumSpareOff`, read at `CEFRuntime.initialize`) and
+    /// only the `browser` kind is kept. Chrome keeps one spare renderer, never one per profile
     /// (`content/browser/renderer_host/spare_render_process_host_manager_impl.h`). Off, Chromium's
-    /// spare is the one and the placeholders hold none, or the feature is off.
-    var placeholderIsTheSpare: Bool { oneSpareRenderer && placeholdersHoldRenderers }
-
-    /// Chromium starts (`CEFRuntime.initialize`): whether a spare's placeholder will hold a renderer
-    /// in it, which says whether Chromium keeps its own spare renderer.
-    ///
-    /// - Parameter placeholderSupported: The fork makes renderer-less placeholders (`cmux_shim_placeholder_supported`).
-    /// - Returns: Whether Chromium keeps its own spare renderer (false: `CEFSwitches.chromiumSpareOff`).
-    func chromiumStarting(placeholderSupported: Bool) -> Bool {
-        placeholdersHoldRenderers = !(rendererlessPlaceholders && placeholderSupported)
-        return !placeholderIsTheSpare
-    }
+    /// spare is the one.
+    var placeholderIsTheSpare: Bool { oneSpareRenderer }
 
     /// The untaken spares, `browser` first, each with the renderer client ids of its placeholder
-    /// (empty while the placeholder has none: renderer-less, or not made yet).
+    /// (empty while the placeholder has none yet).
     var untakenSpares: [(kind: Kind, rendererClients: [Int32])] {
         Kind.allCases.compactMap { kind in
             guard let host = hosts[kind] else { return nil }

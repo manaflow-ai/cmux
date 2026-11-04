@@ -95,7 +95,6 @@ public nonisolated struct FeatureDogfoodSet: Sendable, Equatable {
         "pointerFrameRemoteInput",
         "recentlyAudibleProtection",
         "renderStarvationGuard",
-        "rendererlessSpareWindow",
         "resampledDrags",
         "savedWindowPicture",
         "sentryHandlersFirst",

@@ -76,11 +76,6 @@ nonisolated extension CEFShimLibrary {
         createWindow = { a0, parent, a2, a3, a4, a5 in
             unsafe Self.withCString(a4) { s4 in unsafe Self.withCString(a5) { s5 in unsafe cCreateWindow(a0, parent?.pointer, a2, a3, s4, s5) } }
         }
-        let cCreatePlaceholderWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?) -> Int32 =
-            try unsafe r("cmux_shim_create_placeholder_window")
-        createPlaceholderWindow = { a0, parent, a2, a3, a4 in
-            unsafe Self.withCString(a4) { s4 in unsafe cCreatePlaceholderWindow(a0, parent?.pointer, a2, a3, s4) }
-        }
         placeholderSupported = try r("cmux_shim_placeholder_supported")
         let cTabAdd: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Int32 = try unsafe r("cmux_shim_tab_add")
         tabAdd = { a0, a1, a2, a3 in unsafe Self.withCString(a1) { s1 in unsafe cTabAdd(a0, s1, a2, a3) } }
