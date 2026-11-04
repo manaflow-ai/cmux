@@ -77,3 +77,4 @@ mkdir -p "$live"
 # Move into place in one step, so the shell never reads a half-written file.
 mv "$work/$patch" "$live/.$patch" && mv "$live/.$patch" "$live/$patch"
 echo "inject.sh: $live/$patch (started=$started)"
+[[ -d live-code-out ]] && tar -cf live-code-out/pngs.tar live-code-out/*.png 2>/dev/null || true
