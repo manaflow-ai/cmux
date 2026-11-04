@@ -266,3 +266,52 @@ fn starts_past_the_running_cap_are_refused() {
     // The same plan as a running job is still that job.
     assert_eq!(start(&service, &origin, b"plan 0")["ok"], true);
 }
+
+#[test]
+fn a_blob_body_past_its_size_is_cut_off_without_a_length() {
+    let home = Home::new("unbounded");
+    let claimed = b"five!".to_vec();
+    let plan = json!({"version": 1, "files": [
+        {"path": home.path.join("f").to_str().unwrap(), "permissions": 0o644,
+         "size": claimed.len(), "sha256": sha(&claimed)},
+    ]})
+    .to_string()
+    .into_bytes();
+    // A store that answers the plan, then the blob with no Content-Length
+    // and far more bytes than the plan says, until it closes.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    let plan_sha = sha(&plan);
+    let served_plan = plan.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut request = String::new();
+            reader.read_line(&mut request).unwrap();
+            loop {
+                let mut header = String::new();
+                if reader.read_line(&mut header).unwrap_or(0) == 0 || header == "\r\n" {
+                    break;
+                }
+            }
+            if request.contains(&plan_sha) {
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                    served_plan.len()
+                );
+                let _ = stream.write_all(head.as_bytes());
+                let _ = stream.write_all(&served_plan);
+            } else {
+                let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nconnection: close\r\n\r\n");
+                let _ = stream.write_all(&vec![b'x'; 4 * 1024 * 1024]);
+            }
+        }
+    });
+    let service = BlobFetchService::new(Roots::new([home.path.clone()]));
+    let job = start(&service, &origin, &plan)["data"]["job"].as_str().unwrap().to_string();
+    let done = wait(&service, &job);
+    assert_eq!(done["data"]["state"], "failed", "{done}");
+    assert_eq!(done["data"]["error_code"], "blob.digest_mismatch", "{done}");
+    assert!(!home.path.join("f").exists());
+}

@@ -568,17 +568,36 @@ async fn fetch_blob(
         if response.content_length().is_some_and(|length| length != size) {
             return Err(("blob.digest_mismatch", format!("blob {sha256} has the wrong size")));
         }
-        let bytes = match response.bytes().await {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                last = ("blob.store_unreachable", error.without_url().to_string());
-                continue;
+        // Read at most `size` bytes, whatever the store says the body holds.
+        let mut response = response;
+        let mut bytes = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
+        let mut cut = None;
+        loop {
+            match response.chunk().await {
+                Ok(Some(chunk)) => {
+                    if (bytes.len() + chunk.len()) as u64 > size {
+                        return Err((
+                            "blob.digest_mismatch",
+                            format!("blob {sha256} is larger than its size"),
+                        ));
+                    }
+                    bytes.extend_from_slice(&chunk);
+                }
+                Ok(None) => break,
+                Err(error) => {
+                    cut = Some(error.without_url().to_string());
+                    break;
+                }
             }
-        };
+        }
+        if let Some(error) = cut {
+            last = ("blob.store_unreachable", error);
+            continue;
+        }
         if bytes.len() as u64 != size || hex(&Sha256::digest(&bytes)) != sha256 {
             return Err(("blob.digest_mismatch", format!("blob {sha256} did not match its hash")));
         }
-        return Ok(bytes.to_vec());
+        return Ok(bytes);
     }
     Err(last)
 }
