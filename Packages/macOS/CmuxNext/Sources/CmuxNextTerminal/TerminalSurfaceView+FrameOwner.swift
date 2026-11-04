@@ -2,14 +2,17 @@ import AppKit
 import CmuxNextDesign
 import GhosttyNextKit
 
-/// A terminal's size request while its window's commit owns its frame (``TerminalSurfaceView/place(_:anchor:)``).
+/// A terminal's size request while its window's commit owns its frame (``TerminalSurfaceView/place(_:anchor:trailing:)``).
 struct TerminalFrameOwnership {
     /// Ghostty leaves new host sizes to cmux (`ghostty_surface_set_host_present` EMBEDDER).
     var embedderPresents = false
     /// The frame the host wants now.
     var wanted: CGRect?
-    /// The edge a kept frame rides while the host's area moves.
+    /// The vertical edge a kept frame rides while the host's area moves.
     var anchor: PaneMotionAnchor = .top
+    /// The kept frame rides the wanted frame's trailing edge (a FRAME OWNER S3 hold whose trailing edge stands still),
+    /// else its leading edge.
+    var trailing = false
     /// The size asked of Ghostty and not shown yet (one at a time).
     var inFlight: CGSize?
     /// The view takes the size Ghostty already has: no new size goes to Ghostty, and the cursor box follows after the
@@ -25,9 +28,10 @@ struct TerminalFrameOwnership {
 extension TerminalSurfaceView {
     /// Places the surface at `frame` in its host. Switch off: at once; Ghostty's frame of a new size lands 1-4
     /// refreshes later. On: a new size goes to Ghostty and the view keeps its size, its old frame on the `anchor` edge
-    /// of `frame` (the host clips it and paints the terminal background beside it), until its window's commit shows
-    /// the frame drawn at the new size with the new bounds. One size waits at a time; the newest goes next.
-    func place(_ frame: CGRect, anchor: PaneMotionAnchor) {
+    /// of `frame` and on its trailing edge when `trailing`, else its leading edge (the host's still edges: the host
+    /// clips the kept frame and paints the terminal background beside it), until its window's commit shows the frame
+    /// drawn at the new size with the new bounds. One size waits at a time; the newest goes next.
+    func place(_ frame: CGRect, anchor: PaneMotionAnchor, trailing: Bool = false) {
         let owned = TerminalDragTunables.framesOwnedByCommit.value
         if owned != frameOwnership.embedderPresents { setFramesOwnedByCommit(owned) }
         guard owned, isShown, window != nil, surface != nil else {
@@ -42,6 +46,7 @@ extension TerminalSurfaceView {
         }
         frameOwnership.wanted = frame
         frameOwnership.anchor = anchor
+        frameOwnership.trailing = trailing
         guard frameOwnership.inFlight == nil else { return keepOrigin() }
         guard frame.size != bounds.size else {
             if self.frame != frame { self.frame = frame }
@@ -84,7 +89,7 @@ extension TerminalSurfaceView {
         applyHeldScale()
         guard let size = frameOwnership.inFlight, let wanted = frameOwnership.wanted else { return false }
         frameOwnership.inFlight = nil
-        let target = Self.anchoredFrame(size: size, in: wanted, anchor: frameOwnership.anchor)
+        let target = Self.anchoredFrame(size: size, in: wanted, anchor: frameOwnership.anchor, trailing: frameOwnership.trailing)
         frameOwnership.landing = true
         frame = target
         frameOwnership.landing = false
@@ -181,16 +186,19 @@ extension TerminalSurfaceView {
         layer?.contentsScale = scale
     }
 
-    /// While a size waits, the kept frame rides the wanted frame's anchor edge (the host's area moves on).
+    /// While a size waits, the kept frame rides the wanted frame's still edges (the host's area moves on).
     private func keepOrigin() {
         guard let wanted = frameOwnership.wanted else { return }
-        let origin = Self.anchoredFrame(size: bounds.size, in: wanted, anchor: frameOwnership.anchor).origin
+        let origin = Self.anchoredFrame(size: bounds.size, in: wanted, anchor: frameOwnership.anchor, trailing: frameOwnership.trailing).origin
         if frame.origin != origin { setFrameOrigin(origin) }
     }
 
-    /// A frame of `size` on `anchor`'s edge of `area` (the host is not flipped: its top is `maxY`), leading-aligned.
-    static func anchoredFrame(size: CGSize, in area: CGRect, anchor: PaneMotionAnchor) -> CGRect {
+    /// A frame of `size` on `anchor`'s edge of `area` (the host is not flipped: its top is `maxY`), on its trailing edge
+    /// when `trailing`, else its leading edge: where FRAME OWNER S3's ``PaneMotionHold/producerFrame(_:in:)`` puts a
+    /// producer of that size.
+    static func anchoredFrame(size: CGSize, in area: CGRect, anchor: PaneMotionAnchor, trailing: Bool = false) -> CGRect {
+        let x = trailing ? area.maxX - size.width : area.minX
         let y = anchor == .bottom ? area.minY : area.maxY - size.height
-        return CGRect(x: area.minX, y: y, width: size.width, height: size.height)
+        return CGRect(x: x, y: y, width: size.width, height: size.height)
     }
 }
