@@ -482,7 +482,8 @@ export const SubagentTray = memo(function SubagentTray({
             // The lines' own marks side by side, each subagent's in its tone (trayHead.experiment.ts),
             // as the sidebar's status row stacks them before "8 done".
             <span className="acpmux-running-tray__stack" data-tray-stack aria-hidden="true">
-              {headMarks.map((mark) => (
+              {/* A narrow tray keeps room for its counts: one mark, in the lines' icon column. */}
+              {headMarks.slice(0, narrow ? 1 : STACK_MARKS).map((mark) => (
                 <AgentIdentity
                   key={mark.key}
                   className="acpmux-running-tray__stack-mark"

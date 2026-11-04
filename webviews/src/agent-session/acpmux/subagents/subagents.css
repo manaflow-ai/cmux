@@ -718,12 +718,16 @@ button.cv-subagent > :last-child {
    2026-11-04: "the top of the bar not having anything is weird"). Its first mark sits in the lines'
    icon column; the counts follow one gap after the last. */
 .acpmux-running-tray__stack {
-  flex: none;
+  /* It gives way before the time and the chevron: never pushes them out of the lines' columns. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
   display: inline-flex;
   align-items: center;
   gap: var(--ds-space-1, 4px);
 }
 .acpmux-running-tray__stack-mark {
+  flex: none;
   display: inline-flex;
   color: var(--agent-muted);
 }
