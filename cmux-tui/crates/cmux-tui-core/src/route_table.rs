@@ -133,15 +133,14 @@ impl<K: Eq + Hash + Clone + RouteKey<V>, V: Clone> RouteTable<K, V> {
         Some(removed)
     }
 
-    /// Room for `additional` more entries (a mutation plan reserves before it commits); routes nothing. A map with
-    /// room already is not copied out of a published snapshot.
+    /// Room for `additional` more entries; routes nothing. A mutation plan reserves before its durable commit, so
+    /// the insert after the commit allocates nothing (`ResourceMutationPlan::apply`). A map a published snapshot
+    /// shares is copied here, before the commit, never by that insert; the plan reserves and applies under one
+    /// state guard, so no publication shares the map again in between.
     pub fn try_reserve(
         &mut self,
         additional: usize,
     ) -> Result<(), std::collections::TryReserveError> {
-        if self.0.capacity().saturating_sub(self.0.len()) >= additional {
-            return Ok(());
-        }
         Arc::make_mut(&mut self.0).try_reserve(additional)
     }
 }
@@ -208,5 +207,33 @@ impl<'a, K, V> IntoIterator for &'a RouteTable<K, V> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RouteKey, RouteTable, SurfaceId};
+    use std::sync::Arc;
+
+    /// A key that routes no surface (no route generation moves).
+    impl RouteKey<u32> for u32 {
+        fn routed_id(&self, _: &u32) -> Option<SurfaceId> {
+            None
+        }
+    }
+
+    /// A mutation plan reserves room before its durable commit and inserts after it, and the insert must allocate
+    /// nothing (`ResourceMutationPlan::apply`). With stage S1 on, a published route snapshot shares the map: the
+    /// reservation copies it then, before the commit, so the insert after the commit copies nothing.
+    #[test]
+    fn a_reservation_unshares_a_published_map_so_the_insert_after_the_commit_allocates_nothing() {
+        let mut table = RouteTable::<u32, u32>::new();
+        table.try_reserve(8).unwrap();
+        let published = table.shared();
+        table.try_reserve(1).unwrap();
+        let reserved = Arc::as_ptr(&table.0);
+        table.insert(1, 1);
+        assert_eq!(Arc::as_ptr(&table.0), reserved, "the insert after the commit copied the map");
+        assert!(published.is_empty(), "the published snapshot changed");
     }
 }

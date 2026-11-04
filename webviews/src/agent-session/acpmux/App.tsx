@@ -54,6 +54,7 @@ import {
   nextDrawnRow,
   prevDrawnRow,
   isBeforeFooter,
+  finalFooterId,
   hasReplyActions,
   keepsReplyRoom,
   statusEdge,
@@ -5620,6 +5621,7 @@ export function VirtualTranscript({
       if (rows[index]!.kind === "turnSummary") return rows[index]!.retryRowId;
     return undefined;
   }, [rows]);
+  const finalFooter = useMemo(() => finalFooterId(rows), [rows]);
   const markTurns = useCallback(() => {
     for (const node of thread.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? []) {
       node.toggleAttribute("data-retryable", node.dataset.rowId === retryPromptId);
@@ -5862,7 +5864,7 @@ export function VirtualTranscript({
                       replyActions={keepsReplyRoom(row, next)}
                       status={statusEdge(row, next, prevDrawnRow(rows, absoluteIndex))}
                       lastFooter={isLastFooter(row, next)}
-                      finalFooter={row.kind === "turnSummary" && !next}
+                      finalFooter={row.id === finalFooter}
                       continuationFooter={isContinuationFooter(row, next)}
                       lastTurn={row.lastTurn === true}
                       index={absoluteIndex}
@@ -7833,9 +7835,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // so the client knows it as `local` (ownMachineFolders).
   const paneMachine =
     snapshot.summary?.peer || (snapshot.summary?.hostKind === "cloud" && snapshot.summary.host) || "local";
+  // Only a start here takes them: a Cloud or Sandboxed start carries no extra folders (cmux#34403).
+  const extraFoldersSent = sandbox.mode === "persistent" ? extraFolderDraft : undefined;
   useEffect(() => {
-    directClient.current?.setNewChatFolders(ownMachineFolders(extraFolderDraft, paneMachine));
-  }, [extraFolderDraft, paneMachine, clientEpoch]);
+    directClient.current?.setNewChatFolders(ownMachineFolders(extraFoldersSent, paneMachine));
+  }, [extraFoldersSent, paneMachine, clientEpoch]);
   const continuationProject = useRef(projectDraft);
   const continuationProjectGeneration = useRef(0);
   useLayoutEffect(() => {

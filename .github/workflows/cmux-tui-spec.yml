@@ -395,6 +395,13 @@ jobs:
           cargo test --locked -p acpmux --features sim --test sim -- --nocapture 2>&1 | tee "$RUNNER_TEMP/sim.log"
           grep -E '^sim: ' "$RUNNER_TEMP/sim.log" >> "$GITHUB_STEP_SUMMARY" || true
 
+      # The clippy job builds without `--features sim`, so the simulation's code and the
+      # daemon's sim-only seams were never linted.
+      - name: cargo clippy -p acpmux --features sim --test sim
+        if: ${{ steps.scope.outputs.run == 'true' }}
+        working-directory: cmux-tui
+        run: cargo clippy --locked -p acpmux --features sim --test sim -- -D warnings
+
   # PR CI never runs cmux-tui.yml (dispatch only), so #18706 landed unformatted
   # Rust and broke base `cargo fmt --check`. rustfmt alone on the packages the
   # change touches: no build and no dependency download.
