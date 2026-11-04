@@ -86,7 +86,9 @@ const CHECKPOINT_EVERY: Duration = Duration::from_secs(30);
 const CHECKPOINT_BYTES: u64 = 64 * 1024 * 1024;
 /// The end of a repair file's name in `journal-unapplied/` ([`Inner::keep_for_repair`]).
 const REPAIR_SUFFIX: &str = ".repair.ndjson";
-/// A repair file's first line: `{"schema": REPAIR_SCHEMA, "chat": <id>}`.
+/// In the name of a kept file's temporary copy, before its rename (`Inner::write_kept`).
+const KEPT_TEMPORARY: &str = ".ndjson.tmp-";
+/// A repair file's first line: `{"schema": REPAIR_SCHEMA, "chat": <id>, "folder": <its identity>}`.
 const REPAIR_SCHEMA: &str = "acpmux.journal-repair.v1";
 /// Checkpoints in a row that fail before the store asks the daemon to stop: the journal past the
 /// last one (what the next open holds in memory) must not grow without end.
@@ -646,9 +648,11 @@ impl Store for JournalStore {
     }
     /// The `forget` record under the appends' lock, then the folder's removal off it, without a
     /// wait for the record: the replay never makes a folder that is gone again. Then the chat's
-    /// repair file, if its repair failed at the open: a chat made again under the same id must
-    /// not get the old chat's lines at the next open (after the folder, so a crash between the two
-    /// leaves a repair file of a chat that is gone, which the next open passes).
+    /// repair file, if its repair failed at the open (after the folder: a crash between the two
+    /// leaves the file of a folder that is gone, which no open applies; the other order could
+    /// lose the lines of a chat whose delete a crash took back). The file is the store's to
+    /// remove until that removal succeeds, so a delete that fails and is tried again still
+    /// removes it (review of #35562, D3).
     fn delete(&self, id: &str) -> Result<()> {
         let inner = &self.inner;
         let repair = {
@@ -661,7 +665,7 @@ impl Store for JournalStore {
             inner.acked.store(lsn, std::sync::atomic::Ordering::SeqCst);
             order.applied = lsn;
             order.metas.remove(id);
-            order.repairs.remove(id)
+            order.repairs.get(id).cloned()
         };
         inner.touched();
         {
@@ -675,6 +679,7 @@ impl Store for JournalStore {
         }
         if let Some(path) = repair {
             inner.remove_repair(&path)?;
+            inner.order.lock_or_recover().repairs.remove(id);
         }
         Ok(())
     }

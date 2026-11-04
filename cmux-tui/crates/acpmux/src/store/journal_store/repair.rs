@@ -192,9 +192,8 @@ impl Inner {
         let mut last = None;
         for line in lines {
             let lsn = self
-                .journal
-                .append(KIND_LOG, Class::Ack, &encode_log(id, line))
-                .map_err(|error| anyhow::anyhow!("journal a line only the log held: {error}"))?;
+                .append_waiting(&encode_log(id, line))
+                .context("journal a line only the log held")?;
             last = Some(lsn);
         }
         if let Some(lsn) = last {
@@ -267,16 +266,25 @@ impl Inner {
 
     /// Keeps the lines of chat `id`, whose repair failed (its log could not be read or written),
     /// in its repair file `<home>/journal-unapplied/<id>.<first_lsn>.repair.ndjson` (a header
-    /// line with the chat's id, then the lines), owner-only and synced: the next open journals
-    /// them again and repairs the chat with them ([`Inner::take_repairs`]).
+    /// line with the chat's id and its folder's identity, then the lines), owner-only and synced:
+    /// a later open journals them again and repairs the chat with them, but only in that same
+    /// folder ([`Inner::take_repairs`]). With no folder to bind them to, they are kept for a
+    /// person, as any line the store cannot apply.
     fn keep_for_repair(&self, id: &str, first_lsn: Lsn, lines: &[Vec<u8>]) -> Result<PathBuf> {
-        let header =
-            serde_json::to_vec(&serde_json::json!({ "schema": REPAIR_SCHEMA, "chat": id }))?;
+        let Ok(Some(folder)) = super::meta::folder_id(&self.local.dir(id)) else {
+            return self.keep_aside(id, first_lsn, lines);
+        };
+        let header = serde_json::to_vec(
+            &serde_json::json!({ "schema": REPAIR_SCHEMA, "chat": id, "folder": folder }),
+        )?;
         self.write_kept(id, &format!("{first_lsn}{REPAIR_SUFFIX}"), Some(&header), lines)
     }
 
     /// Writes `<home>/journal-unapplied/<id>.<rest>` whole: `header` (a line) and `lines`,
-    /// owner-only, synced with its folder.
+    /// owner-only, into a temporary copy that is synced and renamed into place, then the folder
+    /// synced. A crash leaves the file whole or not there (review of #35562, D2: a file written in
+    /// place could keep a torn last line); not there, its lines are still in the journal, as no
+    /// checkpoint ran after it.
     fn write_kept(
         &self,
         id: &str,
@@ -292,48 +300,72 @@ impl Inner {
             .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_') { c } else { '_' })
             .collect();
         let path = dir.join(format!("{name}.{rest}"));
-        let mut options = OpenOptions::new();
-        options.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let rest = rest.strip_suffix(".ndjson").unwrap_or(rest);
+        let tmp = dir.join(format!("{name}.{rest}{KEPT_TEMPORARY}{}-{n}", std::process::id()));
+        let written = (|| -> Result<()> {
+            let mut options = OpenOptions::new();
+            options.write(true).create(true).truncate(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+            }
+            let mut file =
+                options.open(&tmp).with_context(|| format!("write {}", tmp.display()))?;
+            if let Some(header) = header {
+                file.write_all(header)?;
+                file.write_all(b"\n")?;
+            }
+            for line in lines {
+                file.write_all(line)?;
+            }
+            file.sync_all()?;
+            drop(file);
+            std::fs::rename(&tmp, &path)
+                .with_context(|| format!("rename to {}", path.display()))?;
+            sync_directory(&dir)
+        })();
+        if written.is_err() {
+            let _ = std::fs::remove_file(&tmp);
         }
-        let mut file = options.open(&path).with_context(|| format!("write {}", path.display()))?;
-        if let Some(header) = header {
-            file.write_all(header)?;
-            file.write_all(b"\n")?;
-        }
-        for line in lines {
-            file.write_all(line)?;
-        }
-        file.sync_all()?;
-        drop(file);
-        sync_directory(&dir)?;
-        Ok(path)
+        written.map(|()| path)
     }
 
     /// The open's first step after the journal's replay: each repair file in `journal-unapplied/`
-    /// (a chat whose repair failed at an earlier open) is journaled again, made durable and
-    /// removed, and its lines join the chat's replayed lines, so the repair below runs on them as
-    /// on any journaled line (a line in both is the same bytes, so a file journaled twice after a
-    /// crash changes nothing). A file that does not read, or whose lines the journal refuses, is
-    /// left as it is with an error: the next open tries again.
+    /// (a chat whose repair failed at an earlier open) whose chat folder is the one its lines
+    /// were kept for is journaled again, made durable and removed, and its lines join the chat's
+    /// replayed lines, so the repair below runs on them as on any journaled line (a line in both
+    /// is the same bytes, so a file journaled twice after a crash changes nothing). A file whose
+    /// folder is not there or was replaced stays (review of #35562, D1: a transfer may hold the
+    /// folder aside at the open and put it back after it): a later open applies it when that
+    /// folder is back, and else it is a person's. A file that does not read, or whose lines the
+    /// journal refuses, stays too, with an error: the next open tries again. The temporary copy
+    /// of a kept file a crash left before its rename goes.
     pub(super) fn take_repairs(&self, replay: &mut Replay) {
         let dir = self.home.join(UNAPPLIED_DIR);
         let Ok(entries) = std::fs::read_dir(&dir) else { return };
-        let mut paths: Vec<PathBuf> = entries
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| {
-                path.file_name().is_some_and(|name| name.to_string_lossy().ends_with(REPAIR_SUFFIX))
-            })
-            .collect();
+        let mut paths = Vec::new();
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let path = entry.path();
+            if name.contains(KEPT_TEMPORARY) {
+                if let Err(error) = crate::config::refuse_lost_home(&path)
+                    .and_then(|()| std::fs::remove_file(&path).map_err(anyhow::Error::from))
+                {
+                    tracing::warn!("remove {}: {error:#}", path.display());
+                }
+            } else if name.ends_with(REPAIR_SUFFIX) {
+                paths.push(path);
+            }
+        }
         paths.sort();
         let mut taken = Vec::new();
         for path in paths {
             match self.journal_repair(&path) {
-                Ok((chat, lines)) => taken.push((path, chat, lines)),
+                Ok(Some((chat, lines))) => taken.push((path, chat, lines)),
+                Ok(None) => {}
                 Err(error) => {
                     tracing::error!(kept = %path.display(), "a repair file could not be journaled again; the next start tries again: {error:#}");
                 }
@@ -365,32 +397,70 @@ impl Inner {
         }
     }
 
-    /// Reads one repair file and appends its lines to the journal: the chat and each line's LSN.
-    fn journal_repair(&self, path: &Path) -> Result<(String, Vec<(Lsn, Vec<u8>)>)> {
+    /// Reads one repair file and, when its chat's folder is the one its lines were kept for,
+    /// appends them to the journal: the chat and each line's LSN. `None`: the file stays for a
+    /// later open (its folder is not there or was replaced).
+    fn journal_repair(&self, path: &Path) -> Result<Option<(String, Vec<(Lsn, Vec<u8>)>)>> {
         #[derive(Deserialize)]
         struct Header {
             schema: String,
             chat: String,
+            folder: super::meta::FolderId,
         }
         let reader = BufReader::new(crate::config::private_state_file(path)?);
         let mut lines = reader.split(b'\n');
         let header = lines.next().transpose()?.unwrap_or_default();
         let header: Header = serde_json::from_slice(&header).context("its header")?;
         anyhow::ensure!(header.schema == REPAIR_SCHEMA, "its schema is {}", header.schema);
+        let dir = self.local.dir(&header.chat);
+        match super::meta::folder_id(&dir).with_context(|| format!("stat {}", dir.display()))? {
+            Some(here) if here == header.folder => {}
+            here => {
+                let why = if here.is_some() { "was replaced since" } else { "is not there" };
+                tracing::warn!(session = %header.chat, kept = %path.display(), "the folder of a chat whose repair failed {why}: its kept lines stay for the start that finds it");
+                return Ok(None);
+            }
+        }
         let mut journaled = Vec::new();
+        let mut skipped = 0usize;
         for line in lines {
             let mut line = line?;
             if line.is_empty() {
                 continue;
             }
+            // A whole JSON line only, as in a log: bytes that do not parse are not a line.
+            if piece_seq(&line).is_none() {
+                skipped = skipped.saturating_add(1);
+                continue;
+            }
             line.push(b'\n');
             let lsn = self
-                .journal
-                .append(KIND_LOG, Class::Ack, &encode_log(&header.chat, &line))
-                .map_err(|error| anyhow::anyhow!("journal a kept line: {error}"))?;
+                .append_waiting(&encode_log(&header.chat, &line))
+                .context("journal a kept line")?;
             journaled.push((lsn, line));
         }
-        Ok((header.chat, journaled))
+        if skipped > 0 {
+            tracing::warn!(session = %header.chat, kept = %path.display(), skipped, "a repair file held bytes that are not whole lines: passed");
+        }
+        Ok(Some((header.chat, journaled)))
+    }
+
+    /// Appends one log record (`Ack`) for the open's repair. When the journal's queue is full
+    /// (`AppendError::Backlog`: the open appends faster than the writer syncs), waits until every
+    /// record appended so far is durable and tries once more (review of #35562, D4: a repair file
+    /// larger than `max_pending_bytes` was never applied).
+    fn append_waiting(&self, payload: &[u8]) -> Result<Lsn> {
+        match self.journal.append(KIND_LOG, Class::Ack, payload) {
+            Err(AppendError::Backlog) => {
+                self.journal
+                    .wait_durable(self.journal.last_lsn(), REPAIR_WAIT)
+                    .map_err(|error| anyhow::anyhow!("the event journal: {error}"))?;
+                self.journal
+                    .append(KIND_LOG, Class::Ack, payload)
+                    .map_err(|error| anyhow::anyhow!("the event journal: {error}"))
+            }
+            appended => appended.map_err(|error| anyhow::anyhow!("the event journal: {error}")),
+        }
     }
 
     /// Removes a repair file (`Store::delete` of its chat) and syncs its folder.
