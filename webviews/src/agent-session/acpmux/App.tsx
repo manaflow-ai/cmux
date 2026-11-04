@@ -324,7 +324,7 @@ import {
 } from "./subagents/runningTray";
 import { configureSubagentTrayPlacement, useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
 import { configureSelectionReply, SelectionReplyChip, setQuoteReplySink } from "./conversation/SelectionReply";
-import { AgentTonesContext, agentTones } from "./subagents/agentTones";
+import { AgentTonesContext, agentTone, agentTones } from "./subagents/agentTones";
 import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
 import { chatHasSummaryContent } from "./summary/summaryContent";
 import { createWorkflowAdapter, workflowDetailRequest, type WorkflowDetailRequest } from "./summary/foldWorkflows";
@@ -8804,7 +8804,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     } else if (!subagentShownOnce.current) return;
     void callNative(
       "chat.subagentShown",
-      subagentView ? { subagent: subagentView, title: shownSubagentTitle } : {},
+      subagentView ? { subagent: subagentView, title: shownSubagentTitle, tone: agentTone(subagentView) } : {},
     ).catch(() => undefined);
   }, [ownSubagentPane, subagentView, shownSubagentTitle]);
   const showWorkflowAgent = useCallback(

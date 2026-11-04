@@ -18,6 +18,7 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { AcpmuxRow } from "../model";
 import type { Subagent } from "./subagentFold";
 import { subagentsIn } from "./subagentRows";
+import { agentTone } from "./agentTones";
 
 /// The `revealTurn` prefix that opens a pane on a subagent's view.
 export const SUBAGENT_REVEAL = "subagent:";
@@ -75,9 +76,20 @@ export function subagentTabTitle(agent: Pick<Subagent, "id" | "name"> | undefine
 /// Asks the app for subagent `id`'s pane; false when it opened none. `title` is the subagent's own
 /// name, which the pane's tab shows instead of the chat's (Leo 2026-10-30: "subagents shouldn't be
 /// tab-named the exact same as the parent").
-export async function openSubagentPane(call: Call, id: string, focus: boolean, title?: string): Promise<boolean> {
+export async function openSubagentPane(
+  call: Call,
+  id: string,
+  focus: boolean,
+  title?: string,
+  identity = true,
+): Promise<boolean> {
   try {
-    const reply = await call("chat.subagentPane", title ? { subagent: id, focus, title } : { subagent: id, focus });
+    const reply = await call("chat.subagentPane", {
+      subagent: id,
+      focus,
+      ...(title ? { title } : {}),
+      ...(identity ? { tone: agentTone(id) } : {}),
+    });
     return (reply as { opened?: unknown } | null)?.opened === true;
   } catch {
     return false;

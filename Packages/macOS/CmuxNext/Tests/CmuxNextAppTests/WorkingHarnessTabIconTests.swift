@@ -63,6 +63,28 @@ import Testing
         #expect(spinner.frame.midY == cell.iconLayer.position.y)
     }
 
+    @Test func identityTintsTheHarnessWithoutMovingItAndUserTintWins() throws {
+        var item = TabItem(id: TabID("subagent"), title: "Reviewer", icon: .agentMark("claude"))
+        item.agentTone = 0
+        let cell = TabCell(item: item)
+        cell.frame = CGRect(x: 0, y: 0, width: 220, height: 32)
+        cell.layoutLayers()
+        let frame = cell.iconLayer.frame
+        let first = try #require(cell.iconLayer.contents as? CGImage)
+        item.agentTone = 1
+        cell.update(item: item)
+        let second = try #require(cell.iconLayer.contents as? CGImage)
+        #expect(NSBitmapImageRep(cgImage: first).tiffRepresentation != NSBitmapImageRep(cgImage: second).tiffRepresentation)
+        #expect(cell.iconLayer.frame == frame)
+        item.tint = .red
+        cell.update(item: item)
+        let custom = try #require(cell.iconLayer.contents as? CGImage)
+        item.agentTone = 2
+        cell.update(item: item)
+        #expect(cell.iconLayer.contents as? CGImage === custom, "the person's tab colour must win")
+        #expect(cell.iconLayer.frame == frame)
+    }
+
     @Test(arguments: ["Aleksandra Wiśniewska-Kowalczyk — release verification", "🦊 Fox", "王秀英的发布验证会话", "Đặng Thị Ngọc Hân", "J", ""])
     func worstCaseNamesDoNotMoveTheIdentityOrWorkingMark(title: String) throws {
         let fixture = HarnessIconSurfacesTests()

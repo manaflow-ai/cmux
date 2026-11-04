@@ -19,4 +19,4 @@ type Call = (method: string, params: Record<string, unknown>) => Promise<unknown
 
 /// Asks the app to open (or focus) the chat's Background tasks tab on its right, its tab named
 /// `title`; false when the host opened none.
-export const openBackgroundPane = (call: Call, title: string) => openSubagentPane(call, BACKGROUND_PANE, true, title);
+export const openBackgroundPane = (call: Call, title: string) => openSubagentPane(call, BACKGROUND_PANE, true, title, false);
