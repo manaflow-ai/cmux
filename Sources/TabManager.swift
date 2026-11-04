@@ -3446,6 +3446,9 @@ class TabManager: ObservableObject {
         ordinaryWarns: Bool,
         alwaysConfirm: Bool
     ) -> CloseWarningKinds {
+        // A running process asks regardless of either setting (#15613), so
+        // offer no checkbox that could not stop this prompt (#20517).
+        guard !ordinary.contains(.safety) else { return .safety }
         guard alwaysConfirm else { return ordinary }
         guard ordinaryWarns else { return .alwaysConfirmWorkspace }
         return ordinary.union(.alwaysConfirmWorkspace)

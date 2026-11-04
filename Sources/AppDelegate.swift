@@ -6841,7 +6841,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 || context.tabManager.tabs.contains(where: {
                     context.tabManager.workspaceNeedsConfirmClose($0)
                 }) {
-                dontAskAgain.insert(.safety)
+                // The live-process prompt ignores the window setting, so offer
+                // no checkbox that could not stop it (#20517).
+                dontAskAgain = .safety
             }
         } else {
             warningDefaults = .standard
