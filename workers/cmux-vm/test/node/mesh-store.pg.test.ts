@@ -386,4 +386,30 @@ describe("batched reads and writes of an ACL apply", () => {
     expect(result.rules.map((row) => row.key).sort()).toEqual([`${mine}>${vmId}:tcp:22`, `${mine}>${vmId}:tcp:4100`, `${other}>${vmId}:tcp:22`].sort());
     expect(result.rulesB).toEqual([]);
   });
+
+  it("markRulesDeleted marks exactly the named keys of this tenant's mesh", async () => {
+    const meshId = newMeshId();
+    const otherMesh = newMeshId();
+    const vmId = newVmId();
+    const deviceId = newDeviceId();
+    const rule = (mesh: string, port: number) =>
+      ({ meshId: mesh, key: `${deviceId}>${vmId}:tcp:${port}`, upstreamRuleId: `fwr-${mesh}-${port}`, deviceId, vmId, protocol: "tcp" as const, port, createdAt: at });
+    const result = await run(
+      Effect.gen(function* () {
+        const store = yield* MeshStore;
+        yield* store.recordRules(A, [rule(meshId, 22), rule(meshId, 4100), rule(meshId, 4101), rule(otherMesh, 22)]);
+        yield* store.recordRules(B, [rule(meshId, 22)]);
+        yield* store.markRulesDeleted(A, meshId, [`${deviceId}>${vmId}:tcp:22`, `${deviceId}>${vmId}:tcp:4100`, "no-such-key"], at);
+        yield* store.markRulesDeleted(A, meshId, [], at);
+        return {
+          mine: yield* store.listRules(A, meshId),
+          otherMesh: yield* store.listRules(A, otherMesh),
+          otherTenant: yield* store.listRules(B, meshId),
+        };
+      }),
+    );
+    expect(result.mine.map((row) => row.key)).toEqual([`${deviceId}>${vmId}:tcp:4101`]);
+    expect(result.otherMesh).toHaveLength(1);
+    expect(result.otherTenant).toHaveLength(1);
+  });
 });
