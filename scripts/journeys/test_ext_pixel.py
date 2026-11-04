@@ -978,6 +978,28 @@ class TypingSwitchVariantTests(unittest.TestCase):
             self.assertEqual([s["id"] for s in self.generate(out, "motion.frameOwner.contentPolicy")],
                              ["typing-load-l6-sw-contentpolicy"])
 
+    def test_off_variant(self):
+        """--off: typing-load-l6-sw-<short>-off, the same journey with the switch set to false (and read back) the same way:
+        an A/B of the same app state in one build (the refactor owner's local typing-load-l6-sw-contentpolicy-off)."""
+        key = "motion.frameOwner.contentPolicy"
+        with tempfile.TemporaryDirectory() as on_dir, tempfile.TemporaryDirectory() as off_dir:
+            on = self.generate(on_dir, key)[0]
+            done = subprocess.run([sys.executable, str(HERE / "typing" / "gen_load.py"), "--out", off_dir, "--switch", key, "--off"],
+                                  capture_output=True, text=True, timeout=120)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            specs = [json.loads(p.read_text()) for p in sorted(Path(off_dir).glob("*.json"))]
+        self.assertEqual([s["id"] for s in specs], ["typing-load-l6-sw-contentpolicy-off"])
+        off = specs[0]
+        import run as R
+        self.assertEqual(R.validate(off), [])
+        i = next(n for n, st in enumerate(off["steps"]) if st["do"] == "px_switch")
+        self.assertEqual(off["steps"][i], {"do": "px_switch", "key": key, "value": False,
+                                           "title": f"set-up: {key} OFF (after the relaunch: a bench build keeps tunables in memory only)"})
+        self.assertEqual(off["steps"][:i] + off["steps"][i + 1:], on["steps"][:i] + on["steps"][i + 1:])
+        self.assertEqual((off["priority"], off["finally"]), (on["priority"], on["finally"]))
+        self.assertTrue(off["title"].endswith(f"with {key} OFF"), off["title"])
+        self.assertEqual(json.loads((HERE / "journeys" / "video" / "typing-load-l6-sw-contentpolicy-off.json").read_text()), off)
+
     def test_plain_generation_unchanged(self):
         done = subprocess.run([sys.executable, str(HERE / "typing" / "gen_load.py"), "--check"], capture_output=True, text=True,
                               timeout=120)
@@ -1716,6 +1738,27 @@ class KeyThenDragTests(unittest.TestCase):
         self.assertIn("CLOCK_UPTIME_RAW", note["clock"])
         self.assertNotIn("film_not_run", j.px)
         self.assertEqual(out["key_then_drag"], note)
+
+    def test_the_hit_width_is_in_the_note(self):
+        """The case's divider hit width (metrics.dividerHitWidth 24 pt, px_tunable) goes in the note: the press tolerance
+        the verdict depends on. It changes no pane frame (only the hit bands read it)."""
+        app = SpringApp(self.clock, 8000.0)
+        j = SpringJourney(app, tempfile.mkdtemp(), self.clock)
+        rec = {"key": HIT_WIDTH, "wanted": 24, "value": 24, "default": 7, "applied": True, "store_active": True, "why": ""}
+        j.px = {"speed": 0.25, "reduce": False, "springs": {"move": {"response": 0.6, "damping": 1.0}}, "springs_source": "overrides",
+                "tunables": {HIT_WIDTH: rec}, "films": []}
+        X.step_px_key_then_drag(j, {"key": "l", "modifiers": ["control", "shift"], "after_ms": 60,
+                                    "drag": {"target": {"divider": 1}, "by": [150, 0], "duration_ms": 400}})
+        note = j.video["notes"]["pixel"]["key_then_drag"]
+        self.assertEqual(note["hit_width"], {"key": HIT_WIDTH, "pt": 24, "default_pt": 7, "applied": True,
+                                             "frames": "none: only the divider hit bands read it"})
+
+    def test_without_the_hit_width_the_note_says_default(self):
+        app = SpringApp(self.clock, 8000.0)
+        j, _ = self.run_step(app, {"row_divider": 0}, [0, 120])
+        self.assertEqual(j.video["notes"]["pixel"]["key_then_drag"]["hit_width"], {"key": HIT_WIDTH, "pt": None,
+                                                                                   "default_pt": None, "applied": False,
+                                                                                   "frames": "none: only the divider hit bands read it"})
 
     def test_the_split_divider_is_pressed_in_its_middle(self):
         app = SpringApp(self.clock, 8000.0)

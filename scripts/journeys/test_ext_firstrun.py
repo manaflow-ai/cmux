@@ -268,5 +268,34 @@ class GeneratorTests(unittest.TestCase):
         self.check(specs)
 
 
+class RkSplitsTests(unittest.TestCase):
+    """gen_keys.py rk-splits: resize-keyboard's case (the single presses of both key sets on p1 of p0 | (p1 over p2)) for
+    the KEYS films, with the first-run skip and an id that is not an open P0; P1, so the dogfood gate (every P0 journey
+    passes) does not wait on it. resize-keyboard stays the open P0's journey, with no skip."""
+
+    def test_rk_splits_is_resize_keyboard_with_the_skip(self):
+        out = tempfile.mkdtemp(prefix="gen-rk-splits-")
+        done = subprocess.run([sys.executable, str(HERE / "video-cases" / "gen_keys.py"), "--out", out, "--only", "resize-keyboard",
+                               "--only", "rk-splits"], capture_output=True, text=True, timeout=180)
+        self.assertEqual(done.returncode, 0, done.stderr[-2000:])
+        specs = {p.stem: json.loads(p.read_text()) for p in Path(out).glob("*.json")}
+        self.assertEqual(sorted(specs), ["resize-keyboard", "rk-splits"])
+        base, rk = specs["resize-keyboard"], specs["rk-splits"]
+        self.assertNotIn("rk-splits", open_p0_ids())
+        self.assertFalse(skips(base))
+        self.assertEqual((base["priority"], rk["priority"]), ("P0", "P1"))
+        # The same steps, its own names (the terminal, the recording), and the skip right after the launch's smoke_make_key.
+        same = json.loads(json.dumps(base["steps"]).replace("resize-keyboard", "rk-splits"))
+        i = next(n for n, st in enumerate(same) if st["do"] == "smoke_make_key")
+        same.insert(i + 1, {"do": "skip_first_run_history"})
+        self.assertEqual(rk["steps"], same)
+        for key in ("budget_seconds", "options", "source"):
+            self.assertEqual(rk.get(key), base.get(key), key)
+
+    def test_the_kit_has_it(self):
+        spec = json.loads((HERE / "journeys" / "video" / "rk-splits.json").read_text())
+        self.assertTrue(skips(spec))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
