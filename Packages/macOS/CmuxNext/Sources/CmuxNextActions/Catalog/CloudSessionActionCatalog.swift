@@ -8,9 +8,9 @@ nonisolated enum CloudSessionActionCatalog: ActionCatalogGroup {
         var start = ActionDescriptor(
             id: "cloudStartSession",
             title: String(localized: "action.cloudStartSession", defaultValue: "Start Agent Session on Cloud Machine…", table: "CloudSessionActions", bundle: .module),
-            description: "Starts an agent session (--agent claude, codex, ...) in the Cloud machine's own acpmux and returns machine_id, session_id and host, plus the chat tab's workspace_id and surface_id. Name the machine with --target machine:<id>, or --name <name> to take that machine or create it; --cwd is the folder there. An agent's run asks the person in its chat first. A run still starting after about 3 minutes answers pending: true; the same command again returns its session.",
+            description: "Starts an agent session (--agent claude, codex, ...) in the Cloud machine's own acpmux and returns machine_id, session_id and host, plus the chat tab's workspace_id and surface_id. Name the machine with --target machine:<id>, or --name <name> to take or create it; --cwd is the folder there. --login pass|machine|none: your login, the machine's own, or none (default: the machine's login or your earlier choice). An agent's run asks the person first. A slow run answers pending: true; run it again for its session.",
             keywords: ["vm", "cloud", "agent", "session", "chat", "acp", "acpmux", "start", "claude", "codex"], category: .cloud, symbol: "sparkles",
-            surfaces: [.palette, .contextMenu], arguments: [agent, name, cwd], targets: [.machine], cliName: "cloud start-session",
+            surfaces: [.palette, .contextMenu], arguments: [agent, name, cwd, login], targets: [.machine], cliName: "cloud start-session",
             surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.cloudMachine, .connection, 221, folder: .connection)])
         )
         // An agent's run waits for the person's Start on its chat's card, then for the session.
@@ -33,6 +33,12 @@ nonisolated enum CloudSessionActionCatalog: ActionCatalogGroup {
     /// `--cwd`: the folder on the machine the session starts in (default: its workspace's folder).
     static var cwd: ActionArgument {
         ActionArgument(name: "cwd", title: String(localized: "argument.cloudStartSession.cwd", defaultValue: "Folder on the Machine", table: "CloudSessionActions", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// `--login pass|machine|none`: the harness login the machine gets (CloudHarnessLoginAsk).
+    static var login: ActionArgument {
+        ActionArgument(name: "login", title: String(localized: "argument.cloudStartSession.login", defaultValue: "Harness Login", table: "CloudSessionActions", bundle: .module),
                        kind: .string, isRequired: false)
     }
 }

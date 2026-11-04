@@ -1238,11 +1238,15 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
                   Effect.map((digest) => Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")),
                 );
                 const version = currentVersion + 1;
+                // Rules first, then the version: an apply cut short (the caller's request cancelled, a provider error)
+                // leaves the old version current, so the same apply can be sent again and creates only the rules still
+                // missing. Committed first, a cut apply left a version whose rules never all existed, and a caller that
+                // read its own version back took the change as made (the device was listed, its traffic dropped).
+                const applied = yield* reconcile(caller, mesh, proofs.owns, desired);
                 const inserted = yield* store
                   .insertAcl(principal.tenantId, mesh.value, { version, document, sha256, author: actorRef(principal.actor), createdAt: new Date(started) })
                   .pipe(Effect.catchAll(dependencyDown("mesh.insertAcl")));
                 if (!inserted) return yield* Effect.fail(new Conflict({ message: "Another ACL change was applied at the same time; read it and apply again" }));
-                const applied = yield* reconcile(caller, mesh, proofs.owns, desired);
                 const finished = yield* Clock.currentTimeMillis;
                 return new AclApplied({
                   meshId: MeshId_(mesh.value),
