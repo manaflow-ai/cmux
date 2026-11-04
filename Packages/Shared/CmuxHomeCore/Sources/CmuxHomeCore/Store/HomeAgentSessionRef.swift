@@ -43,10 +43,10 @@ public struct HomeAgentSessionRef: Hashable, Sendable {
     }
 
     /// True once the agent moved away from the Chief's own acpmux at least once.
-    public var hasMoved: Bool { false }
+    public var hasMoved: Bool { spawnEpoch > 0 || moveEpoch > 0 }
 
     /// The session's link (`cmux://session/<id>`): the app opens the session where acpmux has it now.
-    public var sessionLink: URL? { nil }
+    public var sessionLink: URL? { URL(string: "cmux://session/\(session)") }
 
     /// Takes `seen` when it is the same session with a higher counter: the agent moved, so its place is
     /// `seen`'s. An equal or older read changes nothing.
@@ -55,6 +55,10 @@ public struct HomeAgentSessionRef: Hashable, Sendable {
     /// - Returns: True when the ref re-attached at a new place.
     @discardableResult
     public mutating func follow(_ seen: HomeAgentSessionRef) -> Bool {
-        false
+        guard seen.session == session, seen.spawnEpoch > spawnEpoch || seen.moveEpoch > moveEpoch else { return false }
+        place = seen.place
+        spawnEpoch = max(spawnEpoch, seen.spawnEpoch)
+        moveEpoch = max(moveEpoch, seen.moveEpoch)
+        return true
     }
 }
