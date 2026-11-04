@@ -300,6 +300,9 @@ pub enum DepsCmd {
         /// zstd or gzip.
         #[arg(long)]
         codec: String,
+        /// The cold install the archive saves, stored beside it.
+        #[arg(long, default_value_t = 0)]
+        cold_ms: u64,
     },
     /// Wait until no background upload (`warm` after a cold install) is running.
     Wait,
