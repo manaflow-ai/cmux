@@ -1847,7 +1847,10 @@ button.cv-subagent > :last-child {
 
 .cv-subagent-result__report,
 .cv-subagent-result__empty {
-  max-height: 12rem;
+  /* Keep a useful transcript viewport in the compact Background tasks dock; the report remains
+     fully reachable by scrolling inside this bounded head. */
+  max-height: min(12rem, 24vh);
+  min-height: 0;
   overflow: auto;
   color: var(--cv-text);
   font-size: var(--ds-font-size-sm);
