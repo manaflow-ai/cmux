@@ -3,7 +3,10 @@
 use super::*;
 
 fn note(line: String) {
-    eprintln!("{}", &line[..line.len().min(300)]);
+    let chars: Vec<char> = line.chars().collect();
+    for part in chars.chunks(200) {
+        eprintln!("| {}", part.iter().collect::<String>());
+    }
     if let Some(dir) = std::env::var_os("FAST_CHECKS_OUT") {
         use std::io::Write;
         let _ = std::fs::create_dir_all(&dir);
@@ -93,7 +96,7 @@ async fn two_rounds(tag: &str, kill_harness: bool, kill_host: bool, idle: usize)
     std::fs::create_dir_all(copy.parent().unwrap()).unwrap();
     // A wrapper that keeps the daemon's log (at info) in its home.
     let script = format!(
-        "#!/bin/sh\nfor a; do shift; [ \"$a\" = warn ] && a=info; set -- \"$@\" \"$a\"; done\nexec {} \"$@\" 2>>{}\n",
+        "#!/bin/sh\np=\nfor a; do shift; [ \"$p\" = --ready-fd ] && a=3; [ \"$a\" = warn ] && a=info; set -- \"$@\" \"$a\"; p=$a; done\nexec {} \"$@\" 3>&1 >>{} 2>&1\n",
         daemon_env::bin().display(),
         daemon.home.join("daemon.log").display()
     );
