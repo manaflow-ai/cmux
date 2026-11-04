@@ -205,23 +205,16 @@
    Without a branch (a new chat with no project, as on a fresh home):
    - Another machine (Where "Another machine", Machine "gpu-box" and its dot): all named from 396 px,
      Where named from 340 px.
-   - Cloud (Where "Cloud", Machine "New machine"): all named from 346 px, Where from 262 px.
-   - This Mac, and the one combined control (a started chat's, the combined and cloud-toggle arms),
-     which has no Machine chip beside it: named from 238 px.
+   - This Mac and Cloud (no Machine chip beside Where since cmux NEXT's Cloud is one pick), and the
+     one combined control (a started chat's, the combined and cloud-toggle arms): named from 238 px.
    With the branch chip (a project's chat), each step is 76 px wider, the room a short branch
    ("main", 70.5 px and the gap) takes; a longer branch takes its extra room from the folder, which
    cuts in the middle and keeps its last word. */
 @container acpmux-strip (width < 396px) {
   .acpmux-location-leading:has(> [data-rows="where"]) > .acpmux-location-picker[data-rows="machines"] .acpmux-location-label { display: none; }
 }
-@container acpmux-strip (width < 346px) {
-  .acpmux-location-leading:has(> [data-rows="where"]) > .acpmux-location-picker[data-rows="cloud"] .acpmux-location-label { display: none; }
-}
 @container acpmux-strip (width < 340px) {
   .acpmux-location-leading:has(> [data-rows="machines"]) > .acpmux-location-picker[data-rows="where"] .acpmux-location-label { display: none; }
-}
-@container acpmux-strip (width < 262px) {
-  .acpmux-location-leading:has(> [data-rows="cloud"]) > .acpmux-location-picker[data-rows="where"] .acpmux-location-label { display: none; }
 }
 @container acpmux-strip (width < 238px) {
   .acpmux-location-picker[data-kind="computer"] .acpmux-location-label { display: none; }
@@ -230,14 +223,8 @@
 @container acpmux-strip (width < 472px) {
   .acpmux-composer-context:has(> .acpmux-location-picker:last-child:not([data-rows])) .acpmux-location-leading:has(> [data-rows="where"]) > .acpmux-location-picker[data-rows="machines"] .acpmux-location-label { display: none; }
 }
-@container acpmux-strip (width < 422px) {
-  .acpmux-composer-context:has(> .acpmux-location-picker:last-child:not([data-rows])) .acpmux-location-leading:has(> [data-rows="where"]) > .acpmux-location-picker[data-rows="cloud"] .acpmux-location-label { display: none; }
-}
 @container acpmux-strip (width < 416px) {
   .acpmux-composer-context:has(> .acpmux-location-picker:last-child:not([data-rows])) .acpmux-location-leading:has(> [data-rows="machines"]) > .acpmux-location-picker[data-rows="where"] .acpmux-location-label { display: none; }
-}
-@container acpmux-strip (width < 338px) {
-  .acpmux-composer-context:has(> .acpmux-location-picker:last-child:not([data-rows])) .acpmux-location-leading:has(> [data-rows="cloud"]) > .acpmux-location-picker[data-rows="where"] .acpmux-location-label { display: none; }
 }
 @container acpmux-strip (width < 314px) {
   .acpmux-composer-context:has(> .acpmux-location-picker:last-child:not([data-rows])) .acpmux-location-leading .acpmux-location-picker[data-kind="computer"] .acpmux-location-label { display: none; }
