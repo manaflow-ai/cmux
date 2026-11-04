@@ -200,10 +200,10 @@ impl TerminalPublisher {
     fn settle(&self, surface: &Surface) -> Vec<PublisherJob> {
         let Some(runtime) = surface.terminal_runtime_id() else { return Vec::new() };
         let mut queue = self.shared.queue.lock().unwrap_or_else(PoisonError::into_inner);
-        let (taken, kept): (Vec<_>, VecDeque<_>) = std::mem::take(&mut queue.jobs)
+        let (taken, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut queue.jobs)
             .into_iter()
             .partition(|job| job.publishes(surface) || job.runtime() == Some(runtime));
-        queue.jobs = kept;
+        queue.jobs = kept.into();
         if queue.jobs.is_empty() {
             // A finish may wait for the queue to drain.
             self.shared.changed.notify_all();
