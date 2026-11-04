@@ -118,8 +118,6 @@ pub(crate) struct PoolState {
     /// Harnesses whose spare died, for the spare worker to start again (`spare.rs`).
     spare_restart: StdMutex<Vec<String>>,
     spare_wake: Notify,
-    /// The spare worker is running (started by the first dead spare).
-    spare_worker: AtomicBool,
 }
 
 type Spec = (String, Option<String>);
@@ -143,7 +141,6 @@ impl PoolState {
             spare_file: StdMutex::new(()),
             spare_restart: StdMutex::new(Vec::new()),
             spare_wake: Notify::new(),
-            spare_worker: AtomicBool::new(false),
         }
     }
 }
@@ -958,7 +955,12 @@ impl Hub {
             return;
         }
         if claimable {
-            self.spare_note_used(&m.harness, m.preset.clone(), m.cwd.clone(), m.model_request.clone());
+            self.spare_note_used(
+                &m.harness,
+                m.preset.clone(),
+                m.cwd.clone(),
+                m.model_request.clone(),
+            );
         }
         let spec: Spec = (m.harness.clone(), m.preset.clone());
         let previous = {

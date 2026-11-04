@@ -168,13 +168,15 @@ impl Hub {
     /// harness that already has a spare (a session came first) keeps it.
     pub(crate) async fn restore_spares(self: &Arc<Self>) {
         self.wait_startup().await;
+        // Always: spares (or the pool) may be switched on by a config reload later; the worker
+        // checks the switch each time it wakes.
+        tokio::spawn(self.clone().spare_worker());
         if !self.spare_enabled().await {
             return;
         }
         let h = self.clone();
-        let list = tokio::task::spawn_blocking(move || h.spares_with(|_| {}))
-            .await
-            .unwrap_or_default();
+        let list =
+            tokio::task::spawn_blocking(move || h.spares_with(|_| {})).await.unwrap_or_default();
         for r in recent(&list, now_ms()) {
             if !r.cwd.is_dir() || lock(&self.pool.pool).has_spare(&r.harness) {
                 continue;
@@ -228,15 +230,12 @@ impl Hub {
                     }
                 }
             }
-            if !self.pool.spare_worker.swap(true, Ordering::SeqCst) {
-                tokio::spawn(self.clone().spare_worker());
-            }
             self.pool.spare_wake.notify_one();
         }
     }
 
     /// Starts again the spares `spare_replace_dead` found dead, in the harness's newest shape.
-    /// Its own task, so the pool's RSS pass never awaits a pooled start: that start ends in the
+    /// Its own task (from `restore_spares`, at daemon start), so the pool's RSS pass never awaits a pooled start: that start ends in the
     /// RSS pass, and the two futures would contain each other.
     async fn spare_worker(self: Arc<Self>) {
         loop {

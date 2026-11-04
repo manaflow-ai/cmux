@@ -472,7 +472,9 @@ impl<T> Pool<T> {
 
     /// A local entry of `harness` holds the spare role (ready, warming or empty).
     pub fn has_spare(&self, harness: &str) -> bool {
-        self.entries.iter().any(|e| e.spare && e.key.origin == Origin::Local && e.key.harness == harness)
+        self.entries
+            .iter()
+            .any(|e| e.spare && e.key.origin == Origin::Local && e.key.harness == harness)
     }
 
     /// Spares holding nothing (a start failed, or a dead one was removed): their keys, to start again.

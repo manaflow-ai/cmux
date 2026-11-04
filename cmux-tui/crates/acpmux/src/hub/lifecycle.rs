@@ -270,11 +270,8 @@ impl Hub {
             && meta.tools.off.is_empty()
             && meta.additional_directories.is_empty()
             && checked_cwd.is_none();
-        let pooled = if claimable {
-            self.pool_claim(&meta, &profile, &defaults.env).await
-        } else {
-            None
-        };
+        let pooled =
+            if claimable { self.pool_claim(&meta, &profile, &defaults.env).await } else { None };
         // Every way out of here (an error, or this future dropped) before
         // `ensure_child` took the entry puts it back or ends it.
         let _claim = pooled.as_ref().map(|id| self.pool_claim_guard(id.clone()));
