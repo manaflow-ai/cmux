@@ -79,6 +79,8 @@ mod held_asks;
 pub(super) mod idle;
 mod idle_census;
 pub(crate) use idle::SessionAtWork;
+mod tool_start;
+pub use tool_start::{ToolStart, tool_start};
 pub(crate) use idle_census::LaunchServers;
 #[cfg(unix)]
 pub(crate) use idle_census::host_census;
