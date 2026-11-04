@@ -135,13 +135,43 @@
    outside the composer's glass (Picker overBackdrop), so its own glass frosts the pills behind it. */
 .acpmux-composer-plus .acpmux-menu{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,50vh)}
 .acpmux-menu.acpmux-composer-plus{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,50vh)}
-/* WebKit treats transparent pixels of a CSS mask as outside the hit-test region. Keep the
-   composer's action rows pressable at every edge (composer-chip-press.test.ts probes all four
-   row edges) by retaining an opaque edge mask on this action surface. */
+/* WebKit treats any CSS mask on this surface as part of hit testing, including an opaque mask.
+   Keep the composer's action rows pressable at every edge (composer-chip-press.test.ts probes all
+   four row edges) by moving the visible edge fade onto pointer-transparent overlays. */
 .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade:is([data-fade-top],[data-fade-bottom]){
   -webkit-mask-image:none!important;
-  mask-image:linear-gradient(#000,#000)!important;
+  mask-image:none!important;
 }
+.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade[data-fade-top]::before,
+.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade[data-fade-bottom]::after{
+  position:absolute;
+  inset-inline:0;
+  z-index:var(--layer-raised,1);
+  display:block;
+  height:max(var(--ui-scroll-fade-top),var(--ui-scroll-fade-bottom));
+  content:"";
+  pointer-events:none;
+}
+.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade[data-fade-top]::before{
+  inset-block-start:0;
+  background:linear-gradient(to bottom,var(--glass-tint),transparent);
+}
+.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade[data-fade-bottom]::after{
+  inset-block-end:0;
+  background:linear-gradient(to bottom,transparent,var(--glass-tint));
+}
+.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade[data-fade-top]{
+  padding-block-start:calc(var(--ui-popup-padding) + var(--ui-scroll-fade-top));
+}
+.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade[data-fade-bottom]{
+  padding-block-end:calc(var(--ui-popup-padding) + var(--ui-scroll-fade-bottom));
+}
+@media (prefers-reduced-transparency:reduce){
+  .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade[data-fade-top]::before,
+  .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade[data-fade-bottom]::after{display:none}
+}
+:root[data-reduce-transparency] .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade[data-fade-top]::before,
+:root[data-reduce-transparency] .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade[data-fade-bottom]::after{display:none}
 /* It opens over the project and machine pills above New Tab's box: a denser tint than a plain popup's
    60% (still glass, under the menus' 0.9 ceiling), so under the blur they read as frost, not text. */
 .acpmux-composer-plus .acpmux-menu.ui-glass,.acpmux-menu.acpmux-composer-plus.ui-glass{--glass-tint:color-mix(in srgb,var(--glass-surface) 86%,transparent)}
