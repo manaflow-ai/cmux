@@ -140,11 +140,7 @@ function SourceRow({
               agent={markFor(row.id, row.title)}
               size={24}
               label={title}
-              fallback={
-                <span role="img" aria-label={title}>
-                  {title.charAt(0)}
-                </span>
-              }
+              fallback={<span aria-hidden="true">{title.charAt(0)}</span>}
             />
           </span>
           {row.kind === "zip" && !row.detected ? (
