@@ -275,6 +275,8 @@ mod inbound;
 // What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
 mod logged_bodies;
 pub use logged_bodies::leave_out_bodies;
+#[cfg(test)]
+mod loops_tests;
 mod outbound;
 pub mod prompt_cache;
 pub mod prompt_suggestions;
