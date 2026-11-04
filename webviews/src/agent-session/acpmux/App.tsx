@@ -8685,20 +8685,28 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
     return undefined;
   }, [snapshot.rows]);
-  const cloudChat = snapshot.summary?.hostKind === "cloud" || cloudMachineID !== undefined;
+  const cloudPreviewChat = snapshot.summary?.hostKind === "cloud" || cloudMachineID !== undefined;
   const cloudPreviewPortList = useCloudPreviewPorts();
   // Only a Cloud pane with a card to show gets an after-latest footer: an empty one would still
   // take the composer's room below the transcript and shorten it.
-  const showOpenAppCard = !quick && cloudChat && cloudPreviewPortList.length > 0;
+  const showOpenAppCard = !quick && cloudPreviewChat && cloudPreviewPortList.length > 0;
   useEffect(() => {
     const machineID = cloudMachineID ?? snapshot.summary?.machine;
     setCloudPreviewContext({
       machineID,
       sessionId: shownSessionId,
       turnId: cloudPreviewTurnId,
-      active: !quick && snapshot.isWorking && cloudChat,
+      active: !quick && snapshot.isWorking && cloudPreviewChat,
     });
-  }, [cloudChat, cloudMachineID, cloudPreviewTurnId, quick, shownSessionId, snapshot.isWorking, snapshot.summary?.machine]);
+  }, [
+    cloudPreviewChat,
+    cloudMachineID,
+    cloudPreviewTurnId,
+    quick,
+    shownSessionId,
+    snapshot.isWorking,
+    snapshot.summary?.machine,
+  ]);
   /// Run as is a new chat's choice, in a pane with tabs (not the floating chat).
   /// Not once a chat is starting here (a harness pick, a deferred start): its session would replace
   /// the sandbox's result. The host refuses `sandbox.run` then too (AcpmuxPaneReplacements). Not
