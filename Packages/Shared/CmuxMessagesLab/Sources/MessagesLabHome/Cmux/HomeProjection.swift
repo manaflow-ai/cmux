@@ -295,7 +295,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         passStep("rowsChange", &mark)
         askForOlderIfNeeded()
         reportReadIfNeeded()
-        trimIfResting(items.count)
+        trimIfResting()
         passStep("older+read", &mark)
     }
 
@@ -304,8 +304,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// grow and every change would rebuild the whole timeline. The trim runs on the next
     /// display frame (it rebuilds the rows), keeps what an open thread or reply answers,
     /// and older history loads again as pages when the reader scrolls up.
-    private func trimIfResting(_ loaded: Int) {
-        guard loaded > HomeStore.windowTrimThreshold, let store = controller.store,
+    private func trimIfResting() {
+        guard homeStore.loadedMessageCount(in: conversation) > HomeStore.windowTrimThreshold, let store = controller.store,
               store.state.ui.scroll.pinnedToBottom, store.state.atNewest else { return }
         controller.nextFrame { [weak self] in
             guard let self, !self.stopped, let state = self.controller.store?.state,

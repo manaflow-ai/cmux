@@ -120,8 +120,10 @@ public struct HomeMirror: Hashable, Sendable {
 
     /// Trims `conversation`'s loaded window (``TranscriptWindow/trimOlder(keepingNewest:preserving:)``).
     @discardableResult
-    public mutating func trimOlder(in conversation: ConversationID, keepingNewest keep: Int, preserving: Set<MessageID> = []) -> Bool {
-        guard var window = windows[conversation], window.trimOlder(keepingNewest: keep, preserving: preserving) else { return false }
+    public mutating func trimOlder(in conversation: ConversationID, keepingNewest keep: Int, preserving: Set<MessageID> = [],
+                                   atMost limit: Int = .max) -> Bool {
+        guard var window = windows[conversation],
+              window.trimOlder(keepingNewest: keep, preserving: preserving, atMost: limit) else { return false }
         windows[conversation] = window
         return true
     }

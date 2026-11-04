@@ -74,10 +74,16 @@ extension HomeStore {
     public func trimIfResting(_ id: ConversationID, preserving: Set<MessageID> = []) -> Bool {
         guard let window = mirror.windows[id], window.messages.count > Self.windowTrimThreshold,
               !pager.isLoadingOlder(id),
-              mirror.trimOlder(in: id, keepingNewest: Self.windowKeepCount, preserving: preserving) else { return false }
+              mirror.trimOlder(in: id, keepingNewest: Self.windowKeepCount, preserving: preserving,
+                               atMost: Self.windowTrimThreshold) else { return false }
         bumpTranscript(id)
+        // The agent runs anchored to dropped messages go: read them again for the window left.
+        requestAgentMessages(id)
         return true
     }
+
+    /// How many messages `id`'s transcript holds loaded (0: none open).
+    public func loadedMessageCount(in id: ConversationID) -> Int { mirror.windows[id]?.messages.count ?? 0 }
 
     /// The conversation's transcript read, or the one already running.
     @discardableResult

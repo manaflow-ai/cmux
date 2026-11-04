@@ -52,4 +52,13 @@ import Testing
         #expect(heldTrimmed)
         #expect(held.messages.first?.seq == 5)
     }
+
+    @Test func whatItKeepsNeverHoldsTheWindowAboveTheLimit() {
+        // The newest message answers the very first one: keeping it would stop the bound for good.
+        var window = TranscriptWindow(messages: (1...300).map { Self.message($0) } + [Self.message(301, replyTo: 1)])
+        let trimmed = window.trimOlder(keepingNewest: 100, atMost: 150)
+        #expect(trimmed)
+        #expect(window.messages.count == 150)
+        #expect(window.messages.last?.seq == 301)
+    }
 }
