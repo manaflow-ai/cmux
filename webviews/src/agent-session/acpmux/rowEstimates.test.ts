@@ -504,7 +504,9 @@ test("a folded run with messages to other agents is estimated as the lines it dr
   );
   // Not folded, two calls that each sent one are that one line too.
   expect(
-    heightsOf([{ id: "two", version: 1, at: 0, kind: "activity", items: [send("a", "lane-a"), send("b", "lane-b")] }])[0],
+    heightsOf([
+      { id: "two", version: 1, at: 0, kind: "activity", items: [send("a", "lane-a"), send("b", "lane-b")] },
+    ])[0],
   ).toBe(lines(1));
   // Work folded on each side of the sends: "Ran 2 commands", the send, the fold of the rest, the
   // sub-session message.

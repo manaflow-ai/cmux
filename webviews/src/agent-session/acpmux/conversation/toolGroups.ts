@@ -325,7 +325,7 @@ function withSendGroups(groups: ToolGroup[]): ToolGroup[] {
   for (let at = 0; at < groups.length && run < 2; at += 1) run = isSentEntry(groups[at]!) ? run + 1 : 0;
   if (run < 2) return groups;
   const out: ToolGroup[] = [];
-  for (let at = 0; at < groups.length; ) {
+  for (let at = 0; at < groups.length;) {
     let end = at;
     while (end < groups.length && isSentEntry(groups[end]!)) end += 1;
     if (end - at < 2) {

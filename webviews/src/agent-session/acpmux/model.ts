@@ -1381,12 +1381,12 @@ function activityStepHeight(item: AcpmuxActivity, width: number): number {
 const sendsMessage = (tool: NonNullable<AcpmuxActivity["tool"]>): boolean =>
   Boolean(
     agentMessage(tool) ||
-      acpmuxSendCalls(tool) ||
-      acpmuxMcpSends(tool) ||
-      (() => {
-        const mcp = mcpCall(tool);
-        return mcp !== undefined && subsessionCall(tool, mcp)?.tool === "send";
-      })(),
+    acpmuxSendCalls(tool) ||
+    acpmuxMcpSends(tool) ||
+    (() => {
+      const mcp = mcpCall(tool);
+      return mcp !== undefined && subsessionCall(tool, mcp)?.tool === "send";
+    })(),
   );
 /// A folded run's lines as ToolRows draws them (TurnRows.tsx, toolGroups.ts `runStretches`): the
 /// work between coordination cards folds under one summary line per stretch, and every card the run

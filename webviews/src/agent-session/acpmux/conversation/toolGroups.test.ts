@@ -695,8 +695,9 @@ test("unchanged streamed tool revisions reuse the lifetime-owned parser memo", (
 const sendMessage = (to: string, message: string, status = "completed") =>
   item({ title: "SendMessage", kind: "other", status, inputSummary: JSON.stringify({ to, message }) });
 
-test("sent messages are never summed up: each, of any kind, is its own entry in order", () => {
-  // Leo 2026-10-31: "this +11 is really bad you guys should just render them all separately".
+test("sent messages in a row are one group, each of any kind still its own entry in order", () => {
+  // Leo 2026-10-31: "this +11 is really bad you guys should just render them all separately"; then
+  // 2026-11-04: "why arent these collapsed/collapsible". The group opens to each message's own row.
   const shell = item({ title: "Bash", kind: "execute", command: "acpmux send tests 'cover retries'" });
   const subsession = item({
     title: "mcp__cmux-subsessions__send_message",
@@ -706,7 +707,9 @@ test("sent messages are never summed up: each, of any kind, is its own entry in 
   });
   const failed = sendMessage("Picker", "lost", "failed");
   const groups = toolGroups([sendMessage("Picker", "brief"), shell, subsession, sendMessage("Picker", "more"), failed]);
-  expect(groups.map((group) => group.type)).toEqual(["message", "send", "subsession", "message", "message"]);
+  expect(groups.map((group) => group.type)).toEqual(["sendGroup"]);
+  const entries = groups[0]?.type === "sendGroup" ? groups[0].entries : [];
+  expect(entries.map((entry) => entry.type)).toEqual(["message", "send", "subsession", "message", "message"]);
   // A sub-session start keeps its own card between two messages.
   const start = item({
     title: "mcp__cmux-subsessions__start_session",
