@@ -307,7 +307,9 @@ PY
 # Waits for the screen to settle: two shots in a row the same inside the region (60 s cap), kept as NAME.
 settle() { shot "$1-prev"; for _ in $(seq 1 120); do sleep 0.5; shot "$1"; [[ "$(diff_in "$1-prev" "$1")" == "0 -" ]] && return 0; mv "$work/$1.bmp" "$work/$1-prev.bmp"; done; return 1; }
 build_web() { rm -rf "$work/web"; "$1/scripts/cmux-next/build-web-bundles.sh" --force --out-root "$work/web" >/dev/null; }
-install_web() { "$root/scripts/cmux-next/web-overlay.sh" install "$work/web" >/dev/null; }
+# COMMIT: the exact commit the bundles in $work/web were built from, recorded in the overlay's
+# manifest (web-overlay.sh install --commit; an older web-overlay.sh ignores it).
+install_web() { "$root/scripts/cmux-next/web-overlay.sh" install "$work/web" --commit "$1" >/dev/null; }
 launch() { # NAME: the instance's own HOME and control socket (in /tmp: a socket path has a 104-byte limit)
   local before; before=" $(ours_running | tr '\n' ' ') "
   local home="$work/home-$1"; mkdir -p "$home"; sock="/tmp/tpa-$$-$1.sock"; socks+=("$sock")
@@ -408,7 +410,7 @@ if [[ "$experience" == full-build ]]; then
 fi
 # Base state and controls: the base overlay in a running app, a repeat install, a base-only window.
 git -C "$root" worktree add --detach -q "$work/base-tree" "$base"
-use_instance base; build_web "$work/base-tree"; install_web
+use_instance base; build_web "$work/base-tree"; install_web "$base"
 launch base; base_pid="$pid" base_sock="$sock"; note base_pid "$base_pid"
 settle base || { result fail fail "the base app never settled"; exit 1; }
 if [[ "$experience" == in-place && -n "$seed" ]]; then
@@ -418,7 +420,7 @@ if [[ "$experience" == in-place && -n "$seed" ]]; then
 fi
 mark based
 mark controls_start
-install_web; settle repeat || { result fail fail "the repeat install never settled"; exit 1; }
+install_web "$base"; settle repeat || { result fail fail "the repeat install never settled"; exit 1; }
 control="$(diff_in base repeat)"
 for i in $(seq 1 "$control_seconds"); do
   [[ "$control" == "0 -" ]] || break
@@ -439,7 +441,7 @@ build_web "$root"
 mark compiled
 note overlay_sha256 "$(cd "$work/web" && find . -type f | LC_ALL=C sort | xargs shasum -a 256 | shasum -a 256 | cut -d' ' -f1)"
 [[ "$experience" == isolated ]] && use_instance pr
-install_web
+install_web "$head"
 if [[ "$experience" == isolated ]]; then
   launch pr; note pr_pid "$pid"
   [[ "$pid" != "$base_pid" ]] || { result fail fail "isolated: the PR instance is the base process"; exit 1; }
