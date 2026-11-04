@@ -19,7 +19,7 @@
    transcript stays blurred under an invisible card. Above glass.css's filter rule in specificity. */
 :root[data-cmux-see-through] :is(.acpmux-inspecting,.acpmux-stage:has(.acpmux-find))>[data-glass-under~=summary]{filter:none}
 .acpmux-summary-card__head{flex:none;display:flex;align-items:center;gap:2px;padding:var(--ds-space-1) var(--ds-space-1) var(--ds-space-1) var(--ds-space-2)}
-.acpmux-summary-card[data-placement=inline] .acpmux-summary-card__head{height:28px;padding:0 calc(var(--ds-space-1) / 2) var(--ds-space-1) 0}
+.acpmux-summary-card[data-placement=inline] .acpmux-summary-card__head{height:28px;padding:0 0 var(--ds-space-1)}
 .acpmux-summary-card__fold{flex:1;min-width:0;display:flex;align-items:center;gap:var(--ds-space-2);height:26px;padding:0 var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);background:none;color:inherit;font:inherit;text-align:left}
 .acpmux-summary-card__fold>svg{flex:none;color:var(--agent-muted)}
 .acpmux-summary-card__fold--icon{flex:none;justify-content:center;width:26px;padding:0}
@@ -89,9 +89,13 @@
 .acpmux-summary-tabs{flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:2px;margin-left:-8px}
 .acpmux-summary-tab{flex:none;display:inline-flex;align-items:center;height:24px;padding:0 var(--ds-space-2);box-sizing:border-box;border:0;border-radius:var(--ds-radius-control);background:none;color:var(--agent-muted);font:inherit;font-weight:var(--weight-regular);transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-summary-tab:hover,.acpmux-summary-tab[data-selected]{color:var(--agent-text)}
-.acpmux-summary-tab[data-selected]{background:var(--acpmux-menu-hover)}
+.acpmux-summary-tab[data-selected]{background:var(--acpmux-menu-hover);font-weight:var(--weight-emphasis)}
 .acpmux-summary-tab[data-closable]{flex:0 1 auto;min-width:0;gap:2px;padding-right:2px}
 .acpmux-summary-tab__label{min-width:0;overflow:hidden;padding:0;border:0;background:none;color:inherit;font:inherit;white-space:nowrap;text-overflow:ellipsis}
+/* Reserve the emphasized label width before selection, without measuring or shifting its neighbors. */
+.acpmux-summary-tab__text{display:inline-grid;min-width:0;max-width:100%}
+.acpmux-summary-tab__text>span{grid-area:1/1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.acpmux-summary-tab__measure{visibility:hidden;font-weight:var(--weight-emphasis)}
 .acpmux-summary-tab__close{flex:none;display:grid;place-items:center;width:18px;height:18px;padding:0;border:0;border-radius:4px;background:none;color:var(--agent-muted)}
 .acpmux-summary-tab__close:hover{background:color-mix(in srgb,currentColor 12%,transparent);color:var(--agent-text)}
 .acpmux-summary-tab:focus-visible,.acpmux-summary-tab__label:focus-visible,.acpmux-summary-tab__close:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
