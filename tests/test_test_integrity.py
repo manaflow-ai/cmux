@@ -1,0 +1,62 @@
+from __future__ import annotations
+
+import importlib.util
+import sys
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SPEC = importlib.util.spec_from_file_location("test_integrity", ROOT / "scripts/ci/test_integrity.py")
+assert SPEC and SPEC.loader
+module = importlib.util.module_from_spec(SPEC)
+sys.modules["test_integrity"] = module
+SPEC.loader.exec_module(module)
+
+
+class TestIntegrity(unittest.TestCase):
+    def test_deleted_test_file_is_blocked(self):
+        findings = module.analyze("D\ttests/test_deleted.py\n", "")
+        self.assertEqual([f.kind for f in findings], ["deleted-test-file"])
+
+    def test_assertion_replacement_with_same_count_is_allowed(self):
+        diff = """diff --git a/tests/test_math.py b/tests/test_math.py
+--- a/tests/test_math.py
++++ b/tests/test_math.py
+@@ -1 +1 @@
+-    self.assertEqual(result, 1)
++    self.assertEqual(result, 2)
+"""
+        self.assertEqual(module.analyze("M\ttests/test_math.py\n", diff), [])
+
+    def test_assertion_loss_and_new_skip_are_blocked(self):
+        marker = "pytest.mark." + "skip"
+        diff = f"""diff --git a/tests/test_math.py b/tests/test_math.py
+--- a/tests/test_math.py
++++ b/tests/test_math.py
+@@ -1,3 +1,2 @@
+-    self.assertEqual(result, 1)
+-    self.assertTrue(result)
++    {marker}(reason=temporary)
+"""
+        self.assertEqual(
+            [f.kind for f in module.analyze("M\ttests/test_math.py\n", diff)],
+            ["weakened-assertions", "new-skip"],
+        )
+
+    def test_rename_from_test_to_non_test_is_blocked(self):
+        findings = module.analyze("R100\ttests/test_old.py\tsrc/old.py\n", "")
+        self.assertEqual([f.kind for f in findings], ["deleted-test-file"])
+
+    def test_non_test_files_are_ignored(self):
+        diff = """diff --git a/src/math.py b/src/math.py
+--- a/src/math.py
++++ b/src/math.py
+@@ -1 +1 @@
+-    assert value
++    return value
+"""
+        self.assertEqual(module.analyze("M\tsrc/math.py\n", diff), [])
+
+
+if __name__ == "__main__":
+    unittest.main()
