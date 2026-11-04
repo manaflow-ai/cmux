@@ -4,7 +4,7 @@
 Nightlies never run on Blacksmith (Lawrence, 2026-10-30). Every nightly.yml route ends on our own runners:
 a job holding a signing or publication secret on GitHub-hosted Ubuntu (the ephemeral runner the signing-secret
 rules allow), the light placed controls and decide on hosted Ubuntu, the early native jobs on the owned nightly
-slot, build-nightly-app on the nightly-only builder pool, and every other job on the nightly-only Mac pool.
+slot, build-nightly-app and every other job on the nightly-only Mac pool.
 """
 import json
 import os
@@ -195,11 +195,12 @@ class NightlyTrustedRouting(unittest.TestCase):
         picked = {'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-side-std-xcode-26.6',
                   'needs.pick-nightly-build-runner.outputs.blacksmith': 'blacksmith-6vcpu-macos-26'}
         self.assertEqual(select(**picked), 'glaeda-side-std-xcode-26.6')
-        # No idle owned runner now: the nightly-only builder pool, never the picker's Blacksmith label.
+        # No idle owned runner now: the plain nightly-only pool, never the picker's Blacksmith label, and
+        # never the warm builder label, which only its idle pick names (test_ci_runs_on_fallback.py).
         self.assertEqual(select(**{**picked, 'needs.pick-nightly-build-runner.outputs.owned': ''}), NIGHTLY_ONLY)
         self.assertEqual(select(**{**picked, 'needs.pick-nightly-build-runner.outputs.owned': '',
                                    'vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER': 'glaeda-nightly-only-m4pro-builder'}),
-                         'glaeda-nightly-only-m4pro-builder')
+                         NIGHTLY_ONLY)
 
     def test_main_keeps_its_worker_and_writer_environment(self):
         changes = {'github.ref': 'refs/heads/main'}
@@ -222,7 +223,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                                    'needs.pick-nightly-build-runner.outputs.attempt': '2'}),
                          'glaeda-side-std-xcode-26.6')
         self.assertEqual(select(**{**picked, 'github.event_name': 'workflow_dispatch'}), 'glaeda-side-std-xcode-26.6')
-        # A failed pick (empty outputs) takes the nightly-only builder pool, never an unvalidated variable.
+        # A failed pick (empty outputs) takes the plain nightly-only pool, never an unvalidated variable.
         for variable in ('macos-26', 'macos-15', 'glaeda-side-std-xcode-26.6', 'blacksmith-12vcpu-macos-26', ''):
             for attempt in (1, 2):
                 with self.subTest(variable=variable, attempt=attempt):
@@ -337,7 +338,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertEqual(select(**{'vars.CI_SIDE_LANE_RUNNER': ''}), NIGHTLY_ONLY)
 
     def test_retries_take_the_nightly_only_builder_never_hosted_or_blacksmith(self):
-        # A NEXT or main retry with no pick takes the nightly-only builder pool, never hosted, never
+        # A NEXT or main retry with no pick takes the plain nightly-only pool, never hosted, never
         # Blacksmith, whatever vars.MACOS_RUNNER_26 holds.
         self.assertEqual(select(**{'github.run_attempt': 2}), NIGHTLY_ONLY)
         self.assertEqual(select(**{'github.run_attempt': 2, 'github.ref': 'refs/heads/main'}), NIGHTLY_ONLY)
@@ -531,7 +532,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         ]
         for changes in cases:
             with self.subTest(changes=changes):
-                # No pick, any ref: the nightly-only builder pool, never vars.MACOS_RUNNER_26 or Blacksmith.
+                # No pick, any ref: the plain nightly-only pool, never vars.MACOS_RUNNER_26 or Blacksmith.
                 self.assertEqual(select(**changes), NIGHTLY_ONLY)
         self.assertEqual(select(**{'github.repository_owner': 'someone'}), 'macos-26')
 
@@ -691,7 +692,7 @@ class NightlyTrustedRouting(unittest.TestCase):
     @unittest.skipUnless('nightly_next_unsigned_run' in DOC[True]['workflow_dispatch']['inputs'],
                          'unsigned resume is owned by PR 21161, not landed on this base yet')
     def test_unsigned_resume_stays_on_our_runners(self):
-        # A resume restores the original inputs on the nightly-only builder pool (no Blacksmith Linux leg).
+        # A resume restores the original inputs on the plain nightly-only pool (no Blacksmith Linux leg).
         self.assertEqual(select(**{'inputs.nightly_next_unsigned_run': '123'}), NIGHTLY_ONLY)
         self.assertNotIn('nightly_next_unsigned_run', DOC['jobs']['build-nightly-app']['runs-on'])
 
@@ -1029,7 +1030,7 @@ CREDENTIALED_CONTROL_JOBS = ('attest-nightly-remote-daemon', 'route-visual-gate-
 
 class CredentialedControls(unittest.TestCase):
     """The visual-gate router and the published-in comment never read RUNNER_POOLS or another Blacksmith route
-    (nightlies never use Blacksmith). published-in takes the nightly-only pool; the router, which holds the
+    (nightlies never use Blacksmith). published-in takes hosted Ubuntu; the router, which holds the
     routing App key, takes the reservation on attempt 1 when it is enabled, else hosted Ubuntu."""
 
     def select(self, job, pool='', attempt=1, owner='manaflow-ai', variable=''):
@@ -1049,7 +1050,7 @@ class CredentialedControls(unittest.TestCase):
                 self.assertNotIn('LINUX_RUNNER', runs_on)
 
     def test_every_attempt_takes_our_nightly_pool(self):
-        # published-in holds no secret: the nightly-only pool on every attempt. The visual-gate router holds
+        # published-in: hosted Ubuntu on every attempt (a five-hour paced job must not hold a mini). The visual-gate router holds
         # the routing App key, so beyond the all-nightly reservation (attempt 1, enabled) it takes hosted
         # Ubuntu, an ephemeral runner, never a shared mini without a claim and never Blacksmith.
         for job in CREDENTIALED_CONTROL_JOBS:
@@ -1059,6 +1060,8 @@ class CredentialedControls(unittest.TestCase):
                         with self.subTest(job=job, pool=pool, attempt=attempt, variable=variable):
                             if job == 'route-visual-gate-nightly':
                                 expected = NIGHTLY_ONLY if attempt == 1 and variable == NIGHTLY_ONLY else HOSTED
+                            elif job == 'published-in':
+                                expected = HOSTED
                             else:
                                 expected = NIGHTLY_ONLY
                             self.assertEqual(self.select(job, pool, attempt, variable=variable), expected)

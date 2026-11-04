@@ -183,7 +183,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         text = nightly_expand((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))
         job = text[text.index("\n  build-nightly-app:"):]
         runs_on = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1)
-        # nightly-next: an idle owned Mac (pick-nightly-build-runner), else our nightly-only builder pool.
+        # nightly-next: an idle owned Mac (pick-nightly-build-runner), else the plain nightly-only pool.
         self.assertIn("needs.pick-nightly-build-runner.outputs.owned", runs_on)
         self.assertNotIn("needs.pick-nightly-build-runner.outputs.blacksmith", runs_on)
         self.assertNotIn("vars.MACOS_RUNNER_26", runs_on)
