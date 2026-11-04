@@ -163,11 +163,18 @@ class OwnedPoolSources(unittest.TestCase):
             if text is None:
                 continue
             with self.subTest(tree=str(tree)):
-                # The detector must still find nightly.yml's sign and verify jobs. Whether any of them can queue on
-                # Blacksmith macOS is that branch's routing: feat-cmux-next's nightly runs only on owned Macs
-                # (d5997935ef7, 2026-11-04), so it has none for the rescue to move, and that is not a failure.
-                self.assertTrue(sources.sign_jobs(text), f"{tree}: no sign or verify job found; "
-                                "the detector no longer matches nightly.yml")
+                jobs = sources.sign_jobs(text)
+                self.assertTrue(jobs, f"{tree}: no sign or verify job found; the detector no longer matches nightly.yml")
+                # main's nightly still signs on Blacksmith macOS, so an empty candidate list there means the runs-on
+                # detector stopped matching. feat-cmux-next's nightly runs only on owned Macs (d5997935ef7), so it
+                # may have none, but only while none of its sign jobs names Blacksmith or a MACOS_RUNNER variable.
+                hinted = {job: runs_on for job, runs_on in jobs.items()
+                          if "blacksmith" in sources.OUTAGE_MACOS_FALLBACK.sub("", runs_on).lower()
+                          or "MACOS_RUNNER" in runs_on}
+                if tree is self.rescue_tree or hinted:
+                    self.assertTrue(sources.sign_stall_candidates(text), "\n".join(
+                        [f"{tree}: no sign or verify job on a Blacksmith macOS label found; the detector no longer "
+                         "matches nightly.yml:"] + [f"  {job}: {runs_on}" for job, runs_on in sorted(hinted.items())]))
                 missing = sources.uncovered_sign_jobs(text, table)
                 self.assertFalse(missing, "\n".join(
                     [f"{tree}: these nightly.yml jobs can queue on a Blacksmith macOS label, but main's "
