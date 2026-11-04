@@ -47,6 +47,12 @@ fn fully_read(dir: &Path) -> Option<bool> {
     Some(files.iter().all(|(path, size)| *size == 0 || read.contains(&path.as_str())))
 }
 
+/// A marker newer than the durable event log means the daemon crashed between writing the
+/// marker and appending `transfer_out`; that bundle was never offered to another owner.
+fn marker_is_uncommitted(marker: Option<u64>, durable_epoch: u64) -> bool {
+    marker.is_some_and(|marker| marker > durable_epoch)
+}
+
 /// The client heard from the move in `dir`: begin, or a page read (`path` to its end with `eof`).
 pub(super) fn note_activity(dir: &Path, eof_of: Option<&str>) {
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
@@ -122,6 +128,19 @@ impl Hub {
                 else {
                     continue;
                 };
+                // A crash after the epoch marker was written but before `transfer_out` was
+                // appended leaves a bundle with no durable ownership authority. Do not restore
+                // that half-move as live: discard it and let the chat remain local.
+                if session.ownership_epoch_is_valid()
+                    && marker_is_uncommitted(
+                        transfer_epoch_marker(&entry.path()).ok().flatten(),
+                        session.ownership_epoch(),
+                    )
+                {
+                    tracing::warn!(session = %session.id, transfer_id, "discarding transfer marker without durable transfer_out");
+                    let _ = std::fs::remove_dir_all(entry.path());
+                    break;
+                }
                 let mut moving = session.moving.lock().unwrap_or_else(|e| e.into_inner());
                 if moving.is_none() && session.meta().moved_to.is_none() {
                     *moving = Some(transfer_id.clone());
@@ -264,5 +283,17 @@ impl Hub {
             tracing::warn!(session = %session.id, transfer_id, "ending a stalled move: {}", e.message);
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::marker_is_uncommitted;
+
+    #[test]
+    fn marker_ahead_of_durable_epoch_is_not_resumed() {
+        assert!(marker_is_uncommitted(Some(1), 0));
+        assert!(!marker_is_uncommitted(Some(1), 1));
+        assert!(!marker_is_uncommitted(None, 0));
     }
 }
