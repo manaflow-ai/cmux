@@ -15069,6 +15069,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     machine={peerMachine.state}
                     onResume={peerMachine.resume}
                     onReconnect={reconnectPeer}
+                    // Only a Cloud machine pauses on its own: an ssh peer's offline copy says so at once.
+                    noteDelayMs={snapshot.peerKinds?.[snapshot.peerCopy.peer] === "ssh" ? 0 : undefined}
                   />
                 )}
                 {/* Computer use's live preview: the app this chat's agent drives, at the top right. Always
