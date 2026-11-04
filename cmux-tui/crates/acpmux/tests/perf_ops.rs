@@ -670,7 +670,7 @@ fn disk_stress(dir: &Path) -> Child {
 /// Outside such a step: the product's utility tier, no journal.
 fn arm() -> (bool, bool) {
     let key = std::env::var("CMUX_CI_STEP_KEY").unwrap_or_default();
-    (key.contains("iopol-default"), key.contains("-journal"))
+    (key.contains("-default-"), key.contains("-journal-"))
 }
 
 /// Acknowledged replies (send to reply) with the daemon's disk I/O policy and the event journal
@@ -679,7 +679,7 @@ fn arm() -> (bool, bool) {
 /// `iopol-`; `ACPMUX-PERF iopol.*` rows.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn acked_replies_by_daemon_io_policy() {
-    if !std::env::var("CMUX_CI_STEP_KEY").is_ok_and(|key| key.contains("iopol-")) {
+    if !std::env::var("CMUX_CI_STEP_KEY").is_ok_and(|key| key.contains("iopol")) {
         eprintln!("ACPMUX-PERF iopol SKIP (runs in a fleet step whose key contains iopol-)");
         return;
     }
