@@ -387,7 +387,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     });
     await settle(page);
     expect(await atLatest(page)).toBe(false);
-    expect(await page.locator("[data-bottom-fold]").count()).toBe(0);
+    expect(await page.locator("[data-bottom-fold], [data-bottom-stack]").count()).toBe(0);
     expect(await page.locator(".acpmux-thread").evaluate((node) => node.getAnimations().length)).toBe(0);
     await page.close();
   });
