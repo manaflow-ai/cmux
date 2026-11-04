@@ -11,7 +11,8 @@ describe("Cloud preview share action", () => {
     expect(shared?.url).toBe("https://preview.example/vm_sample/3000?cmux_share=mock");
     expect(provider.clipboard).toBe(shared?.url);
     const createCall = provider.calls.find((call) => call.params && (call.params as Record<string, unknown>).action === "cloudPreviewShare");
-    expect((createCall?.params as Record<string, unknown>).target).toBe("machine:vm_sample");
+    expect(createCall).toBeDefined();
+    expect((createCall!.params as Record<string, unknown>).target).toBe("machine:vm_sample");
     expect(await revokePreviewShare(provider, "vm_sample", 3000, shared!.linkId)).toBe(true);
     expect(provider.previewLinks.size).toBe(0);
   });

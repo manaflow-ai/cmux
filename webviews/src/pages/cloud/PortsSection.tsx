@@ -106,10 +106,10 @@ export function PortsSection({
                   </button>
                 </span>
                 {shared && (
-                  <span className="cloud-preview-share-status" role="status">
+                  <output className="cloud-preview-share-status">
                     {t(L.shareCopied)}
                     {expiry && ` · ${format(t(L.shareExpires), { date: expiry })}`}
-                  </span>
+                  </output>
                 )}
               </li>
             );
