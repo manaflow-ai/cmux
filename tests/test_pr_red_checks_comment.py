@@ -28,8 +28,13 @@ def status(**sections):
 
 
 class FakeGitHub:
-    def __init__(self, check_runs, comments, base_runs=None, steps=None, annotations=None, env=None, pr_head="a" * 40):
+    def __init__(self, check_runs, comments, base_runs=None, steps=None, annotations=None, env=None, pr_head="a" * 40,
+                 graphql_checks=True, more_pages=False):
         self.check_runs, self.writes, self.gets, self.env = check_runs, [], [], env or {}
+        # graphql_checks: answer the check-run and details queries (False: they error, so REST answers them).
+        # more_pages: the check-runs query says a page was not enough, so REST answers it.
+        self.graphql_checks, self.more_pages = graphql_checks, more_pages
+        self.check_queries = []
         self.graphql = []  # GraphQL queries: the status comment reads (a separate pool from REST)
         self.pr_head = pr_head  # the pull request's head now (HEAD_SHA is "a" * 40)
         self.base_runs, self.steps, self.annotations = base_runs, steps or {}, annotations or {}
@@ -70,6 +75,11 @@ class FakeGitHub:
 
             def do_POST(self):
                 payload = self.body()
+                if self.path == "/graphql" and ("checkSuites" in payload["query"] or "nodes(ids" in payload["query"]):
+                    fake.check_queries.append(payload["variables"])
+                    if not fake.graphql_checks:
+                        return self.reply({"errors": [{"message": "rate limited"}]})
+                    return self.reply({"data": fake.checks_data(payload)})
                 if self.path == "/graphql":
                     fake.graphql.append(payload["variables"])
                     nodes = [{"fullDatabaseId": str(c["id"]), "body": c["body"],
@@ -97,6 +107,36 @@ class FakeGitHub:
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
+    @staticmethod
+    def node_id(rid):
+        return f"CR_{rid}"
+
+    def checks_data(self, payload):
+        variables = payload["variables"]
+        if "ids" in variables:
+            ids = {int(i.removeprefix("CR_")) for i in variables["ids"]}
+            return {"nodes": [{"databaseId": rid,
+                               "steps": {"nodes": [{"name": st.get("name"), "number": n + 1,
+                                                    "conclusion": (st.get("conclusion") or "").upper() or None}
+                                                   for n, st in enumerate(self.steps.get(rid, []))]},
+                               "annotations": {"nodes": [{"title": a.get("title"), "message": a.get("message"),
+                                                          "annotationLevel": (a.get("annotation_level") or "").upper()}
+                                                         for a in self.annotations.get(rid, [])]}}
+                              for rid in sorted(ids)]}
+
+        def commit(runs):
+            return {"checkSuites": {"pageInfo": {"hasNextPage": False}, "nodes": [{"checkRuns": {
+                "pageInfo": {"hasNextPage": self.more_pages},
+                "nodes": [{"id": self.node_id(r["id"]), "databaseId": r["id"], "name": r["name"],
+                           "status": (r.get("status") or "").upper(),
+                           "conclusion": (r.get("conclusion") or "").upper() or None,
+                           "startedAt": r.get("started_at")} for r in runs]}}]}}
+
+        repository = {"head": commit(self.check_runs)}
+        if variables.get("withBase"):
+            repository["base"] = commit(self.base_runs or [])
+        return {"repository": repository}
+
     def run(self):
         url = f"http://127.0.0.1:{self.server.server_port}"
         # PR_HEAD_REMOTE: no such remote, so the head is read over REST unless a test gives a real one.
@@ -112,6 +152,12 @@ class FakeGitHub:
         self.server.shutdown()
         assert out.returncode == 0, out.stderr
         return self.writes
+
+
+def read_check_runs(fake):
+    """The head's check runs were read: over GraphQL, or REST's pages when GraphQL could not answer."""
+    return any("checkSuites" in str(q) or "head" in q for q in fake.check_queries) or any(
+        "/check-runs" in path for path in fake.gets)
 
 
 def run(name, conclusion, status="completed", started="2026-10-13T00:00:00Z", id_=1):
@@ -345,7 +391,7 @@ def test_the_status_comment_is_read_over_graphql_not_rest():
 def test_a_green_caller_still_turns_a_red_line_green():
     fake = FakeGitHub([run("web / react-apps-check", "success")], [{"id": 5, "body": status(checks=RED_LINE)}], env=GREEN)
     assert fake.run() == [("PATCH", "/repos/o/r/issues/comments/5", status(checks="web and size checks: green"))]
-    assert any("/check-runs" in path for path in fake.gets)
+    assert read_check_runs(fake)
 
 
 def test_a_green_caller_keeps_another_workflows_red():
@@ -353,7 +399,7 @@ def test_a_green_caller_keeps_another_workflows_red():
                       [{"id": 5, "body": status(checks="red: cmux-next crash ratchet; do not merge until green; see lane-rules")}],
                       env=GREEN)
     assert fake.run() == []
-    assert any("/check-runs" in path for path in fake.gets)
+    assert read_check_runs(fake)
 
 
 def test_the_callers_pass_whether_their_own_checks_passed():
@@ -420,6 +466,47 @@ def test_nothing_to_change_reads_no_head():
     assert fake.run() == []
     assert "/repos/o/r/pulls/7" not in fake.gets
 
+
+
+def rest_check_reads(fake):
+    return [p for p in fake.gets if "/check-runs" in p or "/actions/jobs/" in p]
+
+
+def test_a_red_comparison_spends_no_rest_when_graphql_answers():
+    # The head's and base's runs in one query, the compared runs' steps and annotations in a second: no REST read.
+    fake = FakeGitHub([run(RAC, "failure", id_=11)], [], base_runs=[run(RAC, "failure", id_=21)],
+                      steps={11: [failed("Test webviews")], 21: [failed("Test webviews")]})
+    line = checks_line(fake)
+    assert "base red: the same failure" in line, line
+    assert rest_check_reads(fake) == [], fake.gets
+    assert len(fake.check_queries) == 2, fake.check_queries
+    assert fake.check_queries[0]["withBase"] is True
+    assert sorted(fake.check_queries[1]["ids"]) == ["CR_11", "CR_21"]
+
+
+def test_graphql_errors_fall_back_to_the_same_rest_answer():
+    def fake(**kw):
+        return FakeGitHub([run(RAC, "failure", id_=11)], [], base_runs=[run(RAC, "failure", id_=21)],
+                          steps={11: [failed("Test webviews"), failed("Lint")], 21: [failed("Test webviews")]}, **kw)
+    over_graphql, over_rest = fake(), fake(graphql_checks=False)
+    assert checks_line(over_graphql) == checks_line(over_rest)
+    assert "NEW: step `Lint` passes on the base" in checks_line(fake())
+    assert rest_check_reads(over_graphql) == []
+    assert any("/check-runs" in p for p in over_rest.gets) and any("/actions/jobs/11" in p for p in over_rest.gets)
+
+
+def test_a_commit_with_more_runs_than_a_page_reads_them_over_rest():
+    fake = FakeGitHub([run(RAC, "failure", id_=11)], [], base_runs=[run(RAC, "success", id_=21)],
+                      steps={11: [failed("Test webviews")]}, more_pages=True)
+    assert "NEW: green on the base" in checks_line(fake)
+    assert any("/commits/" + "a" * 40 + "/check-runs" in p for p in fake.gets)
+    assert any("/commits/" + "b" * 40 + "/check-runs" in p for p in fake.gets)
+
+
+def test_a_green_pr_reads_its_runs_with_one_graphql_query():
+    fake = FakeGitHub([run(RAC, "success", id_=11)], [], base_runs=[run(RAC, "failure", id_=21)])
+    assert fake.run() == []
+    assert rest_check_reads(fake) == [] and len(fake.check_queries) == 1
 
 if __name__ == "__main__":
     import traceback
