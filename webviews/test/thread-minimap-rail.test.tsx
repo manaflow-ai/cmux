@@ -637,10 +637,13 @@ test("a bookmark shows as the tick's dot; the dot and the card toggle it; a prom
     await act(async () => cardButton().click());
     expect(tick(2).hasAttribute("data-bookmarked")).toBe(true);
     expect(tick(2).querySelector(".acpmux-minimap__dot")).not.toBeNull();
+    // Its spoken label says so: a row's kept label (TickList `labelOf`) follows its mark.
+    expect(tick(2).getAttribute("aria-label")).toBe("Message 3 of 8, bookmarked: Question 2");
     // The card shows it filled, and its button removes it.
     expect(cardButton().getAttribute("aria-pressed")).toBe("true");
     await act(async () => cardButton().click());
     expect(tick(2).hasAttribute("data-bookmarked")).toBe(false);
+    expect(tick(2).getAttribute("aria-label")).toBe("Message 3 of 8: Question 2");
     // A click on the dot's spot past a hovered tick toggles the mark and does not jump.
     const before = view.scroller.scrollTop;
     await enter(5);

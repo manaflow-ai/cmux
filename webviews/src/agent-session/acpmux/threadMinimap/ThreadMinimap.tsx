@@ -1506,6 +1506,15 @@ const TickList = memo(function TickList({
 }) {
   const t = useT();
   const marks = usePromptMarks(sessionId);
+  /// Each drawn row's spoken label, by its prompt, as last built. Every row the pointer crosses
+  /// renders the list, and each drawn row (about 115 on a tall rail) built its label again through
+  /// `t`, for the few rows the hover changes (Leo, 2026-11-04: "hovering across the session rail gets
+  /// a bit laggy ... it needs to get faster"). A row whose place, count and mark are unchanged keeps
+  /// it; a change of language starts over.
+  const labels = useMemo(
+    () => (void t, new WeakMap<MinimapTickRow, { index: number; count: number; marked: boolean; label: string }>()),
+    [t],
+  );
   // An entrance belongs to a logical prompt, not each virtualized DOM mount. Only
   // prompts appended later enter. Initial history paints at its final geometry, as it does on
   // subsequent virtualized mounts. Prepending history introduces no animation.
@@ -1546,8 +1555,29 @@ const TickList = memo(function TickList({
   if (ticks.length > next) drawn.push(<Spacer key={`gap-${next}`} rows={ticks.length - next} />);
   return drawn;
 
+  function labelOf(tick: MinimapTickRow, index: number, marked: boolean): string {
+    const kept = labels.get(tick);
+    if (kept && kept.index === index && kept.count === ticks.length && kept.marked === marked) return kept.label;
+    const label =
+      tick.from !== undefined
+        ? t("minimap.tickFrom", {
+            index: index + 1,
+            count: ticks.length,
+            name: tick.from,
+            prompt: tick.members ? foldedTitle(t, tick.members.length) : tick.prompt,
+          })
+        : t(marked ? "minimap.tickBookmarked" : "minimap.tick", {
+            index: index + 1,
+            count: ticks.length,
+            prompt: tick.prompt,
+          });
+    labels.set(tick, { index, count: ticks.length, marked, label });
+    return label;
+  }
+
   function tickAt(index: number) {
     const tick = ticks.at(index)!;
+    const marked = marks.has(tick);
     // A list item that names its place among every prompt, drawn or not; it draws no box.
     return (
       <li key={tick.key} className="acpmux-minimap__entry" aria-posinset={index + 1} aria-setsize={ticks.length}>
@@ -1559,23 +1589,10 @@ const TickList = memo(function TickList({
           progress={hovered !== undefined ? tickProgress(index - hovered) : index === focused ? 1 : 0}
           active={index === active}
           current={index >= first && index <= last}
-          marked={marks.has(tick)}
+          marked={marked}
           incoming={tick.from !== undefined}
           describedBy={described === index ? cardId : undefined}
-          label={
-            tick.from !== undefined
-              ? t("minimap.tickFrom", {
-                  index: index + 1,
-                  count: ticks.length,
-                  name: tick.from,
-                  prompt: tick.members ? foldedTitle(t, tick.members.length) : tick.prompt,
-                })
-              : t(marks.has(tick) ? "minimap.tickBookmarked" : "minimap.tick", {
-                  index: index + 1,
-                  count: ticks.length,
-                  prompt: tick.prompt,
-                })
-          }
+          label={labelOf(tick, index, marked)}
           actions={actions}
         />
       </li>
