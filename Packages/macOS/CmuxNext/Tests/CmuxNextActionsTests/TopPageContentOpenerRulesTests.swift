@@ -39,13 +39,13 @@ struct TopPageContentOpenerRulesTests {
         for id in ["newTab.default", "newSurface", "splitRight", "closeTab"] as [ActionID] {
             registry.bind(id, invoke: { _ in ran.append(id) })
         }
-        registry.install(ActionTopPageRules(isShowing: { page.shown },
+        registry.install(ActionTopPageRules(isShowing: { page.shown }, canLeave: { !page.staysAfterLeave },
                                             leave: {
                                                 page.leaves += 1
                                                 page.leftInsideTiming.append(timing.isTiming)
                                                 if !page.staysAfterLeave { page.shown = false }
                                             },
-                                            noTabs: { "This page has no tabs." }))
+                                            noTabs: { "This page has no tabs." }, noPanes: { "This page has no panes." }))
         return (registry, { ran })
     }
 
