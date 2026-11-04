@@ -138,9 +138,10 @@ export function SentMessageLine({
 }) {
   const t = useT();
   const shape = useSyncExternalStore(subscribe, snapshot, snapshot);
-  // Stacked (the default, messageLineLook.ts): the line holds the verb, the recipient, the count and
-  // the chevron; the first line goes under it, on a line of its own. `quiet` draws no first line
-  // until the row opens. The arrow and quote shapes keep their one line.
+  // Single (the default, messageLineLook.ts): one line, the verb, the recipient, the count, the first
+  // line muted and cut, then the chevron. Stacked (a gallery version) puts the first line under it,
+  // on a line of its own; `quiet` draws no first line until the row opens. The arrow and quote shapes
+  // keep their one line.
   const lineLook = useMessageLineLook();
   const stacked = shape === "sentence" && lineLook !== "single";
   const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
