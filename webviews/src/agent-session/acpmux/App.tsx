@@ -8759,7 +8759,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [cloudStartKeys] = useState(() => makeCloudStartKeys());
   const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
   const composerHandle = useRef<ComposerHandle | null>(null);
-  const cloudSignInNewTabDraft = useRef<{ text: string; attachments: ComposerAttachment[] }>();
+  const cloudSignInNewTabDraft = useRef<{ text: string; attachments: ComposerAttachment[] } | undefined>(undefined);
   const cloudSignInDraftReader = useRef<() => { text: string; attachments: ComposerAttachment[] } | undefined>(
     () => composerHandle.current?.draft(),
   );
