@@ -429,9 +429,12 @@ public final class TerminalModel {
     /// Voice mode's prompt: the user's words typed into the terminal with
     /// Return, as the composer's send does, without touching the draft. Words
     /// for a Mac that can't take them now are dropped, never queued (D5).
-    public func sendVoicePrompt(_ text: String) {
-        guard connectionState.composerNotSentNotice == nil else { return }
-        controller?.surface.sendText(text, pressReturn: true, fullScreenApp: isTUI)
+    /// Returns false when nothing was typed.
+    @discardableResult
+    public func sendVoicePrompt(_ text: String) -> Bool {
+        guard connectionState.composerNotSentNotice == nil, let controller else { return false }
+        controller.surface.sendText(text, pressReturn: true, fullScreenApp: isTUI)
+        return true
     }
 
     public func sendWithoutReturn() {

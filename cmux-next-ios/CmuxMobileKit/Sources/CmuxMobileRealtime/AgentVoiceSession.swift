@@ -115,6 +115,13 @@ public final class AgentVoiceSession: Identifiable {
     @ObservationIgnored private var reading = false
     /// The text of the reading in flight, said again if the server refuses it.
     @ObservationIgnored private var inFlight: String?
+    /// The server started the reading in flight (`response.created`).
+    @ObservationIgnored private var inFlightStarted = false
+    /// The reading in flight was refused once already: a second refusal drops it.
+    @ObservationIgnored private var inFlightRetried = false
+    /// A reading cut off by the user's voice: said again when what followed was
+    /// only noise (a cough, a transcript of nothing); dropped when the user spoke.
+    @ObservationIgnored private var interrupted: String?
     @ObservationIgnored private var retriedServerError = false
     @ObservationIgnored private var triedTranscriptionFallback = false
 
@@ -184,6 +191,8 @@ public final class AgentVoiceSession: Identifiable {
     public func skip() {
         guard isLive else { return }
         queue.removeAll()
+        inFlight = nil
+        interrupted = nil
         if reading { link.send(RealtimeClientEvent.responseCancel.data) }
         link.send(RealtimeClientEvent.outputAudioClear.data)
         agentSpeaking = false
@@ -218,11 +227,19 @@ public final class AgentVoiceSession: Identifiable {
         case let .userTranscriptDelta(itemID, delta):
             upsert(itemID, role: .you, append: delta, final: false)
         case let .userTranscriptDone(itemID, transcript):
-            upsert(itemID, role: .you, replace: transcript, final: true)
             let said = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !said.isEmpty { onUserSaid?(said) }
+            if Self.isNoise(said) {
+                // Never a prompt: transcription invents words from noise.
+                lines.removeAll { $0.id == itemID }
+                resumeInterrupted()
+            } else {
+                upsert(itemID, role: .you, replace: transcript, final: true)
+                interrupted = nil
+                onUserSaid?(said)
+            }
         case let .userTranscriptFailed(itemID):
             lines.removeAll { $0.id == itemID && $0.text.isEmpty }
+            resumeInterrupted()
         case let .assistantTranscriptDelta(itemID, delta):
             upsert(itemID, role: .agent, append: delta, final: false)
         case let .assistantTranscriptDone(itemID, transcript):
@@ -231,9 +248,13 @@ public final class AgentVoiceSession: Identifiable {
             agentSpeaking = true
         case .outputAudioStopped, .outputAudioCleared:
             agentSpeaking = false
-        case .responseDone:
+        case let .responseDone(summary):
             reading = false
+            // Cut off by the user's voice (not by Skip, which clears inFlight first).
+            if summary.status == "cancelled", let text = inFlight { interrupted = text }
             inFlight = nil
+            inFlightRetried = false
+            inFlightStarted = false
             for index in lines.indices where lines[index].role == .agent && !lines[index].isFinal {
                 lines[index].isFinal = true
             }
@@ -244,11 +265,26 @@ public final class AgentVoiceSession: Identifiable {
                 reading = false
                 if let text = inFlight { queue.insert(text, at: 0) }
                 inFlight = nil
+                inFlightStarted = false
+            } else if reading, !inFlightStarted {
+                // Any other refusal of our reading (rate limit, invalid input) gets no
+                // response.done: free the line, retry the text once, go on with the queue.
+                reading = false
+                if let text = inFlight, !inFlightRetried {
+                    queue.insert(text, at: 0)
+                    inFlightRetried = true
+                } else {
+                    inFlightRetried = false
+                }
+                inFlight = nil
+                readNext()
             } else if info.param?.contains("transcription") == true, !triedTranscriptionFallback {
                 triedTranscriptionFallback = true
                 link.send(RealtimeClientEvent.transcriptionModel(VoiceCallSessionConfig.fallbackTranscriptionModel).data)
             }
-        case .responseCreated, .sessionCreated, .sessionUpdated, .other:
+        case .responseCreated:
+            if reading { inFlightStarted = true }
+        case .sessionCreated, .sessionUpdated, .other:
             break
         }
     }
@@ -261,7 +297,26 @@ public final class AgentVoiceSession: Identifiable {
         queue.removeAll()
         reading = true
         inFlight = text
+        inFlightStarted = false
         link.send(config.readEvent(text))
+    }
+
+    /// A reading cut off by noise goes back to the front of the queue.
+    private func resumeInterrupted() {
+        guard let text = interrupted else { return }
+        interrupted = nil
+        queue.insert(text, at: 0)
+        readNext()
+    }
+
+    /// What transcription makes of noise, never sent as a prompt: nothing, a
+    /// lone filler, or the phrases speech models invent from silence.
+    static func isNoise(_ text: String) -> Bool {
+        let folded = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+        guard folded.contains(where: \.isLetter) else { return true }
+        let invented: Set<String> = ["thank you", "thanks", "thanks for watching", "thank you for watching", "bye", "you",
+                                     "uh", "um", "hmm", "mm", "ah", "oh", "okay bye", "subtitles by the amaraorg community"]
+        return invented.contains(folded.replacingOccurrences(of: ".", with: ""))
     }
 
     private func upsert(_ itemID: String, role: AgentVoiceLine.Role, append: String? = nil, replace: String? = nil, final: Bool) {
@@ -302,8 +357,15 @@ public protocol AgentVoiceSource: AnyObject {
     /// Starts reporting what the agent says from now on (never earlier
     /// history), already as speakable text. Runs until the token goes.
     func startVoiceFeed(_ speak: @escaping @MainActor (String) -> Void) -> AgentVoiceFeed
-    /// The user's words as a prompt to the agent.
-    func sendVoicePrompt(_ text: String)
+    /// Whether voice mode is offered now (a terminal only while an agent runs in it).
+    var voiceAvailable: Bool { get }
+    /// The user's words as a prompt to the agent. Returns nil when sent, or
+    /// what to tell the user when it was not (it is read aloud).
+    func sendVoicePrompt(_ text: String) -> String?
+}
+
+public extension AgentVoiceSource {
+    var voiceAvailable: Bool { true }
 }
 
 /// Keeps a voice feed running; cancelling (or dropping) it stops the feed.

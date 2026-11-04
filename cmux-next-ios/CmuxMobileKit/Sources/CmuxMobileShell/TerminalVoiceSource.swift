@@ -2,6 +2,7 @@
 import CmuxAgentQuestion
 import CmuxMobileAgentChat
 import CmuxMobileFeed
+import CmuxMobileModel
 import CmuxMobileRealtime
 import CmuxMobileTerminal
 import Foundation
@@ -10,24 +11,33 @@ import Observation
 /// Voice mode on a terminal agent (Claude Code, Codex in a terminal): its
 /// replies, questions, permission requests and finishes come from the
 /// tab's Feed events, the same ones the Feed shows, filtered for the ear;
-/// the user's words are typed into the terminal with Return.
+/// the user's words are typed into the terminal with Return. Offered only
+/// while an agent runs in the tab: in a plain shell, typed speech would run
+/// as a command. Never typed while the agent shows a permission request or a
+/// question, where Return would pick its highlighted choice.
 @MainActor
 final class TerminalVoiceSource: AgentVoiceSource {
     let voiceSourceID: String
-    let voiceAgentName: String
     private let workspaceID: String
     private let tabID: String
     private let feed: FeedStore
-    private weak var model: TerminalModel?
+    /// The tab as the shell has it now (its harness appears when an agent starts).
+    private let currentTab: @MainActor () -> WorkspaceTab?
+    /// The tab's terminal now: a reconnect builds a new model for the same tab.
+    private let currentModel: @MainActor () -> TerminalModel?
 
-    init(macID: String, workspaceID: String, tabID: String, agentName: String, feed: FeedStore, model: TerminalModel) {
+    init(macID: String, workspaceID: String, tabID: String, feed: FeedStore,
+         currentTab: @escaping @MainActor () -> WorkspaceTab?, currentModel: @escaping @MainActor () -> TerminalModel?) {
         voiceSourceID = "terminal:\(macID):\(tabID)"
-        voiceAgentName = agentName
         self.workspaceID = workspaceID
         self.tabID = tabID
         self.feed = feed
-        self.model = model
+        self.currentTab = currentTab
+        self.currentModel = currentModel
     }
+
+    var voiceAvailable: Bool { currentTab()?.harness != nil }
+    var voiceAgentName: String { currentTab().map { $0.harness != nil ? $0.agentName : $0.title } ?? "Agent" }
 
     func startVoiceFeed(_ speak: @escaping @MainActor (String) -> Void) -> AgentVoiceFeed {
         let follower = Follower(feed: feed, tracker: TerminalVoiceTracker(workspaceID: workspaceID, tabID: tabID), speak: speak)
@@ -35,8 +45,20 @@ final class TerminalVoiceSource: AgentVoiceSource {
         return AgentVoiceFeed { follower.active = false }
     }
 
-    func sendVoicePrompt(_ text: String) {
-        model?.sendVoicePrompt(text)
+    func sendVoicePrompt(_ text: String) -> String? {
+        guard voiceAvailable else { return String(localized: "Not sent: no agent is running in this terminal.") }
+        let waiting = feed.items.contains { item in
+            guard item.tabID == tabID, item.workspaceID == workspaceID, !item.isDone, item.resolution == nil else { return false }
+            switch item.kind {
+            case .permission, .question: return true
+            default: return false
+            }
+        }
+        if waiting { return String(localized: "Not sent: answer the agent's question on screen first.") }
+        guard let model = currentModel(), model.sendVoicePrompt(text) else {
+            return String(localized: "Not sent: the Mac isn't connected.")
+        }
+        return nil
     }
 
     /// Re-armed on every change of the Feed (event driven, no polling).
@@ -78,6 +100,9 @@ struct TerminalVoiceTracker {
     let tabID: String
     var speech = AgentVoiceSpeech()
     private(set) var seen: Set<String> = []
+    /// When voice mode started: an older event merged in later (history after
+    /// a reconnect) is not news.
+    private(set) var startedAt = Date.distantPast
     /// The last thing said: a finish that repeats the reply before it is not said twice.
     private(set) var lastSaid: String?
 
@@ -87,13 +112,17 @@ struct TerminalVoiceTracker {
     }
 
     /// Everything in the Feed now counts as heard.
-    mutating func baseline(_ items: [FeedItem]) {
+    mutating func baseline(_ items: [FeedItem], now: Date = Date()) {
         seen.formUnion(items.map(\.id))
+        startedAt = now
     }
 
     mutating func newSpeech(in items: [FeedItem]) -> [String] {
         // The Feed is newest first; speak oldest first.
-        let fresh = items.filter { !seen.contains($0.id) && $0.tabID == tabID && $0.workspaceID == workspaceID }
+        let fresh = items.filter {
+            !seen.contains($0.id) && $0.tabID == tabID && $0.workspaceID == workspaceID
+                && $0.createdAt >= startedAt.addingTimeInterval(-5) && !$0.isDone && $0.resolution == nil
+        }
             .sorted { $0.createdAt < $1.createdAt }
         seen.formUnion(items.filter { $0.tabID == tabID && $0.workspaceID == workspaceID }.map(\.id))
         var out: [String] = []

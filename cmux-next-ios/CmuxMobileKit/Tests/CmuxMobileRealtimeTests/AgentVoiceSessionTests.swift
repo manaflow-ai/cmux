@@ -140,3 +140,64 @@ func readings(_ link: FakeLink) -> [String] {
         #expect(readings(link) == ["Early words."])
     }
 }
+
+/// The review's findings (2026-11-03), each kept from coming back.
+@MainActor
+@Suite struct AgentVoiceSessionRecoveryTests {
+    @Test func noiseIsNeverSentAsAPrompt() async {
+        let link = FakeLink()
+        let session = await liveVoice(link)
+        var prompts: [String] = []
+        session.onUserSaid = { prompts.append($0) }
+        for (index, noise) in ["Thank you.", "  ", "Bye!", "Hmm…", "you"].enumerated() {
+            link.deliver(#"{"type":"conversation.item.input_audio_transcription.completed","item_id":"n\#(index)","transcript":"\#(noise)"}"#)
+        }
+        link.deliver(#"{"type":"conversation.item.input_audio_transcription.completed","item_id":"u1","transcript":"Yes, go ahead."}"#)
+        await settle()
+        #expect(prompts == ["Yes, go ahead."])
+        #expect(session.lines.map(\.id) == ["u1"])
+    }
+
+    @Test func aReadingRefusedForAnotherReasonDoesNotStallVoiceMode() async {
+        let link = FakeLink()
+        let session = await liveVoice(link)
+        session.relay("First.")
+        session.relay("Second.")
+        // A rate limit refuses our response.create: no response.created, no response.done.
+        link.deliver(#"{"type":"error","error":{"code":"rate_limit_exceeded","message":"slow down"}}"#)
+        await settle()
+        // Retried once, with what was queued behind it.
+        #expect(readings(link) == ["First.", "First.\n\nSecond."])
+        link.deliver(#"{"type":"error","error":{"code":"rate_limit_exceeded","message":"slow down"}}"#)
+        await settle()
+        // Refused again: dropped, and voice mode goes on with what comes next.
+        session.relay("Third.")
+        #expect(readings(link).last == "Third.")
+    }
+
+    @Test func aReadingCutOffByNoiseIsSaidAgain() async {
+        let link = FakeLink()
+        let session = await liveVoice(link)
+        session.relay("Needs your permission: Run make.")
+        link.deliver(#"{"type":"response.created","response":{"id":"r1"}}"#)
+        link.deliver(#"{"type":"input_audio_buffer.speech_started","item_id":"c1"}"#)
+        link.deliver(#"{"type":"response.done","response":{"status":"cancelled","output":[]}}"#)
+        link.deliver(#"{"type":"input_audio_buffer.speech_stopped","item_id":"c1"}"#)
+        link.deliver(#"{"type":"conversation.item.input_audio_transcription.completed","item_id":"c1","transcript":"Hmm."}"#)
+        await settle()
+        #expect(readings(link) == ["Needs your permission: Run make.", "Needs your permission: Run make."])
+    }
+
+    @Test func aReadingCutOffByARealPromptIsNotRepeated() async {
+        let link = FakeLink()
+        let session = await liveVoice(link)
+        session.relay("Here is a long answer.")
+        link.deliver(#"{"type":"response.created","response":{"id":"r1"}}"#)
+        link.deliver(#"{"type":"input_audio_buffer.speech_started","item_id":"u1"}"#)
+        link.deliver(#"{"type":"response.done","response":{"status":"cancelled","output":[]}}"#)
+        link.deliver(#"{"type":"input_audio_buffer.speech_stopped","item_id":"u1"}"#)
+        link.deliver(#"{"type":"conversation.item.input_audio_transcription.completed","item_id":"u1","transcript":"Stop, do the other thing."}"#)
+        await settle()
+        #expect(readings(link) == ["Here is a long answer."])
+    }
+}

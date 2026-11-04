@@ -11,6 +11,7 @@ enum AgentVoiceText {
     }
     static var idle: String { String(localized: "voiceMode.status.idle", defaultValue: "Reading new replies aloud", bundle: .module) }
     static var end: String { String(localized: "voiceMode.button.end", defaultValue: "End Voice Mode", bundle: .module) }
+    static var sessionGone: String { String(localized: "voiceMode.notSent.gone", defaultValue: "Not sent: this session is closed.", bundle: .module) }
     static var unmute: String { String(localized: "voiceMode.button.unmute", defaultValue: "Unmute", bundle: .module) }
 }
 

@@ -26,6 +26,8 @@ public final class AgentVoiceMode {
     @ObservationIgnored private let keys: OpenAIKeyModel
     @ObservationIgnored private let preferences: VoiceCallPreferences
     @ObservationIgnored private let launcher: AgentVoiceLauncher
+    /// The session voice mode talks to; released on stop, so a closed chat's
+    /// store is not kept alive (a failed run keeps it for Try Again).
     @ObservationIgnored private var source: (any AgentVoiceSource)?
     @ObservationIgnored private var feed: AgentVoiceFeed?
     @ObservationIgnored private var accountID: String?
@@ -67,14 +69,24 @@ public final class AgentVoiceMode {
         let link: any VoiceCallLink = demo ?? WebRTCVoiceCallLink(
             apiKey: keys.key() ?? "", safetyIdentifier: accountID.map(Self.safetyIdentifier))
         let session = AgentVoiceSession(link: link, config: config)
-        session.onUserSaid = { [weak source] text in source?.sendVoicePrompt(text) }
+        session.onUserSaid = { [weak source, weak session] text in
+            // Not sent (the Mac is offline, a permission is open): say why, never retry it later.
+            guard let source else {
+                session?.relay(AgentVoiceText.sessionGone)
+                return
+            }
+            if let refusal = source.sendVoicePrompt(text) { session?.relay(refusal) }
+        }
         session.onEnd = { [weak self, weak session] failure in
             guard let self, let session, self.session === session else { return }
             self.feed?.cancel()
             self.feed = nil
             self.launcher.activeSourceID = nil
             // A failure stays on the bar (what happened, Settings or Try Again); a clean end closes it.
-            if failure == nil { self.session = nil }
+            if failure == nil {
+                self.session = nil
+                self.source = nil
+            }
         }
         self.source = source
         self.session = session
@@ -94,6 +106,7 @@ public final class AgentVoiceMode {
     public func stop() {
         feed?.cancel()
         feed = nil
+        source = nil
         let session = session
         self.session = nil
         session?.end()

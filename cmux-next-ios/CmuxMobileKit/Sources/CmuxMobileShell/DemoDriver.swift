@@ -176,6 +176,11 @@ struct DemoDriver {
             shell.tab = .home
             shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
         case "voice-terminal":
+            // Codex running in the zsh tab: voice mode is offered only while an agent runs there.
+            if let w = shell.store.workspaces.firstIndex(where: { $0.id == "ws-cmux" }),
+               let t = shell.store.workspaces[w].tabs.firstIndex(where: { $0.id == "t-zsh" }) {
+                shell.store.workspaces[w].tabs[t].harness = "codex"
+            }
             shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
             shell.tab = .workspaces
             await pause(1.0)

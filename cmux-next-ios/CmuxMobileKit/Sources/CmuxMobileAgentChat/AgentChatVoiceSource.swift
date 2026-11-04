@@ -57,8 +57,9 @@ public final class AgentChatVoiceSource: AgentVoiceSource {
         }
     }
 
-    public func sendVoicePrompt(_ text: String) {
+    public func sendVoicePrompt(_ text: String) -> String? {
         store.send(prompt: text)
+        return nil
     }
 }
 

@@ -60,7 +60,7 @@ struct TerminalComposer: View {
             GlassEffectContainer(spacing: 0) {
                 HStack(alignment: .bottom, spacing: 8) {
                     if model.attachmentsAvailable { attachMenu }
-                    if let source = model.voiceSource, voice.isAvailable { voiceButton(source) }
+                    if let source = model.voiceSource, source.voiceAvailable, voice.isAvailable { voiceButton(source) }
                     fieldContainer
                 }
             }
