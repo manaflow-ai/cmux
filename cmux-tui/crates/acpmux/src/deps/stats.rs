@@ -189,8 +189,8 @@ impl Stats {
 
     /// Restore, or install cold, from the uploader's record when this machine has none of its own.
     pub fn choose_from(&self, key: &str, meta_cold_ms: u64, archive_bytes: u64) -> Choice {
-        let expected_ms = self.expected_restore_ms(archive_bytes)
-            + self.after_restore_ms(key, meta_cold_ms);
+        let expected_ms =
+            self.expected_restore_ms(archive_bytes) + self.after_restore_ms(key, meta_cold_ms);
         if expected_ms >= meta_cold_ms {
             Choice::Cold { cold_ms: meta_cold_ms, expected_ms }
         } else {
@@ -295,8 +295,9 @@ mod tests {
         assert!(s.too_slow("bun-x", 5_000, 10 * MB, 200 * MB, 1_000));
         // 100 MB of 200 MB in 1 s: 1 s more, 0.7 s to unpack, 0.25 s to install.
         assert!(!s.too_slow("bun-x", 5_000, 100 * MB, 200 * MB, 1_000));
-        // Cargo's offline fetch (65% of 5 s) tips the same download over.
-        assert!(s.too_slow("cargo-x", 5_000, 100 * MB, 200 * MB, 1_000));
+        // Against a 3 s cold Cargo fetch, its offline fetch (65%) tips that download over.
+        assert!(s.too_slow("cargo-x", 3_000, 100 * MB, 200 * MB, 1_000));
+        assert!(!s.too_slow("bun-x", 3_000, 100 * MB, 200 * MB, 1_000));
     }
 
     #[test]
