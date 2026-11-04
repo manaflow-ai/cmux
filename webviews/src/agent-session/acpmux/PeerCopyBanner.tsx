@@ -17,10 +17,10 @@ import { pausedMachineResume } from "./pausedMachine.experiment";
 /// so with a spinner, instead of "offline" (cmuxterm-hq#4755).
 ///
 /// A Cloud machine pauses on its own, between tool calls too, so the banner stays out of sight at
-/// first: it shows only once the machine has been away for RESUME_NOTE_DELAY_MS (afterDelay.ts), and
-/// it floats over the top of the transcript in a slot of no height, so neither its arrival nor its
-/// leaving moves a row. By then the account's machine list has been read, so a paused machine never
-/// reads "offline" first.
+/// first: it shows only once the machine has been away for RESUME_NOTE_DELAY_MS (afterDelay.ts), so a
+/// quick pause and resume draws nothing. By then the account's machine list has been read, so a paused
+/// machine never reads "offline" first. It stays in the column above the transcript (never over it),
+/// so every row stays in reach; a chat followed to its end keeps its last rows where they were.
 export function PeerCopyBanner(props: Parameters<typeof PeerCopyBannerBody>[0] & { noteDelayMs?: number }) {
   const { noteDelayMs = RESUME_NOTE_DELAY_MS, ...body } = props;
   const shown = useAfterDelay(true, noteDelayMs);
