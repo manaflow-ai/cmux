@@ -131,4 +131,20 @@ import Testing
         #expect(entries.allSatisfy { $0.replyThread == nil })
         #expect(entries[2].isLastInRun && entries[3].isFirstInRun)
     }
+
+    /// "Table for four" answers "Sounds good", itself a reply to "Let me know
+    /// by five": Messages quotes the root, "Let me know by five".
+    @Test func aReplyToAReplyQuotesTheThreadsRoot() {
+        let messages = [
+            message(1, "kate", minute: 0),
+            message(2, "me", minute: 1, replyTo: "m1"),
+            message(3, "me", minute: 2, replyTo: "m2"),
+        ]
+        let byID = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
+        #expect(ConversationRunPlan.threadRoot(of: "m2") { byID[$0] }?.id == "m1")
+        #expect(ConversationRunPlan.threadRoot(of: "m1") { byID[$0] }?.id == "m1")
+        // A root that is not loaded leaves the oldest loaded message of the chain.
+        #expect(ConversationRunPlan.threadRoot(of: "m3") { $0 == "m1" ? nil : byID[$0] }?.id == "m2")
+        #expect(ConversationRunPlan.threadRoot(of: "gone") { byID[$0] } == nil)
+    }
 }

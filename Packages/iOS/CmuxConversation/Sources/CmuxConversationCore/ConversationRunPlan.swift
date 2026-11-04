@@ -193,6 +193,18 @@ public struct ConversationRunPlan: Sendable, Equatable {
 
     /// The thread link of `message` under `previous`, given the link of
     /// `previous` itself. A timestamp section between them starts a new block.
+    /// The message the thread of a reply to `id` started from. Messages keeps
+    /// one flat thread per root, so a reply to a reply quotes the root.
+    public static func threadRoot(of id: String, message: (String) -> ConversationMessage?) -> ConversationMessage? {
+        guard var root = message(id) else { return nil }
+        // A chain of replies is short; the bound stops a cycle in bad data.
+        for _ in 0..<64 {
+            guard let up = root.replyToID, let parent = message(up) else { break }
+            root = parent
+        }
+        return root
+    }
+
     static func threadLink(of message: ConversationMessage, previous: ConversationMessage, previousLink: ThreadLink) -> ThreadLink {
         guard let root = message.replyToID, !message.isUnsent, !message.isSystemEvent else { return .none }
         guard !previous.isUnsent, !previous.isSystemEvent, message.sentAt.timeIntervalSince(previous.sentAt) < timestampGap else { return .quoted }

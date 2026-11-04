@@ -500,7 +500,7 @@ enum ConversationRowBuilder {
         // Only a block's first reply quotes the thread's root (Messages): a
         // reply right under the message it answers, or one joining the block
         // above it, shows none.
-        let quote: ReplyQuote? = entry.replyThread?.showsQuote != true ? nil : message.replyToID.flatMap { store.message(id: $0) }.map {
+        let quote: ReplyQuote? = entry.replyThread?.showsQuote != true ? nil : message.replyToID.flatMap { ConversationRunPlan.threadRoot(of: $0, message: store.message(id:)) }.map {
             ReplyQuote(text: $0.text.isEmpty ? ($0.audioAttachment != nil ? AudioMessageStrings.audioMessage : String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module)) : $0.text, isOutgoing: $0.senderID == meID, hasImage: !$0.attachments.isEmpty, replyCount: $0.replyCount)
         }
         rows.append(.message(PollRowModel.attach(to: MessageRowModel(
