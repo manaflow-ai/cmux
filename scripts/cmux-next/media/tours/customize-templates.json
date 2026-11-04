@@ -1,0 +1,193 @@
+{
+  "title": "Customize app templates",
+  "customize": true,
+  "settings": {
+    "actions": {
+      "tests": {
+        "type": "command",
+        "command": "echo running tests",
+        "title": "Run tests",
+        "target": "newTabInCurrentPane"
+      },
+      "dev-server": {
+        "type": "command",
+        "command": "echo starting the dev server",
+        "title": "Start dev server",
+        "target": "newTabInCurrentPane"
+      },
+      "git-status": {
+        "type": "command",
+        "command": "echo git status",
+        "title": "Git status",
+        "target": "currentTerminal"
+      }
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Tour"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Show the Tour workspace",
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "focus"
+      ],
+      "shot": false
+    },
+    {
+      "title": "starter: saving the folder installs the app; its section appears in the band under the workspaces",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && echo Ly8gVGhlIGN1c3RvbWl6ZSBhcHAncyBzY3JpcHQ6IGEgY2xhc3NpYyBzY3JpcHQsIG5vdCBhIG1vZHVsZSAobm8gaW1wb3J0IG9yIGV4cG9ydCkuCi8vIFRoZSBzY2VuZSBnbG9iYWxzIChWU3RhY2ssIFBhbmVsLCBSb3csIEJ1dHRvbiwgVG9nZ2xlLCBUZXh0LCBzaWduYWwsIGNvbXB1dGVkLCBjbXV4LCAuLi4pCi8vIGFyZSBhbHJlYWR5IGRlZmluZWQuIGNtdXggcmVsb2FkcyB0aGlzIGZpbGUgZXZlcnkgdGltZSBpdCBpcyBzYXZlZC4KCi8vIFN0YXRlIGxpdmVzIGluIHNpZ25hbHM7IGEgdmlldyB0aGF0IHJlYWRzIG9uZSByZWRyYXdzIHdoZW4gaXQgY2hhbmdlcy4KY29uc3QgW2NvdW50LCBzZXRDb3VudF0gPSBzaWduYWwoMCkKCi8vIE9uZSByZW5kZXIgZnVuY3Rpb24gcGVyIGltcGxlbWVudGF0aW9uIGluIGNtdXgtYXBwLmpzb24gKGl0cyAiZXhwb3J0IikuCmZ1bmN0aW9uIHJlbmRlclNlY3Rpb24oKSB7CiAgcmV0dXJuIFZTdGFjayhbCiAgICBQYW5lbCh7IHRpdGxlOiAiSGVsbG8iIH0sIFsKICAgICAgVGV4dCgoKSA9PiBgQ2xpY2tlZCAke2NvdW50KCl9IHRpbWVzYCkuZm9udCgiaGVhZGxpbmUiKSwKICAgICAgSFN0YWNrKFsKICAgICAgICBCdXR0b24oIkNsaWNrIiwgKCkgPT4gc2V0Q291bnQoKG4pID0+IG4gKyAxKSksCiAgICAgICAgU3BhY2VyKCksCiAgICAgICAgQnV0dG9uKCJTYXkgaGkiLCAoKSA9PiBjbXV4LnRvYXN0KHsgdGl0bGU6ICJIaSBmcm9tIG15IHNlY3Rpb24iLCB0b25lOiAic3VjY2VzcyIgfSkpCiAgICAgIF0pCiAgICBdKSwKICAgIFJvdyh7IHRpdGxlOiAiRWRpdCB+Ly5jb25maWcvY211eC9jdXN0b21pemUvbWFpbi5qcyIsIHN5bWJvbDogInBlbmNpbCIsIHRpbnQ6IGNtdXgudGhlbWUudGV4dC5zZWNvbmRhcnkgfSkKICBdKQp9CgovLyBIYW5kIGV2ZXJ5IHJlbmRlciBmdW5jdGlvbiB0byBjbXV4LCBvbmNlLCBpbiBvbmUgb2JqZWN0LgpnbG9iYWxUaGlzLl9fY211eEFwcEV4cG9ydHMgPSB7IHJlbmRlclNlY3Rpb24gfQo= | base64 -d > \"$D/main.js\" && echo ewogICIkc2NoZW1hIjogImh0dHBzOi8vY211eC5kZXYvc2NoZW1hcy9jbXV4LWFwcC8yLmpzb24iLAogICJtYW5pZmVzdFZlcnNpb24iOiAyLAogICJpZCI6ICJsb2NhbC9jdXN0b21pemUiLAogICJuYW1lIjogIk15IHZpZXdzIiwKICAidmVyc2lvbiI6ICIxLjAuMCIsCiAgImRlc2NyaXB0aW9uIjogIkEgc3RhcnRpbmcgcG9pbnQ6IG9uZSBzaWRlYmFyIHNlY3Rpb24gYnVpbHQgZnJvbSB0aGUga2l0LiIsCiAgImVuZ2luZXMiOiB7ICJjbXV4IjogIl4yLjAiIH0sCiAgInJ1bnRpbWUiOiB7ICJtYWluIjogIm1haW4uanMiIH0sCiAgImltcGxlbWVudHMiOiB7CiAgICAiY211eC5zZWN0aW9uLzEiOiB7CiAgICAgICJleHBvcnQiOiAicmVuZGVyU2VjdGlvbiIsCiAgICAgICJ0aXRsZSI6ICJNeSBzZWN0aW9uIiwKICAgICAgInN5bWJvbCI6ICJzcGFya2xlcyIsCiAgICAgICJvcHRpb25zIjogeyAiZGVmYXVsdFJlZ2lvbiI6ICJib3R0b20iIH0KICAgIH0KICB9Cn0K | base64 -d > \"$D/cmux-app.json\" && echo saved starter\r"
+      ],
+      "wait": 6
+    },
+    {
+      "title": "sidebar-section: the focused workspace's tabs, the focused one selected",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && echo Ly8gQSBzaWRlYmFyIHNlY3Rpb24gdGhhdCBmb2xsb3dzIHRoZSB3b3Jrc3BhY2UgeW91IGFyZSBpbjogaXRzIG5hbWUgYW5kIGl0cyB0YWJzLCB0aGUKLy8gZm9jdXNlZCB0YWIgc2VsZWN0ZWQuIEl0IHJlYWRzIHdpdGggd29ya3NwYWNlOnJlYWQgKGdyYW50ZWQgYXQgaW5zdGFsbCkgYW5kIHJlZHJhd3Mgb24KLy8gZXZlcnkgd29ya3NwYWNlIG9yIHRhYiBjaGFuZ2UuIEEgY2xpY2sgZm9jdXNlcyB0aGUgdGFiIG9uY2Ugd29ya3NwYWNlOndyaXRlIGlzIG9uIGluCi8vIFNldHRpbmdzID4gQXBwcyA+IE15IHZpZXdzLgoKY29uc3QgW3ZpZXcsIHNldFZpZXddID0gc2lnbmFsKG51bGwpIC8vIHsgd29ya3NwYWNlLCB0YWJzIH0gb2YgdGhlIGZvY3VzZWQgd29ya3NwYWNlCmNvbnN0IFtlcnJvciwgc2V0RXJyb3JdID0gc2lnbmFsKG51bGwpCgpjb25zdCBzeW1ib2xPZiA9IChraW5kKSA9PiAoa2luZCA9PT0gImJyb3dzZXIiID8gImdsb2JlIiA6IGtpbmQgPT09ICJjb252ZXJzYXRpb24iID8gImJ1YmJsZS5sZWZ0IiA6ICJ0ZXJtaW5hbCIpCgovLyBBIGJ1cnN0IG9mIGNoYW5nZSBldmVudHMgY29zdHMgYXQgbW9zdCB0d28gcmVhZHM6IG9uZSBydW5uaW5nLCBvbmUgYWZ0ZXIgaXQuCmxldCByZWFkaW5nID0gZmFsc2UKbGV0IGFnYWluID0gZmFsc2UKYXN5bmMgZnVuY3Rpb24gbG9hZCgpIHsKICBpZiAocmVhZGluZykgewogICAgYWdhaW4gPSB0cnVlCiAgICByZXR1cm4KICB9CiAgcmVhZGluZyA9IHRydWUKICB0cnkgewogICAgY29uc3Qgd29ya3NwYWNlcyA9IGF3YWl0IGNtdXgud29ya3NwYWNlLmxpc3Qoe30pCiAgICBjb25zdCB3b3Jrc3BhY2UgPSB3b3Jrc3BhY2VzLmZpbmQoKHcpID0+IHcuZm9jdXNlZCkgfHwgd29ya3NwYWNlc1swXSB8fCBudWxsCiAgICBjb25zdCB0YWJzID0gd29ya3NwYWNlID8gYXdhaXQgY211eC50YWIubGlzdCh7IHdvcmtzcGFjZTogd29ya3NwYWNlLmlkIH0pIDogW10KICAgIHNldFZpZXcoeyB3b3Jrc3BhY2UsIHRhYnMgfSkKICAgIHNldEVycm9yKG51bGwpCiAgfSBjYXRjaCAoZSkgewogICAgc2V0RXJyb3IoZSBpbnN0YW5jZW9mIEVycm9yID8gZS5tZXNzYWdlIDogU3RyaW5nKGUpKQogIH0gZmluYWxseSB7CiAgICByZWFkaW5nID0gZmFsc2UKICAgIGlmIChhZ2FpbikgewogICAgICBhZ2FpbiA9IGZhbHNlCiAgICAgIGxvYWQoKQogICAgfQogIH0KfQoKYXN5bmMgZnVuY3Rpb24gZm9jdXModGFiKSB7CiAgdHJ5IHsKICAgIGF3YWl0IGNtdXgudGFiLmZvY3VzKHsgdGFiOiB0YWIuaWQgfSkKICB9IGNhdGNoIChlKSB7CiAgICBjbXV4LnRvYXN0KHsgdGl0bGU6ICJDYW5ub3QgZm9jdXMgdGhlIHRhYiIsIG1lc3NhZ2U6IGUgaW5zdGFuY2VvZiBFcnJvciA/IGUubWVzc2FnZSA6IFN0cmluZyhlKSwgdG9uZTogIndhcm5pbmciIH0pCiAgfQp9CgpmdW5jdGlvbiByZW5kZXJXb3Jrc3BhY2UoKSB7CiAgbG9hZCgpCiAgZm9yIChjb25zdCBzdHJlYW0gb2YgWyJ3b3Jrc3BhY2UuY2hhbmdlZCIsICJ0YWIuY2hhbmdlZCJdKSBjbXV4LmV2ZW50cy5vbihzdHJlYW0sIGxvYWQpCiAgY29uc3QgdGFicyA9IGNvbXB1dGVkKCgpID0+ICh2aWV3KCkgPyB2aWV3KCkudGFicyA6IFtdKSkKICByZXR1cm4gVlN0YWNrKHsgc3BhY2luZzogMiB9LCBbCiAgICBUZXh0KCgpID0+ICh2aWV3KCkgJiYgdmlldygpLndvcmtzcGFjZSA/IHZpZXcoKS53b3Jrc3BhY2UubmFtZSA6ICIiKSkuZm9udCgiaGVhZGxpbmUiKSwKICAgIEZvckVhY2goeyBpdGVtczogdGFicywga2V5OiAodCkgPT4gdC5pZCB9LCAodCkgPT4KICAgICAgUm93KHsKICAgICAgICB0aXRsZTogKCkgPT4gdCgpLm5hbWUgfHwgdCgpLmNvbnRlbnRfa2luZCwKICAgICAgICBzeW1ib2w6ICgpID0+IHN5bWJvbE9mKHQoKS5jb250ZW50X2tpbmQpLAogICAgICAgIHNlbGVjdGVkOiAoKSA9PiB0KCkuZm9jdXNlZAogICAgICB9KS5vblRhcCgoKSA9PiBmb2N1cyh0KCkpKQogICAgKSwKICAgICgpID0+IChlcnJvcigpID8gRW1wdHlTdGF0ZSh7IHRpdGxlOiAiQ2Fubm90IHJlYWQgdGhlIHdvcmtzcGFjZSIsIG1lc3NhZ2U6IGVycm9yKCksIHN5bWJvbDogImV4Y2xhbWF0aW9ubWFyay50cmlhbmdsZSIgfSkgOiBudWxsKQogIF0pCn0KCmdsb2JhbFRoaXMuX19jbXV4QXBwRXhwb3J0cyA9IHsgcmVuZGVyV29ya3NwYWNlIH0K | base64 -d > \"$D/main.js\" && echo ewogICIkc2NoZW1hIjogImh0dHBzOi8vY211eC5kZXYvc2NoZW1hcy9jbXV4LWFwcC8yLmpzb24iLAogICJtYW5pZmVzdFZlcnNpb24iOiAyLAogICJpZCI6ICJsb2NhbC9jdXN0b21pemUiLAogICJuYW1lIjogIk15IHZpZXdzIiwKICAidmVyc2lvbiI6ICIxLjAuMCIsCiAgImRlc2NyaXB0aW9uIjogIlRoZSB0YWJzIG9mIHRoZSB3b3Jrc3BhY2UgeW91IGFyZSBpbiwgbGl2ZSwgaW4gdGhlIHNpZGViYXIuIiwKICAiZW5naW5lcyI6IHsgImNtdXgiOiAiXjIuMCIgfSwKICAicnVudGltZSI6IHsgIm1haW4iOiAibWFpbi5qcyIgfSwKICAiaW1wbGVtZW50cyI6IHsKICAgICJjbXV4LnNlY3Rpb24vMSI6IHsKICAgICAgImV4cG9ydCI6ICJyZW5kZXJXb3Jrc3BhY2UiLAogICAgICAidGl0bGUiOiAiVGhpcyB3b3Jrc3BhY2UiLAogICAgICAic3ltYm9sIjogInJlY3RhbmdsZS5zdGFjayIsCiAgICAgICJvcHRpb25zIjogeyAiZGVmYXVsdFJlZ2lvbiI6ICJib3R0b20iLCAibWF4Um93cyI6IDEyIH0KICAgIH0KICB9LAogICJzY29wZXMiOiB7CiAgICAid29ya3NwYWNlOnJlYWQiOiAiUmVhZCB0aGUgY3VycmVudCB3b3Jrc3BhY2UgYW5kIGl0cyB0YWJzLiIsCiAgICAid29ya3NwYWNlOndyaXRlIjogIkZvY3VzIGEgdGFiIHdoZW4geW91IGNsaWNrIGl0cyByb3cuIgogIH0KfQo= | base64 -d > \"$D/cmux-app.json\" && echo saved sidebar-section\r"
+      ],
+      "wait": 5
+    },
+    {
+      "title": "A new tab redraws the section",
+      "cmux": [
+        "action",
+        "run",
+        "newSurface"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Back to the first tab",
+      "cmux": [
+        "action",
+        "run",
+        "prevSurface"
+      ],
+      "shot": false
+    },
+    {
+      "title": "command-button: buttons for the actions in cmux-next.json",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && echo Ly8gQnV0dG9ucyB0aGF0IHJ1biB0aGUgcGVyc29uJ3Mgb3duIGFjdGlvbnMgZnJvbSB+Ly5jb25maWcvY211eC9jbXV4LW5leHQuanNvbi4gRWFjaCBhY3Rpb24KLy8gdGhlcmUgcmVnaXN0ZXJzIGFzIGBjbXV4Q29uZmlnLjxuYW1lPmAsIHNvIHRoZSBzYW1lIGNvbW1hbmQgaXMgYWxzbyBpbiB0aGUgQ29tbWFuZCBQYWxldHRlCi8vIGFuZCBjYW4gdGFrZSBhIHNob3J0Y3V0LiBDbGlja2luZyBuZWVkcyBhY3Rpb25zOnJ1biwgd2hpY2ggdGhlIHBlcnNvbiB0dXJucyBvbiBpbgovLyBTZXR0aW5ncyA+IEFwcHMgPiBNeSB2aWV3czsgdW50aWwgdGhlbiBhIGNsaWNrIHNob3dzIGEgdG9hc3QgdGhhdCBzYXlzIHNvLgoKLy8gT25lIGVudHJ5IHBlciBhY3Rpb24gaW4gY211eC1uZXh0Lmpzb24gImFjdGlvbnMiIChpdHMga2V5IGlzIHRoZSBuYW1lKS4KY29uc3QgY29tbWFuZHMgPSBbCiAgeyBuYW1lOiAidGVzdHMiLCB0aXRsZTogIlJ1biB0ZXN0cyIsIHN5bWJvbDogImNoZWNrbWFyay5zZWFsIiB9LAogIHsgbmFtZTogImRldi1zZXJ2ZXIiLCB0aXRsZTogIlN0YXJ0IGRldiBzZXJ2ZXIiLCBzeW1ib2w6ICJwbGF5IiB9LAogIHsgbmFtZTogImdpdC1zdGF0dXMiLCB0aXRsZTogIkdpdCBzdGF0dXMiLCBzeW1ib2w6ICJhcnJvdy50cmlhbmdsZS5icmFuY2giIH0KXQoKY29uc3QgW2xhc3QsIHNldExhc3RdID0gc2lnbmFsKG51bGwpIC8vIHRoZSBsYXN0IGNvbW1hbmQgcnVuLCBmb3IgdGhlIHJvdyB1bmRlciB0aGUgYnV0dG9ucwoKYXN5bmMgZnVuY3Rpb24gcnVuKGNvbW1hbmQpIHsKICB0cnkgewogICAgYXdhaXQgY211eC5hY3Rpb25zLnJ1bihgY211eENvbmZpZy4ke2NvbW1hbmQubmFtZX1gKQogICAgc2V0TGFzdChjb21tYW5kLnRpdGxlKQogIH0gY2F0Y2ggKGUpIHsKICAgIGNvbnN0IHNjb3BlT2ZmID0gZSAmJiBlLmNvZGUgPT09ICJzY29wZS5taXNzaW5nIgogICAgY211eC50b2FzdCh7CiAgICAgIHRpdGxlOiBzY29wZU9mZiA/ICJUdXJuIG9uIFJ1biBhY3Rpb25zIGZvciBNeSB2aWV3cyIgOiBgQ2Fubm90IHJ1biAke2NvbW1hbmQudGl0bGV9YCwKICAgICAgbWVzc2FnZTogc2NvcGVPZmYgPyAiU2V0dGluZ3MgPiBBcHBzID4gTXkgdmlld3MiIDogZSBpbnN0YW5jZW9mIEVycm9yID8gZS5tZXNzYWdlIDogU3RyaW5nKGUpLAogICAgICB0b25lOiAid2FybmluZyIKICAgIH0pCiAgfQp9CgpmdW5jdGlvbiByZW5kZXJDb21tYW5kcygpIHsKICByZXR1cm4gVlN0YWNrKFsKICAgIFBhbmVsKHsgdGl0bGU6ICJDb21tYW5kcyIgfSwgY29tbWFuZHMubWFwKChjb21tYW5kKSA9PiBCdXR0b24oY29tbWFuZC50aXRsZSwgKCkgPT4gcnVuKGNvbW1hbmQpKSkpLAogICAgKCkgPT4gKGxhc3QoKSA/IFJvdyh7IHRpdGxlOiAoKSA9PiBgUmFuICR7bGFzdCgpfWAsIHN5bWJvbDogImNoZWNrbWFyay5jaXJjbGUiLCB0aW50OiBjbXV4LnRoZW1lLnN1Y2Nlc3MgfSkgOiBudWxsKQogIF0pCn0KCmdsb2JhbFRoaXMuX19jbXV4QXBwRXhwb3J0cyA9IHsgcmVuZGVyQ29tbWFuZHMgfQo= | base64 -d > \"$D/main.js\" && echo ewogICIkc2NoZW1hIjogImh0dHBzOi8vY211eC5kZXYvc2NoZW1hcy9jbXV4LWFwcC8yLmpzb24iLAogICJtYW5pZmVzdFZlcnNpb24iOiAyLAogICJpZCI6ICJsb2NhbC9jdXN0b21pemUiLAogICJuYW1lIjogIk15IHZpZXdzIiwKICAidmVyc2lvbiI6ICIxLjAuMCIsCiAgImRlc2NyaXB0aW9uIjogIkJ1dHRvbnMgaW4gdGhlIHNpZGViYXIgdGhhdCBydW4gbXkgb3duIGNtdXgtbmV4dC5qc29uIGFjdGlvbnMuIiwKICAiZW5naW5lcyI6IHsgImNtdXgiOiAiXjIuMCIgfSwKICAicnVudGltZSI6IHsgIm1haW4iOiAibWFpbi5qcyIgfSwKICAiaW1wbGVtZW50cyI6IHsKICAgICJjbXV4LnNlY3Rpb24vMSI6IHsKICAgICAgImV4cG9ydCI6ICJyZW5kZXJDb21tYW5kcyIsCiAgICAgICJ0aXRsZSI6ICJDb21tYW5kcyIsCiAgICAgICJzeW1ib2wiOiAicGxheS5jaXJjbGUiLAogICAgICAib3B0aW9ucyI6IHsgImRlZmF1bHRSZWdpb24iOiAiYm90dG9tIiB9CiAgICB9CiAgfSwKICAic2NvcGVzIjogewogICAgImFjdGlvbnM6cnVuIjogIlJ1biB5b3VyIG93biBhY3Rpb25zIGZyb20gY211eC1uZXh0Lmpzb24gd2hlbiB5b3UgY2xpY2sgYSBidXR0b24uIgogIH0KfQo= | base64 -d > \"$D/cmux-app.json\" && echo saved command-button\r"
+      ],
+      "wait": 5
+    },
+    {
+      "title": "The same action from the CLI: cmux action run cmuxConfig.git-status",
+      "cmux": [
+        "action",
+        "run",
+        "cmuxConfig.git-status"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Save-to-pixels: twelve saves of main.js, each timed to the first changed window pixels",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; export CMUX_CUSTOMIZE_DIR=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; echo IyEvdXNyL2Jpbi9lbnYgcHl0aG9uMwoiIiJTYXZlLXRvLXBpeGVscyB0aW1lIG9mIHRoZSBjdXN0b21pemUgYXBwLCBtZWFzdXJlZCBpbnNpZGUgYSBydW5uaW5nIGNtdXguCgpSdW4gaW4gYSBjbXV4IHRlcm1pbmFsICh0aGUgYGN1c3RvbWl6ZS10ZW1wbGF0ZXNgIHRvdXIgdHlwZXMgaXQpOiBpdCBuZWVkcwpgQ01VWF9DVVNUT01JWkVfRElSYCAodGhlIGZvbGRlciB0aGUgYXBwJ3MgZGFlbW9uIHdhdGNoZXMpIGFuZApgQ01VWF9TT0NLRVRfUEFUSGAgKHRoZSBhcHAncyBjb250cm9sIHNvY2tldCwgd2hpY2ggZXZlcnkgY211eCB0ZXJtaW5hbCBoYXMpLgpFYWNoIHJvdW5kIHdyaXRlcyBgbWFpbi5qc2Agd2l0aCBhIG5ldyByZXZpc2lvbiBpbiB0aGUgc2lkZWJhciBzZWN0aW9uJ3MKdGV4dCwgdGhlIHdheSBhbiBlZGl0b3Igc2F2ZXMsIGFuZCB0aGVuIHJlYWRzIHRoZSBtYWluIHdpbmRvdyBhcyB0aGUgd2luZG93CnNlcnZlciBjb21wb3NpdGVkIGl0IChgZGVidWcud2luZG93X3NuYXBzaG90YCkgdW50aWwgaXRzIHBpeGVscyBjaGFuZ2UuIFRoZQp0aW1lIGZyb20gdGhlIGVuZCBvZiB0aGUgd3JpdGUgdG8gdGhlIGZpcnN0IGNoYW5nZWQgc25hcHNob3QgaXMgb25lIHNhbXBsZTsKYSBzbmFwc2hvdCB0YWtlcyBhIGZldyB0ZW5zIG9mIG1pbGxpc2Vjb25kcywgc28gZWFjaCBzYW1wbGUgaXMgYW4gdXBwZXIgYm91bmQKYnkgdXAgdG8gb25lIHNuYXBzaG90LiBJdCBwcmludHMgcDUwLCBwOTUgYW5kIG1heCwgYW5kIHdyaXRlcyB0aGVtIGFzCmByZWxvYWQtbGF0ZW5jeS5qc29uYCBiZXNpZGUgdGhpcyBzY3JpcHQsIG5ldmVyIGluc2lkZSB0aGUgd2F0Y2hlZCBmb2xkZXIncwpvd24gdHJlZTogdW5kZXIgYSB0b3VyIHRoYXQgdHJlZSBpcyB0aGUgcnVuJ3Mgd29yayBkaXJlY3RvcnksIHdoaWNoIHRoZSB0b3VyCnJlbW92ZXMgd2hlbiBpdCBlbmRzLCBzbyB0aGUgbnVtYmVycyB3b3VsZCBnbyB3aXRoIGl0LiBgQ01VWF9SRUxPQURfTEFURU5DWV9PVVRgCm5hbWVzIGFub3RoZXIgZm9sZGVyIGZvciBpdC4KIiIiCgpmcm9tIF9fZnV0dXJlX18gaW1wb3J0IGFubm90YXRpb25zCgppbXBvcnQgaGFzaGxpYgppbXBvcnQganNvbgppbXBvcnQgb3MKaW1wb3J0IHNvY2tldAppbXBvcnQgc3RhdGlzdGljcwppbXBvcnQgc3lzCmltcG9ydCB0aW1lCmZyb20gcGF0aGxpYiBpbXBvcnQgUGF0aAoKUk9VTkRTID0gMTIKVElNRU9VVCA9IDEwLjAKCk1BTklGRVNUID0gewogICAgIiRzY2hlbWEiOiAiaHR0cHM6Ly9jbXV4LmRldi9zY2hlbWFzL2NtdXgtYXBwLzIuanNvbiIsCiAgICAibWFuaWZlc3RWZXJzaW9uIjogMiwKICAgICJpZCI6ICJsb2NhbC9jdXN0b21pemUiLAogICAgIm5hbWUiOiAiTXkgdmlld3MiLAogICAgInZlcnNpb24iOiAiMS4wLjAiLAogICAgImRlc2NyaXB0aW9uIjogIlNhdmUtdG8tcGl4ZWxzIHByb2JlLiIsCiAgICAiZW5naW5lcyI6IHsiY211eCI6ICJeMi4wIn0sCiAgICAicnVudGltZSI6IHsibWFpbiI6ICJtYWluLmpzIn0sCiAgICAiaW1wbGVtZW50cyI6IHsiY211eC5zZWN0aW9uLzEiOiB7ImV4cG9ydCI6ICJyZW5kZXIiLCAidGl0bGUiOiAiUmVsb2FkIHByb2JlIiwgInN5bWJvbCI6ICJ0aW1lciIsCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIm9wdGlvbnMiOiB7ImRlZmF1bHRSZWdpb24iOiAiYm90dG9tIn19fSwKfQoKCmRlZiBzY3JpcHQocmV2aXNpb246IGludCkgLT4gc3RyOgogICAgcmV0dXJuICgiZnVuY3Rpb24gcmVuZGVyKCkge1xuIgogICAgICAgICAgICBmIiAgcmV0dXJuIFBhbmVsKHt7IHRpdGxlOiBcIlJlbG9hZCBwcm9iZVwiIH19LCBbVGV4dChcIlNhdmVkIHJldmlzaW9uIHtyZXZpc2lvbn1cIikuZm9udChcInRpdGxlXCIpXSlcbiIKICAgICAgICAgICAgIn1cbiIKICAgICAgICAgICAgImdsb2JhbFRoaXMuX19jbXV4QXBwRXhwb3J0cyA9IHsgcmVuZGVyIH1cbiIpCgoKZGVmIHJlcXVlc3QocGF0aDogc3RyLCBtZXRob2Q6IHN0ciwgcGFyYW1zOiBkaWN0KSAtPiBkaWN0OgogICAgd2l0aCBzb2NrZXQuc29ja2V0KHNvY2tldC5BRl9VTklYLCBzb2NrZXQuU09DS19TVFJFQU0pIGFzIGNvbm5lY3Rpb246CiAgICAgICAgY29ubmVjdGlvbi5zZXR0aW1lb3V0KDEwKQogICAgICAgIGNvbm5lY3Rpb24uY29ubmVjdChwYXRoKQogICAgICAgIGNvbm5lY3Rpb24uc2VuZGFsbCgoanNvbi5kdW1wcyh7ImlkIjogMSwgIm1ldGhvZCI6IG1ldGhvZCwgInBhcmFtcyI6IHBhcmFtc30pICsgIlxuIikuZW5jb2RlKCkpCiAgICAgICAgcmVwbHkgPSBiIiIKICAgICAgICB3aGlsZSBub3QgcmVwbHkuZW5kc3dpdGgoYiJcbiIpOgogICAgICAgICAgICBjaHVuayA9IGNvbm5lY3Rpb24ucmVjdig2NTUzNikKICAgICAgICAgICAgaWYgbm90IGNodW5rOgogICAgICAgICAgICAgICAgYnJlYWsKICAgICAgICAgICAgcmVwbHkgKz0gY2h1bmsKICAgIGFuc3dlciA9IGpzb24ubG9hZHMocmVwbHkuZGVjb2RlKCkgb3IgInt9IikKICAgIGlmIG5vdCBhbnN3ZXIuZ2V0KCJvayIpOgogICAgICAgIHJhaXNlIFJ1bnRpbWVFcnJvcihmInttZXRob2R9OiB7YW5zd2VyLmdldCgnZXJyb3InKX0iKQogICAgcmV0dXJuIGFuc3dlci5nZXQoInJlc3VsdCIpIG9yIHt9CgoKZGVmIHNuYXBzaG90KHNvY2s6IHN0ciwgcG5nOiBQYXRoKSAtPiBzdHI6CiAgICByZXF1ZXN0KHNvY2ssICJkZWJ1Zy53aW5kb3dfc25hcHNob3QiLCB7ImtpbmQiOiAibWFpbiIsICJwYXRoIjogc3RyKHBuZyl9KQogICAgcmV0dXJuIGhhc2hsaWIuc2hhMjU2KHBuZy5yZWFkX2J5dGVzKCkpLmhleGRpZ2VzdCgpCgoKZGVmIHNldHRsZShzb2NrOiBzdHIsIHBuZzogUGF0aCkgLT4gc3RyOgogICAgIiIiVGhlIHdpbmRvdydzIGhhc2ggb25jZSB0d28gc25hcHNob3RzIGluIGEgcm93IGFncmVlLiIiIgogICAgZGVhZGxpbmUgPSB0aW1lLm1vbm90b25pYygpICsgVElNRU9VVAogICAgbGFzdCA9IHNuYXBzaG90KHNvY2ssIHBuZykKICAgIHdoaWxlIHRpbWUubW9ub3RvbmljKCkgPCBkZWFkbGluZToKICAgICAgICBub3cgPSBzbmFwc2hvdChzb2NrLCBwbmcpCiAgICAgICAgaWYgbm93ID09IGxhc3Q6CiAgICAgICAgICAgIHJldHVybiBub3cKICAgICAgICBsYXN0ID0gbm93CiAgICByYWlzZSBSdW50aW1lRXJyb3IoInRoZSB3aW5kb3cgbmV2ZXIgc3RvcHBlZCBjaGFuZ2luZyIpCgoKZGVmIHBlcmNlbnRpbGUodmFsdWVzOiBsaXN0W2Zsb2F0XSwgcDogZmxvYXQpIC0+IGZsb2F0OgogICAgb3JkZXJlZCA9IHNvcnRlZCh2YWx1ZXMpCiAgICByZXR1cm4gb3JkZXJlZFttaW4obGVuKG9yZGVyZWQpIC0gMSwgcm91bmQocCAqIChsZW4ob3JkZXJlZCkgLSAxKSkpXQoKCmRlZiBtYWluKCkgLT4gaW50OgogICAgZm9sZGVyID0gUGF0aChvcy5lbnZpcm9uWyJDTVVYX0NVU1RPTUlaRV9ESVIiXSkKICAgIHNvY2sgPSBvcy5lbnZpcm9uWyJDTVVYX1NPQ0tFVF9QQVRIIl0KICAgIHBuZyA9IGZvbGRlci5wYXJlbnQgLyAicmVsb2FkLXByb2JlLnBuZyIgICMgc2NyYXRjaDogaXQgZ29lcyB3aXRoIHRoZSB3b3JrIGRpcmVjdG9yeQogICAgZm9sZGVyLm1rZGlyKHBhcmVudHM9VHJ1ZSwgZXhpc3Rfb2s9VHJ1ZSkKICAgIHN5cy5zdGRvdXQud3JpdGUoIlwwMzNbPzI1bCIpICAjIG5vIGJsaW5raW5nIGN1cnNvciBpbiB0aGUgd2luZG93J3MgcGl4ZWxzCiAgICBzeXMuc3Rkb3V0LmZsdXNoKCkKICAgIHRyeToKICAgICAgICByZXR1cm4gbWVhc3VyZShmb2xkZXIsIHNvY2ssIHBuZykKICAgIGZpbmFsbHk6CiAgICAgICAgc3lzLnN0ZG91dC53cml0ZSgiXDAzM1s/MjVoIikKICAgICAgICBzeXMuc3Rkb3V0LmZsdXNoKCkKCgpkZWYgcmVzdWx0X3BhdGgoKSAtPiBQYXRoOgogICAgIiIiV2hlcmUgdGhlIG51bWJlcnMgYXJlIGtlcHQ6IGEgZm9sZGVyIHRoYXQgb3V0bGl2ZXMgdGhlIHdhdGNoZWQgb25lLiIiIgogICAgb3V0ID0gb3MuZW52aXJvbi5nZXQoIkNNVVhfUkVMT0FEX0xBVEVOQ1lfT1VUIikKICAgIHJldHVybiAoUGF0aChvdXQpIGlmIG91dCBlbHNlIFBhdGgoX19maWxlX18pLnJlc29sdmUoKS5wYXJlbnQpIC8gInJlbG9hZC1sYXRlbmN5Lmpzb24iCgoKZGVmIG1lYXN1cmUoZm9sZGVyOiBQYXRoLCBzb2NrOiBzdHIsIHBuZzogUGF0aCkgLT4gaW50OgogICAgKGZvbGRlciAvICJjbXV4LWFwcC5qc29uIikud3JpdGVfdGV4dChqc29uLmR1bXBzKE1BTklGRVNULCBpbmRlbnQ9MiksIGVuY29kaW5nPSJ1dGYtOCIpCiAgICAoZm9sZGVyIC8gIm1haW4uanMiKS53cml0ZV90ZXh0KHNjcmlwdCgwKSwgZW5jb2Rpbmc9InV0Zi04IikKICAgIHRpbWUuc2xlZXAoMykgICMgZmlyc3QgaW5zdGFsbCBhbmQgbW91bnQKICAgIHNhbXBsZXM6IGxpc3RbZmxvYXRdID0gW10KICAgIHNuYXBzOiBsaXN0W2Zsb2F0XSA9IFtdCiAgICBmb3IgcmV2aXNpb24gaW4gcmFuZ2UoMSwgUk9VTkRTICsgMSk6CiAgICAgICAgYmVmb3JlID0gc2V0dGxlKHNvY2ssIHBuZykKICAgICAgICAjIFNhdmVkIHRoZSB3YXkgbW9zdCBlZGl0b3JzIHNhdmU6IGEgd2hvbGUgbmV3IGZpbGUgcmVuYW1lZCBvdmVyIHRoZSBvbGQKICAgICAgICAjIG9uZSwgc28gdGhlIHJlbG9hZCBuZXZlciByZWFkcyBhIGhhbGYtd3JpdHRlbiBzY3JpcHQuCiAgICAgICAgZHJhZnQgPSBmb2xkZXIucGFyZW50IC8gIm1haW4uanMuZHJhZnQiCiAgICAgICAgZHJhZnQud3JpdGVfdGV4dChzY3JpcHQocmV2aXNpb24pLCBlbmNvZGluZz0idXRmLTgiKQogICAgICAgIG9zLnJlcGxhY2UoZHJhZnQsIGZvbGRlciAvICJtYWluLmpzIikKICAgICAgICBzYXZlZCA9IHRpbWUubW9ub3RvbmljKCkKICAgICAgICB3aGlsZSBUcnVlOgogICAgICAgICAgICBzdGFydGVkID0gdGltZS5tb25vdG9uaWMoKQogICAgICAgICAgICBjaGFuZ2VkID0gc25hcHNob3Qoc29jaywgcG5nKSAhPSBiZWZvcmUKICAgICAgICAgICAgZW5kZWQgPSB0aW1lLm1vbm90b25pYygpCiAgICAgICAgICAgIHNuYXBzLmFwcGVuZCgoZW5kZWQgLSBzdGFydGVkKSAqIDEwMDApCiAgICAgICAgICAgIGlmIGNoYW5nZWQ6CiAgICAgICAgICAgICAgICBzYW1wbGVzLmFwcGVuZCgoZW5kZWQgLSBzYXZlZCkgKiAxMDAwKQogICAgICAgICAgICAgICAgYnJlYWsKICAgICAgICAgICAgaWYgZW5kZWQgLSBzYXZlZCA+IFRJTUVPVVQ6CiAgICAgICAgICAgICAgICBwcmludChmInJldmlzaW9uIHtyZXZpc2lvbn06IG5vIGNoYW5nZSB3aXRoaW4ge1RJTUVPVVQ6LjBmfXMiKQogICAgICAgICAgICAgICAgYnJlYWsKICAgICAgICBpZiBub3Qgc2FtcGxlcyBhbmQgcmV2aXNpb24gPj0gMjoKICAgICAgICAgICAgYnJlYWsgICMgbm90aGluZyByZWxvYWRzOiBzdG9wIGJlZm9yZSB0aGUgdG91cidzIG5leHQgc3RlcCB0eXBlcyBpbnRvIHRoaXMgdGVybWluYWwKICAgIGlmIG5vdCBzYW1wbGVzOgogICAgICAgIHByaW50KCJubyBzYW1wbGVzIikKICAgICAgICByZXR1cm4gMQogICAgcmVzdWx0ID0geyJyb3VuZHMiOiBsZW4oc2FtcGxlcyksICJwNTBfbXMiOiByb3VuZChzdGF0aXN0aWNzLm1lZGlhbihzYW1wbGVzKSksCiAgICAgICAgICAgICAgInA5NV9tcyI6IHJvdW5kKHBlcmNlbnRpbGUoc2FtcGxlcywgMC45NSkpLCAibWF4X21zIjogcm91bmQobWF4KHNhbXBsZXMpKSwKICAgICAgICAgICAgICAibWluX21zIjogcm91bmQobWluKHNhbXBsZXMpKSwgInNuYXBzaG90X21zIjogcm91bmQoc3RhdGlzdGljcy5tZWRpYW4oc25hcHMpKSwKICAgICAgICAgICAgICAic2FtcGxlc19tcyI6IFtyb3VuZChzKSBmb3IgcyBpbiBzYW1wbGVzXX0KICAgIG91dCA9IHJlc3VsdF9wYXRoKCkKICAgIG91dC5wYXJlbnQubWtkaXIocGFyZW50cz1UcnVlLCBleGlzdF9vaz1UcnVlKQogICAgb3V0LndyaXRlX3RleHQoanNvbi5kdW1wcyhyZXN1bHQpLCBlbmNvZGluZz0idXRmLTgiKQogICAgcHJpbnQoIlwwMzNbMkpcMDMzW0giKQogICAgcHJpbnQoZiJzYXZlIHRvIHBpeGVscywge3Jlc3VsdFsncm91bmRzJ119IHNhdmVzIG9mIG1haW4uanMiKQogICAgcHJpbnQoZiJwNTAge3Jlc3VsdFsncDUwX21zJ119IG1zICAgcDk1IHtyZXN1bHRbJ3A5NV9tcyddfSBtcyAgIG1heCB7cmVzdWx0WydtYXhfbXMnXX0gbXMgICBtaW4ge3Jlc3VsdFsnbWluX21zJ119IG1zIikKICAgIHByaW50KGYib25lIHdpbmRvdyBzbmFwc2hvdDoge3Jlc3VsdFsnc25hcHNob3RfbXMnXX0gbXMgKGVhY2ggc2FtcGxlIGlzIGF0IG1vc3QgdGhpcyBtdWNoIGxhdGUpIikKICAgIHByaW50KCJzYW1wbGVzOiAiICsgIiAiLmpvaW4oc3RyKHMpIGZvciBzIGluIHJlc3VsdFsic2FtcGxlc19tcyJdKSkKICAgIHByaW50KGYibnVtYmVyczoge291dH0iKQogICAgcmV0dXJuIDAKCgppZiBfX25hbWVfXyA9PSAiX19tYWluX18iOgogICAgc3lzLmV4aXQobWFpbigpKQo= | base64 -d > \"${TMPDIR:-/tmp}/customize-reload-latency.py\" && python3 \"${TMPDIR:-/tmp}/customize-reload-latency.py\"\r"
+      ],
+      "wait": 30
+    },
+    {
+      "title": "Save-to-pixels: the result",
+      "wait": 20
+    },
+    {
+      "title": "pane: the folder now has a pane and a sidebar row that opens it",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && echo Ly8gQSBwYW5lOiB0aGUgY3VzdG9taXplIGFwcCdzIHBhZ2UsIG9wZW5lZCBhcyBhIHRhYiB3aXRoICJPcGVuIE15IHZpZXdzIiBpbiB0aGUgQ29tbWFuZAovLyBQYWxldHRlIChubyBzY29wZSBuZWVkZWQpLCBgY211eCBhY3Rpb24gcnVuIGFwcC5vcGVuIC0tYXBwIGxvY2FsL2N1c3RvbWl6ZWAsIG9yIHRoZSBzaWRlYmFyIGJ1dHRvbiBiZWxvdwovLyAod2hpY2ggbmVlZHMgYWN0aW9uczpydW4pLiBUaGUgY2hlY2tsaXN0IGlzIGtlcHQgd2l0aCBzdG9yYWdlOmxvY2FsIHdoZW4gaXQgaXMgb24sIGFuZAovLyBsaXZlcyBvbmx5IHVudGlsIHRoZSBhcHAgcmVsb2FkcyBvciBpdHMgbGFzdCB2aWV3IGNsb3NlcyB3aGVuIGl0IGlzIG9mZi4gQm90aCBhcmUgaW4gU2V0dGluZ3MgPiBBcHBzID4gTXkgdmlld3MuCgpjb25zdCBbaXRlbXMsIHNldEl0ZW1zXSA9IHNpZ25hbChbXSkgLy8gW3sgaWQsIHRleHQsIGRvbmUgfV0KY29uc3QgW2RyYWZ0LCBzZXREcmFmdF0gPSBzaWduYWwoIiIpCmxldCBzYXZpbmcgPSB0cnVlIC8vIGZhbHNlIG9uY2UgYSByZWFkIG9yIHNhdmUgaXMgcmVmdXNlZCAoc3RvcmFnZTpsb2NhbCBpcyBvZmYpCmxldCBsb2FkZWQgPSBmYWxzZQoKLy8gUmVhZCB0aGUgc2F2ZWQgbGlzdCB0aGUgZmlyc3QgdGltZSBhIHZpZXcgcmVuZGVycyAoYSBzY3JpcHQgbWFrZXMgbm8gY2FsbHMgYmVmb3JlIHRoYXQpLgpmdW5jdGlvbiBsb2FkKCkgewogIGlmIChsb2FkZWQpIHJldHVybgogIGxvYWRlZCA9IHRydWUKICBjbXV4LnN0b3JhZ2UuZ2V0KCJpdGVtcyIpLnRoZW4oCiAgICAvLyBJdGVtcyBhZGRlZCBiZWZvcmUgdGhlIHJlYWQgZmluaXNoZWQgc3RheSwgYWZ0ZXIgdGhlIHNhdmVkIG9uZXMsIGFuZCBhcmUgc2F2ZWQgdG9vLgogICAgKHNhdmVkKSA9PiB7CiAgICAgIGlmICghQXJyYXkuaXNBcnJheShzYXZlZCkpIHJldHVybgogICAgICBjb25zdCBhZGRlZCA9IGl0ZW1zKCkuZmlsdGVyKCh4KSA9PiAhc2F2ZWQuc29tZSgocykgPT4gcy5pZCA9PT0geC5pZCkpCiAgICAgIGFkZGVkLmxlbmd0aCA/IHNhdmUoWy4uLnNhdmVkLCAuLi5hZGRlZF0pIDogc2V0SXRlbXMoc2F2ZWQpCiAgICB9LAogICAgKCkgPT4gKHNhdmluZyA9IGZhbHNlKQogICkKfQoKZnVuY3Rpb24gc2F2ZShuZXh0KSB7CiAgc2V0SXRlbXMobmV4dCkKICBpZiAoc2F2aW5nKSBjbXV4LnN0b3JhZ2Uuc2V0KCJpdGVtcyIsIG5leHQpLmNhdGNoKCgpID0+IChzYXZpbmcgPSBmYWxzZSkpCn0KCmZ1bmN0aW9uIGFkZCh0ZXh0KSB7CiAgY29uc3QgdHJpbW1lZCA9IFN0cmluZyh0ZXh0IHx8ICIiKS50cmltKCkKICBpZiAoIXRyaW1tZWQpIHJldHVybgogIHNhdmUoWy4uLml0ZW1zKCksIHsgaWQ6IGAke0RhdGUubm93KCl9LSR7aXRlbXMoKS5sZW5ndGh9YCwgdGV4dDogdHJpbW1lZCwgZG9uZTogZmFsc2UgfV0pCiAgc2V0RHJhZnQoIiIpCn0KCmNvbnN0IGxlZnQgPSBjb21wdXRlZCgoKSA9PiBpdGVtcygpLmZpbHRlcigoaSkgPT4gIWkuZG9uZSkubGVuZ3RoKQoKZnVuY3Rpb24gcmVuZGVyUGFuZSgpIHsKICBsb2FkKCkKICByZXR1cm4gVlN0YWNrKHsgc3BhY2luZzogOCB9LCBbCiAgICBQYW5lbCh7IHRpdGxlOiAiU2NyYXRjaHBhZCIsIHN0eWxlOiAiY2FyZCIgfSwgWwogICAgICBUZXh0RmllbGQoZHJhZnQsIHsgcGxhY2Vob2xkZXI6ICJBZGQgYW4gaXRlbSBhbmQgcHJlc3MgUmV0dXJuIiwgb25FZGl0OiBzZXREcmFmdCwgb25TdWJtaXQ6IGFkZCB9KSwKICAgICAgRm9yRWFjaCh7IGl0ZW1zLCBrZXk6IChpKSA9PiBpLmlkIH0sIChpKSA9PgogICAgICAgIFRvZ2dsZSgoKSA9PiBpKCkuZG9uZSwgewogICAgICAgICAgbGFiZWw6ICgpID0+IGkoKS50ZXh0LAogICAgICAgICAgb25DaGFuZ2U6IChvbikgPT4gc2F2ZShpdGVtcygpLm1hcCgoeCkgPT4gKHguaWQgPT09IGkoKS5pZCA/IHsgLi4ueCwgZG9uZTogb24gfSA6IHgpKSkKICAgICAgICB9KQogICAgICApLAogICAgICAoKSA9PiAoaXRlbXMoKS5sZW5ndGggPT09IDAgPyBFbXB0eVN0YXRlKHsgdGl0bGU6ICJOb3RoaW5nIGhlcmUgeWV0Iiwgc3ltYm9sOiAiY2hlY2tsaXN0IiB9KSA6IG51bGwpLAogICAgICBIU3RhY2soWwogICAgICAgIFRleHQoKCkgPT4gYCR7bGVmdCgpfSBsZWZ0YCkuY29sb3IoY211eC50aGVtZS50ZXh0LnNlY29uZGFyeSksCiAgICAgICAgU3BhY2VyKCksCiAgICAgICAgQnV0dG9uKCJDbGVhciBkb25lIiwgKCkgPT4gc2F2ZShpdGVtcygpLmZpbHRlcigoaSkgPT4gIWkuZG9uZSkpKQogICAgICBdKQogICAgXSkKICBdKQp9CgpmdW5jdGlvbiByZW5kZXJPcGVuZXIoKSB7CiAgbG9hZCgpCiAgcmV0dXJuIFJvdyh7IHRpdGxlOiAoKSA9PiBgU2NyYXRjaHBhZCDCtyAke2xlZnQoKX0gbGVmdGAsIHN5bWJvbDogImNoZWNrbGlzdCIgfSkub25UYXAoKCkgPT4KICAgIGNtdXguYWN0aW9ucy5ydW4oImFwcC5vcGVuIiwgeyBhcHA6ICJsb2NhbC9jdXN0b21pemUiIH0pLmNhdGNoKChlKSA9PgogICAgICBjbXV4LnRvYXN0KHsgdGl0bGU6ICJPcGVuIGl0IGZyb20gdGhlIHBhbGV0dGU6IE9wZW4gTXkgdmlld3MiLCBtZXNzYWdlOiBlIGluc3RhbmNlb2YgRXJyb3IgPyBlLm1lc3NhZ2UgOiBTdHJpbmcoZSksIHRvbmU6ICJ3YXJuaW5nIiB9KQogICAgKQogICkKfQoKZ2xvYmFsVGhpcy5fX2NtdXhBcHBFeHBvcnRzID0geyByZW5kZXJQYW5lLCByZW5kZXJPcGVuZXIgfQo= | base64 -d > \"$D/main.js\" && echo ewogICIkc2NoZW1hIjogImh0dHBzOi8vY211eC5kZXYvc2NoZW1hcy9jbXV4LWFwcC8yLmpzb24iLAogICJtYW5pZmVzdFZlcnNpb24iOiAyLAogICJpZCI6ICJsb2NhbC9jdXN0b21pemUiLAogICJuYW1lIjogIk15IHZpZXdzIiwKICAidmVyc2lvbiI6ICIxLjAuMCIsCiAgImRlc2NyaXB0aW9uIjogIkEgc2NyYXRjaCBjaGVja2xpc3QgdGhhdCBvcGVucyBhcyBhIHRhYiwgYW5kIGEgc2lkZWJhciBidXR0b24gdGhhdCBvcGVucyBpdC4iLAogICJlbmdpbmVzIjogeyAiY211eCI6ICJeMi4wIiB9LAogICJydW50aW1lIjogeyAibWFpbiI6ICJtYWluLmpzIiB9LAogICJpbXBsZW1lbnRzIjogewogICAgImNtdXgucGFuZS8xIjogewogICAgICAiZXhwb3J0IjogInJlbmRlclBhbmUiLAogICAgICAidGl0bGUiOiAiU2NyYXRjaHBhZCIsCiAgICAgICJzeW1ib2wiOiAiY2hlY2tsaXN0IgogICAgfSwKICAgICJjbXV4LnNlY3Rpb24vMSI6IHsKICAgICAgImV4cG9ydCI6ICJyZW5kZXJPcGVuZXIiLAogICAgICAidGl0bGUiOiAiU2NyYXRjaHBhZCIsCiAgICAgICJzeW1ib2wiOiAiY2hlY2tsaXN0IiwKICAgICAgIm9wdGlvbnMiOiB7ICJkZWZhdWx0UmVnaW9uIjogImJvdHRvbSIgfQogICAgfQogIH0sCiAgInNjb3BlcyI6IHsKICAgICJzdG9yYWdlOmxvY2FsIjogIktlZXAgdGhlIGNoZWNrbGlzdCBiZXR3ZWVuIGxhdW5jaGVzLiIsCiAgICAiYWN0aW9uczpydW4iOiAiT3BlbiB0aGUgc2NyYXRjaHBhZCBmcm9tIHRoZSBzaWRlYmFyIGJ1dHRvbi4iCiAgfQp9Cg== | base64 -d > \"$D/cmux-app.json\" && echo saved pane\r"
+      ],
+      "wait": 5
+    },
+    {
+      "title": "Open the pane: cmux action run app.open --app local/customize",
+      "cmux": [
+        "action",
+        "run",
+        "app.open",
+        "--app",
+        "local/customize"
+      ],
+      "wait": 4
+    }
+  ]
+}

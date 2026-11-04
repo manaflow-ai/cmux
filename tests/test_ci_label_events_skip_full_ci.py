@@ -85,13 +85,30 @@ def evaluate(expr: str, event: dict) -> bool:
 
 
 NOT_ON_PULL_REQUEST = re.compile(r"^(!cancelled\(\) && )?github\.event_name == '(workflow_dispatch|push)' &&")
+# On a pull_request event github.ref is refs/pull/N/merge, never a branch, so a job gated first on a branch ref
+# never runs there. Not so for pull_request_target, whose github.ref is the base branch.
+ON_BRANCH_REF = re.compile(r"^(!cancelled\(\) && )?github\.ref == 'refs/heads/[^']+' &&")
 STATUS_FUNCTION = re.compile(r"\b(always|cancelled|failure)\(\)")
 
 
-def reachable_by_label_event(body: dict, condition: str) -> bool:
+def top_level_or(condition: str) -> bool:
+    """Whether CONDITION has an || outside parentheses (then its first && term does not gate all of it)."""
+    depth = 0
+    for index, char in enumerate(condition):
+        depth += char == "("
+        depth -= char == ")"
+        if depth == 0 and condition.startswith("||", index):
+            return True
+    return False
+
+
+def reachable_by_label_event(body: dict, condition: str, event: str = "pull_request") -> bool:
     """Whether a label event could start this job without the guard: a job that needs others and calls no
-    status function skips with them, and one gated on push or dispatch never runs on a pull request."""
+    status function skips with them, one gated on push or dispatch never runs on a pull request, and nor
+    does one gated on a branch ref (pull_request only)."""
     if NOT_ON_PULL_REQUEST.match(condition):
+        return False
+    if event == "pull_request" and ON_BRANCH_REF.match(" ".join(condition.split())) and not top_level_or(condition):
         return False
     return not body.get("needs") or bool(STATUS_FUNCTION.search(condition))
 
@@ -141,7 +158,7 @@ def main() -> int:
                     failures.append(f"{name} job {job} must run on every label event: "
                                     f"{UNGUARDED_JOBS[(name, job)]}")
                 continue
-            if not reachable_by_label_event(body or {}, text):
+            if not reachable_by_label_event(body or {}, text, event_name):
                 continue
             if not (text == expected or text.endswith(f") && {expected}")):
                 failures.append(f"{name} job {job}: its if does not end with the label guard {expected}")
