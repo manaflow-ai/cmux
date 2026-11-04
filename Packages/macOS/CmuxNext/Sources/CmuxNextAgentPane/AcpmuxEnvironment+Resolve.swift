@@ -86,8 +86,11 @@ nonisolated extension AcpmuxEnvironment {
         if let cli = bundledBinDirectory?.appendingPathComponent("cmux").path, isExecutable(cli) {
             childEnvironment["CMUX_BUNDLED_CLI_PATH"] = cli
         }
+        // Probe (hq#6338): run acpmux from a copy outside the app bundle, so replacing the bundle
+        // does not end it. Bench only; falls back to the bundled binary.
+        let installed = executableOverride == nil ? Self.probeInstalledCopy(of: executable, home: home) : executable
         return AcpmuxEnvironment(
-            executable: executable, home: home, socketPath: socket,
+            executable: installed, home: home, socketPath: socket,
             daemonArguments: ownHome == root ? [] : ["--listen", "127.0.0.1:0"], childEnvironment: childEnvironment,
             passesPersonKeyAtSpawn: teamIdentifier == nil
         )
@@ -109,5 +112,30 @@ nonisolated extension AcpmuxEnvironment {
         var seen: Set<String> = []
         return directories.filter { !$0.isEmpty && seen.insert($0).inserted }
             .map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("acpmux") }
+    }
+}
+
+extension AcpmuxEnvironment {
+    /// Probe (hq#6338): `$TMPDIR/acpmux-bin/<size>-<mtime>/acpmux`, a clone of a bundled `executable`; the
+    /// bundled one itself when it is not in an app bundle or the copy fails.
+    nonisolated static func probeInstalledCopy(of executable: URL, home: URL) -> URL {
+        guard executable.path.contains(".app/Contents/"),
+              let attributes = try? FileManager.checked.attributesOfItem(atPath: executable.path),
+              let size = attributes[.size] as? NSNumber,
+              let modified = attributes[.modificationDate] as? Date else { return executable }
+        // Not in the acpmux home: the app adopts and checks that folder before any daemon starts.
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("acpmux-bin/\(size.intValue)-\(Int(modified.timeIntervalSince1970))", isDirectory: true)
+        let target = dir.appendingPathComponent(executable.lastPathComponent)
+        if FileManager.checked.isExecutableFile(atPath: target.path) { return target }
+        do {
+            try FileManager.checked.createDirectory(at: dir, withIntermediateDirectories: true)
+            let temp = dir.appendingPathComponent(".\(executable.lastPathComponent).\(getpid()).tmp")
+            try? FileManager.checked.removeItem(at: temp)
+            try FileManager.checked.copyItem(at: executable, to: temp)
+            if rename(temp.path, target.path) != 0 { throw POSIXError(.EIO) }
+            return target
+        } catch {
+            return FileManager.checked.isExecutableFile(atPath: target.path) ? target : executable
+        }
     }
 }
