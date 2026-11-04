@@ -960,7 +960,7 @@ fieldset.acpmux-question[hidden]{display:none}
 /* A paused or starting Cloud machine's banner (PeerCopyBanner.tsx): the title line holds the spinner, or Resume in the inline and button arms of `paused-machine-resume`. */
 /* The peer copy's banner floats over the top of the transcript (PeerCopyBanner.tsx): its slot takes no
    height, so the banner arriving or leaving moves no row. */
-.acpmux-peer-copy-slot{display:contents}
+.acpmux-peer-copy-slot{display:contents}.acpmux-peer-copy-slot:not([data-shown])>*{visibility:hidden;opacity:0}@media (prefers-reduced-motion:no-preference){.acpmux-peer-copy-slot[data-shown]>*{transition:opacity var(--agent-motion-in) var(--agent-ease-out)}}
 .acpmux-peer-copy-title{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;margin:0}
 .acpmux-peer-copy-spinner{align-self:center;flex:none;color:var(--agent-muted)}
 .acpmux-peer-copy[data-arm=button] .acpmux-peer-copy-title{align-items:center;justify-content:space-between}

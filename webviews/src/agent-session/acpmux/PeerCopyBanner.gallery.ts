@@ -47,7 +47,7 @@ export default agentPaneEntry({
       snapshot: offline({ peer: PEER, capturedAt: GALLERY_NOW - 39 * 60_000, offline: true }),
       play: async (ctx) => {
         // The banner waits out the resume threshold (afterDelay.ts) before it shows.
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-peer-copy"), { capMs: 4_000 });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-peer-copy-slot[data-shown]"), { capMs: 4_000 });
       },
     },
     "cold-long-chat-connecting": {
@@ -66,7 +66,7 @@ export default agentPaneEntry({
       snapshot: offline({ peer: PEER, offline: true }),
       play: async (ctx) => {
         // The banner waits out the resume threshold (afterDelay.ts) before it shows.
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-peer-copy"), { capMs: 4_000 });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-peer-copy-slot[data-shown]"), { capMs: 4_000 });
       },
     },
   },
