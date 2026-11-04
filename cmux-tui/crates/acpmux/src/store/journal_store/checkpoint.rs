@@ -2,7 +2,6 @@
 //! thread ([module docs](super)).
 
 use super::*;
-use std::sync::atomic::Ordering as AtomicOrdering;
 
 #[derive(Serialize, Deserialize)]
 struct Checkpoint {
@@ -130,7 +129,9 @@ impl Inner {
             self.order.lock_or_recover().dirty.extend(dirty);
             return Err(error);
         }
-        if self.local.sync_failed.load(AtomicOrdering::SeqCst) {
+        // A close's failed sync of a log this checkpoint synced through a clone may have made the
+        // clone's sync report success: the close notes it under the writers' lock, read here.
+        if self.local.close_sync_failed() {
             self.freeze("an event log failed to sync at its close".into());
             anyhow::bail!(
                 "an event log failed to sync: the journal keeps every line until a restart"
@@ -201,7 +202,7 @@ impl Inner {
         what: &str,
         sync: impl FnOnce() -> Result<T>,
     ) -> Result<T> {
-        let under_way = self.syncs.begin();
+        let under_way = UnderWay { inner: self, ticket: self.syncs.begin() };
         #[cfg(test)]
         super::hold_in_sync();
         let result = sync();
@@ -309,20 +310,27 @@ struct Tickets {
     under_way: BTreeSet<u64>,
 }
 
-/// One sync under way ([`SyncsUnderWay::begin`]). It ends when this drops, in a panic too, so a
-/// checkpoint never waits for it for ever.
+/// One sync under way ([`Inner::counted_sync`]). It ends when this drops, in a panic too, so a
+/// checkpoint never waits for it for ever; a panic first freezes the store, since what the sync
+/// did is then not known (review of #35895, P3).
 struct UnderWay<'a> {
-    syncs: &'a SyncsUnderWay,
+    inner: &'a Inner,
     ticket: u64,
 }
 
 impl SyncsUnderWay {
-    fn begin(&self) -> UnderWay<'_> {
+    /// A new sync's ticket, under way until [`SyncsUnderWay::end`].
+    fn begin(&self) -> u64 {
         let mut tickets = self.tickets.lock_or_recover();
         let ticket = tickets.next;
         tickets.next = ticket.saturating_add(1);
         tickets.under_way.insert(ticket);
-        UnderWay { syncs: self, ticket }
+        ticket
+    }
+
+    fn end(&self, ticket: u64) {
+        self.tickets.lock_or_recover().under_way.remove(&ticket);
+        self.ended.notify_all();
     }
 
     /// Waits until each sync under way now has ended, never for one that begins meanwhile: the
@@ -338,7 +346,9 @@ impl SyncsUnderWay {
 
 impl Drop for UnderWay<'_> {
     fn drop(&mut self) {
-        self.syncs.tickets.lock_or_recover().under_way.remove(&self.ticket);
-        self.syncs.ended.notify_all();
+        if std::thread::panicking() {
+            self.inner.freeze("a sync of the store's files panicked".into());
+        }
+        self.inner.syncs.end(self.ticket);
     }
 }

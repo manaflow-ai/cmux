@@ -80,6 +80,14 @@ impl std::error::Error for SyncFailed {
 }
 
 impl LocalStore {
+    /// Whether a log's sync at its close failed (`SegmentWriter::close`). Read under the writers'
+    /// lock, which every close holds from its sync to its note: a close whose sync failed before
+    /// this call has noted it when this reads (review of #35895, finding 1).
+    pub(super) fn close_sync_failed(&self) -> bool {
+        let _writers = self.writers.lock_or_recover();
+        self.sync_failed.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     /// Syncs `id`'s open log segment and its folders, without holding the writers' lock while
     /// the disk works (the journal store's checkpoint, `store/journal_store.rs`). A segment that
     /// is not open was synced at its close (`SegmentWriter::close`, which notes a failure).
