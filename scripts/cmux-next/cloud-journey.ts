@@ -654,6 +654,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const r = await exec(
           `rm -f ${shq(stubLog)}; (STUB_TOOL=1 nohup python3 ${shq(file)} ${shq(nonce)} ${port} ${shq(stubLog)} >/dev/null 2>&1 &); ` +
             `for i in $(seq 50); do curl -fsS -m 2 -o /dev/null -X POST "http://127.0.0.1:${port}/v1/messages" -d '{}' && break; sleep 0.2; done; ` +
+            `curl -fsS -m 2 -o /dev/null -X POST "http://127.0.0.1:${port}/v1/messages" -d '{}' || { echo stub-down; tail -5 ${shq(stubLog)}; exit 1; }; ` +
             `python3 - ${port} <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.write_text(json.dumps(c))\nprint('stub-ready')\nPY`,
         );
         if (!r.stdout.includes("stub-ready")) throw new Error(`exit ${r.code} ${r.stderr.slice(-200)}`);
@@ -682,7 +683,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const wait = /@@wait (\d+)/.exec(r.stdout)?.[1];
           last = r.stdout.replace(/@@wait \d+\n?/, "").replace(/@@lastexit \d+\s*$/, "").trim();
           if (wait === "0" && last) {
-            if (modelStub && !last.includes(nonce)) throw new Error(`the reply does not carry the stub's nonce ${nonce}: ${last.slice(-200)}`);
+            if (modelStub && !last.includes(`Stub reply ${nonce}`)) throw new Error(`the reply does not carry the stub's nonce ${nonce}: ${last.slice(-200)}`);
             return { value: last, detail: last.slice(0, 280) };
           }
           if (wait === "2") throw new Error(`the agent waits on a permission: ${last.slice(-200)}`);

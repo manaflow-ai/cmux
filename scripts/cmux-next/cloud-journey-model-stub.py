@@ -1,6 +1,6 @@
 # The Cloud journey's model stub (cloud-journey.ts --model stub): a stand-in Anthropic Messages endpoint that runs
 # on the Cloud machine, so a journey needs no real Claude login. Every /v1/messages answers one fixed, streamed reply
-# naming NONCE. With STUB_TOOL=1 the first turn asks for one Bash tool call (echo NONCE-tool) and the reply comes
+# naming NONCE. With STUB_TOOL=1 the first turn asks for one Bash tool call (printf joining NONCE and tool) and the reply comes
 # after its result. It logs each request's path, the SHA-256 of the credential it got (never the value) and whether
 # the tool's result came back with NONCE-tool in it.
 #   python3 cloud-journey-model-stub.py NONCE PORT LOGFILE
@@ -24,7 +24,9 @@ class H(BaseHTTPRequestHandler):
         cred = (self.headers.get("authorization") or "").removeprefix("Bearer ") or self.headers.get("x-api-key") or ""
         msgs = body.get("messages") or []
         results = [c for m in msgs if isinstance(m.get("content"), list) for c in m["content"] if isinstance(c, dict) and c.get("type") == "tool_result"]
-        tool_ok = f"{NONCE}-tool" in json.dumps(results)  # the command's own output, not the tool_use that asked for it
+        # The command's own output: printf joins the parts, so the text never appears in the command, a quoted
+        # command in an error message, or the tool_use that asked for it. An error result never counts.
+        tool_ok = any(c.get("is_error") is not True and f"{NONCE}-tool" in json.dumps(c.get("content")) for c in results)
         has_tool_result = any(isinstance(m.get("content"), list) and any(isinstance(c, dict) and c.get("type") == "tool_result" for c in m["content"]) for m in msgs)
         tools = [t.get("name") for t in body.get("tools") or [] if isinstance(t, dict)]
         log({"m": "POST", "p": self.path, "stream": bool(body.get("stream")), "model": body.get("model"), "cred_sha256": hashlib.sha256(cred.encode()).hexdigest() if cred else "", "tools": len(tools), "has_bash": "Bash" in tools, "tool_result": has_tool_result, "tool_ok": tool_ok})
@@ -34,7 +36,7 @@ class H(BaseHTTPRequestHandler):
         model = body.get("model") or "claude-stub"
         want_tool = TOOL and "Bash" in tools and not has_tool_result and len(msgs) <= 2
         if want_tool:
-            content = [{"type": "tool_use", "id": "toolu_stub01", "name": "Bash", "input": {"command": f"echo {NONCE}-tool", "description": "stub tool call"}}]
+            content = [{"type": "tool_use", "id": "toolu_stub01", "name": "Bash", "input": {"command": f"printf '%s-%s\\n' {NONCE} tool", "description": "stub tool call"}}]
             stop = "tool_use"
         else:
             content = [{"type": "text", "text": f"Stub reply {NONCE}."}]
