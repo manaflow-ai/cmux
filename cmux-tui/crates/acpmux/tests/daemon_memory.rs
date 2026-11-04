@@ -420,6 +420,8 @@ fn idle_session_resident_memory_benchmark() {
         }
         let daemon = Daemon::start(&dir, &home);
         let mut rpc = Rpc::connect(&daemon.socket);
+        // The initial list waits for the restored session index before resolving ids.
+        assert_eq!(listed(&mut rpc), (0..chats).map(id).collect::<Vec<_>>());
         for i in 0..chats {
             // Ready precedes deferred log loading. Info waits for this chat's log;
             // it does not open the chat on screen or wake a hibernated harness.
