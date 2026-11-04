@@ -61,7 +61,7 @@ function machine(): Machine {
       // The catalog fetch asks for the status line (curl -w '\n%{http_code}').
       `  */opencode/config*) printf '%s\\n200' ${JSON.stringify(OPENCODE_CATALOG)} ;;`,
       // No answer is an HTTP error (curl -f: 22) unless a test names another exit.
-      '  *) [ -n "${FAKE_ACCESS-}" ] || exit "${FAKE_CURL_EXIT:-22}"; printf \'%s\' "$FAKE_ACCESS" ;;',
+      '  *) [ -n "${FAKE_ACCESS-}" ] || exit "${FAKE_CURL_EXIT:-22}"; printf \'%s\' "$FAKE_ACCESS"; exit "${FAKE_CURL_EXIT:-0}" ;;',
       "esac",
       "",
     ].join("\n"),
@@ -140,7 +140,8 @@ function signIn(m: Machine, agent: Agent = "claude"): void {
   };
   const [file, content] = files[agent];
   mkdirSync(path.dirname(path.join(m.home, file)), { recursive: true });
-  writeFileSync(path.join(m.home, file), JSON.stringify(content));
+  // Pretty-printed, as both codex and opencode write these files.
+  writeFileSync(path.join(m.home, file), JSON.stringify(content, null, 2));
 }
 
 /** A directory holding a python3 that fails, as a project venv or toolchain pin can. */
@@ -446,6 +447,14 @@ describe("OpenCode sign-in precedence", () => {
     expect(env.OPENCODE_CONFIG).toBe("<unset>");
   });
 
+  test("an empty opencode auth file is not a sign-in", async () => {
+    const m = machine();
+    mkdirSync(path.join(m.home, ".local/share/opencode"), { recursive: true });
+    writeFileSync(path.join(m.home, ".local/share/opencode/auth.json"), "{}\n");
+    const env = await launch(m, "opencode", { FAKE_ACCESS: ALL });
+    expect(env.OPENCODE_CONFIG).toEndWith(".config/cmux/opencode-team.json");
+  });
+
   test("with no choice, opencode auth login counts as choosing own", async () => {
     const m = machine();
     signIn(m, "opencode");
@@ -488,6 +497,12 @@ describe("the default for every agent", () => {
     const none = JSON.stringify({ agents: { claude: false, codex: false, opencode: false } });
     const env = await launch(m, "codex", { FAKE_ACCESS: none }, `export PATH=${brokenPython(m)}:$PATH;`);
     expect(env.args).toBe('-c model_provider="openai" --resume x');
+  });
+
+  test("a reply cut off mid-transfer is no answer, not a missing account", async () => {
+    const m = machine();
+    const env = await launch(m, "claude", { FAKE_ACCESS: '{"agents":{"claude":false,"cod', FAKE_CURL_EXIT: "28" });
+    expect(env.ANTHROPIC_BASE_URL).toBe(ORIGIN);
   });
 
   test("no answer keeps the long-standing default (team)", async () => {

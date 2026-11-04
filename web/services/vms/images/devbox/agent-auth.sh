@@ -56,11 +56,11 @@ cmux_agent_has_own_login() {
     codex)
       [ -n "${CODEX_API_KEY-}" ] && return 0
       cmux_aa_login="${CODEX_HOME:-${HOME:-/root}/.codex}/auth.json"
-      [ -f "$cmux_aa_login" ] && { tr -d '[:space:]' < "$cmux_aa_login"; } 2>/dev/null | grep -Eq '"tokens":\{"|"OPENAI_API_KEY":"[^"]'
+      [ -f "$cmux_aa_login" ] && { tr -d '[:space:]' < "$cmux_aa_login"; } 2>/dev/null | grep -Eq '"tokens":\{"|"OPENAI_API_KEY":"[^"]' 2>/dev/null
       ;;
     opencode)
       cmux_aa_login="${XDG_DATA_HOME:-${HOME:-/root}/.local/share}/opencode/auth.json"
-      [ -f "$cmux_aa_login" ] && { tr -d '[:space:]' < "$cmux_aa_login"; } 2>/dev/null | grep -q '^{"'
+      [ -f "$cmux_aa_login" ] && { tr -d '[:space:]' < "$cmux_aa_login"; } 2>/dev/null | grep -q '^{"' 2>/dev/null
       ;;
     *) return 1 ;;
   esac
@@ -114,9 +114,11 @@ cmux_agent_team_access_fetch() {
   if cmux_aa_body=$(curl "$@" "${cmux_aa_origin%/}/api/coderouter/agent-access" 2>/dev/null); then :; else
     # 6 the name does not resolve, 7 nothing accepts the connection: no
     # request through CodeRouter can succeed. Anything else may be passing.
-    case "$?" in 6|7) echo "3 3 3"; return 0 ;; esac
+    # A failed request's body, if any, may be cut off: no answer.
+    case "$?" in 6|7) echo "3 3 3" ;; *) echo "2 2 2" ;; esac
+    return 0
   fi
-  cmux_aa_agents=$(printf '%s' "${cmux_aa_body-}" | tr -d '[:space:]')
+  cmux_aa_agents=$(printf '%s' "$cmux_aa_body" | tr -d '[:space:]')
   case "$cmux_aa_agents" in
     *'"agents":{'*) cmux_aa_agents=${cmux_aa_agents#*\"agents\":\{}; cmux_aa_agents=${cmux_aa_agents%%\}*} ;;
     *) cmux_aa_agents="" ;;
@@ -212,7 +214,7 @@ cmux_claude_apply_auth_mode() {
 cmux_codex_uses_generated_provider() {
   cmux_codex_config="${CODEX_HOME:-${HOME:-/root}/.codex}/config.toml"
   [ -f "$cmux_codex_config" ] || return 1
-  # Match the top-level key in any valid TOML spelling (whitespace, either
+  # Match the top-level key however it is spaced or quoted (whitespace, either
   # quote style, a trailing comment, CRLF), not only the generator's exact
   # line; keys after the first [table] header belong to that table. awk, not
   # python3: the python3 first on PATH can be a project's venv or toolchain
