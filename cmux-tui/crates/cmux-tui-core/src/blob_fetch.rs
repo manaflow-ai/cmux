@@ -11,17 +11,20 @@
 //!
 //! Served exactly where `fs-v1` is (Cloud hosts), with its sandbox: every
 //! path the plan names must resolve under the roots. `blob.fetch.start`
-//! answers at once with a job; `blob.fetch.status` reads it. A start with the
-//! same plan as a running or finished job returns that job, so a client that
-//! lost the answer retries safely. The grant is kept only in the job's memory
-//! and never written to disk or logged.
+//! answers at once with a job; `blob.fetch.status` reads it. Every job names
+//! the folder it writes under (`target`); a start, and `blob.fetch.cancel`,
+//! cancel each running job whose folder overlaps, and answer only once none of
+//! those can commit another file. So a client that lost an answer, or retries
+//! with a changed plan, or writes over the link instead, first fences off what
+//! an earlier job might still write. The grant is kept only in the job's
+//! memory and never written to disk or logged.
 //!
 //! Prior art: Mutagen's staging (content is received by digest into a
 //! staging area, verified, then moved into place atomically) and its
 //! receiver-driven transfer (the side that writes asks for what it lacks).
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
@@ -36,7 +39,8 @@ pub const BLOB_FETCH_CAPABILITY: &str = "blob-fetch-v1";
 
 /// The ops of `blob-fetch-v1`, exactly. The link's remote gate admits these
 /// beside the `fs-v1` ops.
-pub const BLOB_FETCH_COMMANDS: [&str; 2] = ["blob.fetch.start", "blob.fetch.status"];
+pub const BLOB_FETCH_COMMANDS: [&str; 3] =
+    ["blob.fetch.start", "blob.fetch.status", "blob.fetch.cancel"];
 
 /// The largest plan a job reads.
 const MAX_PLAN_BYTES: u64 = 64 * 1024 * 1024;
@@ -132,6 +136,7 @@ pub fn answer_line(
     let request = Value::Object(request);
     let result = match cmd {
         "blob.fetch.start" => service.start(&request),
+        "blob.fetch.cancel" => service.cancel(&request),
         _ => service.status(&request),
     };
     envelope(&id, result)
@@ -159,6 +164,7 @@ struct Store {
 #[derive(Deserialize)]
 struct StartParams {
     store: Store,
+    target: String,
     plan: String,
     plan_size: u64,
 }
@@ -228,6 +234,29 @@ fn checked_origin(origin: &str) -> Result<String, Refusal> {
     Ok(origin.to_string())
 }
 
+/// `target` when it is an absolute folder with no `.` or `..` parts, without
+/// a trailing slash.
+fn checked_target(target: &str) -> Result<String, Refusal> {
+    let trimmed = target.trim_end_matches('/');
+    if !target.starts_with('/')
+        || trimmed.is_empty()
+        || trimmed.split('/').skip(1).any(|part| part.is_empty() || part == "." || part == "..")
+    {
+        return Err(Refusal::bad_request("target is an absolute folder"));
+    }
+    Ok(trimmed.to_string())
+}
+
+/// Whether `path` is `folder` or under it.
+fn under(path: &str, folder: &str) -> bool {
+    path.strip_prefix(folder).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
+/// Whether one of two folders holds the other.
+fn overlaps(a: &str, b: &str) -> bool {
+    under(a, b) || under(b, a)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum State {
     Running,
@@ -244,7 +273,10 @@ struct Counters {
 
 struct Job {
     id: String,
-    plan: String,
+    /// The folder every file of the plan is under.
+    target: String,
+    /// Set by a newer start or a cancel: commit nothing more.
+    cancelled: AtomicBool,
     counters: Counters,
     status: Mutex<JobStatus>,
     /// Each file this job committed and its revision, in commit order.
@@ -303,6 +335,9 @@ impl Job {
 pub struct BlobFetchService {
     roots: Roots,
     jobs: Mutex<Jobs>,
+    /// Held across a job's cancelled check and its commit, so a cancel that
+    /// takes it once knows no cancelled job commits after it.
+    commits: Arc<Mutex<()>>,
 }
 
 #[derive(Default)]
@@ -315,7 +350,7 @@ struct Jobs {
 impl BlobFetchService {
     #[must_use]
     pub fn new(roots: Roots) -> Self {
-        Self { roots, jobs: Mutex::new(Jobs::default()) }
+        Self { roots, jobs: Mutex::new(Jobs::default()), commits: Arc::new(Mutex::new(())) }
     }
 
     fn start(&self, request: &Value) -> Result<Value, Refusal> {
@@ -331,16 +366,12 @@ impl BlobFetchService {
             return Err(Refusal::bad_request("store.grant is a csg_ grant"));
         }
         let origin = checked_origin(&params.store.origin)?;
+        let target = checked_target(&params.target)?;
         let store = Store { origin, grant: params.store.grant };
         let mut jobs = self.jobs.lock().unwrap_or_else(PoisonError::into_inner);
-        // The same plan while its job still runs is that job. A finished one
-        // runs again: a file it wrote may have changed on this machine since.
-        if let Some(job) = jobs.by_id.values().find(|job| {
-            job.plan == params.plan
-                && job.status.lock().unwrap_or_else(PoisonError::into_inner).state == State::Running
-        }) {
-            return Ok(job.answer());
-        }
+        // An earlier job under the same folder may still write: it stops
+        // before this one starts, whatever its plan.
+        self.cancel_overlapping(&jobs, &target);
         let running = jobs
             .by_id
             .values()
@@ -358,7 +389,8 @@ impl BlobFetchService {
         let id = format!("fetch_{}_{}", std::process::id(), jobs.next);
         let job = Arc::new(Job {
             id: id.clone(),
-            plan: params.plan.clone(),
+            target: target.clone(),
+            cancelled: AtomicBool::new(false),
             counters: Counters::default(),
             written: Mutex::new(Vec::new()),
             status: Mutex::new(JobStatus {
@@ -372,11 +404,14 @@ impl BlobFetchService {
         jobs.by_id.insert(id, job.clone());
         drop(jobs);
         let roots = self.roots.clone();
+        let commits = self.commits.clone();
         let (plan, plan_size) = (params.plan, params.plan_size);
         let running = job.clone();
         let spawned = std::thread::Builder::new().name("blob-fetch".into()).spawn(move || {
-            let result = run(&roots, &store, &plan, plan_size, &running);
+            let result = run(&roots, &store, &plan, plan_size, &running, &commits);
+            // A cancelled job already reads as failed (`blob.superseded`).
             running.update(|status| match result {
+                _ if status.state != State::Running => {}
                 Ok(()) => status.state = State::Done,
                 Err((code, message)) => {
                     status.state = State::Failed;
@@ -393,6 +428,44 @@ impl BlobFetchService {
         let answer = job.answer();
         self.retire_finished();
         Ok(answer)
+    }
+
+    /// `blob.fetch.cancel {target}`: cancels every running job under a folder
+    /// that overlaps `target`, and answers once none of them can commit.
+    fn cancel(&self, request: &Value) -> Result<Value, Refusal> {
+        let target = request
+            .get("target")
+            .and_then(Value::as_str)
+            .ok_or_else(|| Refusal::bad_request("target is required"))?;
+        let target = checked_target(target)?;
+        let jobs = self.jobs.lock().unwrap_or_else(PoisonError::into_inner);
+        let cancelled = self.cancel_overlapping(&jobs, &target);
+        drop(jobs);
+        self.retire_finished();
+        Ok(json!({ "cancelled": cancelled }))
+    }
+
+    /// Marks each running job whose folder overlaps `target` cancelled and
+    /// failed, then waits out a commit one of them may be in.
+    fn cancel_overlapping(&self, jobs: &Jobs, target: &str) -> usize {
+        let mut cancelled = 0;
+        for job in jobs.by_id.values() {
+            if !overlaps(&job.target, target) {
+                continue;
+            }
+            let mut status = job.status.lock().unwrap_or_else(PoisonError::into_inner);
+            if status.state != State::Running {
+                continue;
+            }
+            job.cancelled.store(true, Ordering::SeqCst);
+            status.state = State::Failed;
+            status.error = Some(("blob.superseded", "a newer push to this folder took over".into()));
+            cancelled += 1;
+        }
+        if cancelled > 0 {
+            drop(self.commits.lock().unwrap_or_else(PoisonError::into_inner));
+        }
+        cancelled
     }
 
     fn status(&self, request: &Value) -> Result<Value, Refusal> {
@@ -450,7 +523,14 @@ impl BlobFetchService {
 
 type Failure = (&'static str, String);
 
-fn run(roots: &Roots, store: &Store, plan: &str, plan_size: u64, job: &Job) -> Result<(), Failure> {
+fn run(
+    roots: &Roots,
+    store: &Store,
+    plan: &str,
+    plan_size: u64,
+    job: &Job,
+    commits: &Mutex<()>,
+) -> Result<(), Failure> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(4)
@@ -470,7 +550,7 @@ fn run(roots: &Roots, store: &Store, plan: &str, plan_size: u64, job: &Job) -> R
         if plan.version != 1 {
             return Err(("blob.bad_plan", format!("plan version {} is not known", plan.version)));
         }
-        check_plan(&plan)?;
+        check_plan(&plan, &job.target)?;
         job.update(|status| {
             status.files_total = plan.files.len() as u64;
             status.bytes_total = plan.files.iter().map(|file| file.size).sum();
@@ -480,7 +560,7 @@ fn run(roots: &Roots, store: &Store, plan: &str, plan_size: u64, job: &Job) -> R
             .map(|file| {
                 let client = &client;
                 async move {
-                    let written = write_file(client, store, roots, file, job).await;
+                    let written = write_file(client, store, roots, file, job, commits).await;
                     job.counters.files_done.fetch_add(1, Ordering::Relaxed);
                     written.map_err(|failure| (file.path.clone(), failure))
                 }
@@ -504,12 +584,17 @@ fn run(roots: &Roots, store: &Store, plan: &str, plan_size: u64, job: &Job) -> R
     })
 }
 
-/// Every hash is a SHA-256, every size within bounds and every file's
-/// chunks add up to its size.
-fn check_plan(plan: &Plan) -> Result<(), Failure> {
+/// Every file is under `target`, every hash is a SHA-256, every size within
+/// bounds and every file's chunks add up to its size.
+fn check_plan(plan: &Plan, target: &str) -> Result<(), Failure> {
     let bad = |why: String| ("blob.bad_plan", why);
     for file in &plan.files {
-        if !is_sha256(&file.sha256) || !file.path.starts_with('/') {
+        if !is_sha256(&file.sha256)
+            || !file.path.starts_with('/')
+            || file.path.split('/').any(|part| part == "." || part == "..")
+            || !under(&file.path, target)
+            || file.path == target
+        {
             return Err(bad(format!("{} is not a plan entry", file.path)));
         }
         let blobs = file.blobs();
@@ -529,8 +614,13 @@ async fn write_file(
     roots: &Roots,
     file: &PlanFile,
     job: &Job,
+    commits: &Mutex<()>,
 ) -> Result<(), Failure> {
     let fs = |error: FsError| (error.code(), error.message());
+    let superseded = || ("blob.superseded", "a newer push to this folder took over".to_string());
+    if job.cancelled.load(Ordering::SeqCst) {
+        return Err(superseded());
+    }
     // A symlink at the path: the write would land wherever it points. The
     // file is named as failed, and the Mac skips it as the link copy does.
     if std::fs::symlink_metadata(&file.path).is_ok_and(|meta| meta.file_type().is_symlink()) {
@@ -541,6 +631,9 @@ async fn write_file(
     pending.set_permissions(file.permissions).map_err(fs)?;
     let mut whole = Sha256::new();
     for chunk in file.blobs() {
+        if job.cancelled.load(Ordering::SeqCst) {
+            return Err(superseded());
+        }
         let bytes = fetch_blob(client, store, &chunk.sha256, chunk.size).await?;
         job.counters.fetched_bytes.fetch_add(bytes.len() as u64, Ordering::Relaxed);
         whole.update(&bytes);
@@ -550,7 +643,15 @@ async fn write_file(
     if hex(&whole.finalize()) != file.sha256 {
         return Err(("blob.digest_mismatch", format!("{} did not match its hash", file.path)));
     }
-    let entry = pending.commit().map_err(fs)?;
+    // Checked and committed under one lock: a cancel that returned has seen
+    // this commit end, or this job sees the cancel and writes nothing.
+    let entry = {
+        let _commit = commits.lock().unwrap_or_else(PoisonError::into_inner);
+        if job.cancelled.load(Ordering::SeqCst) {
+            return Err(superseded());
+        }
+        pending.commit().map_err(fs)?
+    };
     let revision = entry.revision.unwrap_or_default();
     job.written.lock().unwrap_or_else(PoisonError::into_inner).push((file.path.clone(), revision));
     Ok(())

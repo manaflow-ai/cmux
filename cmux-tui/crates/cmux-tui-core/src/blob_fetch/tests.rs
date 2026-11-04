@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::net::TcpListener;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -45,8 +45,16 @@ struct FakeStore {
     served: Arc<Mutex<Vec<String>>>,
 }
 
+/// A gate a [`FakeStore`] holds one blob's answer behind until it opens.
+type Gate = Arc<(Mutex<bool>, Condvar)>;
+
 impl FakeStore {
     fn start(blobs: HashMap<String, Vec<u8>>) -> Self {
+        Self::holding(blobs, None)
+    }
+
+    /// Like [`FakeStore::start`], but the answer for `held.0` waits for its gate.
+    fn holding(blobs: HashMap<String, Vec<u8>>, held: Option<(String, Gate)>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let origin = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
         let served = Arc::new(Mutex::new(Vec::new()));
@@ -57,6 +65,7 @@ impl FakeStore {
                 let Ok(mut stream) = stream else { continue };
                 let blobs = blobs.clone();
                 let log = log.clone();
+                let held = held.clone();
                 std::thread::spawn(move || {
                     let mut reader = BufReader::new(stream.try_clone().unwrap());
                     let mut request = String::new();
@@ -76,6 +85,15 @@ impl FakeStore {
                     let path = request.split(' ').nth(1).unwrap_or("").to_string();
                     let key = path.trim_start_matches("/v1/sync/blobs/").to_string();
                     log.lock().unwrap().push(key.clone());
+                    if let Some((held_key, gate)) = &held
+                        && *held_key == key
+                    {
+                        let (open, opened) = &**gate;
+                        let mut open = open.lock().unwrap();
+                        while !*open {
+                            open = opened.wait(open).unwrap();
+                        }
+                    }
                     let (status, body): (&str, &[u8]) = if !authorized {
                         ("401 Unauthorized", b"")
                     } else if let Some(blob) = blobs.get(&key) {
@@ -96,11 +114,20 @@ impl FakeStore {
     }
 }
 
+/// The folder every test's files are under.
+fn temp_root() -> String {
+    std::fs::canonicalize(std::env::temp_dir()).unwrap().to_str().unwrap().to_string()
+}
+
 fn start(service: &BlobFetchService, origin: &str, plan: &[u8]) -> Value {
+    start_under(service, origin, plan, &temp_root())
+}
+
+fn start_under(service: &BlobFetchService, origin: &str, plan: &[u8], target: &str) -> Value {
     let line = json!({
         "id": 1, "cmd": "blob.fetch.start",
         "store": {"origin": origin, "grant": GRANT},
-        "plan": sha(plan), "plan_size": plan.len(),
+        "plan": sha(plan), "plan_size": plan.len(), "target": target,
     })
     .to_string();
     answer_line(Some(service), true, &line)
@@ -239,10 +266,15 @@ fn bad_requests_are_refused_before_any_fetch() {
     ] {
         let line = json!({"id": 1, "cmd": "blob.fetch.start",
             "store": {"origin": origin, "grant": grant},
-            "plan": sha(b"p"), "plan_size": 1})
+            "plan": sha(b"p"), "plan_size": 1, "target": temp_root()})
         .to_string();
         let answer = answer_line(Some(&service), true, &line);
         assert_eq!(answer["error_code"], "blob.bad_request", "{origin} {grant}");
+    }
+    for target in ["relative", "/", "/a/../b", "/a//b"] {
+        let line = json!({"id": 1, "cmd": "blob.fetch.cancel", "target": target}).to_string();
+        let answer = answer_line(Some(&service), true, &line);
+        assert_eq!(answer["error_code"], "blob.bad_request", "{target}");
     }
     let line = json!({"id": 1, "cmd": "blob.fetch.status", "job": "x"}).to_string();
     assert_eq!(answer_line(Some(&service), false, &line)["error_code"], "blob.permission_denied");
@@ -250,10 +282,11 @@ fn bad_requests_are_refused_before_any_fetch() {
 }
 
 #[test]
-fn only_the_two_ops_are_blob_fetch_frames() {
+fn only_the_three_ops_are_blob_fetch_frames() {
     assert_eq!(frame_command(r#"{"id":1,"cmd":"blob.fetch.start"}"#), Some("blob.fetch.start"));
     assert_eq!(frame_command(r#"{"id":1,"cmd":"blob.fetch.status"}"#), Some("blob.fetch.status"));
-    assert_eq!(frame_command(r#"{"id":1,"cmd":"blob.fetch.cancel"}"#), None);
+    assert_eq!(frame_command(r#"{"id":1,"cmd":"blob.fetch.cancel"}"#), Some("blob.fetch.cancel"));
+    assert_eq!(frame_command(r#"{"id":1,"cmd":"blob.fetch.list"}"#), None);
     assert_eq!(frame_command(r#"{"id":1,"cmd":"blob.fetch.start","protocol":"x"}"#), None);
     assert!(is_sha256(&sha(b"")));
     assert!(!is_sha256("ABC"));
@@ -272,14 +305,24 @@ fn starts_past_the_running_cap_are_refused() {
         }
     });
     let service = BlobFetchService::new(Roots::new([home.path.clone()]));
+    let folder = |index: usize| format!("{}/p{index}", home.path.to_str().unwrap());
+    let mut first = String::new();
     for index in 0..super::MAX_RUNNING {
         let plan = format!("plan {index}").into_bytes();
-        assert_eq!(start(&service, &origin, &plan)["ok"], true);
+        let started = start_under(&service, &origin, &plan, &folder(index));
+        assert_eq!(started["ok"], true, "{started}");
+        if index == 0 {
+            first = started["data"]["job"].as_str().unwrap().to_string();
+        }
     }
-    let refused = start(&service, &origin, b"one more plan");
+    let refused = start_under(&service, &origin, b"one more plan", &folder(99));
     assert_eq!(refused["error_code"], "blob.busy", "{refused}");
-    // The same plan as a running job is still that job.
-    assert_eq!(start(&service, &origin, b"plan 0")["ok"], true);
+    // A start under a running job's folder takes its place.
+    let again = start_under(&service, &origin, b"plan 0 again", &folder(0));
+    assert_eq!(again["ok"], true, "{again}");
+    let line = json!({"id": 2, "cmd": "blob.fetch.status", "job": first}).to_string();
+    let old = answer_line(Some(&service), true, &line);
+    assert_eq!(old["data"]["error_code"], "blob.superseded", "{old}");
 }
 
 #[test]
@@ -352,4 +395,98 @@ fn a_symlink_at_the_path_is_named_and_what_it_points_at_is_untouched() {
     assert_eq!(done["data"]["failed"][0]["error_code"], "fs.symlink", "{done}");
     assert_eq!(std::fs::read(home.path.join("real")).unwrap(), b"keep me");
     assert!(std::fs::symlink_metadata(home.path.join("link")).unwrap().file_type().is_symlink());
+}
+
+#[test]
+fn a_newer_start_or_a_cancel_fences_off_a_running_job_that_has_not_written() {
+    let home = Home::new("fence");
+    let root = home.path.join("proj");
+    std::fs::create_dir_all(&root).unwrap();
+    let root = root.to_str().unwrap().to_string();
+    let path = format!("{root}/f");
+    let plan_of = |bytes: &[u8]| {
+        json!({"version": 1, "files": [
+            {"path": path, "permissions": 0o644, "size": bytes.len(), "sha256": sha(bytes)},
+        ]})
+        .to_string()
+        .into_bytes()
+    };
+    let (old, newer) = (b"old bytes".to_vec(), b"newer bytes".to_vec());
+    let (old_plan, newer_plan) = (plan_of(&old), plan_of(&newer));
+    let gate: Gate = Arc::new((Mutex::new(false), Condvar::new()));
+    let store = FakeStore::holding(
+        HashMap::from([
+            (sha(&old_plan), old_plan.clone()),
+            (sha(&newer_plan), newer_plan.clone()),
+            (sha(&old), old.clone()),
+            (sha(&newer), newer.clone()),
+        ]),
+        Some((sha(&old), gate.clone())),
+    );
+    let service = BlobFetchService::new(Roots::new([home.path.clone()]));
+    let held_job = |service: &BlobFetchService| {
+        let started = start_under(service, &store.origin, &old_plan, &root);
+        let job = started["data"]["job"].as_str().unwrap().to_string();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !store.served.lock().unwrap().contains(&sha(&old)) {
+            assert!(Instant::now() < deadline, "the old job never asked for its blob");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        job
+    };
+    let release_and_settle = |job: &str| {
+        let (open, opened) = &*gate;
+        *open.lock().unwrap() = true;
+        opened.notify_all();
+        // The held job's thread sees its answer, then the cancel.
+        std::thread::sleep(Duration::from_millis(300));
+        let line = json!({"id": 9, "cmd": "blob.fetch.status", "job": job}).to_string();
+        let answer = answer_line(Some(&service), true, &line);
+        assert_eq!(answer["data"]["error_code"], "blob.superseded", "{answer}");
+        *open.lock().unwrap() = false;
+    };
+
+    // A retry with a changed plan: the old job, held mid-fetch, writes nothing.
+    let first = held_job(&service);
+    let started = start_under(&service, &store.origin, &newer_plan, &root);
+    let second = started["data"]["job"].as_str().unwrap().to_string();
+    assert_eq!(wait(&service, &second)["data"]["state"], "done");
+    assert_eq!(std::fs::read(&path).unwrap(), newer);
+    release_and_settle(&first);
+    assert_eq!(std::fs::read(&path).unwrap(), newer, "the superseded job overwrote");
+
+    // A copy over the link after a cancel: the same.
+    std::fs::remove_file(&path).unwrap();
+    store.served.lock().unwrap().clear();
+    let third = held_job(&service);
+    let line = json!({"id": 4, "cmd": "blob.fetch.cancel", "target": root}).to_string();
+    let cancelled = answer_line(Some(&service), true, &line);
+    assert_eq!(cancelled["data"]["cancelled"], 1, "{cancelled}");
+    std::fs::write(&path, b"written over the link").unwrap();
+    release_and_settle(&third);
+    assert_eq!(std::fs::read(&path).unwrap(), b"written over the link");
+    // A cancel with nothing running cancels nothing.
+    let again = answer_line(Some(&service), true, &line);
+    assert_eq!(again["data"]["cancelled"], 0, "{again}");
+}
+
+#[test]
+fn a_plan_file_outside_the_jobs_folder_fails_the_plan() {
+    let home = Home::new("target");
+    std::fs::create_dir_all(home.path.join("proj")).unwrap();
+    let bytes = b"x".to_vec();
+    let plan = json!({"version": 1, "files": [
+        {"path": home.path.join("elsewhere/f").to_str().unwrap(), "permissions": 0o644,
+         "size": 1, "sha256": sha(&bytes)},
+    ]})
+    .to_string()
+    .into_bytes();
+    let store = FakeStore::start(HashMap::from([(sha(&plan), plan.clone()), (sha(&bytes), bytes)]));
+    let service = BlobFetchService::new(Roots::new([home.path.clone()]));
+    let target = home.path.join("proj");
+    let started = start_under(&service, &store.origin, &plan, target.to_str().unwrap());
+    let job = started["data"]["job"].as_str().unwrap().to_string();
+    let done = wait(&service, &job);
+    assert_eq!(done["data"]["error_code"], "blob.bad_plan", "{done}");
+    assert!(!home.path.join("elsewhere/f").exists());
 }
