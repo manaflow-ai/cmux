@@ -246,36 +246,47 @@ async fn a_chat_being_moved_is_not_continued() {
 
 /// Stop lands after the turn has ended but before its continuation is scheduled. The test holds
 /// the config lock, so the failed turn waits in `route_failure` (a refused connection is a
-/// route-class failure) after it has given up its turn.
+/// route-class failure) after it has given up its turn. The lock is taken only once the agent has
+/// the prompt (it opened the FIFO): the turn reads the config on its way to the prompt
+/// (`repo_sync::wait` and the team and silence settings), and a lock held from the turn's start
+/// stops it there, so its agent never answers. The agent answers once the test closes the FIFO.
 #[tokio::test]
 async fn stop_between_the_failure_and_its_scheduling_still_prevents_the_continuation() {
     let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![20]);
     let id = new_session(&mut c, "gap").await;
+    let gate = std::env::temp_dir().join(format!("acpmux-gap-{}", uuid::Uuid::now_v7()));
+    assert!(std::process::Command::new("mkfifo").arg(&gate).status().unwrap().success());
     let mut other = connect(&hub).await;
-    let params =
-        json!({"sessionId": id, "prompt": [{"type": "text", "text": "net-refused-later"}]});
+    let text = format!("net-refused-gate: {}", gate.display());
+    let params = json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
     let turn = tokio::spawn(async move { other.request(method::SESSION_PROMPT, params).await });
+    // Opening the FIFO for writing returns once the agent opened it: it has the prompt.
+    let path = gate.clone();
+    let writer =
+        tokio::task::spawn_blocking(move || std::fs::OpenOptions::new().write(true).open(path));
+    let writer = tokio::time::timeout(Duration::from_secs(20), writer)
+        .await
+        .expect("the agent never got the prompt")
+        .unwrap()
+        .unwrap();
     let session = hub.resolve(&id).unwrap();
-    for _ in 0..400 {
-        if session.turn().is_some() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    assert!(session.turn().is_some(), "the turn never started");
+    assert!(session.turn().is_some(), "the turn is running");
     let config = hub.config.write().await;
+    // The agent answers: the turn ends, then waits on the config to schedule its continuation.
+    drop(writer);
     for _ in 0..400 {
         if session.turn().is_none() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    assert!(session.turn().is_none(), "the turn never ended");
+    assert!(session.turn().is_none(), "the turn never ended: {:?}", kinds(&hub, &id));
     hub.cancel(&session).await.unwrap();
     drop(config);
     let r = turn.await.unwrap();
     assert!(r.unwrap_err().contains("connection refused"));
+    let _ = std::fs::remove_file(&gate);
     tokio::time::sleep(Duration::from_millis(300)).await;
     let k = kinds(&hub, &id);
     assert!(!k.iter().any(|k| k == "auto_resume_scheduled"), "{k:?}");
