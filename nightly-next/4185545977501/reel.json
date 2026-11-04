@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "build": "4185545977501",
+  "notes": "notes/4185545977501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 35410,
+      "title": "test(transcript): Claude cohesion variant measures its turn's Worked for",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35510,
+      "title": "base red: panic ratchet cmux-tui +3 from #35421: the owner probe's chunk reads use get",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35499,
+      "title": "swift-logic table: rows for 181 false counts among the small rises since 25c69ee58fe4 (168 PLATFORM, 13 MIXED)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35407,
+      "title": "bench(terminal-resize): probe the drag, accept held terminals, A/B key resizes in one launch",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34545,
+      "title": "Tab drag: forward index decisions to Rust (migration shard 002)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34563,
+      "title": "cmux-next: port DropRevealPolicy to Rust (shard 001)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35524,
+      "title": "base red: nightly guards follow nightly-only-on-our-minis (d5997935ef7, 0962b8a946c, 24111ed7f5e)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35530,
+      "title": "Cloud VM image: pin cmux-tui b1f8fc4d (receiver lease renewal #35467, person-prompt activity #35476)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35329,
+      "title": "bench: daemon request latency through a journal step, and head-of-line (cmux-ad m11 2)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35416,
+      "title": "acpmux: the resume tick parks while no turn runs; an idle daemon no longer wakes every 10 s",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35442,
+      "title": "Running tray: one row per agent again, what needs you first",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35512,
+      "title": "view shell live code: refuse a patch that changes a type's stored properties",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35200,
+      "title": "cmux VM: production migrates, deploys and smokes on every push; the smoke takes the product create path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35471,
+      "title": "base red: webview tests follow #34607, #34866, #35113 and #34911; icons back on the scale",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35515,
+      "title": "test(model-stub): {{prompt}} templates for exact-reply checks (v2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35496,
+      "title": "cloud-journey: Codex in stub mode (login copy and model provider), the stub on a free port, backend.yml watches the journey's inputs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35405,
+      "title": "fix(workflow): recover garbled final journal record",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35489,
+      "title": "fix(ios): ChiefConversationHooksTests imports Testing and the Chief module on macOS too",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35359,
+      "title": "acpmux: an adopted agent host on a moved binary restarts on this one between turns",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35465,
+      "title": "ci(base-red): judge another repo's rollups from its own workflows at the base",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
