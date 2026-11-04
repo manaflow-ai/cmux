@@ -47,9 +47,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.error import URLError
+from urllib.request import urlopen
 
 # Each line of `gh run view --log` or of the job-logs endpoint starts with its time.
 STAMP = re.compile(r"^(?:[^\t]*\t[^\t]*\t)?﻿?\d{4}-\d\d-\d\dT[\d:.]+Z ?")
@@ -207,6 +211,7 @@ class Result:
     def __init__(self):
         self.ran = False
         self.failed: set = set()
+        self.passed: set = set()
         self.messages: dict = {}
         self.crashes: list = []
         self.truncated: list = []
@@ -486,10 +491,13 @@ def read_bun(lines: list[str], result: Result) -> None:
             for name in [name for name in result.failed if name.startswith(run_file + " > ")]:
                 result.failed.discard(name)
                 diagnostics.pop(name, None)
+            result.passed = {name for name in result.passed if not name.startswith(run_file + " > ")}
         elif match := BUN_TEST.match(text):
             result.ran, open_run, last = True, True, None
             name = match.group(2)
             added = None
+            if match.group(1) == "pass" and not recap:
+                result.passed.add(f"{file} > {name}" if file else name)
             if match.group(1) == "fail" and not recap:
                 last = f"{file} > {name}" if file else name
                 added = fail(last, bun_diagnostic(said, where))
@@ -681,7 +689,134 @@ def is_test_red(found: Result, job: str = "") -> bool:
     return found.ran or bool(re.search(r"\btests?\b", job, re.I))
 
 
-def classify(head_log: str | None, base_log: str | None, job: str = "", base: str = "the base") -> Verdict | None:
+def observations(log: str | None) -> list[dict]:
+    """Positive named results from a whole run; absence, skips and infrastructure losses are never passes.
+
+    Signatures use the classifier's Bun diagnostics, Swift issue lines or pytest's failure summary. Other readers
+    can still contribute a score, but an empty diagnostic cannot excuse a future failure of that test.
+    """
+    found = read(log)
+    lines = lines_of(log or "")
+    if found.crashes or found.truncated or any(LOST_RUNNER.search(line) or BLOB_NOT_FOUND.search(line) for line in lines):
+        return []
+    passed = set(found.passed)
+    patterns = (
+        re.compile(r"^✔ Test (.+?\))(?: with \d+ test cases?)? passed\b"),
+        re.compile(r"^Test Case '-\[(\S+ \S+)\]' passed\b"),
+        re.compile(r"^test (\S+) \.\.\. ok$"),
+        re.compile(r"^(\S+ \([^)]+\)) \.\.\. ok$"),
+        re.compile(r"^(\S+::\S+) PASSED(?: |$)"),
+    )
+    signatures: dict[str, list[str]] = {}
+    for line in lines:
+        if SWIFT_TEST_SUMMARY_FIXTURE.search(line):
+            continue
+        for pattern in patterns:
+            if match := pattern.search(line):
+                passed.add(match.group(1))
+        # Final Swift failure lines include durations; only issue lines are a stable diagnostic. Pytest's short
+        # summary includes the error. A bare FAILED marker from cargo/unittest is not an error signature.
+        for pattern in (FAILED[0], FAILED[4]):
+            if (match := pattern.search(line)) and ("recorded an issue" in line or line.startswith("FAILED ")):
+                signatures.setdefault(match.group(1), []).append(line)
+    suites = {m.group(1).strip('"') for line in lines for m in [SUITE_FAILED.search(line)] if m}
+    failures = {name for name in found.failed if name not in suites and not is_crash_rule_failure(name)}
+    return [{"test": name, "outcome": "fail" if name in failures else "pass",
+             "signature": (found.messages.get(name) or "\n".join(sorted(set(signatures.get(name, [])))))
+             if name in failures else ""} for name in sorted(passed | failures)]
+
+
+TAP_STATE_URL = "https://raw.githubusercontent.com/manaflow-ai/cmux/ci-test-health/tap-tests.json"
+TAP_MIN_OBSERVATIONS = 8
+TAP_MIN_FLIP_RATE = 0.2
+TAP_MAX_AGE = timedelta(hours=48)
+
+
+def load_flake_state(path: str | Path | None = None, *, fetch: bool = False) -> dict:
+    """Read one public reconciler snapshot per invocation. TAP_TESTS_STATE=off disables the supplement.
+
+    Callers that already have HQ's state pass it to classify directly. CLI callers fetch the public mirror once,
+    with a bounded deadline and no credentials; unavailable/invalid state keeps the deterministic comparison.
+    """
+    selected = str(path) if path is not None else os.environ.get("TAP_TESTS_STATE", "")
+    if selected.lower() in {"off", "0", "false"}:
+        return {}
+    try:
+        if selected:
+            state = json.loads(Path(selected).read_text())
+        elif fetch:
+            with urlopen(TAP_STATE_URL, timeout=5) as response:
+                state = json.load(response)
+        else:
+            return {}
+    except (OSError, ValueError, TypeError, URLError):
+        return {}
+    return state if isinstance(state, dict) and state.get("schema") == "tap-tests/v1" else {}
+
+
+def canonical_job(job: str) -> str:
+    """A matrix shard shares its test history with the other shards, never with another workflow."""
+    return re.sub(r" \(\d+\)$", "", job.rsplit(" / ", 1)[-1])
+
+
+def _tap_time(value) -> datetime | None:
+    try:
+        when = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return when.astimezone(timezone.utc) if when.tzinfo else None
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def flaky_failures(head_log: str | None, job: str, workflow: str, state: dict | None,
+                   *, now: datetime | None = None) -> dict[str, str]:
+    """Matching recent quarantined base flakes, with an issue and enough measured flips; never a blanket waiver."""
+    if not isinstance(state, dict) or state.get("schema") != "tap-tests/v1" or not workflow or not job:
+        return {}
+    now = now or datetime.now(timezone.utc)
+    generated = _tap_time(state.get("generated_at"))
+    if generated is None or not timedelta(0) <= now - generated <= TAP_MAX_AGE:
+        return {}
+    tests = state.get("tests")
+    if not isinstance(tests, list):
+        return {}
+    matching: dict[str, list[dict]] = {}
+    for row in tests:
+        if (isinstance(row, dict) and row.get("workflow") == workflow and row.get("job") == canonical_job(job)
+                and isinstance(row.get("test"), str)):
+            matching.setdefault(row["test"], []).append(row)
+    known = {}
+    for observed in observations(head_log):
+        name, signature = observed["test"], observed["signature"]
+        rows = matching.get(name, [])
+        if observed["outcome"] != "fail" or not signature or len(rows) != 1:
+            continue
+        row = rows[0]
+        counts = [row.get(key) for key in ("observations", "passes", "failures", "flips")]
+        if any(type(value) is not int or value < 0 for value in counts):
+            continue
+        count, passes, failures, flips = counts
+        if (count < TAP_MIN_OBSERVATIONS or passes + failures != count or not passes or not failures
+                or not 2 <= flips < count):
+            continue
+        # Recompute instead of trusting a rounded, corrupt or hand-edited score in the JSON.
+        rate = flips / (count - 1)
+        signatures = row.get("failure_signatures")
+        if (rate < TAP_MIN_FLIP_RATE or not isinstance(signatures, list)
+                or not all(isinstance(value, str) for value in signatures) or signature not in signatures):
+            continue
+        quarantine = row.get("quarantine")
+        if not isinstance(quarantine, dict):
+            continue
+        until, issue = _tap_time(quarantine.get("until")), quarantine.get("issue", "")
+        if until is None or until <= now or not isinstance(issue, str) or not re.fullmatch(
+                r"https://github\.com/manaflow-ai/cmux/issues/[1-9]\d*", issue):
+            continue
+        known[name] = f"base flake {flips}/{count - 1} flips, quarantine {issue} until {quarantine['until']}"
+    return known
+
+
+def classify(head_log: str | None, base_log: str | None, job: str = "", base: str = "the base",
+             *, flake_state: dict | None = None, workflow: str = "") -> Verdict | None:
     """The head job's red judged per test against the base job's log; None when the head's log names no failing
     test, crash or cut-short run (a lint or compile red: the caller judges it as before)."""
     head = read(head_log)
@@ -697,13 +832,14 @@ def classify(head_log: str | None, base_log: str | None, job: str = "", base: st
         reasons.append(f"{job or 'the job'}: per-test results are not whole ({head.truncated[0]})")
     base_result = read(base_log) if base_log is not None else Result()
     seen = base_result.failed
-    new = sorted(head.failed - seen)
+    flaky = flaky_failures(head_log, job, workflow, flake_state) if not (head.crashes or head.truncated) else {}
+    new = sorted(head.failed - seen - flaky.keys())
     # A failure whose log prints its error (bun's) fails the same way only with the same error on both sides: an
     # assertion on the base does not excuse a TypeError on the head. Names with no error printed compare by name.
     differ = [name for name in sorted(head.failed & seen)
               if (head.messages.get(name) or base_result.messages.get(name))
-              and head.messages.get(name) != base_result.messages.get(name)]
-    if base_log is None and head.failed:
+              and head.messages.get(name) != base_result.messages.get(name) and name not in flaky]
+    if base_log is None and head.failed - flaky.keys():
         reasons.append(f"no {base} log to compare {len(head.failed)} failing test(s) with")
     elif new:
         named = [f"{name} ({head.messages[name]})" if head.messages.get(name) else name for name in new]
@@ -712,11 +848,14 @@ def classify(head_log: str | None, base_log: str | None, job: str = "", base: st
         said = [f"{name} ({head.messages.get(name) or 'no error read'} here; "
                 f"{base_result.messages.get(name) or 'no error read'} on {base})" for name in differ]
         reasons.append(f"{len(differ)} test(s) fail differently on {base}: {'; '.join(said)[:600]}")
-    return Verdict(bool(reasons), reasons, sorted(head.failed & seen - set(differ)))
+    shared = sorted(head.failed & seen - set(differ) - flaky.keys())
+    shared += [f"{name} ({why})" for name, why in sorted(flaky.items())]
+    return Verdict(bool(reasons), reasons, shared)
 
 
 
-def classify_any(head_log: str | None, bases: list, job: str = "") -> Verdict | None:
+def classify_any(head_log: str | None, bases: list, job: str = "", *, flake_state: dict | None = None,
+                 workflow: str = "") -> Verdict | None:
     """classify against several base logs (BASES: [(label, log)], newest first): a head failing test is the base's
     when it fails the same way on any one of them (base_red_excuse.py's window). A crash or a cut-short head run is
     the head's whatever the bases show, judged as classify judges it against the newest. shared names, for each test,
@@ -725,11 +864,16 @@ def classify_any(head_log: str | None, bases: list, job: str = "") -> Verdict | 
     first = verdicts[0][1]
     head = read(head_log)
     if first is None or len(verdicts) == 1 or head_log is None or head.crashes or head.truncated:
+        if first is not None and flake_state:
+            label, text = bases[0] if bases else ("the base", None)
+            return classify(head_log, text, job, label, flake_state=flake_state, workflow=workflow)
         return first
     on: dict = {}
     for label, verdict in verdicts:
         for name in verdict.shared:
             on.setdefault(name, label)
+    for name, why in flaky_failures(head_log, job, workflow, flake_state).items():
+        on.setdefault(name, why)
     new = sorted(head.failed - on.keys())
     labels = ", ".join(label for label, _ in verdicts)
     reasons = [f"{len(new)} failing test(s) pass, do not run or fail differently on each of {labels}: "
@@ -1098,6 +1242,8 @@ def main(argv: list[str] | None = None) -> int:
     one.add_argument("--base", type=Path)
     one.add_argument("--job", default="")
     one.add_argument("--base-name", default="the base")
+    one.add_argument("--workflow", default="", help="workflow name, for the measured base-flake supplement")
+    one.add_argument("--flake-state", help="tap-tests/v1 JSON; default: public reconciler snapshot, or TAP_TESTS_STATE")
     one.add_argument("--json", action="store_true")
     gallery = sub.add_parser("gallery", help="a gallery health shard's health.json against the base's")
     gallery.add_argument("--head", required=True, type=Path)
@@ -1126,7 +1272,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     head = args.head.read_text(errors="replace")
     base = args.base.read_text(errors="replace") if args.base else None
-    verdict = classify(head, base, args.job, args.base_name)
+    verdict = classify(head, base, args.job, args.base_name, workflow=args.workflow,
+                       flake_state=load_flake_state(args.flake_state, fetch=bool(args.workflow)))
     if args.json:
         print(json.dumps(None if verdict is None else
                          {"own": verdict.own, "reasons": verdict.reasons, "shared": verdict.shared}))
