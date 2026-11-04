@@ -98,4 +98,46 @@ struct AgentPageCommandTests {
         registry.perform(id, invocation: focused)
         #expect(ran == [command])
     }
+
+    /// The user, 2026-11-03: "'toggle' options are very confusing, since we don't know the current
+    /// state". Files, Preview and Tabs Beside Chat say in the palette whether they are on for the
+    /// focused chat, from the header's state the App last gave its page (the lit splits and whether
+    /// the panes beside the chat show); the chat's other controls have no state to show.
+    @Test func theHeaderTogglesSayWhetherTheyAreOnInThePalette() throws {
+        let registry = ActionRegistry.standard()
+        registry.context = ActionContext(rawValue: .max)
+        let model = AgentPaneModel(host: NoHost(), sessionId: "session-a")
+        var header = AgentPaneHeaderState(sideSessions: false, sessionInfo: false, browserOpensPreview: false)
+        var hooks = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { header })
+        hooks.shown = { header }
+        model.header = hooks
+        var focused: AgentPaneModel? = model
+        let bound = registry.bindAgentPageCommands(available: { _ in Set(AgentPageCommand.allCases.map(\.rawValue)) },
+                                                   state: { focused?.header?.shown?() }, run: { _, _ in })
+        #expect(bound)
+        func on(_ command: AgentPageCommand) -> Bool? { registry.action(for: ActionID(command))?.paletteState?() }
+        #expect(on(.toggleFiles) == false)
+        #expect(on(.togglePreview) == false)
+        #expect(on(.toggleSideTabs) == false)
+
+        header.lit = [AgentPaneModel.filesAction]
+        header.sideTabs = true
+        #expect(on(.toggleFiles) == true)
+        #expect(on(.togglePreview) == false)
+        #expect(on(.toggleSideTabs) == true)
+
+        header.lit = [AgentPaneModel.previewAction, "splitRight"]
+        header.sideTabs = false
+        #expect(on(.toggleFiles) == false)
+        #expect(on(.togglePreview) == true)
+        #expect(on(.toggleSideTabs) == false)
+
+        // No chat focused: nothing is on.
+        focused = nil
+        #expect(on(.togglePreview) == false)
+        // Run in Background, queueing (the page's own choice) and Session Info's sections show no switch.
+        for command in [AgentPageCommand.runInBackground, .toggleQueueing, .showSubagents, .showBackgroundTasks] {
+            #expect(on(command) == nil, "\(command)")
+        }
+    }
 }

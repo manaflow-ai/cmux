@@ -47,6 +47,11 @@ pub(crate) use display::{ChildTags, drop_display_lines};
 
 mod pending;
 
+#[cfg(test)]
+mod delivery_tests;
+#[cfg(test)]
+mod repo_sync_tests;
+
 impl Hub {
     // ------------------------------------------------------------- inbound
 
@@ -617,6 +622,12 @@ impl Hub {
                 format!("write to {shown} rejected by the acpmux permission policy"),
             ));
         }
+        // Keep the read lease through the write; a new seed cannot begin in
+        // between readiness and mutation. A Stop during the wait cancels it.
+        let _repo_ready = super::repo_sync::wait(session, path.clone(), || {
+            session.permission_epoch.load(Ordering::SeqCst) != epoch
+        })
+        .await?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| RpcError::internal(format!("create {}: {e}", parent.display())))?;
@@ -772,6 +783,21 @@ impl Hub {
         let off = self.off_latch();
         #[cfg(test)]
         super::full_access_bound::operation_entry(self);
+        // Native tools can mutate the repository even when their request has
+        // no location or kind. Only known read-only kinds skip the barrier;
+        // moves and unclassified/MCP tools wait before automatic approval too.
+        if !matches!(
+            request.pointer("/toolCall/kind").and_then(Value::as_str),
+            Some("read" | "search" | "think" | "fetch" | "switch")
+        ) && super::repo_sync::wait(session, session.meta().cwd, || {
+            session.permission_epoch.load(Ordering::SeqCst) != epoch
+                || stale_turn(session, &turn_id)
+        })
+        .await
+        .is_err()
+        {
+            return json!({"outcome":{"outcome":"cancelled"}});
+        }
         // One harness-neutral copy of any questions, before rules and the
         // record see the request (questions.rs).
         super::questions::normalize(&mut request, Self::preview_format(session));
@@ -1294,12 +1320,18 @@ impl Hub {
         if let Some(by) = answered_by {
             outcome[ANSWERED_BY_SLOT] = by;
         }
-        // The asking task is gone: nothing writes the answer, so its fence is cut.
-        if pending.reply.send(outcome).is_err()
-            && let Some(fence) = answerer.fence
-        {
-            self.answer_fences.lock().unwrap().remove(permission_id);
-            fence.cut();
+        // The asking task is gone: nothing writes the answer. Cut its fence and
+        // tell the caller instead of acknowledging an answer that was never delivered.
+        if pending.reply.send(outcome).is_err() {
+            if let Some(fence) = answerer.fence {
+                self.answer_fences.lock().unwrap().remove(permission_id);
+                fence.cut();
+            }
+            return Err(RpcError::not_found(
+                "agent_gone: the agent is no longer waiting for this answer",
+            )
+            .with_data(json!({"reason": "agent_gone", "sessionId": session.id,
+                                  "permissionId": permission_id})));
         }
         Ok(())
     }
@@ -1385,6 +1417,8 @@ impl Hub {
         }
         // A secret card waits on the same turn (`secrets.rs`).
         self.cancel_pending_secrets(session);
+        // So does an MCP connect card (`mcp_connect.rs`).
+        self.cancel_pending_mcp_connects(session);
     }
 }
 

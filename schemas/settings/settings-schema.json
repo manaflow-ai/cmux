@@ -358,7 +358,7 @@
         ],
         "id" : "updates",
         "lead" : [
-
+          "appUpdate"
         ],
         "symbol" : "icloud.and.arrow.down",
         "title" : {
@@ -1150,6 +1150,7 @@
               "agentPane.showMachineLoadWarnings",
               "agentPane.newChatsIn",
               "agents.defaultPermissionMode",
+              "agents.promptCache",
               "agents.modelRouter.model",
               "app.warnBeforeClosingAgentSession"
             ],
@@ -1477,7 +1478,8 @@
             "rows" : [
               "feed.mirrorNotifications.agents",
               "feed.mirrorNotifications.terminal",
-              "feed.agentPermissionPrompts"
+              "feed.agentPermissionPrompts",
+              "feed.needsYouInChief"
             ],
             "title" : {
               "key" : "settings.group.feedMirror",
@@ -1650,7 +1652,9 @@
             "key" : "settings.group.cloudWorkspaces",
             "rows" : [
               "cloud.newWorkspacesInCloud",
-              "cloud.newWorkspaceFolder"
+              "cloud.newWorkspaceFolder",
+              "cloud.useMyClaudeLoginOnMyCloudMachines",
+              "cloud.agentsStartWithoutAsking"
             ],
             "title" : {
               "key" : "settings.group.cloudWorkspaces",
@@ -12411,6 +12415,278 @@
       "title" : {
         "key" : "settings.cloud.newWorkspaceFolder",
         "text" : "New Cloud Workspaces Start In"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.cloudWorkspaces",
+        "text" : "Cloud Workspaces"
+      },
+      "help" : {
+        "key" : "settings.cloud.useMyClaudeLogin.help",
+        "text" : "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "cloud.useMyClaudeLoginOnMyCloudMachines",
+      "keywords" : [
+        "cloud",
+        "claude",
+        "login",
+        "sign in",
+        "token",
+        "credential",
+        "machine",
+        "consent",
+        "copy"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "cloud",
+        "useMyClaudeLoginOnMyCloudMachines"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:cloud.useMyClaudeLoginOnMyCloudMachines"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.cloud.useMyClaudeLogin",
+        "text" : "Use My Claude Login on My Own Cloud Machines"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.cloudWorkspaces",
+        "text" : "Cloud Workspaces"
+      },
+      "help" : {
+        "key" : "settings.cloud.agentsStartWithoutAsking.help",
+        "text" : "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "cloud.agentsStartWithoutAsking",
+      "keywords" : [
+        "cloud",
+        "vm",
+        "machine",
+        "agent",
+        "start",
+        "session",
+        "ask",
+        "approve",
+        "permission",
+        "without asking",
+        "delegate"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "cloud",
+        "agentsStartWithoutAsking"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:cloud.agentsStartWithoutAsking"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.cloud.agentsStartWithoutAsking",
+        "text" : "Let Agents Start Cloud Sessions Without Asking"
       },
       "validation" : "portable"
     },
@@ -85501,6 +85777,139 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.feedMirror",
+        "text" : "Feed"
+      },
+      "help" : {
+        "key" : "settings.feed.needsYouInChief.help",
+        "text" : "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "feed.needsYouInChief",
+      "keywords" : [
+        "chief",
+        "home",
+        "needs you",
+        "requests",
+        "permissions",
+        "approve",
+        "pinned"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "feed",
+        "needsYouInChief"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:feed.needsYouInChief"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.feed.needsYouInChief",
+        "text" : "Pin Needs You in Chief"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "blink",
         "pulse",
         "steady",
@@ -91964,8 +92373,8 @@
         "local",
         "cloud"
       ],
-      "agent_refusal" : "privacy",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -92045,7 +92454,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -92057,9 +92466,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -92407,6 +92818,156 @@
       "title" : {
         "key" : "settings.agents.defaultPermissionMode",
         "text" : "Permission Mode for New Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "1h",
+        "5m"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.promptCacheOneHour",
+            "text" : "1 Hour"
+          },
+          "value" : "1h"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.promptCacheFiveMinutes",
+            "text" : "5 Minutes"
+          },
+          "value" : "5m"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "1h",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.promptCache.help",
+        "text" : "How long Claude Code keeps a chat's prompt cached. One hour keeps replies after a pause cheap; its cache writes cost a little more."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.promptCache",
+      "keywords" : [
+        "prompt cache",
+        "cache",
+        "ttl",
+        "claude",
+        "cost",
+        "tokens",
+        "1 hour",
+        "5 minutes"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "promptCache"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.promptCache"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.promptCache",
+        "text" : "Prompt Cache"
       },
       "validation" : "portable"
     },
@@ -93260,6 +93821,266 @@
       "title" : {
         "key" : "settings.contextMenus.showCustomizeItem",
         "text" : "Show Customize Menu…"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.section.accounts",
+        "text" : "Accounts"
+      },
+      "help" : {
+        "key" : "settings.imessage.enabled.help",
+        "text" : "Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "imessage.enabled",
+      "keywords" : [
+        "imessage",
+        "messages",
+        "connector",
+        "privacy"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "imessage",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "accounts",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "connect and disconnect from Session Info's iMessage connector",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.imessage.enabled",
+        "text" : "Connect iMessage"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.section.accounts",
+        "text" : "Accounts"
+      },
+      "help" : {
+        "key" : "settings.imessage.automationSkipped.help",
+        "text" : "Remember skipping the Messages Automation step. This does not grant access or authorize sending."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "imessage.automationSkipped",
+      "keywords" : [
+        "imessage",
+        "messages",
+        "automation",
+        "connector"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "imessage",
+        "automationSkipped"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "accounts",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "permission walkthrough state, set only by the iMessage connector",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.imessage.automationSkipped",
+        "text" : "Skip Messages Automation"
       },
       "validation" : "portable"
     },

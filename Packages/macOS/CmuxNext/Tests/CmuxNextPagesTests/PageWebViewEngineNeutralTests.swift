@@ -28,6 +28,45 @@ struct PageWebViewEngineNeutralTests {
         return (view, page)
     }
 
+    /// A script called while the Chromium page is still being made runs in Chromium once it is there,
+    /// never in the hidden WebKit view that never loads the document (a cold chat's first
+    /// `debug.agent_pane` call waited 5 s there for a hook that never came, cmuxterm-hq#6338).
+    @Test func aScriptCalledWhileChromiumStartsRunsInChromium() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        hosting.onMade = { page in
+            page.answer = { method, params in
+                guard method == "Runtime.evaluate", (params["expression"] as? String)?.contains("return 7;") == true else { return nil }
+                return #"{"result":{"type":"number","value":7}}"#
+            }
+        }
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
+        view.chromiumClock = PageTestClock.never
+        #expect(!view.showsChromium, "the Chromium page was there before the call: nothing to wait for")
+        let value = try await view.callPageScript("return 7;")
+        let page = try #require(hosting.made.first)
+        #expect(view.showsChromium)
+        #expect(page.calls.contains { $0.method == "Runtime.evaluate" && (($0.params["expression"] as? String)?.contains("return 7;") ?? false) },
+                "the call ran in the hidden WebKit view instead of the Chromium page")
+        #expect((value as? NSNumber)?.intValue == 7)
+        view.close()
+    }
+
+    /// A Chromium page that is never made does not hold a script call for good: once the wait runs
+    /// out the call returns nil, and it never ran in the hidden WebKit view (cmux#34154).
+    @Test(.timeLimit(.minutes(1))) func aScriptCallReturnsNilWhenTheChromiumStartNeverEnds() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        hosting.hangs = true
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
+        view.chromiumClock = PageTestClock.immediate
+        let value = try await view.callPageScript("return 7;")
+        #expect(value == nil)
+        #expect(!view.showsChromium)
+        #expect(view.chromiumStart != nil, "the start ended: the call did not wait on a start in flight")
+        view.close()
+    }
+
     @Test func aPictureOfTheChromiumPageIsItsScreenshot() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()

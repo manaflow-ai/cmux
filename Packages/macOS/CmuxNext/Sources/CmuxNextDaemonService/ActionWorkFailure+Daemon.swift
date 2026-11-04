@@ -34,6 +34,9 @@ extension ActionWorkFailure {
         self.init("\(label): \(error)", mayHaveApplied: timedOut, terminalMayAppear: daemonError?.isTerminalStartTimeout == true)
         // The person reads why in their language; a caller keeps the daemon's error (restore fuzz h3).
         if daemonError?.isDiskFull == true { shownReason = RefusalStrings.diskFull }
+        // A missed deadline reads as words, never the command names ("set-personal-workspace: timed out:
+        // workspace.place (no reply within 2.0 seconds)"); a caller still gets them in `message`.
+        if timedOut { shownReason = RefusalStrings.daemonTimedOut }
     }
 }
 

@@ -13,6 +13,7 @@ import { dmLinkOf, type DmLink } from "./conversation-dm-link.ts"
 import { firstName } from "./invite-first-name.ts"
 import { MAX_THREAD_PAGE, threadReplies, threadsOf, threadSummary } from "./conversation-threads.ts"
 import { LIVE_CAPABILITY, liveBuffer, liveSocketFrame } from "./conversation-live.ts"
+import { withSlack, slackDeliveryKey, slackOutbound, type SlackMessageInput } from "./conversation-slack.ts"
 import { textChiefOn, type TextBridge } from "./text-chief.ts"
 
 type Head = conversation.ConversationState
@@ -77,7 +78,7 @@ export class ConversationDO extends OwnerDO<Head> {
   protected override readonly welcomeCapabilities: ReadonlyArray<string> = [LIVE_CAPABILITY] // Chief live frames (conversation-live.ts)
   constructor(ctx: DurableObjectState, env: Env) {
     const sql = { exec: <T>(q: string, ...b: Array<unknown>) => ctx.storage.sql.exec(q, ...b).toArray() as Array<T> }
-    const domain = conversation.makeConversationDomain({
+    const domain = withSlack(conversation.makeConversationDomain({
       participantPolicy: ownerRecordPolicy,
       // Verified uploads the author may use (home-attachment-store.ts); a read inside the reducer, no write.
       attachmentFor: (hash, actor, floor) => store.usableRecord(sql, hash, actor, floor) ?? undefined,
@@ -87,7 +88,7 @@ export class ConversationDO extends OwnerDO<Head> {
         const address = invites.normalizeEmail(p.email)
         return invites.isAddress(address) ? [invites.addressId(env.HOME_ADDRESS_KEY, address)] : []
       }
-    })
+    }))
     super(ctx, env, withAdmit("cloud:ConversationDO", domain as Domain<Head>), "conv", publicActor, {
       rowMode: { snapshotTable: conversation.TABLE_MSG, snapshotTail: 50 },
       redact: { ...conversation.conversationRedact, privateTables: conversation.PRIVATE_TABLES },
@@ -98,6 +99,13 @@ export class ConversationDO extends OwnerDO<Head> {
 
   /** Typing memos per participant, in memory only (home-core typingGate); lost on eviction, which is fine. */
   private readonly typing = new Map<string, conversation.TypingMemo>()
+
+  /** The platform bridge's verified Slack event, never a public op or socket principal. */
+  async slackMessage(entity: string, input: SlackMessageInput): Promise<SubmitResult> {
+    this.bind(entity)
+    // The engine receipts an exact delivery; the reducer dedupes the Slack message tuple.
+    return this.submitSystem("slack.message", input, slackDeliveryKey(input), "system:slack")
+  }
 
   private member(state: Head, principal: Principal) {
     const actor = conversation.actorOf(principal)
@@ -201,6 +209,16 @@ export class ConversationDO extends OwnerDO<Head> {
     const result = frames.find((f) => f.t === "result")
     if (result?.t === "result" && op === "message.send" && state) this.textOut(state, _principal, result as { value?: { message_id?: string }; replayed?: boolean })
     if (result?.t === "result" && (op === "message.retract" || op === "message.edit" || (op === conversation.SWEEP_OP && (result.value as { retention?: unknown }).retention !== undefined))) store.markDirty(this.sqlStore, Date.now())
+    if (state && op === "message.send" && result?.t === "result") {
+      const id = (result.value as { message_id?: string }).message_id
+      const rows = this.boundEngine!.rows
+      const message = id ? rows.get<conversation.Message>(conversation.TABLE_MSG, id)?.row : undefined
+      const delivery = message && slackOutbound(rows, message, state)
+      if (delivery) {
+        const brain = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(`${delivery.agent}/${state.id}`))
+        this.ctx.waitUntil(brain.slackOutbound(delivery).catch(() => console.warn(JSON.stringify({ msg: "chief.slack.outbound_failed" }))))
+      }
+    }
   }
 
   /**
