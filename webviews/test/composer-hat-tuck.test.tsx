@@ -104,6 +104,8 @@ describe("the composer hat tucks away and comes back", () => {
       expect(tab.getAttribute("aria-label")).toBe("Show Running Work");
       await act(async () => tab.click());
       expect(host.querySelector(".acpmux-running-tray")).not.toBeNull();
+      // The page sends the host one write 250 ms after the last change (chatDisplay.ts WRITE_DELAY_MS).
+      // fixed-wait: that coalesced, delayed host write is the behavior under test.
       await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
       // The last write wins: brought back, the key is removed (the default, shown).
       expect(writes).toEqual([[TRAY_TUCKED_KEY, null]]);

@@ -1647,7 +1647,7 @@ button.cv-subagent > :last-child {
    straddles the composer's top edge, centred on the composer card's column. */
 .acpmux-tray-pull {
   position: relative;
-  z-index: 2;
+  z-index: var(--layer-raised);
   height: 0;
   margin: 0 var(--cv-inset-end, var(--cv-inset, 0px)) 0 var(--cv-inset, 0px);
 }
