@@ -6,7 +6,8 @@ import UserNotificationsUI
 
 /// The long-press view of every cmux notification (verify/rich-push.md
 /// "Expanded view"). It has no link to the Mac: what it sends goes to the
-/// App Group outbox, and the app (opened by `performNotificationDefaultAction`)
+/// App Group outbox (or, in a build without the App Group, the push keychain
+/// group under this notification's request id: `PushHandover`), and the app (opened by `performNotificationDefaultAction`)
 /// sends it over that Mac's link, asking Face ID for an answer or an Allow.
 ///
 /// Replying is the system's own text field at the bottom (the category's
@@ -93,7 +94,7 @@ final class NotificationViewController: UIViewController, @MainActor UNNotificat
             return
         }
         do {
-            try model.outbox?.put(reply)
+            try model.handOver(reply)
             model.sent = true
         } catch {
             model.failure = String(localized: "Couldn't hand this to cmux. Open the app to answer.")
