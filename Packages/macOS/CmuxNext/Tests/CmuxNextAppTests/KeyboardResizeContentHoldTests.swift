@@ -68,15 +68,12 @@ struct KeyboardResizeContentHoldTests {
         }
     }
 
-    /// FRAME OWNER S3 (`motion.frameOwner.contentPolicy`), the app's pane content with a terminal in each pane. On: the
-    /// containers (each terminal host) take their pane's content area in every frame of the spring, and the producer (the
-    /// terminal surface) takes a new size once, its final size in the key's turn, and never again in the press. Off: the
-    /// content area holds each host whole at its start size; host and surface each take a new size at most once.
-    @Test(arguments: [false, true])
-    func theProducerResizesOnceAndTheContainersFollowEveryFrame(policy: Bool) throws {
+    /// FRAME OWNER S3, the app's pane content with a terminal in each pane: the containers (each terminal host) take their
+    /// pane's content area in every frame of the spring, and the producer (the terminal surface) takes a new size once, its
+    /// final size in the key's turn, and never again in the press.
+    @Test func theProducerResizesOnceAndTheContainersFollowEveryFrame() throws {
         let rig = PaneGroundCoversPaneTests.Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
-        rig.root.context.contentPolicyOverride = policy
         let panes: [PaneID] = ["p1", "p2"]
         var hosts: [PaneID: [CGSize]] = [:], surfaces: [PaneID: [CGSize]] = [:], off: [String] = []
         var last: [PaneID: (host: CGSize, surface: CGSize)] = [:]
@@ -90,7 +87,7 @@ struct KeyboardResizeContentHoldTests {
                     if now.surface != was.surface { surfaces[pane, default: []].append(now.surface) }
                 }
                 last[pane] = now
-                if policy, now.host != area.bounds.size { off.append("\(label): \(pane)'s host \(now.host) in its area \(area.bounds.size)") }
+                if now.host != area.bounds.size { off.append("\(label): \(pane)'s host \(now.host) in its area \(area.bounds.size)") }
             }
         }
         try note("at rest")
@@ -110,11 +107,7 @@ struct KeyboardResizeContentHoldTests {
         for pane in panes {
             let session = try #require(rig.provider.sessions[pane]?.session)
             #expect((surfaces[pane] ?? []).count <= 1, "\(pane)'s surface (the producer) took \(surfaces[pane]?.count ?? 0) sizes in one press")
-            if policy {
-                #expect((hosts[pane] ?? []).count > 3, "\(pane)'s terminal host took \(hosts[pane]?.count ?? 0) sizes in a \(frames)-frame spring")
-            } else {
-                #expect((hosts[pane] ?? []).count <= 1, "\(pane)'s terminal host resized \(hosts[pane]?.count ?? 0) times with the policy off")
-            }
+            #expect((hosts[pane] ?? []).count > 3, "\(pane)'s terminal host took \(hosts[pane]?.count ?? 0) sizes in a \(frames)-frame spring")
             let host = session.view
             #expect(session.surfaceView.frame.size == host.surfaceSize(forHostSize: host.bounds.size), "\(pane)'s surface did not land at its host's size")
         }

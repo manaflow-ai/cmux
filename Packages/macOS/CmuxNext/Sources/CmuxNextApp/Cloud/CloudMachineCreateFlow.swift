@@ -5,8 +5,8 @@ import Foundation
 /// Creates one Cloud machine through the Cloud app server (cx-t2rz), with
 /// the person in the loop for the G8 approval (cx-wb5.65):
 ///
-/// 1. A create that no person started (an agent, the CLI, a script) first
-///    shows the native confirmation; nothing is sent until a person clicks.
+/// 1. A create that no person started (an agent, the CLI, a script) goes out at once unless the person
+///    turned `cloud.agentsStartWithoutAsking` off; then nothing is sent until a person clicks.
 /// 2. `cloud.machine.create` goes once with one idempotency key and origin
 ///    `user` (the verified app; the server refuses a money op otherwise).
 /// 3. The Mac relay calls it with the install token, so the backend answers
@@ -95,13 +95,14 @@ struct CloudMachineCreateFlow {
     /// `approved`: the approval an earlier attempt with `key` answered; `onApproved` hears each new answer.
     /// `answering`: the approval an earlier attempt with `key` began answering; `onAnswering` hears each, before it goes out.
     /// `madeRoom` hears the machine the server paused to make room at the cap (``CloudMachineCap/madeRoom(_:)``).
-    func create(name: String?, startedByPerson: Bool, askedBy: String? = nil, key: String? = nil, approved: String? = nil,
+    /// `asksFirst`: a create no person started shows the "Create a Cloud machine?" card first (``CloudAgentStartSetting`` off).
+    func create(name: String?, startedByPerson: Bool, asksFirst: Bool = true, askedBy: String? = nil, key: String? = nil, approved: String? = nil,
                 onApproved: @MainActor (String) -> Void = { _ in }, answering: String? = nil, onAnswering: @MainActor (String) -> Void = { _ in },
                 gate: Gate = .allowed, environment: String? = nil, madeRoom: @MainActor (JSONValue) -> Void = { _ in }) async throws -> JSONValue {
         if case .upgrade(let need) = gate { throw Failure.upgradeRequired(need.reason) }
         let machine = Self.named(name, askedBy: askedBy)
-        // A person's own gesture is the confirmation, so the backend's hold gets no second prompt.
-        if !startedByPerson { guard await confirm(.agentRequest(machine)) else { throw Failure.declined } }
+        // A person's own gesture is the confirmation, and so is their standing yes (`asksFirst` false).
+        if !startedByPerson, asksFirst { guard await confirm(.agentRequest(machine)) else { throw Failure.declined } }
         var args: [String: JSONValue] = ["size": .object(["cpu": .number(Double(machine.cpu)), "memory_mb": .number(Double(machine.memoryMB)), "disk_mb": .number(Double(machine.diskMB))])]
         if let name = machine.name { args["name"] = .string(name) }
         if let environment { args["environment"] = .string(environment) }
