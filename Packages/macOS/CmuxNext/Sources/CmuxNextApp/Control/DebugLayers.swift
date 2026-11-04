@@ -26,36 +26,8 @@ enum DebugLayers {
         return .object([
             "windows": .array(windows),
             "consistent": .bool(windows.allSatisfy { $0["consistent"]?.boolValue == true }),
-            "layout_passes": layoutPasses(),
+            "layout_passes": JSONValue(foundation: LayoutPassGuard.shared.report) ?? .null,
         ].merging(band.flatMap { JSONValue(foundation: $0) }.map { ["titlebar_band": $0] } ?? [:]) { $1 })
-    }
-
-    /// `LayoutPassGuard`: the most layout calls one view had in one
-    /// window layout (one `layoutIfNeeded`), the loops it caught (view class, window, ancestry)
-    /// and the busiest view classes since launch or the last reset.
-    static func layoutPasses() -> JSONValue {
-        let guardian = LayoutPassGuard.shared
-        return .object([
-            "installed": .bool(guardian.isInstalled),
-            "bound": .number(Double(LayoutPassGuard.bound)),
-            "max_in_one_turn": .number(Double(guardian.maxPassesInOneTurn)),
-            "max_view_class": guardian.maxPassesClass.map(JSONValue.string) ?? .null,
-            "max_window_class": guardian.maxPassesWindowClass.map(JSONValue.string) ?? .null,
-            // The limit of that window (LayoutPassGuard.limit(viewCount:)); `bound` is the largest.
-            "max_window_limit": guardian.maxPassesWindowLimit.map { .number(Double($0)) } ?? .null,
-            "loops": .array(guardian.reports.map { report in
-                .object([
-                    "view_class": .string(report.viewClass),
-                    "window_class": report.windowClass.map(JSONValue.string) ?? .null,
-                    "ancestry": .array(report.ancestry.map(JSONValue.string)),
-                    "passes": .number(Double(report.passes)),
-                    "limit": .number(Double(report.limit)),
-                ])
-            }),
-            "top_classes": .array(guardian.passesByClass.prefix(20).map { entry in
-                .object(["view_class": .string(entry.viewClass), "passes": .number(Double(entry.passes))])
-            }),
-        ])
     }
 
     private static func report(controller: WindowController, window: ShellWindow) -> JSONValue {

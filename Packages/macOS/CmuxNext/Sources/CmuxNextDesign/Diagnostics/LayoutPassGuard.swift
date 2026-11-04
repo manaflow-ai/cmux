@@ -87,6 +87,11 @@ public final class LayoutPassGuard {
 
     private var windowLayouts: [ObjectIdentifier: WindowLayout] = [:]
     private var classCounts: [ObjectIdentifier: (type: AnyClass, count: Int)] = [:]
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Layout calls per view since the last ``reset()`` (`debug.layers` `reset_layout_passes`: benches and films), nil
+    /// until the first reset so a normal run counts nothing per view.
+    private var instanceCounts: [ObjectIdentifier: (view: Weak, type: AnyClass, count: Int)]?
+    #endif
     private var reportedClasses: Set<ObjectIdentifier> = []
     private var observer: CFRunLoopObserver?
     private static let log = Logger(subsystem: "com.cmuxterm.next", category: "layout-pass-guard")
@@ -99,6 +104,42 @@ public final class LayoutPassGuard {
         classCounts.values.map { (String(describing: $0.type), $0.count) }.sorted { $0.1 > $1.1 }
     }
 
+    /// The `limit` views laid out most since the last ``reset()``, highest first: which instances of a busy class lay out
+    /// (FRAME OWNER S7b: two `_NSCoreHostingView<RootView>` in the titlebar). Each with its superview chain, nearest
+    /// first (at most 8; empty for a view gone since). Empty in a shipped build and before the first reset.
+    public func instancesByCalls(limit: Int) -> [(viewClass: String, ancestry: [String], calls: Int)] {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        return (instanceCounts ?? [:]).values.sorted { $0.count > $1.count }.prefix(limit).map { entry in
+            (String(describing: entry.type), entry.view.object.map { Self.ancestry(of: $0) } ?? [], entry.count)
+        }
+        #else
+        return []
+        #endif
+    }
+
+    /// `debug.layers` `layout_passes` (a `JSONSerialization` graph): the most layout calls one view had in one window
+    /// layout (one `layoutIfNeeded`) and its window's limit (``limit(viewCount:)``; ``bound`` is the largest), the loops
+    /// caught (view class, window, ancestry), the busiest view classes since launch or the last reset, and the busiest
+    /// views since the last reset (``instancesByCalls(limit:)``).
+    public var report: [String: Any] {
+        [
+            "installed": isInstalled,
+            "bound": Self.bound,
+            "max_in_one_turn": maxPassesInOneTurn,
+            "max_view_class": maxPassesClass ?? NSNull(),
+            "max_window_class": maxPassesWindowClass ?? NSNull(),
+            "max_window_limit": maxPassesWindowLimit ?? NSNull(),
+            "loops": reports.map { report -> [String: Any] in
+                ["view_class": report.viewClass, "window_class": report.windowClass ?? NSNull(), "ancestry": report.ancestry,
+                 "passes": report.passes, "limit": report.limit]
+            },
+            "top_classes": passesByClass.prefix(20).map { ["view_class": $0.viewClass, "passes": $0.passes] as [String: Any] },
+            "top_instances": instancesByCalls(limit: 20).map {
+                ["view_class": $0.viewClass, "ancestry": $0.ancestry, "calls": $0.calls] as [String: Any]
+            },
+        ]
+    }
+
     /// Clears the counts and reports (`debug.layers` `reset`, stress runs).
     public func reset() {
         classCounts.removeAll()
@@ -108,6 +149,9 @@ public final class LayoutPassGuard {
         maxPassesWindowLimit = nil
         reports.removeAll()
         reportedClasses.removeAll()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        instanceCounts = [:]
+        #endif
     }
 
     /// Installs the counters on `-[NSView layout]` and
@@ -178,6 +222,17 @@ public final class LayoutPassGuard {
         } else {
             classCounts[typeID] = (type, 1)
         }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if instanceCounts != nil {
+            let viewID = ObjectIdentifier(view)
+            // The weak reference tells a reused address apart.
+            if let entry = instanceCounts?[viewID], entry.view.object === view {
+                instanceCounts?[viewID]?.count += 1
+            } else {
+                instanceCounts?[viewID] = (Weak(view), type, 1)
+            }
+        }
+        #endif
         guard let window = view.window else { return }
         let windowID = ObjectIdentifier(window)
         guard windowLayouts[windowID] != nil else { return }
@@ -200,18 +255,24 @@ public final class LayoutPassGuard {
             maxPassesWindowLimit = limit
         }
         guard let limit, count == limit + 1, reportedClasses.insert(typeID).inserted else { return }
-        var ancestry: [String] = []
-        var next = view.superview
-        while let ancestor = next, ancestry.count < 8 {
-            ancestry.append(String(describing: Swift.type(of: ancestor)))
-            next = ancestor.superview
-        }
+        let ancestry = Self.ancestry(of: view)
         let report = Report(viewClass: String(describing: type), windowClass: String(describing: Swift.type(of: window)),
                             ancestry: ancestry, passes: count, limit: limit, at: Date())
         if reports.count >= 32 { reports.removeFirst() }
         reports.append(report)
         Self.log.fault("layout loop: \(report.viewClass, privacy: .public) laid out \(count) times in one window layout; window \(report.windowClass ?? "none", privacy: .public); ancestry \(ancestry.joined(separator: " < "), privacy: .public)")
         onLoop?(report)
+    }
+
+    /// `view`'s superview classes, nearest first, at most 8.
+    static func ancestry(of view: NSView) -> [String] {
+        var ancestry: [String] = []
+        var next = view.superview
+        while let ancestor = next, ancestry.count < 8 {
+            ancestry.append(String(describing: Swift.type(of: ancestor)))
+            next = ancestor.superview
+        }
+        return ancestry
     }
 
     struct Weak {
