@@ -1896,13 +1896,9 @@ function fallbackRowHeight(
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
   // subagent, the last with the list's 8px below (subagents/SubagentGroup.tsx).
-  // An agent a shell call started (subagents/AgentRunCard.tsx): its card with its model line, its
-  // reply once it ended, and the Raw toggle's row.
-  if (isRunGroup(row)) {
-    const agent = row.subagents![0]!;
-    const reply = agent.result && agent.state !== "running" ? replyHeight(agent.result) : 0;
-    return finish(cardHeight("working") + reply + toolRowHeight());
-  }
+  // An agent a shell call started (subagents/AgentRunCard.tsx): one collapsed disclosure line; its
+  // reply and Raw are measured once the reader opens it.
+  if (isRunGroup(row)) return finish(cardHeight("working"));
   if (row.kind === SUBAGENTS) return finish(56);
   // A workflow's card (summary/WorkflowCard.css): three fixed lines in a hairline box.
   // WorkflowCard: head, metadata, latest line, progress bar and focus line.

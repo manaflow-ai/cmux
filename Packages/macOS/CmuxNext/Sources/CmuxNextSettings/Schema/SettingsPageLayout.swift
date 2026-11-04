@@ -296,7 +296,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"]),
             card("settings.pageGroup.chatLayout", "Chat Layout", [
                 "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap",
-                "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement",
+                "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle", "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement",
                 "agentPane.display.environment.placement",
             ]),
             card("settings.pageGroup.chatText", "Chat Text", [

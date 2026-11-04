@@ -21,11 +21,11 @@ fn replayed_agent_hook_events_do_not_rewrite_the_record() {
     )
     .unwrap();
     mux.append_journal_ingress(&started, "test", "hook-replay").unwrap();
-    let working_at = mux.list_agents(Some(surface_id), None)[0].updated_at_ms;
+    let working_at = settled(&mux).list_agents(Some(surface_id), None)[0].updated_at_ms;
 
     let replay = mux.append_journal_ingress(&started, "test", "hook-replay").unwrap();
     assert!(replay.replayed);
-    let record = &mux.list_agents(Some(surface_id), None)[0];
+    let record = &settled(&mux).list_agents(Some(surface_id), None)[0];
     assert_eq!(record.state, AgentState::Working);
     assert_eq!(record.updated_at_ms, working_at);
 }
@@ -142,7 +142,7 @@ fn a_plugin_projection_lost_after_journal_commit_is_reconciled_from_the_roster()
         // projection transaction to model a daemon crash in that window.
         mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
         mux.fold_agent_roster(&ingress, &commit);
-        assert_eq!(mux.list_agents(Some(surface.id), None).len(), 1);
+        assert_eq!(settled(&mux).list_agents(Some(surface.id), None).len(), 1);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
         mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
 
@@ -177,7 +177,9 @@ fn a_plugin_projection_lost_after_journal_commit_is_reconciled_from_the_roster()
         true,
     )
     .unwrap();
-    let entry = reopened.agent_roster.lock().unwrap().roster.entries[terminal_id.as_str()].clone();
+    let entry = settled(&reopened).agent_roster.lock().unwrap().roster.entries
+        [terminal_id.as_str()]
+    .clone();
     assert_eq!(entry.agent_state(), AgentState::Working);
     assert_eq!(entry.agent_source(), AgentSource::Plugin);
     assert_eq!(entry.agent.as_deref(), Some("codex"));
@@ -226,7 +228,7 @@ fn failed_agent_hook_projection_does_not_consume_sequence() {
         mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().len(),
         2
     );
-    assert!(mux.list_agents(Some(surface.id), None).is_empty());
+    assert!(settled(&mux).list_agents(Some(surface.id), None).is_empty());
     mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
     mux.retry_pending_agent_hooks().unwrap();
     mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
@@ -240,7 +242,7 @@ fn failed_agent_hook_projection_does_not_consume_sequence() {
     assert!(
         mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().is_empty()
     );
-    assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
+    assert_eq!(settled(&mux).list_agents(Some(surface.id), None)[0].state, AgentState::Working);
 }
 
 #[test]
@@ -278,7 +280,7 @@ fn journal_commit_preseeds_hook_retry_before_projection() {
     assert!(
         mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().is_empty()
     );
-    assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
+    assert_eq!(settled(&mux).list_agents(Some(surface.id), None)[0].state, AgentState::Working);
 }
 
 #[test]
@@ -315,7 +317,7 @@ fn available_agent_report_wakes_pending_hook_projection_retry() {
     assert!(
         mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().is_empty()
     );
-    assert_eq!(mux.list_agents(Some(surface.id), None)[0].source, AgentSource::Hook);
+    assert_eq!(settled(&mux).list_agents(Some(surface.id), None)[0].source, AgentSource::Hook);
 }
 
 #[test]
@@ -442,17 +444,17 @@ fn agent_report_retries_only_pending_hooks_for_its_terminal() {
             .len(),
         1
     );
-    assert_eq!(mux.list_agents(Some(first.id), None)[0].source, AgentSource::Hook);
+    assert_eq!(settled(&mux).list_agents(Some(first.id), None)[0].source, AgentSource::Hook);
     // The roster is journal-derived and folds the second hook even while
     // its public resource projection waits in the retry queue. The
     // terminal-scoped retry must still leave that second hook pending.
-    assert_eq!(mux.list_agents(Some(second.id), None)[0].source, AgentSource::Hook);
+    assert_eq!(settled(&mux).list_agents(Some(second.id), None)[0].source, AgentSource::Hook);
 
     mux.report_agent(second.id, AgentState::Working, AgentSource::Socket, None).unwrap();
     assert!(
         mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().is_empty()
     );
-    assert_eq!(mux.list_agents(Some(second.id), None)[0].source, AgentSource::Hook);
+    assert_eq!(settled(&mux).list_agents(Some(second.id), None)[0].source, AgentSource::Hook);
 }
 
 #[test]
@@ -484,7 +486,7 @@ fn terminal_report_drains_more_than_one_pending_retry_page() {
     assert!(
         mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().is_empty()
     );
-    assert_eq!(mux.list_agents(Some(surface.id), None)[0].source, AgentSource::Hook);
+    assert_eq!(settled(&mux).list_agents(Some(surface.id), None)[0].source, AgentSource::Hook);
 }
 
 #[test]

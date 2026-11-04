@@ -1,9 +1,33 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
-import { nativeProofSkip } from "./cloud-journey";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { claudeLoginPrograms, cliExecNeedsDirectFallback, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { cliExecWithFallback, nativeProofSkip, oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
+import { machineIds, newMachineIds } from "./cloud-journey";
 
 describe("cloud journey", () => {
+  test("--sign-in oidc trades the job's OIDC token for the API's session and keeps both out of the output", async () => {
+    const calls: Array<{ method: string; url: string; auth: string }> = [];
+    const fake = async (method: string, url: string, _body: unknown, headers: Record<string, string>) => {
+      calls.push({ method, url, auth: headers.authorization ?? "" });
+      if (url.startsWith("https://gh.example/token")) return { status: 200, body: { value: "gh-oidc-jwt-value" } };
+      return { status: 200, body: { access_token: "stack-access-value", user: "user_x", session_expires_at: "2026-11-04T18:00:00.000Z" } };
+    };
+    const secrets: string[] = [];
+    const s = await oidcSignIn("https://cloud-api.cmux.dev", { ACTIONS_ID_TOKEN_REQUEST_URL: "https://gh.example/token?x=1", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "request-bearer" }, secrets, fake as never);
+    expect(s).toEqual({ token: "stack-access-value", user: "user_x", expiresAt: "2026-11-04T18:00:00.000Z" });
+    expect(calls[0]).toEqual({ method: "GET", url: "https://gh.example/token?x=1&audience=https%3A%2F%2Fcloud-api.cmux.dev", auth: "bearer request-bearer" });
+    expect(calls[1]).toEqual({ method: "POST", url: "https://cloud-api.cmux.dev/v1/auth/github-actions", auth: "Bearer gh-oidc-jwt-value" });
+    expect(secrets).toEqual(["request-bearer", "gh-oidc-jwt-value", "stack-access-value"]);
+    // What the journey renders goes through scrub with that list: none of the three survives.
+    const rendered = scrub(`GET bearer request-bearer -> gh-oidc-jwt-value; session stack-access-value`, secrets);
+    for (const v of secrets) expect(rendered).not.toContain(v);
+    await expect(oidcSignIn("https://cloud-api.cmux.dev", {}, [], fake as never)).rejects.toThrow("id-token: write");
+    const refused = async () => ({ status: 401, body: { error: "this token is not trusted to sign in", value: "gh-oidc-jwt-value" } });
+    await expect(oidcSignIn("https://cloud-api.cmux.dev", { ACTIONS_ID_TOKEN_REQUEST_URL: "https://gh.example/t", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "rb" }, [], refused as never)).rejects.toThrow("GitHub OIDC token HTTP 401");
+  });
   test("backend names map to the cmux API Worker of each environment", () => {
     expect(resolveBackend("staging").api).toBe("https://cloud-api-staging.cmux.dev");
     expect(resolveBackend("prod")).toEqual({ name: "prod", api: "https://cloud-api.cmux.dev", stack: "prod" });
@@ -20,6 +44,12 @@ describe("cloud journey", () => {
     expect(out).not.toContain("cmuxvm_sk_0123456789");
     expect(out).not.toContain("hunter22");
     expect(out).not.toMatch(/Bearer abc/);
+  });
+  test("CLI exec falls back only for the structured unsupported provider response", () => {
+    expect(cliExecNeedsDirectFallback(1, "", JSON.stringify({ code: "cloud_client_session.failed", message: "cmux: the cmux API refused the client session: 501 Not Implemented cloud.provider.unsupported" }))).toBe(true);
+    expect(cliExecNeedsDirectFallback(1, "", JSON.stringify({ code: "cloud_client_session.failed", message: "cmux: the cmux API refused the client session: 502 Bad Gateway cloud.provider.unsupported" }))).toBe(false);
+    expect(cliExecNeedsDirectFallback(1, "HTTP 501 cloud.provider.unsupported", "")).toBe(false);
+    expect(cliExecNeedsDirectFallback(0, "", "501 Not Implemented cloud.provider.unsupported")).toBe(false);
   });
   test("env files and the summary table", () => {
     expect(readEnvFile("export A='1'\nB=\"two\"\n# c\n")).toEqual({ A: "1", B: "two" });
@@ -81,6 +111,49 @@ describe("cloud journey", () => {
     expect(loginBearer("codex", auth)).toBe(JSON.parse(auth).tokens.access_token);
     expect(loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), "codex").install("/p.json")).toContain("python3 - 'codex' '/p.json' owner <<");
   });
+  test("Codex: the stub config pins the stub's model and keeps the made-up sign-in off chatgpt.com", () => {
+    const dir = mkdtempSync(join(tmpdir(), "journey-codex-config-"));
+    // Runs CODEX_STUB_CONFIG on a config.toml, then reads it back with Python's own TOML parser.
+    const point = (before: string | null) => {
+      const file = join(dir, "config.toml");
+      rmSync(file, { force: true });
+      if (before !== null) writeFileSync(file, before);
+      const run = (args: string[], input: string) => spawnSync("python3", args, { input, encoding: "utf8" });
+      const r = run(["-", "4711", file], CODEX_STUB_CONFIG);
+      expect(r.stderr).toBe("");
+      expect(r.stdout.trim()).toBe("stub-ready");
+      const read = run(["-c", "import json, sys, tomllib; print(json.dumps(tomllib.load(open(sys.argv[1], 'rb'))))", file], "");
+      expect(read.stderr).toBe("");
+      return JSON.parse(read.stdout);
+    };
+    try {
+      const want = (c: any) => {
+        expect(c.model).toBe("stub-model");
+        expect(c.model_provider).toBe("journeystub");
+        expect(c.chatgpt_base_url).toBe("http://127.0.0.1:4711/backend-api/");
+        expect(c.model_providers.journeystub).toEqual({ name: "journey stub", base_url: "http://127.0.0.1:4711/v1", wire_api: "responses", requires_openai_auth: true });
+        expect(c.features).toMatchObject({ apps: false, plugins: false, remote_plugin: false });
+        expect(c.analytics.enabled).toBe(false);
+      };
+      want(point(null));
+      // The image's own settings stay; the keys the stub needs replace theirs, in the tables they already have.
+      const image = 'model = "gpt-6.1-sol"\napproval_policy = "never"\n\n[features]\nplugins = true\nshell_snapshot = true\n\n[analytics]\nenabled = true\n\n[projects."/home/cmux"]\ntrust_level = "trusted"\n';
+      const c = point(image);
+      want(c);
+      expect(c.approval_policy).toBe("never");
+      expect(c.features.shell_snapshot).toBe(true);
+      expect(c.projects["/home/cmux"].trust_level).toBe("trusted");
+      // An active profile's model and model_provider would win over the root ones: no profile stays active.
+      const profiled = point('profile = "work"\n\n[profiles.work]\nmodel = "gpt-6.1-sol"\nmodel_provider = "openai"\n');
+      want(profiled);
+      expect(profiled.profile).toBeUndefined();
+      expect(profiled.profiles.work.model).toBe("gpt-6.1-sol");
+      // A second run (a resumed machine) rewrites the provider table instead of adding one TOML refuses.
+      want(point(readFileSync(join(dir, "config.toml"), "utf8")));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("cloud journey: link_token on a Native machine", () => {
@@ -96,5 +169,36 @@ describe("cloud journey: link_token on a Native machine", () => {
     expect(nativeProofSkip(refusal("owner.unreachable", "host_missing"))).toBeNull();
     expect(nativeProofSkip({ ok: true, value: { expires_at: 1 } })).toBeNull();
     expect(nativeProofSkip(undefined)).toBeNull();
+  });
+  test("the login preflight waits for the guest's bind, then names the failing check", async () => {
+    const noPause = async () => {};
+    let calls = 0;
+    const late = async (command: string) => ({ code: command === "pre" && ++calls >= 3 ? 0 : 1, stdout: "", stderr: "" });
+    expect(await waitPreflight(late, "pre", "owner", 90_000, 0, noPause)).toMatchObject({ tries: 3 });
+    const never = async (command: string) => ({ code: command === PREFLIGHT_PROBE ? 0 : 1, stdout: command === PREFLIGHT_PROBE ? "vm-kind= agent-auth.sh=yes user=cmux\n" : "", stderr: "" });
+    await expect(waitPreflight(never, "pre", "owner", 0, 0, noPause)).rejects.toThrow(/preflight exit 1 after 1 tries .*not an owner machine with the image's launchers \(vm-kind= agent-auth.sh=yes user=cmux\)/);
+  });
+});
+
+describe("cloud journey: exec on a VM API machine", () => {
+  test("falls back to the machine exec route once the CLI answers cloud.provider.unsupported", async () => {
+    const calls: string[] = [];
+    const cli = async (c: string) => (calls.push(`cli ${c}`), { code: 1, stdout: "", stderr: "cmux: the cmux API refused the client session: 501 Not Implemented cloud.provider.unsupported" });
+    const direct = async (c: string) => (calls.push(`direct ${c}`), { code: 0, stdout: "ok", stderr: "" });
+    const journey = { meta: {} as Record<string, string> };
+    const exec = cliExecWithFallback(cli, direct, journey);
+    expect((await exec("a")).stdout).toBe("ok");
+    expect((await exec("b")).stdout).toBe("ok");
+    expect(calls).toEqual(["cli a", "direct a", "direct b"]);
+    expect(journey.meta.exec_route).toContain("CLI gap");
+  });
+  test("keeps every other CLI failure as the step's own", async () => {
+    const exec = cliExecWithFallback(async () => ({ code: 2, stdout: "", stderr: "boom" }), async () => { throw new Error("not used"); }, { meta: {} });
+    expect((await exec("a")).code).toBe(2);
+  });
+  test("app cli: machines new since a create are listed, never picked", () => {
+    expect(machineIds([{ id: "vm_a" }, { machine_id: "vm_b" }, { id: "vm_c", status: "deleted" }, {}])).toEqual(["vm_a", "vm_b"]);
+    expect(newMachineIds(["vm_a"], ["vm_a", "vm_b", "vm_b"])).toEqual(["vm_b"]);
+    expect(newMachineIds(["vm_a"], ["vm_a"])).toEqual([]);
   });
 });
