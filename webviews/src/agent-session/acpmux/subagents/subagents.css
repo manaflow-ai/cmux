@@ -1193,6 +1193,90 @@ button.cv-subagent > :last-child {
   font-size: var(--text-detail);
 }
 
+/* A finished line's report (SubagentDoneLine.tsx, doneReport.experiment.ts; Leo, 2026-11-03: "Tray
+   only, richer"). The chevron after the words is its own control above the line's full-row hit
+   area; its hover fill covers only the chevron, never the row. It opens on the click: no fade. */
+.cv-subagent-done-row > .cv-subagent-done__disclose {
+  appearance: none;
+  position: relative;
+  z-index: var(--layer-raised);
+  box-sizing: content-box;
+  padding: 0;
+  margin-block: 0;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: transparent;
+  font: inherit;
+  cursor: default;
+  pointer-events: auto;
+}
+.cv-subagent-done-row > .cv-subagent-done__disclose:hover {
+  color: var(--cv-text);
+  background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
+}
+.cv-subagent-done-row > .cv-subagent-done__disclose[aria-expanded="true"] {
+  color: var(--cv-text);
+}
+.cv-subagent-done-row > .cv-subagent-done__disclose:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: 1px;
+}
+/* The report under the line, at the text column, in the transcript's Markdown; capped as an opened
+   tool output is (conversation.css `.cv-tool-output`, 240px), scrolling past it. */
+.cv-subagent-done__report {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--grid-gap-inner);
+  min-width: 0;
+  padding-inline-start: var(--grid-transcript-text-gap);
+}
+.cv-subagent-done__markdown {
+  align-self: stretch;
+  max-height: 240px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.cv-subagent-done__markdown > .cv-md {
+  --cv-font-size: var(--text-detail);
+  --cv-line-height: var(--text-detail--line-height);
+  color: var(--cv-text-muted);
+}
+.cv-subagent-done__markdown > .cv-md > :first-child {
+  margin-top: 0;
+}
+.cv-subagent-done__markdown > .cv-md > :last-child {
+  margin-bottom: 0;
+}
+/* The preview arm: its first two lines, the last fading out only when the cut hides more. */
+.cv-subagent-done__markdown[data-cut] {
+  max-height: calc(var(--text-detail--line-height) * 2);
+  overflow: hidden;
+}
+.cv-subagent-done__markdown[data-more] {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    currentColor calc(100% - var(--text-detail--line-height)),
+    transparent
+  );
+  mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--text-detail--line-height)), transparent);
+}
+.cv-subagent-done__more {
+  all: unset;
+  cursor: default;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.cv-subagent-done__more:hover,
+.cv-subagent-done__more:focus-visible {
+  color: var(--cv-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 /* ---------- The tray's motion (trayMotion.tsx, Leo 2026-10-26: "following along with the exact
    same things as everything else") ---------- */
 /* The card's entrance and its kept copy's exit. Shipped: the new message's own opacity-only arrival

@@ -99,6 +99,14 @@ describe("a background command reads in words", () => {
     ],
     ["xcodebuild -scheme cmux-unit -destination 'platform=macOS' test", "Testing cmux-unit", "xcodebuild"],
     ["xcodebuild -scheme cmux -configuration Debug build", "Building cmux", "xcodebuild"],
+    // A setup step's substitution is work: it stays named before the rule's words (#34679).
+    [
+      "SHA=$(git rev-parse HEAD); cmux-ci run --class light --key glyph-parity-${SHA:0:12} --ref $SHA --script x.sh",
+      "git rev-parse HEAD · Fleet run",
+      "cmux-ci",
+    ],
+    ["A=$(touch marker); bun test", "touch marker · Running tests", "bun-test"],
+    ['printf "%s" "$(git rev-parse HEAD)"', "git rev-parse HEAD · printf"],
     // No rule: the program and its main argument.
     ["cd ~/Projects/cmux && PORT=3000 bun run dev", "bun run dev"],
     [

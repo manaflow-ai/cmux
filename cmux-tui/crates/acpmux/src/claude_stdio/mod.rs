@@ -313,7 +313,7 @@ mod usage_limits_tests;
 #[cfg(test)]
 mod workflow_tests;
 mod workflows;
-pub use usage_limits::merge_usage_limits;
+pub use usage_limits::{merge_usage_limits, usage_limit_reached};
 
 /// Longest failure text a failed subagent's end carries, in characters.
 const MAX_FAILURE_CHARS: usize = 600;

@@ -16,6 +16,7 @@ import type { Translate } from "../i18n";
 import { useEffect, useState } from "react";
 import type { SummaryBackgroundTask } from "../summary/sessionSummary";
 import { replayProcessUpdates } from "./processUpdateReplay";
+import { commandWorkLabel } from "./commandWorkLabel";
 
 export type SessionInfoProcess = {
   /// acpmux's id, `<sessionId>/<task id>`: what `_acpmux/process/kill` takes.
@@ -267,6 +268,8 @@ const ASSIGNMENT = /^[A-Za-z_]\w*=/;
 export function commandLabel(command: BackgroundCommand): string {
   if (command.description) return command.description;
   const text = command.command.trim();
+  const work = commandWorkLabel(text);
+  if (work) return work;
   let from = 0;
   for (;;) {
     const { words, end } = leadingWords(text, from);

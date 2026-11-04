@@ -20,6 +20,7 @@
 // whole: nothing in here can backtrack.
 import type { StringKey, StringValues, Translate } from "../i18n";
 import { formatDuration } from "../conversation/turns";
+import { commandWorkLabel } from "./commandWorkLabel";
 
 /// A place a command is about: a pull request or a workflow run.
 export type CommandLink = { url: string };
@@ -55,7 +56,8 @@ export type CommandRead = {
 
 // ---- Reading words -------------------------------------------------------------------------------
 
-type Token = { word: string } | { op: string };
+/// A word, or an operator and where the text after it starts.
+type Token = { word: string } | { op: string; end: number };
 
 /// The command as shell words and the operators between them (`&&`, `||`, `|`, `;`, `&`, a newline).
 /// Quotes are removed from a word (`"a b"` is `a b`), `$(...)` and backticks stay inside one, and a
@@ -71,7 +73,7 @@ function tokens(text: string): Token[] {
       continue;
     }
     if (char === "\n" || char === ";") {
-      out.push({ op: ";" });
+      out.push({ op: ";", end: index + 1 });
       index += 1;
       continue;
     }
@@ -87,8 +89,8 @@ function tokens(text: string): Token[] {
         index = readWord(text, index, out);
         continue;
       }
-      out.push({ op: double ? char + char : char });
       index += double ? 2 : char === "|" && text[index + 1] === "&" ? 2 : 1;
+      out.push({ op: double ? char + char : char, end: index });
       continue;
     }
     index = readWord(text, index, out);
@@ -143,13 +145,15 @@ function readWord(text: string, start: number, out: Token[]): number {
   return Math.max(index, start + 1);
 }
 
-/// The steps of a command and how each is joined to the next.
-function steps(text: string): { words: string[]; joiner?: string }[] {
-  const list: { words: string[]; joiner?: string }[] = [{ words: [] }];
+type Step = { words: string[]; joiner?: string; start: number };
+
+/// The steps of a command, how each is joined to the next, and where each starts in the text.
+function steps(text: string): Step[] {
+  const list: Step[] = [{ words: [], start: 0 }];
   for (const token of tokens(text)) {
     if ("op" in token) {
       list[list.length - 1]!.joiner = token.op;
-      list.push({ words: [] });
+      list.push({ words: [], start: token.end });
     } else list[list.length - 1]!.words.push(token.word);
   }
   return list.filter((step) => step.words.length > 0);
@@ -195,6 +199,12 @@ function skipFlags(words: readonly string[], at: number, valued: ReadonlySet<str
 /// The words of the one program a command runs to do its work, its program first (see the top of
 /// this file), or empty when it runs none.
 export function programWords(command: string): string[] {
+  return mainProgram(command).words;
+}
+
+/// The program's words and the text of the setup steps before it (`SHA=$(git rev-parse HEAD); `),
+/// whose substitutions are work the label still names (`commandRead`).
+function mainProgram(command: string): { words: string[]; setup: string } {
   const list = steps(command);
   let step = 0;
   // A staging step joined by `&&` or `;` sets the stage for the next one.
@@ -205,6 +215,7 @@ export function programWords(command: string): string[] {
   )
     step += 1;
   const words = list[step]?.words ?? [];
+  const setup = step > 0 ? command.slice(0, list[step]!.start) : "";
   // Its redirections, alone or with their target.
   const kept: string[] = [];
   for (let index = 0; index < words.length; index += 1) {
@@ -222,7 +233,7 @@ export function programWords(command: string): string[] {
     if (next <= at || next >= kept.length) break;
     at = next;
   }
-  return kept.slice(at);
+  return { words: kept.slice(at), setup };
 }
 
 // ---- The rules -----------------------------------------------------------------------------------
@@ -525,11 +536,11 @@ export function fallbackLabel(words: readonly string[]): string | undefined {
 }
 
 /// What a rule makes of a command's program, if one knows it.
-export function ruleOf(command: string): { rule: CommandRule; read: RuleRead } | undefined {
-  const words = programWords(command);
+export function ruleOf(command: string): { rule: CommandRule; read: RuleRead; setup: string } | undefined {
+  const { words, setup } = mainProgram(command);
   for (const rule of BY_PROGRAM.get(programOf(words)) ?? []) {
     const read = rule.read(words);
-    if (read) return { rule, read };
+    if (read) return { rule, read, setup };
   }
   return undefined;
 }
@@ -543,9 +554,15 @@ export function commandRead(
 ): CommandRead {
   const match = ruleOf(command.command);
   const description = command.description?.trim();
+  // A setup step's substitution runs work (`SHA=$(git rev-parse HEAD); cmux-ci run …`): it stays
+  // named before the rule's words, as commandWorkLabel.ts names it (#34679). One in the program's
+  // own arguments (`--key x-$(date +%s)`) is part of what the rule reads.
+  const setupWork = match?.setup ? commandWorkLabel(match.setup) : undefined;
+  const ruled = match ? t(match.read.key, match.read.values) : undefined;
   const label =
     description ||
-    (match ? t(match.read.key, match.read.values) : undefined) ||
+    (ruled && setupWork ? `${setupWork} · ${ruled}` : ruled) ||
+    commandWorkLabel(command.command.trim()) ||
     fallbackLabel(programWords(command.command)) ||
     command.command;
   return {
