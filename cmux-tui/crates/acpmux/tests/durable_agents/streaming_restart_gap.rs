@@ -56,3 +56,72 @@ async fn a_streaming_turn_logs_new_output_within_seconds_after_a_restart_with_a_
     );
     daemon.rpc().await.send("session/cancel", json!({"sessionId": session})).await;
 }
+
+/// The words a line from the daemon carries live: an `agent_message_chunk` notification (no id)
+/// whose text starts with "tick".
+fn live_tick(line: &str) -> bool {
+    let Ok(v) = serde_json::from_str::<Value>(line) else { return false };
+    if v.get("id").is_some() {
+        return false;
+    }
+    let text = v.to_string();
+    text.contains("agent_message_chunk") && text.contains("\"tick")
+}
+
+/// What the app's chat pane does after a relaunch (webviews direct.ts `sendAttach`): attach the
+/// streaming chat with `waitLogs:false` and `eventStream:true` about a second after the daemon
+/// starts, then wait for the agent's words live. The relaunch-reconnect bench saw none for 120 s
+/// after an update or cold relaunch (manaflow-ai/cmuxterm-hq#6338).
+#[tokio::test]
+async fn a_chat_attached_right_after_a_restart_with_a_gap_gets_the_streaming_turn_live() {
+    let mut daemon = Daemon::new("stgapa", "approve-all");
+    let session = new_session(&daemon).await;
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "ticking:3000:100"}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "tick5", |e| chunk(e, "tick5 "));
+    daemon.sigterm();
+    drop(client);
+    std::thread::sleep(Duration::from_secs(3));
+    let started = Instant::now();
+    daemon.start();
+    std::thread::sleep(Duration::from_millis(500));
+    let mut page = daemon.rpc().await;
+    let attached = page
+        .call(
+            "_acpmux/attach",
+            json!({"sessionId": session, "waitLogs": false, "limit": 400,
+                   "kinds": ["transcript"], "eventStream": true, "visible": true}),
+        )
+        .await;
+    let attached_after = started.elapsed();
+    // 20 words (2 s of output) live within 10 s of the start.
+    let deadline = started + Duration::from_secs(10);
+    let mut live = 0;
+    while live < 20 {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            break;
+        }
+        match tokio::time::timeout(left, page.lines.next_line()).await {
+            Ok(Ok(Some(line))) => live += usize::from(live_tick(&line)),
+            _ => break,
+        }
+    }
+    let took = started.elapsed();
+    eprintln!(
+        "attached {:.1} s after the start (page lastSeq {}); {live} live words by {:.1} s",
+        attached_after.as_secs_f64(),
+        attached["lastSeq"],
+        took.as_secs_f64()
+    );
+    assert!(
+        live >= 20,
+        "the attached chat got {live} live words within 10 s of the restart (want 20): the adopted turn's output did not reach it"
+    );
+    daemon.rpc().await.send("session/cancel", json!({"sessionId": session})).await;
+}
