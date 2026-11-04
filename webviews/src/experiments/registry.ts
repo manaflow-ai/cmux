@@ -28,6 +28,7 @@ import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.exper
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
 import { stoppedTurnLook } from "../agent-session/acpmux/conversation/stoppedTurn.experiment";
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
+import { glassCandy } from "../ui/glass/glassCandy.experiment";
 import { questionPreviewLayout } from "../agent-session/acpmux/question/previewLayout.experiment";
 import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
@@ -75,6 +76,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   codeRouterOffer,
   stoppedTurnLook,
   chromiumGlassUnderlay,
+  glassCandy,
   questionPreviewLayout,
   toolErrorLook,
   backgroundReactionLook,

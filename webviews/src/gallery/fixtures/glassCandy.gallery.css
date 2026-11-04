@@ -1,0 +1,189 @@
+/* Glass candy (GlassCandyStage.tsx, gallery ui.glass-candy). Every color is a theme token, the art's
+   own palette (the swatches) or the glass's own tokens (glass.css); every duration is the motion scale.
+   Motion moves only transform, translate and opacity; the lens reads the glass rects in its own pass. */
+.candy-stage {
+  position: relative;
+  min-height: 100vh;
+  padding: 28px;
+  box-sizing: border-box;
+  overflow: hidden;
+  color: var(--cmux-text);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  --candy-x: 0;
+  --candy-y: 0;
+  --candy-dx: 0px;
+  --candy-dy: 0px;
+}
+
+.candy-secondary {
+  color: var(--cmux-text-secondary);
+}
+.candy-title {
+  font-size: var(--text-title);
+  font-weight: var(--weight-emphasis);
+}
+
+.candy-card {
+  position: relative;
+  width: 300px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  display: grid;
+  gap: 4px;
+}
+
+.candy-chips {
+  position: absolute;
+  top: 28px;
+  left: 360px;
+  display: flex;
+  gap: 8px;
+}
+.candy-chip {
+  position: relative;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+}
+
+.candy-readout {
+  position: absolute;
+  left: 28px;
+  bottom: 140px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  color: var(--cmux-text-secondary);
+}
+.candy-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
+}
+
+.candy-composer {
+  position: absolute;
+  left: 28px;
+  right: 28px;
+  bottom: 28px;
+  min-height: 92px;
+  padding: 14px 16px;
+  border-radius: 22px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-size: var(--text-content);
+  --glass-elevation: var(--elevation-2);
+}
+.candy-composer-foot {
+  display: flex;
+  gap: 8px;
+  font-size: var(--text-control);
+}
+.candy-push {
+  margin-inline-start: auto;
+}
+
+/* ---------- Refraction: a thick lens, the loupe and the sheen ---------- */
+
+/* Read by the lens per surface (lens.ts): a deeper bend, full gloss, a little zoom at the center. */
+.candy-refract {
+  --glass-refraction: 34px;
+  --glass-gloss: 1;
+  --glass-magnify: 0.04;
+}
+.candy-loupe {
+  position: absolute;
+  top: 64px;
+  right: 48px;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  pointer-events: none;
+  /* No text on it: the clearest tint, so the bend and the zoom are what show. */
+  --glass-tint: color-mix(in srgb, var(--glass-surface) 6%, transparent);
+  --glass-refraction: 46px;
+  --glass-magnify: 0.16;
+  --glass-gloss: 1;
+  --glass-elevation: var(--elevation-2);
+  translate: var(--candy-dx) var(--candy-dy);
+  transition: translate var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
+}
+
+/* The sheen: a band of the glass's own specular light; GlassCandyStage sweeps it (a Web Animation). */
+.candy-sheen {
+  overflow: hidden;
+}
+.candy-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(105deg, transparent 30%, var(--glass-specular) 50%, transparent 70%);
+}
+
+/* ---------- Depth: three panes at three depths ---------- */
+
+.candy-depth {
+  position: relative;
+  height: 250px;
+}
+.candy-layer {
+  position: absolute;
+  translate: calc(var(--candy-x) * var(--candy-lean)) calc(var(--candy-y) * var(--candy-lean));
+  transition: translate var(--cmux-motion-large, 240ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
+  animation: candy-rise var(--cmux-motion-large, 240ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1)) both; /* motion-allow: one entry rise, iteration 1, off under the motion gate below */
+}
+.candy-layer-far {
+  top: 0;
+  left: 0;
+  width: 340px;
+  --candy-lean: 4px;
+  --glass-elevation: var(--elevation-1);
+}
+.candy-layer-mid {
+  top: 70px;
+  left: 60px;
+  --candy-lean: 10px;
+  --glass-elevation: var(--elevation-2);
+  animation-delay: var(--cmux-motion-quick, 80ms);
+}
+.candy-layer-near {
+  top: 140px;
+  left: 120px;
+  width: 260px;
+  --candy-lean: 18px;
+  /* The nearest pane casts the deepest shadow: the menu step twice. */
+  --glass-elevation: var(--elevation-2), var(--elevation-2);
+  animation-delay: calc(2 * var(--cmux-motion-quick, 80ms));
+}
+@keyframes candy-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+}
+
+/* The motion gate: motion off or Reduce Motion, nothing here moves. */
+:root:is([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .candy-stage * {
+  animation: none !important;
+  transition: none !important;
+  translate: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .candy-stage * {
+    animation: none !important;
+    transition: none !important;
+    translate: none !important;
+  }
+}
