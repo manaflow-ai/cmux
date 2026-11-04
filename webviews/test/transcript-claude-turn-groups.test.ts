@@ -227,12 +227,20 @@ for (const family of ["gemini", "muse"]) {
   });
 
   test(`a steered ${family} turn keeps every run in place, its notes inside them`, () => {
-    const view = turnView(steered(), new Set(), { now: Date.UTC(2026, 10, 1, 10), liveRuns: true, agentFamily: family });
+    const view = turnView(steered(), new Set(), {
+      now: Date.UTC(2026, 10, 1, 10),
+      liveRuns: true,
+      agentFamily: family,
+    });
     expect(view.map((row) => row.id)).toEqual(["u", "b1", "r1", "b3", "s1", "b4", "answer", "sum"]);
   });
 }
 
 test("a family the table does not name folds as Codex does", () => {
-  const view = turnView(steered(), new Set(), { now: Date.UTC(2026, 10, 1, 10), liveRuns: true, agentFamily: "opencode" });
+  const view = turnView(steered(), new Set(), {
+    now: Date.UTC(2026, 10, 1, 10),
+    liveRuns: true,
+    agentFamily: "opencode",
+  });
   expect(view.map((row) => row.id)).toEqual(["u", `${WORKED}-u`, "r1", "s1", "answer", "sum"]);
 });
