@@ -46,6 +46,7 @@ with the same exit codes (`--entries` and `--states` exit 1 when the head's red 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -298,6 +299,8 @@ def failed_names(lines: list[str]) -> set[str]:
     found: set[str] = set()
     listing = False
     for text in lines:
+        if text.startswith(TAP_MARKER):
+            continue  # structured diagnostics are data, never another raw failure/runtime line
         if listing:
             if match := XCODEBUILD_FAILED.match(text):
                 found.add(match.group(1))
@@ -555,7 +558,7 @@ def read(log: str | None, bun: bool = True) -> Result:
     every = log_lines(log)
     skip = echoed(every)
     passed = passed_steps(every, skip)
-    kept = [n for n in range(len(every)) if n not in skip]
+    kept = [n for n in range(len(every)) if n not in skip and not every[n].startswith(TAP_MARKER)]
     lines = [every[n] for n in kept]
     started = {m.group(1) for text in lines for m in [STARTED.search(text)] if m}
     stack: list[str] = []
@@ -689,14 +692,48 @@ def is_test_red(found: Result, job: str = "") -> bool:
     return found.ran or bool(re.search(r"\btests?\b", job, re.I))
 
 
+TAP_GROUP = "TAP final named results"
+TAP_MARKER = "tap-test/v1 "
+
+
+def exported_observations(lines: list[str]) -> list[dict] | None:
+    """The runner's last whole export group wins over displayed excerpts. Conflicting duplicate ids are discarded."""
+    complete = None
+    pending, conflicts, inside = {}, set(), False
+    for line in lines:
+        if line in {"##[group]" + TAP_GROUP, "::group::" + TAP_GROUP}:
+            pending, conflicts, inside = {}, set(), True
+        elif inside and line in {"##[endgroup]", "::endgroup::"}:
+            complete = [pending[name] for name in sorted(pending) if name not in conflicts]
+            inside = False
+        elif inside and line.startswith(TAP_MARKER):
+            try:
+                row = json.loads(line[len(TAP_MARKER):])
+            except ValueError:
+                continue
+            if (not isinstance(row, dict) or row.get("schema") != "tap-test/v1"
+                    or not all(isinstance(row.get(key), str) for key in ("file", "test", "outcome", "signature"))
+                    or not row["file"] or not row["test"].startswith(row["file"] + " > ")
+                    or row["outcome"] not in {"pass", "fail"}):
+                continue
+            observed = {key: row[key] for key in ("test", "outcome", "signature")}
+            if row["test"] in pending and pending[row["test"]] != observed:
+                conflicts.add(row["test"])
+            pending[row["test"]] = observed
+    return [] if inside else complete
+
+
 def observations(log: str | None) -> list[dict]:
     """Positive named results from a whole run; absence, skips and infrastructure losses are never passes.
 
     Signatures use the classifier's Bun diagnostics, Swift issue lines or pytest's failure summary. Other readers
     can still contribute a score, but an empty diagnostic cannot excuse a future failure of that test.
     """
-    found = read(log)
     lines = lines_of(log or "")
+    exported = exported_observations(lines)
+    if exported is not None:
+        return exported
+    found = read(log)
     if found.crashes or found.truncated or any(LOST_RUNNER.search(line) or BLOB_NOT_FOUND.search(line) for line in lines):
         return []
     passed = set(found.passed)
@@ -756,7 +793,7 @@ def load_flake_state(path: str | Path | None = None, *, fetch: bool = False) -> 
 
 def canonical_job(job: str) -> str:
     """A matrix shard shares its test history with the other shards, never with another workflow."""
-    return re.sub(r" \(\d+\)$", "", job.rsplit(" / ", 1)[-1])
+    return re.sub(r" \(\d+(?:/\d+)?\)$", "", job.rsplit(" / ", 1)[-1])
 
 
 def _tap_time(value) -> datetime | None:
@@ -791,11 +828,14 @@ def flaky_failures(head_log: str | None, job: str, workflow: str, state: dict | 
         if observed["outcome"] != "fail" or not signature or len(rows) != 1:
             continue
         row = rows[0]
+        observed_at = _tap_time(row.get("last_observed_at"))
+        if observed_at is None or not timedelta(0) <= now - observed_at <= TAP_MAX_AGE:
+            continue
         counts = [row.get(key) for key in ("observations", "passes", "failures", "flips")]
         if any(type(value) is not int or value < 0 for value in counts):
             continue
         count, passes, failures, flips = counts
-        if (count < TAP_MIN_OBSERVATIONS or passes + failures != count or not passes or not failures
+        if (count < TAP_MIN_OBSERVATIONS or passes + failures != count or not passes or failures < 2
                 or not 2 <= flips < count):
             continue
         # Recompute instead of trusting a rounded, corrupt or hand-edited score in the JSON.
@@ -808,7 +848,7 @@ def flaky_failures(head_log: str | None, job: str, workflow: str, state: dict | 
         if not isinstance(quarantine, dict):
             continue
         until, issue = _tap_time(quarantine.get("until")), quarantine.get("issue", "")
-        if until is None or until <= now or not isinstance(issue, str) or not re.fullmatch(
+        if until is None or not now < until <= now + timedelta(days=7) or not isinstance(issue, str) or not re.fullmatch(
                 r"https://github\.com/manaflow-ai/cmux/issues/[1-9]\d*", issue):
             continue
         known[name] = f"base flake {flips}/{count - 1} flips, quarantine {issue} until {quarantine['until']}"
@@ -851,6 +891,22 @@ def classify(head_log: str | None, base_log: str | None, job: str = "", base: st
     shared = sorted(head.failed & seen - set(differ) - flaky.keys())
     shared += [f"{name} ({why})" for name, why in sorted(flaky.items())]
     return Verdict(bool(reasons), reasons, shared)
+
+
+def tap_flaky_names(log_dir: Path, state: dict, *, workflow: str, job: str) -> list[str]:
+    """Names safe for guards_new_reds.py --flaky, from retained final head attempts and exact base signatures."""
+    if os.environ.get("TAP_CI_ENABLED", "1") == "0" or not state:
+        return []
+    spec = importlib.util.spec_from_file_location("tap_web_results", Path(__file__).with_name("webviews_test_results.py"))
+    exporter = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(exporter)
+    try:
+        records = exporter.tap_observations(log_dir / "summary", log_dir=log_dir)
+        log = "\n".join(["::group::" + TAP_GROUP,
+                         *(TAP_MARKER + json.dumps(row, ensure_ascii=True) for row in records), "::endgroup::"])
+    except OSError:
+        return []
+    return sorted(flaky_failures(log, job, workflow, state))
 
 
 
@@ -1245,6 +1301,11 @@ def main(argv: list[str] | None = None) -> int:
     one.add_argument("--workflow", default="", help="workflow name, for the measured base-flake supplement")
     one.add_argument("--flake-state", help="tap-tests/v1 JSON; default: public reconciler snapshot, or TAP_TESTS_STATE")
     one.add_argument("--json", action="store_true")
+    tap = sub.add_parser("tap-flaky", help="signature-matched quarantines from a retained webview head-log artifact")
+    tap.add_argument("--log-dir", required=True, type=Path)
+    tap.add_argument("--workflow", required=True)
+    tap.add_argument("--job", required=True)
+    tap.add_argument("--flake-state", help="tap-tests/v1 JSON; default: public reconciler snapshot or TAP_TESTS_STATE")
     gallery = sub.add_parser("gallery", help="a gallery health shard's health.json against the base's")
     gallery.add_argument("--head", required=True, type=Path)
     gallery.add_argument("--base", type=Path, action="append", help="a base render's health.json; repeat for several")
@@ -1258,6 +1319,11 @@ def main(argv: list[str] | None = None) -> int:
     runner.add_argument("--annotations", type=Path, help="its check run's annotations (JSON list)")
     runner.add_argument("--log", type=Path, help="its log, or what its read answered")
     args = parser.parse_args(argv)
+    if args.command == "tap-flaky":
+        for name in tap_flaky_names(args.log_dir, load_flake_state(args.flake_state, fetch=True),
+                                   workflow=args.workflow, job=args.job):
+            print(name)
+        return 0
     if args.command == "gallery":
         return gallery_main(args)
     if args.command == "runner":

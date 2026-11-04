@@ -427,7 +427,7 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
     errors: set[str] = set()
     skip = test_reds.echoed(test_reds.log_lines(log))
     for n, text in enumerate(lines_of(log)):
-        if n in skip:
+        if n in skip or text.startswith(test_reds.TAP_MARKER):
             continue
         if ((ERROR.search(text)
              or (not tests and ("default" in job.get("name", "").lower()

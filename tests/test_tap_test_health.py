@@ -2,7 +2,10 @@
 import copy
 import importlib.util
 import json
+import os
 import tempfile
+import subprocess
+import sys
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -19,6 +22,7 @@ def module(name, path):
 
 
 reds = module("tap_reds", "scripts/ci/test_reds.py")
+web_results = module("tap_web_results", "scripts/ci/webviews_test_results.py")
 base = module("tap_base", "tests/test_base_red_excuse.py")
 excuse = base.excuse
 NOW = datetime.now(timezone.utc)
@@ -34,6 +38,7 @@ def state(log=HEAD, job=JOB, workflow=WORKFLOW):
     failed = next(row for row in reds.observations(log) if row["outcome"] == "fail")
     return {"schema": "tap-tests/v1", "generated_at": NOW.isoformat(), "tests": [
         {"workflow": workflow, "job": job, "test": failed["test"], "observations": 10,
+         "last_observed_at": NOW.isoformat(),
          "passes": 6, "failures": 4, "flips": 4, "flip_rate": 4 / 9,
          "failure_signatures": [failed["signature"]],
          "quarantine": {"issue": ISSUE, "until": (NOW + timedelta(days=1)).isoformat()}}]}
@@ -70,6 +75,85 @@ class PositiveObservations(unittest.TestCase):
                           "✔ Test works() passed after 1s.", "shell: /bin/bash -e {0}", "##[endgroup]"])), [])
 
 
+class WebPositiveExport(unittest.TestCase):
+    def test_real_runner_exports_green_names_by_default_with_a_kill_switch(self):
+        with tempfile.TemporaryDirectory() as folder:
+            repo = Path(folder)
+            (repo / "webviews/test").mkdir(parents=True)
+            (repo / "webviews/test/a.test.ts").write_text("// fixture\n")
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+            tools = repo / "bin"
+            tools.mkdir()
+            bun = tools / "bun"
+            bun.write_text("#!/bin/sh\nprintf '%s\\n' 'bun test v1.3.0' 'test/a.test.ts:' '(pass) first [1ms]' '1 pass' '0 fail' 'Ran 1 test across 1 file.'\n")
+            bun.chmod(0o755)
+            env = dict(os.environ, PATH=str(tools) + os.pathsep + os.environ["PATH"],
+                       CMUX_WEB_TEST_JOBS="1", CMUX_WEB_TEST_RETRIES="0", GITHUB_ACTIONS="true")
+            env.pop("CMUX_BROWSER_TESTS", None)
+            env.pop("TAP_CI_ENABLED", None)
+            for enabled, expected in [("0", 0), ("1", 1)]:
+                if enabled == "0":
+                    env["TAP_CI_ENABLED"] = "0"
+                else:
+                    env.pop("TAP_CI_ENABLED", None)
+                done = subprocess.run(["bash", str(ROOT / "scripts/ci/run-webviews-tests.sh")],
+                                       cwd=repo / "webviews", env=env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(done.returncode, 0, done.stderr + done.stdout)
+                self.assertEqual(len(reds.observations(done.stdout)), expected)
+
+    def export(self, text, outcome="PASS"):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "test.log"
+            path.write_text(text)
+            summary = Path(folder) / "summary"
+            summary.write_text(f"{outcome} test/a.test.ts {path}\n")
+            done = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"),
+                                   "--tap-markers", str(summary)], capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            return done.stdout
+
+    def test_green_names_are_emitted_and_round_trip_without_raw_green_output(self):
+        raw = "bun test v1.3.0\ntest/a.test.ts:\nsecret diagnostic noise\n(pass) first [1ms]\n1 pass\n0 fail\nRan 1 test across 1 file."
+        exported = self.export(raw)
+        self.assertNotIn("secret diagnostic noise", exported)
+        self.assertEqual(reds.observations(exported), [{"test": "test/a.test.ts > first", "outcome": "pass", "signature": ""}])
+
+    def test_final_retry_only_has_canonical_failure_signatures(self):
+        first = "bun test v1.3.0\ntest/a.test.ts:\nerror: old\n(fail) old [1ms]\n0 pass\n1 fail\nRan 1 test across 1 file."
+        final = "bun test v1.3.0\ntest/a.test.ts:\nerror: new\n(fail) new [1ms]\n(pass) worked [1ms]\n1 pass\n1 fail\nRan 2 tests across 1 file."
+        exported = self.export(first + "\n--- retry, alone ---\n" + final, "FAIL")
+        self.assertEqual(reds.observations(exported), reds.observations(final))
+        self.assertEqual(len(reds.observations(exported)), 2)
+
+    def test_skips_crashes_timeout_partial_and_oversized_diagnostics(self):
+        whole = "bun test v1.3.0\ntest/a.test.ts:\n(pass) worked [1ms]\n1 pass\n0 fail\nRan 1 test across 1 file."
+        for raw, outcome in [(whole, "TIMEOUT"), (whole + "\npanic(main thread): crash", "FAIL"),
+                             (whole + "\n##[error]Process completed with exit code 134.", "FAIL"),
+                             (whole + "\nThe runner has received a shutdown signal", "FAIL"),
+                             (whole + "\nbun test v1.3.0\n(pass) partial", "PASS"),
+                             ("X" * (web_results.MAX_LINE_BYTES + 1) + "\n" + whole, "PASS")]:
+            with self.subTest(outcome=outcome, length=len(raw)):
+                self.assertEqual(reds.observations(self.export(raw, outcome)), [])
+
+    def test_incomplete_export_and_conflicting_duplicate_ids_supply_no_evidence(self):
+        row = {"schema": "tap-test/v1", "file": "test/a.test.ts", "test": "test/a.test.ts > first",
+               "outcome": "pass", "signature": ""}
+        header = "::group::TAP final named results\n"
+        line = "tap-test/v1 " + json.dumps(row) + "\n"
+        self.assertEqual(reds.observations(header + line), [])
+        other = dict(row, outcome="fail", signature="different")
+        self.assertEqual(reds.observations(header + line + "tap-test/v1 " + json.dumps(other) + "\n::endgroup::"), [])
+
+    def test_structured_diagnostics_do_not_become_raw_crashes_or_extra_error_lines(self):
+        row = {"schema": "tap-test/v1", "file": "test/a.test.ts", "test": "test/a.test.ts > first",
+               "outcome": "fail", "signature": "error: expected EXC_BAD_ACCESS; ✘ Test ghost() failed"}
+        marker = "tap-test/v1 " + json.dumps(row)
+        self.assertEqual(reds.read(marker).crashes, [])
+        self.assertEqual(reds.read(marker).failed, set())
+        self.assertEqual(excuse.signature(base.failed_job(1, 10, base.HEAD), marker)[2], set())
+
+
 class QuarantineEvidence(unittest.TestCase):
     def test_same_harness_before_after_replay(self):
         self.assertTrue(reds.classify(HEAD, SUMMARY, JOB).own)
@@ -90,9 +174,12 @@ class QuarantineEvidence(unittest.TestCase):
         row_changes = [{"observations": 4, "passes": 2, "failures": 2}, {"flips": 1},
                        {"flips": 2, "observations": 20, "passes": 16}, {"observations": True},
                        {"passes": 0}, {"failures": 0}, {"failure_signatures": FAIL},
+                       {"failures": 1, "passes": 9}, {"last_observed_at": None},
+                       {"last_observed_at": (NOW - timedelta(days=3)).isoformat()},
                        {"failure_signatures": [""]}, {"quarantine": None},
                        {"workflow": "another"}, {"job": "another"},
                        {"quarantine": {"issue": ISSUE, "until": (NOW - timedelta(seconds=1)).isoformat()}},
+                       {"quarantine": {"issue": ISSUE, "until": (NOW + timedelta(days=8)).isoformat()}},
                        {"quarantine": {"issue": "https://example.com/123", "until": NOW.isoformat()}}]
         changes += [lambda s, change=change: s["tests"][0].update(change) for change in row_changes]
         for change in changes:
@@ -109,6 +196,7 @@ class QuarantineEvidence(unittest.TestCase):
     def test_matrix_shards_share_history_only_within_the_same_workflow(self):
         snapshot = state(job="react-apps-check")
         self.assertTrue(reds.flaky_failures(HEAD, "web / react-apps-check (3)", WORKFLOW, snapshot))
+        self.assertTrue(reds.flaky_failures(HEAD, "web / react-apps-check (3/6)", WORKFLOW, snapshot))
         self.assertFalse(reds.flaky_failures(HEAD, "react-apps-check (3)", "other", snapshot))
 
     def test_exact_base_evidence_still_works_without_usable_state(self):
@@ -135,6 +223,34 @@ class QuarantineEvidence(unittest.TestCase):
             fetch.assert_not_called()
         with patch.dict("os.environ", {}, clear=True), patch.object(reds, "urlopen", side_effect=OSError("offline")):
             self.assertEqual(reds.load_flake_state(fetch=True), {})
+
+
+class RequiredWebVerdict(unittest.TestCase):
+    def test_real_gate_waives_only_the_matching_signature_from_a_relocated_final_attempt(self):
+        raw = "bun test v1.3.0\ntest/a.test.ts:\nerror: Expected ready\n(fail) first [1ms]\n0 pass\n1 fail\nRan 1 test across 1 file."
+        snapshot = state(raw, job="react-apps-check", workflow="cmux-next web")
+        with tempfile.TemporaryDirectory() as folder:
+            directory = Path(folder)
+            (directory / "summary").write_text("FAIL test/a.test.ts /old/runner/test_a.test.ts.log\n")
+            (directory / "state.json").write_text(json.dumps(snapshot))
+            (directory / "head.json").write_text(json.dumps({"test/a.test.ts > first": False}))
+            (directory / "base.json").write_text(json.dumps({"test/a.test.ts": True}))
+            for text, expected in [(raw, 0), (raw.replace("Expected ready", "new diagnostic"), 1),
+                                   (raw + "\npanic(main thread): crash", 1),
+                                   (raw + "\nbun test v1.3.0\n(fail) partial", 1)]:
+                (directory / "test_a.test.ts.log").write_text(text)
+                emitted = subprocess.run([sys.executable, str(ROOT / "scripts/ci/test_reds.py"), "tap-flaky",
+                                          "--workflow", "cmux-next web", "--job", "react-apps-check",
+                                          "--log-dir", str(directory), "--flake-state", str(directory / "state.json")],
+                                         capture_output=True, text=True)
+                self.assertEqual(emitted.returncode, 0, emitted.stderr)
+                (directory / "flaky").write_text(emitted.stdout)
+                checked = subprocess.run([sys.executable, str(ROOT / "scripts/ci/guards_new_reds.py"),
+                                          "--label", "Webview test", "--flaky", str(directory / "flaky"),
+                                          str(directory / "head.json"), str(directory / "base.json")],
+                                         capture_output=True, text=True)
+                with self.subTest(text=text):
+                    self.assertEqual(checked.returncode, expected, checked.stdout + checked.stderr)
 
 
 class BaseRedConsumer(unittest.TestCase):
