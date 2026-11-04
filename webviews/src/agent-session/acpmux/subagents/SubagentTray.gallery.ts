@@ -563,11 +563,11 @@ export default agentPaneEntry({
       ),
     },
     "one-command": {
-      note: "One background command: its line says Command before it, ends in a chevron (a click opens its output) and has no fill at rest; hover fills the whole line to the tray's edges, one inset. The whole shell line is its tooltip.",
+      note: "One background command: its line leads with its kind's mark (a test run's check, trayCommandKinds.ts) in place of the word Command, ends in a chevron (a click opens its output) and has no fill at rest; hover fills the whole line to the tray's edges, one inset. The whole shell line is its tooltip.",
       play: async (ctx) => {
         await trayLines(1)(ctx);
-        if (ctx.document.querySelector(".acpmux-agent-line__kind")?.textContent !== "Command")
-          throw new Error("a command's line says Command first");
+        if (ctx.document.querySelector(".acpmux-agent-line__kind"))
+          throw new Error("a command's line leads with its kind's mark, not the word Command");
       },
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
     },
@@ -639,12 +639,12 @@ export default agentPaneEntry({
       ),
     },
     "one-agent-two-commands": {
-      note: "One subagent and two background commands, opened: the header reads exactly `1 subagent running · 2 commands` above its lines (folded, it names them: agent-pane.subagent-tray-names).",
+      note: "One subagent and two background commands, opened: the header reads exactly `1 subagent running · 1 test run · 1 build` above its lines, the commands counted by what they do (folded, it names them: agent-pane.subagent-tray-names).",
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         await ctx.click({ selector: ".acpmux-running-tray__head" });
         const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
-        if (title !== "1 subagent running · 2 commands") throw new Error(`unexpected tray title: ${title}`);
+        if (title !== "1 subagent running · 1 test run · 1 build") throw new Error(`unexpected tray title: ${title}`);
       },
       snapshot: chat(
         [

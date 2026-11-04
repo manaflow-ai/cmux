@@ -111,7 +111,7 @@ describe("the folded running bar names what runs", () => {
       expect(bar.more()).toBe("+1 more");
       // Open, the lines name them and the header goes back to its counts.
       await act(async () => bar.button.click());
-      expect(bar.title()).toBe("1 subagent running · 1 command");
+      expect(bar.title()).toBe("1 subagent running · 1 test run");
     } finally {
       await bar.done();
     }
