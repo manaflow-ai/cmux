@@ -55,6 +55,8 @@
 //! - Kept servers (`ACPMUX_AGENT_TOOL_SERVERS`, a profile or preset env):
 //!   only the named MCP servers; the Chief's turns keep `cmux` (cx-4a5w2).
 
+pub mod prompt_sources;
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -118,17 +120,12 @@ pub const CHIEF_TURN_TOOLS: &str = "agents_snapshot,agents_workspace_create,\
 /// multiple-choice question that read "Waiting for you: allow this?" (Leo
 /// 2026-10-21: decide, say why, continue). The bundled acpmux skill and the
 /// cmux skill say the same. Claude Code may cut server instructions past
-/// 2048 characters, so the code-mode text plus this rule stays under that.
-pub const ASKING_RULE: &str = "Asking the person: the person allows tools through the chat's \
-    mode and the harness's own permission prompts, never through your questions, and a chat in \
-    Full access (Claude Code bypassPermissions, Codex full access) has already allowed every \
-    tool call its harness would ask about. So never ask them to allow, confirm or approve a \
-    step, with AskUserQuestion or in text (\"should I go ahead?\"): decide, say why in one \
-    line, and go on. Deciding never widens the task: a step a cmux skill keeps for the person's \
-    own request (importing a browser's cookies, deleting their data) waits for that request, \
-    and a cmux consent card is theirs to answer; leave such a step out and say so. Ask only \
-    about product taste you cannot settle from the request or the code, as that choice, never \
-    as a permission.";
+/// 2048 characters, so both compact rules stay under that.
+pub const ASKING_RULE: &str = "Asking the person: Full access already permits harness tool calls; never ask them to allow or confirm one. Decide, say why, continue. This never widens the task: respect user-only skill steps and consent cards; never bypass refusals. Ask only unresolved product taste, not permission.";
+
+/// The small cmux-owned coordination block sent once as hidden first-turn context.
+/// Keep it canonical so the Context viewer shows and edits exactly what new sessions receive.
+pub const CONCURRENT_WORK_RULE: &str = "Read relevant instructions and likely source files early. Batch independent reads and searches into parallel tool calls; sequence dependent work. Start long-running builds, tests, and waits in the background when the tools support it, then continue useful independent work. Rejoin and inspect the results before relying on them. Keep reports concise: explain the outcome, verification, and remaining blockers.";
 
 /// cmux's own rules for its computer use server (`cmux-cua`), which `cmux
 /// mcp serve` puts before that server's `initialize` instructions on each

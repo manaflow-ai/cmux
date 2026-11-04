@@ -5,13 +5,14 @@
 import { Effect, Layer, Redacted } from "effect";
 import { makeWebHandler } from "./app.ts";
 import { stackLayers } from "./auth/credentials.ts";
+import { ciTrustLayer, parseCiTrust } from "./auth/ci-trust.ts";
 import { serviceKeysLayer } from "./auth/service-keys.ts";
 import { checkSchema, makeSchemaGate } from "./db/schema-check.ts";
 import { hyperdriveSqlLayer, withRequestConnection } from "./db/sql.ts";
 import { sqlStoresLayer } from "./db/stores.ts";
 import type { TenantLimitsObject } from "./limits/durable-object.ts";
 import { durableObjectLimitsLayer } from "./limits/service.ts";
-import { parseEnvironment, parseTenantList, parseVmQuotas, tenantPolicyLayer } from "./policy.ts";
+import { parseEnvironment, parseTenantList, parseVmQuotas, tenantPolicyLayer, withCiTeamQuotas } from "./policy.ts";
 import { parseHttpsProxyOrigins } from "./network-origin.ts";
 import { entitlementsFromPolicyLayer } from "./proofs/tenant-may-create.ts";
 import { upstreamLayer } from "./upstream/live.ts";
@@ -66,6 +67,8 @@ export interface Env {
   readonly CMUX_VM_SERVICE_KEYS?: string;
   /** JSON object of service key id to extra scopes, limited to acl:read and acl:write. See src/auth/service-keys.ts. */
   readonly CMUX_VM_SERVICE_KEY_SCOPE_GRANTS?: string;
+  /** GitHub Actions jobs trusted by their OIDC token, a JSON array of trust rows (no secret). See src/auth/ci-trust.ts. */
+  readonly CMUX_VM_CI_TRUST?: string;
 }
 
 const liveServices = (env: Env) => {
@@ -76,7 +79,7 @@ const liveServices = (env: Env) => {
     devTestTenantIds: parseTenantList(env.DEV_TEST_TENANT_IDS),
     manaflowTenantIds: parseTenantList(env.MANAFLOW_TEAM_TENANT_IDS),
     entitledServiceIds: parseTenantList(env.CMUX_VM_ENTITLED_SERVICE_IDS),
-    vmQuotas: parseVmQuotas(env.TENANT_VM_QUOTAS),
+    vmQuotas: withCiTeamQuotas(parseVmQuotas(env.TENANT_VM_QUOTAS), parseCiTrust(env.CMUX_VM_CI_TRUST).rows),
   });
   return Layer.mergeAll(
     // Snapshot rows and API key management (slice S3a) share the request's connection with the other stores.
@@ -86,6 +89,7 @@ const liveServices = (env: Env) => {
     policy,
     vmImagesLayer(env.VM_BOOT_IMAGES),
     serviceKeysLayer(env.CMUX_VM_SERVICE_KEYS, env.CMUX_VM_SERVICE_KEY_SCOPE_GRANTS),
+    ciTrustLayer(env.CMUX_VM_CI_TRUST),
     // TODO(cx-b4h, owner: Lawrence Chen): the real billing source; see Entitlements.
     entitlementsFromPolicyLayer.pipe(Layer.provide(policy)),
     durableObjectLimitsLayer(env.TENANT_LIMITS),

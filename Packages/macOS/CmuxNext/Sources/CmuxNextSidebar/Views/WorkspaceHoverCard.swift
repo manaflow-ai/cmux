@@ -839,7 +839,7 @@ extension WorkspaceHoverCardView {
 
     /// The machine's name in its color pick, else the secondary ink like the rest of the header (read in the
     /// card's theme scope).
-    private var hostColor: NSColor { hostMachine.flatMap { MachineColor(name: $0).pickedColor } ?? Palette.textSecondary }
+    private var hostColor: NSColor { hostMachine.flatMap { MachineColor(name: $0).pickedCardTextColor } ?? Palette.textSecondary }
 
     /// A machine color picked while the card shows reaches the header only through this hook (a store
     /// repaint carries no new theme).
