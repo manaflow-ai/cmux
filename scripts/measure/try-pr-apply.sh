@@ -6,7 +6,8 @@
 #
 # Times, in a real cmux app on a fleet display Mac, the seconds from selecting a pull request to the
 # PR's behaviour working, for the two experiences, without waiting for a new DEV build:
-#   isolated   (E1) a fresh, separate real app instance that starts with the PR's change
+#   isolated   (E1) a fresh, separate real app instance that starts with the PR's change, beside a
+#              running instance of the same artifact (this run's base) that keeps running untouched
 #   in-place   (E2) the PR's change hot-swapped into a real app that is already running, same process
 #   full-build the probe's own check, not an experience: --app-zip is a full build of the head (the
 #              probe must pass: parity) or of the base (it must fail), for any verdict, Swift included
@@ -37,7 +38,8 @@
 #              from the step's temp folder (no quarantine, so Gatekeeper's first-launch check is not
 #              exercised), and its settings file, debug tunables and web overlay are this run's own,
 #              passed at launch (`open -n --env`: CMUX_NEXT_CONFIG_FILE, CMUX_NEXT_DEBUG_TUNABLES_FILE,
-#              CMUX_WEB_OVERLAY_DIR); a person turns the overlay on in Debug Settings instead.
+#              CMUX_WEB_OVERLAY_DIR), one set per instance; a person turns the overlay on in Debug
+#              Settings instead.
 #   lab        a tagged side instance (#35544's mechanics): Info.plist edited (bundle id
 #              <id>.side-try.t<pid>, unique per run) and re-signed ad hoc. Evidence about the lab path
 #              only (`lab-<kind>`), never about an installed app. A lab
@@ -65,18 +67,20 @@
 #                "scrollback_sha256": HEX, "chat": ID_AND_MESSAGE_COUNT}. Before and after must be
 #                equal, with N >= 2 and the terminal process alive; without both, the run is at most
 #                `not_proven` ("state survival not proven").
-#                isolated: a new process with its own settings and overlay folders, started after this
-#                run's own base instance quit. Every instance gets its own HOME (HOME and
-#                CFFIXED_USER_HOME) and control socket (CMUX_NEXT_SOCKET_PATH), and must create that
-#                socket; the state each one wrote under its HOME is listed.
+#                isolated: the PR instance is a new process started while the base instance (same
+#                artifact, its own HOME, socket, settings and overlay) keeps running; afterwards the
+#                base must still be the same process (pid and start time) on the same socket, and the
+#                probe must still fail on it (the PR instance did not change it). Every instance gets
+#                its own HOME (HOME and CFFIXED_USER_HOME), control socket (CMUX_NEXT_SOCKET_PATH),
+#                settings file and overlay folder, and must create that socket; the state each one
+#                wrote under its HOME is listed.
 #   coexistence  the script never quits, signals or refuses because of an app it did not launch.
-#                With no other cmux running, an isolated run is a sequential test: `coexistence` says
-#                NOT PROVEN and the row is no evidence for a side instance next to a person's app.
-#                With others running, it runs alongside them and coexistence passes only when the
-#                isolation check (below) does. An installed copy under the shipped bundle id next to a
-#                running app with that same id would share its bundle-id state: that is a fallback
-#                (unsupported), and the running app is left alone; --mode=lab runs a tagged copy
-#                (its own bundle id, re-signed: LAB) instead.
+#                `coexistence` is about the run's own base instance (above); `coexistence_preexisting`
+#                about other cmux apps that were already running: NOT PROVEN when there were none, and
+#                a pass only when the isolation check (below) does. An installed copy under the
+#                shipped bundle id next to an already running app with that same id would share its
+#                bundle-id state under the account's real home: a fallback (unsupported), and that app
+#                is left alone; --mode=lab runs a tagged copy (its own bundle id, re-signed: LAB).
 #   isolation    both experiences: other cmux processes (pid, start time), the cmux sockets and the cmux
 #                state under the account's real home (Application Support, ~/.cmux, Preferences, four
 #                levels deep: path, inode, size, mtime) are listed before the first launch and after
@@ -119,13 +123,15 @@ head="$(git -C "$root" rev-parse HEAD)"
 real_home="$HOME"
 out="$root/artifacts/try-pr-apply"; mkdir -p "$out"
 work="$(mktemp -d "${TMPDIR:-/tmp}/try-pr-apply.XXXXXX")"; work="$(cd "$work" && pwd -P)"
-# The app's settings, tunables and overlay: this run's own (web-overlay.sh reads the same variables).
-export CMUX_NEXT_CONFIG_FILE="$work/config/cmux-next.json" CMUX_WEB_OVERLAY_DIR="$work/web-overlay"
-export CMUX_NEXT_DEBUG_TUNABLES_FILE="$work/config/debug-tunables.json"
-mkdir -p "$work/config" "$CMUX_WEB_OVERLAY_DIR"
-printf '{"version": 1, "values": {"webDev.override": true}}\n' > "$CMUX_NEXT_DEBUG_TUNABLES_FILE"
-pid="" sock="" socks=() survived="" coexisting=""
-cleanup() { [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true; rm -f "${socks[@]}"; git -C "$root" worktree remove --force "$work/base-tree" 2>/dev/null || true; rm -rf "$work"; }
+# An instance's settings, tunables and overlay: its own (web-overlay.sh reads the same variables).
+use_instance() { # NAME
+  export CMUX_NEXT_CONFIG_FILE="$work/config-$1/cmux-next.json" CMUX_WEB_OVERLAY_DIR="$work/overlay-$1"
+  export CMUX_NEXT_DEBUG_TUNABLES_FILE="$work/config-$1/debug-tunables.json"
+  mkdir -p "$work/config-$1" "$CMUX_WEB_OVERLAY_DIR"
+  printf '{"version": 1, "values": {"webDev.override": true}}\n' > "$CMUX_NEXT_DEBUG_TUNABLES_FILE"
+}
+pid="" sock="" socks=() mine=() survived="" coexisting=""
+cleanup() { local p; for p in "${mine[@]}"; do kill "$p" 2>/dev/null || true; done; rm -f "${socks[@]}"; git -C "$root" worktree remove --force "$work/base-tree" 2>/dev/null || true; rm -rf "$work"; }
 trap cleanup EXIT
 now() { python3 -c 'import time; print(f"{time.time():.3f}")'; }
 t_json="$work/times.json"; echo '{}' > "$t_json"
@@ -164,12 +170,12 @@ if experience == "in-place":
 controls = {"s": span("controls_start", "controls_end")}
 counted = {"verdict": span("select", "verdicted"), "compile": span("verdicted", "compiled"),
            "apply": span("compiled", "applied"), "usable": span("applied", "usable")}
-coexistence = str(info.pop("coexistence", None))
+coexistence = str(info.pop("coexistence", None)); preexisting = info.pop("coexistence_preexisting", None)
 path = info.pop("path", None) or (("apply-" + kind) if mode == "installed" else "lab-" + kind)
 doc = {"experience": experience, "path": path, "mode": mode, "kind": kind, "identity": identity, "probe": probe,
-       "isolation": info.pop("isolation", None), "coexistence": coexistence,
-       "e1_claim": (("side instance alongside a running app" if status == "ok" and coexistence.startswith("pass")
-                     else "sequential test: coexistence NOT PROVEN") if experience == "isolated" else None),
+       "isolation": info.pop("isolation", None), "coexistence": coexistence, "coexistence_preexisting": preexisting,
+       "e1_claim": (("side instance beside a running instance of the same artifact" if status == "ok" and coexistence.startswith("pass")
+                     else "not proven: no side instance ran beside a running one") if experience == "isolated" else None),
        "total_s": span("start", "end"), "status": status,
        "reason": reason or None, "setup": setup, "controls": controls, "counted": counted,
        "select_to_usable_s": span("select", "usable") if runtime == "pass" and experience != "full-build" else None,
@@ -303,13 +309,16 @@ settle() { shot "$1-prev"; for _ in $(seq 1 120); do sleep 0.5; shot "$1"; [[ "$
 build_web() { rm -rf "$work/web"; "$1/scripts/cmux-next/build-web-bundles.sh" --force --out-root "$work/web" >/dev/null; }
 install_web() { "$root/scripts/cmux-next/web-overlay.sh" install "$work/web" >/dev/null; }
 launch() { # NAME: the instance's own HOME and control socket (in /tmp: a socket path has a 104-byte limit)
-  [[ -z "$(ours_running)" ]] || { result fail not_run "this run's previous instance is still running"; exit 1; }
+  local before; before=" $(ours_running | tr '\n' ' ') "
   local home="$work/home-$1"; mkdir -p "$home"; sock="/tmp/tpa-$$-$1.sock"; socks+=("$sock")
   open -n --env CMUX_NEXT_CONFIG_FILE="$CMUX_NEXT_CONFIG_FILE" --env CMUX_WEB_OVERLAY_DIR="$CMUX_WEB_OVERLAY_DIR" \
     --env CMUX_NEXT_DEBUG_TUNABLES_FILE="$CMUX_NEXT_DEBUG_TUNABLES_FILE" --env CMUX_NEXT_SOCKET_PATH="$sock" \
     --env HOME="$home" --env CFFIXED_USER_HOME="$home" "$app"
-  pid=""; for _ in $(seq 1 300); do pid="$(ours_running | tail -1)"; [[ -n "$pid" ]] && break; sleep 0.1; done
+  pid=""; for _ in $(seq 1 300); do
+    pid="$(ours_running | while read -r p; do [[ "$before" == *" $p "* ]] || echo "$p"; done | tail -1)"; [[ -n "$pid" ]] && break; sleep 0.1
+  done
   [[ -n "$pid" ]] || { result fail not_run "the app did not start"; exit 1; }
+  mine+=("$pid")
   for _ in $(seq 1 300); do [[ -S "$sock" ]] && break; sleep 0.1; done
   [[ -S "$sock" ]] || { result fail fail "the $1 instance did not create its own socket $sock"; exit 1; }
   note "home_$1" "$home"; note "socket_$1" "$sock"
@@ -343,7 +352,7 @@ isolation_check() {
   local changed; changed="$(diff "$work/others-before.txt" "$work/others-after.txt" | sed -n 's/^[<>] //p' | head -20 | tr '\n' ';' || true)"
   note isolation "$(wc -l <"$work/others-before.txt" | tr -d ' ') other cmux processes and files before; ${changed:+changed: $changed}${changed:-unchanged after}"
   [[ -z "$changed" ]] || { result fail fail "isolation: another instance's process, socket or state changed"; exit 0; }
-  if [[ -n "$coexisting" ]]; then note coexistence "pass: ran alongside $coexisting, whose processes, sockets and state stayed unchanged"; fi
+  if [[ -n "$coexisting" ]]; then note coexistence_preexisting "pass: ran alongside $coexisting, whose processes, sockets and state stayed unchanged"; fi
 }
 quit_app() { kill "$pid" 2>/dev/null || true; for _ in $(seq 1 100); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done; pid=""; }
 started() { ps -o lstart= -p "$1" 2>/dev/null | tr -s ' '; }
@@ -382,16 +391,16 @@ PY
 others >"$work/others-before.txt"
 coexisting="$(other_apps | tr '\n' ',' | sed 's/,$//; s/,/, /g')"; note other_instances "${coexisting:-none}"
 if [[ "$mode" == installed && -n "$coexisting" ]] && other_apps | awk -v id="$bundle_id" '$2 == id || $2 == "unknown" {f=1} END {exit !f}'; then
-  note coexistence "unsupported: a running app has the shipped bundle id $bundle_id (or an unreadable one)"
+  note coexistence_preexisting "unsupported: a running app has the shipped bundle id $bundle_id (or an unreadable one)"
   result fallback not_run "coexistence: a second instance under the shipped bundle id $bundle_id would share the running one's bundle-id state, so an installed side instance next to it is unsupported; the running app was left alone (--mode=lab runs a tagged copy)"
   exit 0
 fi
-[[ -n "$coexisting" ]] || note coexistence "NOT PROVEN: no other cmux was running, so this is a sequential test, not a side instance next to a running app"
+[[ -n "$coexisting" ]] || note coexistence_preexisting "NOT PROVEN: no other cmux app was already running"
 if [[ "$experience" == full-build ]]; then
   # The probe against a full build, no overlay: green on the head (parity), red on the base.
   want=fail; [[ "$app_commit" == "$head" ]] && want=pass; note probe_full_build_expected "$want"
   mark select; mark verdicted; mark compiled
-  launch full; mark applied
+  use_instance full; launch full; mark applied
   got="$(probe_answer full-build "$want")"
   mark usable; note probe_full_build "$got"; quit_app; isolation_check
   if [[ "$got" == "$want" ]]; then result ok pass ""; else result fail fail "full build of $app_commit: the probe gave $got, expected $want"; fi
@@ -399,8 +408,8 @@ if [[ "$experience" == full-build ]]; then
 fi
 # Base state and controls: the base overlay in a running app, a repeat install, a base-only window.
 git -C "$root" worktree add --detach -q "$work/base-tree" "$base"
-build_web "$work/base-tree"; install_web
-launch base; base_pid="$pid"; note base_pid "$base_pid"
+use_instance base; build_web "$work/base-tree"; install_web
+launch base; base_pid="$pid" base_sock="$sock"; note base_pid "$base_pid"
 settle base || { result fail fail "the base app never settled"; exit 1; }
 if [[ "$experience" == in-place && -n "$seed" ]]; then
   CMUX_TRY_PID="$pid" CMUX_TRY_APP="$app" CMUX_TRY_SOCKET="$sock" bash -c "$seed" >"$out/seed.log" 2>&1 \
@@ -419,8 +428,7 @@ note pixel_control "$control"
 probe_base=""; if [[ -n "$probe" ]]; then probe_base="$(probe_answer base answer)"; note probe_base "$probe_base"; fi
 [[ "$probe_base" != pass ]] || { mark controls_end; result fail fail "the probe already passes on base: it does not test the PR's behaviour"; exit 0; }
 [[ "$probe_base" != timeout ]] || { mark controls_end; result fail fail "the probe never answered on base within ${usable_seconds} s"; exit 0; }
-state_before="$(state_json)"; start_before="$(started "$pid")"
-if [[ "$experience" == isolated ]]; then quit_app; fi
+state_before="$(state_json)"; start_before="$(started "$pid")"; base_inode="$(ls -i "$base_sock" | awk '{print $1}')"
 mark controls_end
 
 # Selected.
@@ -430,11 +438,11 @@ mark verdicted
 build_web "$root"
 mark compiled
 note overlay_sha256 "$(cd "$work/web" && find . -type f | LC_ALL=C sort | xargs shasum -a 256 | shasum -a 256 | cut -d' ' -f1)"
+[[ "$experience" == isolated ]] && use_instance pr
 install_web
 if [[ "$experience" == isolated ]]; then
   launch pr; note pr_pid "$pid"
   [[ "$pid" != "$base_pid" ]] || { result fail fail "isolated: the PR instance is the base process"; exit 1; }
-  note integrity "new process $pid (base was $base_pid, quit first), own HOME, socket, settings and overlay folders"
 fi
 mark applied
 usable="" probe_pr=""
@@ -448,6 +456,18 @@ mark usable
 # Supporting pixels: the PR shot against base, and stable across a second.
 shot pr; sleep 1; shot pr2
 note pixel_change "$(diff_in base pr)"; note pixel_stable "$([[ "$(diff_in pr pr2)" == "0 -" ]] && echo yes || echo no)"
+if [[ "$experience" == isolated ]]; then
+  # The base instance ran beside the PR instance the whole time: same process, same socket, and
+  # still without the PR's behaviour.
+  base_same="no"; kill -0 "$base_pid" 2>/dev/null && [[ "$(started "$base_pid")" == "$start_before" && -S "$base_sock" \
+    && "$(ls -i "$base_sock" | awk '{print $1}')" == "$base_inode" ]] && base_same=yes
+  base_after=""; if [[ -n "$probe" ]]; then pr_pid="$pid" pr_sock="$sock"; pid="$base_pid" sock="$base_sock"
+    base_after="$(probe_answer base answer)"; pid="$pr_pid" sock="$pr_sock"; note probe_base_after "$base_after"; fi
+  note integrity "PR instance $pid started beside base instance $base_pid; base same process and socket: $base_same; base probe after: ${base_after:-not run}"
+  [[ "$base_same" == yes ]] || { result fail fail "isolated: the base instance exited, restarted or lost its socket while the PR instance ran"; exit 0; }
+  [[ "$base_after" != pass ]] || { result fail fail "isolated: the base instance took the PR's behaviour (no isolation)"; exit 0; }
+  [[ -z "$probe" ]] || note coexistence "pass: base instance $base_pid (same artifact, own HOME, socket and overlay) kept running unchanged beside the PR instance"
+fi
 if [[ "$experience" == in-place ]]; then
   same_pid="no"; kill -0 "$base_pid" 2>/dev/null && [[ "$pid" == "$base_pid" && "$(started "$pid")" == "$start_before" ]] && same_pid=yes
   state_after="$(state_json)"; survived="$(state_verdict "$state_before" "$state_after")"
