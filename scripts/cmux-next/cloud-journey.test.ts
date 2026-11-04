@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
-import { cliExecWithFallback, nativeProofSkip } from "./cloud-journey";
+import { cliExecWithFallback, nativeProofSkip, waitPreflight, PREFLIGHT_PROBE } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("backend names map to the cmux API Worker of each environment", () => {
@@ -96,6 +96,14 @@ describe("cloud journey: link_token on a Native machine", () => {
     expect(nativeProofSkip(refusal("owner.unreachable", "host_missing"))).toBeNull();
     expect(nativeProofSkip({ ok: true, value: { expires_at: 1 } })).toBeNull();
     expect(nativeProofSkip(undefined)).toBeNull();
+  });
+  test("the login preflight waits for the guest's bind, then names the failing check", async () => {
+    const noPause = async () => {};
+    let calls = 0;
+    const late = async (command: string) => ({ code: command === "pre" && ++calls >= 3 ? 0 : 1, stdout: "", stderr: "" });
+    expect(await waitPreflight(late, "pre", "owner", 90_000, 0, noPause)).toMatchObject({ tries: 3 });
+    const never = async (command: string) => ({ code: command === PREFLIGHT_PROBE ? 0 : 1, stdout: command === PREFLIGHT_PROBE ? "vm-kind= agent-auth.sh=yes user=cmux\n" : "", stderr: "" });
+    await expect(waitPreflight(never, "pre", "owner", 0, 0, noPause)).rejects.toThrow(/preflight exit 1 after 1 tries .*not an owner machine with the image's launchers \(vm-kind= agent-auth.sh=yes user=cmux\)/);
   });
 });
 
