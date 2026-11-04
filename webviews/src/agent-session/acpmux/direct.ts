@@ -109,7 +109,7 @@ import { failedSendText, retryHelps, sendCause } from "./sendFailure";
 import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
 import { SessionPageError, SessionPager, type SessionPage, withUsage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
-import { isCompletedPlumbingTool, isMuseTodoCall, showsNothing } from "./hiddenTools";
+import { isCompletedPlumbingTool, isMuseTodoCall, isPlumbingCall, showsNothing } from "./hiddenTools";
 import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { promptContext } from "./composer/videoTranscript";
@@ -6597,12 +6597,14 @@ export class AcpmuxDirectClient {
         else if (event.kind === "tool_call") this.planCalls.add(callId);
       }
       if (this.planCalls.has(callId)) return;
-      // An update to a call already shown stays in its fold; a new call ends the text segment.
+      // An update to a call already shown stays in its fold; a new user-visible call ends the text
+      // segment. Discovery plumbing gets an activity row for pending/failed states, but a
+      // completed one is filtered from presentation and must not split one assistant message.
       const known = this.toolRows.get(callId);
       const knownRow = known && this.rows.has(known) ? known : undefined;
       // The result of a call this page never saw, naming nothing (a hidden call's, hiddenTools.ts).
       if (!knownRow && event.kind === "tool_call_update" && showsNothing(update)) return;
-      if (!knownRow) this.endAssistantSegment();
+      if (!knownRow && !isPlumbingCall(update)) this.endAssistantSegment();
       const id = knownRow ?? this.streamingActivity ?? `activity-${event.seq}`;
       const existing = this.rows.get(id);
       const items = [...(existing?.items ?? [])];

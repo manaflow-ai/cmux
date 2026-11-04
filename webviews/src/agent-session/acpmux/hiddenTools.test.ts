@@ -189,8 +189,8 @@ test("a turn of ToolSearch, Read and Bash draws Read and Bash, and counts two ca
   expect(titles(only)).toEqual(["ToolSearch"]);
   expect(only.filter((row) => row.kind === "activity")).toHaveLength(1);
   expect(only.find((row) => row.kind === "turnSummary")?.toolCount).toBe(1);
-  // Both reply chunks remain visible around the failed discovery row.
-  expect(only.filter((row) => row.kind === "assistant").map((row) => row.text)).toEqual(["Loading the tools. ", "Loaded."]);
+  // Discovery plumbing does not split the surrounding assistant message.
+  expect(only.filter((row) => row.kind === "assistant").map((row) => row.text)).toEqual(["Loading the tools. Loaded."]);
 });
 
 test("a hidden call's result on a page without its call draws no row named by its id", async () => {

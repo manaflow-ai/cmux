@@ -5,7 +5,7 @@
 import { appendThought, backgroundTask, mergeToolItem, textFromContent } from "../direct";
 import { translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
-import { isCompletedPlumbingTool } from "../hiddenTools";
+import { isCompletedPlumbingTool, isPlumbingCall } from "../hiddenTools";
 import { SUBAGENTS, type Event, type Subagent } from "./subagentFold";
 
 /// One of a subagent's own updates, or the point where it spawned a subagent.
@@ -147,7 +147,7 @@ export class ChildRowView {
         });
         tools.set(callId, rowId);
         if (!known) activity = rowId;
-        reply = undefined;
+        if (!isPlumbingCall(update)) reply = undefined;
       } else if (kind === "background_task_update") {
         // A shell it ran in the background ends on the call that started it, as the chat's own do
         // (direct.ts `markBackgroundCall`): a shell stopped at its time limit, or that finished,
