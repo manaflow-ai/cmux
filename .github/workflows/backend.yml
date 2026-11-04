@@ -34,6 +34,9 @@ on:
       - .github/workflows/backend.yml
       - scripts/cmux-next/cloud-journey.ts
       - scripts/cmux-next/cloud-journey-ci.sh
+      # The journey's login copy (read from the Mac's installer) and its model stub.
+      - Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/**
+      - tests/fixtures/model-stub/**
       - .github/workflows/backend-migrations.yml
       - scripts/cmux-next/release/prod-promote.ts
       - scripts/cmux-next/release/production-approvals.json
@@ -58,6 +61,9 @@ on:
       - .github/workflows/backend.yml
       - scripts/cmux-next/cloud-journey.ts
       - scripts/cmux-next/cloud-journey-ci.sh
+      # The journey's login copy (read from the Mac's installer) and its model stub.
+      - Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/**
+      - tests/fixtures/model-stub/**
       - .github/workflows/backend-migrations.yml
       - scripts/cmux-next/release/prod-promote.ts
       - scripts/cmux-next/release/production-approvals.json
