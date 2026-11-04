@@ -49,9 +49,11 @@ extension StateResourceQueries {
         session == registryID ? stateResourceID(workspace: key) : nil
     }
 
-    /// The workspace whose public id is `id`.
+    /// The workspace whose public id is `id`, in O(1) from the index. It reads `workspaces` first,
+    /// so a tracked caller (a wait for a reopened workspace) still hears a workspace come or go.
     public func workspace(resourceID id: ResourceID) -> WorkspaceModel? {
-        workspaces.first { $0.resourceID == id }
+        _ = workspaces
+        return index.workspacesByResource[id]
     }
 
     /// Returns once the tree reflects every event up to `sequence` (a
