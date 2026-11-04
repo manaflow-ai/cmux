@@ -503,3 +503,85 @@ fn a_symlink_is_made_inside_the_root_and_one_leaving_it_is_refused() {
     let file = call("fs.readlink", json!({"path": format!("{root}/work/app/src/a.txt")}));
     assert!(file.is_err());
 }
+
+fn deflated(bytes: &[u8]) -> Vec<u8> {
+    let mut encoder = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::new(3));
+    encoder.write_all(bytes).unwrap();
+    encoder.finish().unwrap()
+}
+
+fn reply_lines(output: &[u8]) -> Vec<Value> {
+    output
+        .split(|b| *b == b'\n')
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_slice(l).unwrap())
+        .collect()
+}
+
+fn mode_of(path: &std::path::Path) -> u32 {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+}
+
+/// `fs-write-deflate-v1`: a 40 MiB file goes as one write stream of
+/// deflate bytes, decoded as they come, with the permissions it asked for.
+#[test]
+fn a_deflate_write_stream_decodes_one_large_file_with_its_permissions() {
+    let home = Home::new("deflate-stream");
+    let bytes: Vec<u8> =
+        (0..40 * 1024 * 1024).map(|i: u32| b"fn main() {}\n"[(i % 13) as usize]).collect();
+    let wire = deflated(&bytes);
+    let write = json!({ "id": 1, "cmd": "fs.write", "path": "/home/cmux/big.rs",
+        "mode": "create", "stream": true, "size": wire.len(), "permissions": 0o755,
+        "encoding": "deflate", "decoded_size": bytes.len() })
+    .to_string();
+    let (left, output) = routed(&home, &write, &wire);
+    assert!(left.is_none());
+    let replies = reply_lines(&output);
+    assert_eq!(replies[0]["data"]["ready"], true, "{replies:?}");
+    assert_eq!(replies[1]["data"]["entry"]["size"], bytes.len(), "{replies:?}");
+    let path = home.path.join("big.rs");
+    assert!(std::fs::read(&path).unwrap() == bytes);
+    assert_eq!(mode_of(&path), 0o755);
+}
+
+/// A stream that decodes past `decoded_size` is refused at the bound and
+/// leaves neither the file nor its temporary.
+#[test]
+fn a_deflate_write_stream_over_its_decoded_size_leaves_no_file() {
+    let home = Home::new("deflate-bomb");
+    let wire = deflated(&vec![0u8; 64 * 1024 * 1024]);
+    let write = json!({ "id": 1, "cmd": "fs.write", "path": "/home/cmux/bomb.bin",
+        "mode": "create", "stream": true, "size": wire.len(),
+        "encoding": "deflate", "decoded_size": 1024 * 1024 })
+    .to_string();
+    let (_, output) = routed(&home, &write, &wire);
+    let replies = reply_lines(&output);
+    assert_eq!(replies[0]["data"]["ready"], true, "{replies:?}");
+    assert_eq!(replies[1]["error_code"], "params.invalid", "{replies:?}");
+    assert!(std::fs::read_dir(&home.path).unwrap().next().is_none(), "nothing remains");
+}
+
+/// The line op takes deflate bytes too (the Cloud link carries lines), and
+/// refuses a payload that decodes to more than it declared.
+#[test]
+fn a_deflate_line_write_decodes_and_refuses_an_overrun() {
+    use base64::Engine as _;
+    let home = Home::new("deflate-line");
+    let service = home.service();
+    let text = "let x = 1;\n".repeat(50_000);
+    let encoded = base64::engine::general_purpose::STANDARD.encode(deflated(text.as_bytes()));
+    let line = |name: &str, decoded: usize| {
+        json!({ "id": 3, "cmd": "fs.write", "path": format!("{}/{name}", home.path.display()),
+            "mode": "overwrite", "permissions": 0o600, "bytes_base64": encoded,
+            "encoding": "deflate", "decoded_size": decoded })
+        .to_string()
+    };
+    let answer = answer_line(Some(&service), true, "owner", &line("a.rs", text.len()));
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert_eq!(std::fs::read_to_string(home.path.join("a.rs")).unwrap(), text);
+    assert_eq!(mode_of(&home.path.join("a.rs")), 0o600);
+    let answer = answer_line(Some(&service), true, "owner", &line("b.rs", text.len() - 1));
+    assert_eq!(answer["error_code"], "params.invalid", "{answer}");
+    assert!(!home.path.join("b.rs").exists());
+}
