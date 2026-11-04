@@ -80,7 +80,13 @@ impl Preset {
     /// session with: every field but `description` and `mode_approval`.
     /// None only if it cannot be serialized (then nothing is approved).
     pub fn approval_digest(&self) -> Option<String> {
-        let bound = Self { description: None, mode_approval: None, ..self.clone() };
+        let bound = Self {
+            description: None,
+            mode_approval: None,
+            context_user: None,
+            context_project: BTreeMap::new(),
+            ..self.clone()
+        };
         // A struct of strings, lists and a BTreeMap: its JSON is stable.
         serde_json::to_vec(&bound).ok().map(|bytes| crate::sha256::sha256_hex(&bytes))
     }

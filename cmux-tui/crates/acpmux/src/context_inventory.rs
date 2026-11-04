@@ -208,8 +208,8 @@ pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
         max_tokens,
         can_edit_overrides: true,
         overrides: ContextOverrideView {
-            user,
-            project,
+            user: user.clone(),
+            project: project.clone(),
             project_key: project_key.clone(),
             cwd: meta.cwd.to_string_lossy().into_owned(),
             default_text: verified_prompt_text(meta, cfg),
