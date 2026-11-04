@@ -310,11 +310,17 @@ const reconcile = <C, M>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, ow
           }),
         );
       });
+    const createsStarted = yield* Clock.currentTimeMillis;
+    let providerMs = 0;
+    let recordMs = 0;
     for (let start = 0; start < plan.create.length; start += RULE_RECORD_BATCH) {
       // Every create of the batch settles (none is left unrecorded by a sibling's failure), then the batch's rows go
       // in one insert, then the first failure, if any, stops the apply before any delete.
+      const batchStarted = yield* Clock.currentTimeMillis;
       const settled = yield* Effect.forEach(plan.create.slice(start, start + RULE_RECORD_BATCH), (rule) => Effect.either(createOne(rule)), { concurrency: 8 });
       const made = settled.flatMap((result) => (Either.isRight(result) ? [result.right] : []));
+      const recordStarted = yield* Clock.currentTimeMillis;
+      providerMs += recordStarted - batchStarted;
       yield* store
         .recordRules(
           tenantId,
@@ -346,8 +352,19 @@ const reconcile = <C, M>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, ow
           ),
           Effect.catchAll(dependencyDown("mesh.recordRules")),
         );
+      recordMs += (yield* Clock.currentTimeMillis) - recordStarted;
       const failed = settled.find(Either.isLeft);
       if (failed !== undefined) return yield* Effect.fail(failed.left);
+    }
+    if (plan.create.length > 0) {
+      // Where a large apply's time goes (provider creates or database writes), readable in wrangler tail.
+      yield* logEvent("mesh_rules_created", {
+        meshId: mesh.value,
+        created: String(plan.create.length),
+        totalMs: String((yield* Clock.currentTimeMillis) - createsStarted),
+        providerMs: String(providerMs),
+        recordMs: String(recordMs),
+      });
     }
     yield* Effect.forEach(
       plan.remove,

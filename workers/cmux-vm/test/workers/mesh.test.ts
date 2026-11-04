@@ -269,7 +269,7 @@ describe("ACL", () => {
     expect(await json(allowed)).toMatchObject({ version: 3, rulesCreated: 1, rulesDeleted: 1 });
   });
 
-  it("a VM joining a mesh of many devices creates only its own rules, in a bounded number of database round trips", async () => {
+  it("a VM joining a mesh of many devices creates only its own rules, with a bounded number of database round trips", async () => {
     // The Cloud mesh: every device to every member VM on three ports. Before, each new rule read its two proofs
     // and wrote its row on its own (four sequential store calls per rule), so a new VM in a mesh of 40 capture
     // devices took ~120 s on staging's one database connection per request.
@@ -283,17 +283,14 @@ describe("ACL", () => {
     expect(await json(await putAcl(key, meshId, 0, [{ src: ["device:*"], dst: [first.vmId], allow }]))).toMatchObject({ version: 1, rulesCreated: devices * 3 });
     const second = h.addVm(A);
     await attach(key, meshId, second.vmId);
-    const delayMs = 50;
-    h.mesh.delayStoreCalls(delayMs);
-    const started = Date.now();
+    const callsBefore = h.mesh.storeCallCount();
     const applied = await putAcl(key, meshId, 1, [{ src: ["device:*"], dst: [first.vmId, second.vmId], allow }]);
-    const elapsed = Date.now() - started;
-    h.mesh.delayStoreCalls(0);
+    const storeCalls = h.mesh.storeCallCount() - callsBefore;
     expect(applied.status).toBe(200);
     expect(await json(applied)).toMatchObject({ version: 2, ruleCount: devices * 3 * 2, rulesCreated: devices * 3, rulesDeleted: 0 });
-    // About eight serial waves today (the gate's reads, the ACL, the compile's inventory, the rule list, the
-    // snapshot, one batch insert, the version); per rule it was about forty. Allow sixteen.
-    expect(elapsed).toBeLessThan(16 * delayMs);
+    // A fixed number of store calls, whatever the rule count: the gate's reads, the ACL, the compile's inventory,
+    // the rule list, the snapshot, one insert per 32 rules and the version. Per rule (before) it was 3 per rule: 90 here.
+    expect(storeCalls).toBeLessThan(25);
     // The same document again is a no-op at the provider.
     const before = h.upstreamRequests.length;
     expect(await json(await putAcl(key, meshId, 2, [{ src: ["device:*"], dst: [first.vmId, second.vmId], allow }]))).toMatchObject({ version: 3, rulesCreated: 0, rulesDeleted: 0 });
