@@ -547,7 +547,7 @@ fn workspace_changes_after(mux: &Mux, revision: u64) -> (Vec<String>, Vec<String
 /// The journal, folded from revision 0, states every live workspace as the session snapshot shows it (name, index,
 /// focus, and the decorations: title, color, icon), and no other.
 fn assert_journal_states_the_session(mux: &Mux) {
-    let mut stated = std::collections::BTreeMap::<String, serde_json::Value>::new();
+    let mut stated = std::collections::BTreeMap::<String, Value>::new();
     for batch in mux.resource_events_after(0).unwrap().batches {
         for change in batch.changes.as_array().cloned().unwrap_or_default() {
             if change["resource"] != "workspace" {

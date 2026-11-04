@@ -9,6 +9,7 @@
 //! transaction: the writer's SAVEPOINT, or a request-side transaction when
 //! the writer does not run or the caller still holds the connection.
 
+use super::public_fold::workspace_value_stated;
 use super::*;
 
 /// One prepared workspace registry commit.
@@ -368,7 +369,7 @@ impl WorkspaceCommitIntent {
             let stated = self
                 .stated_workspaces
                 .as_ref()
-                .filter(|(fold_revision, _)| Some(*fold_revision) == previous_resource_revision)
+                .filter(|(fold_revision, _)| *fold_revision == previous_resource_revision)
                 .map(|(_, workspaces)| workspaces);
             let keep = extra_ran.then_some(workspace_key);
             let resource_deltas = match stated {
@@ -417,9 +418,9 @@ fn prune_stated_workspace_upserts(
             let own = keep
                 .is_some_and(|key| decorated_change["value"]["extra"]["key"].as_str() == Some(key));
             if !own
-                && stated.get(id).is_some_and(|value| {
-                    super::public_fold::workspace_value_stated(value, &decorated_change["value"])
-                })
+                && stated
+                    .get(id)
+                    .is_some_and(|value| workspace_value_stated(value, &decorated_change["value"]))
             {
                 continue;
             }
