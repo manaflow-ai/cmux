@@ -3,14 +3,15 @@ import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 @testable import CmuxNextLayout
+@testable import CmuxNextTabs
 import CmuxNextTestSupport
 import Foundation
 import Testing
 
 /// TERMINAL CREATE COST item 4 (lead, STATUS 12604): after #35521 the New Column key turn still added the new pane's host
-/// (`PaneHostView`) to the window: AppKit's `_setWindow` walk over the host and its pane, 2 ms of the 9 ms turn on cmux21. As
-/// the pane views (#35521), the host is made ahead and parked in the window while the layout is still, so the key's turn
-/// moves no new view into the window. Earlier text (item 2): New Terminal Tab from the docked agent chat opens a New Column, and
+/// (`PaneHostView`) to the window: AppKit's `_setWindow` walk over the host and its pane, 2 ms of the 9 ms turn on cmux21. The
+/// host is made with the pane views (#35521) while the layout is still and parked hidden in the layout, so the key's turn
+/// moves no view into or out of the window; a workspace switch keeps it (a hidden workspace's views stay in the window). Earlier text (item 2): New Terminal Tab from the docked agent chat opens a New Column, and
 /// its key turn took 10-11 ms on cmux21, of which 3.5 ms built the new pane's views (PaneContentView, TabStripView and its
 /// buttons) and 2 ms added them to the window. As Chrome keeps a spare renderer for its next tab, each shown workspace
 /// keeps one pane's strip model and views made ahead while the app is still, out of every window: a pane made in a key's
@@ -92,6 +93,8 @@ import Testing
         let before = inWindow()
         // A probe in the pane views made ahead: AppKit's window walk on them would call viewWillMove(toWindow:).
         let spare = try #require(content.paneSpare.ready, "no pane views were made ahead while the app was still")
+        let parked = try #require(root.context.spareHost, "no pane host was parked with the views made ahead")
+        try #require(parked.window === window, "the parked pane host is not in the window")
         let probe = WindowMoveProbe(frame: .zero)
         spare.view.addSubview(probe)
         probe.moves = 0
@@ -108,15 +111,20 @@ import Testing
         #expect(before.contains(ObjectIdentifier(host)), "the key's turn put a new pane host in the window (AppKit's window walk)")
         #expect(before.contains(ObjectIdentifier(made.view)), "the key's turn put a new pane view in the window")
         #expect(!host.isHidden && !made.view.isHiddenOrHasHiddenAncestor, "the new column's pane does not show")
-        #expect(probe.moves == 0, "the key's turn moved the new pane's views between windows \(probe.moves) times")
+        #expect(host === parked, "the new column's pane is not in the host made ahead")
+        #expect(probe.windowChanges == 0, "the key's turn moved the new pane's views out of or into the window \(probe.windowChanges) times (calls: \(probe.moves))")
+        #expect(made.view.stripView.isShownInWindow, "the new column's tab strip does not count as shown")
     }
 }
 
 /// Counts window moves (AppKit's `_setWindow` walk reaches every view of a subtree that changes window).
 private final class WindowMoveProbe: NSView {
     var moves = 0
+    /// Calls whose window differs from the one the view is in: a real window change (a same-window move is free).
+    var windowChanges = 0
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         moves += 1
+        if newWindow !== window { windowChanges += 1 }
         super.viewWillMove(toWindow: newWindow)
     }
 }

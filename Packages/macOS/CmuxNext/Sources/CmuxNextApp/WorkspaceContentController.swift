@@ -27,7 +27,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// Layout plus the bottom screen bar; what the window shows.
     private(set) lazy var contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
     private(set) var emptyView: EmptyWorkspaceView?
-    /// The next stand-in pane's views (New Column, New Row, Cmd-D), made ahead out of every window while this workspace shows and its layout is still.
+    /// The next stand-in pane's views (New Column, New Row, Cmd-D), made while this workspace shows and its layout is still, parked hidden in its layout.
     private(set) lazy var paneSpare = IdleSpare(owner: "PaneSpare", on: services.mainWork) { [weak self] in self.map { $0.layoutView.parkingSpare(PaneController.Spare(services: $0.services), view: \.view) } }
     private var paneSpareMotion: LayoutOverlaySyncObservation?
     private(set) lazy var screenBar = ScreenBarController(content: self)
@@ -90,8 +90,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         isOffScreen = true
         attentionObservation?.cancel()
         setDrawsNothing(true)
-        paneSpare.isWanted = false
-        (paneSpare.drop(), layoutView.parkSparePaneContent(nil)) // its host goes with it
+        paneSpare.isWanted = false // a spare made stays hidden in this hidden workspace: a switch moves no view out of the window
     }
 
     /// Shows this parked content again, in this frame: the tree changes it skipped while off screen
