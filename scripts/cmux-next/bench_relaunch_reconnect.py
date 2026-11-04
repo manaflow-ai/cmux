@@ -290,6 +290,15 @@ def main(argv: list[str] | None = None):
         for mode in modes:
             for index in range(args.rounds):
                 time.sleep(args.settle)  # test script: the chat streams a while before the quit
+                # A round measures a streaming chat: one an earlier relaunch lost streams again,
+                # and the round says so (review F1 of #34697, issue #35091).
+                streamed = session_records(acpmux_home, streaming, time.time() * 1000 - 3000)["chunks"]
+                restarted = False
+                if not streamed:
+                    restarted = load.stream([app.cli_path, "acp"], chats.env, streaming, stream_s, args.rate)
+                    if restarted:
+                        app.action("goToWorkspace", workspace=shown)
+                        wait_live(sock, args.live_timeout)
                 quit_at = time.time() * 1000
                 quit_app(sock, args.app)
                 if mode == "cold":
@@ -299,6 +308,7 @@ def main(argv: list[str] | None = None):
                 running = sorted(daemon_pids(args.app))
                 started = time.time() * 1000
                 pid, sock, scratch = bm.launch(args.app, config, env, scratch=scratch)
+                app = bm.App(args.app, sock)
                 page = wait_live(sock, args.live_timeout)
                 timings = bp.rpc(sock, "debug.timings") or {}
                 daemon, log_lines = daemon_log(acpmux_home, quit_at)
@@ -309,6 +319,7 @@ def main(argv: list[str] | None = None):
                 phases = round_phases(timings, page, daemon)
                 zero = timings.get("process_start_epoch_ms")
                 entry = {"mode": mode, "round": index + 1, "daemon_before": running,
+                         "streaming_before": bool(streamed), "stream_restarted": restarted,
                          "launch_to_process_ms": None if zero is None else round(zero - started, 1),
                          "phases": phases, "page": page, "daemon_log": daemon, "daemon_log_lines": log_lines,
                          "daemon_after": sorted(daemon_pids(args.app)),
@@ -317,6 +328,7 @@ def main(argv: list[str] | None = None):
                          "app_marks": timings.get("launch_ms_since_process_start")}
                 rounds.append(entry)
                 print(f"PERF-RELAUNCH mode={mode} round={index + 1} live_ms={phases.get('first live event')} "
+                      f"streaming_before={bool(streamed)} restarted={restarted} "
                       f"{json.dumps(phases)}", flush=True)
     finally:
         bm.end_bundle(args.app)
