@@ -4,9 +4,16 @@
 // question asked and answered (the answered QuestionCard), a plan of three steps, then a thought
 // and five shell steps under "Ran 5 commands", opened, and the prose after them. Drawn through the
 // real transcript (TurnRows.tsx, ToolGroupRow.tsx), so the step bodies and the question and plan
-// cards show here as they change. The shipped default is now the compact iOS-style sheet Leo
-// requested on 2026-11-04: each step has a kind icon, concise title and chevron into useful detail.
-// The gallery keeps the previous desktop organization arms for comparison: shared, guide, card, tree and zebra.
+// cards show here as they change. The arms are the opened group's looks
+// (`data-tool-steps-look`, conversation.css `.cv-steps`): shared (the transcript's default, no step
+// icons and no guide, Leo 2026-11-03), guide (the replaced cmux#32363 look), card, tree and zebra.
+// The opened lead thought's label has its own looks (`data-lead-thought-look`): "Thought for 6s" with
+// the chevron right after it (shared, shipped), the chevron alone at the row's far edge (lead-edge,
+// cmux#27896, replaced) and the chevron alone at the text column (lead-bare). step-hover shows an
+// inner step under the pointer: its chevron shows and its words keep their tone.
+// The shipped default is now the compact iOS-style sheet Leo requested on 2026-11-04: each step has
+// a kind icon, concise title and chevron into useful detail. The gallery keeps every prior desktop
+// organization arm for comparison.
 import answeredCollapsed from "../../../../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/answered-collapsed.json";
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
@@ -109,14 +116,27 @@ const openRun: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-steps"), { capMs: 10_000 });
 };
 
+/// Opens the run, then points at its second step ("Listed every caller of fetchWithRetry").
+const hoverStep: Play = async (ctx) => {
+  await openRun(ctx);
+  await ctx.hover({ role: "button", name: /Listed every caller/ });
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-steps > .cv-step > .cv-tool:hover"), { capMs: 10_000 });
+};
+
 const variant = (
   look: "shared" | "guide" | "card" | "tree" | "zebra" | "ios-sheet",
   note: string,
+  { lead, play = openRun }: { lead?: "edge" | "bare"; play?: Play } = {},
 ): AgentPaneVariant => ({
   note,
   snapshot: chat(turn(), { title: "Stop retrying client errors" }),
-  documentAttributes: look === "ios-sheet" ? {} : { "tool-steps-look": look },
-  play: openRun,
+  documentAttributes:
+    look === "ios-sheet"
+      ? lead
+        ? { "lead-thought-look": lead }
+        : {}
+      : { "tool-steps-look": look, ...(lead ? { "lead-thought-look": lead } : {}) },
+  play,
 });
 
 function mixedVariant(harness: "claude" | "codex", working: boolean): AgentPaneVariant {
@@ -161,7 +181,7 @@ export default agentPaneEntry({
     ),
     shared: variant(
       "shared",
-      "Desktop comparison: steps under the run's line with no icons and no guide, their words on its text column; the thought's text flush under its label.",
+      'Chosen default, as Claude Code desktop lists a run: the steps under the run\'s line with no icons and no guide, their words on its text column; the opened lead thought reads "Thought for 6s" with its chevron right after the words, its text flush under them.',
     ),
     guide: variant(
       "guide",
@@ -173,5 +193,20 @@ export default agentPaneEntry({
     ),
     tree: variant("tree", "Alternative: the earlier tree guide with the glyphs back, hairlines between steps."),
     zebra: variant("zebra", "Alternative: no ring or hairlines; every other step on the cards' fill."),
+    "lead-edge": variant(
+      "shared",
+      "Replaced (cmux#27896): the opened lead thought has no label; its chevron sits alone at the top of the row's far edge, beside the text.",
+      { lead: "edge" },
+    ),
+    "lead-bare": variant(
+      "shared",
+      "Alternative: the opened lead thought has no label; its chevron sits alone at the text column over the text.",
+      { lead: "bare" },
+    ),
+    "step-hover": variant(
+      "shared",
+      "An inner step under the pointer: its chevron shows after its words, and its words keep the steps' tone, as a lone tool row's do.",
+      { play: hoverStep },
+    ),
   },
 });

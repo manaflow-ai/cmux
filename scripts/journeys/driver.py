@@ -72,7 +72,8 @@ KIND = {"daemon_line": "daemon", "daemon_contains": "daemon", "daemon_prompt": "
         "app_grid": "app"}
 # Conditions an extension module adds (ext_*.py beside this file, load_extensions): name -> fn(journey, want, cache).
 EXT_CONDITIONS = {}
-# The extension conditions that are negative (an extension's NEGATIVE): read again every poll, never latched.
+# The extension conditions that are negative (an extension's NEGATIVE): a live one is read again every poll, never
+# latched; a frame one fails at once on a frame whose detail says seen (step_expect), else it is tried again.
 EXT_NEGATIVE = set()
 # `relaunch` kinds that quit through the app's own quit actions, with no dialog (QuitOrigin.explicit).
 QUIT_ACTIONS = {"quit-keep": "quitKeepSessions", "quit-end-sessions": "quitEndSessions",
@@ -369,7 +370,8 @@ def ocr_contains(lines, wanted):
 
 
 def negative(name, want):
-    """Whether a condition claims something is NOT there: read again every poll, never latched."""
+    """Whether a condition claims something is NOT there: a live one is read again every poll, never latched; a frame
+    one fails at once on a frame whose detail says seen."""
     if name in ("daemon_lacks", "app_text_lacks") or name in EXT_NEGATIVE:
         return True
     # daemon_history with `lacks`; app_rows with `hold` (the view must stay as it is, e.g. while output arrives).
@@ -1322,6 +1324,10 @@ class Journey:
                 s["detail"] = dict(detail, tries=tries) if isinstance(detail, dict) else detail
                 if ok:
                     s["ok"], s["at"] = True, now()
+                elif s["negative"] and isinstance(detail, dict) and detail.get("seen"):
+                    # A negative frame condition saw on a frame what must not be there (its detail says `seen`): a
+                    # later frame without it does not undo that frame, so it is not tried again.
+                    break
                 elif now() >= frame_until and tries >= 2:
                     break
         failed = []
@@ -1651,7 +1657,8 @@ def load_extensions(module):
             if name in KIND:
                 raise SystemExit(f"driver: {path.name} redefines condition {name!r}")
             KIND[name], EXT_CONDITIONS[name] = kind, fn
-        # `NEGATIVE`: the group's conditions that claim something did NOT happen (read every poll and through `settle`).
+        # `NEGATIVE`: the group's conditions that claim something did NOT happen (a live one is read every poll and
+        # through `settle`; a frame one stops its tries on a frame whose detail says seen).
         EXT_NEGATIVE.update(n for n in getattr(ext, "NEGATIVE", ()) if n in EXT_CONDITIONS)
 
 

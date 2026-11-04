@@ -109,7 +109,7 @@ import { failedSendText, retryHelps, sendCause } from "./sendFailure";
 import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
 import { SessionPageError, SessionPager, type SessionPage, withUsage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
-import { isPlumbingCall, showsNothing } from "./hiddenTools";
+import { isMuseTodoCall, isPlumbingCall, showsNothing } from "./hiddenTools";
 import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { promptContext } from "./composer/videoTranscript";
@@ -3461,9 +3461,12 @@ export class AcpmuxDirectClient {
       const params = notification.params ?? {};
       if (params.sessionId !== this.selectedSessionId && this.offerChildren.event(params)) return;
       this.observeClock(notification.params?.sessionId, notification.params?.at);
+      if (params.sessionId === this.selectedSessionId) acpmuxPerf.markEvent(notification.params?.at);
       this.apply(notification.params as EventRecord);
     } else if (notification.method === "session/update") {
       this.observeClock(notification.params?.sessionId, notification.params?._meta?.acpmux?.at);
+      if (notification.params?.sessionId === this.selectedSessionId)
+        acpmuxPerf.markEvent(notification.params?._meta?.acpmux?.at);
       this.apply({
         sessionId: notification.params?.sessionId,
         seq: Number(notification.params?._meta?.acpmux?.seq ?? 0),
@@ -6453,6 +6456,12 @@ export class AcpmuxDirectClient {
       const callId = String(update.toolCallId ?? `tool-${event.seq}`);
       const tool = update._meta?.claude?.tool ?? update.title;
       if (event.kind === "tool_call" && tool === "TodoWrite" && this.planRow) this.planCalls.add(callId);
+      // Muse's write_todos announces its call before the plan it makes, so it is hidden on sight; a
+      // failed one leaves no plan and keeps its row.
+      if (isMuseTodoCall(update)) {
+        if (update.status === "failed") this.planCalls.delete(callId);
+        else if (event.kind === "tool_call") this.planCalls.add(callId);
+      }
       // Plumbing (Claude Code's ToolSearch) draws no row and leaves the text segment open.
       if (isPlumbingCall(update)) this.planCalls.add(callId);
       if (this.planCalls.has(callId)) return;
