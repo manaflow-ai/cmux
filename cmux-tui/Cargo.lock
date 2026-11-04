@@ -26,7 +26,6 @@ dependencies = [
  "cmux-mcp-connect",
  "cmux-palette-ranker",
  "cmux-panic-log",
- "cmux-tailnet",
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
@@ -1716,18 +1715,6 @@ name = "cmux-transport"
 version = "0.1.0"
 dependencies = [
  "proptest",
-]
-
-[[package]]
-name = "cmux-tailnet"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "libc",
- "reqwest",
- "rustls",
- "serde",
- "serde_json",
 ]
 
 [[package]]
