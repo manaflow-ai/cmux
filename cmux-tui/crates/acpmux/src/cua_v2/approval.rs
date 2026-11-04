@@ -145,12 +145,12 @@ impl ApprovalRefusal {
 
     /// The refusal a tool result carries, with its app, if any.
     pub fn of_result(result: &Value) -> Option<(Self, Option<String>)> {
-        if result["isError"] != json!(true) {
+        if result.get("isError") != Some(&json!(true)) {
             return None;
         }
-        let error = &result["structuredContent"]["error"];
-        let refusal = Self::from_code(error["code"].as_str()?)?;
-        Some((refusal, error["details"]["app"].as_str().map(str::to_owned)))
+        let error = result.pointer("/structuredContent/error")?;
+        let refusal = Self::from_code(error.get("code")?.as_str()?)?;
+        Some((refusal, error.pointer("/details/app").and_then(Value::as_str).map(str::to_owned)))
     }
 }
 

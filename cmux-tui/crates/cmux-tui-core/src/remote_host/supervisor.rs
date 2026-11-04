@@ -624,10 +624,17 @@ fn write_record(path: &Path, record: &HostRecord) {
     }
 }
 
-/// Writes `bytes` to `path` atomically, mode 0600, in a 0700 directory (on
-/// Windows, under the user's profile, private by inheritance).
+/// Writes `bytes` to `path` atomically: mode 0600 in a 0700 directory on
+/// Unix; on Windows a new file with a protected owner-only DACL (created that
+/// way, never narrowed after the bytes are in it) in a folder made
+/// owner-only when this creates it. The record holds the supervisor secret.
 pub(super) fn write_private(path: &Path, bytes: &[u8]) {
     let Some(dir) = path.parent() else { return };
+    #[cfg(windows)]
+    if platform::make_owner_only_dir(dir).is_err() {
+        return;
+    }
+    #[cfg(not(windows))]
     if std::fs::create_dir_all(dir).is_err() {
         return;
     }
@@ -638,16 +645,24 @@ pub(super) fn write_private(path: &Path, bytes: &[u8]) {
     }
     let temporary = path.with_extension("tmp");
     let _ = std::fs::remove_file(&temporary);
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let written = options.open(&temporary).and_then(|mut file| file.write_all(bytes));
+    #[cfg(windows)]
+    let file = platform::create_owner_only(&temporary);
+    #[cfg(not(windows))]
+    let file = {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        options.open(&temporary)
+    };
+    let written = file.and_then(|mut file| file.write_all(bytes));
     if written.is_ok() {
         let _ = std::fs::rename(&temporary, path);
+    } else {
+        let _ = std::fs::remove_file(&temporary);
     }
 }
 

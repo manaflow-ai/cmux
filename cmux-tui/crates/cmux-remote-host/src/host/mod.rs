@@ -18,6 +18,7 @@ use tokio::sync::{Notify, mpsc};
 
 use crate::approval::{ApprovalRequest, Decision, Target};
 use crate::approver::{ApproverDecision, Collectors, RemoteApprover};
+use crate::config::ComputerUseConfig;
 use crate::wire;
 pub use worker_link::WorkerLink;
 
@@ -25,6 +26,10 @@ pub use worker_link::WorkerLink;
 pub const ADOPTION_GRACE: Duration = Duration::from_secs(60);
 /// How long a peer has to send its hello.
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The owner's Computer Use configuration as read once (an error when the
+/// file is present but not trusted or not valid).
+pub type ConfigSnapshot = Arc<Result<ComputerUseConfig, String>>;
 /// How often one question may be shown again through `computer_use.approvals.prompt`.
 pub const PROMPT_COOLDOWN: Duration = Duration::from_secs(10);
 
@@ -133,6 +138,15 @@ struct Question {
     /// The worker generation that asked (a restarted worker's ids start again).
     generation: u64,
     task: Option<tokio::task::AbortHandle>,
+    /// Dropped with the question: a dialog `computer_use.approvals.prompt`
+    /// opened for it closes, and its answer is ignored.
+    alive: tokio::sync::watch::Sender<()>,
+}
+
+impl Question {
+    fn new(request: ApprovalRequest, generation: u64) -> Self {
+        Self { request, generation, task: None, alive: tokio::sync::watch::Sender::new(()) }
+    }
 }
 
 /// The host's state and request handling.
@@ -152,8 +166,17 @@ pub struct HostCore {
     questions: Mutex<HashMap<u64, Question>>,
     /// When each question was last shown through `computer_use.approvals.prompt`.
     prompted: Mutex<HashMap<u64, tokio::time::Instant>>,
-    /// Held across each read, change and write of the saved list.
+    /// Held across each read, change and write of the saved list, and while
+    /// the worker is told the result, so the worker's list follows the file's
+    /// order of changes.
     saved_lock: Mutex<()>,
+    /// The owner's config in force: read at start and by `computer_use.reload`
+    /// only. The worker, its driver environment and the device hub collector
+    /// all use this one reading.
+    config: Mutex<ConfigSnapshot>,
+    /// Bumped by each reload: a device hub connection started for an older
+    /// config never installs its approver.
+    hub_generation: AtomicU64,
     /// The device hub collector's state, for status.
     hub_state: Mutex<crate::hub::HubState>,
     hub_socket: Mutex<Option<cmux_device_hub_client::UserSocket>>,
@@ -183,6 +206,8 @@ impl HostCore {
             questions: Mutex::new(HashMap::new()),
             prompted: Mutex::new(HashMap::new()),
             saved_lock: Mutex::new(()),
+            config: Mutex::new(Arc::new(Ok(ComputerUseConfig::default()))),
+            hub_generation: AtomicU64::new(0),
             hub_state: Mutex::new(crate::hub::HubState::Off("not started".into())),
             hub_socket: Mutex::new(None),
             acpmux_daemons: Mutex::new(Vec::new()),
@@ -191,6 +216,7 @@ impl HostCore {
 
     /// Starts what the bootstrap asked for and looks for the local collector.
     pub fn start(self: &Arc<Self>) {
+        *lock(&self.config) = Arc::new(crate::config::load());
         lock(&self.collectors).local = Collectors::detect().local;
         let wanted = lock(&self.switches).computer_use;
         self.worker.set_wanted(wanted);
@@ -201,31 +227,70 @@ impl HostCore {
     /// The device hub collector, when the owner's config sets it up with at
     /// least one pinned approver (fail closed otherwise; status says why).
     fn start_device_hub(self: &Arc<Self>) {
-        let config = crate::config::load();
-        let state = crate::hub::HubState::of(&config);
+        let snapshot = self.config();
+        let state = crate::hub::HubState::of(&snapshot);
         *lock(&self.hub_state) = state.clone();
-        let (crate::hub::HubState::Ready, Ok(config)) = (state, config) else { return };
+        let in_force: &Result<ComputerUseConfig, String> = &snapshot;
+        let (crate::hub::HubState::Ready, Ok(config)) = (state, in_force) else { return };
         let Some(hub_config) = config.device_hub.clone() else { return };
+        let approvers = config.approvers.clone();
+        let generation = self.hub_generation.load(Ordering::SeqCst);
         let core = Arc::downgrade(self);
         tokio::spawn(async move {
             let machine = crate::platform::machine_name();
-            match crate::hub::connect(&hub_config, &config.approvers, &machine).await {
+            match crate::hub::connect(&hub_config, &approvers, &machine).await {
                 Ok((remote, socket)) => {
                     let Some(core) = core.upgrade() else { return };
+                    // A reload since this started: its config is no longer in force.
+                    if core.hub_generation.load(Ordering::SeqCst) != generation {
+                        tokio::spawn(socket.shutdown());
+                        return;
+                    }
                     core.set_remote_approver(Arc::new(remote));
-                    // The socket lives as long as the host (its runtime ends it).
+                    // The socket lives until the next reload or the host's end.
                     *lock(&core.hub_socket) = Some(socket);
                     core.status_changed();
                 }
                 Err(error) => {
                     eprintln!("cmux-remote-host: device hub: {error}");
-                    if let Some(core) = core.upgrade() {
+                    if let Some(core) = core.upgrade()
+                        && core.hub_generation.load(Ordering::SeqCst) == generation
+                    {
                         *lock(&core.hub_state) = crate::hub::HubState::Off(error);
                         core.status_changed();
                     }
                 }
             }
         });
+    }
+
+    /// The owner's config in force (not the file as it is now).
+    pub fn config(&self) -> ConfigSnapshot {
+        Arc::clone(&lock(&self.config))
+    }
+
+    /// `computer_use.reload`: reads the owner's root- or SYSTEM-owned config
+    /// again and puts it in force: every waiting question ends unanswered
+    /// (asked under the old config), the device hub collector is rebuilt
+    /// with the new pins, and the worker restarts with the new mode. It reads
+    /// only that file, so whoever triggers it cannot raise trust; it is still
+    /// reachable only by the daemon and by an elevated or root caller
+    /// ([`HostCore::serve_privileged`]), never through `remote-host-call`.
+    pub fn reload(self: &Arc<Self>) -> Value {
+        *lock(&self.config) = Arc::new(crate::config::load());
+        let waiting: Vec<u64> = lock(&self.questions).keys().copied().collect();
+        for id in waiting {
+            self.deliver(id, None);
+        }
+        self.hub_generation.fetch_add(1, Ordering::SeqCst);
+        lock(&self.collectors).remote = None;
+        if let Some(socket) = lock(&self.hub_socket).take() {
+            tokio::spawn(socket.shutdown());
+        }
+        self.start_device_hub();
+        self.worker.restart();
+        self.status_changed();
+        self.status()
     }
 
     /// Sets the device hub collector (tests set their own).
@@ -279,17 +344,24 @@ impl HostCore {
 
     pub fn status(&self) -> Value {
         let switches = *lock(&self.switches);
-        let config = crate::config::load();
+        let snapshot = self.config();
+        let config: &Result<ComputerUseConfig, String> = &snapshot;
+        let on_disk = crate::config::load();
         let mut computer_use = json!({
             "mode": config.as_ref().map(|config| config.mode.as_str()).unwrap_or("invalid"),
+            // The file changed since it was put in force: `cmux computer-use setup`
+            // reloads the host; until then the mode, pins and hub above stay.
+            "pending_reload": on_disk != *config,
             "collectors": lock(&self.collectors).names(),
             "pending": lock(&self.questions).len(),
             "saved": self.saved_apps().len(),
             "endpoint_dir": self.layout.endpoint_dir().display().to_string(),
+            // Where an elevated or root `cmux computer-use setup` asks for a reload.
+            "reload_endpoint": self.layout.supervisor().display().to_string(),
             "client": self.client(),
         });
-        computer_use["device_hub"] = lock(&self.hub_state).status(&config);
-        match &config {
+        computer_use["device_hub"] = lock(&self.hub_state).status(config);
+        match config {
             Ok(config) => computer_use["config"] = json!(config.source.as_ref().map(|path| path.display().to_string())),
             Err(error) => computer_use["config_error"] = json!(error),
         }
@@ -436,6 +508,26 @@ impl HostCore {
         }
     }
 
+    /// Serves one connection from an elevated or root process that is not the
+    /// daemon (`cmux computer-use setup` after it wrote the owner's config):
+    /// one `{"type":"reload"}` line, answered with the status after
+    /// [`HostCore::reload`]. Nothing else is served without the daemon's secret.
+    pub async fn serve_privileged<S>(self: &Arc<Self>, stream: S)
+    where
+        S: AsyncRead + AsyncWrite + Send + 'static,
+    {
+        let (reader, mut writer) = tokio::io::split(stream);
+        let mut reader = BufReader::new(reader);
+        let line = tokio::time::timeout(HELLO_TIMEOUT, wire::read_object(&mut reader)).await;
+        let answer = match line {
+            Ok(Ok(Some(line))) if line.get("type").and_then(Value::as_str) == Some("reload") => {
+                json!({"type": "reloaded", "status": self.reload()})
+            }
+            _ => wire::failure(&Value::Null, "refused", "an elevated caller may only ask for a reload"),
+        };
+        let _ = writer.write_all(&wire::encode(&answer)).await;
+    }
+
     async fn handle(self: &Arc<Self>, id: &Value, method: &str, params: &Value) -> Value {
         match method {
             "status" => wire::answer(id, self.status()),
@@ -475,15 +567,8 @@ impl HostCore {
             "app_grant" => wire::failure(id, "unsupported", "no app socket on this platform"),
             "drain" => wire::answer(id, json!({"busy": false})),
             "computer_use.status" => wire::answer(id, self.status()),
-            "computer_use.approvals.pending" => {
-                let pending: Vec<Value> = lock(&self.questions)
-                    .values()
-                    .map(|question| {
-                        json!({"id": short_id(&question.request.digest), "request": question.request.to_value()})
-                    })
-                    .collect();
-                wire::answer(id, json!({"pending": pending}))
-            }
+            "computer_use.approvals.pending" => wire::answer(id, self.pending()),
+            "computer_use.reload" => wire::answer(id, self.reload()),
             "computer_use.approvals.list" => {
                 let apps: Vec<Value> = self.saved_apps().iter().map(Target::app_entry).collect();
                 wire::answer(id, json!({"client": self.client(), "apps": apps}))
@@ -505,6 +590,21 @@ impl HostCore {
         }
     }
 
+    /// `computer_use.approvals.pending`: each waiting question, and which one
+    /// the local dialog on screen answers (polkit cannot say it itself).
+    fn pending(&self) -> Value {
+        let showing = lock(&self.collectors).dialog.showing();
+        let pending: Vec<Value> = lock(&self.questions)
+            .values()
+            .map(|question| {
+                let digest = &question.request.digest;
+                json!({"id": short_id(digest), "request": question.request.to_value(),
+                       "on_screen": showing.as_deref() == Some(digest.as_str())})
+            })
+            .collect();
+        json!({"pending": pending, "on_screen": showing.as_deref().map(short_id)})
+    }
+
     /// The pending question `params.id` names: the first 16 hex digits of its
     /// digest (what `computer_use.approvals.pending` lists, as on macOS), or the
     /// whole digest. Returns its worker question id and digest.
@@ -523,20 +623,21 @@ impl HostCore {
         if !all && app.is_none() {
             return wire::failure(id, "bad_request", "computer_use.approvals.revoke needs app {executable|bundle_id} or all: true");
         }
+        let mut message = json!({"type": "revoke", "scope": if all { "all" } else { "app" }});
+        if let Some(app) = &app {
+            message["app"] = app.app_entry();
+        }
         let (before, after) = {
             let _saved = lock(&self.saved_lock);
             let mut apps = self.saved_apps();
             let before = apps.len();
             apps.retain(|saved| !all && app.as_ref().is_none_or(|app| app.key() != saved.key()));
             self.write_saved(&apps);
+            // Told under the lock: a concurrent Always reaches the worker after this, as it reached the file.
+            self.worker.send(message);
             (before, apps.len())
         };
-        let mut message = json!({"type": "revoke", "scope": if all { "all" } else { "app" }});
-        if let Some(app) = &app {
-            message["app"] = app.app_entry();
-        }
-        self.worker.send(message);
-        wire::answer(id, json!({"revoked": before - after}))
+        wire::answer(id, json!({"revoked": before.saturating_sub(after)}))
     }
 
     /// Opens the local protected collector for a pending question with the
@@ -560,12 +661,26 @@ impl HostCore {
                 None => return wire::failure(id, "bad_request", "decision is once or session"),
             },
         };
-        let Some(request) = lock(&self.questions).get(&question).map(|question| question.request.clone()) else {
+        let Some((request, mut alive)) = lock(&self.questions)
+            .get(&question)
+            .map(|question| (question.request.clone(), question.alive.subscribe()))
+        else {
             return wire::failure(id, "not_found", "no waiting Computer Use question with that id");
         };
-        let Some(local) = lock(&self.collectors).local.clone() else {
+        let (local, dialog) = {
+            let collectors = lock(&self.collectors);
+            (collectors.local.clone(), Arc::clone(&collectors.dialog))
+        };
+        let Some(local) = local else {
             return wire::failure(id, "no_collector", "this machine has no local approval dialog; answer on your phone or Mac");
         };
+        if let Some(showing) = dialog.showing() {
+            return wire::failure(
+                id,
+                "dialog_up",
+                format!("a Computer Use dialog is on screen for question {}; answer or close it first", short_id(&showing)),
+            );
+        }
         {
             let now = tokio::time::Instant::now();
             let mut prompted = lock(&self.prompted);
@@ -578,13 +693,25 @@ impl HostCore {
             }
             prompted.insert(question, now);
         }
-        match local.ask(&request, offered).await {
-            Some(answer) => {
+        // The question can end while the dialog is up (another collector, the
+        // worker's cancel): `alive` then closes and dropping the dialog's future closes it.
+        let answer = tokio::select! {
+            answer = dialog.ask_now(local.as_ref(), &request, offered) => answer,
+            _ = alive.changed() => {
+                return wire::failure(id, "ended", "the question was answered or withdrawn while the dialog was up");
+            }
+        };
+        match answer {
+            Err(crate::approver::DialogBusy) => wire::failure(id, "dialog_up", "a Computer Use dialog is on screen; answer or close it first"),
+            Ok(Some(answer)) => {
                 let decision = answer.decision;
+                if !lock(&self.questions).contains_key(&question) {
+                    return wire::failure(id, "ended", "the question ended before the dialog's answer");
+                }
                 self.deliver(question, Some(answer));
                 wire::answer(id, json!({"decision": decision.as_str()}))
             }
-            None => wire::failure(id, "no_answer", "the dialog could not be shown"),
+            Ok(None) => wire::failure(id, "no_answer", "nobody answered the dialog, or it could not be shown"),
         }
     }
 
@@ -633,7 +760,7 @@ impl HostCore {
         let core = Arc::downgrade(self);
         let asking = request.clone();
         // Recorded before the collectors run: an instant "nobody can answer" must find it.
-        lock(&self.questions).insert(id, Question { request: request.clone(), generation, task: None });
+        lock(&self.questions).insert(id, Question::new(request.clone(), generation));
         let task = tokio::spawn(async move {
             let deadline = Duration::from_millis(asking.answerable_until_ms.saturating_sub(crate::approval::now_ms()));
             let answer = tokio::time::timeout(deadline, collectors.ask(&asking)).await.ok().flatten();
@@ -665,7 +792,8 @@ impl HostCore {
         self.send_event("app_approval_done", fields);
     }
 
-    /// A restarted worker's questions are gone.
+    /// A restarted worker's questions are gone, with their prompt cooldowns
+    /// (the next worker numbers its questions from 1 again).
     pub(crate) fn worker_gone(&self, generation: u64) {
         let mut questions = lock(&self.questions);
         questions.retain(|_, question| {
@@ -675,6 +803,7 @@ impl HostCore {
             }
             keep
         });
+        lock(&self.prompted).retain(|id, _| questions.contains_key(id));
     }
 
     /// The first answer for question `id` (or none): to the worker, once.
@@ -685,21 +814,23 @@ impl HostCore {
             task.abort();
         }
         let message = match &answer {
-            Some(answer) => {
-                if answer.decision == Decision::Always {
-                    let _saved = lock(&self.saved_lock);
-                    let mut apps = self.saved_apps();
-                    if !apps.iter().any(|app| app.key() == question.request.target.key()) {
-                        apps.push(question.request.target.clone());
-                        self.write_saved(&apps);
-                    }
-                }
-                json!({"type": "app_approval", "id": id, "ok": true, "decision": answer.decision.as_str(),
-                       "digest": answer.digest, "via": answer.via})
-            }
+            Some(answer) => json!({"type": "app_approval", "id": id, "ok": true, "decision": answer.decision.as_str(),
+                                   "digest": answer.digest, "via": answer.via}),
             None => json!({"type": "app_approval", "id": id, "ok": false}),
         };
+        // An Always is saved and told under one lock: a concurrent revoke reaches
+        // the worker after this Always exactly when it reached the file after it.
+        let always = answer.as_ref().is_some_and(|answer| answer.decision == Decision::Always);
+        let saved = always.then(|| lock(&self.saved_lock));
+        if saved.is_some() {
+            let mut apps = self.saved_apps();
+            if !apps.iter().any(|app| app.key() == question.request.target.key()) {
+                apps.push(question.request.target.clone());
+                self.write_saved(&apps);
+            }
+        }
         self.worker.send_to_generation(question.generation, message);
+        drop(saved);
         let mut fields = Map::new();
         fields.insert("id".into(), json!(id));
         fields.insert("outcome".into(), json!(answer.as_ref().map(|answer| answer.decision.as_str()).unwrap_or("unanswered")));
@@ -804,7 +935,11 @@ pub async fn run(core: Arc<HostCore>) -> Result<(), String> {
                 tokio::spawn(async move {
                     let daemon = crate::platform::peer_of(&stream)
                         .is_some_and(|(same_user, pid)| peer_is_daemon(&core.bootstrap, same_user, pid));
-                    core.serve_supervisor(stream, daemon).await;
+                    if !daemon && crate::platform::peer_privileged(&stream) {
+                        core.serve_privileged(stream).await;
+                    } else {
+                        core.serve_supervisor(stream, daemon).await;
+                    }
                 });
             }
         })
@@ -821,173 +956,4 @@ fn short_id(digest: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::approval::{Question as Ask, Target};
-
-    fn core() -> Arc<HostCore> {
-        let scratch = std::env::temp_dir().join(format!("cmux-rh-core-{}", std::process::id()));
-        let bootstrap = Bootstrap::parse(&json!({"supervisor_secret": "00".repeat(32)})).unwrap();
-        HostCore::new(bootstrap, Layout { dir: scratch.join("rh") }, scratch.join("state"), None)
-    }
-
-    #[tokio::test]
-    async fn with_no_collector_a_question_is_answered_unavailable_and_forgotten() {
-        let core = core();
-        let request = ApprovalRequest::new(
-            Ask {
-                client: "c".into(),
-                machine: "m".into(),
-                session: "s".into(),
-                agent: "a".into(),
-                workspace: "w".into(),
-                target: Target { bundle_id: None, executable: Some("/usr/bin/gedit".into()), name: "gedit".into() },
-                tool: "click".into(),
-                risk: "R1".into(),
-            },
-            crate::approval::now_ms(),
-        )
-        .unwrap();
-        core.worker_asked(1, &json!({"type": "app_approval", "id": 7, "request": request.to_value()}));
-        for _ in 0..10 {
-            tokio::task::yield_now().await;
-        }
-        assert!(lock(&core.questions).is_empty(), "the unanswerable question is delivered, not leaked");
-    }
-
-    /// A core with its own state, so tests do not share a saved list.
-    fn core_named(name: &str) -> Arc<HostCore> {
-        let scratch = std::env::temp_dir().join(format!("cmux-rh-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&scratch);
-        let bootstrap = Bootstrap::parse(&json!({"supervisor_secret": "00".repeat(32)})).unwrap();
-        HostCore::new(bootstrap, Layout { dir: scratch.join("rh") }, scratch.join("state"), None)
-    }
-
-    fn request_for(executable: &str) -> ApprovalRequest {
-        let name = executable.rsplit('/').next().unwrap_or(executable).to_owned();
-        ApprovalRequest::new(
-            Ask {
-                client: "c".into(),
-                machine: "m".into(),
-                session: "s".into(),
-                agent: "a".into(),
-                workspace: "w".into(),
-                target: Target { bundle_id: None, executable: Some(executable.into()), name },
-                tool: "click".into(),
-                risk: "R1".into(),
-            },
-            crate::approval::now_ms(),
-        )
-        .unwrap()
-    }
-
-    /// A question the host routes, without collectors running for it.
-    fn pending(core: &HostCore, id: u64, executable: &str) -> ApprovalRequest {
-        let request = request_for(executable);
-        lock(&core.questions).insert(id, Question { request: request.clone(), generation: 1, task: None });
-        request
-    }
-
-    /// A revoke-all and an Always that race must never bring back an app the
-    /// revoke removed (each reads, changes and writes the whole saved list).
-    #[test]
-    fn a_revoke_all_is_never_undone_by_a_concurrent_always() {
-        let core = core_named("revoke-race");
-        let old = Target { bundle_id: None, executable: Some("/usr/bin/old-app".into()), name: "old-app".into() };
-        for round in 0..300_u64 {
-            core.write_saved(std::slice::from_ref(&old));
-            let request = pending(&core, round, "/usr/bin/gedit");
-            let barrier = Arc::new(std::sync::Barrier::new(2));
-            let always = std::thread::spawn({
-                let (core, barrier) = (Arc::clone(&core), Arc::clone(&barrier));
-                move || {
-                    barrier.wait();
-                    let answer = ApproverDecision { decision: Decision::Always, digest: request.digest, via: "polkit".into() };
-                    core.deliver(round, Some(answer));
-                }
-            });
-            let revoke = std::thread::spawn({
-                let (core, barrier) = (Arc::clone(&core), Arc::clone(&barrier));
-                move || {
-                    barrier.wait();
-                    core.revoke(&Value::Null, &json!({"all": true}))
-                }
-            });
-            always.join().unwrap();
-            revoke.join().unwrap();
-            let saved = core.saved_apps();
-            assert!(!saved.iter().any(|app| app.key() == old.key()), "round {round}: the revoke-all was undone: {saved:?}");
-        }
-    }
-
-    /// Records what each prompt offered; the person never answers.
-    #[derive(Default)]
-    struct Offers(Mutex<Vec<Decision>>);
-
-    #[async_trait::async_trait]
-    impl crate::approver::LocalCollector for Offers {
-        fn name(&self) -> &'static str {
-            "offers"
-        }
-        async fn ask(&self, _request: &ApprovalRequest, offered: Decision) -> Option<ApproverDecision> {
-            lock(&self.0).push(offered);
-            None
-        }
-    }
-
-    /// `computer_use.approvals.prompt` is open to any local caller: it never
-    /// lets the caller choose Always (only the dialog's own choices), and one
-    /// question is shown at most once per cooldown.
-    #[tokio::test(start_paused = true)]
-    async fn a_prompt_never_offers_always_and_cools_down_per_question() {
-        let core = core_named("prompt");
-        let offers = Arc::new(Offers::default());
-        lock(&core.collectors).local = Some(offers.clone());
-        let request = pending(&core, 3, "/usr/bin/gedit");
-        let id = short_id(&request.digest);
-        let prompt = |params: Value| {
-            let core = Arc::clone(&core);
-            async move { core.handle(&json!(1), "computer_use.approvals.prompt", &params).await }
-        };
-        let always = prompt(json!({"id": id, "decision": "always"})).await;
-        assert_eq!(always["ok"], false, "{always}");
-        assert!(lock(&offers.0).is_empty(), "the caller cannot offer always: {:?}", lock(&offers.0));
-
-        prompt(json!({"id": id})).await;
-        assert_eq!(lock(&offers.0).as_slice(), &[Decision::Session]);
-        let again = prompt(json!({"id": id})).await;
-        assert_eq!(again.pointer("/error/code"), Some(&json!("cooldown")), "{again}");
-        assert_eq!(lock(&offers.0).len(), 1);
-
-        tokio::time::advance(Duration::from_secs(11)).await;
-        prompt(json!({"id": id, "decision": "once"})).await;
-        assert_eq!(lock(&offers.0).as_slice(), &[Decision::Session, Decision::Once]);
-    }
-
-    #[test]
-    fn a_windows_supervisor_must_be_the_daemon_process_not_just_its_image() {
-        use crate::platform::ProcessStamp;
-        let bootstrap = Bootstrap::parse(&json!({"supervisor_secret": "00".repeat(32), "daemon_pid": 40, "daemon_start": 777})).unwrap();
-        let daemon = ProcessStamp { pid: 40, start: 777 };
-        assert!(windows_daemon_peer(&bootstrap, true, Some(daemon), false));
-        // Another process running the same executable.
-        assert!(!windows_daemon_peer(&bootstrap, true, Some(ProcessStamp { pid: 41, start: 900 }), false));
-        // The daemon's pid, reused by a later process.
-        assert!(!windows_daemon_peer(&bootstrap, true, Some(ProcessStamp { pid: 40, start: 778 }), false));
-        // The right process but another image, or a gone process.
-        assert!(!windows_daemon_peer(&bootstrap, false, Some(daemon), false));
-        assert!(!windows_daemon_peer(&bootstrap, true, None, true));
-        // A handoff's new daemon serves the daemon socket.
-        assert!(windows_daemon_peer(&bootstrap, true, Some(ProcessStamp { pid: 41, start: 900 }), true));
-        // An old daemon's bootstrap without the pid: only the socket's server.
-        let old = Bootstrap::parse(&json!({"supervisor_secret": "00".repeat(32)})).unwrap();
-        assert!(!windows_daemon_peer(&old, true, Some(daemon), false));
-    }
-
-    #[tokio::test]
-    async fn a_forged_request_is_refused_without_asking() {
-        let core = core();
-        core.worker_asked(1, &json!({"type": "app_approval", "id": 8, "request": {"v": 1, "digest": "00"}}));
-        assert!(lock(&core.questions).is_empty());
-    }
-}
+mod tests;

@@ -207,7 +207,23 @@ The mode comes only from configuration the machine's owner controls
 | Unrestricted | `mode = "unrestricted"` plus both `CUA_DRIVER_PERMISSION_MODE = "unrestricted"` and `CUA_DRIVER_DANGEROUSLY_BYPASS_APPROVALS = "1"` under `[environment]` in that file; the host passes exactly these to the worker and the unit unsets them from everything else | same |
 
 No file means `ask`; a file that is present but untrusted or invalid refuses
-every call. Local collectors:
+every call. The host reads the file once at start and hands that reading to
+its worker (`configure.config`), its driver environment and the device hub
+collector, so all three use one reading; `computer_use.status` reports it
+(`mode`, `config`, `device_hub`) and sets `pending_reload` when the file
+differs. `computer_use.reload` reads it again: questions waiting under the old
+reading end unanswered, the hub collector is rebuilt with the new pins and the
+worker restarts with the new mode. Only two callers reach it: the daemon over
+the supervisor link, and a root (Linux, `SO_PEERCRED` uid 0) or elevated
+(Windows: the person's own SID with an elevated token, or SYSTEM) process,
+which the host admits for that one `{"type":"reload"}` line without the
+supervisor secret. That is `cmux computer-use setup`'s elevated run, right
+after it wrote the file (`computer_use.status` names the endpoint as
+`reload_endpoint`; the elevated run opens a Windows pipe with
+identification-only QoS). A reload re-reads only the root- or SYSTEM-owned
+file, so a caller cannot raise trust with it; the daemon's `remote-host-call`
+still refuses it, so an agent cannot restart the worker's sessions through it
+(`restart` already can, and keeps the reading in force). Local collectors:
 
 - **Linux**: polkit actions `com.cmux.computer-use.approve` and
   `com.cmux.computer-use.approve-always` (`dist/com.cmux.computer-use.policy`,
@@ -217,7 +233,13 @@ every call. Local collectors:
   owner, and an `org.freedesktop.policykit.owner` annotation for the person's
   uid would let agents (the same uid) pass details too. The dialog therefore
   shows the action's fixed message; the person reads the agent and the app in
-  `cmux computer-use approvals pending` or on the phone. Offered only in a
+  `cmux computer-use approvals pending`, which marks the question whose dialog
+  is up (`on_screen`, and its short id at the top level), or on the phone. So
+  the mark is never ambiguous, one dialog is up at a time: automatic prompts
+  wait their turn, `computer_use.approvals.prompt` answers `dialog_up` while
+  one is up, and a question that ends (another collector answered, the worker
+  withdrew it) closes its dialog (`CancelCheckAuthorization`) and ignores its
+  answer (`ended` to a waiting `prompt`). Offered only in a
   graphical session (`XDG_SESSION_TYPE` x11 or wayland), where the desktop
   runs a polkit agent. Authenticating answers the offered scope (this session
   by default); dismissing answers deny. Not yet verified on a real GNOME or
@@ -227,7 +249,10 @@ every call. Local collectors:
   host-owned "cmux Remote" window), when Hello is available. The window and
   the request run on a thread of their own that pumps its messages; when
   another collector answers first the host cancels the request and closes the
-  window. Not yet verified on a real Windows desktop.
+  window. Verifying answers the offered scope; closing the dialog is no answer
+  (it has no Deny button), so the phone can still answer and the question
+  otherwise times out unanswered. One dialog at a time, as for polkit. Not yet
+  verified on a real Windows desktop.
 - **Device hub**: `cmux-remote-host/src/hub.rs` over the hub client's
   `HubApprover`, started when the config has `[device_hub]` and at least one
   pinned `[[approvers]]` entry (docs/computer-use-approvals.md, "Device hub
@@ -236,9 +261,10 @@ every call. Local collectors:
   key in this user's store (`$XDG_STATE_HOME/cmux/device-hub`, else the
   Secret Service; `%LOCALAPPDATA%\cmux\device-hub` or CNG on Windows), and gets
   the account's token from `token_command`. An Allow applies only when a
-  pinned Mac or iPhone signed it with the approval key whose fingerprint the
-  owner pinned (a deny needs the decider's signing key); the first answer with
-  the request's digest wins.
+  pinned device signed it with the approval key whose fingerprint the owner
+  pinned (a deny needs the decider's signing key); the first answer with the
+  request's digest wins. For now only iPhones can be pinned: the cmux iPhone
+  app registers an approval key, the macOS app does not yet.
 
 `cmux computer-use approvals approve <id>` sends
 `computer_use.approvals.prompt`, which opens the local collector (offering
@@ -254,7 +280,9 @@ digits of the request digest, as on macOS (docs/computer-use-approvals.md,
 
 - **Same user.** As upstream documents, this protects against agents limited to
   cmux's tools. The saved approvals (`remote/worker/approvals/<client>.json`,
-  0600) and `endpoint.json` are files of the person's user; a process that
+  0600; on Windows a protected owner-only DACL, and a file another SID may use
+  is refused on read), the daemon's host record and bootstrap file (the same
+  owner-only DACL on Windows) and `endpoint.json` are files of the person's user; a process that
   already runs arbitrary code as that user can change them or drive the desktop
   directly. Isolate such agents with a VM, a separate user or a second device.
 - **Targets.** Before a call runs, the worker resolves every app it names

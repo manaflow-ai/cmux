@@ -11,7 +11,9 @@
 //!   [`BUSY_WAIT`] in all, never a sleep loop.
 //! - The secret is sent only after `GetNamedPipeServerProcessId` names a
 //!   server process whose token user is this user (the peer uid check on
-//!   Unix).
+//!   Unix) and that is the worker `endpoint.json` records (its pid and
+//!   creation time), so another process of this user that grabbed a pipe
+//!   instance never receives the secret.
 
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::io::AsRawHandle;
@@ -82,8 +84,13 @@ pub(super) async fn connect(name: &Path) -> Result<NamedPipeClient> {
     }
 }
 
-/// The pipe's server process must run as this user before the secret goes out.
-pub(super) fn require_same_user_server(client: &NamedPipeClient, name: &Path) -> Result<()> {
+/// The pipe's server process must run as this user, and be the recorded
+/// `owner` when the endpoint names one, before the secret goes out.
+pub(super) fn require_same_user_server(
+    client: &NamedPipeClient,
+    name: &Path,
+    owner: Option<super::Owner>,
+) -> Result<()> {
     let mut pid = 0_u32;
     // SAFETY: a connected client handle and a u32 out pointer.
     let ok =
@@ -111,6 +118,14 @@ pub(super) fn require_same_user_server(client: &NamedPipeClient, name: &Path) ->
             "{} is served by {server}, not this user ({me}); the secret was not sent",
             name.display()
         );
+    }
+    let server_pid = i32::try_from(pid).ok();
+    let start = match server_pid.map(super::liveness::process_start) {
+        Some(super::liveness::Process::Alive(start)) => start,
+        _ => None,
+    };
+    if let Err(why) = super::server_is_owner(server_pid, start, owner) {
+        bail!("{}: {why}; the secret was not sent", name.display());
     }
     Ok(())
 }

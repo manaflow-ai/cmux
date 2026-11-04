@@ -185,6 +185,46 @@ pub fn peer_of(stream: &LocalStream) -> Option<(bool, u32)> {
     Some((same, pid))
 }
 
+/// Whether the client of an accepted pipe is this user's elevated process
+/// (UAC's full token) or SYSTEM: `cmux computer-use setup` asking for a
+/// reload after it wrote the config. The pipe's DACL admits only this user's
+/// SID, so a non-elevated agent of the user is refused here.
+pub fn peer_privileged(stream: &LocalStream) -> bool {
+    let mut pid = 0_u32;
+    // SAFETY: a connected server handle.
+    if unsafe { GetNamedPipeClientProcessId(stream.as_raw_handle() as HANDLE, &mut pid) } == 0 {
+        return false;
+    }
+    let Some(process) = open_process(pid) else { return false };
+    let user = token_user(process.0);
+    let same_or_system = user.as_deref().is_some_and(|sid| sid == SYSTEM_SID || Some(sid) == my_sid().as_deref());
+    same_or_system && (user.as_deref() == Some(SYSTEM_SID) || token_elevated(process.0))
+}
+
+/// Whether a process's token is elevated (`TokenElevation`).
+fn token_elevated(process: HANDLE) -> bool {
+    use windows_sys::Win32::Security::{TOKEN_ELEVATION, TokenElevation};
+    let mut token: HANDLE = std::ptr::null_mut();
+    // SAFETY: a process handle with query rights.
+    if unsafe { OpenProcessToken(process, TOKEN_QUERY, &mut token) } == 0 {
+        return false;
+    }
+    let token = Handle(token);
+    let mut elevation = TOKEN_ELEVATION { TokenIsElevated: 0 };
+    let mut returned = 0_u32;
+    // SAFETY: a TOKEN_ELEVATION out buffer of its size.
+    let ok = unsafe {
+        GetTokenInformation(
+            token.0,
+            TokenElevation,
+            (&raw mut elevation).cast(),
+            std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+            &mut returned,
+        )
+    } != 0;
+    ok && elevation.TokenIsElevated != 0
+}
+
 /// The process serving a local endpoint of this user: a named pipe
 /// (`GetNamedPipeServerProcessId`) or an AF_UNIX socket file, which acpmux
 /// serves on Windows (`SIO_AF_UNIX_GETPEERPID`). None for another user's.
@@ -350,26 +390,278 @@ pub async fn accept(listener: &PipeListener) -> std::io::Result<LocalStream> {
     Ok(server)
 }
 
-/// Creates `dir`; a folder under the user's profile is private to the user by inheritance.
-pub fn make_private_dir(dir: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(dir).map_err(|error| format!("{}: {error}", dir.display()))?;
-    let meta = std::fs::symlink_metadata(dir).map_err(|error| format!("{error}"))?;
-    if !meta.is_dir() || meta.file_type().is_symlink() {
-        return Err(format!("{} is not a directory", dir.display()));
+/// SIDs whose access does not make a private file shared (they can read any
+/// file anyway, as root can on Unix): SYSTEM, Administrators, OWNER RIGHTS
+/// and TrustedInstaller. The same list as acpmux `owner_only`.
+const PRIVATE_ALWAYS_ALLOWED: [&str; 4] = [SYSTEM_SID, ADMINISTRATORS_SID, "S-1-3-4", TRUSTED_INSTALLER_SID];
+/// ACE types that grant access (allowed, allowed-object, allowed-callback, allowed-callback-object).
+const GRANTING_ACE_TYPES: [u8; 4] = [0x0, 0x5, 0x9, 0xB];
+/// Rights that change a file or folder or its access (write, append, write
+/// EA, delete child, delete, write DAC, write owner, generic all, generic write).
+const PRIVATE_CHANGE_RIGHTS: u32 = 0x2 | 0x4 | 0x10 | 0x40 | 0x1_0000 | 0x4_0000 | 0x8_0000 | 0x1000_0000 | 0x4000_0000;
+const READ_CONTROL: u32 = 0x0002_0000;
+const WRITE_DAC: u32 = 0x0004_0000;
+
+/// A security descriptor from SDDL, freed on drop.
+struct Descriptor(PSECURITY_DESCRIPTOR);
+
+impl Descriptor {
+    /// Owned by this user, a protected DACL granting only this user full
+    /// access (`D:P(A;;FA;;;<user>)`); a folder's entry is inherited by new
+    /// children (`OICI`). The same descriptor acpmux `owner_only` writes.
+    fn owner_only(folder: bool) -> Result<Self, String> {
+        let user = my_sid().ok_or("cannot read this user's SID")?;
+        let flags = if folder { "OICI" } else { "" };
+        let sddl = wide(OsStr::new(&format!("O:{user}D:P(A;{flags};FA;;;{user})")));
+        let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+        // SAFETY: a NUL-terminated SDDL string; the descriptor is freed in Drop.
+        let ok = unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), 1, &mut descriptor, std::ptr::null_mut())
+        } != 0;
+        if !ok {
+            return Err(format!("cannot build an owner-only DACL: {}", std::io::Error::last_os_error()));
+        }
+        Ok(Self(descriptor))
+    }
+
+    fn attributes(&self) -> SECURITY_ATTRIBUTES {
+        SECURITY_ATTRIBUTES {
+            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: self.0,
+            bInheritHandle: 0,
+        }
+    }
+}
+
+impl Drop for Descriptor {
+    fn drop(&mut self) {
+        // SAFETY: allocated by ConvertStringSecurityDescriptorToSecurityDescriptorW.
+        unsafe { LocalFree(self.0) };
+    }
+}
+
+/// Opens `path` itself (never a reparse point's target) with `access`.
+fn open_object(path: &Path, access: u32, folder: bool) -> Result<std::fs::File, String> {
+    use std::os::windows::io::FromRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE, FILE_SHARE_READ,
+        FILE_SHARE_WRITE, OPEN_EXISTING,
+    };
+    let name = wide(path.as_os_str());
+    let flags = FILE_FLAG_OPEN_REPARSE_POINT | if folder { FILE_FLAG_BACKUP_SEMANTICS } else { 0 };
+    // SAFETY: a NUL-terminated name; the handle is owned by the File below.
+    let handle = unsafe {
+        CreateFileW(
+            name.as_ptr(),
+            access,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            flags,
+            std::ptr::null_mut(),
+        )
+    };
+    if handle as isize == -1 {
+        return Err(format!("{}: {}", path.display(), std::io::Error::last_os_error()));
+    }
+    // SAFETY: a handle CreateFileW returned; the File owns it.
+    Ok(unsafe { std::fs::File::from_raw_handle(handle as _) })
+}
+
+/// The first SID other than this user and [`PRIVATE_ALWAYS_ALLOWED`] that
+/// owns the opened object or holds any of `rights` on it; `rights` 0 checks
+/// the owner only. A missing DACL grants everyone everything.
+fn other_than_owner(file: &std::fs::File, rights: u32) -> Result<Option<String>, String> {
+    use windows_sys::Win32::Security::Authorization::GetSecurityInfo;
+    let me = my_sid().ok_or("cannot read this user's SID")?;
+    let allowed = |sid: &str| sid.eq_ignore_ascii_case(&me) || PRIVATE_ALWAYS_ALLOWED.iter().any(|known| sid.eq_ignore_ascii_case(known));
+    let mut owner: PSID = std::ptr::null_mut();
+    let mut dacl: *mut ACL = std::ptr::null_mut();
+    let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+    // SAFETY: an open handle with READ_CONTROL and out pointers into this frame; freed below.
+    let status = unsafe {
+        GetSecurityInfo(
+            file.as_raw_handle() as HANDLE,
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+            &mut owner,
+            std::ptr::null_mut(),
+            &mut dacl,
+            std::ptr::null_mut(),
+            &mut descriptor,
+        )
+    };
+    if status != 0 {
+        return Err(format!("cannot read its security ({status})"));
+    }
+    let found = (|| {
+        let owner = sid_string(owner).ok_or("an unreadable owner")?;
+        if !allowed(&owner) {
+            return Ok(Some(owner));
+        }
+        if rights == 0 {
+            return Ok(None);
+        }
+        if dacl.is_null() {
+            return Ok(Some("Everyone (no DACL)".to_owned()));
+        }
+        // SAFETY: a valid ACL from GetSecurityInfo.
+        let count = unsafe { (*dacl).AceCount };
+        for index in 0..u32::from(count) {
+            let mut ace: *mut c_void = std::ptr::null_mut();
+            // SAFETY: index below AceCount.
+            if unsafe { GetAce(dacl, index, &mut ace) } == 0 {
+                return Err("an unreadable ACE".to_owned());
+            }
+            // SAFETY: every ACE starts with an ACE_HEADER.
+            let header = unsafe { &*(ace.cast::<ACE_HEADER>()) };
+            if !GRANTING_ACE_TYPES.contains(&header.AceType) || header.AceFlags & INHERIT_ONLY_ACE != 0 {
+                continue;
+            }
+            // SAFETY: the granting types share ACCESS_ALLOWED_ACE's mask and SID offset for
+            // types 0 and 9; the object types (5, 0xB) are refused below unless allowed.
+            let allowed_ace = unsafe { &*(ace.cast::<ACCESS_ALLOWED_ACE>()) };
+            if allowed_ace.Mask & rights == 0 {
+                continue;
+            }
+            if header.AceType == 0x5 || header.AceType == 0xB {
+                // An object ACE's SID moves with its flags: never parsed, always wider.
+                return Ok(Some("an object ACE".to_owned()));
+            }
+            let sid = sid_string((&raw const allowed_ace.SidStart).cast_mut().cast()).ok_or("an unreadable SID")?;
+            if !allowed(&sid) {
+                return Ok(Some(sid));
+            }
+        }
+        Ok(None)
+    })();
+    // SAFETY: allocated by GetSecurityInfo.
+    unsafe { LocalFree(descriptor) };
+    found
+}
+
+/// Replaces the opened object's DACL with the owner-only one.
+fn narrow_opened(file: &std::fs::File, folder: bool) -> Result<(), String> {
+    use windows_sys::Win32::Security::Authorization::SetSecurityInfo;
+    use windows_sys::Win32::Security::{GetSecurityDescriptorDacl, PROTECTED_DACL_SECURITY_INFORMATION};
+    let descriptor = Descriptor::owner_only(folder)?;
+    let (mut present, mut defaulted) = (0, 0);
+    let mut dacl: *mut ACL = std::ptr::null_mut();
+    // SAFETY: a valid descriptor; the DACL pointer points into it.
+    unsafe { GetSecurityDescriptorDacl(descriptor.0, &mut present, &mut dacl, &mut defaulted) };
+    // SAFETY: an open handle with WRITE_DAC and an ACL that lives for the call.
+    let status = unsafe {
+        SetSecurityInfo(
+            file.as_raw_handle() as HANDLE,
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            dacl,
+            std::ptr::null(),
+        )
+    };
+    if status != 0 {
+        return Err(format!("cannot make it owner-only ({status})"));
     }
     Ok(())
 }
 
+fn attributes_of(file: &std::fs::File) -> Result<u32, String> {
+    use std::os::windows::fs::MetadataExt;
+    file.metadata().map(|meta| meta.file_attributes()).map_err(|error| error.to_string())
+}
+
+/// Creates `dir` owner-only (a protected DACL for this user, inherited by
+/// what is made in it), or checks an existing one: a reparse point, another
+/// owner, or another SID that can change it is refused; one others can only
+/// read is narrowed to owner-only. Missing parents are made by inheritance.
+pub fn make_private_dir(dir: &Path) -> Result<(), String> {
+    use windows_sys::Win32::Storage::FileSystem::{CreateDirectoryW, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT};
+    if let Some(parent) = dir.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
+    }
+    let descriptor = Descriptor::owner_only(true)?;
+    let attributes = descriptor.attributes();
+    let name = wide(dir.as_os_str());
+    // SAFETY: a NUL-terminated name and attributes that outlive the call.
+    if unsafe { CreateDirectoryW(name.as_ptr(), &attributes) } == 0 {
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::AlreadyExists {
+            return Err(format!("{}: {error}", dir.display()));
+        }
+    }
+    let opened = open_object(dir, READ_CONTROL | WRITE_DAC, true)?;
+    let kind = attributes_of(&opened)?;
+    if kind & FILE_ATTRIBUTE_REPARSE_POINT != 0 || kind & FILE_ATTRIBUTE_DIRECTORY == 0 {
+        return Err(format!("{} is not a directory", dir.display()));
+    }
+    if let Some(sid) = other_than_owner(&opened, PRIVATE_CHANGE_RIGHTS).map_err(|error| format!("{}: {error}", dir.display()))? {
+        return Err(format!("{} can be changed by {sid}; remove it", dir.display()));
+    }
+    if other_than_owner(&opened, u32::MAX).map_err(|error| format!("{}: {error}", dir.display()))?.is_some() {
+        narrow_opened(&opened, true).map_err(|error| format!("{}: {error}", dir.display()))?;
+    }
+    Ok(())
+}
+
+/// Writes `bytes` to `path` atomically: a new owner-only file (created with
+/// the descriptor, never narrowed after the bytes are in it), then renamed
+/// over `path` in a private directory.
 pub fn write_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    use std::os::windows::io::FromRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{CREATE_NEW, CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_OPEN_REPARSE_POINT};
     let dir = path.parent().ok_or("no parent directory")?;
     make_private_dir(dir)?;
     let temporary = path.with_extension(format!("tmp{}", std::process::id()));
-    std::fs::write(&temporary, bytes).map_err(|error| format!("{}: {error}", temporary.display()))?;
+    let _ = std::fs::remove_file(&temporary);
+    let descriptor = Descriptor::owner_only(false)?;
+    let attributes = descriptor.attributes();
+    let name = wide(temporary.as_os_str());
+    // SAFETY: a NUL-terminated name and attributes that outlive the call; the handle is owned below.
+    let handle = unsafe {
+        CreateFileW(
+            name.as_ptr(),
+            0x4000_0000, // GENERIC_WRITE
+            0,
+            &attributes,
+            CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+            std::ptr::null_mut(),
+        )
+    };
+    if handle as isize == -1 {
+        return Err(format!("{}: {}", temporary.display(), std::io::Error::last_os_error()));
+    }
+    // SAFETY: a handle CreateFileW returned; the File owns it.
+    let mut file = unsafe { std::fs::File::from_raw_handle(handle as _) };
+    let written = file.write_all(bytes).and_then(|()| file.sync_all());
+    drop(file);
+    if let Err(error) = written {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(format!("{}: {error}", temporary.display()));
+    }
     std::fs::rename(&temporary, path).map_err(|error| format!("{}: {error}", path.display()))
 }
 
+/// Reads a regular file of this user that no other SID (beyond
+/// [`PRIVATE_ALWAYS_ALLOWED`]) owns or may use, checked on the opened handle;
+/// a reparse point, a folder or a wider file is refused, never narrowed.
 pub fn read_private(path: &Path) -> Result<Vec<u8>, String> {
-    std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))
+    use std::io::Read;
+    use windows_sys::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT};
+    let mut file = open_object(path, 0x8000_0000 | READ_CONTROL, false)?; // GENERIC_READ
+    let kind = attributes_of(&file)?;
+    if kind & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY) != 0 {
+        return Err(format!("{} is not a regular file", path.display()));
+    }
+    if let Some(sid) = other_than_owner(&file, u32::MAX).map_err(|error| format!("{}: {error}", path.display()))? {
+        return Err(format!("{} is not private to this user ({sid} can use it)", path.display()));
+    }
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).map_err(|error| format!("{}: {error}", path.display()))?;
+    Ok(bytes)
 }
 
 /// Why `path`'s owner and DACL do not make it the machine owner's, or None.
@@ -496,4 +788,93 @@ pub fn has_polkit_agent() -> bool {
 
 pub fn xdg_config_home(state_dir: &Path) -> PathBuf {
     state_dir.join("config")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("cmux-rh-private-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    /// Creates `path` with the DACL `sddl` names (this user's SID for `ME`).
+    fn create_with(path: &Path, sddl: &str) {
+        use std::os::windows::io::FromRawHandle;
+        use windows_sys::Win32::Storage::FileSystem::{CREATE_NEW, CreateFileW, FILE_ATTRIBUTE_NORMAL};
+        let me = my_sid().unwrap();
+        let text = wide(OsStr::new(&sddl.replace("ME", &me)));
+        let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+        // SAFETY: a NUL-terminated SDDL; leaked by the test.
+        assert_ne!(
+            unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(text.as_ptr(), 1, &mut descriptor, std::ptr::null_mut()) },
+            0
+        );
+        let attributes = SECURITY_ATTRIBUTES {
+            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: descriptor,
+            bInheritHandle: 0,
+        };
+        let name = wide(path.as_os_str());
+        // SAFETY: valid name and attributes.
+        let handle = unsafe {
+            CreateFileW(name.as_ptr(), 0x4000_0000, 0, &attributes, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, std::ptr::null_mut())
+        };
+        assert_ne!(handle as isize, -1, "{}", std::io::Error::last_os_error());
+        // SAFETY: a handle CreateFileW returned.
+        drop(unsafe { std::fs::File::from_raw_handle(handle as _) });
+    }
+
+    #[test]
+    fn a_written_private_file_is_owner_only_and_reads_back() {
+        let dir = scratch("write");
+        let path = dir.join("state").join("approvals.json");
+        write_private(&path, b"{}").unwrap();
+        assert_eq!(read_private(&path).unwrap(), b"{}");
+        let file = open_object(&path, READ_CONTROL, false).unwrap();
+        assert_eq!(other_than_owner(&file, u32::MAX).unwrap(), None);
+        let folder = open_object(path.parent().unwrap(), READ_CONTROL, true).unwrap();
+        assert_eq!(other_than_owner(&folder, u32::MAX).unwrap(), None, "the folder is owner-only too");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_file_another_sid_may_read_is_refused_not_narrowed() {
+        let dir = scratch("wide");
+        make_private_dir(&dir).unwrap();
+        let path = dir.join("bootstrap.json");
+        // Everyone (WD) may read it.
+        create_with(&path, "O:MED:P(A;;FA;;;ME)(A;;FR;;;WD)");
+        let error = read_private(&path).unwrap_err();
+        assert!(error.contains("not private"), "{error}");
+        let file = open_object(&path, READ_CONTROL, false).unwrap();
+        assert!(other_than_owner(&file, u32::MAX).unwrap().is_some(), "read_private never narrows it");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_folder_others_may_change_is_refused_and_one_they_may_read_is_narrowed() {
+        let dir = scratch("folders");
+        std::fs::create_dir_all(&dir).unwrap();
+        let readable = dir.join("readable");
+        std::fs::create_dir(&readable).unwrap();
+        let everyone_read = |path: &Path| {
+            let status = std::process::Command::new("icacls").arg(path).args(["/grant", "*S-1-1-0:(RX)"]).status().unwrap();
+            assert!(status.success());
+        };
+        everyone_read(&readable);
+        make_private_dir(&readable).unwrap();
+        let folder = open_object(&readable, READ_CONTROL, true).unwrap();
+        assert_eq!(other_than_owner(&folder, u32::MAX).unwrap(), None, "narrowed to owner-only");
+
+        let writable = dir.join("writable");
+        std::fs::create_dir(&writable).unwrap();
+        let status = std::process::Command::new("icacls").arg(&writable).args(["/grant", "*S-1-1-0:(M)"]).status().unwrap();
+        assert!(status.success());
+        let error = make_private_dir(&writable).unwrap_err();
+        assert!(error.contains("can be changed by"), "{error}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

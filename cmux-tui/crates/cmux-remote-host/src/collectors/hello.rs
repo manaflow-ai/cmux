@@ -1,8 +1,11 @@
 //! Windows Hello in a host-owned window: `UserConsentVerifier` through
 //! `IUserConsentVerifierInterop::RequestVerificationForWindowAsync`, so the
 //! consent dialog belongs to the cmux Remote window and names the agent, the
-//! workspace and the app. Verified confirms the offered decision; cancelled
-//! answers `deny`; no Hello on this machine asks nobody.
+//! workspace and the app. Verified confirms the offered decision; a dialog
+//! the person closed (cancelled) is no answer, not a deny, since Hello's
+//! dialog has no Deny button and closing it may only mean "not here": the
+//! phone and the Mac can still answer, and the question times out as
+//! unanswered otherwise. No Hello on this machine asks nobody.
 //!
 //! The window and the request live on a thread of their own that pumps its
 //! messages until the operation completes; when another collector answers
@@ -62,12 +65,7 @@ impl LocalCollector for WindowsHello {
         let guard = CancelOnDrop(Some(cancel));
         let verdict = receiver.await.ok()??;
         drop(guard.disarm());
-        let decision = match verdict {
-            Verdict::Verified => offered,
-            Verdict::Canceled => Decision::Deny,
-            // Busy, retries exhausted, not set up: nobody answered here; the phone still can.
-            Verdict::NoAnswer => return None,
-        };
+        let decision = decision_of(&verdict, offered)?;
         Some(ApproverDecision {
             decision,
             digest: request.digest.clone(),
@@ -80,6 +78,15 @@ enum Verdict {
     Verified,
     Canceled,
     NoAnswer,
+}
+
+/// Verified confirms the offered scope; a closed dialog (cancelled), busy,
+/// retries exhausted or not set up is no answer here: the phone still can.
+fn decision_of(verdict: &Verdict, offered: Decision) -> Option<Decision> {
+    match verdict {
+        Verdict::Verified => Some(offered),
+        Verdict::Canceled | Verdict::NoAnswer => None,
+    }
 }
 
 /// A cross-thread stop for one prompt: a flag and the pump thread to wake.
@@ -246,5 +253,18 @@ impl Drop for OwnerWindow {
     fn drop(&mut self) {
         // SAFETY: a window this thread created.
         unsafe { windows_sys::Win32::UI::WindowsAndMessaging::DestroyWindow(self.0) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn closing_the_hello_dialog_is_no_answer_not_a_deny() {
+        assert_eq!(decision_of(&Verdict::Verified, Decision::Session), Some(Decision::Session));
+        assert_eq!(decision_of(&Verdict::Verified, Decision::Once), Some(Decision::Once));
+        assert_eq!(decision_of(&Verdict::Canceled, Decision::Session), None);
+        assert_eq!(decision_of(&Verdict::NoAnswer, Decision::Session), None);
     }
 }

@@ -16,15 +16,27 @@
 //! Device hub approvers are pinned here, never taken from the hub alone:
 //! `--approver ID` reads the account's devices through the hub as this
 //! machine's device, shows each chosen device's name, platform and approval
-//! key fingerprint, and writes `{device_id, approval_key_fingerprint}` only after
-//! the owner types `yes` on the terminal. The host then accepts an Allow only
-//! from a pinned device whose registered approval key still has that
-//! fingerprint, signed with that key (a deny needs only the decider's signing key).
+//! key fingerprint, and asks the owner to type `yes` once they compared it
+//! with the fingerprint the iPhone shows. That `yes` is only a check (an agent
+//! in the same terminal could type it); the gate is `sudo -k` (Linux: always
+//! asks the password, never a cached ticket) or UAC (Windows), which the
+//! elevated run that writes `{device_id, approval_key_fingerprint}` needs.
+//! The host then accepts an Allow only from a pinned device whose registered
+//! approval key still has that fingerprint, signed with that key (a deny needs
+//! only the decider's signing key). For now only the cmux iPhone app has an
+//! approval key; the Mac app does not yet, so a Mac cannot be pinned.
 //!
-//! A non-root run elevates with `sudo` (Linux) or UAC (Windows) and needs a
+//! A non-root run elevates with `sudo -k` (Linux) or UAC (Windows) and needs a
 //! terminal for that; it never falls back to a file the user owns. Root or an
 //! elevated administrator (a VM's provisioning) writes directly, and may pin
 //! with `--approver-pin JSON` without a terminal.
+//!
+//! After writing, the elevated run asks the running cmux Remote host to
+//! reload (`--reload-endpoint`, the host's supervisor endpoint, which the
+//! non-elevated run reads from `computer_use.status`): the host admits that
+//! one request from a root or elevated peer without the daemon's secret, and a
+//! reload only re-reads this root- or SYSTEM-owned file, so it cannot raise
+//! trust. Without a running host the config applies when the host next starts.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -33,7 +45,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::{ELEVATED_FLAG, Mode, Setup, UNRESTRICTED_ENV};
+use super::{ELEVATED_FLAG, Mode, RELOAD_FLAG, Setup, UNRESTRICTED_ENV};
 
 /// The config file.
 pub(super) fn path() -> PathBuf {
@@ -156,14 +168,14 @@ pub(super) fn read_manifest(path: &Path) -> Result<Value, String> {
     if !manifest.is_object() {
         return Err(format!("{} is not a JSON object", path.display()));
     }
-    if manifest["version"] != json!(3) {
+    if manifest.get("version") != Some(&json!(3)) {
         return Err(format!("{} is not a version 3 capability manifest", path.display()));
     }
     Ok(manifest)
 }
 
-/// Writes the config, elevating first when needed.
-pub(super) fn apply(setup: &Setup) -> Result<Value, Value> {
+/// Writes the config, elevating first when needed, and has the running host reload it.
+pub(super) fn apply(global: &super::super::GlobalArgs, setup: &Setup) -> Result<Value, Value> {
     let failure = |code: &str, message: String| json!({"code": code, "message": message});
     let manifest = match (&setup.manifest, setup.mode) {
         (Some(path), _) => {
@@ -196,7 +208,15 @@ pub(super) fn apply(setup: &Setup) -> Result<Value, Value> {
         }
         let config = write_all(setup, manifest.as_ref(), pins)
             .map_err(|m| failure("computer_use.write_failed", m))?;
-        return Ok(json!({"path": path().display().to_string(), "config": config}));
+        let reload = match setup.reload_endpoint.as_deref() {
+            Some(endpoint) => match reload_host(endpoint) {
+                Ok(()) => json!({"applied": true}),
+                Err(reason) => json!({"applied": false, "reason": reason}),
+            },
+            None => json!({"applied": false,
+                           "reason": "no running cmux Remote host was named; it applies the config when it starts"}),
+        };
+        return Ok(json!({"path": path().display().to_string(), "config": config, "reload": reload}));
     }
     if setup.elevated {
         return Err(failure(
@@ -214,14 +234,96 @@ pub(super) fn apply(setup: &Setup) -> Result<Value, Value> {
     }
     // Pinning reads the hub as this user's device (the one cmux Remote uses), then elevates.
     let pins = confirmed_pins(setup).map_err(|m| failure("computer_use.approver_failed", m))?;
-    let code = elevate(setup, &pins).map_err(|m| failure("computer_use.elevation_failed", m))?;
+    let endpoint = host_status(global).ok().as_ref().and_then(reload_endpoint_of);
+    let code = elevate(setup, &pins, endpoint.as_deref())
+        .map_err(|m| failure("computer_use.elevation_failed", m))?;
     if code != 0 {
         return Err(failure(
             "computer_use.elevation_failed",
             format!("the elevated setup exited with {code}; nothing changed"),
         ));
     }
-    Ok(json!({"path": path().display().to_string(), "elevated": true}))
+    // What the host now has in force (its status compares the file with its reading).
+    let in_force = match host_status(global) {
+        Ok(status) => json!({"in_force": status.pointer("/computer_use/pending_reload") == Some(&json!(false))}),
+        Err(error) => json!({"in_force": null, "reason": error.get("message").cloned().unwrap_or(error)}),
+    };
+    Ok(json!({"path": path().display().to_string(), "elevated": true, "host": in_force}))
+}
+
+/// The running host's status through the daemon (`computer_use.status`).
+fn host_status(global: &super::super::GlobalArgs) -> Result<Value, Value> {
+    let request = json!({"id": 1, "cmd": "remote-host-call", "method": "computer_use.status", "params": {}});
+    super::super::wire::daemon_value(global, &request)
+}
+
+/// The host's supervisor endpoint, as its status names it: a `s.sock` path
+/// (Linux) or a `\\.\pipe\cmux-remote-…` name (Windows); anything else is ignored.
+pub(super) fn reload_endpoint_of(status: &Value) -> Option<PathBuf> {
+    let endpoint = status.pointer("/computer_use/reload_endpoint")?.as_str()?;
+    reload_endpoint_ok(endpoint).then(|| PathBuf::from(endpoint))
+}
+
+/// Whether `endpoint` is a host supervisor endpoint the elevated run may open.
+pub(super) fn reload_endpoint_ok(endpoint: &str) -> bool {
+    if cfg!(windows) {
+        let prefix = r"\\.\pipe\cmux-remote-";
+        endpoint.split_at_checked(prefix.len()).is_some_and(|(head, rest)| {
+            head.eq_ignore_ascii_case(prefix) && !rest.is_empty() && !rest.contains(['\\', '/', '\0'])
+        })
+    } else {
+        let path = Path::new(endpoint);
+        path.is_absolute() && path.file_name().is_some_and(|name| name == "s.sock") && !endpoint.contains('\0')
+    }
+}
+
+/// Asks the host at `endpoint` to reload (`{"type":"reload"}`), as root or an
+/// elevated administrator. Nothing secret is sent; on Windows the pipe is
+/// opened with identification-only QoS, so its server can never act as this
+/// elevated process.
+fn reload_host(endpoint: &Path) -> Result<(), String> {
+    use std::io::{BufRead as _, BufReader, Write as _};
+    if !reload_endpoint_ok(&endpoint.to_string_lossy()) {
+        return Err(format!("{} is not a cmux Remote host endpoint", endpoint.display()));
+    }
+    let stream = open_endpoint(endpoint)?;
+    let mut reader = BufReader::new(stream);
+    reader
+        .get_mut()
+        .write_all(b"{\"type\":\"reload\"}\n")
+        .and_then(|()| reader.get_mut().flush())
+        .map_err(|e| format!("cannot ask the host to reload: {e}"))?;
+    let mut line = String::new();
+    reader.read_line(&mut line).map_err(|e| format!("no answer from the host: {e}"))?;
+    let answer: Value = serde_json::from_str(&line).map_err(|_| "the host's answer is not JSON".to_owned())?;
+    if answer.get("type").and_then(Value::as_str) == Some("reloaded") {
+        Ok(())
+    } else {
+        Err(answer.pointer("/error/message").and_then(Value::as_str).unwrap_or("the host refused the reload").to_owned())
+    }
+}
+
+#[cfg(unix)]
+fn open_endpoint(endpoint: &Path) -> Result<std::os::unix::net::UnixStream, String> {
+    let stream = std::os::unix::net::UnixStream::connect(endpoint)
+        .map_err(|e| format!("cannot reach the host at {}: {e}", endpoint.display()))?;
+    let timeout = Some(std::time::Duration::from_secs(10));
+    let _ = stream.set_read_timeout(timeout);
+    let _ = stream.set_write_timeout(timeout);
+    Ok(stream)
+}
+
+#[cfg(windows)]
+fn open_endpoint(endpoint: &Path) -> Result<std::fs::File, String> {
+    use std::os::windows::fs::OpenOptionsExt as _;
+    /// `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`.
+    const IDENTIFY_ONLY: u32 = 0x0010_0000 | 0x0001_0000;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .security_qos_flags(IDENTIFY_ONLY)
+        .open(endpoint)
+        .map_err(|e| format!("cannot reach the host at {}: {e}", endpoint.display()))
 }
 
 /// Writes the manifest (bounded) and the config. Without new pins, the hub and
@@ -282,14 +384,17 @@ fn confirmed_pins(setup: &Setup) -> Result<Vec<Pin>, String> {
     };
     let pins = hub_pins(url, program, &setup.approvers)?;
     eprintln!(
-        "These devices will answer Computer Use questions for this machine. Check that each \
-         fingerprint is the approval key fingerprint the device shows in cmux:"
+        "These devices will answer Computer Use questions for this machine. Compare each \
+         approval key fingerprint with the one the iPhone shows in cmux (Settings > Computer Use):"
     );
     for pin in &pins {
         eprintln!("  {} ({}), device {}", pin.name, pin.platform, pin.device_id);
         eprintln!("    approval key {}", cmux_device_hub_client::display_fingerprint(&pin.approval_key_fingerprint));
     }
-    eprint!("Pin them? Type yes to confirm: ");
+    eprint!(
+        "Type yes once they match (a check only: the sudo or Windows prompt that follows is what \
+         allows the change): "
+    );
     let mut answer = String::new();
     std::io::stdin().read_line(&mut answer).map_err(|e| format!("cannot read the answer: {e}"))?;
     if answer.trim() != "yes" {
@@ -344,7 +449,9 @@ pub(super) fn pins_of(
             // The approval key (Secure Enclave, Face ID per Allow) is what signs an Allow.
             let key = device.approval_key.as_deref().ok_or_else(|| {
                 format!(
-                    "{} has registered no approval key with the device hub, so it cannot approve",
+                    "{} has registered no approval key with the device hub, so it cannot approve. \
+                     For now only the cmux iPhone app has an approval key (the Mac app does not \
+                     yet): pin an iPhone",
                     device.name
                 )
             })?;
@@ -375,8 +482,9 @@ fn machine_name() -> String {
     }
 }
 
-/// The words of the elevated run: the same setup, the confirmed pins, plus [`ELEVATED_FLAG`].
-pub(super) fn elevated_args(setup: &Setup, pins: &[Pin]) -> Result<Vec<String>, String> {
+/// The words of the elevated run: the same setup, the confirmed pins, the
+/// host to reload, plus [`ELEVATED_FLAG`].
+pub(super) fn elevated_args(setup: &Setup, pins: &[Pin], reload: Option<&Path>) -> Result<Vec<String>, String> {
     let mut args =
         vec!["computer-use".into(), "setup".into(), "--mode".into(), setup.mode.name().into()];
     if let Some(manifest) = &setup.manifest {
@@ -404,6 +512,10 @@ pub(super) fn elevated_args(setup: &Setup, pins: &[Pin]) -> Result<Vec<String>, 
         args.push("--approver-pin".into());
         args.push(serde_json::to_string(pin).map_err(|e| e.to_string())?);
     }
+    if let Some(endpoint) = reload {
+        args.push(RELOAD_FLAG.into());
+        args.push(endpoint.to_string_lossy().into_owned());
+    }
     args.push(ELEVATED_FLAG.into());
     Ok(args)
 }
@@ -414,13 +526,21 @@ fn elevated() -> bool {
     unsafe { libc::geteuid() == 0 }
 }
 
+/// sudo's words: `-k` so sudo asks for the password now, never a ticket
+/// cached by an earlier command in this terminal (an agent's shell may share
+/// it); sudo, not the typed `yes`, is the gate.
 #[cfg(unix)]
-fn elevate(setup: &Setup, pins: &[Pin]) -> Result<i32, String> {
+pub(super) fn sudo_args(exe: &Path, args: Vec<String>) -> Vec<std::ffi::OsString> {
+    let mut words: Vec<std::ffi::OsString> = vec!["-k".into(), "--".into(), exe.as_os_str().to_owned()];
+    words.extend(args.into_iter().map(Into::into));
+    words
+}
+
+#[cfg(unix)]
+fn elevate(setup: &Setup, pins: &[Pin], reload: Option<&Path>) -> Result<i32, String> {
     let exe = std::env::current_exe().map_err(|e| format!("cannot find this cmux: {e}"))?;
     let status = cmux_process::Command::new("sudo")
-        .arg("--")
-        .arg(exe)
-        .args(elevated_args(setup, pins)?)
+        .args(sudo_args(&exe, elevated_args(setup, pins, reload)?))
         .status()
         .map_err(|e| format!("cannot run sudo: {e}"))?;
     Ok(status.code().unwrap_or(1))
@@ -439,10 +559,10 @@ fn elevated() -> bool {
 
 /// Runs the elevated setup through UAC and waits for it.
 #[cfg(windows)]
-fn elevate(setup: &Setup, pins: &[Pin]) -> Result<i32, String> {
+fn elevate(setup: &Setup, pins: &[Pin], reload: Option<&Path>) -> Result<i32, String> {
     let exe = std::env::current_exe().map_err(|e| format!("cannot find this cmux: {e}"))?;
     let quote = |s: &str| format!("'{}'", s.replace('\'', "''"));
-    let list: Vec<String> = elevated_args(setup, pins)?.iter().map(|a| quote(a)).collect();
+    let list: Vec<String> = elevated_args(setup, pins, reload)?.iter().map(|a| quote(a)).collect();
     let script = format!(
         "$p = Start-Process -FilePath {} -ArgumentList @({}) -Verb RunAs -Wait -PassThru; exit $p.ExitCode",
         quote(&exe.to_string_lossy()),

@@ -108,11 +108,12 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 }
 
 fn hex(bytes: &[u8]) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
+    let mut out = String::with_capacity(bytes.len().saturating_mul(2));
     for byte in bytes {
-        out.push(char::from(DIGITS[usize::from(byte >> 4)]));
-        out.push(char::from(DIGITS[usize::from(byte & 0x0f)]));
+        // Both nibbles are below 16, so each is a hex digit.
+        for nibble in [byte >> 4, byte & 0x0f] {
+            out.extend(char::from_digit(u32::from(nibble), 16));
+        }
     }
     out
 }

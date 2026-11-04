@@ -275,3 +275,105 @@ async fn batches_check_typed_targets_and_hidden_dispatch() {
         }
     }
 }
+
+/// The arguments a passing call runs with.
+async fn arguments_of(tool: &str, arguments: &str) -> Value {
+    let arguments: Value = serde_json::from_str(arguments).unwrap();
+    check(tool, &arguments, &Resolver, &[]).await.unwrap_or_else(|error| panic!("{tool} must pass: {}", error.message)).arguments
+}
+
+/// Swift: `launch_app` opens the bundle it checked (`bundle_id`), never the
+/// display name again; here the executable it resolved.
+#[tokio::test]
+async fn launch_app_runs_the_executable_the_guard_resolved() {
+    for arguments in [r#"{"name":"gedit"}"#, r#"{"app_name":"gedit"}"#, r#"{"name":"gedit","app_name":"gedit"}"#] {
+        let launched = arguments_of("launch_app", arguments).await;
+        assert!(launched.get("app_name").is_none(), "{launched}");
+        if cfg!(windows) {
+            assert_eq!(launched["path"], "/usr/bin/gedit", "{launched}");
+            assert!(launched.get("name").is_none(), "{launched}");
+        } else {
+            assert_eq!(launched["name"], "/usr/bin/gedit", "{launched}");
+        }
+    }
+    let others = arguments_of("launch_app", r#"{"name":"gedit","additional_arguments":["--new-window"]}"#).await;
+    assert_eq!(others["additional_arguments"], json!(["--new-window"]));
+    // Every other call runs with its arguments unchanged.
+    assert_eq!(arguments_of("click", r#"{"pid":102,"window_id":9001,"x":1}"#).await, json!({"pid":102,"window_id":9001,"x":1}));
+}
+
+#[tokio::test]
+async fn launch_app_with_two_apps_or_another_launch_selector_is_refused() {
+    refused("launch_app", r#"{"name":"gedit","app_name":"Terminal"}"#).await;
+    for arguments in [
+        r#"{"name":"gedit","launch_path":"gnome-terminal"}"#,
+        r#"{"launch_path":"/usr/bin/gnome-terminal"}"#,
+        r#"{"name":"gedit","path":"C:\\Windows\\System32\\cmd.exe"}"#,
+        r#"{"aumid":"Microsoft.WindowsTerminal_8wekyb3d8bbwe!App"}"#,
+        r#"{"name":"gedit","aumid":"Microsoft.WindowsTerminal_8wekyb3d8bbwe!App"}"#,
+        r#"{}"#,
+    ] {
+        refused("launch_app", arguments).await;
+    }
+}
+
+/// Swift `CuaTargetGuardTests`: a cmux URL is refused, whatever its case.
+#[tokio::test]
+async fn launch_app_refuses_cmux_urls() {
+    for url in ["cmux://workspace/1", "CMUX://x", "cmux-dev:open", "cmux+ssh://box", "Cmux-Nightly:x"] {
+        let error = run("launch_app", &format!(r#"{{"name":"gedit","urls":["{url}"]}}"#)).await.unwrap_err();
+        assert!(error.contains("cmux"), "{url}: {error}");
+    }
+}
+
+/// Upstream opens `urls` in whichever app handles them (on Linux instead of
+/// the named app): the guard cannot resolve that app, so any URL is refused.
+#[tokio::test]
+async fn launch_app_refuses_urls_it_cannot_resolve() {
+    for arguments in [
+        r#"{"name":"gedit","urls":["https://example.com"]}"#,
+        r#"{"urls":["file:///usr/share/applications/org.gnome.Terminal.desktop"]}"#,
+        r#"{"name":"gedit","urls":"https://example.com"}"#,
+        r#"{"name":"gedit","urls":[1]}"#,
+    ] {
+        refused("launch_app", arguments).await;
+    }
+    passes("launch_app", r#"{"name":"gedit","urls":[]}"#).await;
+}
+
+#[tokio::test]
+async fn a_batch_never_launches_an_app() {
+    for tool in ["run_steps", "run_actions"] {
+        for arguments in [
+            r#"{"steps":[{"tool":"launch_app","args":{"name":"gedit"}}]}"#,
+            r#"{"steps":[{"launch_app":{"name":"gedit"}}]}"#,
+            r#"{"pid":102,"window_id":9001,"steps":[{"tool":"click","args":{"launch_path":"gnome-terminal"}}]}"#,
+            r#"{"pid":102,"window_id":9001,"steps":[{"tool":"click","args":{"aumid":"x!App"}}]}"#,
+            r#"{"pid":102,"window_id":9001,"steps":[{"tool":"click","args":{"urls":["https://example.com"]}}]}"#,
+        ] {
+            refused(tool, arguments).await;
+        }
+    }
+}
+
+/// A selector key the guard does not resolve for that tool is refused, so a
+/// new upstream selector cannot slip through unchecked.
+#[tokio::test]
+async fn unknown_selector_keys_are_refused_per_tool() {
+    for (tool, arguments) in [
+        ("click", r#"{"pid":102,"window_id":9001,"tab_id":"t1"}"#),
+        ("click", r#"{"pid":102,"window_id":9001,"target_id":"t1"}"#),
+        ("type_text", r#"{"pid":102,"name":"Terminal","text":"x"}"#),
+        ("screenshot", r#"{"path":"C:\\x.exe"}"#),
+        ("press_key", r#"{"pid":102,"url":"https://example.com","key":"a"}"#),
+        ("get_window_state", r#"{"pid":102,"launch_path":"gnome-terminal"}"#),
+    ] {
+        let error = run(tool, arguments).await.expect_err(arguments);
+        assert!(error.contains('`'), "{tool} {arguments}: {error}");
+    }
+    assert_eq!(passes("browser_pointer", r#"{"pid":102,"tab_id":"t1","target_id":"x"}"#).await, vec![gedit()]);
+    assert_eq!(passes("browser_navigate", r#"{"pid":102,"url":"https://example.com"}"#).await, vec![gedit()]);
+    assert_eq!(passes("parallel_mouse_drag", r#"{"pid":102,"window_id":9001,"path":[[1,2],[3,4]]}"#).await, vec![gedit()]);
+    // A null selector is no selector.
+    passes("click", r#"{"pid":102,"window_id":9001,"tab_id":null}"#).await;
+}

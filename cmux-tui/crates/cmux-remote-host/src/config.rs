@@ -29,7 +29,7 @@
 //!
 //! [[approvers]]                                    # `cmux computer-use setup --approver ID`
 //! device_id = "0f8e2c84-3d1a-4f27-9a51-6c2b7e8d9a10"
-//! approval_key_fingerprint = "9f86d081…"            # SHA-256 of its signing key, 64 hex
+//! approval_key_fingerprint = "9f86d081…"            # SHA-256 of its approval key, 64 hex
 //! name = "Aziz's iPhone"                           # display only
 //! platform = "ios"                                 # display only
 //! ```
@@ -39,12 +39,12 @@
 
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 pub const PERMISSION_MODE_ENV: &str = "CUA_DRIVER_PERMISSION_MODE";
 pub const BYPASS_ENV: &str = "CUA_DRIVER_DANGEROUSLY_BYPASS_APPROVALS";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
     Ask,
@@ -74,8 +74,9 @@ impl Mode {
     }
 }
 
-/// The owner's Computer Use configuration.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// The owner's Computer Use configuration. The host reads it once and hands
+/// that reading to its worker ([`snapshot_value`]), so both use the same one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ComputerUseConfig {
     pub mode: Mode,
     /// `bounded`: the owner's capability manifest (as trusted as this file).
@@ -104,7 +105,7 @@ impl Default for ComputerUseConfig {
 }
 
 /// `[device_hub]`.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeviceHubConfig {
     /// The hub's origin (`https://` only).
@@ -118,11 +119,13 @@ pub struct DeviceHubConfig {
 }
 
 /// One `[[approvers]]` entry: a device the owner confirmed at setup.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PinnedApprover {
     pub device_id: String,
-    /// SHA-256 of the device's X9.63 signing key, 64 lowercase hex digits.
+    /// The approval key's fingerprint: SHA-256 of the device's X9.63
+    /// approval key (Secure Enclave, user presence per Allow; not its signing
+    /// key), 64 lowercase hex digits.
     pub approval_key_fingerprint: String,
     /// Display only.
     #[serde(default)]
@@ -191,6 +194,26 @@ pub fn load() -> Result<ComputerUseConfig, String> {
     }
     config.source = Some(path);
     Ok(config)
+}
+
+/// One reading as the host passes it to its worker on stdin (the host is the
+/// worker's parent; nothing else writes that pipe): `{"config": {...}}` or
+/// `{"error": "..."}`.
+pub fn snapshot_value(config: &Result<ComputerUseConfig, String>) -> serde_json::Value {
+    match config {
+        Ok(config) => serde_json::json!({"config": config}),
+        Err(error) => serde_json::json!({"error": error}),
+    }
+}
+
+/// The reading [`snapshot_value`] wrote; an unreadable one is an error (the
+/// worker then refuses every call).
+pub fn snapshot_of(value: &serde_json::Value) -> Result<ComputerUseConfig, String> {
+    if let Some(error) = value.get("error").and_then(serde_json::Value::as_str) {
+        return Err(error.to_owned());
+    }
+    let config = value.get("config").ok_or("the host sent no Computer Use config")?;
+    serde_json::from_value(config.clone()).map_err(|error| format!("the host's Computer Use config: {error}"))
 }
 
 /// Parses the file's text (trust is checked by the caller).
@@ -281,6 +304,18 @@ pub fn read_trusted(path: &Path) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_hosts_reading_reaches_the_worker_unchanged() {
+        let hub = "[device_hub]\nurl = \"https://hub.example\"\ntoken_command = \"/usr/bin/t\"\n";
+        let pin = format!("[[approvers]]\ndevice_id = \"d1\"\napproval_key_fingerprint = \"{}\"\n", "a".repeat(64));
+        let mut config = parse(&format!("mode = \"bounded\"\nmanifest = \"/etc/cmux/m.yaml\"\n{hub}{pin}")).unwrap();
+        config.source = Some(PathBuf::from("/etc/cmux/computer-use.toml"));
+        assert_eq!(snapshot_of(&snapshot_value(&Ok(config.clone()))), Ok(config));
+        let error: Result<ComputerUseConfig, String> = Err("not trusted".into());
+        assert_eq!(snapshot_of(&snapshot_value(&error)), error);
+        assert!(snapshot_of(&serde_json::json!({})).is_err(), "no reading is refused, never ask");
+    }
 
     #[test]
     fn no_mode_is_ask() {

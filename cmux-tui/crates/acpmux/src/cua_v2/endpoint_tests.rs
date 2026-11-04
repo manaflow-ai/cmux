@@ -13,6 +13,31 @@ fn a_cmux_remote_host_endpoint_parses_with_its_owner() {
     assert_eq!(endpoint.owner, Some(Owner { pid: 4242, start: Some((133_500_000_000_000_000, 0)) }));
 }
 
+/// The secret goes only to the process endpoint.json names (pid, then start
+/// time when recorded), never just any server of this user.
+#[test]
+fn the_server_must_be_the_recorded_owner() {
+    let owner = Owner { pid: 4242, start: Some((77, 0)) };
+    assert_eq!(server_is_owner(Some(4242), Some((77, 0)), Some(owner)), Ok(()));
+    assert!(server_is_owner(Some(4243), Some((77, 0)), Some(owner)).unwrap_err().contains("not the recorded owner"));
+    assert!(server_is_owner(Some(4242), Some((78, 0)), Some(owner)).unwrap_err().contains("later process"));
+    assert!(server_is_owner(Some(4242), None, Some(owner)).is_err(), "an unreadable start fails closed");
+    assert!(server_is_owner(None, None, Some(owner)).is_err(), "an unknown server pid fails closed");
+    let no_start = Owner { pid: 4242, start: None };
+    assert_eq!(server_is_owner(Some(4242), None, Some(no_start)), Ok(()));
+    assert_eq!(server_is_owner(None, None, None), Ok(()), "an older endpoint without an owner");
+}
+
+#[cfg(unix)]
+#[test]
+fn this_process_start_time_is_readable_where_the_host_records_one() {
+    let me = i32::try_from(std::process::id()).unwrap();
+    if cfg!(any(target_os = "macos", target_os = "linux")) {
+        assert!(liveness::start_time(me).is_some());
+        assert_eq!(liveness::start_time(me), liveness::start_time(me));
+    }
+}
+
 #[test]
 fn the_app_owner_fields_win_over_a_host_start() {
     let value = json!({"pid": 77, "start_sec": 5, "start_usec": 6, "start": 9});
@@ -278,7 +303,17 @@ mod windows {
         let second = ServerOptions::new().create(&name).unwrap();
         second.connect().await.unwrap();
         let client = waiting.await.unwrap().unwrap();
-        pipe::require_same_user_server(&client, &name).unwrap();
+        pipe::require_same_user_server(&client, &name, None).unwrap();
+        // This test process serves the pipe: pinned to itself it passes, to another pid it fails.
+        let me = i32::try_from(std::process::id()).unwrap();
+        let start = match liveness::process_start(me) {
+            liveness::Process::Alive(start) => start,
+            liveness::Process::Gone => None,
+        };
+        pipe::require_same_user_server(&client, &name, Some(Owner { pid: me, start })).unwrap();
+        let other = Owner { pid: me.wrapping_add(1), start: None };
+        let error = pipe::require_same_user_server(&client, &name, Some(other)).unwrap_err();
+        assert!(error.to_string().contains("not the recorded owner"), "{error:#}");
         drop((holder, client, first, second));
     }
 

@@ -185,7 +185,7 @@ fn saved_app(backend: &impl Backend, word: &str) -> Result<Value, CallFailure> {
     let wanted = app_ref(word);
     let Some(name) = wanted.get("name").and_then(Value::as_str) else { return Ok(wanted) };
     let saved = approvals_list(backend)?;
-    let apps = saved["apps"].as_array().cloned().unwrap_or_default();
+    let apps = saved.get("apps").and_then(Value::as_array).cloned().unwrap_or_default();
     let mut matches = apps.into_iter().filter(|app| {
         app["name"].as_str().is_some_and(|saved| saved.eq_ignore_ascii_case(name))
     });

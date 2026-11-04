@@ -296,8 +296,10 @@ impl Inner {
 }
 
 fn instant_at(unix_ms: i64) -> Instant {
-    let remaining = unix_ms.saturating_sub(unix_millis()).max(0) as u64;
-    Instant::now() + Duration::from_millis(remaining)
+    let remaining = u64::try_from(unix_ms.saturating_sub(unix_millis())).unwrap_or(0);
+    let now = Instant::now();
+    // Only an absurd deadline overflows; it then counts as reached (fail closed).
+    now.checked_add(Duration::from_millis(remaining)).unwrap_or(now)
 }
 
 fn unavailable_or_error(error: HubError) -> ApprovalOutcome {

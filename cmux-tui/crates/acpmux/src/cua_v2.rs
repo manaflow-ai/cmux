@@ -73,6 +73,7 @@ pub use labels::Labels;
 pub use liveness::Owner;
 #[cfg(target_os = "macos")]
 pub(crate) use liveness::start_time;
+use liveness::server_is_owner;
 
 /// The helper v2 endpoint folder the app exports to this daemon.
 pub const ENDPOINT_DIR_ENV: &str = "CMUX_NEXT_CUA_V2_DIR";
@@ -287,10 +288,9 @@ fn parse_endpoint(text: &str) -> Result<Endpoint> {
 #[cfg_attr(not(windows), allow(dead_code))]
 fn is_local_pipe_name(name: &str) -> bool {
     const PREFIX: &str = r"\\.\pipe\";
-    name.len() > PREFIX.len()
-        && name.is_char_boundary(PREFIX.len())
-        && name[..PREFIX.len()].eq_ignore_ascii_case(PREFIX)
-        && !name[PREFIX.len()..].contains('\0')
+    name.split_at_checked(PREFIX.len()).is_some_and(|(head, rest)| {
+        head.eq_ignore_ascii_case(PREFIX) && !rest.is_empty() && !rest.contains('\0')
+    })
 }
 
 /// The id of `session/hello`; requests count from 1.
@@ -309,8 +309,9 @@ impl Helper<UnixStream> {
         let stream = UnixStream::connect(&endpoint.socket)
             .await
             .with_context(|| format!("cannot connect to {}", endpoint.socket.display()))?;
-        // The secret goes only to a helper of this user (kernel peer uid).
-        let peer = stream.peer_cred().context("cannot read the helper socket's peer uid")?.uid();
+        // The secret goes only to a helper of this user (kernel peer uid)...
+        let credentials = stream.peer_cred().context("cannot read the helper socket's peer uid")?;
+        let peer = credentials.uid();
         // SAFETY: geteuid has no preconditions.
         let me = unsafe { libc::geteuid() };
         if peer != me {
@@ -318,6 +319,12 @@ impl Helper<UnixStream> {
                 "{} is served by uid {peer}, not this user (uid {me}); the secret was not sent",
                 endpoint.socket.display()
             );
+        }
+        // ...and only to the process endpoint.json names (SO_PEERCRED / LOCAL_PEERPID).
+        let server = credentials.pid();
+        let start = server.and_then(liveness::start_time);
+        if let Err(why) = server_is_owner(server, start, endpoint.owner) {
+            bail!("{}: {why}; the secret was not sent", endpoint.socket.display());
         }
         Helper::admit(stream, &endpoint.secret).await
     }
@@ -329,7 +336,7 @@ impl Helper<NamedPipeClient> {
     /// the pipe's server process is shown to run as this user.
     pub async fn connect(endpoint: &Endpoint) -> Result<Self> {
         let stream = pipe::connect(&endpoint.socket).await?;
-        pipe::require_same_user_server(&stream, &endpoint.socket)?;
+        pipe::require_same_user_server(&stream, &endpoint.socket, endpoint.owner)?;
         Helper::admit(stream, &endpoint.secret).await
     }
 }
@@ -423,7 +430,7 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
         self.send(&message).await?;
         // One request at a time, so the next reply is ours (or the hello's).
         let mut reply = self.receive().await?;
-        while reply["id"] == json!(HELLO_ID) {
+        while reply.get("id") == Some(&json!(HELLO_ID)) {
             reply = self.receive().await?;
         }
         if reply["id"] != json!(id) {

@@ -39,7 +39,7 @@ fn sha256_file(path: &Path) -> Result<String, String> {
         if count == 0 {
             break;
         }
-        hasher.update(&buffer[..count]);
+        hasher.update(buffer.get(..count).unwrap_or_default());
     }
     Ok(format!("{:x}", hasher.finalize()))
 }
@@ -84,7 +84,7 @@ pub(super) fn stage(state: &Path) -> Result<Staged, String> {
         }
         let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
     }
-    let slot = root.join(&digest[..16]);
+    let slot = root.join(digest.get(..16).unwrap_or(digest.as_str()));
     let executable = slot.join(EXECUTABLE);
     let marker = slot.join(".verified");
     let ready = std::fs::read_to_string(&marker).is_ok_and(|text| text.trim() == digest)
@@ -283,7 +283,7 @@ fn spawn_direct(staged: &Staged, paths: &Paths, bootstrap: &Value, ready_timeout
 /// field 22) and 0, in the record's (seconds, microseconds) slots.
 pub(super) fn process_start(pid: u32) -> Option<(u64, u64)> {
     let text = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    let rest = &text[text.rfind(')')? + 1..];
+    let rest = text.get(text.rfind(')')?.checked_add(1)?..)?;
     let ticks = rest.split_whitespace().nth(19)?.parse().ok()?;
     Some((ticks, 0))
 }
@@ -291,7 +291,7 @@ pub(super) fn process_start(pid: u32) -> Option<(u64, u64)> {
 /// The pid of a connected Unix socket's peer, when it runs as this user.
 pub(super) fn peer_pid(stream: &std::os::unix::net::UnixStream) -> Option<u32> {
     let mut credentials = libc::ucred { pid: 0, uid: 0, gid: 0 };
-    let mut length = size_of::<libc::ucred>() as libc::socklen_t;
+    let mut length = libc::socklen_t::try_from(size_of::<libc::ucred>()).ok()?;
     // SAFETY: getsockopt into a correctly sized ucred.
     let ok = unsafe {
         libc::getsockopt(

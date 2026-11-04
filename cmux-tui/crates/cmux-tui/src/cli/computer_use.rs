@@ -55,10 +55,13 @@ read, lower trust, or ask the person.
                            --approver DEVICE_ID...]
                                            Set this machine's mode (macOS: in the cmux app, which
                                            confirms a raise; Linux and Windows: the system config,
-                                           with sudo or UAC from a terminal). --approver pins a
-                                           Mac or iPhone of your account that may answer this
-                                           machine's questions: setup shows its name, platform and
-                                           key fingerprint and asks you to confirm
+                                           with sudo or UAC, which is the gate, from a terminal;
+                                           the running cmux Remote host then reloads it).
+                                           --approver pins an iPhone of your account that may
+                                           answer this machine's questions (for now only the cmux
+                                           iPhone app has an approval key; the Mac app does not
+                                           yet): setup shows its name, platform and approval key
+                                           fingerprint for you to compare with the iPhone's
 
 Modes: ask (default; each app is asked for), standard (routine use runs, risky
 steps ask), bounded (the apps in --manifest run, others ask), unrestricted
@@ -125,6 +128,10 @@ pub(super) struct Setup {
     /// given by root's provisioning. Linux and Windows only.
     #[cfg(not(target_os = "macos"))]
     pub approver_pins: Vec<system_config::Pin>,
+    /// `--reload-endpoint PATH`: the running host's supervisor endpoint, which
+    /// the elevated run asks to reload after it wrote the config. Never typed
+    /// by a person; the non-elevated run passes it.
+    pub reload_endpoint: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -144,6 +151,8 @@ pub(super) enum Command {
 
 /// The hidden flag of the elevated `setup` run.
 pub(super) const ELEVATED_FLAG: &str = "--write-system-config";
+/// The hidden flag that names the host the elevated run reloads.
+pub(super) const RELOAD_FLAG: &str = "--reload-endpoint";
 
 /// Parses the words after `computer-use`.
 pub(super) fn parse(args: &[String]) -> Result<Command, String> {
@@ -179,7 +188,7 @@ pub(super) fn parse(args: &[String]) -> Result<Command, String> {
 fn parse_setup(rest: &[&str]) -> Result<Setup, String> {
     let flags = Flags::parse(
         rest,
-        &["--mode", "--manifest", "--device-hub", "--hub-token-command", "--approver", "--approver-pin"],
+        &["--mode", "--manifest", "--device-hub", "--hub-token-command", "--approver", "--approver-pin", RELOAD_FLAG],
         &["--i-understand-unrestricted", "--hub-allow-always", ELEVATED_FLAG],
     )?;
     let word =
@@ -227,6 +236,7 @@ fn parse_setup(rest: &[&str]) -> Result<Setup, String> {
         approvers,
         #[cfg(not(target_os = "macos"))]
         approver_pins,
+        reload_endpoint: flags.value(RELOAD_FLAG).map(std::path::PathBuf::from),
     })
 }
 
@@ -250,13 +260,15 @@ impl<'a> Flags<'a> {
                 return Err(format!("{word} is given twice"));
             }
             if valued.contains(&word) {
-                let value =
-                    words.get(index + 1).copied().ok_or_else(|| format!("{word} needs a value"))?;
+                let value = words
+                    .get(index.saturating_add(1))
+                    .copied()
+                    .ok_or_else(|| format!("{word} needs a value"))?;
                 flags.values.push((word, value));
-                index += 2;
+                index = index.saturating_add(2);
             } else if switches.contains(&word) {
                 flags.switches.push(word);
-                index += 1;
+                index = index.saturating_add(1);
             } else {
                 return Err(format!("unexpected word: {word}"));
             }
@@ -320,7 +332,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if command_args.first().map(String::as_str) != Some("computer-use") {
         return None;
     }
-    Some(run(&global, &command_args[1..]))
+    Some(run(&global, command_args.get(1..).unwrap_or_default()))
 }
 
 fn run(global: &GlobalArgs, args: &[String]) -> i32 {
@@ -360,7 +372,7 @@ fn setup_mode(global: &GlobalArgs, setup: &Setup) -> i32 {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        match system_config::apply(setup) {
+        match system_config::apply(global, setup) {
             Ok(value) => super::wire::print_local_success(&value, global.output),
             Err(error) => super::wire::print_local_error(&error, global.output, 1),
         }
