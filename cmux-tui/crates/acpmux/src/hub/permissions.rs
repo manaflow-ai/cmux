@@ -783,11 +783,12 @@ impl Hub {
         let off = self.off_latch();
         #[cfg(test)]
         super::full_access_bound::operation_entry(self);
-        // Native edit/execute tools can mutate the repository even when their
-        // request carries no file location. Wait before automatic approval too.
-        if matches!(
+        // Native tools can mutate the repository even when their request has
+        // no location or kind. Only known read-only kinds skip the barrier;
+        // moves and unclassified/MCP tools wait before automatic approval too.
+        if !matches!(
             request.pointer("/toolCall/kind").and_then(Value::as_str),
-            Some("edit" | "execute" | "delete")
+            Some("read" | "search" | "think" | "fetch" | "switch")
         ) && super::repo_sync::wait(session, session.meta().cwd, || {
             session.permission_epoch.load(Ordering::SeqCst) != epoch
                 || stale_turn(session, &turn_id)

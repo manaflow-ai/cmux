@@ -76,3 +76,17 @@ async fn repo_sync_failed_checkout_prevents_even_an_existing_child_lookup() {
     assert_eq!(error.data.unwrap()["reason"], "repo_sync_incomplete");
     assert!(session.child.lock().await.is_none());
 }
+
+#[tokio::test]
+async fn repo_sync_failed_checkout_refuses_moves_and_unclassified_tools() {
+    let (_dir, hub, session) = fixture();
+    drop(Sync::begin(&session.meta().cwd).unwrap());
+    let epoch = session.permission_epoch.load(Ordering::SeqCst);
+    for kind in [Some("edit"), Some("execute"), Some("delete"), Some("move"), Some("other"), None] {
+        let request = json!({"toolCall": {
+            "toolCallId": "native", "title": "Native tool", "kind": kind
+        }});
+        let answer = hub.handle_permission(&session, request, epoch, None).await;
+        assert_eq!(answer["outcome"]["outcome"], "cancelled", "{kind:?}");
+    }
+}
