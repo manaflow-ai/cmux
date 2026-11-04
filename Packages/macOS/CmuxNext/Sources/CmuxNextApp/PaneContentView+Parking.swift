@@ -60,8 +60,8 @@ extension PaneContentView {
         }
         parked.removeAll { $0.view == nil || $0.view === view }
         if let frame = parkedFrame(of: view), held ? topHeld : view.frame == frame && frame != contentHost.bounds {
-            // A chat parked at the size it shows at (`layoutParked`) keeps it: the pane's next layout moves the host under the
-            // tab row and puts the chat at its origin, same size (sized to the host first, its page jumped as it showed).
+            // A chat at the frame it shows at (`show`) keeps it: the pane's next layout moves the host under the tab
+            // row and puts the chat at its origin, same size (sized to the host first, its page jumped as it showed).
             view.autoresizingMask = []
             needsLayout = true
         } else {
@@ -97,10 +97,9 @@ extension PaneContentView {
         }
         (view as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
         view.isHidden = true
-        // A hidden agent or internal page stays sized with the pane, so showing it again needs no redraw at a new
-        // size (`AgentPageRedraw.awaits`). Terminals and browsers do no work while hidden: `install`
-        // sets their frame. A page that shares the tab row is sized by `layoutParked` instead.
-        if !(view is AgentPaneView || view is InternalPageView) || parkedFrame(of: view) != nil { view.autoresizingMask = [] }
+        // Parked content keeps its frame and lays nothing out while hidden (S7b): it is sized as it shows (`install`,
+        // `show`), and an agent page's paint hold waits for its redraw there (`AgentPageRedraw.awaits`).
+        view.autoresizingMask = []
         parked.removeAll { $0.view == nil || $0.view === view }
         parked.append(ParkedContent(view: view))
         prunePark()
@@ -130,11 +129,9 @@ extension PaneContentView {
         }
     }
 
-    /// The frame, in the content host, a parked page that shares the tab row (a chat) shows at:
-    /// the whole pane when its tools fit the row, as `layout()` places it, else the area under the
-    /// strip. Nil for any other view. The host itself is the area under the strip while a terminal
-    /// or browser shows, so a chat sized with it shrank by the strip's height on every switch away
-    /// and grew back on the switch to it: its page laid out twice and the transcript jumped.
+    /// The frame, in the content host, a parked page that shares the tab row (a chat) shows at: the whole pane when its
+    /// tools fit the row, as `layout()` places it, else the area under the strip; nil for any other view. The host is the
+    /// area under the strip while a terminal or browser shows: a chat sized with it laid out twice per switch (#23743).
     func parkedFrame(of view: NSView) -> NSRect? {
         guard view is PaneParkableContent, let row = view as? PaneTabRowSharing else { return nil }
         let strip = stripHeight
@@ -145,14 +142,13 @@ extension PaneContentView {
         return contentHost.convert(shown, from: self)
     }
 
-    /// Sizes the hidden pages that share the tab row to the frame they show at (`parkedFrame`), from
-    /// `layout()` after the host's frame: a window resize still reaches them, a tab switch does not.
+    /// Keeps a hidden internal page that shows a web page at its show frame (`parkedFrame`), from `layout()`: shown at
+    /// another size it would show its last frame until it laid out, with no hold.
     func layoutParked() {
         for entry in parked {
-            guard let view = entry.view, view.superview === contentHost, view !== content, view.isHidden,
-                  let frame = parkedFrame(of: view) else { continue }
-            view.autoresizingMask = []
-            if view.frame != frame { view.frame = frame }
+            guard let page = entry.view as? InternalPageView, page.superview === contentHost, page !== content, page.isHidden,
+                  page.showsWebPage, let frame = parkedFrame(of: page) else { continue }
+            if page.frame != frame { page.frame = frame }
         }
     }
 
