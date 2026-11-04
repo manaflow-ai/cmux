@@ -55,6 +55,25 @@ public final class AgentPaneStartFolders {
         return filled
     }
 
+    /// Where this pane's new chat starts, from what the app already holds, with no daemon read: the
+    /// store's rules (cmux-tui-core state/agent_start.rs) over the seed or New Tab folder, the pane's
+    /// chosen folder and the workspace's roots, none of them the home folder, above it or in
+    /// agent-home; else no folder, with Choose Folder… where ``apply(to:ready:model:)`` offers it. The
+    /// page draws it on its first frame; the handshake's answer replaces it when the store differs
+    /// (a folder that no longer exists, a symlink's canonical path). Nil for a chat with a session
+    /// or on another machine, whose folder is not this Mac's to name.
+    func local(of model: AgentPaneModel) -> AgentPaneNewTabStart? {
+        guard model.sessionId == nil, !model.remoteChat else { return nil }
+        let home = model.transport.homeFolder
+        let agentHome = model.workspaceAgentHome?()?.home ?? AgentHome.standard
+        let proposed = [model.seed?.knownCwd ?? model.tabsNewTabFolder, model.chosenFolder] + (model.workspaceRoots?() ?? []).map(Optional.some)
+        if let folder = proposed.compactMap({ $0 }).first(where: { !AgentHome.isHomeOrAbove($0, home: home) && agentHome?.contains($0) != true }) {
+            return AgentPaneNewTabStart(cwd: folder)
+        }
+        let offers = model.onChooseFolder != nil && model.workspaceAgentHome?() != nil
+        return AgentPaneNewTabStart(chooseFolder: offers ? true : nil)
+    }
+
     /// `workspace.useFolder` (cx-nn3e): a folder the user picked for a chat, before any chat starts
     /// there. A project folder is used at once (`ok`), and the person's click makes a folder outside
     /// every root a root (``grantPicked(_:transport:)``). The home folder is asked about first
