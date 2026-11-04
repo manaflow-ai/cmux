@@ -49,4 +49,5 @@ struct HomeTranscriptPager {
     }
 
     mutating func endOlder(_ id: ConversationID) { olderLoading.remove(id) }
+    func isLoadingOlder(_ id: ConversationID) -> Bool { olderLoading.contains(id) }
 }
