@@ -4044,6 +4044,17 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "終端機主題"}}
       }
     },
+    "settings.group.iconTheme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icon Theme"
+          }
+        }
+      }
+    },
     "settings.group.workspaceHibernation": {
       "extractionState": "manual",
       "localizations": {
