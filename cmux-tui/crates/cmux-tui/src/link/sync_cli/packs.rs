@@ -65,16 +65,10 @@ pub(super) fn pack_loose(
         used.push(name);
         uncovered.clear();
     }
-    // What a pack holds goes in it; anything left goes loose. A pack is as
-    // private as the most private object it replaces (git makes them 0400
-    // under `umask 077`, which a push sends as 0600).
-    let mut permissions = 0o644;
+    // What a pack holds goes in it; anything left goes loose.
     for (id, path) in &loose {
-        if !uncovered.contains(id)
-            && let Some(file) = files.remove(path)
-            && file.permissions & 0o077 == 0
-        {
-            permissions = 0o600;
+        if !uncovered.contains(id) {
+            files.remove(path);
         }
     }
     for name in &used {
@@ -83,7 +77,11 @@ pub(super) fn pack_loose(
             let target = format!(".git/objects/pack/{file}");
             files.entry(target).or_insert_with(|| LocalFile {
                 source: Source::File(kept.join(&file)),
-                permissions,
+                // Only the owner reads a made pack: it may hold objects
+                // that were private here (git makes them 0400 under
+                // `umask 077`), including ones no longer loose when it is
+                // reused.
+                permissions: 0o600,
             });
         }
     }

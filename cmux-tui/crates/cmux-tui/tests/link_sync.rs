@@ -1377,6 +1377,12 @@ fn loose_objects_go_as_a_pack_and_the_copy_is_a_valid_repository() {
         .filter(|path| path.ends_with(".pack") && !local_packs.contains(path))
         .collect();
     assert_eq!(made.len(), 1, "{pushed:?}");
+    // A made pack is the owner's alone, whatever its objects' modes were.
+    for made in &made {
+        let path = remote.join(".git/objects").join(made);
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "{made} is {mode:o}");
+    }
     git(&remote, &["fsck", "--full", "--no-dangling"]);
     let status = ["status", "--porcelain=v2", "--branch"];
     assert_eq!(git(&remote, &status), git(&repo, &status));
@@ -1512,7 +1518,8 @@ fn loose_object_push_bench() {
 }
 
 /// Loose objects only their owner can read (git under `umask 077` makes
-/// them 0400) arrive in a pack only its owner can read.
+/// them 0400) arrive in a pack only its owner can read, and so does the
+/// pack reused after the private ones are gone here.
 #[test]
 fn a_pack_of_private_objects_is_private() {
     let root = tempfile::tempdir().unwrap();
@@ -1540,4 +1547,15 @@ fn a_pack_of_private_objects_is_private() {
         assert_eq!(mode, 0o600, "{} is {mode:o}", path.display());
     }
     git(&remote, &["fsck", "--full", "--no-dangling"]);
+
+    // An object made public here keeps the kept pack in use; it is sent
+    // again (its mode changed nothing on the machine) still owner-only.
+    std::fs::write(repo.join("public.txt"), "public\n").unwrap();
+    git(&repo, &["add", "public.txt"]);
+    push(&socket, &repo, &remote);
+    for entry in std::fs::read_dir(&packs).unwrap() {
+        let path = entry.unwrap().path();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "{} is {mode:o}", path.display());
+    }
 }
