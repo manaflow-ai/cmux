@@ -315,3 +315,26 @@ fn a_blob_body_past_its_size_is_cut_off_without_a_length() {
     assert_eq!(done["data"]["error_code"], "blob.digest_mismatch", "{done}");
     assert!(!home.path.join("f").exists());
 }
+
+#[test]
+fn a_symlink_at_the_path_is_named_and_what_it_points_at_is_untouched() {
+    let home = Home::new("symlink");
+    std::fs::write(home.path.join("real"), b"keep me").unwrap();
+    std::os::unix::fs::symlink(home.path.join("real"), home.path.join("link")).unwrap();
+    let bytes = b"new bytes".to_vec();
+    let plan = json!({"version": 1, "files": [
+        {"path": home.path.join("link").to_str().unwrap(), "permissions": 0o644,
+         "size": bytes.len(), "sha256": sha(&bytes)},
+    ]})
+    .to_string()
+    .into_bytes();
+    let store = FakeStore::start(HashMap::from([(sha(&plan), plan.clone()), (sha(&bytes), bytes)]));
+    let service = BlobFetchService::new(Roots::new([home.path.clone()]));
+    let job = start(&service, &store.origin, &plan)["data"]["job"].as_str().unwrap().to_string();
+    let done = wait(&service, &job);
+    assert_eq!(done["data"]["state"], "done", "{done}");
+    assert_eq!(done["data"]["failed_count"], 1, "{done}");
+    assert_eq!(done["data"]["failed"][0]["error_code"], "fs.symlink", "{done}");
+    assert_eq!(std::fs::read(home.path.join("real")).unwrap(), b"keep me");
+    assert!(std::fs::symlink_metadata(home.path.join("link")).unwrap().file_type().is_symlink());
+}
