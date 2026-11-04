@@ -2020,7 +2020,7 @@ fn project_ensure_carries_the_reservation_and_its_send_key_without_enabling_new_
         "reservation_key": compose, "ensure_project": true});
     let ensure = |ask: &Ensure, _: &str| {
         assert_eq!(ask.body()["reservationKey"], compose);
-        assert_eq!(ask.body()["reservationSendKey"], send);
+        assert_eq!(ask.body()["reservationSendKey"], send.to_lowercase());
         Ok(json!({"machine": {"id": "vm-project"}, "created": false}))
     };
     let answer = super::plan_with_calls(
