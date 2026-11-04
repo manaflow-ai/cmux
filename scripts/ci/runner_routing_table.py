@@ -398,8 +398,16 @@ def load_table(path: Path = MAP_PATH) -> tuple[dict[str, dict[str, Any]], dict[s
 MAP_CAPABILITY = re.compile(r"outputs\.map\)\.([a-z0-9_]+)")
 
 
-def routes_to_macos(job: dict[str, Any]) -> bool:
+def routes_to_macos(job: dict[str, Any], *, portable: bool = False) -> bool:
     runs_on = json.dumps(job.get("runs-on", ""))
+    # These newly portable workflows deliberately may start a bootstrap on an
+    # owned mini, and consumers may take its mini output. Their Linux fallbacks
+    # mean the jobs belong to the portable class, not native macOS.
+    if portable and (("needs.portable-placement.outputs.linux_runner" in runs_on
+                      and "needs.portable-placement.outputs.mini_runner" in runs_on)
+                     or (job.get("name") == "portable light placement"
+                         and "CI_LIGHT_LANE_RUNNER" in runs_on)):
+        return False
     # A job wired to the capability map names its capability key.
     capabilities = MAP_CAPABILITY.findall(runs_on)
     if capabilities and runs_on.count("${{") == 1:
@@ -420,7 +428,8 @@ def iter_jobs(workflows: Path = WORKFLOWS) -> Iterable[tuple[Job, bool]]:
             # visits in the callee's own file.
             if not isinstance(job, dict) or "uses" in job:
                 continue
-            yield Job(path.name, str(job_id), json.dumps(job.get("runs-on", "")), picked(job)), routes_to_macos(job)
+            portable = path.name in {"pr-checks.yml", "cmux-next-fast-gates.yml", "web-validation.yml"}
+            yield Job(path.name, str(job_id), json.dumps(job.get("runs-on", "")), picked(job)), routes_to_macos(job, portable=portable)
 
 
 
@@ -619,7 +628,9 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
             if any(not _picker_value_term(value) for part in alternatives[:position] for value in value_terms(part)):
                 problems.append(f"hosted_light_jobs[{key!r}] has an unverified label before hosted overflow")
                 continue
-            if any("needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)" not in part for part in alternatives[:position]):
+            current_attempt = ("needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)",
+                               "needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)")
+            if any(not any(marker in part for marker in current_attempt) for part in alternatives[:position]):
                 problems.append(f"hosted_light_jobs[{key!r}] must consume only current-attempt placement")
                 continue
             if value_terms(text).count("'ubuntu-24.04'") != 1:
