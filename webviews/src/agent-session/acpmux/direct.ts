@@ -109,7 +109,7 @@ import { failedSendText, retryHelps, sendCause } from "./sendFailure";
 import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
 import { SessionPageError, SessionPager, type SessionPage, withUsage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
-import { isPlumbingCall, showsNothing } from "./hiddenTools";
+import { isMuseTodoCall, isPlumbingCall, showsNothing } from "./hiddenTools";
 import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { promptContext } from "./composer/videoTranscript";
@@ -1881,6 +1881,8 @@ export class AcpmuxDirectClient {
   /// `suggestionFence` the newest prompt or turn start: a record older than either is history (an
   /// older page folded in) and changes nothing.
   private promptSuggestion: { text: string; seq: number } | undefined;
+  /// The person took the shown suggestion into the composer (`takeSuggestion`); the next send says so.
+  private suggestionTaken = false;
   private suggestionSeq = 0;
   private suggestionFence = 0;
   private usage: { used: number; size: number; setup?: number; cacheExpiresAt?: number } | undefined;
@@ -6451,6 +6453,12 @@ export class AcpmuxDirectClient {
       const callId = String(update.toolCallId ?? `tool-${event.seq}`);
       const tool = update._meta?.claude?.tool ?? update.title;
       if (event.kind === "tool_call" && tool === "TodoWrite" && this.planRow) this.planCalls.add(callId);
+      // Muse's write_todos announces its call before the plan it makes, so it is hidden on sight; a
+      // failed one leaves no plan and keeps its row.
+      if (isMuseTodoCall(update)) {
+        if (update.status === "failed") this.planCalls.delete(callId);
+        else if (event.kind === "tool_call") this.planCalls.add(callId);
+      }
       // Plumbing (Claude Code's ToolSearch) draws no row and leaves the text segment open.
       if (isPlumbingCall(update)) this.planCalls.add(callId);
       if (this.planCalls.has(callId)) return;
@@ -7205,6 +7213,14 @@ export class AcpmuxDirectClient {
   /// 2026-10-20), so no send carries `_meta.acpmux.interrupt`. No send carries
   /// `_meta.acpmux.resend` either: the host refuses a page frame that does, and marks a resend
   /// itself (#22881, AgentPanePromptRelay.swift).
+  /// The person took the shown suggestion into the composer (Tab, Right-arrow): the next prompt
+  /// tells acpmux so (`_meta.acpmux.promptSuggestion: "taken"`), which counts it taken even when
+  /// edited before sending; acpmux shows a harness's suggestions only while they tend to be taken
+  /// (`suggestion_gate.rs`).
+  takeSuggestion(): void {
+    this.suggestionTaken = this.promptSuggestion !== undefined;
+  }
+
   /// The composer's text changed (`chat.typing`): acpmux hears only that this pane types.
   typing(text: string, sessionId?: string): void {
     this.presence.typed(text, sessionId);
@@ -7231,6 +7247,8 @@ export class AcpmuxDirectClient {
   ): Promise<string | undefined> {
     const reserved = ticket ?? this.bindSendGesture(promptId)?.ticket;
     this.presence.stopTyping();
+    const suggestionTaken = this.suggestionTaken;
+    this.suggestionTaken = false;
     this.untakenSends += 1;
     let untaken = true;
     const settle = () => {
@@ -7238,7 +7256,17 @@ export class AcpmuxDirectClient {
       untaken = false;
     };
     try {
-      return await this.sendNow(input, attachments, promptId, accepted, reserved, steer, settle, onTaken);
+      return await this.sendNow(
+        input,
+        attachments,
+        promptId,
+        accepted,
+        reserved,
+        steer,
+        settle,
+        onTaken,
+        suggestionTaken,
+      );
     } finally {
       settle();
     }
@@ -7261,6 +7289,8 @@ export class AcpmuxDirectClient {
     /// acpmux took it: the page no longer holds the only copy.
     tookIt: () => void,
     onTaken?: () => void,
+    /// The person took the shown suggestion into this prompt (`takeSuggestion`).
+    suggestionTaken = false,
   ): Promise<string | undefined> {
     const trustCancellation = this.trustCancellation;
     // A `data:` image written into the prompt goes as an image, never as text: the bubble, the
@@ -7519,6 +7549,7 @@ export class AcpmuxDirectClient {
           acpmux: {
             promptId,
             ...(steer ? { steer: true } : {}),
+            ...(suggestionTaken ? { promptSuggestion: "taken" } : {}),
             ...(context ? { context } : {}),
             ...(fileDisplay.length ? { inlineParts: fileDisplay } : {}),
             ...promptSurfaceMeta(),

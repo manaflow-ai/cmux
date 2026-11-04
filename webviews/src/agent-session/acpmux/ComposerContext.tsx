@@ -5,6 +5,7 @@ import { Popover } from "../../ui/Popover";
 import { BrowseFailure, browseFailureMessage } from "./BrowseFailure";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
+import { Spinner } from "./conversation/icons";
 import {
   AnotherMachineIcon,
   EnvironmentIcon,
@@ -25,6 +26,7 @@ import {
   useCloudMachines,
   useCloudSignedIn,
   withCloudMachines,
+  withCloudSleep,
   type CloudMachine,
 } from "./cloudMachines";
 import {
@@ -273,15 +275,12 @@ export function ComposerContext({
   // one's transport and state, in both the environment picker and the plain Computer menu; for a
   // new chat, then the account's Cloud machines acpmux does not list (a paused one, say).
   const computers = useMemo(() => {
-    const listed = availableComputers(
-      summary,
-      sessions,
-      peers,
-      peerKinds,
-      localName,
-      peerConnected,
-      peerStates,
-      peerResources,
+    // A Cloud machine acpmux has no link to that the account says is paused or resuming reads so,
+    // not as a lost link; in a new chat a paused one is a pick that resumes it.
+    const listed = withCloudSleep(
+      availableComputers(summary, sessions, peers, peerKinds, localName, peerConnected, peerStates, peerResources),
+      shownMachines,
+      newChat,
     );
     if (!newChat) return listed;
     const detail = t(CONTEXT_LABELS.cloud);
@@ -508,6 +507,8 @@ export function ComposerContext({
   const pickCloudMachine = (id: string) => {
     const machine = computers.find((computer) => computer.id === id)?.cloudMachine;
     if (machine && !readOnly) {
+      // Folders are the machine's: the pick drops this machine's at once, not when (or if) it arrives (cmux#34527).
+      if (extraFolders?.draft) extraFolders.onChange(undefined);
       onCloudMachine(machine);
       setWaiting({ key: pickKey, id: machine.id, name: machine.name });
     }
@@ -580,7 +581,11 @@ export function ComposerContext({
   };
   const folderShown = !savedPick && !(readOnly && !newChats && !currentFolder);
   // The new chat's extra folders on the picked machine (a pick of the chat's own folder is never one).
-  const extraShown = extraFolders && !readOnly ? draftFolders(extraFolders.draft, selectedComputer) : undefined;
+  // A Cloud or Sandboxed start carries none (cmux#34403), so those modes offer no Add folder… or +N.
+  const extraShown =
+    extraFolders && !readOnly && !cloudPicked && !sandboxPicked
+      ? draftFolders(extraFolders.draft, selectedComputer)
+      : undefined;
   const extra: ExtraFolderRows | undefined =
     extraFolders && extraShown
       ? {
@@ -680,6 +685,11 @@ export function ComposerContext({
       : currentComputer
         ? environmentReady(currentComputer)
         : undefined;
+  // A Cloud machine that sleeps (withCloudSleep): paused is the quiet ring, resuming a spinner.
+  const machineSleep =
+    machineLive === false && (currentComputer?.state === "paused" || currentComputer?.state === "resuming")
+      ? currentComputer.state
+      : undefined;
   const machineFace =
     waiting && waitingName && !cloudPicked ? (
       <LocationFace icon={<ServerIcon />} value={waitingName} chevron />
@@ -700,6 +710,7 @@ export function ComposerContext({
         value={machineValue}
         chevron
         {...(machineLive !== undefined ? { live: machineLive } : {})}
+        {...(machineSleep ? { sleep: machineSleep } : {})}
       />
     );
   // The one combined control's face (a started chat, and the `combined` arm): as before.
@@ -1091,6 +1102,7 @@ function LocationFace({
   chevron,
   middle = false,
   live,
+  sleep,
   dim = false,
 }: {
   icon?: React.ReactNode;
@@ -1099,6 +1111,9 @@ function LocationFace({
   middle?: boolean;
   /// A machine's live dot (the machine control): filled while a chat can start there, a ring when not.
   live?: boolean;
+  /// A machine that is not live because its Cloud machine sleeps: paused keeps the ring and says
+  /// Paused, resuming draws a spinner in the dot's place and says Resuming (never a pulsing dot).
+  sleep?: "paused" | "resuming";
   /// An empty choice ("Choose project"): dimmed until something is picked.
   dim?: boolean;
 }) {
@@ -1116,10 +1131,16 @@ function LocationFace({
           {value}
         </span>
       )}
-      {live !== undefined && (
-        <span className="acpmux-env-live" data-connected={String(live)}>
+      {live !== undefined && sleep === "resuming" && (
+        <span className="acpmux-env-live" data-sleep="resuming">
+          <Spinner size={10} loading className="acpmux-env-live-spinner" />
+          <span className="acpmux-env-status-text">{t("composer.envResuming")}</span>
+        </span>
+      )}
+      {live !== undefined && sleep !== "resuming" && (
+        <span className="acpmux-env-live" data-connected={String(live)} data-sleep={sleep}>
           <span className="acpmux-env-status-text">
-            {t(live ? "composer.envConnected" : "composer.envNotConnected")}
+            {t(live ? "composer.envConnected" : sleep === "paused" ? "composer.envPaused" : "composer.envNotConnected")}
           </span>
         </span>
       )}

@@ -33,21 +33,13 @@ enum TopPages {
         return controller.topPages.key(for: route)
     }
 
-    /// Actions on an existing tab (Close Tab, Cmd-W) refuse while the active
-    /// window shows a top page and the run names no tab: pages have no tabs
-    /// and do not close (TOP-SECTION-ITEMS-ARE-PAGES Q1). The refusal makes
-    /// `perform` report the run as not ran, so debug.key and menus agree.
-    static func installTabTargetReasons(_ services: AppServices) {
-        let registry = services.registry
-        for descriptor in registry.descriptors where descriptor.targets == [.tab] {
-            let previous = registry.action(for: descriptor.id)?.targetUnavailableReason
-            ActionTargetReasons.set(descriptor.id, in: registry) { [weak services] invocation in
-                if let reason = previous?(invocation) { return reason }
-                guard invocation.target == nil, invocation["tab"] == nil,
-                      services?.windows.active?.shownTopPage != nil else { return nil }
-                return RefusalStrings.topPageHasNoTabs
-            }
-        }
+    /// The registry's top-page rules (`ActionTopPageRules`): a run on an existing tab that names
+    /// none refuses while the active window shows a page (TOP-SECTION-ITEMS-ARE-PAGES Q1); a
+    /// person's New Tab, New Terminal Tab or split leaves the page and runs in the workspace.
+    static func installActionRules(_ services: AppServices) {
+        services.registry.install(ActionTopPageRules(isShowing: { [weak services] in services?.windows.active?.shownTopPage != nil },
+                                                     leave: { [weak services] in _ = services?.windows.active?.leaveTopPage() },
+                                                     noTabs: { RefusalStrings.topPageHasNoTabs }))
     }
 
     /// Leaves the active window's top page for its workspace at once (a

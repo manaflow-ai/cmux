@@ -130,7 +130,7 @@ enum AppActions {
         LinkHandlers.bind(into: registry, context: context)
         IconMenuVisibility.install(registry, context: context)
         TabSelectionTitles(context: context).install(in: registry)
-        TopPages.installTabTargetReasons(services)
+        TopPages.installActionRules(services)
         ActionTargetReasons.refuseHeadlessNameEditors(in: registry) { RefusalStrings.nameArgumentRequired }
         HomeRules.install(services)
         TopPages.registerProviders(services)

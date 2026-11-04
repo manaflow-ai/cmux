@@ -15,7 +15,13 @@
 // error" with the turning ring. A failed one offers Retry, inline and in its ⋯ menu: acpmux runs
 // it again, or, where acpmux cannot, the line asks the chat's agent to ("Ask parent to retry").
 // A refusal leaves a short note after the line until the row next changes.
-import { createContext, useContext, useState } from "react";
+//
+// A finished line whose subagent left a report (its final reply, `result`, else its last message)
+// offers it under the line (Leo, 2026-11-03, on parallel agents in the running tray: "Tray only,
+// richer"): a chevron right after the line's words opens the report, in the transcript's Markdown
+// and capped as an opened tool output is; the line's own click still opens the agent's view. How
+// it is offered is an experiment (doneReport.experiment.ts).
+import { createContext, useContext, useId, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { AgentTag } from "../conversation/AgentTag";
@@ -34,6 +40,8 @@ import { retryLabel, subagentRetry, type RetryAction, type RetryNote, type Sessi
 import { elapsed, SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./SubagentGroup";
 import { subagentDisplayName, subagentTaskLabel, useSubsessionInfo } from "./subsessions";
 import { failedLineLook } from "./failedLine.experiment";
+import { Markdown } from "../conversation/Markdown";
+import { doneReportLook, type DoneReportLook } from "./doneReport.experiment";
 
 const DONE_LABEL: Record<string, StringKey> = {
   completed: "subagents.ended.completed",
@@ -46,6 +54,17 @@ const DONE_LABEL: Record<string, StringKey> = {
 /// time, or only in the ⋯ menu. The gallery compares them (SubagentRetry.gallery.tsx).
 export type RetryAffordance = "button" | "link" | "menu";
 export const RetryAffordanceContext = createContext<RetryAffordance>("button");
+
+/// The report's look a gallery variant pins (SubagentDoneLine.gallery.tsx); the pane leaves it
+/// unset and reads the experiment's arm.
+export const DoneReportLookContext = createContext<DoneReportLook | undefined>(undefined);
+
+/// What a finished subagent reported, for its line: its final reply, else its last message. Only
+/// a completed line has one to show; a failed, stopped or retrying line says why on the line.
+export function doneReport(agent: { state: string; result?: string; lastMessage?: string }): string | undefined {
+  if (agent.state !== "completed") return undefined;
+  return (agent.result ?? agent.lastMessage)?.trim() || undefined;
+}
 
 /// What acpmux names an Agent or Workflow call that gave no description (claude_stdio
 /// `spawn_subagent`): never a better name than the one a run reports.
@@ -89,6 +108,11 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
   const [note, setNote] = useState<{ version: number; key?: RetryNote; busy?: boolean }>();
   // How a failed line reads (failedLine.experiment.ts): the quiet grid by default.
   const [failedLook] = useState(() => experimentArm(failedLineLook));
+  // How the line offers its report (doneReport.experiment.ts): a chevron that opens it by default.
+  const [reportArm] = useState(() => experimentArm(doneReportLook));
+  const reportLook = useContext(DoneReportLookContext) ?? reportArm;
+  const [reportOpen, setReportOpen] = useState(false);
+  const reportId = useId();
   const open = pane ?? nav;
   if (!agent) return null;
   // The row's retry, as every surface reads it (retryState.ts ``subagentRetry``).
@@ -129,6 +153,9 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
   // title in plain text and its reason muted, red only on its mark; the grid arm also lines its
   // columns up from row to row: mark | title | short reason | Retry | time.
   const failed = agent.state === "failed" && !waiting;
+  const report = waiting ? undefined : doneReport(agent);
+  const disclose = report !== undefined && reportLook === "disclosure";
+  const preview = report !== undefined && reportLook === "preview";
   const look = failed ? failedLook : undefined;
   const quiet = look === "grid" || look === "quiet";
   const reason =
@@ -239,18 +266,87 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
           <ReactionMark reaction={agent.reaction} />
           {!waiting && <span className="cv-command__meta cv-subagent-done__time">{time}</span>}
         </span>
-        {/* The chevron only marks that the line opens; the line's button is the one control. Its
-            column holds on a line that opens nothing, so the columns still line up. */}
-        <span
-          className={`cv-tool__chevron cv-subagent-done__chevron cv-agent-activity__chevron${open ? "" : " is-idle"}`}
-          aria-hidden
-        >
-          <ChevronRight size={14} strokeWidth={1.2} />
-        </span>
+        {disclose ? (
+          // A line with a report: the chevron after its words is its own control, the report's
+          // disclosure; the line's button still opens the view. It opens on the click, no fade.
+          <button
+            type="button"
+            className="cv-tool__chevron cv-subagent-done__chevron cv-subagent-done__disclose"
+            aria-expanded={reportOpen}
+            aria-controls={reportOpen ? reportId : undefined}
+            aria-label={t(reportOpen ? "subagents.report.hide" : "subagents.report.show")}
+            title={t(reportOpen ? "subagents.report.hide" : "subagents.report.show")}
+            onClick={() => setReportOpen((value) => !value)}
+          >
+            <ChevronRight size={14} strokeWidth={1.2} className={`cv-rotor${reportOpen ? " is-open" : ""}`} />
+          </button>
+        ) : (
+          /* The chevron only marks that the line opens; the line's button is the one control. Its
+             column holds on a line that opens nothing, so the columns still line up. */
+          <span
+            className={`cv-tool__chevron cv-subagent-done__chevron cv-agent-activity__chevron${open ? "" : " is-idle"}`}
+            aria-hidden
+          >
+            <ChevronRight size={14} strokeWidth={1.2} />
+          </span>
+        )}
       </TranscriptActivityRowShell>
+      {disclose && reportOpen && (
+        <div id={reportId} className="cv-subagent-done__report">
+          <div className="cv-subagent-done__markdown selectable">
+            <Markdown commits="quiet">{report}</Markdown>
+          </div>
+        </div>
+      )}
+      {preview && <ReportPreview text={report} />}
       {/* The chat's quiet reply to its end (ReactionMark.tsx), under the line as text Find reads,
           never only in a tooltip (cmux#33538). */}
       <ReactionReply reaction={agent.reaction} />
+    </div>
+  );
+}
+
+/// The preview arm: the report's first two lines always under the line, Show more opening the rest
+/// (capped as an opened report is). Show more appears only when the cut hides lines.
+function ReportPreview({ text }: { text: string }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const [long, setLong] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const id = useId();
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node || open) return;
+    const measure = () => setLong(node.scrollHeight - node.clientHeight > 1);
+    measure();
+    if (typeof ResizeObserver !== "function") return;
+    // Stops with the effect: the cleanup disconnects it when the text changes, it opens or unmounts.
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [text, open]);
+  return (
+    <div className="cv-subagent-done__report">
+      <div
+        ref={ref}
+        id={id}
+        className="cv-subagent-done__markdown selectable"
+        data-cut={open ? undefined : true}
+        data-more={long && !open ? true : undefined}
+      >
+        <Markdown commits="quiet">{text}</Markdown>
+      </div>
+      {(long || open) && (
+        <button
+          type="button"
+          className="cv-subagent-done__more"
+          aria-expanded={open}
+          aria-controls={id}
+          onClick={() => setOpen((value) => !value)}
+        >
+          {t(open ? "message.less" : "message.more")}
+        </button>
+      )}
     </div>
   );
 }

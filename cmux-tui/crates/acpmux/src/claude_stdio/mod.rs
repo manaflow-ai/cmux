@@ -302,6 +302,9 @@ mod stop_spares_background_tests;
 mod subagent_route;
 #[cfg(test)]
 mod subagent_tests;
+mod task_plan;
+#[cfg(test)]
+mod task_plan_tests;
 #[cfg(test)]
 mod tests;
 mod usage_limits;
@@ -310,7 +313,7 @@ mod usage_limits_tests;
 #[cfg(test)]
 mod workflow_tests;
 mod workflows;
-pub use usage_limits::merge_usage_limits;
+pub use usage_limits::{merge_usage_limits, usage_limit_reached};
 
 /// Longest failure text a failed subagent's end carries, in characters.
 const MAX_FAILURE_CHARS: usize = 600;
@@ -606,6 +609,9 @@ pub struct Translator {
     /// The plan usage limit windows Claude Code reported, newest each, by id
     /// (`usage_limits.rs`).
     usage_limits: Mutex<std::collections::BTreeMap<&'static str, Value>>,
+    /// Claude Code's task list, from its TaskCreate and TaskUpdate calls
+    /// (`task_plan.rs`), sent whole as the turn's ACP plan.
+    task_plan: Mutex<task_plan::TaskPlan>,
     /// Claude Code's /loop: its tools' calls and the loops armed, the chat's goal (`loops.rs`).
     loops: Mutex<loops::Loops>,
 }
@@ -616,6 +622,9 @@ pub struct Translator {
 struct BackgroundShell {
     sid: String,
     command: String,
+    /// What the Bash call says it does (its `description`): the tray names
+    /// the process by it (webviews `session-info/commandRules.ts`).
+    description: Option<String>,
     task: Option<String>,
     background: bool,
     /// Started in the background (`run_in_background`), not moved there.
@@ -712,6 +721,7 @@ impl Translator {
             failed_agents: Mutex::new(Default::default()),
             workflows: Mutex::new(HashMap::new()),
             background_shells: Mutex::new(HashMap::new()),
+            task_plan: Mutex::new(Default::default()),
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
             context_from_compaction: AtomicBool::new(false),
