@@ -16,7 +16,7 @@ import { displayName, participant, type Participant } from "../acpmux/multiplaye
 import { GuestComposer, GuestMessages } from "./GuestComposer";
 import { GuestPrompts } from "./guestPrompts";
 import { GuestSendQueue } from "./guestSendQueue";
-import { type Accept, type GuestRole, joinName, type Redeem, type RedeemError } from "./redeem";
+import { type Accept, type GuestRole, type JoinedVia, joinName, type Redeem, type RedeemError } from "./redeem";
 import { TypingSignal } from "./typingSignal";
 import {
   type GuestChat,
@@ -326,6 +326,8 @@ export function LiveChat({
               onToggleActivity={toggle}
               working={snapshot.isWorking}
               readOnly
+              // The thread rail is the owner's pane chrome; here it drew a lone tick at the page's edge.
+              showMinimap={false}
               canLoadOlder={hasMore}
               historyFrom={snapshot.historyFrom}
               onLoadOlder={loadOlder}
@@ -369,7 +371,7 @@ export type GuestPageProps = {
   /** The role this tab's invitee joined with (redeem.ts joinedRole). */
   role?: GuestRole;
   /** Called once the redeem or accept worked (redeem.ts rememberJoined); an invite has no typed name. */
-  onJoined?: (guestId: string, name: string | undefined, role?: GuestRole) => void;
+  onJoined?: (guestId: string, name: string | undefined, role: GuestRole | undefined, via: JoinedVia) => void;
   /** Where this tab keeps its own messages (sessionStorage in the page). */
   storage: Storage;
   socketUrl: string;
@@ -403,7 +405,7 @@ export function GuestPage({
     if (!secret) return "failed";
     const result = await redeem(shareId, { attempt_id: attempt(), secret, name });
     if (result.ok) {
-      onJoined?.(result.guestId, name);
+      onJoined?.(result.guestId, name, undefined, "link");
       setName(name);
       setGuestId(result.guestId);
       return undefined;
@@ -416,7 +418,7 @@ export function GuestPage({
     if (!accept) return "failed";
     const result = await accept(shareId, { attempt_id: attempt() });
     if (result.ok) {
-      onJoined?.(result.guestId, undefined, result.role);
+      onJoined?.(result.guestId, undefined, result.role, "invite");
       setRole(result.role);
       setGuestId(result.guestId);
       return undefined;

@@ -420,7 +420,9 @@ export function nativeRowToolBindings(
           {
             tool: {
               id: panel.id,
-              symbol: HEADER_SYMBOLS["view.list"]!,
+              // The pack's two-row list, as the web header draws it (Leo 2026-11-04: "make our session
+              // info button 2 rows too"). No SF Symbol has two rows, so PaneToolbarView draws pack names.
+              symbol: "view.list.short",
               label: boundedNativeText(panel.label, "Panel"),
               enabled: !!panel.run,
               toggled: panel.toggled,

@@ -28,6 +28,8 @@ import { armIds, validateExperiments, type Experiment } from "../experiments/exp
 import { validateTunables, type Tunable } from "../experiments/tunable";
 import { optionAccepts, validateOptions, type GalleryOption } from "./options";
 import type { MockOptions } from "../pages/settings/mockProvider";
+import type { BranchPickerGroup } from "../diff/generated/protocol";
+import type { SourceOption } from "../toolbar-model";
 import type {
   AccountsState,
   AgentsState,
@@ -255,6 +257,9 @@ export type DiffPageVariant = VariantBase & {
   files?: DiffFixtureFile[];
   repoRoot?: string;
   baseRef?: string;
+  /** Branch and commit lists served by the in-page diff host. */
+  branchGroups?: BranchPickerGroup[];
+  sourceOptions?: SourceOption[];
   /** A machine error while the loaded diff remains visible. */
   fingerprintError?: { code: string; message: string };
 };
@@ -277,7 +282,7 @@ export type AppsPageVariant = VariantBase & {
 /** The Cloud page on an in-page cmuxPage host serving the Cloud app server's projection. */
 export type CloudPageVariant = VariantBase & {
   mode?: "normal" | "loading" | "error";
-  action?: "select-machine" | "create" | "get" | "ports-pending";
+  action?: "select-machine" | "create" | "get" | "ports-pending" | "ports-shared";
   error?: { code: string; message: string };
   signedIn?: boolean;
   layout?: "rows" | "cards";
@@ -288,7 +293,7 @@ export type CloudPageVariant = VariantBase & {
   /** Sample forwards shown by Ports variants (gallery-only). */
   ports?: import("../pages/cloud/ops").PortForward[];
   /** Hold one port action after its control is activated to show the busy boundary. */
-  pendingAction?: "forward" | "close" | "browser";
+  pendingAction?: "forward" | "close" | "browser" | "share" | "revoke";
   /** The create sheet's snapshot list fails once (its Retry then loads the sample snapshots). */
   snapshotsFail?: boolean;
   machines: CloudMachine[];

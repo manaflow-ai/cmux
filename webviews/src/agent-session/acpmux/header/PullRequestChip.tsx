@@ -63,6 +63,7 @@ export function PullRequestChip({
         <Icon name="git.pullrequest" size={14} />#{number}
       </button>
       <Popover
+        fade
         open={open}
         // The chip owns opening; Base UI only reports dismissals (Escape and outside press).
         onOpenChange={(next) => {

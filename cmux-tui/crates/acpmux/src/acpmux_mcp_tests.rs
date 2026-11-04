@@ -72,12 +72,15 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "team_send",
             "team_inbox",
             "team_ack",
+            "search",
             "github_status",
             "bg_start",
             "bg_list",
             "bg_output",
             "bg_stop",
-            "pr_state"
+            "run_wait",
+            "pr_state",
+            "wrap_up"
         ]
     );
     let send = tools[0]["description"].as_str().unwrap();
@@ -805,6 +808,16 @@ async fn ls_last_and_info_read_the_sessions() {
     assert!(text(&r).lines().any(|l| l.starts_with("lane-b  [")), "{r}");
     let r = call(&client, &tool("info", json!({"name": "lane-b"}))).await;
     assert_eq!(r["structuredContent"]["sessionId"], json!(lane), "{r}");
+    // `search` reads the named session, or this server's own chat when none is named.
+    let r = search_tool(&client, "", &json!({"query": "HELLO echo", "name": "lane-b"})).await;
+    assert_eq!(r["isError"], false, "{r}");
+    assert!(text(&r).ends_with("(assistant): echo: hello"), "{r}");
+    let r = search_tool(&client, &lane, &json!({"query": "hello", "role": "user"})).await;
+    let hits = r["structuredContent"]["hits"].as_array().unwrap();
+    assert_eq!(hits.len(), 1, "{r}");
+    assert_eq!(hits[0]["snippet"], "hello", "{r}");
+    let r = search_tool(&client, "", &json!({"query": "hello"})).await;
+    assert_eq!(r["isError"], true, "no chat and no name: {r}");
 }
 
 /// A fleet-sized list (thousands of closed sessions, each row carrying its last prompt and
@@ -1003,9 +1016,22 @@ fn github_status_is_listed_with_its_instruction() {
     let text = instructions(&all).unwrap();
     assert!(text.contains("call github_status"), "{text}");
     assert!(text.contains("bg_start"), "{text}");
+    assert!(text.contains("as one batch of independent tool calls"), "{text}");
     let scoped = allowed(all.clone(), Some("acpmux_github_status"));
     assert_eq!(crate::mcp_hint::names(&scoped).collect::<Vec<_>>(), ["github_status"]);
     assert_eq!(instructions(&scoped).unwrap(), crate::github_status::STEER);
     let chief = allowed(all, Some(crate::agent_tools::CHIEF_TURN_TOOLS));
     assert!(!crate::mcp_hint::names(&chief).any(|n| n == crate::github_status::TOOL));
+}
+
+/// Every chat's `acpmux` server lists `wrap_up` and tells the agent to end a turn with it; a Chief
+/// turn's allowlist leaves it out like any other tool.
+#[test]
+fn wrap_up_is_listed_with_its_instruction() {
+    let all = tools_with_artifacts(false);
+    assert!(crate::mcp_hint::names(&all).any(|n| n == "wrap_up"));
+    let text = instructions(&all).unwrap();
+    assert!(text.contains("call wrap_up as your last step"), "{text}");
+    let chief = allowed(all, Some(crate::agent_tools::CHIEF_TURN_TOOLS));
+    assert!(!crate::mcp_hint::names(&chief).any(|n| n == "wrap_up"));
 }

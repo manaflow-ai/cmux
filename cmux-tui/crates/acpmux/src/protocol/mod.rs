@@ -178,6 +178,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TAILNET_STATE, Request),
         // Sessions.
         untyped(method::MUX_STATUS, Request),
+        untyped(method::MUX_CONTEXT, Request),
+        untyped(method::MUX_CONTEXT_OVERRIDE, Request),
         // Cloud whole-machine turn fencing. These methods are served by the
         // daemon's request dispatcher and intentionally use untyped envelopes
         // while the owner capability payload remains private to Cloud clients.
@@ -269,6 +271,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TEAM_READ, Request),
         untyped(method::MUX_TEAM_ACK, Request),
         untyped(method::MUX_HISTORY, Request),
+        untyped(method::MUX_SESSION_SEARCH, Request),
         untyped(method::MUX_COMPLETE, Request),
         untyped(method::MUX_WAIT, Request),
         untyped(method::MUX_WATCH_ADD, Request),
@@ -436,6 +439,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MACHINE_CONSENT_GET, Request),
         untyped(method::MUX_MACHINE_CONSENT_REFUSED, Request),
         untyped(method::MUX_PAIR_REDEEM, Request),
+        untyped(method::MUX_VAULT_PULL, Request),
+        untyped(method::MUX_VAULT_FORGET, Request),
+        untyped(method::MUX_VAULT_STATUS, Request),
         untyped(method::MUX_TURN_ATTESTATION, Request),
         // Notifications.
         notification::<events::SessionEvent>(method::MUX_EVENT),

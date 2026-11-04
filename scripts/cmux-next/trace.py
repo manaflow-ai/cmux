@@ -2140,7 +2140,7 @@ def daemon_span_events(out, daemon_pid, tracks):
 # flow 0 on the terminal the press went to (CMUX_TRACE_FLOWS records of the daemon, host and holder).
 FLOW_HOPS = [
     ("app.key.dispatch",), ("app.key.terminal",), ("app.io_write",), ("app.send",),
-    ("daemon.send.write",), ("host.pty.write", "daemon.pty.write"), ("daemon.send.written",),
+    ("daemon.send.read",), ("daemon.send.write",), ("host.pty.write", "daemon.pty.write"), ("daemon.send.written",),
     ("host.pty.read", "holder.pty.read"), ("daemon.output.host", "daemon.output.holder"), ("daemon.output.attach",),
     ("app.output.decoded",), ("app.output.received",), ("app.output.parsed",), ("app.frame.contents",), ("app.frame.commit",),
 ]
@@ -2156,7 +2156,7 @@ FLOW_GROUP = {"host.pty.write": "pty.write", "daemon.pty.write": "pty.write", "h
               "holder.pty.read": "pty.read", "daemon.output.host": "output", "daemon.output.holder": "output"}
 # Hops a complete press may lack. `app.key.terminal` (TerminalSurfaceView.keyDown) is drawn when the app emits it,
 # but a key can reach Ghostty's IO thread without it, so `app.io_write` / `app.send` also say "reached a terminal".
-FLOW_OPTIONAL = {"app.key.terminal"}
+FLOW_OPTIONAL = {"app.key.terminal", "daemon.send.read"}
 # The hops that say the key router handed the press to a terminal (else it ran a chord: not a flow).
 FLOW_AT_TERMINAL = ("app.key.terminal", "app.io_write", "app.send")
 # The flow-0 stages in causal order: (group, alternatives, the group or hop each one's window starts at).

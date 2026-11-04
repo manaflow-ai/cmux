@@ -4,6 +4,7 @@ use super::{Conn, str_param};
 use crate::hub::Hub;
 use crate::rpc::RpcError;
 use crate::workflow_runs::{ActivityRecord, Child};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
@@ -60,12 +61,16 @@ fn validate_activity_id(id: &str, registered: bool) -> Result<(), RpcError> {
 }
 
 fn validate_placement(kind: &str, options: &Value) -> Result<(), RpcError> {
+    if !options.is_object() {
+        return Err(RpcError::invalid_params("workflow activity options must be an object"));
+    }
     if options.get("on").is_some_and(|host| !host.is_string()) {
         return Err(RpcError::invalid_params("on must name a machine"));
     }
     if let Some(host) = options.get("on").and_then(Value::as_str)
         && kind == "machine"
         && host != "local"
+        && host != "ci"
         && host != crate::hub::host_label()
     {
         return Err(RpcError::invalid_params(
@@ -198,7 +203,18 @@ async fn handle(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
     let fingerprint = crate::workflow_runs::digest(&json!([kind, prompt, options]).to_string());
     let key = crate::workflow_runs::digest(&format!("{id}:{activity}"));
     let session = format!("wf-{key}");
-    let child = if kind == "agent" {
+    // Read a persisted CI intent on resume; never resolve a newer checkout or target.
+    let previous =
+        store.activity(id, generation, &run.owner_session_id, activity).map_err(internal)?;
+    let child = if kind == "machine" && options.get("on").and_then(Value::as_str) == Some("ci") {
+        if let Some(previous) = &previous {
+            previous.child.clone()
+        } else {
+            Child::CiMachine {
+                intent: crate::hub::workflow_ci::prepare(&run, activity, prompt, &options).await?,
+            }
+        }
+    } else if kind == "agent" {
         Child::Agent {
             session_id: session,
             prompt_id: format!("wf-{key}-initial"),
@@ -288,9 +304,11 @@ pub(crate) fn owner_call<'a>(
         let _connection =
             Connection(tokio::spawn(super::serve_connection(hub.clone(), input, output)));
         let mut hello = json!({"protocolVersion":1,"clientInfo":{"name":"workflow","version":crate::hub::VERSION}});
-        hello["_meta"] = json!({"acpmux":{}});
-        hello["_meta"]["acpmux"][crate::hub::person::CALLER_FIELD] = json!({
-            "sessionId":owner,"token":crate::hub::person::caller_token(owner)});
+        hello.set_path(
+            &["_meta", "acpmux", crate::hub::person::CALLER_FIELD],
+            json!({
+            "sessionId":owner,"token":crate::hub::person::caller_token(owner)}),
+        );
         for (id, method, params) in
             [(1, crate::rpc::method::INITIALIZE, hello), (2, method, params)]
         {
@@ -339,6 +357,11 @@ mod tests {
 
     #[test]
     fn workflow_placement_rejects_present_non_string_and_remote_without_local_fallback() {
+        for options in [Value::Null, json!([]), json!("local"), json!(true), json!(7)] {
+            for kind in ["agent", "machine"] {
+                assert!(validate_placement(kind, &options).is_err());
+            }
+        }
         for on in [
             json!(["ci"]),
             Value::Null,
@@ -351,6 +374,7 @@ mod tests {
         }
         assert!(validate_placement("machine", &json!({})).is_ok());
         assert!(validate_placement("machine", &json!({"on":"local"})).is_ok());
+        assert!(validate_placement("machine", &json!({"on":"ci"})).is_ok());
         assert!(validate_placement("agent", &json!({"on":"paired-machine"})).is_ok());
         assert!(validate_placement("agent", &json!({"on":["ci"]})).is_err());
     }

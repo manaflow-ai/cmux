@@ -256,6 +256,10 @@ final class AppServices {
         return ModelRouterLease(tokens: cloud.auth, apiBaseURL: feed.apiBaseURL, acpmuxHome: acpmux.home,
                                 logger: Logger(subsystem: "com.cmuxterm.next", category: "model-router"))
     }()
+    /// The cmux sign-in lent to acpmux for GitHub App tokens (CmuxNextHomeEngine GitHubAppLease).
+    private(set) lazy var githubAppLease = GitHubAppLease(identity: cloud.installIdentity,
+                                                          apiBaseURL: cloud.configuration.ownerAPIBaseURL(),
+                                                          environment: { [weak self] in self.flatMap(QuitAgents.environment) })
     /// Where agent cursors draw (plans/cmux-next/agent-cursor.md section 3).
     private(set) lazy var agentCursorVisibility = AgentCursorWiring.makeVisibility(services: self)
     /// What agent cursor tags say and where a click on one goes.
@@ -366,6 +370,9 @@ final class AppServices {
     let newTabWeather = NewTabWeather()
     /// The models picked per harness in the Chief card's Model menu (its Recent section).
     let chiefModelRecents = HomeChiefModelRecents(defaults: .standard)
+    /// Where this Mac's Chief runs and its running move (the Home header's location chip, the Chief
+    /// card's Runs On row); `ChiefMoveHandlers` wires its menu to `chief.moveTo` and `chief.moveRollback`.
+    private(set) lazy var chiefTeleport = ChiefTeleportModel(home: ChiefHome.resolve(tag: environment.tag).root)
     let newTabTypeAhead = NewTabTypeAhead()
     /// Home's first-run Switching card: Hide memory and the Mission Control check.
     let homeSwitchKeys = HomeSwitchKeysSource()
@@ -565,7 +572,7 @@ final class AppServices {
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil), peerApprover: AgentPanePeerApprover? = nil,
          agentPaneStateFiles: AgentPaneStateFiles = AgentPaneStateFiles()) {
         self.work = work
-        bundledCLI = BundledExecutable(resources: Bundle.main.resourceURL, name: "cmux", work: work)
+        bundledCLI = BundledExecutable.cli(resources: Bundle.main.resourceURL, work: work)
         (iphone, browserStores) = (IPhoneHostService(loginKeychain: loginKeychain), .application(loginKeychain: loginKeychain))
         (self.launchImages, self.relaunchWake, self.keyWindowSource, self.appActiveSource, self.peerApprover, self.heldKeyReplay) = (launchImages, relaunchWake, keyWindowSource, appActiveSource, peerApprover, heldKeyReplay)
         self.agentPaneStateFiles = agentPaneStateFiles
@@ -628,7 +635,7 @@ final class AppServices {
         cache.onRestoredPageStart = { [weak crashRecovery] key in crashRecovery?.marker?.notePageStarted(key) }
         // Any browser tab, by any path, is a use of the browser: its tip never shows (feature tips).
         cache.onBrowserTab = { AgentPaneFeatureTipRecords().noteFeatureUsed(AgentPaneFeatureTipRecords.browserFeature) }
-        crashRecovery.observe(cache.cef.crashLog)
+        crashRecovery.observe(cache.cef, reporter: crashReporting.reporter)
         AppRunMarker.keepSignalHandlers(crashRecovery.marker, across: cache.cef, reporter: crashReporting.reporter)
         cache.cef.openURLWithoutWindow = { [weak self] url, disposition, profile in
             // Chromium wanted a window and has none for that profile (a
@@ -681,7 +688,7 @@ final class AppServices {
             bookmarks.attach(entry)
             onboarding.browserImportOffer.attach(entry)
             attachMachineBadgeMenu(entry)
-            entry.chrome.onContentFullscreenChange = { [weak self, weak entry] on in
+            entry.state.onContentFullscreenChange = { [weak self, weak entry] on in
                 if let entry { self?.pageContentFullscreenChanged(entry, on: on) }
             }
         }

@@ -264,6 +264,22 @@ export default componentEntry<Props>({
   },
   load: () => import("./NewTabPage").then(({ NewTabPage: Component }) => withReceipt(Component)),
   variants: {
+    "omnibar-overflow": {
+      note: "Capped omnibar suggestions fade at the edge with more rows in a short pane.",
+      props: {
+        ...base,
+        omnibar: {
+          ...omnibar,
+          tabs: Array.from({ length: 20 }, (_, index) => ({
+            id: `tab-release-${index}`,
+            kind: "terminal" as const,
+            title: `Release build ${index}`,
+            detail: "~/src/release",
+          })),
+        },
+      },
+      play: openOmnibar,
+    },
     "omnibar-plain": {
       note: "Chosen default: the shared popup frost shows the fixture wallpaper through the suggestions and selected row.",
       props: { ...base, glassPreview: "plain" },

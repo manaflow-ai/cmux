@@ -5,6 +5,7 @@
 //! Both expose the same API so the hub does not care which is active.
 
 use crate::config::{StoreConfig, StoreMode, write_atomic};
+use crate::goal::GoalState;
 use crate::no_panic::LockExt;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -23,6 +24,9 @@ mod superseded;
 pub use superseded::{Superseded, starts_prompt};
 mod kind_index;
 pub use kind_index::INDEXED_KINDS;
+mod shared_value;
+mod text_index;
+pub use shared_value::SharedValue;
 
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -226,7 +230,7 @@ pub struct SessionMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode_set_by_cmux: Option<String>,
     #[serde(default)]
-    pub config_options: Option<Value>,
+    pub config_options: Option<SharedValue>,
     #[serde(default)]
     pub models: Option<Value>,
     #[serde(default)]
@@ -271,6 +275,15 @@ pub struct SessionMeta {
     /// sent after each turn; none from any other harness.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_breakdown: Option<Value>,
+    /// Cmux-owned additions captured when this chat was created. Older chats have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cmux_context: Option<Vec<crate::context_inventory::ContextPart>>,
+    /// A preset override selected at creation; later setting edits affect only new chats.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cmux_preset_prompt: Option<String>,
+    /// True only after a harness writer accepts the captured first-turn context.
+    #[serde(default)]
+    pub cmux_context_delivered: bool,
     /// The account's plan usage limits (`claude_stdio::usage_limits`), newest per window, from
     /// Claude Code's `rate_limit_event`; none from any other harness.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -281,8 +294,12 @@ pub struct SessionMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub available_commands: Option<Value>,
     /// Last goal reported by the harness. Codex owns its persistence and continuation.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub goal: Option<Value>,
+    #[serde(
+        default,
+        deserialize_with = "crate::goal::deserialize_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub goal: Option<GoalState>,
     /// Per-session permission rules layered above the policy (see hub/rules.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_rules: Option<Value>,
@@ -833,6 +850,21 @@ pub trait Store: Send + Sync {
     /// log four times, and parsing every line held big-red's daemon at a full core for minutes.
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         self.scan(id, 0, &mut |rec| visit(&RecordHead::parsed(&rec)))
+    }
+    /// The log's messages (`session_search.rs`), oldest first. A file store reads each segment's
+    /// text copy (`store/text_index.rs`) and only the bytes appended past it.
+    fn text_entries(
+        &self,
+        id: &str,
+        visit: &mut dyn FnMut(crate::session_search::Entry),
+    ) -> Result<()> {
+        let mut projector = crate::session_search::Projector::default();
+        self.scan_kinds(id, crate::session_search::KINDS, &mut |rec| {
+            projector.feed(&rec);
+            true
+        })?;
+        projector.entries.into_iter().for_each(visit);
+        Ok(())
     }
     /// Make every appended record durable (called on shutdown).
     fn flush(&self) -> Result<()> {
@@ -1654,6 +1686,14 @@ impl Store for LocalStore {
         self.scan_kinds_in(id, kinds, true, visit)
     }
 
+    fn text_entries(
+        &self,
+        id: &str,
+        visit: &mut dyn FnMut(crate::session_search::Entry),
+    ) -> Result<()> {
+        self.text_entries_in(id, visit)
+    }
+
     /// Segments newest first, so a page from the end reads only the segments it
     /// needs however long the log is. A segment whose first record is at or past
     /// `before` holds nothing for the page and is skipped after one line.
@@ -1975,6 +2015,7 @@ mod line_rev_tests;
 #[cfg(test)]
 mod agent_session_history_tests {
     use super::{META_SCHEMA, RETIRED_AGENT_SESSION_IDS, SessionMeta};
+    use crate::goal::{GoalState, GoalStatus};
     use serde_json::json;
 
     fn meta() -> SessionMeta {
@@ -2049,6 +2090,29 @@ mod agent_session_history_tests {
         let m = meta();
         assert!(m.previous_agent_session_ids.is_empty());
         assert!(m.retired_agent_session_ids.is_empty());
+    }
+
+    #[test]
+    fn goal_persistence_round_trip_keeps_quota_stop_reasons() {
+        for status in [GoalStatus::UsageLimited, GoalStatus::BudgetLimited] {
+            let mut m = meta();
+            m.goal = Some(GoalState {
+                objective: "Wait for quota".into(),
+                status: status.clone(),
+                provider: crate::goal::GoalProvider::Codex,
+                token_budget: None,
+                tokens_used: None,
+                elapsed_seconds: None,
+                created_at: None,
+                updated_at: None,
+                steps: None,
+                extra: Default::default(),
+            });
+            let encoded = serde_json::to_value(&m).unwrap();
+            assert_eq!(encoded["goal"]["status"], status.as_str());
+            let restored: SessionMeta = serde_json::from_value(encoded).unwrap();
+            assert_eq!(restored.goal.unwrap().status, status);
+        }
     }
 
     /// A Codex chat's earlier native roots stay known after a restart names a new one, so a
