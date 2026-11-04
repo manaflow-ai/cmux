@@ -134,7 +134,8 @@ struct BrowserDownloadWaitPathTests {
     }
 
     /// Two path waits on one surface and one finished download: exactly one
-    /// wait saves it, whether the download reaches them live or queued.
+    /// wait saves it. The download is recorded before either wait looks, so
+    /// this covers the queued pop, not the live claim.
     @Test func oneDownloadIsSavedByOnlyOneOfTwoWaits() async throws {
         try await withPanel { panel, params, root in
             let first = root.appendingPathComponent("first.txt")
