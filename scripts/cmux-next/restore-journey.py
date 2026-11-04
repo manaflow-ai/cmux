@@ -1254,46 +1254,56 @@ def chat_items(label, items, raw):
     topo = topology()
     client = acpmux_client()
     with visiting("rj-chats"):
-        for chat in CHATS:
-            c = f"chat[{chat['label']}]"
-            tab = next((t for ws in rj_workspaces(topo) for t in tabs_of(ws) if t.get("agent_session") == chat["session"]), None)
-            items[f"{c}.place"], pane = place_of(tab.get("id"), topo) if tab else (None, None)
-            if client:
-                events = ((client.request("_acpmux/events", {"sessionId": chat["session"], "afterSeq": 0, "limit": 5000}).get("result") or {}).get("events")) or []
-                items[f"{c}.prompts"] = [e.get("msg", {}).get("text") for e in events if e.get("kind") == "user_message"
-                                         and "rj chat turn" in str(e.get("msg", {}).get("text"))]
-                items[f"{c}.draft"] = (client.request("_acpmux/draft_get", {"sessionId": chat["session"]}).get("result") or {}).get("draft")
-            if not tab:
-                continue
-            cli("tab", tab["id"], "focus", quiet=True)
-            state = wait(lambda: (lambda r: r if isinstance(r, dict) and "error" not in r and r.get("connection") != "connecting"
-                                  and r.get("sessionId") == chat["session"] else None)(page(pane, "chat_state")), 45, 1) or page(pane, "chat_state")
-            raw[f"{c}.chat_state"] = state
-            if not isinstance(state, dict) or "error" in state:
-                items[f"{c}.page"] = f"chat_state: {json.dumps(state)[:120]}"
-                continue
-            items[f"{c}.page.session"] = state.get("sessionId")
-            items[f"{c}.page.harness"] = state.get("harness")
-            items[f"{c}.page.missing_session"] = state.get("missingSession")
-            chips = state.get("composer") or {}
-            # The composer's chips as drawn show the model and effort picked.
-            # (The model chip may draw only its icon, so the model is read from the page's own state.)
-            pick = CHAT_PICKS.get(chat["harness"], {})
-            shown = page(pane, "models")
-            current = shown.get("current") if isinstance(shown, dict) else None
-            ok = not pick.get("model") or current == pick["model"]
-            items[f"{c}.page.picked"] = True if ok else f"chips {json.dumps(chips)[:100]}, model {current!r}; picked {json.dumps(pick)}"
-            items[f"{c}.page.transcript"] = [r.get("text") for r in state.get("transcript") or [] if "rj chat turn" in str(r.get("text"))
-                                              or str(r.get("text")).startswith("echo: rj chat turn")]
-            # Live: a new turn is answered by the agent and shows on the page. Sent through acpmux, so
-            # the composer's draft stays as seeded.
-            text = f"rj live {chat['label']} {label} {RUN}"
-            if client:
-                client.request("session/prompt", {"sessionId": chat["session"], "prompt": [{"type": "text", "text": text}],
-                                                  "_meta": {"acpmux": {"promptId": f"rj-{RUN}-{chat['label']}-{label}"}}}, timeout=60)
-            answered = wait(lambda: (lambda r: isinstance(r, dict) and (r.get("lastAssistant") or {}).get("text") == f"echo: {text}"
-                                     and not (r.get("lastAssistant") or {}).get("streaming"))(page(pane, "chat_state")), 30, 1)
-            items[f"{c}.live"] = bool(answered) or f"no answer: {json.dumps((page(pane, 'chat_state') or {}).get('lastAssistant'))[:120]}"
+        # Each chat's tab is shown to read its page; the tab each pane showed comes back after (as finish_turn_in_flight
+        # does), so the next snapshot and the quit see the selection as it was.
+        shown_tabs = {}
+        try:
+            for chat in CHATS:
+                c = f"chat[{chat['label']}]"
+                tab = next((t for ws in rj_workspaces(topo) for t in tabs_of(ws) if t.get("agent_session") == chat["session"]), None)
+                items[f"{c}.place"], pane = place_of(tab.get("id"), topo) if tab else (None, None)
+                if client:
+                    events = ((client.request("_acpmux/events", {"sessionId": chat["session"], "afterSeq": 0, "limit": 5000}).get("result") or {}).get("events")) or []
+                    items[f"{c}.prompts"] = [e.get("msg", {}).get("text") for e in events if e.get("kind") == "user_message"
+                                             and "rj chat turn" in str(e.get("msg", {}).get("text"))]
+                    items[f"{c}.draft"] = (client.request("_acpmux/draft_get", {"sessionId": chat["session"]}).get("result") or {}).get("draft")
+                if not tab:
+                    continue
+                if pane and pane not in shown_tabs:
+                    shown_tabs[pane] = pane_active_tab(pane)
+                cli("tab", tab["id"], "focus", quiet=True)
+                state = wait(lambda: (lambda r: r if isinstance(r, dict) and "error" not in r and r.get("connection") != "connecting"
+                                      and r.get("sessionId") == chat["session"] else None)(page(pane, "chat_state")), 45, 1) or page(pane, "chat_state")
+                raw[f"{c}.chat_state"] = state
+                if not isinstance(state, dict) or "error" in state:
+                    items[f"{c}.page"] = f"chat_state: {json.dumps(state)[:120]}"
+                    continue
+                items[f"{c}.page.session"] = state.get("sessionId")
+                items[f"{c}.page.harness"] = state.get("harness")
+                items[f"{c}.page.missing_session"] = state.get("missingSession")
+                chips = state.get("composer") or {}
+                # The composer's chips as drawn show the model and effort picked.
+                # (The model chip may draw only its icon, so the model is read from the page's own state.)
+                pick = CHAT_PICKS.get(chat["harness"], {})
+                shown = page(pane, "models")
+                current = shown.get("current") if isinstance(shown, dict) else None
+                ok = not pick.get("model") or current == pick["model"]
+                items[f"{c}.page.picked"] = True if ok else f"chips {json.dumps(chips)[:100]}, model {current!r}; picked {json.dumps(pick)}"
+                items[f"{c}.page.transcript"] = [r.get("text") for r in state.get("transcript") or [] if "rj chat turn" in str(r.get("text"))
+                                                  or str(r.get("text")).startswith("echo: rj chat turn")]
+                # Live: a new turn is answered by the agent and shows on the page. Sent through acpmux, so
+                # the composer's draft stays as seeded.
+                text = f"rj live {chat['label']} {label} {RUN}"
+                if client:
+                    client.request("session/prompt", {"sessionId": chat["session"], "prompt": [{"type": "text", "text": text}],
+                                                      "_meta": {"acpmux": {"promptId": f"rj-{RUN}-{chat['label']}-{label}"}}}, timeout=60)
+                answered = wait(lambda: (lambda r: isinstance(r, dict) and (r.get("lastAssistant") or {}).get("text") == f"echo: {text}"
+                                         and not (r.get("lastAssistant") or {}).get("streaming"))(page(pane, "chat_state")), 30, 1)
+                items[f"{c}.live"] = bool(answered) or f"no answer: {json.dumps((page(pane, 'chat_state') or {}).get('lastAssistant'))[:120]}"
+        finally:
+            for tab_id in shown_tabs.values():
+                if tab_id:
+                    cli("tab", tab_id, "focus", quiet=True)
 
 
 def tagent_items(label, items, raw):
@@ -2471,8 +2481,6 @@ def journey(base):
     back_walk("seed")  # before any reopen: tells the live Back bug apart from a restore loss
     for n, variant in enumerate(v.strip() for v in opts.variants.split(",") if v.strip()):
         before = snapshot(f"{variant}-before")
-        if opts.record_launch and CHATS:
-            focus_long_chat()  # the snapshot's chat rows left the last chat's tab selected
         if n == 0:
             seeded(before)
             SEEDED.update({k: v for k, v in before.items() if k in ("page[hist].history_length", "page[w2page].zoom")
@@ -2593,8 +2601,8 @@ def show_long_chat(turns=24):
 
 
 def focus_long_chat():
-    """The long chat's tab selected in the front window again: each round's before-snapshot (chat_items) focuses every
-    chat tab in turn and restores only the workspace, so without this the quit would show the last, short chat."""
+    """The long chat's tab selected in the front window, its page drawn (chat_items puts back each pane's shown tab, so
+    it stays selected through every round's snapshots)."""
     chat = CHATS[0] if CHATS else None
     if not chat:
         return False
