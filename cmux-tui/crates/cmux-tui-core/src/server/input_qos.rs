@@ -90,7 +90,7 @@ static OBSERVED: std::sync::LazyLock<
 
 /// This thread's QoS class (`qos_class_t` as u32); 0 off macOS.
 #[cfg(test)]
-pub(super) fn current_thread_qos() -> u32 {
+pub(crate) fn current_thread_qos() -> u32 {
     #[cfg(target_os = "macos")]
     {
         let mut qos = libc::qos_class_t::QOS_CLASS_UNSPECIFIED;
