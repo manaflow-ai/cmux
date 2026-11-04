@@ -918,11 +918,12 @@ proptest! {
 }
 
 /// The case `layout_ops_conserve_tabs` shrank to on feat d8936fb5a11c (census, 2 of 2 runs of
-/// its shard): after splits, moves and a terminal move, two closes leave the scoped projection's
-/// patch without a screen whose pane lost a tab ("the scoped projection omits a changed
-/// screen"). Debug builds cross-check scoped against full on every step.
+/// its shard): a tab moved within its pane (step 7) restated the tabs but not their screen, whose
+/// value lists each pane's tabs in order, so the journal kept the old order; a later close
+/// scoped to another workspace then met it ("the scoped projection omits a changed screen").
+/// Debug builds cross-check scoped against full on every step.
 #[test]
-fn two_closes_after_moves_restate_the_screen_whose_pane_lost_a_tab() {
+fn a_move_within_a_pane_restates_its_screen_for_a_later_scoped_close() {
     let mux = test_mux("layout-invariants-shrunk-changed-screen");
     build(&mux, &[vec![1, 3, 2, 1]]);
     let mut groups = 0;
