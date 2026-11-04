@@ -30,6 +30,15 @@ extension DividerDrag {
             SharedEdgeMotion.Influence(kind, caught: caughtGeometry, probe: geometry($0), axis: caught.axis)
         }).first
         if caught.catches, influence == nil { return turnSharedEdgesOff() }
+        // A caught value the layout clamps cannot put the line where it shows: its spring would go on under a still
+        // pointer. Such a press takes the drag from before S2B.
+        if caught.catches {
+            let restGeometry = ScreenGeometry.compute(layout, viewport: viewport, style: style, scale: 0)
+            guard let from = SharedEdgeMotion.Influence.target(kind, in: restGeometry),
+                  let to = SharedEdgeMotion.Influence.target(kind, in: caughtGeometry) else { return turnSharedEdgesOff() }
+            let moved = caught.axis == .horizontal ? to.minX - from.minX : to.minY - from.minY
+            if abs(moved - caught.lineMove) > 1 { return turnSharedEdgesOff() } // the rest layout is on the pixel grid, this one not
+        }
         // No pane may show a negative size later in this drag (rule C keeps each edge's spring leftover): checked on
         // every pane, after the catch this press makes, along its spring's whole path.
         let spring = Motion.panes.policy.spring(screen.motionState.frameSpring)

@@ -125,6 +125,10 @@ extension SharedEdgeMotion {
         /// The line moves against its anchor (shows off its rest distance, or at another speed): the press catches it.
         /// False: `value` is the layout's own, and the press only checks what the drag will resize.
         var catches = true
+        /// How far `value` must move the line's rest place to put it where it shows from its anchor. A value the layout
+        /// clamps (a shown extent under a minimum, past the ratio range) moves it less: such a catch cannot hold the line
+        /// still, and its press takes the drag from before S2B.
+        var lineMove: CGFloat = 0
     }
 
     /// What a press on `kind` finds on `screen`.
@@ -158,7 +162,8 @@ extension SharedEdgeMotion {
                                                minimumA: divider.minimumA, minimumB: divider.minimumB))
             }
             return .caught(Caught(value: ratio(span.extent), probes: [ratio(span.extent + probeStep), ratio(span.extent - probeStep)],
-                                  axis: divider.axis, speedChange: anchor.velocity - span.velocity, catches: span.moves))
+                                  axis: divider.axis, speedChange: anchor.velocity - span.velocity, catches: span.moves,
+                                  lineMove: base + span.extent - line))
         case let .columnEdge(id):
             guard let frame = geometry.columns[id], let column = screen.layout.columns.first(where: { $0.id == id }) else { return .cannotCatch }
             let edge = geometry.columnEdges.first { $0.column == id }?.dockEdge
@@ -185,7 +190,8 @@ extension SharedEdgeMotion {
                 .width(id, ColumnStripGeometry.fraction(forPixelWidth: max(extent * sign, minimum), viewportWidth: viewport, gap: style.stripGap))
             }
             return .caught(Caught(value: width(span.extent), probes: [width(span.extent + probeStep * sign), width(span.extent - probeStep * sign)],
-                                  axis: axis, speedChange: anchor.velocity - span.velocity, catches: span.moves))
+                                  axis: axis, speedChange: anchor.velocity - span.velocity, catches: span.moves,
+                                  lineMove: base + span.extent - line))
         case .rowEdge:
             return .cannotCatch
         }
