@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -28,6 +28,7 @@ function installDom(): HTMLElement {
 }
 
 afterEach(async () => {
+  jest.useRealTimers();
   if (root) await act(async () => root!.unmount());
   root = undefined;
   dom?.window.close();
@@ -118,15 +119,18 @@ async function renderPaused(container: HTMLElement, props: { resuming?: boolean;
   });
 }
 
-const wait = (ms: number) => act(async () => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+const wait = (ms: number) => act(async () => void jest.advanceTimersByTime(ms));
 
 test("a paused machine shows nothing until the pause has lasted past the threshold, then a calm card", async () => {
+  jest.useFakeTimers();
   const container = installDom();
   await renderPaused(container, { noteDelayMs: 40 });
   // The first frames: the loading layout, empty, so a quick wake never flashes a card.
   expect(container.querySelector('[data-unavailable="connecting"]')).not.toBeNull();
   expect(container.textContent).toBe("");
-  await wait(80);
+  await wait(39);
+  expect(container.querySelector('[data-unavailable="paused"]')).toBeNull();
+  await wait(1);
   const card = container.querySelector('[data-unavailable="paused"]');
   expect(card).not.toBeNull();
   expect(card!.getAttribute("role")).toBe("status");

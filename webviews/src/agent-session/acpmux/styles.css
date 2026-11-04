@@ -960,8 +960,8 @@ fieldset.acpmux-question[hidden]{display:none}
 /* A paused or starting Cloud machine's banner (PeerCopyBanner.tsx): the title line holds the spinner, or Resume in the inline and button arms of `paused-machine-resume`. */
 /* The peer copy's banner floats over the top of the transcript (PeerCopyBanner.tsx): its slot takes no
    height, so the banner arriving or leaving moves no row. */
-.acpmux-peer-copy-slot{position:relative;height:0;z-index:3}
-.acpmux-peer-copy-slot>.acpmux-peer-copy{position:absolute;top:0;inset-inline:0;margin:8px 24px;padding:8px 12px;border-radius:var(--ui-popup-radius,10px);background:color-mix(in srgb,var(--agent-page-bg) 88%,transparent);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);box-shadow:var(--ui-popup-shadow,0 4px 16px rgb(0 0 0/.12))}
+.acpmux-peer-copy-slot{position:relative;height:0;z-index:var(--layer-sticky)}
+.acpmux-peer-copy-slot>.acpmux-peer-copy{position:absolute;top:0;inset-inline:0;margin:8px 24px;padding:8px 12px;border-radius:var(--ds-radius-popup);background:color-mix(in srgb,var(--agent-page-bg) 88%,transparent);-webkit-backdrop-filter:var(--surface-blur);backdrop-filter:var(--surface-blur);box-shadow:var(--ui-popup-shadow,0 4px 16px rgb(0 0 0/.12))}
 .acpmux-peer-copy-title{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;margin:0}
 .acpmux-peer-copy-spinner{align-self:center;flex:none;color:var(--agent-muted)}
 .acpmux-peer-copy[data-arm=button] .acpmux-peer-copy-title{align-items:center;justify-content:space-between}

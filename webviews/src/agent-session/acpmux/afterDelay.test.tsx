@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -26,6 +26,7 @@ function installDom(): HTMLElement {
 }
 
 afterEach(async () => {
+  jest.useRealTimers();
   if (root) await act(async () => root!.unmount());
   root = undefined;
   dom?.window.close();
@@ -41,7 +42,7 @@ function Probe({ active, ms }: { active: boolean; ms: number }) {
   return <span>{useAfterDelay(active, ms) ? "shown" : "hidden"}</span>;
 }
 
-const wait = (ms: number) => act(async () => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+const wait = (ms: number) => act(async () => void jest.advanceTimersByTime(ms));
 
 async function render(container: HTMLElement, active: boolean, ms: number) {
   await act(async () => {
@@ -51,28 +52,33 @@ async function render(container: HTMLElement, active: boolean, ms: number) {
 }
 
 test("shows only once active has held for the delay, and hides at once when it ends", async () => {
+  jest.useFakeTimers();
   const container = installDom();
   await render(container, true, 40);
   expect(container.textContent).toBe("hidden");
-  await wait(80);
+  await wait(39);
+  expect(container.textContent).toBe("hidden");
+  await wait(1);
   expect(container.textContent).toBe("shown");
   await render(container, false, 40);
   expect(container.textContent).toBe("hidden");
 });
 
 test("a break restarts the wait: a stretch shorter than the delay never shows", async () => {
+  jest.useFakeTimers();
   const container = installDom();
   await render(container, true, 60);
   await wait(30);
   await render(container, false, 60);
   await render(container, true, 60);
-  await wait(30);
+  await wait(59);
   expect(container.textContent).toBe("hidden");
-  await wait(60);
+  await wait(1);
   expect(container.textContent).toBe("shown");
 });
 
 test("a delay of 0 shows at once, and inactive never shows", async () => {
+  jest.useFakeTimers();
   const container = installDom();
   await render(container, true, 0);
   expect(container.textContent).toBe("shown");
