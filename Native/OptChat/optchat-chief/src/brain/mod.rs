@@ -30,6 +30,7 @@ mod drafts;
 mod engine_control;
 pub mod files;
 mod harness_offer;
+mod home_approvals;
 mod image_fit;
 pub mod images;
 mod inbox;
@@ -869,13 +870,19 @@ pub struct Brain {
     pub(crate) trace: crate::trace::Trace,
     /// Where subagents' workspaces are renamed when they finish.
     workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>,
+    /// Sign-ins waiting on the person, as open Feed requests (needs_you_feed.rs).
+    sign_ins: crate::needs_you_feed::SignInRequests,
     /// Starts a queued subagent by id (`Spawner::queue_starter`).
     sub_starter: Option<Sender<crate::subagents::QueuedStart>>,
     /// B4: the VMs behind cloud peers, how long a peer idles before its VM
-    /// pauses, the peers paused by this host and since when each idles.
+    /// pauses, and since when each idles (the paused peers are saved in
+    /// `state.cloud_paused`).
     cloud_vms: Option<std::sync::Arc<dyn crate::cloud_vms::CloudVms>>,
     cloud_idle: std::time::Duration,
-    cloud_paused: std::collections::BTreeSet<String>,
+    /// Subagent sessions another acpmux link reports (a move handed them to
+    /// this machine's default daemon, placed_agents.rs): the home daemon's
+    /// list never judges them gone.
+    reported_elsewhere: std::collections::HashSet<String>,
     cloud_idle_since: std::collections::BTreeMap<String, u64>,
     /// Peers whose last pause failed: when the next try may run and the
     /// error last logged. The waits come from `cloud_pause_backoff`.
@@ -925,6 +932,13 @@ pub struct Brain {
     /// A Chief that is not the default: a compactor fault is also its message.
     compactor_messages: bool,
     turn_clock: Option<Instant>,
+    /// When each queued human message was posted (its `created_at`), by
+    /// message id, until a turn takes it: the trace's posted-to-first-words
+    /// time (`turns::FirstWords`).
+    posted: HashMap<String, String>,
+    /// The running turn's first-words clock (`turn.end`'s `first_draft_ms`
+    /// and `posted_to_first_draft_ms`).
+    first_words: turns::FirstWords,
     /// The running turn's view with its new messages, what a `spawn` in it
     /// gives its subagents (no wait for the compactor to summarize the
     /// turn's own messages and tool calls).
@@ -1106,10 +1120,11 @@ impl Brain {
             noticed: HashSet::new(),
             trace: crate::trace::Trace::off(),
             workspaces: None,
+            sign_ins: crate::needs_you_feed::SignInRequests::new("", None, Arc::new(|_: &str| {})),
             sub_starter: None,
             cloud_vms: None,
             cloud_idle,
-            cloud_paused: Default::default(),
+            reported_elsewhere: Default::default(),
             cloud_idle_since: Default::default(),
             cloud_pause_retry: Default::default(),
             cloud_pause_backoff: spawns::PAUSE_BACKOFF.to_vec(),
@@ -1139,6 +1154,8 @@ impl Brain {
             settle_status: None,
             compactor_messages: false,
             turn_clock: None,
+            posted: HashMap::new(),
+            first_words: turns::FirstWords::default(),
             turn_view: None,
             turn_engine: None,
             turn_route: None,
@@ -1232,6 +1249,27 @@ impl Brain {
         self.workspaces = workspaces;
     }
 
+    /// Posts sign-ins that wait on the person to the Feed through `feed`
+    /// (needs_you_feed.rs); None (the default) posts nothing.
+    pub fn set_feed(&mut self, feed: Option<Arc<dyn crate::needs_you_feed::FeedPort>>) {
+        self.sign_ins = crate::needs_you_feed::SignInRequests::new(
+            &self.settings.chief_id,
+            feed,
+            self.log.clone(),
+        );
+    }
+
+    /// `set_feed` while building the brain.
+    pub fn with_feed(mut self, feed: Option<Arc<dyn crate::needs_you_feed::FeedPort>>) -> Brain {
+        self.set_feed(feed);
+        self
+    }
+
+    /// The dedupe keys of the sign-in requests open in the Feed.
+    pub fn open_sign_ins(&self) -> Vec<String> {
+        self.sign_ins.open_keys()
+    }
+
     /// Finished subagents' workspaces close (true) or stay with the done
     /// mark (false, the default).
     pub fn set_sub_close_on_finish(&mut self, close: bool) {
@@ -1266,6 +1304,12 @@ impl Brain {
             control::start_ticker(self.tx.clone());
         }
         self.sub_starter = starter;
+    }
+
+    /// The subagent sessions another acpmux link reports (placed_agents.rs):
+    /// a home daemon list without one of them does not end it.
+    pub fn set_reported_elsewhere(&mut self, sessions: std::collections::HashSet<String>) {
+        self.reported_elsewhere = sessions;
     }
 
     /// The VMs behind cloud peers: resumed before a cloud subagent starts,

@@ -17,12 +17,26 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
         case skip, install, confirmThenInstall = "confirm-then-install"
         /// A Release build's one-time consent before the first copy (``CloudLoginCopyConsentSetting``).
         case askConsent = "ask-consent"
+        /// A run that may show no prompt (`cmux cloud start-session`) where one would be needed: it fails at once.
+        case refuse
+    }
+
+    /// The person's login choice (`cmux cloud start-session --login`, or the one kept per user).
+    public enum Choice: String, Sendable, Equatable, Codable, CaseIterable {
+        /// Give the machine the person's own login.
+        case pass
+        /// Use the machine's own login; refuse when it has none.
+        case machine
+        /// Pass nothing.
+        case none
     }
 
     /// The rules' reasons (cmux-cloud-start-core `Reason`), plus ``ffiFailed`` when the FFI did not answer.
     public enum Reason: String, Sendable, Equatable, Decodable {
         case buildGateOff = "build-gate-off"
         case noTransfer = "no-transfer-for-harness"
+        /// Codex: the Mac's broker gives the machine short-lived access before the first prompt (cmux#33489).
+        case codexBroker = "codex-broker"
         case signedOut = "signed-out"
         case callerNotOwner = "caller-not-owner"
         case guestNotOwner = "guest-not-owner"
@@ -39,6 +53,9 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
         /// Release: the person said no, or took it back in Settings.
         case consentDeclined = "consent-declined"
         /// The app FFI gave no answer: the start passes no login (never a silent one: the record says so).
+        case choseNone = "chose-none"
+        case machineLoginMissing = "machine-login-missing"
+        case needsLoginChoice = "needs-login-choice"
         case ffiFailed = "ffi-failed"
     }
 
@@ -74,6 +91,14 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
     public var remoteSwitch: Bool?
     /// What came of it once decided: "installed", "declined" (the confirm), or the transfer's fixed failure text.
     public var outcome: String?
+    /// The run's `--login`; nil when not given.
+    public var requested: Choice?
+    /// Whether `requested` is the person's own (only the person's `pass` stands in for the confirm).
+    public var requestedByPerson = false
+    /// The choice the person made before (``CloudHarnessLoginChoices``); nil when none.
+    public var stored: Choice?
+    /// A run that may show no prompt (`cmux cloud start-session`): it refuses where it would ask.
+    public var headless = false
 
     public init(dogfood: Bool, setting: Bool?, harness: String?, signedIn: Bool) {
         (self.dogfood, self.setting, self.harness, self.signedIn) = (dogfood, setting, harness, signedIn)
@@ -108,6 +133,7 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
         var dogfood: Bool, setting: Bool?, harness: String, signedIn: Bool, callerOwns: Bool?, guestStdout: String?
         var machineProbe: MachineProbe?, machineLogin: String?, cached: Bool, outcome: String?
         var consent: Bool?, remoteSwitch: Bool?
+        var requested: Choice?, requestedByPerson: Bool, stored: Choice?, headless: Bool
     }
 
     /// Asks the rules once; read every field off the one answer.
@@ -115,7 +141,8 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
         // "" is no harness named: the rules read it as the default agent, Claude.
         let request = Request(dogfood: dogfood, setting: setting, harness: harness ?? "", signedIn: signedIn, callerOwns: callerOwns,
                               guestStdout: guestStdout, machineProbe: machineProbe, machineLogin: machineLogin?.rawValue,
-                              cached: cached, outcome: outcome, consent: consent, remoteSwitch: remoteSwitch)
+                              cached: cached, outcome: outcome, consent: consent, remoteSwitch: remoteSwitch,
+                              requested: requested, requestedByPerson: requestedByPerson, stored: stored, headless: headless)
         return CloudStartCore().call("cloud_harness_login", request, as: Verdict.self) ?? Verdict(
             step: .skip, reason: .ffiFailed, gate: false, provider: nil, guestKind: nil, machineLogin: nil, guestKindProbe: "",
             readsMachine: false, guestTakesLogin: false, skippedTeamMachine: false,
@@ -123,6 +150,9 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
     }
 
     public var step: Step { verdict.step }
+    /// Why a run that may show no prompt fails at once (``Step/refuse``); nil when it goes on. A
+    /// headless Codex start with no choice goes on as on base (its broker or the machine's own login).
+    public var refusal: Reason? { verdict.step == .refuse ? verdict.reason : nil }
     public var reason: Reason { verdict.reason }
     /// Whether this build passes a login: DEV and dogfood builds unless the setting turns it off; a
     /// Release build only while the remote switch is on (its consent is asked after).

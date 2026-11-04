@@ -59,6 +59,7 @@ TEST_ROOTS = (
     "vendor/**/Tests/",  # vendored SDKs' tests, which carry cmux changes
     "Packages/Shared/CmuxMessagesLab/Harness/",  # copied into a gitignored test target at harness time
     "Prototypes/**/Tests/",  # prototype SwiftPM packages' tests (UiLayerHost)
+    "scripts/ci/pr-media-ocr-tests/Tests/",  # the text reader's tests (scripts/ci/pr_media_ocr.swift)
 )
 
 # Swift files that import a test framework but are not scanned, each with why.

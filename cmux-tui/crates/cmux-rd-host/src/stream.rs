@@ -46,6 +46,9 @@ pub struct SessionCfg {
     pub upstream_record: Option<std::path::PathBuf>,
     /// Most bytes one session records (`--upstream-record-max-mb`, default 1024).
     pub upstream_record_max_bytes: u64,
+    /// Frames the engine may have unacknowledged (1 on the development carriers; a hub
+    /// session sizes it to its path's round trip).
+    pub frames_in_flight: u32,
     /// macOS: stream at most this many pixels wide (`--max-width`; the display's aspect is
     /// kept). Encode time grows with the pixel count (remote-desktop-mac-host.md section 6).
     #[cfg_attr(target_os = "linux", allow(dead_code))]
@@ -110,6 +113,7 @@ impl MediaSession {
                 max_bps: u64::from(cfg.max_kbps) * 1000,
                 max_datagram,
                 path: PathKind::ViaCloudRegion,
+                frames_in_flight: cfg.frames_in_flight,
                 ..EngineConfig::default()
             },
             now_us(),

@@ -29,7 +29,8 @@ import { groupVariants } from "./modelVariants";
 import { registerPicker } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
 import { relevantModelSections } from "./relevantModels";
-import { QuickModelMenu, type QuickFamily, type QuickModel } from "./QuickModelMenu";
+import { type QuickFamily, type QuickModel } from "./QuickModelMenu";
+import { QuickModelColumns } from "./QuickModelColumns";
 import type { PickerProfile } from "./pickerProfiles";
 import { useUiAnchor } from "../../ui/anchor";
 import { graphemePrefix } from "../../ui/initials";
@@ -347,7 +348,11 @@ function railByHarness(
     const alternate = launchSuffix(family.id) && family.id !== running && !hasModels(family);
     // A launch tab starts its harness; it lists no rows (stale ones of a failed probe included), so
     // reaching it with the arrow keys shows nothing that could start a model.
-    const own = { ...family, name: currentName, ...(alternate ? { launch: true, models: [], more: [] } : {}) };
+    const own = {
+      ...family,
+      name: currentName,
+      ...(alternate ? { launch: true, models: [], more: [] } : {}),
+    };
     return [
       own,
       ...names.flatMap((profile): QuickFamily[] => {
@@ -926,7 +931,11 @@ export function ModelPicker(props: ModelPickerProps) {
     // opens the full picker, which has no rail either.
     // A folder profile is a machine choice, so its current models stay in the plain compact list
     // while the harness-only rail remains absent.
-    if (!modelsNeeded || !quick || (harnessFixed && !fork) || current?.folder) return undefined;
+    if (!quick || (harnessFixed && !fork) || current?.folder) return undefined;
+    // Keep the columns trigger mounted before its first press. Replacing the list trigger as it
+    // opens loses that press's click, so another popover never receives its outside dismissal.
+    // The rows stay lazy until the picker opens.
+    if (!modelsNeeded) return [];
     const row = (entry: HarnessChoice, model: ModelChoice) => quickRow(entry.id, model);
     // A started chat that forks lists every harness, as a New Tab does; its own stays the chat's.
     const startable = (fork ? allHarnesses : harnesses).filter(
@@ -956,6 +965,7 @@ export function ModelPicker(props: ModelPickerProps) {
       list.push({
         id: entry.id,
         name: entry.name,
+        accountFamily: entry.family ?? entry.acpmuxHarness ?? entry.id,
         ...(hasAgentMark(entry.mark ?? entry.id) ? { mark: entry.mark ?? entry.id } : {}),
         models: shown.map(tabRow),
         more: more.map(tabRow),
@@ -1285,7 +1295,7 @@ export function ModelPicker(props: ModelPickerProps) {
         // The compact menu's chip is its Base UI menu button (submenus need one); a press while
         // the full picker is open only closes it.
         <>
-          <QuickModelMenu
+          <QuickModelColumns
             open={quickOpen}
             onOpenChange={(next) => {
               // A close is only ever the compact menu's own; a press on the chip while the full
@@ -1333,7 +1343,7 @@ export function ModelPicker(props: ModelPickerProps) {
                       quickRow("", model),
                     )
                   : [],
-              current: props.model,
+              current: props.predictedModel ?? props.model,
               ...(picksOwnModel(current?.family) ? { ownModel: true } : {}),
               onModel: (id) => {
                 quickPicked.current = true;
@@ -1356,7 +1366,10 @@ export function ModelPicker(props: ModelPickerProps) {
                         ? { onLaunch: pickProfile, onFork: pickProfile, forkReady: fork.ready }
                         : {}),
                       // Each row's star, the full picker's favourites (the Starred tab lists them).
-                      stars: { has: (model) => favorites.has(model.id), toggle: (model) => toggleFavorite(model.id) },
+                      stars: {
+                        has: (model) => favorites.has(model.id),
+                        toggle: (model) => toggleFavorite(model.id),
+                      },
                     },
                   }
                 : {}),
@@ -1382,7 +1395,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 data-label={detailShort}
               />
             )}
-          </QuickModelMenu>
+          </QuickModelColumns>
         </>
       ) : (
         <>
@@ -1594,7 +1607,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 </button>
               )}
             </div>
-            <ScrollArea className="min-h-0 flex-1">
+            <ScrollArea fade className="min-h-0 flex-1">
               <PickerOptionList
                 id={`${menuId}-models`}
                 className="acpmux-mp-models"

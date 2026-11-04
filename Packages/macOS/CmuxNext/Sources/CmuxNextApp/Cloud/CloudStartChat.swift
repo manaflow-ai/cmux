@@ -14,7 +14,7 @@ import Foundation
 /// copied folder whose first prompt is the person's (a seeded prompt, sent once with the Send's
 /// gesture, as onboarding's first task). This Mac's tab, which never started a chat, then closes.
 ///
-/// Progress and failures are Move to Cloud's toasts, and the page gets the failure's message.
+/// The page's card shows progress and failures; nothing moves, so no Move to Cloud toast (Leo, 2026-11-04: "why is this showing up when i create a new chat").
 /// Not behind Labs: it needs Cloud allowed and a signed-in account (``refusal(_:)``). A chat with no
 /// project (``AgentPaneCloudStart/home``) copies nothing and opens in the machine's own folder.
 @MainActor
@@ -36,14 +36,13 @@ struct CloudStartChat {
         }
     }
 
-    /// The page's reply: success with the machine's name, or a refusal in the person's words.
+    /// The page's reply: success with the machine's name, or a refusal in the person's words. `retried`: Retry's start, no card waits for it.
     /// `report` tells the page's card each step as it begins (``AgentPaneCloudStart/progress(_:folder:machine:size:to:)``).
-    func reply(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (AgentPaneCloudStart.Step) -> Void = { _ in }) async -> [String: Any] {
+    func reply(_ start: AgentPaneCloudStart, tab: TabModel, retried: Bool = false, report: @MainActor (AgentPaneCloudStart.Step) -> Void = { _ in }) async -> [String: Any] {
         if let refusal = Self.refusal(services) {
             return AgentPaneReply.failure(code: refusal, message: Self.refusalMessage(refusal))
         }
         let toastID = "cloud-start-" + tab.id
-        CloudMove.toast(services, toastID, CloudMoveStrings.moving, duration: CloudMove.working)
         do {
             let account = services.cloud.account
             let origin = Origin(tab: tab, chat: start.cwd ?? tab.cwd, workspace: services.workspaceID(ofTab: tab.id), account: account) { [services] in
@@ -55,7 +54,7 @@ struct CloudStartChat {
                 }
             }
             let machine = try await run(start, from: origin, report: report)
-            CloudMove.toast(services, toastID, CloudMoveStrings.moved(machine), duration: .seconds(6))
+            CmuxToastCenter.shared.close(id: toastID) // an earlier try's Retry toast, in every window
             return AgentPaneReply.success(["machine": machine])
         } catch is CloudMachineCap.RunHere { // the cap card's Run on This Mac: the page sends it here (cloudRun.ts)
             CmuxToastCenter.shared.close(id: toastID) // every window: the start may have begun in one no longer in front
@@ -72,11 +71,12 @@ struct CloudStartChat {
                 retry = { [weak services] in
                     // The tab is found again by id: a tab closed since then retries nothing.
                     guard let services, let (tab, _) = services.locateTab(tabID) else { return }
-                    // task-owner: one retried start; it ends with its own toast
-                    _ = Task { _ = await CloudStartChat(services: services).reply(start, tab: tab) }
+                    // task-owner: one retried start; it ends with the chat opening or its own failure toast
+                    _ = Task { _ = await CloudStartChat(services: services).reply(start, tab: tab, retried: true) }
                 }
             }
-            CloudMove.toast(services, toastID, message, duration: .seconds(retry == nil ? 12 : 30), retry: retry)
+            // The card says the failure; a toast only where Retry lives, or for a retry no card waits for.
+            if retry != nil || retried { CloudMove.toast(services, toastID, message, duration: .seconds(retry == nil ? 12 : 30), retry: retry) } else { CmuxToastCenter.shared.close(id: toastID) }
             return AgentPaneReply.failure(code: "cloud_start_failed", message: message)
         }
     }
@@ -122,8 +122,8 @@ struct CloudStartChat {
         guard let chat = origin.chat, await CloudMoveFolder.isFolder(chat),
               let folder = CloudMoveFolder(chat: chat) else { throw CloudMove.Failure(message: CloudMoveStrings.noFolder) }
         guard !folder.isTooBroad else { throw CloudMove.Failure(message: CloudMoveStrings.homeFolder) }
-        // A folder the page named is copied only as the pane checked it: its upload root, in the
-        // pane's roots (``AgentPaneHandOff``). A `.git` found above it since then is refused.
+        // A folder the page named is copied only as the pane checked it: its upload root, never home
+        // or a credential folder (``AgentPaneHandOff``). A `.git` found above it since then is refused.
         guard start.uploads(folder) else { throw CloudMove.Failure(message: CloudMoveStrings.noFolder) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
@@ -184,6 +184,28 @@ struct CloudStartChat {
     /// moves it there (+Repick).
     func open(_ start: AgentPaneCloudStart, from origin: Origin, on machine: CloudMachineSession, cwd: String?,
               trusted: Bool = false, tabKey: String, targetPane: String? = nil, cli: CloudMoveCLI, copy: CloudMovedChats.Entry? = nil) async throws -> String {
+        guard !start.attachments.isEmpty else { return try await openUploaded(start, from: origin, on: machine, cwd: cwd, trusted: trusted, tabKey: tabKey, targetPane: targetPane, cli: cli, copy: copy) }
+        await CloudOutdatedMachine.updateBeforeUsingCapability(holds: { machine.daemon.supports(DaemonCapability.agentSessionContent.rawValue) }, update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) })
+        guard machine.daemon.supports(DaemonCapability.agentSessionContent.rawValue), let carry = AgentPaneCloudAttachments(start.attachments), let pastes = CloudUploads.pastes,
+              let binary = services.cloud.move.cli, let socket = await machine.daemon.connection?.endpoint?.socketPath,
+              let root = cwd.flatMap({ CloudAccessAsks.remoteRoot($0, roots: services.cloud.move.workRoots) }) ?? services.cloud.move.workRoots.first else { throw CloudMove.Failure(message: CloudUploadStrings.failed) }
+        let access = CloudAccessCLI(binary: binary)
+        return try await carry.withUploaded(in: pastes, upload: { paths in
+            try Self.checkAccount(origin.account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
+            let answer = try await access.upload(socket: socket, remoteRoot: root, files: paths)
+            guard answer.ok else { try? await access.removeUploads(socket: socket, remoteRoot: root, ids: answer.uploadIDs); throw CloudMove.Failure(message: CloudUploadStrings.failed) }
+            return .init(paths: answer.uploaded, undo: { try? await access.removeUploads(socket: socket, remoteRoot: root, ids: answer.uploadIDs) })
+        }) { attachments in
+            try Self.checkAccount(origin.account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
+            var uploaded = start
+            uploaded.attachments = attachments
+            return try await openUploaded(uploaded, from: origin, on: machine, cwd: cwd, trusted: trusted, tabKey: tabKey, targetPane: targetPane, cli: cli, copy: copy, original: start)
+        }
+    }
+
+    private func openUploaded(_ start: AgentPaneCloudStart, from origin: Origin, on machine: CloudMachineSession, cwd: String?,
+                              trusted: Bool, tabKey: String, targetPane: String?, cli: CloudMoveCLI, copy: CloudMovedChats.Entry? = nil,
+                              original: AgentPaneCloudStart? = nil) async throws -> String {
         await CloudOutdatedMachine.updateBeforeUsingCapability(
             holds: { services.agentTabs.holdsTabs(machine.daemon) },
             update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) })
@@ -212,7 +234,7 @@ struct CloudStartChat {
             appLink: machine.appLink, link: machine.link).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
         CloudHandlers.show(anchor.id, context)
         for window in services.windows.controllers { window.state.selection.select(opened.key, in: anchor.pane.id) }
-        services.agentTabs.pageChats.cloudStarted[opened.key] = AgentPaneCloudStarted(start: start, chat: origin.chat, workspace: origin.workspace,
+        services.agentTabs.pageChats.cloudStarted[opened.key] = AgentPaneCloudStarted(start: original ?? start, chat: origin.chat, workspace: origin.workspace,
                                                                                         account: origin.account, machineID: machine.machineID)
         await origin.close()
         return machine.machine.title

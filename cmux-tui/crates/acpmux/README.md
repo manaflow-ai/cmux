@@ -449,6 +449,10 @@ responding model produces, such as Claude's stream and thinking or Codex's moder
 notice; the agent's own usage and turn notices do not count) for that long after its
 prompt (a stalled model) logs `turn_silent` {turnId, silentMs} once, so a client can say
 the model has not answered. The model's first sign after it logs `turn_heard` {turnId}.
+A turn whose harness retries a failed model request (Claude Code's `system/api_retry`, Codex's
+stream error with `willRetry`) logs `turn_retrying` {turnId, attempt, maxRetries?, error?,
+errorStatus?, retryDelayMs?, source} for each retry, so a client can say the model cannot be
+reached instead of "Thinking"; the model's next sign logs `turn_heard` {turnId}.
 `stalledTurnMs` (default 600000; 0 turns it off): a running turn with no tool call in
 flight whose model has shown no sign for that long has stalled: `lane.stalledSince` (and
 `turn.stalledSince`) say since when, and the lane's state stays `working`. A long build in
@@ -1448,10 +1452,16 @@ When no config exists, harnesses are imported from `~/.acpx/config.json` (its `a
 
 - `permissionPolicy`: `ask` routes `session/request_permission` to attached clients and waits.
   `approve-all`, `approve-reads`, `approve-edits` (reads and edits auto, shell asks), and `deny-all` answer locally. Per-session override with
-  `acpmux set NAME policy=...`. A session an agent starts from inside its own session (`acpmux new|run`, a local `dispatch`,
-  `--parent`, the `start_session` tool), with no policy or mode of its own, inherits that session's policy (or a narrower
-  family default) and mode (on another family, the same level: full access, asking, or the harness's own), never wider;
-  a start with no proven session (no caller token) is unchanged (`hub/start_mode.rs`, "Inherit").
+  `acpmux set NAME policy=...`. A chat an agent starts from inside its own session (`acpmux new|run`,
+  `cmux agents chat new`, a local `dispatch`) with no policy or mode of its own starts at the person's configured default
+  (`defaultPermissionMode`, the daemon policy), as a start with no proven session does; a starter in full access passes
+  its full access on. Set `holdAgentStartsToStarter: true` to give such a chat its starter's policy and mode instead,
+  never wider. A sub-session (`--parent`, the `start_session` tool) always inherits its parent's policy (or a narrower
+  family default) and mode (on another family, the same level: full access, asking, or the harness's own), never wider
+  (`hub/start_mode.rs`, "Inherit").
+- The person's pick of a mode that does not ask (bypass, full access) on a chat whose own policy is narrower than
+  approve-all sets that chat's policy to approve-all first, so the chat stops asking at once (`hub/policy_mode.rs`); an
+  agent or script still gets the `policy_mode` refusal, and a deny-all policy still holds.
 - `store.mode`: `local` (default) or `memory`. Local writes `sessions/<id>/session.json` and
   append-only `events/NNNNNN.ndjson` segments.
 - `store.closedLogDays`: days a closed chat's event log is kept whole (default 14; 0 keeps every
@@ -1465,6 +1475,16 @@ When no config exists, harnesses are imported from `~/.acpx/config.json` (its `a
   would free; `--archive DIR` keeps the old segments under `DIR/<chat id>/<pass>/events/`;
   `--older-than-days N` and `--only CHAT` narrow it.
   Read when the daemon starts.
+- `store.journal`: `true` sends every event-log line through one append-only journal in
+  `journal/` as well (default `false`, a dogfood switch). A line is then durable within one group
+  commit (an OS crash or a power loss keeps it), and the next start writes back into a chat's log
+  every line it lost. `journal-projected.json` names how far the logs are synced. Lines the start
+  could not write into a log that changed without the journal (a run with the switch off after a
+  crash, or an older build) go to `journal-unapplied/`. Turning it off is safe: the next start
+  writes the journal's lines into the logs first. A failed log sync stops the daemon for a restart,
+  which writes the logs again. With it on, an event line over 64 MiB (the journal's record limit)
+  is refused, and its log does not get it either; with it off, the log takes it. Read when the
+  daemon starts.
 - `websocket`: optional. The same protocol over WebSocket text frames, for remote clients such
   as a dashboard or a Durable Object. Put it behind a tunnel; the token is a bearer token.
 
