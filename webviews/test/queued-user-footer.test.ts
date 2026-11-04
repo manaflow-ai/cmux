@@ -414,7 +414,8 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
       expect(Math.abs(hovered.sendRight - rest.sendRight)).toBeLessThanOrEqual(0.5);
       // No Retry in a waiting steer's row: the transcript's Retry is the last reply footer's
       // (cmux#34779), and a resend while the steer waits would reach the agent twice (cmux#34613).
-      expect(await row.locator(".cv-user__pending").getByRole("button", { name: "Retry", exact: true }).count()).toBe(0);
+      const retry = row.locator(".cv-user__pending").getByRole("button", { name: "Retry", exact: true });
+      expect(await retry.count()).toBe(0);
       expect(await row.locator(".cv-user__pending .cv-turn-retry-menu").count()).toBe(0);
     } finally {
       await page.context().close();
