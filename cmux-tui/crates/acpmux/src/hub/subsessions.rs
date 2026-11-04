@@ -865,6 +865,12 @@ impl Hub {
             answer
         });
         match rx.await {
+            Ok(v) if v.get("raceCancelled") == Some(&Value::Bool(true)) => {
+                Err(RpcError::invalid_params(
+                    v.get("error").and_then(Value::as_str).unwrap_or("race was cancelled"),
+                )
+                .with_data(json!({"reason": "race.cancelled"})))
+            }
             Ok(v) => Ok(v),
             // Dropped before acceptance: the prompt was refused.
             Err(_) => match turn.await {
