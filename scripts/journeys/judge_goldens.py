@@ -345,6 +345,13 @@ def plan_folder(source, folder, recorded, names):
     recorded_films = {n for n in names if any(f.startswith(n + ".") for f in recorded)}
     new_films = [n for n in names if n not in recorded_films]
     take, keep, problems = {}, {}, []
+    stored_names = {f.split(".", 1)[0] for f in recorded} | recorded_films
+    for n in list(new_films):
+        clash = sorted(m for m in stored_names | set(names) if m != n and n.startswith(m + "."))
+        if clash:  # its files would claim another film's inputs (<film>.events.json is <film>'s, not <film>.events'')
+            problems.append(f"{folder}/{n}: a film name that starts with another film's name and a dot ({clash[0]}); "
+                            "its files cannot be told from that film's inputs")
+            new_films.remove(n)
     for path in sorted(src_dir.iterdir()):
         if not path.is_file() or not path.name.endswith(KEEP_SUFFIXES):
             continue
@@ -390,14 +397,19 @@ def copy_folder(source, store, folder, take):
             return problems
         # A link never replaces a file: another snapshot that wrote the same name meanwhile keeps its file; the same
         # bytes are this folder's file too, other bytes refuse the folder (and remove what this call linked).
-        for (tmp, dst), (name, (size, sha)) in zip(done, sorted(take.items())):
-            try:
-                os.link(tmp, dst)
-                linked.append(dst)
-            except FileExistsError:
-                if sha256_file(dst) != sha:
-                    problems.append(f"{folder}/{name}: another snapshot stored other bytes under this name meanwhile; "
-                                    "a stored file is never replaced")
+        try:
+            for (tmp, dst), (name, (size, sha)) in zip(done, sorted(take.items())):
+                try:
+                    os.link(tmp, dst)
+                    linked.append(dst)
+                except FileExistsError:
+                    if sha256_file(dst) != sha:
+                        problems.append(f"{folder}/{name}: another snapshot stored other bytes under this name meanwhile; "
+                                        "a stored file is never replaced")
+        except BaseException:
+            for dst in linked:  # a failure inside the loop keeps no file of this call: nothing of the folder is stored
+                os.remove(dst)
+            raise
         if problems:
             for dst in linked:
                 os.remove(dst)
@@ -421,7 +433,32 @@ def stored_folder(store, folder, recorded):
     return held
 
 
+STORE_LOCK = ".snapshot.lock"
+
+
 def cmd_snapshot(opts):
+    """snapshot, under the store's lock (one snapshot at a time: snapshots of two manifests share the store)."""
+    store = Path(opts.store)
+    store.mkdir(parents=True, exist_ok=True)
+    with open(store / STORE_LOCK, "a") as lock:
+        deadline = time.monotonic() + opts.lock_seconds
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    print(f"REFUSED: another snapshot holds the store's lock ({store / STORE_LOCK}) after "
+                          f"{opts.lock_seconds:g} s", file=sys.stderr)
+                    return 2
+                time.sleep(0.2)
+        try:
+            return _cmd_snapshot(opts)
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def _cmd_snapshot(opts):
     store, manifest = Path(opts.store), Path(opts.manifest)
     (store / "films").mkdir(parents=True, exist_ok=True)
     (store / "expected").mkdir(parents=True, exist_ok=True)
@@ -694,6 +731,8 @@ def store_extras(store, films_doc):
     folders = files = 0
     for path in root.rglob("*") if root.is_dir() else []:
         rel = path.relative_to(root)
+        if path.name.startswith("."):
+            continue  # a part file of a snapshot in progress
         if path.is_dir():
             folders += str(rel) not in known_dirs
         elif str(rel.parent) not in table or path.name not in table[str(rel.parent)]:
@@ -1229,7 +1268,7 @@ def truth_problems(truth, films_doc):
             problems.append(f"{fid}: its film {fact.get('film')!r} is not in films.json")
         film_judges_listed = set((films.get(fact.get("film")) or {}).get("judges") or [])
         ruler, expects = fact.get("ruler"), fact.get("expect") or []
-        if ruler and not isinstance(ruler, dict):
+        if "ruler" in fact and ruler is not None and (not isinstance(ruler, dict) or not ruler):
             problems.append(f"{fid}: a ruler is an object of {', '.join(sorted(RULER_KEYS))}, not {json.dumps(ruler)[:80]}")
             continue
         if not ruler and not expects:
@@ -1612,6 +1651,8 @@ def main(argv=None):
                     help="bless and run: NO VERDICT when the judges have not finished in this long (default 60)")
     ap.add_argument("--settled-minutes", type=float, default=10.0,
                     help="snapshot: take a folder only when no file in it changed for this long (default 10)")
+    ap.add_argument("--lock-seconds", type=float, default=600.0,
+                    help="snapshot: wait this long for another snapshot's lock on the store (default 600)")
     opts = ap.parse_args(argv)
     if opts.command == "snapshot":
         if not opts.source:
