@@ -101,6 +101,9 @@ public struct DeviceIdentity: Sendable {
     public var agreementKey: String { keys.agreementPublicKey.x963Representation.base64EncodedString() }
     /// The signing key's fingerprint, as the hub sends it (`viewerKeyFingerprint`).
     public var fingerprint: String { Self.fingerprint(signingKeyX963: keys.signingPublicKey.x963Representation) }
+    /// The approval key's fingerprint as Settings → Computer Use shows it, for comparing with
+    /// `cmux computer-use setup --approver`; nil without an approval key.
+    public var approvalKeyDisplayFingerprint: String? { approvalKey?.displayFingerprint }
 
     /// The lowercase hex SHA-256 of a signing key's 65 X9.63 bytes (PROTOCOL.md, `viewerKeyFingerprint`).
     public static func fingerprint(signingKeyX963 key: Data) -> String {

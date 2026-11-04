@@ -8,7 +8,7 @@ import PackageDescription
 // with macOS responsibility disclaimed, and its two workers.
 //
 //   CmuxRemoteWire           -> JSON lines, process stamps, peer checks (no AppKit)
-//   CmuxRemoteHost           -> Wire, AppKit (supervisor link, worker supervision, permissions, app socket)
+//   CmuxRemoteHost           -> Wire, CmuxCuaHelperCore (CmuxAppCodeCheck), AppKit (supervisor link, worker supervision, permissions, app socket)
 //   CmuxRemoteComputerUse    -> Wire, CmuxCuaHelperCore (the Computer Use worker: upstream Cua Driver)
 //   CmuxRemoteScreenSharing  -> Wire, CmuxDeviceHub, CmuxVNCWebRTC, AppKit (this Mac's device, sessions, banner)
 //   cmux-remote              -> all of them (the executable in "cmux Remote.app")
@@ -34,7 +34,8 @@ let package = Package(
         .target(name: "CmuxRemoteWire", swiftSettings: swiftSettings),
         .target(
             name: "CmuxRemoteHost",
-            dependencies: ["CmuxRemoteWire"],
+            // CmuxCuaHelperCore: the cmux app's code requirement (CmuxAppCodeCheck), which a release host's clients meet.
+            dependencies: ["CmuxRemoteWire", .product(name: "CmuxCuaHelperCore", package: "CmuxComputerUseHelper")],
             swiftSettings: swiftSettings,
             linkerSettings: [.linkedFramework("AppKit"), .linkedFramework("ApplicationServices"), .linkedFramework("Security")]
         ),
@@ -59,6 +60,7 @@ let package = Package(
             dependencies: ["CmuxRemoteWire", "CmuxRemoteHost", "CmuxRemoteComputerUse", "CmuxRemoteScreenSharing"],
             swiftSettings: swiftSettings
         ),
+        .testTarget(name: "CmuxRemoteHostTests", dependencies: ["CmuxRemoteHost", "CmuxRemoteWire"], swiftSettings: swiftSettings),
         .testTarget(
             // Process-level: the executable is a dependency so `swift test`
             // builds it; the tests drive a real host over its sockets.

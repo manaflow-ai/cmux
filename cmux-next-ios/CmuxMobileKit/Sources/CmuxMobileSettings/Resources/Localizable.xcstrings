@@ -154,6 +154,90 @@
         "ko": {"stringUnit": {"state": "translated", "value": "Mobile을 다시 활성화하거나 해당 Mac에서 다시 로그인하세요."}},
         "ja": {"stringUnit": {"state": "translated", "value": "Mobile を再び有効にするか、その Mac で再度サインインしてください。"}}
       }
+    },
+    "mobile.computerUse.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Computer Use"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Computer Use"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Computer Use"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "Computer Use"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Computer Use"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Computer Use"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Computer Use"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Computer Use"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Computer Use"}}
+      }
+    },
+    "mobile.computerUse.approvalKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Approval key"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Genehmigungsschlüssel"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Clé d’approbation"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "مفتاح الموافقة"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Clave de aprobación"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "核准金鑰"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "批准密钥"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "승인 키"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "承認キー"}}
+      }
+    },
+    "mobile.computerUse.noApprovalKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "No approval key"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Kein Genehmigungsschlüssel"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Aucune clé d’approbation"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لا يوجد مفتاح موافقة"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Sin clave de aprobación"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "沒有核准金鑰"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "没有批准密钥"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "승인 키 없음"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "承認キーがありません"}}
+      }
+    },
+    "mobile.computerUse.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Loading…"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wird geladen …"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Chargement…"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "جارٍ التحميل…"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cargando…"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "正在載入⋯"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "正在加载…"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "불러오는 중…"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "読み込み中…"}}
+      }
+    },
+    "mobile.computerUse.compare": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Compare this when you pin this iPhone on a computer."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Vergleiche diesen Wert, wenn du dieses iPhone auf einem Computer festlegst."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Comparez cette valeur lorsque vous épinglez cet iPhone sur un ordinateur."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "قارن هذه القيمة عند تثبيت هذا الـ iPhone على كمبيوتر."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Compara este valor cuando fijes este iPhone en una computadora."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在電腦上釘選此 iPhone 時，請比對此值。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在电脑上固定此 iPhone 时，请比对此值。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "컴퓨터에서 이 iPhone을 고정할 때 이 값을 비교하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "コンピュータでこのiPhoneを固定するときに、この値を照合してください。"}}
+      }
+    },
+    "mobile.computerUse.copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Copy"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Kopieren"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Copier"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "نسخ"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Copiar"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "拷貝"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "拷贝"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "복사"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "コピー"}}
+      }
     }
   },
   "version": "1.0"

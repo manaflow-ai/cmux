@@ -116,14 +116,22 @@ public enum CmuxRemoteActions {
         ]
     }
 
+    /// The `remote.confirm` dialog's id: it raises what other devices may do on this Mac, so it
+    /// answers only to the person (DEBUG `debug.dialog` refuses to press, key or fill it).
+    public static let confirmDialogIdentifier = "cmux.dialog.remote.confirm"
+
+    /// The `remote.confirm` dialog: the change, and Cancel or Allow.
+    static func confirmSpec(title: String, body: String) -> CmuxDialogSpec {
+        CmuxDialogSpec(title: title, lines: [body],
+                       buttons: [.cancel(), CmuxDialogButton(id: "confirm", title: CmuxRemoteStrings.allow, role: .default)],
+                       identifier: confirmDialogIdentifier)
+    }
+
     /// The person's answer to one dialog (false without a window).
     static func confirm(title: String, body: String, in window: NSWindow?) async -> Bool {
         guard let window else { return false }
         return await withCheckedContinuation { continuation in
-            let spec = CmuxDialogSpec(title: title, lines: [body],
-                                      buttons: [.cancel(), CmuxDialogButton(id: "confirm", title: CmuxRemoteStrings.allow, role: .default)],
-                                      identifier: "cmux.dialog.remote.confirm")
-            CmuxDialogCenter.shared.present(spec, in: .window(window)) { answer in
+            CmuxDialogCenter.shared.present(confirmSpec(title: title, body: body), in: .window(window)) { answer in
                 continuation.resume(returning: answer.button == "confirm")
             }
         }

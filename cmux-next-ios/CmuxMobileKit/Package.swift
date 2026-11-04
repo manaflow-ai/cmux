@@ -102,7 +102,8 @@ let package = Package(
             dependencies: ["CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth"],
             resources: [.process("Resources")]
         ),
-        .target(name: "CmuxMobileSettings", dependencies: ["CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth", "CmuxMobileOnboarding", "CmuxMobileRealtime", "CmuxMobileScreenSharing"], resources: [.process("Resources")]),
+        .target(name: "CmuxMobileSettings", dependencies: ["CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth", "CmuxMobileOnboarding", "CmuxMobileRealtime", "CmuxMobileScreenSharing",
+                                                         .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub")], resources: [.process("Resources")]),
         // Streamed browser tabs: a Mac browser page as H.264 video over the link's
         // `browser` service (VideoToolbox decode, rb input, rb.page chrome).
         .target(name: "CmuxMobileBrowserStream", dependencies: ["CmuxMobileDesign", "CmuxMobileTransport"]),

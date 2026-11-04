@@ -74,15 +74,19 @@ public final class ComputerUseApprovalCards: ComputerUseApprovalPresenting {
 
     private func present(_ pending: ComputerUseApprovalPending, icon: Data?, broker: ComputerUseApprovalBroker) {
         guard loading.remove(pending.id) != nil, broker.pending.contains(where: { $0.id == pending.id }) else { return }
-        let spec = Self.spec(for: pending.request, icon: icon)
         let id = pending.id
+        place(id, spec: Self.spec(for: pending.request, icon: icon)) { [weak broker] decision in broker?.decide(id, decision: decision) }
+    }
+
+    /// Shows card `id` for `spec`; a press of one of the four answers runs `decide`, then the card closes.
+    private func place(_ id: String, spec: CmuxDialogSpec, decide: @escaping @MainActor (ComputerUseApprovalDecision) -> Void) {
         let panel = makesPanels ? ComputerUseApprovalCardPanel.make() : nil
         let scope: CmuxDialogScope = panel.map { .window($0) } ?? .app
-        let dialog = center.present(spec, in: scope) { [weak self, weak broker] answer in
+        let dialog = center.present(spec, in: scope) { [weak self] answer in
             guard let self, cards[id] != nil else { return }
             // A dismissal (the card withdrawn, its panel closed) decides nothing.
             if !answer.isDismissal, let decision = ComputerUseApprovalDecision(rawValue: answer.button) {
-                broker?.decide(id, decision: decision)
+                decide(decision)
             }
             withdraw(id)
         }
@@ -90,6 +94,59 @@ public final class ComputerUseApprovalCards: ComputerUseApprovalPresenting {
         order.append(id)
         restack()
     }
+
+    #if DEBUG
+    /// Fixture cards shown (``showFixture(_:)``), by card id.
+    private var fixtures: Set<String> = []
+
+    /// DEBUG `debug.computer_use_card`: the real card for `request`, on no broker and no worker
+    /// link. Any press or a dismissal only closes it: nothing is decided, saved or sent.
+    /// Returns the card's id.
+    @discardableResult
+    public func showFixture(_ request: ComputerUseApprovalRequest) -> String {
+        let id = "fixture-" + request.id
+        guard cards[id] == nil, !loading.contains(id) else { return id }
+        fixtures.insert(id)
+        guard makesPanels else {
+            place(id, spec: Self.spec(for: request, icon: nil)) { _ in }
+            return id
+        }
+        loading.insert(id)
+        let target = request.target
+        // task-owner: one icon read for the fixture card, off the main actor; a dismissed fixture is not shown.
+        Task { [weak self] in
+            let icon = await Task.detached(priority: .userInitiated) { Self.icon(for: target) }.value
+            guard let self, loading.remove(id) != nil else { return }
+            place(id, spec: Self.spec(for: request, icon: icon)) { _ in }
+        }
+        return id
+    }
+
+    /// Closes every fixture card (as a dismissal: it decides nothing); returns how many were open or loading.
+    @discardableResult
+    public func dismissFixtures() -> Int {
+        let open = fixtures.filter { cards[$0] != nil || loading.contains($0) }
+        for id in fixtures { withdraw(id) }
+        fixtures = []
+        return open.count
+    }
+
+    /// A fixture question as a worker would ask it: Claude in workspace "api-server" wants to use
+    /// Safari, from `client` (this app's bundle id), answerable for 10 minutes from `nowMs`
+    /// (nil only for a client that is not a JSON string).
+    public static func fixtureRequest(client: String, nowMs: Int64) -> ComputerUseApprovalRequest? {
+        var object: [String: Any] = [
+            "v": 1, "nonce": UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased(), "client": client,
+            "machine": "fixture", "session": "fixture", "agent": "Claude", "workspace": "api-server",
+            "target": ["bundle_id": "com.apple.Safari", "executable": NSNull(), "name": "Safari"] as [String: Any],
+            "tool": "click", "risk": "R1",
+            "created_ms": nowMs, "wait_until_ms": nowMs + 120_000, "answerable_until_ms": nowMs + 600_000,
+        ]
+        guard let canonical = ComputerUseCanonicalJSON(foundation: object) else { return nil }
+        object["digest"] = ComputerUseApprovalRequest.digest(of: canonical)
+        return ComputerUseApprovalRequest(object)
+    }
+    #endif
 
     /// The card's dialog: who asks (agent, workspace, cmux client), the app (icon and name),
     /// until when, and the four answers.
@@ -152,15 +209,17 @@ public final class ComputerUseApprovalCards: ComputerUseApprovalPresenting {
 final class ComputerUseApprovalCardPanel: NSPanel {
     private var clicked = false
     private var pressGuard = ComputerUseApprovalPressGuard()
-    /// The clock the press guard reads (tests inject one).
-    var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
+    /// The clock the guard arms by: system uptime, the clock `NSEvent.timestamp` is in (tests inject one).
+    var now: () -> TimeInterval = { ComputerUseApprovalCardPanel.uptime() }
     override var canBecomeKey: Bool { clicked }
     override var canBecomeMain: Bool { false }
 
     override func sendEvent(_ event: NSEvent) {
         // A press in the guard's window is dropped whole: no button tracks it, and it does not
         // make the card key either.
-        guard delivers(event.type) else { return }
+        // Review 2 #10: by when the press happened, not when the main thread got to it, so a
+        // stalled main thread cannot let an early click through.
+        guard delivers(event.type, at: event.timestamp) else { return }
         if event.type == .leftMouseDown || event.type == .rightMouseDown { clicked = true }
         super.sendEvent(event)
     }
@@ -168,10 +227,13 @@ final class ComputerUseApprovalCardPanel: NSPanel {
     /// The card showed or moved now: presses wait out the guard's delay.
     func armPressGuard() { pressGuard.arm(at: now()) }
 
-    /// Whether an event of `type` reaches the card now.
-    func delivers(_ type: NSEvent.EventType) -> Bool { pressGuard.admits(type, at: now()) }
+    /// Whether an event of `type` made at `timestamp` (system uptime, `NSEvent.timestamp`) reaches the card.
+    func delivers(_ type: NSEvent.EventType, at timestamp: TimeInterval) -> Bool { pressGuard.admits(type, at: timestamp) }
 
-    static func make(now: @escaping () -> ContinuousClock.Instant = { ContinuousClock.now }) -> ComputerUseApprovalCardPanel {
+    /// Seconds since the system started, the clock of `NSEvent.timestamp`.
+    nonisolated static func uptime() -> TimeInterval { ProcessInfo.processInfo.systemUptime }
+
+    static func make(now: @escaping () -> TimeInterval = { ComputerUseApprovalCardPanel.uptime() }) -> ComputerUseApprovalCardPanel {
         let panel = ComputerUseApprovalCardPanel(contentRect: CGRect(x: 0, y: 0, width: 420, height: 200),
                                                  styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: true)
         panel.now = now
@@ -191,18 +253,19 @@ final class ComputerUseApprovalCardPanel: NSPanel {
 
 /// Review 1 #8: a card can appear (or move up when another one closes) under a click or a key
 /// already on its way; that press must not answer it. For ``delay`` after the card shows or
-/// moves, mouse-down and key-down events are dropped. The clock is the caller's (no sleeps).
+/// moves, mouse-down and key-down events are dropped. Times are system uptime: the arm time
+/// read when the card shows or moves, and each event's own timestamp (no sleeps).
 struct ComputerUseApprovalPressGuard {
-    static let delay: Duration = .milliseconds(600)
+    static let delay: TimeInterval = 0.6
     /// The event types that can press a card's button.
     static let presses: Set<NSEvent.EventType> = [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]
-    private var armedAt: ContinuousClock.Instant?
+    private var armedAt: TimeInterval?
 
-    mutating func arm(at now: ContinuousClock.Instant) { armedAt = now }
+    mutating func arm(at now: TimeInterval) { armedAt = now }
 
-    func admits(_ type: NSEvent.EventType, at now: ContinuousClock.Instant) -> Bool {
+    func admits(_ type: NSEvent.EventType, at timestamp: TimeInterval) -> Bool {
         guard Self.presses.contains(type), let armedAt else { return true }
-        return now - armedAt >= Self.delay
+        return timestamp - armedAt >= Self.delay
     }
 }
 

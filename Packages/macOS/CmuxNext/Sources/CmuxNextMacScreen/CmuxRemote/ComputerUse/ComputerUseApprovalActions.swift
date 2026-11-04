@@ -17,9 +17,34 @@ extension ComputerUseApprovalService {
 
     /// The app socket methods (docs/computer-use-approvals.md, "Mac app wire").
     public func controlMethods(window: @escaping @MainActor () -> NSWindow?) -> [ControlMethod] {
-        ComputerUseApprovalActions.methods(service: self, window: window)
+        var methods = ComputerUseApprovalActions.methods(service: self, window: window)
+        #if DEBUG
+        // DEBUG only (a release build has no such method): the real card with a fixture question.
+        methods.append(.mainActor("debug.computer_use_card") { [cards] call in .value(cards.debugFixture(call.params)) })
+        #endif
+        return methods
     }
 }
+
+#if DEBUG
+extension ComputerUseApprovalCards {
+    /// `debug.computer_use_card`: the real approval card with a fixture question (Claude in
+    /// workspace "api-server" wants to use Safari, from this app's bundle id), for captures. The
+    /// card is on no broker and no worker link: any press only closes it and decides nothing
+    /// (ComputerUseApprovalCardFixtureTests).
+    /// - `{}` shows it and returns its card id.
+    /// - `{"action": "dismiss"}` closes every fixture card.
+    func debugFixture(_ params: [String: JSONValue]) -> JSONValue {
+        if params["action"]?.stringValue == "dismiss" { return .object(["dismissed": JSONValue(dismissFixtures())]) }
+        let client = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.next"
+        guard let request = Self.fixtureRequest(client: client, nowMs: Int64(Date().timeIntervalSince1970 * 1000)) else {
+            return .object(["error": .string("the fixture request did not build for client \(client)")])
+        }
+        return .object(["shown": .string(showFixture(request)), "agent": .string(request.agent), "workspace": .string(request.workspace),
+                        "target": .string(request.target.bundleID ?? "")])
+    }
+}
+#endif
 
 @MainActor
 enum ComputerUseApprovalActions {

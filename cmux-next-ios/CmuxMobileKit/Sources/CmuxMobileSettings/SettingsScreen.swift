@@ -84,6 +84,11 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         }
                         .accessibilityIdentifier("settings.screenSharing")
                     }
+                    // This iPhone's Computer Use approval key, to compare when a computer pins it.
+                    NavigationLink(value: SettingsRoute.computerUse) {
+                        SettingsLabel(verbatim: ComputerUseStrings.title, symbol: "cursorarrow.click.2")
+                    }
+                    .accessibilityIdentifier("settings.computerUse")
                 } header: {
                     Text("Connection")
                 }
@@ -243,6 +248,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         case .chiefCalls: ChiefCallsPage(keys: callKeys, preferences: callPreferences, callChief: callChief)
         case .screenSharing:
             if let screenSharing { ScreenSharingPage(service: screenSharing) }
+        case .computerUse: ComputerUsePage(screenSharing: screenSharing)
         }
     }
 }
@@ -257,6 +263,8 @@ public enum SettingsRoute: Hashable, Sendable {
     case terminalSizingMac(String)
     /// Screen Sharing: see and control the account's Macs.
     case screenSharing
+    /// Computer Use: this iPhone's approval key fingerprint.
+    case computerUse
 
     /// The route named by its case name (DEBUG launch arguments). The old
     /// name "pairedMacs" opens Devices.
@@ -266,7 +274,7 @@ public enum SettingsRoute: Hashable, Sendable {
             return
         }
         let all: [SettingsRoute] = [.account, .team, .transport, .devices, .terminal, .terminalSizing, .composer, .notifications,
-                                    .acknowledgements, .chiefCalls, .screenSharing]
+                                    .acknowledgements, .chiefCalls, .screenSharing, .computerUse]
         guard let route = all.first(where: { "\($0)" == name }) else { return nil }
         self = route
     }
@@ -301,7 +309,12 @@ struct SettingsLabel: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     init(_ title: LocalizedStringResource, symbol: String, value: String? = nil) {
-        self.title = String(localized: title)
+        self.init(verbatim: String(localized: title), symbol: symbol, value: value)
+    }
+
+    /// A title already localized (a `bundle: .module` catalog key).
+    init(verbatim title: String, symbol: String, value: String? = nil) {
+        self.title = title
         self.symbol = symbol
         self.value = value
     }

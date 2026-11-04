@@ -1,0 +1,16 @@
+{
+  "title": "Computer Use approval card: Claude in api-server asks to use Safari (fixture card on no worker link; a press decides nothing)",
+  "steps": [
+    {
+      "title": "Show the approval card",
+      "rpc": {"method": "debug.computer_use_card", "params": {}},
+      "wait": 2,
+      "windows": true
+    },
+    {
+      "title": "Dismiss the card",
+      "rpc": {"method": "debug.computer_use_card", "params": {"action": "dismiss"}},
+      "shot": false
+    }
+  ]
+}

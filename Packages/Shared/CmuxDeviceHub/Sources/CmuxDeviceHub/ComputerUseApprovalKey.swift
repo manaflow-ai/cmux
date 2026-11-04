@@ -137,6 +137,14 @@ public struct ComputerUseApprovalKey: Sendable {
     public var publicKey: String { material.publicKey.x963Representation.base64EncodedString() }
     /// The lowercase hex SHA-256 of those 65 bytes: what a box pins.
     public var fingerprint: String { DeviceIdentity.fingerprint(signingKeyX963: material.publicKey.x963Representation) }
+    /// ``fingerprint`` as people compare it: what `cmux computer-use setup --approver` prints
+    /// for this key (``DeviceIdentity/displayFingerprint(_:)``, Rust `display_fingerprint`).
+    public var displayFingerprint: String { DeviceIdentity.displayFingerprint(fingerprint) }
+
+    /// The display fingerprint of a base64 X9.63 approval key; nil when it is not a P-256 key.
+    public static func displayFingerprint(publicKey base64: String) -> String? {
+        DeviceIdentity.fingerprint(signingKey: base64).map(DeviceIdentity.displayFingerprint)
+    }
 
     /// Asks for Face ID (or the passcode) with `reason` on the system sheet, then
     /// returns what signs one Allow under that check.
