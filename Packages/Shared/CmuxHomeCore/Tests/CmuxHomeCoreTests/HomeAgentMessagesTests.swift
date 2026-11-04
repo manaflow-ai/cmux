@@ -364,6 +364,40 @@ struct HomeAgentMessagesTests {
         #expect(store.transcript(for: id).isEmpty)
     }
 
+    /// User 2026-11-03 (msg 19960): every agent the Chief spawns or talks to is one pill in one row per
+    /// answer: its newest step sets its state (a status note stops it), and its title is the Chief's task title.
+    @Test func everyAgentOfAnAnswerIsOnePillWithItsNewestStateAndTitle() throws {
+        var book = HomeAgentMessages()
+        _ = book.apply(run(revision: 1, messages: [
+            .init(id: "tell", sequence: 1, revision: 1, peer: "a1", outgoing: true, text: "Title: Fix the sidebar\n\nAlign it.", date: date),
+            .init(id: "tell2", sequence: 2, revision: 1, peer: "a2", outgoing: true, text: "please build the nightly", date: date),
+            .init(id: "tell3", sequence: 3, revision: 1, peer: "a3", outgoing: true, text: "audit the buttons", date: date),
+            .init(id: "report", sequence: 4, revision: 1, peer: "a1", outgoing: false, text: "Fixed.", date: date),
+            .init(id: "note", sequence: 5, revision: 1, peer: "a2", outgoing: false,
+                  text: "(stopped without a report: its session is Disconnected)", date: date),
+        ]))
+        let rows = book.inserting(into: [question()], summary: nil)
+        #expect(rows.count == 2)
+        let pills = try #require(rows.last?.agentMessage)
+        #expect(pills.kind == .fold(count: 5, peers: ["a1", "a2", "a3"], expanded: false))
+        #expect(pills.peerStates == [.reported, .stopped, .told])
+        #expect(pills.peerTitles == ["Fix the sidebar", "please build the nightly", "audit the buttons"])
+        // Opened, the row stays first and every message and note follows in order.
+        let open = book.inserting(into: [question()], summary: nil, expanded: [pills.group])
+        #expect(open.count == 7 && open[1].key == rows[1].key)
+    }
+
+    /// A lone task is a pill too (it was a bubble): the agent is working on it.
+    @Test func aLoneTaskIsAPill() throws {
+        var book = HomeAgentMessages()
+        _ = book.apply(run(revision: 1, messages: [
+            .init(id: "tell", sequence: 1, revision: 1, peer: "a1", outgoing: true, text: "Title: Nightly rebuild\n\nGo.", date: date),
+        ]))
+        let row = try #require(book.inserting(into: [question()], summary: nil).last?.agentMessage)
+        #expect(row.kind == .fold(count: 1, peers: ["a1"], expanded: false))
+        #expect(row.peerStates == [.told] && row.peerTitles == ["Nightly rebuild"])
+    }
+
     /// A pill names an agent by its task's `Title:` line (the spawn task's first line), else the
     /// first words of the Chief's first message (user 2026-11-03, msg 19960: the ChatGPT-style pills).
     @Test func anAgentsTitleIsItsTasksTitleLineElseItsFirstWords() {
