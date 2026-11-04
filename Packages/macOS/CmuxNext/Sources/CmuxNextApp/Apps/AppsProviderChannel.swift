@@ -76,9 +76,8 @@ struct AppsProviderLink {
 final class AppsProviderChannel {
     /// Refusals tried again on the same connection.
     static let retried: Set<String> = ["apps.provider.taken", "failed", "not_connected", "timeout"]
-    /// Families newer daemons know (`apps/provider.rs` `FAMILIES`), newest first. An older
-    /// daemon's `bad-request` registers again without the newest one still sent, one at a time,
-    /// so a daemon that knows `memory` but not `toast` keeps `memory`.
+    /// Families newer daemons know (`apps/provider.rs` `FAMILIES`), newest first: an older daemon's
+    /// `bad-request` registers again without the newest one sent, so one that knows `memory` keeps it.
     static let newerFamilies: [String] = ["toast", "memory"]
 
     /// Spacing of registration retries: 0.5 s doubling, at most 30 s, jittered.
