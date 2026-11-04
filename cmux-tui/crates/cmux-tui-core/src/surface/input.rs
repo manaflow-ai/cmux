@@ -9,14 +9,10 @@ use super::*;
 /// The wait blocks its caller: one control connection's next request, or
 /// the TUI's input worker. It applies only while a host connection is lost,
 /// and a replacement host usually installs within a second. On the input lane
-/// the terminal's input port waits instead (`surface::input_port`).
+/// the terminal's input port waits on its own thread, for each frame from the
+/// moment the port took it (`surface::input_port`); the person's keys do not
+/// wait, and every other write waits for its frame's result.
 pub(super) const HOST_INPUT_RECONNECT_WAIT: Duration = Duration::from_secs(5);
-
-/// The longest a write that waits for its frame ([`InputReply::Written`]) waits for the terminal's input port: one
-/// reconnect wait for the queue ahead of it, a few blocked socket writes, and slack. Past it the write answers an
-/// error and the bytes may still be written.
-#[cfg(any(unix, windows))]
-const INPUT_WRITE_REPLY_WAIT: Duration = Duration::from_secs(15);
 
 /// Whether a host send failed because the host connection is gone (the
 /// host died or its stream broke), not because the frame was refused.
@@ -79,7 +75,8 @@ impl Surface {
     }
 
     /// On the input lane (R-DAEMON-STATE stage S1 step 6): hands interactive input for a hosted terminal to the
-    /// terminal's input port and returns once the port took it; `None` when the lane is off or the terminal is not
+    /// terminal's input port. The person's keys ([`InputReply::Accepted`]) return once the port took them; every other
+    /// write returns with its frame's result (`InputPort::write`). `None` when the lane is off or the terminal is not
     /// hosted (the caller writes as before). The final screen of an exited host drops the input, as before.
     #[cfg(any(unix, windows))]
     fn enqueue_on_input_port(
@@ -109,25 +106,9 @@ impl Surface {
             }
             Some(input_port::InputRoute::Hosted(_)) => Some(match reply {
                 InputReply::Accepted => {
-                    pty.input_port.enqueue(&pty.terminal, kind, bytes, None).map_err(Into::into)
+                    pty.input_port.enqueue(&pty.terminal, kind, bytes).map_err(Into::into)
                 }
-                InputReply::Written => {
-                    let (done, written) = std::sync::mpsc::sync_channel(1);
-                    pty.input_port
-                        .enqueue(&pty.terminal, kind, bytes, Some(done))
-                        .map_err(std::io::Error::from)
-                        .and_then(|()| match written.recv_timeout(INPUT_WRITE_REPLY_WAIT) {
-                            Ok(result) => result,
-                            Err(RecvTimeoutError::Timeout) => Err(std::io::Error::new(
-                                std::io::ErrorKind::TimedOut,
-                                "terminal input still waits in the terminal's input port",
-                            )),
-                            Err(RecvTimeoutError::Disconnected) => Err(std::io::Error::new(
-                                std::io::ErrorKind::BrokenPipe,
-                                "the terminal's input port closed before it wrote the input",
-                            )),
-                        })
-                }
+                InputReply::Written => pty.input_port.write(&pty.terminal, kind, bytes),
             }),
         }
     }

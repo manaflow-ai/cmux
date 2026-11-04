@@ -655,9 +655,7 @@ impl ClipboardReplier {
         }
         let reply = encode_clipboard_read_reply(token, text);
         if let Some(order) = &self.input_order {
-            order.barrier(
-                Instant::now().checked_add(Duration::from_secs(2)).unwrap_or_else(Instant::now),
-            );
+            order.barrier(super::attachment::input_order_deadline(None));
         }
         send_host_frame(&writer, self.protocol_version, MessageKind::ClipboardReadReply, &reply)?;
         Ok(true)

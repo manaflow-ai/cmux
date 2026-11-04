@@ -50,6 +50,8 @@ ALLOWED_LISTENERS = {
     "motion when the page hides; reads no data",
     (f"{ACPMUX}/threadMinimap/ThreadMinimap.tsx", "visibilitychange"): "clears the occluded "
     "rail's one-shot leave grace when the page hides; reads no data",
+    (f"{ACPMUX}/newtab/chatStore.ts", "visibilitychange"): "writes the chat list this page "
+    "holds back from its throttled store write when the page hides; a write, reads no data",
     (f"{ACPMUX}/newtab/listMotion.ts", "visibilitychange"): "cancels the list's own motion when "
     "the page hides; reads no data",
     (f"{ACPMUX}/avatars/AnimatedAvatar.tsx", "visibilitychange"): "stops the avatar's own CSS "

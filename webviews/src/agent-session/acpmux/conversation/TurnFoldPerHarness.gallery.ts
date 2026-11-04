@@ -27,10 +27,7 @@ function turn() {
     ),
     assistant("The loop retries any response that isn't ok, so I'm adding a status check there.", 15),
     activity(
-      [
-        run("Ran the retry tests", "bun test src/net"),
-        run("Checked the branch is clean", "git status --short"),
-      ],
+      [run("Ran the retry tests", "bun test src/net"), run("Checked the branch is clean", "git status --short")],
       10,
     ),
     assistant(

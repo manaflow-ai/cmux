@@ -46,8 +46,6 @@ export function retryParts(t: Translate, retry: AcpmuxTurnRetry): { label: strin
   return { label, count, ...(error && { error }) };
 }
 
-/// How long streaming text must hold still before the live line comes back under it.
-export const QUIET_MS = 1200;
 /// How long a paused answer still reads "Writing"; a longer pause is the agent thinking again.
 export const WRITING_MS = 5000;
 
@@ -55,14 +53,14 @@ export const WRITING_MS = 5000;
 /// `since`, when known, is when the key's text was written: a key that was already that old when the
 /// line mounted (a chat opened long after its reply paused) is quiet from the first frame, instead
 /// of counting `ms` from the mount as if it had just moved.
-function useQuiet(key: string | undefined, ms = QUIET_MS, since?: number, now: () => number = Date.now): boolean {
+function useQuiet(key: string | undefined, ms: number, since?: number, now: () => number = Date.now): boolean {
   const age = () => (since === undefined ? 0 : Math.max(0, now() - since));
   const [quiet, setQuiet] = useState(() => key === undefined || age() >= ms);
   // The key the line mounted with: only that one is timed from `since`; a later key just moved.
   const mounted = useRef(key);
   // The first streamed assistant chunk inserts the answer and changes `key` in the same commit.
-  // Hide the live line before that commit paints; an effect would leave one frame of "Thinking"
-  // underneath the first token. The timer remains an ordinary effect so it never blocks layout.
+  // The line reads "Writing" before that commit paints; an effect would leave one frame of
+  // "Thinking" under the first token. The timer remains an ordinary effect so it never blocks layout.
   useLayoutEffect(() => {
     if (key === undefined) {
       setQuiet(true);
@@ -106,7 +104,8 @@ export function liveLead(label: string, leads: boolean, call: boolean): { lead: 
 /// symbol ellipsis thing btw we just keep the shimmer ONLY"). Past the turn's first step
 /// (`turnTotal`) that clock follows a finished step's own time after a dot ("2s · 4m"), so a long
 /// wait never reads as that long a think or call. All shimmer. While text streams (`quietKey` moves) the
-/// line keeps its height but draws nothing.
+/// line stays where it is and reads "Writing": it never leaves and comes back mid-turn (Leo,
+/// 2026-11-04: "it appears and disappears????").
 export function Thinking({
   starting = false,
   since,
@@ -178,7 +177,6 @@ export function Thinking({
   const from = untimed ? undefined : since;
   const timed = !waiting && from !== undefined;
   const time = useTicking(timed, now);
-  const quiet = useQuiet(waiting || doing !== undefined ? undefined : quietKey);
   // A reply that paused only a moment is still being written; one silent for longer is the agent
   // thinking before its next step, which reads "Thinking" (Leo, 2026-11-03).
   const stillWriting = !useQuiet(liveState === "writing" ? quietKey : undefined, WRITING_MS, quietAt, now);
@@ -275,7 +273,7 @@ export function Thinking({
     );
   return (
     // `cv-worked--live`: its words start on the icon column, with no icon slot (conversation.css).
-    <div className={`cv-worked cv-worked--live${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`} data-find-skip>
+    <div className={`cv-worked cv-worked--live${below ? " is-below" : ""}`} data-find-skip>
       {waiting ? (
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
           {t(WAITING_LABEL[waiting])}

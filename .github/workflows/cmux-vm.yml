@@ -72,6 +72,9 @@
 #                         prod-owner.ts). Only schema cmux_vm changes;
 #                         scripts/cmux-next/release/prod-owner.ts, release-rails.md
 #                         "Production migrations from CI".
+#   sweep-orphans-production  list provider VMs of production that no cmux_vm ownership row records, older than
+#                         15 minutes, with our exact slug and metadata (cmux#35013); dry_run=false then deletes them
+#                         and logs each id. The Worker's 5-minute cron runs the same sweep (src/upstream/orphan-sweep.ts).
 
 name: cmux VM
 
@@ -102,7 +105,7 @@ on:
       action:
         description: Manual action
         type: choice
-        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production, migrate-production, tail-production]
+        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production, migrate-production, tail-production, sweep-orphans-production]
         default: cloudflare-preflight
       environment:
         description: Environment for hyperdrive-ensure
@@ -114,7 +117,7 @@ on:
         type: boolean
         default: false
       dry_run:
-        description: migrate-production only, inspect, plan and rehearse; change nothing on production (false applies)
+        description: migrate-production and sweep-orphans-production only, inspect and list; change nothing on production (false applies or deletes)
         type: boolean
         default: true
       skip_rehearsal:
@@ -769,6 +772,38 @@ jobs:
           tail -n 5 "$RUNNER_TEMP/wrangler-tail.err" | sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/<email>/g'
           echo "tail ended"
           [ "$status" = 0 ] || [ "$status" = 124 ] || exit "$status"
+
+  sweep-orphans-production:
+    # cmux#35013: provider VMs whose create failed after the provider made them (no ownership row) run and bill
+    # unpaused. This lists them and, with dry_run=false, deletes them in the same run (scripts/sweep-orphans.ts lists
+    # first, then lists again and deletes). The Worker's cron runs the same sweep every 5 minutes; this is the
+    # on-demand run. feat-cmux-next only: the job runs checked-out code with the production provider key and database.
+    name: sweep orphan VMs (production)
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'sweep-orphans-production' && github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 20
+    environment: cmux-vm-production
+    defaults:
+      run:
+        working-directory: workers/cmux-vm
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - run: bun install --frozen-lockfile
+      - name: Sweep cmux-vm-production orphans
+        env:
+          CMUX_VM_ENVIRONMENT: production
+          UPSTREAM_API_URL: https://api.freestyle.sh
+          CMUX_VM_UPSTREAM_API_KEY: ${{ secrets.CMUX_VM_UPSTREAM_API_KEY }}
+          CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [ "$DRY_RUN" = false ]; then bun scripts/sweep-orphans.ts --delete; else bun scripts/sweep-orphans.ts; fi
 
   migrate-production:
     # Production cmux_vm migrations (release-rails.md, "Production migrations from CI"): dispatch only, from

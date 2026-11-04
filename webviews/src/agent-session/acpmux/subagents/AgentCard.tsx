@@ -13,6 +13,7 @@ import { DisclosureRow, type DisclosureRowProps } from "./DisclosureRow";
 import { AgentIdentity } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
 import "./AgentCard.css";
+import { openSessionAttributes } from "../conversation/menuParts";
 
 export type AgentCardProps = {
   name: string;
@@ -110,6 +111,7 @@ export function AgentCard({
         }
         openLabel={openLabel ?? t("subagents.open", { name })}
         onOpen={onOpen}
+        openSession={onOpen ? sessionId : undefined}
       >
         {children}
       </DisclosureRow>
@@ -148,6 +150,7 @@ export function AgentCard({
           type="button"
           className="cv-agent-card__head is-open-chat"
           title={openLabel ?? t("subagents.open", { name })}
+          {...(sessionId ? openSessionAttributes(sessionId) : {})}
           onClick={onOpen}
         >
           {head}
