@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // The chat's summary card holds the last turn's diffs (cx-ncc.43). In Chromium on the gallery
 // stage, a turn that edited fourteen files:
 // - the card's Outputs section lists the turn's files, each with its own counts, in the
@@ -10,7 +11,7 @@ import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("sources-changes.test.ts", async () => {
-  setDefaultTimeout(120_000);
+  setDefaultTimeout(240_000);
   try {
     await (await chromium.launch({ headless: true, timeout: 30_000 })).close();
   } catch {
@@ -49,7 +50,10 @@ await requireBrowserLane("sources-changes.test.ts", async () => {
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
-    await warmGalleryFrame(vite, "agent-pane.edited-files", { browser });
+    // The edited-files entry loads the agent pane's whole graph cold, as transcript-thought does
+    // (about 4,100 requests, 76-86 s on an idle 8 vCPU fleet runner, 2026-11-03); on a busy CI
+    // runner it ran past the default 100 s budget. Its budget is about twice the measured load.
+    await warmGalleryFrame(vite, "agent-pane.edited-files", { browser, timeoutMs: 180_000 });
   });
   afterAll(async () => {
     await browser?.close();
