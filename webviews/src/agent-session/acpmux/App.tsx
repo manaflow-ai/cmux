@@ -10861,14 +10861,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const pageHost = pageHostClient();
     if (pageHost) void startHostEvents(pageHost).catch(() => undefined);
     window.cmuxAcpmuxDebug = createAcpmuxDebug({
-      replaceRows(rows) {
+      replaceRows(rows, fields) {
         rowsRef.current = rows;
         setSnapshot((current) => ({
           ...current,
           rows,
           connection: "debug",
-          isWorking: false,
+          isWorking: fields?.isWorking ?? false,
           canLoadOlder: false,
+          // The live chat's steers name rows the seed replaced: only the fixture's own stand.
+          waitingSteers: fields?.waitingSteers,
+          newestOwnSteer: fields?.newestOwnSteer,
+          ...(fields && current.summary && { summary: { ...current.summary, ...fields.summary } }),
         }));
       },
       rowCount: () => rowsRef.current.length,
