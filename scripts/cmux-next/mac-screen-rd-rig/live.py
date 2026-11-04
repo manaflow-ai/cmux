@@ -104,15 +104,24 @@ shared = rpc(o.host, "debug.device_hub", {"action": "set_shared", "shared": True
 share = rpc(o.host, "debug.mac_screen", {"action": "state"}).get("share", {})
 log("host shares this Mac", "error" not in shared and share.get("screen_recording") is True, share=share)
 
-# The viewer's window may still be coming up ("no pane"): ask again until a tab opens.
-opened = until(30, lambda: (lambda r: r if "opened" in r else None)(
-    rpc(o.viewer, "debug.device_hub", {"action": "connect", "device": host_id, "scope": "full"})), 1) or {}
-log("viewer opens a Mac Screen tab", "opened" in opened, reply=opened)
+# One connect: it opens a Mac Screen tab even when it answers "no pane" (no pane was named), so
+# a retry would open a second tab that replaces the first session. The new tab is followed.
+def tab_keys():
+    return {t["tab"] for t in rpc(o.viewer, "debug.mac_screen", {"action": "state"}).get("tabs") or []}
+
+
+before = tab_keys()
+opened = rpc(o.viewer, "debug.device_hub", {"action": "connect", "device": host_id, "scope": "full"})
+new_tabs = until(15, lambda: tab_keys() - before, 1) or set()
+log("viewer opens a Mac Screen tab", len(new_tabs) == 1, reply=opened, tabs=sorted(new_tabs))
+if len(new_tabs) != 1:
+    sys.exit(1)
+our_tab = next(iter(new_tabs))
 
 
 def tab():
-    tabs = rpc(o.viewer, "debug.mac_screen", {"action": "state"}).get("tabs") or []
-    return tabs[0] if tabs else {}
+    rows = rpc(o.viewer, "debug.mac_screen", {"action": "state", "tab": our_tab}).get("tabs") or []
+    return rows[0] if rows else {}
 
 
 def approved_and_streaming():
