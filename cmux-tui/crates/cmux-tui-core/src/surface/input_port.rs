@@ -17,8 +17,9 @@
 //!   stream change and writes to the new host, until `HOST_INPUT_RECONNECT_WAIT`.
 //! - A full port refuses at once with a typed error: nothing is dropped silently and nothing waits. Each queued
 //!   frame counts its bookkeeping too ([`PORT_FRAME_COST`]), so many tiny frames cannot grow the queue without bound.
-//! - A host connection the reader gave up on (`Failed`) takes no input: the write is refused at once, as the old
-//!   path's failed write was (`Surface::enqueue_on_input_port`).
+//! - A terminal whose host reader ended (no connection will come back) takes no input: the write is refused at once,
+//!   as the old path's write failed then (`Surface::enqueue_on_input_port`). A `Failed` connection whose reader still
+//!   retries is accepted, as in any reconnect wait.
 //! - Input the port took and then could not write (the host is gone and no new one came) is lost, as a failed write
 //!   was before; the request had already been answered, so the port logs it.
 //! - Stage S1 step 6b, before the default flip: every other frame of the connection (viewer size, cell pixels,
@@ -35,10 +36,11 @@ use super::{PtyTerminalRuntime, TerminalHostConnectionState};
 use crate::terminal_host_protocol::{MAX_FRAME_PAYLOAD, MessageKind};
 use crate::terminal_host_runtime::HostInputRoute;
 
-/// The most bytes one terminal's port holds; more is refused (`terminal.input_busy`). Two of the largest frames.
-const INPUT_PORT_BYTE_CAPACITY: usize = 2 * MAX_FRAME_PAYLOAD;
 /// What one queued frame costs beyond its bytes (its header and allocation), counted against the capacity.
 const PORT_FRAME_COST: usize = 64;
+/// The most one terminal's port holds; more is refused (`terminal.input_busy`). Two of the largest frames, with
+/// their cost.
+const INPUT_PORT_BYTE_CAPACITY: usize = 2 * (MAX_FRAME_PAYLOAD + PORT_FRAME_COST);
 /// A port writer with nothing to write for this long ends; the next input starts a new one.
 const INPUT_PORT_IDLE_EXIT: Duration = Duration::from_secs(30);
 /// The writer's stack: it formats and writes one frame at a time.

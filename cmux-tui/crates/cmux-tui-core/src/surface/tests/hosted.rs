@@ -181,10 +181,12 @@ fn a_key_does_not_wait_for_another_writers_blocked_host_socket() {
         took < Duration::from_millis(100),
         "the key waited {took:?} for another writer's blocked host socket"
     );
+    // The host stops reading at the first key frame, so this proves the key arrived (after the paste, below), not
+    // that it arrived only once: `keys_on_the_input_port_reach_the_host_once_each_in_order` checks that.
     assert_eq!(
         kinds.iter().filter(|kind| **kind == MessageKind::Input).count(),
         1,
-        "the key reached the host once: {kinds:?}"
+        "the key reached the host: {kinds:?}"
     );
     // Both must be there: the host stops reading at the first key, so a key that passed the paste leaves no paste.
     let paste_at = kinds.iter().position(|kind| *kind == MessageKind::Paste);
@@ -218,6 +220,22 @@ fn keys_on_the_input_port_reach_the_host_once_each_in_order() {
         }
     }
     assert_eq!(written, keys, "the keys reached the host in another order or more than once");
+    // Nothing more: no key is written twice.
+    host.set_read_timeout(Some(Duration::from_millis(150))).unwrap();
+    loop {
+        match crate::terminal_host_protocol::read_frame(
+            &mut host,
+            crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+        ) {
+            Ok(Some(frame)) => assert_ne!(
+                frame.kind,
+                MessageKind::Input,
+                "a key reached the host twice: {:?}",
+                frame.payload
+            ),
+            Ok(None) | Err(_) => break,
+        }
+    }
 }
 
 #[cfg(unix)]
