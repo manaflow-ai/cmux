@@ -259,7 +259,8 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
   {
     id: "footer-to-note",
     variant: "notes-live",
-    between: 'a reply footer\'s glyph centre and the folded "5 background tasks finished" line under it, centre to centre',
+    between:
+      'a reply footer\'s glyph centre and the folded "5 background tasks finished" line under it, centre to centre',
     value: 35,
     tolerance: 1,
     source:
