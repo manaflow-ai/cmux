@@ -11,6 +11,9 @@
   "continue_not_judged": true,
   "finally": [
     {
+      "do": "echo_stop"
+    },
+    {
       "do": "video_close_open"
     },
     {
@@ -195,6 +198,9 @@
           "smoke_frame": {}
         }
       ]
+    },
+    {
+      "do": "echo_stop"
     }
   ]
 }

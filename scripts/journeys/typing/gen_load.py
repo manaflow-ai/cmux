@@ -63,6 +63,8 @@ def steps(profile, film):
         s.append({"do": "load_stop"})
     s.append({"do": "expect", "title": "after the typing: the terminal still shows its last typed text (the frame kept)",
               "since": "term", "timeout": 10, "all": [{"smoke_key_window": {}}, {"smoke_frame": {}}]})
+    # echo.py writes its records when it ends (no log write between reads): end it and wait for them.
+    s.append({"do": "echo_stop"})
     return s
 
 
@@ -76,8 +78,8 @@ def journey(profile, film):
                    "Rule: key-to-photon <= 1 refresh p95, <= 2 max; no lost or merged key; exact order.",
             "source": "TYPING UNDER LOAD (lead 02:3xZ)", "budget_seconds": 260, "options": {"key_path": "real"},
             "continue_not_judged": True,
-            "finally": [{"do": "video_close_open"}, {"do": "load_stop"}, {"do": "env_windows", "at": "end"},
-                        {"do": "smoke_close_all"}],
+            "finally": [{"do": "echo_stop"}, {"do": "video_close_open"}, {"do": "load_stop"},
+                        {"do": "env_windows", "at": "end"}, {"do": "smoke_close_all"}],
             "steps": steps(profile, film)}
 
 

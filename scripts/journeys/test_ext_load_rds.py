@@ -6,9 +6,12 @@ passes only when the daemon's environment matches the arm.
     python3 scripts/journeys/test_ext_load_rds.py
 """
 import json
+import os
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -201,6 +204,68 @@ class RdsArms(unittest.TestCase):
         self.assertIn("missing", json.loads((self.out / "server-stats-before.json").read_text())["reply"])
 
 
+class EchoStop(unittest.TestCase):
+    """ext_load echo_stop: ends the journey's own echo.py (SIGTERM) and waits for its end record; any other pid is
+    refused and left alone."""
+
+    def setUp(self):
+        import driver
+        import ext_load
+        self.load = ext_load
+        ext_load.install(driver)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.out = Path(self.tmp.name)
+        self.log = self.out / "echo.jsonl"
+        self.j = FakeJourney(self.out, FakeApp())
+        self.j.echo_log = self.log
+        self.children = []
+
+    def tearDown(self):
+        for pid in self.children:
+            try:
+                os.kill(pid, signal.SIGKILL)
+                os.waitpid(pid, 0)
+            except (ProcessLookupError, ChildProcessError):
+                pass
+        self.tmp.cleanup()
+
+    def start_echo(self):
+        import pty
+        sys.path.insert(0, str(HERE / "typing"))
+        import test_echo
+        pid, fd = pty.fork()
+        if pid == 0:
+            os.execv(sys.executable, [sys.executable, "-I", "-c", test_echo.WRAP, str(test_echo.ECHO), str(self.log)])
+        self.children.append(pid)
+        self.addCleanup(os.close, fd)
+        end = time.monotonic() + 10
+        while time.monotonic() < end and not (self.log.exists() and '"ready"' in self.log.read_text()):
+            time.sleep(0.02)
+        os.write(fd, b"ab")
+        time.sleep(0.2)
+        return pid
+
+    def test_ends_the_journeys_echo_and_waits_for_its_records(self):
+        pid = self.start_echo()
+        rec = self.load.step_echo_stop(self.j, {"timeout": 10})
+        self.assertEqual((rec["pid"], rec["why"]), (pid, f"signal {int(signal.SIGTERM)}"))
+        reads = [json.loads(l) for l in self.log.read_text().splitlines() if '"bytes"' in l]
+        self.assertEqual(b"".join(bytes.fromhex(r["bytes"]) for r in reads), b"ab")
+        self.assertEqual(self.load.step_echo_stop(self.j, {}), {"already_ended": True})  # again in finally
+
+    def test_another_process_is_refused_and_left_running(self):
+        other = subprocess.Popen(["sleep", "30"])
+        self.children.append(other.pid)
+        self.log.write_text(json.dumps({"t": 1.0, "ready": True, "pid": other.pid}) + "\n")
+        with self.assertRaises(self.load.D.NotRun):
+            self.load.step_echo_stop(self.j, {"timeout": 1})
+        self.assertIsNone(other.poll())
+
+    def test_no_echo_program_is_nothing_to_do(self):
+        j = FakeJourney(self.out, FakeApp())
+        self.assertEqual(self.load.step_echo_stop(j, {}), {"skipped": "no echo program started"})
+
+
 class Journeys(unittest.TestCase):
     """typing/gen_load.py: the adopted variant types into the set-up terminal; the new-tab one into a new tab."""
 
@@ -221,6 +286,9 @@ class Journeys(unittest.TestCase):
             for want in (("daemon_arm", "before"), ("daemon_arm", "after"), ("server_stats", "before"),
                          ("server_stats", "after")):
                 self.assertIn(want, steps)
+            # echo.py writes its records when it ends: the journey ends it after its last check and in finally
+            self.assertEqual(spec["steps"][-1], {"do": "echo_stop"})
+            self.assertEqual(spec["finally"][0], {"do": "echo_stop"})
             # the typed terminal is adopted before echo.py starts in it
             self.assertLess(max(i for i, s in enumerate(spec["steps"]) if s["do"] == "smoke_adopt_line"),
                             next(i for i, s in enumerate(spec["steps"]) if s["do"] == "echo_start"))

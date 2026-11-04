@@ -7,8 +7,11 @@ beside the driver (kit/), so the load tool and the typist plan come from the sam
 Steps (`do`):
   echo_start  {}   in the current terminal (smoke_adopt_line names it), runs typing/echo.py with its log in the
                    journey's out folder (OUT/echo.jsonl, fetched with the results) and waits for its ready line.
-                   The typed keys then go to that program, which echoes them as a line editor does and logs each
-                   PTY read with its time.
+                   The typed keys then go to that program, which echoes them as a line editor does and records each
+                   PTY read with its time in memory; it writes the records to the log when it ends.
+  echo_stop   {timeout?: 15}  ends that program (SIGTERM; it is the journey's own: its ready line names its pid and
+                   its command line names this journey's log) and waits for its end record. No end record: not run.
+                   Again in `finally`: nothing to do when the program has ended.
   load_start  {profile: L1..L6, seed?: 7, duration?: 300, keep: NAME, ready_timeout?: 180}
                    starts tui-kit/load_profiles.py run PROFILE --app-socket <the lease's socket> --home <its HOME>
                    --keep <the pane named NAME> --out OUT/load in the background, and waits for its
@@ -84,6 +87,59 @@ def step_echo_start(j, step):
             return {"log": str(log), "program": prog}
         time.sleep(0.1)
     raise D.StepError(f"echo_start: echo.py wrote no ready line to {log} within 20 s")
+
+
+def _echo_end(log):
+    """The end record of echo.py's log (its records are written when it ends), or None."""
+    try:
+        with open(log) as text:
+            for line in text.read().splitlines():
+                if '"end"' in line:
+                    try:
+                        rec = json.loads(line)
+                    except ValueError:
+                        continue
+                    if rec.get("end") is True:
+                        return rec
+    except OSError:
+        return None
+    return None
+
+
+def step_echo_stop(j, step):
+    """Ends the journey's echo.py with SIGTERM and waits for its end record: it keeps every read in memory (no file
+    write between a read and the next, so its log never holds a key back) and writes them when it ends. The pid is
+    its ready line's, and its command line must name this journey's log: never another process. Already ended: done.
+    No end record within `timeout` s: not run (the reads are lost)."""
+    log = getattr(j, "echo_log", None)
+    if not log:
+        return {"skipped": "no echo program started"}
+    if _echo_end(log):
+        return {"already_ended": True}
+    with open(log) as text:
+        ready = next((json.loads(l) for l in text.read().splitlines() if '"ready"' in l), {})
+    pid = ready.get("pid")
+    if not pid:
+        raise D.NotRun(f"echo_stop: no pid in {log}'s ready line")
+    command = subprocess.run(["ps", "-o", "command=", "-p", str(int(pid))], capture_output=True, text=True,
+                             timeout=10).stdout.strip()
+    if "typing/echo.py" not in command or str(log) not in command:
+        if _echo_end(log):
+            return {"already_ended": True}
+        raise D.NotRun(f"echo_stop: pid {pid} is not this journey's echo.py ({command[:200]!r}) and no end record")
+    started = D.now()
+    try:
+        os.kill(int(pid), signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    end = started + float(step.get("timeout", 15))
+    while D.now() < end:
+        rec = _echo_end(log)
+        if rec:
+            return {"pid": int(pid), "why": rec.get("why"), "reads": rec.get("reads"),
+                    "ended_after_s": round(D.now() - started, 2)}
+        time.sleep(0.1)
+    raise D.NotRun(f"echo_stop: echo.py pid {pid} wrote no end record within {step.get('timeout', 15)} s")
 
 
 def step_load_start(j, step):
@@ -388,6 +444,6 @@ def step_probe_mark(j, step):
     return {"as": step["as"], "hangs": len(hangs) if isinstance(hangs, list) else None, "file": f"probe-{step['as']}.json"}
 
 
-STEPS = {"probe_relaunch": step_probe_relaunch, "daemon_arm": step_daemon_arm, "server_stats": step_server_stats, "probe_mark": step_probe_mark, "echo_start": step_echo_start, "load_start": step_load_start, "load_stop": step_load_stop,
+STEPS = {"probe_relaunch": step_probe_relaunch, "daemon_arm": step_daemon_arm, "server_stats": step_server_stats, "echo_stop": step_echo_stop, "probe_mark": step_probe_mark, "echo_start": step_echo_start, "load_start": step_load_start, "load_stop": step_load_stop,
          "typist_play": step_typist_play}
 CONDITIONS = {}
