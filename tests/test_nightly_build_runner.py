@@ -756,7 +756,7 @@ class Workflow(unittest.TestCase):
 
     def test_every_nightly_next_route_falls_back_to_the_nightly_only_builder(self) -> None:
         # The pick only when the picker saw it idle for this very attempt; anything else (a re-run of
-        # failed jobs that kept an earlier attempt's pick included) is our nightly-only builder pool,
+        # failed jobs that kept an earlier attempt's pick included) is our plain nightly-only pool,
         # never Blacksmith (nightlies never use Blacksmith), whatever vars.MACOS_RUNNER_26 holds.
         for job, pick in GUARDED.items():
             source = DOC["jobs"][job]["runs-on"].removeprefix("${{").removesuffix("}}")
@@ -883,7 +883,7 @@ class Workflow(unittest.TestCase):
                     source = DOC["jobs"][job]["runs-on"].removeprefix("${{").removesuffix("}}")
                     self.assertEqual(evaluate(parse_nightly_expression(source), context), SIDE)
                     # A re-run of failed jobs that kept the previous attempt's pick takes our nightly-only
-                    # builder pool, so a refused owned label is never taken again, and never Blacksmith.
+                    # pool (never the warm builder label), so a refused owned label is never taken again, and never Blacksmith.
                     stale = {**context, "github.run_attempt": attempt + 1}
                     self.assertEqual(evaluate(parse_nightly_expression(source), stale), "glaeda-nightly-only-m4pro")
 

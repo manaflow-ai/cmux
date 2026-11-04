@@ -462,7 +462,10 @@
     "nightly.yml#build-nightly-ghostty-cli-helper": "apple-app-build",
     "nightly.yml#build-sign-notarize-nightly": "apple-signing-release",
     "nightly.yml#generate-nightly-deltas": "apple-signing-release",
-    "nightly.yml#recover-nightly-next-notarization": "apple-signing-release",
+    "nightly.yml#recover-nightly-next-notarization": {
+      "class": "apple-signing-release",
+      "placement_followup": "the recovery picker names only Blacksmith, so this reads the owned nightly slot and side lane directly; add an owned recovery pick"
+    },
     "nightly.yml#refresh-compilation-cache": {
       "class": "apple-app-build",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
@@ -478,7 +481,10 @@
     "nightly.yml#verify-nightly-identity-legacy": "apple-signing-release",
     "nightly.yml#legacy-signer-dmg-image": "apple-signing-release",
     "nightly.yml#verify-nightly-identity-legacy-pool": "apple-signing-release",
-    "nightly.yml#verify-recovered-nightly-next": "apple-signing-release",
+    "nightly.yml#verify-recovered-nightly-next": {
+      "class": "apple-signing-release",
+      "placement_followup": "the recovery picker names only Blacksmith, so this reads the owned nightly slot and side lane directly; add an owned recovery pick"
+    },
     "nightly.yml#verify-signed-nightly": "apple-signing-release",
     "nightly.yml#visual-gate-nightly": "apple-gui",
     "relay-publish-npm.yml#smoke": {
