@@ -122,6 +122,56 @@ def parsed(text: str) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def failure_text(err: str) -> str:
+    """The CLI's error code and message, without the command it names to run again: that command
+    carries the whole prompt, the caller's context included (#35079)."""
+    error = parsed(err)
+    code = error.get("code") if isinstance(error.get("code"), str) else ""
+    message = error.get("message") if isinstance(error.get("message"), str) else ""
+    for cut in ("Run the same command again", "cmux cloud start-chat", "cmux cloud start-session"):
+        message = message.split(cut, 1)[0]
+    for prompt in (BROWSER_PROOF_PROMPT, args.prompt):
+        if prompt:
+            message = message.replace(prompt, "[prompt]")
+    message = message.strip()
+    if EVIDENCE_SCAN.search(message):
+        message = "[message left out: it looks like it holds a secret]"
+    return clean(f"{code}: {message}" if code else message, 1000)
+
+
+# The app's own account of the machine's link, from its public os_log lines in these categories,
+# so a machine that never connects says where it stopped. Only the evidence gets them, never the
+# job log. A line the workflow's evidence scan would refuse is left out, not redacted: one such line
+# would keep the whole evidence from being uploaded.
+LOG_TOOL = os.environ.get("CMUX_PROOF_LOG_TOOL", "/usr/bin/log")
+LINK_LOG_PREDICATE = ('subsystem == "com.cmuxterm.app.next" AND category IN '
+                      '{"cloud.link", "cloud.hub", "app.cloud"}')
+EVIDENCE_SCAN = re.compile(  # the "Check the evidence" step's grep in cloud-chat-proof.yml
+    r"(?i)(cmvm|cmk|crt|crk|cmm|cmj)_[A-Za-z0-9_-]{8,}|sk-(ant-)?[A-Za-z0-9_-]{10,}"
+    r"|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|bearer\s+[A-Za-z0-9._~+/=-]+"
+    r"|(api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|token|password|secret|credential)\s*[:=]"
+)
+
+
+def app_link_log(since: float, keep: int = 300) -> dict:
+    minutes = int((time.monotonic() - since) / 60) + 2
+    try:
+        done = subprocess.run([LOG_TOOL, "show", "--style", "compact", "--last", f"{minutes}m",
+                               "--predicate", LINK_LOG_PREDICATE], capture_output=True, text=True, timeout=180)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"unavailable": clean(str(error), 300)}
+    lines, left_out = [], 0
+    for line in done.stdout.splitlines():
+        for prompt in (BROWSER_PROOF_PROMPT, args.prompt):
+            if prompt:
+                line = line.replace(prompt, "[prompt]")
+        if EVIDENCE_SCAN.search(line):
+            left_out += 1
+        elif line.strip():
+            lines.append(clean(line, 400))
+    return {"exit": done.returncode, "line_count": len(lines), "left_out": left_out, "lines": lines[-keep:]}
+
+
 def listed() -> tuple[int, str, str, dict]:
     code, out, err = cmux("cloud", "list-machines", "--json", timeout=60)
     return code, out, err, parsed(out) if code == 0 else {}
@@ -234,13 +284,14 @@ if code != 0:
 # run, so a start still pending (exit 75: creation goes on in the app) is asked again with the same
 # name, and the machine can be found for cleanup by that name when no answer named its id.
 # The whole step has 30 minutes: sign-in (at most ~5), pending retries (10) and the last wait (10).
-chat_deadline = time.monotonic() + 600
+chat_started = time.monotonic()
+chat_deadline = chat_started + 600
 while True:  # bounded: the same start-chat again while its machine is still being made
     code, out, err = cmux("cloud", "start-chat", "--prompt", BROWSER_PROOF_PROMPT, "--agent", args.agent,
                           "--name", args.tag, "--wait", "--timeout", "600", "--json", timeout=660)
     if code != 75 or time.monotonic() > chat_deadline:
         break
-    record("cloud start-chat (machine still starting)", code, "", "")
+    record("cloud start-chat (machine still starting)", code, "", failure_text(err))
     time.sleep(10)
 answer = parsed(out) if code == 0 else {}
 reply = answer.get("reply")
@@ -250,10 +301,11 @@ reply_text = reply if isinstance(reply, str) else ""
 browser_marker = has_browser_proof_reply(reply_text)
 browser_tools = isinstance(tool_calls, int) and tool_calls > 0
 reply_for_evidence = BROWSER_PROOF_REPLY if browser_marker else ("[withheld: unexpected reply]" if reply_text else None)
-record("cloud start-chat", code, "", "", reply=reply_for_evidence,
+record("cloud start-chat", code, "", failure_text(err) if code != 0 else "", reply=reply_for_evidence,
        browser_proof={"url": BROWSER_PROOF_URL, "marker": BROWSER_PROOF_MARKER,
                       "reply_observed": bool(reply_text), "reply_matches": browser_marker, "tool_calls": tool_calls,
-                      "tool_call_observed": browser_tools})
+                      "tool_call_observed": browser_tools},
+       **({"app_link_log": app_link_log(chat_started)} if code != 0 else {}))
 # A failed chat answers on stderr: the machine it made is at details.machine_id (chat.turn_failed)
 # or details.answer.machine_id (the other failures).
 failure = parsed(err).get("details") or {}
@@ -280,7 +332,7 @@ killed = True
 if machine:
     code_k, out_k, err_k = cmux("cloud", "kill-machine", "--target", f"machine:{machine}", "--confirm", "--json",
                                 timeout=120)
-    record("cloud kill-machine", code_k, "", "")
+    record("cloud kill-machine", code_k, "", failure_text(err_k) if code_k != 0 else "")
     killed = code_k == 0
 
 if not (code == 0 and reply_text):
