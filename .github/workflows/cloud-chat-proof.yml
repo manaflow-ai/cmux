@@ -66,6 +66,19 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # Same toolchain as reload-build.yml: the webviews `vp build` runs on node,
+      # and check-webviews-bun-version.sh refuses a bun older than the
+      # webviews/package.json devEngines pin, which stopped run 41798237731.
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
       - name: Install build prerequisites
         run: |
           set -euo pipefail
