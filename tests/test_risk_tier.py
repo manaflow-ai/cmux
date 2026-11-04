@@ -2,7 +2,6 @@
 import contextlib
 import importlib.util
 import io
-import json
 import os
 import subprocess
 import sys
@@ -702,33 +701,8 @@ class RecentRevertTests(unittest.TestCase):
             self.assertEqual(unread, ["App.tsx"])
 
 
-class GitHubReadTests(unittest.TestCase):
-    """The pull request and its merge base come from the event and git, not GITHUB_TOKEN calls."""
-
-    def payload(self, tmp, pull):
-        path = Path(tmp) / "event.json"
-        path.write_text(json.dumps({"pull_request": pull}))
-        return str(path)
-
-    def test_the_event_payload_stands_in_for_pulls_n_only_for_the_same_pull_request(self):
-        pull = {"number": 7, "base": {"sha": "b" * 40}, "head": {"sha": HEAD}, "body": "x"}
-        saved = os.environ.get("GITHUB_EVENT_PATH")
-        try:
-            with tempfile.TemporaryDirectory() as tmp:
-                os.environ["GITHUB_EVENT_PATH"] = self.payload(tmp, pull)
-                self.assertEqual(risk.event_pull_request("7"), pull)
-                self.assertIsNone(risk.event_pull_request("8"))
-                os.environ["GITHUB_EVENT_PATH"] = self.payload(tmp, dict(pull, head={}))
-                self.assertIsNone(risk.event_pull_request("7"))
-                os.environ["GITHUB_EVENT_PATH"] = str(Path(tmp) / "missing.json")
-                self.assertIsNone(risk.event_pull_request("7"))
-            del os.environ["GITHUB_EVENT_PATH"]
-            self.assertIsNone(risk.event_pull_request("7"))
-        finally:
-            if saved is None:
-                os.environ.pop("GITHUB_EVENT_PATH", None)
-            else:
-                os.environ["GITHUB_EVENT_PATH"] = saved
+class MergeBaseTests(unittest.TestCase):
+    """The merge base comes from git when the base history has both ends, not a `compare` call."""
 
     def test_the_merge_base_comes_from_git_and_falls_back_to_compare(self):
         env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",

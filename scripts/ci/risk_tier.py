@@ -32,7 +32,6 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
-import os
 import re
 import subprocess
 import sys
@@ -805,23 +804,6 @@ def rust_sources(repo: str, ref: str, paths: dict[str, str]) -> dict[str, str]:
     return sources
 
 
-def event_pull_request(number: str) -> dict | None:
-    """The pull request from the workflow's event payload when the event is about this one: the
-    same object `pulls/N` returns, as of the event, without a GITHUB_TOKEN call."""
-    path = os.environ.get("GITHUB_EVENT_PATH")
-    if not path:
-        return None
-    try:
-        pull = json.loads(Path(path).read_text()).get("pull_request")
-    except (OSError, ValueError, AttributeError):
-        return None
-    if not isinstance(pull, dict) or str(pull.get("number")) != str(number):
-        return None
-    if not (pull.get("base") or {}).get("sha") or not (pull.get("head") or {}).get("sha"):
-        return None
-    return pull
-
-
 def merge_base_of(repo: str, pr: dict, repo_dir: str | None = None) -> str:
     """The commit the pull request's patches are relative to; the base tip if it can't be read.
     From git when `repo_dir` has both ends (risk-tier.yml fetches the head there), else `compare`."""
@@ -847,7 +829,7 @@ def pr_mode(args: argparse.Namespace) -> int:
     patches = {f["filename"]: f.get("patch") or "" for f in entries}
     # A rename moves the old path too: grade both ends.
     files += [f["previous_filename"] for f in entries if f.get("previous_filename")]
-    pr = event_pull_request(args.number) or gh_json("api", base)
+    pr = gh_json("api", base)
     # Rust product files that add or remove a delete: read on that side, they place each line in or
     # out of a test module.
     rust = {e["filename"]: e for e in entries if e["filename"].endswith(".rs") and in_delete_scope(e["filename"])}
