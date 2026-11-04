@@ -1,7 +1,17 @@
 // A focusable listbox of actions (recent items): one Tab stop, Up/Down/Home/End move, typing a
 // letter jumps to the next row starting with it, Return or Space opens, a click opens. Base UI 1.8
 // has no standalone listbox, so this is the wrapper's one implementation (aria-activedescendant).
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+  type Ref,
+  type UIEventHandler,
+} from "react";
 import { cx } from "./cx";
 import { useScrollEdges } from "./scrollEdges";
 import "./popupSurface.css";
@@ -11,8 +21,8 @@ export interface ListboxProps<T> {
   getKey(item: T): string;
   /** The text typeahead matches. */
   textValue(item: T): string;
-  renderItem(item: T): ReactNode;
-  itemAttributes?(item: T): Record<string, string | undefined>;
+  renderItem(item: T, index: number): ReactNode;
+  itemAttributes?(item: T, index: number): Record<string, string | undefined>;
   getItemId?(item: T, index: number): string;
   label: string;
   onOpen(item: T): void;
@@ -31,6 +41,9 @@ export interface ListboxProps<T> {
   footer?: ReactNode;
   "aria-busy"?: boolean;
   id?: string;
+  /** Optional window for large editor-owned lists; indices and ids remain logical/full-list values. */
+  window?: { start: number; end: number; topSpace: number; bottomSpace: number };
+  onScroll?: UIEventHandler<HTMLDivElement>;
 }
 
 const TYPEAHEAD_RESET_MS = 700;
@@ -55,6 +68,8 @@ export function Listbox<T>({
   footer,
   "aria-busy": ariaBusy,
   id: listId,
+  window: visibleWindow,
+  onScroll,
 }: ListboxProps<T>) {
   const [highlight, setHighlight] = useState(Math.max(0, initialIndex));
   const currentHighlight = activeIndex ?? highlight;
@@ -132,28 +147,38 @@ export function Listbox<T>({
       aria-busy={ariaBusy || undefined}
       aria-activedescendant={activeId}
       onKeyDown={onKeyDown}
+      onScroll={onScroll}
     >
-      {items.map((item, index) => (
-        <div
-          key={getKey(item)}
-          id={getItemId?.(item, index) ?? `${id}-${index}`}
-          className={cx("ui-listbox-row", rowClassName)}
-          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rows of the listbox above.
-          role="option"
-          tabIndex={-1}
-          aria-selected={index === current}
-          {...itemAttributes?.(item)}
-          onMouseMove={() => index !== current && setCurrentHighlight(index)}
-          onMouseDown={(event) => {
-            // Secondary/middle press and macOS Control-click keep the system context menu.
-            if (event.button !== 0 || event.ctrlKey) return;
-            event.preventDefault();
-            onOpen(item);
-          }}
-        >
-          {renderItem(item)}
-        </div>
-      ))}
+      {visibleWindow && visibleWindow.topSpace > 0 && (
+        <div aria-hidden="true" style={{ height: visibleWindow.topSpace }} />
+      )}
+      {items.slice(visibleWindow?.start ?? 0, visibleWindow?.end ?? items.length).map((item, offset) => {
+        const index = (visibleWindow?.start ?? 0) + offset;
+        return (
+          <div
+            key={getKey(item)}
+            id={getItemId?.(item, index) ?? `${id}-${index}`}
+            className={cx("ui-listbox-row", rowClassName)}
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rows of the listbox above.
+            role="option"
+            tabIndex={-1}
+            aria-selected={index === current}
+            {...itemAttributes?.(item, index)}
+            onMouseMove={() => index !== current && setCurrentHighlight(index)}
+            onMouseDown={(event) => {
+              // Secondary/middle press and macOS Control-click keep the system context menu.
+              if (event.button !== 0 || event.ctrlKey) return;
+              event.preventDefault();
+              onOpen(item);
+            }}
+          >
+            {renderItem(item, index)}
+          </div>
+        );
+      })}
+      {visibleWindow && visibleWindow.bottomSpace > 0 && (
+        <div aria-hidden="true" style={{ height: visibleWindow.bottomSpace }} />
+      )}
       {items.length === 0 && empty}
       {footer}
     </div>
