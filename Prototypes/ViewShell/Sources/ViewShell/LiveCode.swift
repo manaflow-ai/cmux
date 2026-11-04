@@ -134,6 +134,7 @@ enum Interposer {
         let mainOnly = UnsafeMutableRawPointer(bitPattern: -5) // RTLD_MAIN_ONLY
         let slide = _dyld_get_image_vmaddr_slide(index)
         let changed = layoutChanges(header: header, slide: slide, patch: handle, mainOnly: mainOnly)
+        // A refused patch stays loaded (no dlclose); nothing points at it, and the next patch has a new name.
         guard changed.isEmpty else { throw LiveCodeError.layoutChanged(changed) }
         var tuples: [Tuple] = []
         var replaced: [String: UnsafeRawPointer] = [:]
