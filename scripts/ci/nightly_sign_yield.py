@@ -42,9 +42,10 @@ SIGN_JOB = "build-sign-notarize-nightly"
 # A sign job that holds or waits for a slot, or already signed. Any other state (failed, cancelled,
 # skipped) is no reason to yield.
 WAITING = frozenset({"queued", "in_progress", "waiting", "pending", "requested"})
-# Every unfinished run status but queued, as signing_runner.ACTIVE_RUN_STATUSES: a newer run waiting on an
-# environment or a concurrency slot can hold a queued sign job too (cmuxterm-hq#7091). A queued run has no job yet.
-ACTIVE_RUN_STATUSES = ("in_progress", "waiting", "pending", "requested")
+# Every unfinished run status. A newer run waiting on an environment or a concurrency slot can hold a queued
+# sign job (cmuxterm-hq#7091), and so can a queued one: once its builds finish and only its sign job waits for
+# a runner, GitHub reports the whole run as queued.
+ACTIVE_RUN_STATUSES = ("in_progress", "queued", "waiting", "pending", "requested")
 PAGE = 100
 MAX_PAGES = 5
 
