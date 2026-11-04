@@ -4679,8 +4679,7 @@ export function VirtualTranscript({
         // The reader just sent a prompt from the latest row (a send in this commit, or one a moment
         // ago whose rows land now): the rows that came lift the thread on the send's glide, the
         // prompt rising out from behind the composer, instead of the view jumping a row in a frame.
-        const sendRows =
-          (sends !== seenSends.current || now < sendRiseUntil.current) && rows.length > oldRows.length;
+        const sendRows = (sends !== seenSends.current || now < sendRiseUntil.current) && rows.length > oldRows.length;
         if (sendRows && !jumping && !bottomStacking && !resizing && !heightFoldPlaying() && rose > 0.5)
           followGlide.current?.sent(thread.current, rose);
         // A disclosure's height fold moves the rows on its own frames: easing them too lagged it.

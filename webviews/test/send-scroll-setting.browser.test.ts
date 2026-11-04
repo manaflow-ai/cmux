@@ -189,25 +189,23 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
   // from full, from full at the bottom) we have SMOOTH non-jolty ... state transitions".
   const sendWith = (page: Page, rows: Row[]) =>
     page.evaluate((next) => (window as unknown as { __sendWith(rows: unknown): void }).__sendWith(next), rows);
-  /// One sample per animation frame for `count` frames, from the frame after the call: the sent
+  /// One sample per painted frame for `count` frames, from the frame after the call: the sent
   /// prompt's top on screen (`prompt`) or the scroller's offset (`offset`).
   const sampleFrames = (page: Page, count: number, read: "prompt" | "offset") =>
     page.evaluate(
-      ([n, what]) =>
-        new Promise<number[]>((resolve) => {
-          const values: number[] = [];
-          const probe = () => {
-            if (what === "offset") return document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop;
-            const row = document.querySelector('[data-row-id="sent-prompt"]');
-            return row ? row.getBoundingClientRect().top : Number.NaN;
-          };
-          const tick = () => {
-            values.push(probe());
-            if (values.length < n) requestAnimationFrame(tick);
-            else resolve(values);
-          };
-          requestAnimationFrame(tick);
-        }),
+      async ([n, what]) => {
+        const values: number[] = [];
+        const probe = () => {
+          if (what === "offset") return document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop;
+          const row = document.querySelector('[data-row-id="sent-prompt"]');
+          return row ? row.getBoundingClientRect().top : Number.NaN;
+        };
+        while (values.length < n) {
+          await window.cmuxPaintFrame();
+          values.push(probe());
+        }
+        return values;
+      },
       [count, read] as const,
     );
 
