@@ -241,7 +241,7 @@ test("capacity puts Retry first, Switch model after it", async () => {
 
 // Leo 2026-11-03, on a card that led with Switch model when the model's server could not be reached:
 // "this ui is pretty awkward looking". Which action leads, per error kind.
-const actionLabels = () =>
+const leadLabels = () =>
   [...card().querySelectorAll(".cv-turn-error__actions > button")].map((element) => element.textContent);
 const isPrimary = (label: string) => button(label)!.classList.contains("cv-turn-error__primary");
 
@@ -254,7 +254,7 @@ test("a server that cannot be reached leads with Retry, Switch model after it", 
     ),
   );
   expect(card().getAttribute("data-failure-kind")).toBe("unreachable");
-  expect(actionLabels()).toEqual(["Retry", "Switch model"]);
+  expect(leadLabels()).toEqual(["Retry", "Switch model"]);
   expect(isPrimary("Retry")).toBe(true);
   expect(isPrimary("Switch model")).toBe(false);
 });
@@ -270,7 +270,7 @@ test("an unreachable card with no Retry keeps Switch model outlined, never the f
     ),
   );
   expect(card().getAttribute("data-failure-kind")).toBe("unreachable");
-  expect(actionLabels()).toEqual(["Switch model"]);
+  expect(leadLabels()).toEqual(["Switch model"]);
   expect(isPrimary("Switch model")).toBe(false);
 });
 
@@ -288,7 +288,7 @@ test("Retry on an unreachable card goes through acpmux's turn retry and waits wh
       </TurnActionsContext.Provider>,
     ),
   );
-  expect(actionLabels()).toEqual(["Retry", "Switch model"]);
+  expect(leadLabels()).toEqual(["Retry", "Switch model"]);
   expect(isPrimary("Retry")).toBe(true);
   await act(async () => button("Retry")!.click());
   expect(calls).toEqual(["user-1:Run the sidebar tests and fix what fails"]);
@@ -306,7 +306,7 @@ test("a failure about the model's route still leads with Switch model, Retry aft
     ),
   );
   expect(card().getAttribute("data-failure-kind")).toBe("invalid-key");
-  expect(actionLabels()).toEqual(["Switch model", "Retry"]);
+  expect(leadLabels()).toEqual(["Switch model", "Retry"]);
   expect(isPrimary("Switch model")).toBe(true);
   expect(isPrimary("Retry")).toBe(false);
 });
