@@ -99,6 +99,18 @@
   }
 }
 
+/* ContextMenu marks the invoking control until dismissal, including native menus. Keep only
+   that control at its existing hover tone while the pointer moves into Hide Dictation Button. */
+.acpmux-mic[data-popup-open]:not([data-state="starting"], [data-state="listening"], [data-state="finalizing"]),
+.acpmux-dictation-finish[data-popup-open]:not(:disabled) {
+  background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
+  color: var(--agent-text);
+}
+.acpmux-mic[data-popup-open]:is([data-state="starting"], [data-state="listening"], [data-state="finalizing"]) {
+  background: color-mix(in srgb, var(--acpmux-dictation-accent) 28%, transparent);
+  color: var(--acpmux-dictation-accent);
+}
+
 /* "Listening…": the prompt's placeholder in italic while a session waits for words. */
 .acpmux-composer-prompt.is-dictating .acpmux-md-placeholder,
 .nt-field[data-dictation-listening]::placeholder {

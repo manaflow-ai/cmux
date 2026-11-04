@@ -140,13 +140,20 @@ struct FirstRunPageAppShortcutsTests {
             let controller = try #require(services.windows.active)
             try Self.showFirstRunPage(services, controller)
             let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
+            var work: [ActionWork] = []
             for origin in [ActionOrigin.script, .cli, .mcp] {
                 for id in ["newTab.default", "newSurface"] as [ActionID] {
-                    #expect(!services.registry.perform(id, invocation: ActionInvocation(origin: origin)), "\(origin) \(id) ran over the page")
+                    var ran = false
+                    work += services.registry.capturingWork { ran = services.registry.perform(id, invocation: ActionInvocation(origin: origin)) }
+                    #expect(!ran, "\(origin) \(id) ran over the page")
                 }
             }
-            // Give a wrongly started daemon create the time to land before the store is read.
-            try await Task.sleep(for: .seconds(2))
+            // A wrongly started daemon create is work these runs reported: wait for it to end, then for the
+            // store to apply every event the daemon sent, before the store is read.
+            for task in work { _ = await task.value }
+            if let connection = services.daemon.connection, let barrier = await connection.eventSequence() {
+                try await PasswordManagerRouteTests.until({ services.daemon.store.appliedSequence >= barrier })
+            }
             #expect(controller.shownTopPage == .page(.importHistory), "automation took the person's page away")
             #expect(Set(PasswordManagerRouteTests.tabs(services).map(\.id)) == before, "automation added a tab under the page")
         }

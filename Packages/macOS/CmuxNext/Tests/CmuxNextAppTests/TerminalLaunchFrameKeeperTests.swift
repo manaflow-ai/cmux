@@ -197,7 +197,12 @@ import Testing
     /// REOPEN VIDEO on build d77b7cfc (6 of 30 kill cycles): a split resized a terminal after its frame was saved, the
     /// 5 s interval blocked a new save, and the kill 3-4 s later left a frame of the old size (refused at launch) or
     /// none. A resize saves again as soon as the terminal is quiet, with no interval.
-    @Test func aResizedTerminalIsSavedAgainWithoutWaitingForTheInterval() async throws {
+    @Test(arguments: [false, true])
+    func aResizedTerminalIsSavedAgainWithoutWaitingForTheInterval(switchOn: Bool) async throws {
+        // Review of #35470 (T5): in both states of `motion.frameOwner.terminals` (off, the default: the surface takes
+        // its new size in the layout; on: in the commit that shows its frame, a refresh or two later).
+        defer { PaneGroundCoversPaneTests.releaseFrames() }
+        try #require(PaneGroundCoversPaneTests.ownFrames(switchOn), "the switch motion.frameOwner.terminals did not take \(switchOn)")
         let shown = try await Shown()
         defer { shown.close() }
         let directory = FileManager.default.temporaryDirectory.appending(path: "keeper-resize-\(UUID().uuidString)")
@@ -206,6 +211,8 @@ import Testing
         frames.keep("tab_resized", session: shown.session, work: Self.work)
         try #require(try await Self.eventually { !Self.files("tab_resized", in: directory).isEmpty }, "the first frame was never kept")
         let saves = frames.keepSaves
+        // The store is process-wide: the switch again after the awaits, before the resize.
+        try #require(PaneGroundCoversPaneTests.ownFrames(switchOn), "the switch motion.frameOwner.terminals did not take \(switchOn)")
         // The pane halves (Cmd-D beside it): the surface view gets a new size, as the app's layout gives it. No IO
         // event comes with it (the app sends its grid on the main actor, not through the IO's resize stream).
         let before = shown.session.frameChanges.generation
@@ -213,14 +220,23 @@ import Testing
         frame.size.width /= 2
         shown.window.setFrame(frame, display: true)
         shown.session.view.layoutSubtreeIfNeeded()
-        #expect(shown.session.frameChanges.generation > before, "the surface's new size counted as no change")
+        // With `motion.frameOwner.terminals` on (FRAME OWNER S4), the surface takes its new size in the commit that
+        // shows its frame drawn at that size, a refresh or two after the layout, and the change counts then; with it off
+        // (the default), in the layout. The wait covers both.
+        let counted = try await Self.eventually(2) { shown.session.frameChanges.generation > before }
+        #expect(counted, "the surface's new size counted as no change")
         let resaved = try await Self.eventually(3) { frames.keepSaves > saves }
         #expect(resaved, "a resized terminal was not saved again within 3 s: a kill now leaves a frame the launch refuses")
     }
 
     /// Review of b710d40: a resized terminal that keeps changing (a spinner, a log) must still be saved at its new size
     /// (a frame of the old size is refused at launch), once the size holds, without waiting for its output to stop.
-    @Test func aBusyResizedTerminalIsSavedAtItsNewSize() async throws {
+    @Test(arguments: [false, true])
+    func aBusyResizedTerminalIsSavedAtItsNewSize(switchOn: Bool) async throws {
+        // Review of #35470 (T5): in both states of `motion.frameOwner.terminals` (off, the default: the surface takes
+        // its new size in the layout; on: in the commit that shows its frame, a refresh or two later).
+        defer { PaneGroundCoversPaneTests.releaseFrames() }
+        try #require(PaneGroundCoversPaneTests.ownFrames(switchOn), "the switch motion.frameOwner.terminals did not take \(switchOn)")
         let shown = try await Shown()
         defer { shown.close() }
         let directory = FileManager.default.temporaryDirectory.appending(path: "keeper-busy-resize-\(UUID().uuidString)")
@@ -229,10 +245,17 @@ import Testing
         frames.keep("tab_busy_resized", session: shown.session, work: Self.work)
         try #require(try await Self.eventually { !Self.files("tab_busy_resized", in: directory).isEmpty }, "the first frame was never kept")
         let saves = frames.keepSaves
+        // The store is process-wide: the switch again after the awaits, before the resize.
+        try #require(PaneGroundCoversPaneTests.ownFrames(switchOn), "the switch motion.frameOwner.terminals did not take \(switchOn)")
         var frame = shown.window.frame
         frame.size.width /= 2
         shown.window.setFrame(frame, display: true)
         shown.session.view.layoutSubtreeIfNeeded()
+        // The surface shows its new size in the layout (the default), or with its frame drawn at it a refresh or two
+        // later with `motion.frameOwner.terminals` on (FRAME OWNER S4). The wait covers both.
+        let host = shown.session.view, target = host.surfaceSize(forHostSize: host.bounds.size)
+        let showsNewSize = try await Self.eventually(2) { shown.session.surfaceView.bounds.size == target }
+        try #require(showsNewSize, "the surface never showed its new size \(target)")
         let resized = shown.session.surfaceView.bounds.size
         // It never goes quiet: output every 30 ms for 4 s.
         let busyUntil = ContinuousClock.now.advanced(by: .seconds(4))
