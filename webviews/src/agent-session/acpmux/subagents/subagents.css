@@ -1360,7 +1360,6 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__latest) > .acpmux-agent-line__button {
   height: auto;
-  min-height: calc(var(--ui-row-height, 28px) + 16px);
   align-items: start;
   padding-block: 6px;
 }
