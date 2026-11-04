@@ -163,10 +163,20 @@ jobs:
           CI_OWNED_HEAD_REPOS: ${{ env.CI_OWNED_HEAD_REPOS }}
         run: echo "repos=$CI_OWNED_HEAD_REPOS" >> "$GITHUB_OUTPUT"
 
+      # Blobless and lean: a full depth-2 checkout downloaded every blob of the
+      # tree (about 570 MiB, most of it media under cmux-next-ios/verify/) and
+      # took 286-350 s on 2026-11-03, past this job's 5-minute timeout, which
+      # cancelled the whole run. Routing reads names and trees; the blobs of
+      # the paths it opens arrive with the checkout.
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 2
+          filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
 
       - name: Which line this pull request is on
         id: line
