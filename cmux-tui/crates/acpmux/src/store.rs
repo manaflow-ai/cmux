@@ -23,7 +23,9 @@ mod superseded;
 pub use superseded::{Superseded, starts_prompt};
 mod kind_index;
 pub use kind_index::INDEXED_KINDS;
+mod shared_value;
 mod text_index;
+pub use shared_value::SharedValue;
 
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -227,7 +229,7 @@ pub struct SessionMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode_set_by_cmux: Option<String>,
     #[serde(default)]
-    pub config_options: Option<Value>,
+    pub config_options: Option<SharedValue>,
     #[serde(default)]
     pub models: Option<Value>,
     #[serde(default)]
