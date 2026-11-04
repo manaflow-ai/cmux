@@ -175,11 +175,12 @@ async fn one(
         let mut choice = if options.install { stats.choose(&report.key) } else { Choice::Restore };
         // A machine with no cold install of its own goes by the uploader's
         // (one small request); without one either, it restores.
-        if options.install && cold_record.is_none() {
-            if let Ok(Some(meta)) = remote.fetch_meta(&report.key).await {
-                cold_record = Some(meta.cold_ms);
-                choice = stats.choose_from(meta.cold_ms, meta.archive_bytes);
-            }
+        if options.install
+            && cold_record.is_none()
+            && let Ok(Some(meta)) = remote.fetch_meta(&report.key).await
+        {
+            cold_record = Some(meta.cold_ms);
+            choice = stats.choose_from(meta.cold_ms, meta.archive_bytes);
         }
         if let Choice::Cold { cold_ms, expected_ms } = choice {
             report.restore = "cold_faster";
