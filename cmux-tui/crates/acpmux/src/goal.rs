@@ -121,14 +121,10 @@ impl GoalStatus {
 
     pub fn as_str(&self) -> &str {
         match self {
-            Self::Running => "running",
-            Self::Stalled => "stalled",
+            Self::Running | Self::Active => "running",
+            Self::Stalled | Self::Blocked | Self::UsageLimited | Self::BudgetLimited => "stalled",
             Self::Paused => "paused",
             Self::Done => "done",
-            Self::Active => "active",
-            Self::Blocked => "blocked",
-            Self::UsageLimited => "usageLimited",
-            Self::BudgetLimited => "budgetLimited",
             Self::Unknown(value) => value,
         }
     }
@@ -207,6 +203,46 @@ impl GoalState {
         self.status.lifecycle()
     }
 
+    /// Build a goal from Claude Code's ACP `plan` update. TodoWrite emits
+    /// entries with `pending`, `in_progress`, or `completed` statuses; the
+    /// common lifecycle remains running until every entry is completed.
+    pub fn from_plan_update(update: &Value) -> Option<Self> {
+        if update.get("sessionUpdate").and_then(Value::as_str) != Some("plan") {
+            return None;
+        }
+        let entries = update.get("entries")?.as_array()?;
+        if entries.is_empty() {
+            return None;
+        }
+        let objective = entries
+            .iter()
+            .find(|entry| entry.get("status").and_then(Value::as_str) == Some("in_progress"))
+            .or_else(|| entries.first())
+            .and_then(|entry| entry.get("content").or_else(|| entry.get("title")))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|content| !content.is_empty())?
+            .to_owned();
+        let complete = entries.iter().all(|entry| {
+            matches!(
+                entry.get("status").and_then(Value::as_str),
+                Some("completed" | "complete" | "done")
+            )
+        });
+        Some(Self {
+            objective,
+            status: if complete { GoalStatus::Done } else { GoalStatus::Running },
+            provider: GoalProvider::Claude,
+            steps: Some(entries.clone()),
+            token_budget: None,
+            tokens_used: None,
+            elapsed_seconds: None,
+            created_at: None,
+            updated_at: None,
+            extra: BTreeMap::new(),
+        })
+    }
+
     pub fn to_value(&self) -> Value {
         serde_json::to_value(self).unwrap_or_else(|_| Value::Object(Map::new()))
     }
@@ -239,6 +275,7 @@ mod tests {
         assert_eq!(goal.elapsed_seconds, Some(42));
         assert_eq!(goal.steps.as_ref().unwrap().len(), 1);
         assert_eq!(goal.to_value()["timeUsedSeconds"], 42);
+        assert_eq!(goal.to_value()["status"], "running");
     }
 
     #[test]
@@ -254,5 +291,26 @@ mod tests {
         assert!(
             GoalState::from_value(&json!({"objective": "  ", "status": "running"}), None).is_none()
         );
+    }
+
+    #[test]
+    fn derives_running_then_done_claude_loop_from_plan_updates() {
+        let running = GoalState::from_plan_update(&json!({
+            "sessionUpdate": "plan",
+            "entries": [
+                {"content": "Inspect the change", "status": "completed"},
+                {"content": "Run the check", "status": "in_progress"}
+            ]
+        }))
+        .unwrap();
+        assert_eq!(running.provider, GoalProvider::Claude);
+        assert_eq!(running.objective, "Run the check");
+        assert_eq!(running.lifecycle(), "running");
+        let done = GoalState::from_plan_update(&json!({
+            "sessionUpdate": "plan",
+            "entries": [{"content": "Run the check", "status": "completed"}]
+        }))
+        .unwrap();
+        assert_eq!(done.lifecycle(), "done");
     }
 }
