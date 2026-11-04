@@ -614,19 +614,46 @@ fn push_inner(
         }
     }
 
-    for (relative, kept) in &set.links {
-        let target = format!("{remote_root}/{relative}");
-        match links.place(&mut remote, &target, &kept.target)? {
-            Placed::Made => {
-                summary.written += 1;
-                next.links.insert(relative.clone(), kept.clone());
+    // A link whose target is a link not made yet waits for the next pass;
+    // passes go on while one makes something.
+    let mut waiting: Vec<(&String, &Linked)> = set.links.iter().collect();
+    let mut skipped: Vec<(String, skips::Why)> = Vec::new();
+    loop {
+        let mut again = Vec::new();
+        skipped.clear();
+        let mut placed_any = false;
+        for (relative, kept) in waiting {
+            let target = format!("{remote_root}/{relative}");
+            match links.place(&mut remote, &target, &kept.target)? {
+                Placed::Made => {
+                    placed_any = true;
+                    summary.written += 1;
+                    next.links.insert(relative.clone(), kept.clone());
+                }
+                Placed::Already => {
+                    placed_any = true;
+                    summary.unchanged += 1;
+                    next.links.insert(relative.clone(), kept.clone());
+                }
+                Placed::Skipped(skips::Why::SymlinkBroken) => {
+                    again.push((relative, kept));
+                    skipped.push((relative.clone(), skips::Why::SymlinkBroken));
+                }
+                Placed::Skipped(why) => skipped.push((relative.clone(), why)),
             }
-            Placed::Already => {
-                summary.unchanged += 1;
-                next.links.insert(relative.clone(), kept.clone());
-            }
-            Placed::Skipped(why) => set.skips.note(relative, why),
         }
+        if !placed_any || again.is_empty() {
+            break;
+        }
+        // Only the ones that waited go round again.
+        skipped.retain(|(_, why)| *why != skips::Why::SymlinkBroken);
+        for (relative, why) in skipped.drain(..) {
+            set.skips.note(&relative, why);
+        }
+        waiting = again;
+    }
+    for (relative, why) in skipped {
+        set.skips.note(&relative, why);
     }
     // Links skipped since the summary began are named too.
     let (skipped_files, skipped_counts) = set.skips.json();

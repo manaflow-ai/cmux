@@ -1285,3 +1285,24 @@ fn a_pull_never_brings_back_a_link_over_the_hooks_folder() {
     let (_, answer) = pull(&socket, &repo, &remote);
     assert!(std::fs::symlink_metadata(repo.join("entry")).is_err(), "{answer}");
 }
+
+/// A link through a link that sorts after it still arrives on the first
+/// push: it waits for the pass after the one that makes its target.
+#[test]
+fn a_chain_of_links_arrives_on_the_first_push() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let folder = root.join("site");
+    std::fs::create_dir_all(folder.join("src")).unwrap();
+    std::fs::write(folder.join("src/a.txt"), "a\n").unwrap();
+    std::os::unix::fs::symlink("z/a.txt", folder.join("a")).unwrap();
+    std::os::unix::fs::symlink("src", folder.join("z")).unwrap();
+    let (_sockets, socket, home) = machine_home(&root);
+    serve_fs(&socket, &home);
+    let remote = home.join("work/site");
+    let (ok, summary, _) = push_output(&socket, &folder, &remote);
+    assert!(ok, "{summary}");
+    assert_eq!(std::fs::read_link(remote.join("a")).unwrap(), Path::new("z/a.txt"), "{summary}");
+    assert_eq!(std::fs::read_to_string(remote.join("a")).unwrap(), "a\n");
+    assert_eq!(summary["skipped"], json!(0), "{summary}");
+}
