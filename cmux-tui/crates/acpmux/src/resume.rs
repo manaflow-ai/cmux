@@ -11,6 +11,11 @@
 //! arrived, and the network streams held across it come back late (TCP's retransmit backoff: up to
 //! about 90 s after a 2 minute pause), so the hub gives them a fresh period (`hub/resume.rs`).
 //!
+//! The tick runs only while something reads the gaps (a running turn, a subscriber): an idle daemon
+//! does not wake for it (`hub/resume.rs`). While nothing ticks the watch is [parked](ResumeWatch::park):
+//! lateness then means nothing, so the first check after it sees only a pause (the wall clock ahead
+//! of the monotonic one, which needs no tick to be seen) and counts on from there.
+//!
 //! Sans I/O: the caller passes the clocks, so a test feeds samples instead of pausing a machine.
 //! `peer_link::SleepWatch` is the per-link wall-against-monotonic check the peer links already run.
 
@@ -52,6 +57,8 @@ impl Resume {
 pub struct ResumeWatch {
     wall_ms: u64,
     mono: Duration,
+    /// No tick runs: a late check is no stop (see the module docs).
+    parked: bool,
 }
 
 impl ResumeWatch {
@@ -63,7 +70,17 @@ impl ResumeWatch {
     /// Starts counting from these clocks: the wall clock in Unix ms, the monotonic one as an
     /// offset from any fixed origin.
     pub fn new(wall_ms: u64, mono: Duration) -> Self {
-        Self { wall_ms, mono }
+        Self { wall_ms, mono, parked: false }
+    }
+
+    /// The tick stops: until the next check, time passing on both clocks is not lateness.
+    pub fn park(&mut self) {
+        self.parked = true;
+    }
+
+    /// Whether the tick is stopped (the next check starts it again).
+    pub fn parked(&self) -> bool {
+        self.parked
     }
 
     /// The gap since the last check, when there was one; the watch counts from now either way.
@@ -72,15 +89,18 @@ impl ResumeWatch {
     pub fn observe(&mut self, wall_ms: u64, mono: Duration) -> Option<Resume> {
         let wall = Duration::from_millis(wall_ms.saturating_sub(self.wall_ms));
         let awake = mono.saturating_sub(self.mono);
+        let parked = self.parked;
         *self = Self::new(wall_ms, mono);
         // A wall clock set back (a correction) moves `wall` to 0: no pause, and the stopped check
         // still reads the monotonic clock alone.
         let paused = wall.saturating_sub(awake);
         let late = awake.saturating_sub(Self::EVERY);
         if paused >= Self::SLACK {
-            // The time the tick was late on either clock is the time nothing ran.
-            Some(Resume { gap: wall.saturating_sub(Self::EVERY), kind: ResumeKind::Paused })
-        } else if late >= Self::SLACK {
+            // The time the tick was late on either clock is the time nothing ran. A parked watch
+            // had no tick: the gap is the wall clock's lead over the monotonic one.
+            let gap = if parked { paused } else { wall.saturating_sub(Self::EVERY) };
+            Some(Resume { gap, kind: ResumeKind::Paused })
+        } else if late >= Self::SLACK && !parked {
             Some(Resume { gap: late, kind: ResumeKind::Stopped })
         } else {
             None
@@ -137,6 +157,23 @@ mod tests {
         // SIGSTOP for 60 s: both clocks moved 70 s over a 10 s period.
         let r = w.observe(1_000 * S + 70 * S, secs(70)).expect("a stop");
         assert_eq!((r.kind, r.gap), (ResumeKind::Stopped, secs(60)));
+    }
+
+    #[test]
+    fn a_parked_watch_sees_a_pause_but_no_stop() {
+        // An idle daemon parks the watch: an hour on both clocks is no gap.
+        let mut w = ResumeWatch::new(1_000 * S, secs(0));
+        w.park();
+        assert!(w.parked());
+        assert_eq!(w.observe(1_000 * S + 3_600 * S, secs(3_600)), None);
+        // The check unparked it: from here a late tick is a stop again.
+        assert!(!w.parked());
+        let r = w.observe(1_000 * S + 3_670 * S, secs(3_670)).expect("a stop");
+        assert_eq!((r.kind, r.gap), (ResumeKind::Stopped, secs(60)));
+        // A computer that slept 5 minutes while parked: the wall clock ran ahead, seen at once.
+        w.park();
+        let r = w.observe(1_000 * S + 4_270 * S + 300 * S, secs(4_270)).expect("a pause");
+        assert_eq!((r.kind, r.gap), (ResumeKind::Paused, secs(300)));
     }
 
     #[test]

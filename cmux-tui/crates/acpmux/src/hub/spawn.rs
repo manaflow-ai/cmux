@@ -237,10 +237,20 @@ impl Hub {
                             "preset {name:?} has a system prompt, but this daemon has no state directory"
                         ))
                     })?;
-                    prompt_file = Some(
-                        crate::config::checked_system_prompt(&dir, name, sha)
-                            .map_err(RpcError::invalid_params)?,
-                    );
+                    let original = crate::config::checked_system_prompt(&dir, name, sha)
+                        .map_err(RpcError::invalid_params)?;
+                    prompt_file = Some(if let Some(text) = meta.cmux_preset_prompt.as_deref() {
+                        let overrides = dir.join(".context-overrides");
+                        let key = crate::sha256::sha256_hex(text.as_bytes());
+                        let hash = crate::config::write_system_prompt(&overrides, &key, text)
+                            .map_err(|e| {
+                                RpcError::internal(format!("save selected prompt: {e}"))
+                            })?;
+                        crate::config::checked_system_prompt(&overrides, &key, &hash)
+                            .map_err(RpcError::invalid_params)?
+                    } else {
+                        original
+                    });
                 }
             }
         }
@@ -269,8 +279,10 @@ impl Hub {
         // transferable directory and therefore leaves the bridge disabled.
         if p.family.as_deref() == Some("cmux-harness") {
             p.env.remove("CMUX_HARNESS_SESSION_STORE_DIR");
-            if let Some(dir) =
-                self.store.session_dir(&meta.id).and_then(|dir| dir.parent().map(Path::to_path_buf))
+            if let Some(dir) = self
+                .store
+                .session_path(&meta.id)
+                .and_then(|dir| dir.parent().map(Path::to_path_buf))
             {
                 let root = dir.to_string_lossy().into_owned();
                 if let Some(agent_id) = meta.agent_session_id.as_deref() {

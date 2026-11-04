@@ -8,6 +8,22 @@ thread_local! {
     /// Tests: the next sync of a log segment on this thread ([`sync_segment`]) fails, as a failed
     /// fsync would.
     pub(crate) static FAIL_NEXT_LOG_SYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Tests: the next sync of this folder on this thread (`sync_directory`) fails.
+    pub(crate) static FAIL_DIR_SYNC: std::cell::RefCell<Option<std::path::PathBuf>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Tests: whether this sync of the folder at `path` fails ([`FAIL_DIR_SYNC`]).
+#[cfg(test)]
+pub(super) fn fail_dir_sync(path: &Path) -> bool {
+    FAIL_DIR_SYNC.with(|fail| {
+        let mut fail = fail.borrow_mut();
+        let hit = fail.as_deref() == Some(path);
+        if hit {
+            *fail = None;
+        }
+        hit
+    })
 }
 
 /// Tests: the syncs that flush the drive's cache (on macOS every `sync_all`/`sync_data` is an
@@ -73,6 +89,10 @@ pub(super) fn sync_segment_ordered(file: &File) -> std::io::Result<()> {
 #[cfg(unix)]
 pub(super) fn sync_directory_ordered(path: &Path) -> Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
+    #[cfg(test)]
+    if fail_dir_sync(path) {
+        return Err(SyncFailed(std::io::Error::other("a failed folder sync (a test)")).into());
+    }
     let dir = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
@@ -81,6 +101,8 @@ pub(super) fn sync_directory_ordered(path: &Path) -> Result<()> {
     #[cfg(test)]
     counted(&result);
     result.map_err(SyncFailed)?;
+    #[cfg(test)]
+    super::sync_model::folder_synced(path);
     Ok(())
 }
 

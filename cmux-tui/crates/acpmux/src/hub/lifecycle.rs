@@ -248,6 +248,11 @@ impl Hub {
         });
         (meta.session_env, meta.chat_store, meta.adopted_cwd, meta.git_branch, meta.git_head) =
             (session_env, chat_store, adopted_cwd, git.branch, git.head);
+        if !remote && adopt.is_none() {
+            let cfg = self.config.read().await;
+            meta.cmux_preset_prompt = crate::context_inventory::preset_override(&meta, &cfg);
+            meta.cmux_context = Some(crate::context_inventory::snapshot_session(&meta, &cfg));
+        }
         meta.workspace_id = workspace_id;
         meta.additional_directories =
             super::additional_dirs::without_cwd(additional_directories, &meta.cwd);
@@ -262,19 +267,16 @@ impl Hub {
         // disallowed tools, nor in a folder a sub-session start checked: a pooled harness started
         // wherever the path led. Never for an agent's create (`starter`): the warm agent is kept
         // for the person's next chat, which never waits behind a lane's start.
-        let pooled = match (&fixed_id, &adopt) {
-            (None, None)
-                if starter.is_none()
-                    && meta.session_env.is_empty()
-                    && route.is_none()
-                    && meta.tools.off.is_empty()
-                    && meta.additional_directories.is_empty()
-                    && checked_cwd.is_none() =>
-            {
-                self.pool_claim(&meta, &profile, &defaults.env).await
-            }
-            _ => None,
-        };
+        let claimable = fixed_id.is_none()
+            && adopt.is_none()
+            && starter.is_none()
+            && meta.session_env.is_empty()
+            && route.is_none()
+            && meta.tools.off.is_empty()
+            && meta.additional_directories.is_empty()
+            && checked_cwd.is_none();
+        let pooled =
+            if claimable { self.pool_claim(&meta, &profile, &defaults.env).await } else { None };
         // Every way out of here (an error, or this future dropped) before
         // `ensure_child` took the entry puts it back or ends it.
         let _claim = pooled.as_ref().map(|id| self.pool_claim_guard(id.clone()));
@@ -491,7 +493,7 @@ impl Hub {
         }
         // An agent's create warms nothing: the pool is the person's (`pool/`).
         if adopt.is_none() && starter.is_none() {
-            self.pool_note_used(&session);
+            self.pool_note_used(&session, claimable);
         }
         creation_guard.disarm();
         Ok(session)
@@ -1808,7 +1810,7 @@ fn stopped_while_starting() -> RpcError {
 /// partial creation, corrupt metadata or a symlink. Never turn a read error into
 /// permission to overwrite a chat. Memory stores use their metadata instead.
 fn refuse_stored_fixed_id(store: &dyn crate::store::Store, id: &str) -> Result<(), RpcError> {
-    let taken = if let Some(path) = store.session_dir(id) {
+    let taken = if let Some(path) = store.session_path(id) {
         match std::fs::symlink_metadata(path) {
             Ok(_) => true,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,

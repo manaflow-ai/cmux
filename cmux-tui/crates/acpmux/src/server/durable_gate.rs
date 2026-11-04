@@ -19,6 +19,7 @@ use crate::store::Durability;
 use std::cell::Cell;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 use tokio::sync::{mpsc, watch};
 
 /// What a connection's lines wait for.
@@ -70,11 +71,25 @@ pub(super) fn install(
     durability: Option<Durability>,
     out: mpsc::Sender<String>,
 ) -> (mpsc::Sender<String>, Option<Arc<Gate>>) {
-    let Some(Durability { acked, durable }) = durability else { return (out, None) };
+    let Some(Durability { acked, durable, stalled }) = durability else { return (out, None) };
     let gate = Arc::new(Gate { needs: AtomicU64::new(0), acked });
     let (lines_tx, lines) = mpsc::channel(out.max_capacity());
-    tokio::spawn(run(lines, out, Arc::clone(&gate), durable));
+    tokio::spawn(run(lines, out, Arc::clone(&gate), durable, stalled));
     (lines_tx, Some(gate))
+}
+
+/// How long a connection's lines may wait for the journal before the store asks the daemon to
+/// stop for a restart (review of #35400, F2): a sync takes milliseconds, a few seconds on a
+/// disk under heavy load; this long only on a hung or failing disk, whose writer retries without
+/// end and would hold every reply.
+const STALL_LIMIT: Duration = Duration::from_secs(10);
+
+fn stall_limit() -> Duration {
+    #[cfg(test)]
+    if let ms @ 1.. = TEST_STALL_MS.load(Ordering::SeqCst) {
+        return Duration::from_millis(ms);
+    }
+    STALL_LIMIT
 }
 
 /// The gate's task ([module docs](self)). Ends when the connection's senders are gone, the
@@ -84,6 +99,7 @@ async fn run(
     out: mpsc::Sender<String>,
     gate: Arc<Gate>,
     mut durable: watch::Receiver<u64>,
+    stalled: Arc<dyn Fn(String) + Send + Sync>,
 ) {
     let limit = lines.max_capacity();
     let mut batch = Vec::with_capacity(limit.min(64));
@@ -100,13 +116,28 @@ async fn run(
         // After the lines were taken: every line among them raised the gate before it was queued.
         let needs = gate.needs.load(Ordering::SeqCst);
         if *durable.borrow() < needs {
-            tokio::select! {
-                biased;
-                () = out.closed() => return,
-                reached = durable.wait_for(|lsn| *lsn >= needs) => {
-                    if reached.is_err() {
-                        tracing::error!("the event journal's writer ended: this connection closes");
-                        return;
+            let reached = durable.wait_for(|lsn| *lsn >= needs);
+            tokio::pin!(reached);
+            let stall = tokio::time::sleep(stall_limit());
+            tokio::pin!(stall);
+            let mut asked = false;
+            loop {
+                tokio::select! {
+                    biased;
+                    () = out.closed() => return,
+                    reached = &mut reached => {
+                        if reached.is_err() {
+                            tracing::error!("the event journal's writer ended: this connection closes");
+                            return;
+                        }
+                        break;
+                    }
+                    () = &mut stall, if !asked => {
+                        asked = true;
+                        stalled(format!(
+                            "a reply waited {:?} for the event journal, which made nothing durable",
+                            stall_limit()
+                        ));
                     }
                 }
             }
@@ -118,6 +149,10 @@ async fn run(
         }
     }
 }
+
+/// Tests: the stall limit in milliseconds when not 0.
+#[cfg(test)]
+pub(crate) static TEST_STALL_MS: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(all(test, unix))]
 #[path = "durable_gate_tests.rs"]

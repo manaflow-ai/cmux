@@ -158,6 +158,9 @@ pub struct Conn {
     /// It reads session text raw (`peer_text.rs`): every origin but a peer.
     raw_text: bool,
     name: StdMutex<String>,
+    /// Its count in the daemon's unused rule (`daemon/unused_exit.rs`): an `initialize` that says
+    /// it only observes marks it, so it keeps nothing once the owner app exited.
+    presence: crate::daemon::unused_exit::Presence,
     out: mpsc::Sender<String>,
     /// Holds its lines until what they may show is durable (`durable_gate.rs`); None without the
     /// event journal.
@@ -1481,7 +1484,7 @@ async fn serve_connection_from(
         return;
     }
     // Counted while it is served: a daemon with none stops once unused (`daemon/unused_exit.rs`).
-    let _client = crate::daemon::unused_exit::client();
+    let client = crate::daemon::unused_exit::client();
     let raw_text = !peer_text::masks(origin);
     let (out, gate) = durable_gate::install(hub.store.durability(), out);
     let conn = Arc::new(Conn {
@@ -1491,6 +1494,7 @@ async fn serve_connection_from(
         device,
         raw_text,
         name: StdMutex::new(String::new()),
+        presence: client.presence(),
         out,
         gate,
         outbound_lock: Arc::new(StdMutex::new(())),

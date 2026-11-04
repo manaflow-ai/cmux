@@ -1,4 +1,4 @@
-import CmuxNextCompat
+public import CmuxNextCompat
 public import CmuxNextDesign
 public import Foundation
 
@@ -228,6 +228,12 @@ public final class CEFEngine: BrowserEngine {
 
     /// Recent renderer and helper process failures (`debug.crashes`).
     public var crashLog: BrowserCrashLog { CEFRuntime.shared.crashLog }
+    /// Each renderer end and main-frame load failure a person saw, with the engine versions (cancelled loads
+    /// included: the receiver filters). The App sends them to crash reporting.
+    public var onEngineFailure: ((BrowserEngineFailure) -> Void)? {
+        get { CEFRuntime.shared.failureReports.onFailure }
+        set { CEFRuntime.shared.failureReports.onFailure = newValue }
+    }
 
     /// Runs once CEF is initialized in this process (process-wide), after the
     /// person's password settings (`setPasswordPolicy`) and search engine
