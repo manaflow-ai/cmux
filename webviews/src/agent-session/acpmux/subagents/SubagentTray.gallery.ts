@@ -355,8 +355,17 @@ const expandTray = (placement: "composer" | "after-latest") => async (ctx: PlayC
   await ctx.click({ selector: ".acpmux-running-tray__head" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list"));
   const moved = latestTop(ctx) - before;
-  if (placement === "composer" && Math.abs(moved) > 0.5)
+  if (placement !== "composer") return;
+  // Over the running turn's live line the tray takes only half its rest gap, and the rows go up by
+  // the rest so the line stays in sight (Leo, 2026-11-04: "why does it not display Thinking or
+  // anything here???"); any other last row stays where it was.
+  const line = ctx.document.querySelector<HTMLElement>(".acpmux-row--below .cv-worked--live");
+  if (!line && Math.abs(moved) > 0.5)
     throw new Error(`opening the tray on the composer moved the transcript ${moved.toFixed(1)}px`);
+  if (line && moved > 0.5) throw new Error(`opening the tray drew the transcript down ${moved.toFixed(1)}px`);
+  const tray = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray")!.getBoundingClientRect();
+  if (line && line.getBoundingClientRect().bottom > tray.top + 0.5)
+    throw new Error("opening the tray on the composer covered the running turn's live line");
 };
 
 /** A running line's look (Leo, 2026-11-03: "do we really need a running symbol vs just having the
