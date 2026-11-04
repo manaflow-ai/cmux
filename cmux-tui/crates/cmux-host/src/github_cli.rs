@@ -691,7 +691,8 @@ pub fn parse_gh_hosts(hosts_yml: &str) -> GhHosts {
     match docs.into_iter().next() {
         None | Some(yaml_rust::Yaml::Null) => GhHosts::default(),
         Some(yaml_rust::Yaml::Hash(root)) => GhHosts {
-            hosts: root.keys().filter_map(|k| k.as_str().map(str::to_owned)).collect(),
+            // Trimmed: yaml-rust keeps a tab of indentation in the key.
+            hosts: root.keys().filter_map(|k| k.as_str().map(|h| h.trim().to_owned())).collect(),
             unread: false,
         },
         Some(_) => unread,
