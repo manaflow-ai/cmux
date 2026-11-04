@@ -136,3 +136,67 @@ trait Pipe: Sized {
 }
 
 impl<T> Pipe for T {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::{META_SCHEMA, SessionMeta};
+    use serde_json::json;
+    use std::sync::Arc;
+
+    fn hub() -> Arc<Hub> {
+        let config: crate::config::Config =
+            serde_json::from_value(json!({"store": {"mode": "memory"}})).unwrap();
+        let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent"))
+            .unwrap();
+        Hub::new(config, store)
+    }
+
+    #[test]
+    fn reads_real_secret_events_without_projecting_secret_values() {
+        let hub = hub();
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": META_SCHEMA,
+            "id": "machine-info-secret-events",
+            "name": "machine-info-secret-events",
+            "harness": "claude",
+            "cwd": "/tmp",
+            "status": "idle",
+            "createdAt": 1,
+            "updatedAt": 1,
+        }))
+        .unwrap();
+        let session = hub.make_session(meta);
+
+        hub.append(
+            &session,
+            "mux",
+            "secret_request",
+            json!({
+                "secretId": "secret-1",
+                "name": "API_TOKEN",
+                "reason": "test machine_info projection",
+            }),
+        );
+        hub.append(
+            &session,
+            "mux",
+            "secret_decision",
+            json!({
+                "secretId": "secret-1",
+                "name": "API_TOKEN",
+                "outcome": "provided",
+                // A defensive sentinel: even an unexpected value field in an old log must not
+                // cross the machine_info projection boundary.
+                "value": "machine-info-secret-sentinel",
+            }),
+        );
+
+        let result = hub.machine_info(&session);
+        assert_eq!(
+            result["secrets"],
+            json!([{"name": "API_TOKEN", "status": "provided"}])
+        );
+        assert!(!result.to_string().contains("machine-info-secret-sentinel"));
+    }
+}

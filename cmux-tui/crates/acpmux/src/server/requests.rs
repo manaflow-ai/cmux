@@ -2169,7 +2169,12 @@ async fn dispatch_request_with_identity(
                     "machine_info is available only to the calling agent",
                 ));
             }
-            Ok(hub.machine_info(&s))
+            // The capability snapshot reads the session's event log for secret status. Keep
+            // that potentially whole-log scan off the async request dispatcher.
+            let hub = Arc::clone(hub);
+            tokio::task::spawn_blocking(move || hub.machine_info(&s))
+                .await
+                .map_err(|e| RpcError::internal(format!("machine info stopped: {e}")))
         }
         method::MUX_INFO => info::info(hub, conn, &params).await,
         method::MUX_SESSION_FILES => {
