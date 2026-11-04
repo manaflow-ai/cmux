@@ -757,6 +757,8 @@ final class AppServices {
         let updateSheet = self.updateSheet  // built here, as before
         updater.attach(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
         serverUpdates.start(registry: registry)
+        cache.standInTerminals.ready = { [weak self] key in // its key's frame committed: its surface now, one per frame
+            for pane in self?.windows.controllers.flatMap({ $0.content?.panes.values.map { $0 } ?? [] }) ?? [] where pane.currentTabKey == key { self?.presentation.showNow(pane) } }
         cache.onBrowserReady = { [weak self] key in
             self?.keyRouter.creationInputCoordinator.pageArrived(key); for controller in self?.windows.controllers ?? [] {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }
