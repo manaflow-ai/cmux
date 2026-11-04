@@ -82,6 +82,12 @@ export const PINNED_PLAN_KEY = "agentPane.display.pinnedPlan";
 /// collapse that one line?"). The hat's own chevron, the palette, the CLI and MCP write the same key.
 /// Not part of ChatDisplay: switching it measures no transcript row again.
 export const TRAY_TUCKED_KEY = "agentPane.display.trayTucked";
+/// Settings > Agent Chat > Running Tray Handle, the middle by default: where along the composer's top
+/// edge the hat's tuck chevron and, tucked, its pull tab sit (subagents/TrayPullTab.tsx; Leo,
+/// 2026-11-04: "I also wonder if we'd want the grabber/dogear/whatever design thing on maybe the left…
+/// or the right…"). Not part of ChatDisplay: switching it measures no transcript row again.
+export const TRAY_HANDLE_KEY = "agentPane.display.trayHandle";
+export type TrayHandleSide = "left" | "middle" | "right";
 /// Settings > Agent Chat > Chat Minimap (Swift AgentPaneDisplaySettingsSchema has the same row).
 export const MINIMAP_KEY = "agentPane.display.minimap";
 /// Settings > Updates > Show Feature Tips (featureTips.tsx), on unless set false. The host sends it
@@ -274,6 +280,7 @@ let raw: Values = {};
 let minimapOn = false;
 let pinnedPlanOn = false;
 let trayTuckedOn = false;
+let trayHandle: TrayHandleSide = "middle";
 let threadMinimapArm: ThreadMinimapArm | null = null;
 let transcriptView: TranscriptView = "normal";
 let presentation: Presentation = "transcript";
@@ -296,6 +303,7 @@ export function setChatDisplay(value: unknown): void {
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
+  const handle = raw[TRAY_HANDLE_KEY] === "left" || raw[TRAY_HANDLE_KEY] === "right" ? raw[TRAY_HANDLE_KEY] : "middle";
   const threadMinimap = resolveThreadMinimapArm(raw);
   const stored = raw[TRANSCRIPT_VIEW_KEY];
   const view = isTranscriptView(stored) ? stored : "normal";
@@ -309,6 +317,7 @@ export function setChatDisplay(value: unknown): void {
     minimap === minimapOn &&
     pinnedPlan === pinnedPlanOn &&
     trayTucked === trayTuckedOn &&
+    handle === trayHandle &&
     threadMinimap === threadMinimapArm &&
     view === transcriptView &&
     nextPresentation === presentation &&
@@ -320,6 +329,7 @@ export function setChatDisplay(value: unknown): void {
   minimapOn = minimap;
   pinnedPlanOn = pinnedPlan;
   trayTuckedOn = trayTucked;
+  trayHandle = handle;
   threadMinimapArm = threadMinimap;
   transcriptView = view;
   presentation = nextPresentation;
@@ -402,6 +412,10 @@ const trayTuckedSnapshot = () => trayTuckedOn;
 export const useTrayTucked = (): boolean => useSyncExternalStore(subscribe, trayTuckedSnapshot, trayTuckedSnapshot);
 /// Tucks the hat away or brings it back, at once in the page; the host writes the setting.
 export const setTrayTucked = (tucked: boolean): void => changeChatDisplay(TRAY_TUCKED_KEY, tucked || null);
+const trayHandleSnapshot = () => trayHandle;
+/// Where the hat's tuck chevron and pull tab sit along the composer's top edge (TRAY_HANDLE_KEY).
+export const useTrayHandle = (): TrayHandleSide =>
+  useSyncExternalStore(subscribe, trayHandleSnapshot, trayHandleSnapshot);
 /// Whether the chat minimap is on (CHAT_MINIMAP_KEY).
 export const useChatMinimap = (): boolean => useSyncExternalStore(subscribe, minimapSnapshot, minimapSnapshot);
 /// The rail's arm, separate from the measured chat look so switching it remeasures no transcript row.
