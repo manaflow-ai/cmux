@@ -180,6 +180,7 @@ import { usePickerCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
 import { applySwitch, browserSwitchClock, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { NewChatPrewarm, type PrewarmTarget } from "./newChatPrewarm";
+import { harnessModeName, highestMode } from "./harnessModes";
 import { harnessProfiles } from "./harnessProfiles";
 import { setStartModeSource } from "./startMode";
 import { setPromptSurfaces } from "./surfaces/promptSurface";
@@ -5942,10 +5943,19 @@ const answerSecret = (ask: AcpmuxSecretAsk) => (value?: string) => {
   return value ? sent : sent.catch(() => undefined);
 };
 
+/// The native label of the mode the chat runs now when it is its family's highest (Claude Code's
+/// Bypass permissions, Codex's Full access), else nothing.
+function fullAccessModeName(summary: AcpmuxSnapshot["summary"]): string | undefined {
+  const current = summary?.modes?.currentModeId;
+  if (!current || highestMode(summary?.family, summary?.harness)?.id !== current) return undefined;
+  return harnessModeName(summary?.family, summary?.harness, current);
+}
+
 /// A permission ask: a question card when the request asks a question, else its option buttons.
 function PermissionAsk({
   permission,
   harness,
+  fullAccessMode,
   focusComposer,
   shownChat,
   shortcuts,
@@ -5953,6 +5963,8 @@ function PermissionAsk({
 }: {
   permission: AcpmuxPermission;
   harness?: string;
+  /// The chat's highest mode while it runs it: the card says the mode does not answer this ask.
+  fullAccessMode?: string;
   focusComposer?: () => void;
   /// The chat shown now, read when a deny's instructions are about to go: with it, the card can deny
   /// with what the agent should do instead (`denyWithFeedback`).
@@ -5968,6 +5980,7 @@ function PermissionAsk({
       <PermissionCard
         permission={permission}
         harness={harness}
+        fullAccessMode={fullAccessMode}
         focusComposer={focusComposer}
         shortcuts={shortcuts}
         onAnswer={answerPermission(permission)}
@@ -13715,6 +13728,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               shortcuts={cardTakesShortcuts(snapshot.permissionGroups)}
               waiting={snapshot.permissionsWaiting}
               harness={snapshot.summary?.harness}
+              fullAccessMode={fullAccessModeName(snapshot.summary)}
               focusComposer={() => composerHandle.current?.focus()}
               shownChat={shownChat}
             />
