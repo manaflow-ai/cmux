@@ -2,7 +2,7 @@
 //! person's key, or the OAuth tokens and client id. Never in the connection record, a session's
 //! MCP config, argv, an agent's env, a log, the transcript or the audit log.
 //!
-//! - macOS: the login keychain, a generic password with service [`SERVICE`] and account
+//! - macOS: the login keychain, a generic password with service `cmux.mcp` and account
 //!   `<home id>/<connection id>`, written through Security.framework by this binary, so the
 //!   item's access list is acpmux itself (threat model T6), not `/usr/bin/security`.
 //! - Elsewhere: `<home>/mcp/secrets/<connection id>.json`, 0600 in a 0700 folder.
@@ -16,6 +16,7 @@ use std::sync::Mutex as StdMutex;
 use zeroize::Zeroizing;
 
 /// The keychain service of every MCP connection secret.
+#[cfg(target_os = "macos")]
 pub const SERVICE: &str = "cmux.mcp";
 
 pub(crate) enum McpSecrets {
