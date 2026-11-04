@@ -91,6 +91,19 @@ export const parseCiSessionTrust = (raw: string | undefined): { readonly ok: boo
   return { ok: true, rows: json }
 }
 
+/** GitHub's signing keys could not be read (network, HTTP status, timeout, bad JWKS): says nothing about the caller. */
+export class CiKeysUnavailable extends Error {}
+
+/** Every key lookup failure except "no such key" means the keys are unavailable, not that the token is bad. */
+const keysOrUnavailable = (getKey: JWTVerifyGetKey): JWTVerifyGetKey => async (header, token) => {
+  try {
+    return await getKey(header, token)
+  } catch (error) {
+    if (error instanceof joseErrors.JWKSNoMatchingKey || error instanceof joseErrors.JWKSMultipleMatchingKeys) throw error
+    throw new CiKeysUnavailable()
+  }
+}
+
 export type CiSessionRefusal = "not-github" | "no-trust" | "invalid" | "no-match" | "replay"
 
 /** The row a GitHub Actions token matches, or why it matches none. Claims come from jwtVerify only. */
@@ -108,18 +121,17 @@ export const matchCiSessionToken = async (
   if (rows.length === 0) return { ok: false, reason: "no-trust" }
   let payload: Record<string, unknown>
   try {
-    ;({ payload } = await jwtVerify(raw, getKey, {
+    ;({ payload } = await jwtVerify(raw, keysOrUnavailable(getKey), {
       algorithms: ["RS256"],
       issuer: GITHUB_ACTIONS_ISSUER,
       audience: [...new Set(rows.map((r) => r.audience))],
       clockTolerance: 60,
       maxTokenAge: MAX_TOKEN_AGE,
       currentDate: now,
-      requiredClaims: ["exp", "iat", "jti", "sub", "repository", "repository_id", "ref", "workflow_ref", "job_workflow_ref", "event_name"]
+      requiredClaims: ["exp", "iat", "jti", "sub", "repository", "repository_id", "ref", "workflow_ref", "event_name"]
     }))
   } catch (error) {
-    // GitHub's keys could not be read (timeout, bad JWKS answer): says nothing about the caller, so not a refusal.
-    if (error instanceof joseErrors.JWKSTimeout || error instanceof joseErrors.JWKSInvalid) throw error
+    if (error instanceof CiKeysUnavailable) throw error
     if (error instanceof joseErrors.JOSEError) return { ok: false, reason: "invalid" }
     throw error
   }
@@ -134,8 +146,9 @@ export const matchCiSessionToken = async (
       r.events.includes(payload.event_name) &&
       payload.ref === r.ref &&
       payload.workflow_ref === r.workflowRef &&
-      // The job itself must be defined in the row's file: a reusable workflow names its own file here.
-      payload.job_workflow_ref === r.workflowRef
+      // The job itself must be defined in the row's file: a job from a reusable workflow names that file here.
+      // GitHub may leave the claim out for a job of the calling file itself; then workflow_ref alone binds it.
+      (payload.job_workflow_ref === undefined || payload.job_workflow_ref === r.workflowRef)
   )
   if (!row || typeof payload.jti !== "string" || payload.jti.length === 0 || typeof payload.exp !== "number") return { ok: false, reason: "no-match" }
   return { ok: true, row, jti: payload.jti, expiresAt: payload.exp * 1000, ...(typeof payload.run_id === "string" ? { runId: payload.run_id } : {}) }

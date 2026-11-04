@@ -105,6 +105,10 @@ describe("matching a GitHub Actions token", () => {
     expect(m).toMatchObject({ ok: true, row: { id: ROW.id }, runId: "123" })
   })
 
+  it("matches a token without job_workflow_ref (a job of the calling file itself)", async () => {
+    expect(await matchCiSessionToken(await token({ job_workflow_ref: undefined }), [ROW], getKey)).toMatchObject({ ok: true })
+  })
+
   it("refuses a token from another repository, ref or workflow", async () => {
     const other = "manaflow-ai/cmux/.github/workflows/other.yml@refs/heads/main"
     const branch = "manaflow-ai/cmux/.github/workflows/cloud-journey-prod.yml@refs/heads/feat-cmux-next"
@@ -119,7 +123,6 @@ describe("matching a GitHub Actions token", () => {
       { workflow_ref: other, job_workflow_ref: other },
       // A job defined in another (reusable) workflow, called from the trusted file.
       { job_workflow_ref: "manaflow-ai/cmux/.github/workflows/reusable.yml@refs/heads/main" },
-      { job_workflow_ref: undefined },
       { jti: undefined },
       // A pull_request_target run of the trusted file at main (it could run a fork's code), and other events.
       { event_name: "pull_request_target" },
@@ -194,11 +197,14 @@ describe(`POST ${CI_SESSION_PATH}`, () => {
 
   it("answers 503, not a refusal, when GitHub's keys cannot be read", async () => {
     const { stack, createSession } = fakeStack()
-    const down = async () => {
-      throw new joseErrors.JWKSTimeout()
+    // A timeout, and jose's generic error for a JWKS HTTP 4xx/5xx answer.
+    for (const failure of [new joseErrors.JWKSTimeout(), new joseErrors.JOSEError("Expected 200 OK from the JSON Web Key Set HTTP response"), new TypeError("fetch failed")]) {
+      const down = async () => {
+        throw failure
+      }
+      const r = await handleCiSession(new Request(`https://x${CI_SESSION_PATH}`, { method: "POST", headers: { authorization: `Bearer ${await token()}` } }), { ...testEnv, CI_SESSION_TRUST: JSON.stringify([ROW]) } as Env, { getKey: down, stack, claimOnce: memoryClaims() })
+      expect(r.status, String(failure)).toBe(503)
     }
-    const r = await handleCiSession(new Request(`https://x${CI_SESSION_PATH}`, { method: "POST", headers: { authorization: `Bearer ${await token()}` } }), { ...testEnv, CI_SESSION_TRUST: JSON.stringify([ROW]) } as Env, { getKey: down, stack, claimOnce: memoryClaims() })
-    expect(r.status).toBe(503)
     expect(createSession).not.toHaveBeenCalled()
   })
 
