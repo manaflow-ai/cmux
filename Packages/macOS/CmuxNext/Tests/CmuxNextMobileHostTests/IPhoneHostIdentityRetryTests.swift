@@ -16,7 +16,7 @@ import Testing
     }
 
     /// The reads the host made, and whether each allowed the file store.
-    final class Reads: Sendable {
+    nonisolated final class Reads: Sendable {
         private let state = Mutex<(fileStore: [Bool], refuse: Bool)>(([], true))
         var fileStore: [Bool] { state.withLock { $0.fileStore } }
         func answer() { state.withLock { $0.refuse = false } }
