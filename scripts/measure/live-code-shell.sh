@@ -30,7 +30,7 @@ restore() {
 probe="$package/Sources/ViewShell/LiveCodeProbeDot.swift"
 probe_written=""
 trap restore EXIT
-if [[ -e "$probe" ]]; then
+if [[ -e "$probe" || -L "$probe" ]]; then  # -L: a dangling link too, which `cat >` would follow
   echo "live-code-shell: $probe already exists; this measurement writes and deletes that file" >&2
   exit 1
 fi
@@ -49,6 +49,15 @@ wait_for() { # PATTERN SECONDS
 }
 # The badge's rendered width in generation N, in pixels (empty when it was not drawn).
 width_of() { grep "rendered .*generation-$1\.png" "$out/shell.log" | sed -n 's/.*width=\([0-9]*\).*/\1/p' | tail -1; }
+# "yes" when generation $2 was drawn wider or narrower than generation $1, else why not.
+width_changed() {
+  local before after
+  before="$(width_of "$1")"; after="$(width_of "$2")"
+  if [[ -z "$before" ]]; then echo "unknown: no rendered width for generation $1"
+  elif [[ -z "$after" ]]; then echo "unknown: no rendered width for generation $2"
+  elif [[ "$before" != "$after" ]]; then echo "yes"
+  else echo "no: generation $2 is as wide as generation $1 ($after px)"; fi
+}
 wait_for "redrawn generation=0" 30
 cp "$package/Sources/ViewShell/Badge.swift" "$out/Badge.swift.orig"
 
@@ -67,8 +76,7 @@ sed -i '' -e 's/\.padding(\.horizontal, 24)/.padding(.horizontal, 40)/' "$packag
 "$package/inject.sh" --live "$live" "$package/Sources/ViewShell/Badge.swift" | tee "$out/inject-2.log"
 wait_for "redrawn generation=2" 30
 drawn2=$(grep "redrawn generation=2" "$out/shell.log" | sed 's/.*at=//')
-repatched="no: generation 2 is as wide as generation 1 ($(width_of 2) px)"
-[[ "$(width_of 2)" != "$(width_of 1)" ]] && repatched="yes"
+repatched="$(width_changed 1 2)"
 
 # 3. A new file with a new view, used by the badge. Only Badge.swift is named; the build never
 # compiled the new file, so inject.sh links it into the patch too.
@@ -98,8 +106,8 @@ else
   done
   if grep -q "redrawn generation=3" "$out/shell.log"; then
     drawn3=$(grep "redrawn generation=3" "$out/shell.log" | sed 's/.*at=//')
-    newfile="no: generation 3 is as wide as generation 2 ($(width_of 3) px)"
-    [[ "$(width_of 3)" != "$(width_of 2)" ]] && newfile="applied"
+    newfile="$(width_changed 2 3)"
+    [[ "$newfile" == yes ]] && newfile="applied"
   fi
 fi
 
@@ -108,12 +116,15 @@ fi
 next=$(( $(grep -o "redrawn generation=[0-9]*" "$out/shell.log" | tail -1 | sed 's/.*=//') + 1 ))
 refusals=$(grep -c "refused" "$out/shell.log" || true)
 sed -i '' -e 's/    let text: String/    let text: String\n    @State private var extra = 0/' "$package/Sources/ViewShell/Badge.swift"
-"$package/inject.sh" --live "$live" "$package/Sources/ViewShell/Badge.swift" | tee "$out/inject-4.log" || true
-sleep 3
 stored="not applied"
-grep -q "redrawn generation=$next" "$out/shell.log" && stored="applied (unsafe: layout changed)"
-(( $(grep -c "refused" "$out/shell.log" || true) > refusals )) && stored="refused"
-kill -0 "$shell" 2>/dev/null || stored="shell exited"
+if ! "$package/inject.sh" --live "$live" "$package/Sources/ViewShell/Badge.swift" | tee "$out/inject-4.log"; then
+  stored="inject.sh failed (see inject-4.log)"
+else
+  sleep 3
+  grep -q "redrawn generation=$next" "$out/shell.log" && stored="applied (unsafe: layout changed)"
+  (( $(grep -c "refused" "$out/shell.log" || true) > refusals )) && stored="refused"
+  kill -0 "$shell" 2>/dev/null || stored="shell exited"
+fi
 cp "$out/Badge.swift.orig" "$package/Sources/ViewShell/Badge.swift"
 
 python3 - "$out" "$build_start" "$build_end" "$edit" "$compiled" "$drawn" "$edit2" "$drawn2" "$repatched" "$edit3" "$drawn3" "$newfile" "$stored" "$(width_of 0),$(width_of 1),$(width_of 2),$(width_of 3)" <<'PY'
