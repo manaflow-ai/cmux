@@ -221,6 +221,22 @@ mod tests {
         assert_eq!(parse("mode = \"bounded\"\nmanifest = \"/etc/cmux/m.yaml\"").unwrap().mode, Mode::Bounded);
     }
 
+    /// The files `cmux computer-use setup` writes (schemas/computer-use/setup-config,
+    /// which the CLI's tests render) are what this parser reads back.
+    #[test]
+    fn what_setup_writes_parses_back_to_the_same_config() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../schemas/computer-use/setup-config");
+        let cases: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("cases.json")).unwrap()).unwrap();
+        for case in cases["cases"].as_array().unwrap() {
+            let file = case["file"].as_str().unwrap();
+            let config = parse(&std::fs::read_to_string(dir.join(file)).unwrap())
+                .unwrap_or_else(|error| panic!("{file}: {error}"));
+            assert_eq!(Some(config.mode.as_str()), case["mode"].as_str(), "{file}");
+            assert_eq!(config.manifest.as_deref().and_then(Path::to_str), case["manifest"].as_str(), "{file}");
+        }
+    }
+
     #[test]
     fn only_root_owned_unwritable_files_are_trusted() {
         assert!(unix_owner_file_ok(0, 0o100644, true));

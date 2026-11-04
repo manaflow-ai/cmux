@@ -33,6 +33,7 @@
 pub mod admission;
 pub mod broker;
 pub mod driver;
+pub mod target_guard;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

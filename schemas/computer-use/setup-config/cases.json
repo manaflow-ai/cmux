@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "about": "What `cmux computer-use setup` writes (cmux-tui cli/computer_use/system_config.rs) and what the host reads (cmux-remote-host src/config.rs): the CLI renders each case and must produce the same TOML document as `file`; the host parses `file` and must read back the case.",
+  "cases": [
+    {"file": "ask.toml", "mode": "ask", "manifest": null, "device_hub": null, "approvers": []},
+    {
+      "file": "bounded-pinned.toml",
+      "mode": "bounded",
+      "manifest": "/etc/cmux/computer-use.manifest.yaml",
+      "device_hub": {"url": "https://device-hub.example.com", "token_command": "/usr/local/bin/cmux-hub-token", "allow_always": false},
+      "approvers": [
+        {"device_id": "0f8e2c84-3d1a-4f27-9a51-6c2b7e8d9a10", "signing_key_fingerprint": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08", "name": "Aziz's iPhone", "platform": "ios"},
+        {"device_id": "5b1d6f0e-8c2a-4e7b-b3d9-1a4f6e2c8b75", "signing_key_fingerprint": "60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752", "name": "Studio Mac", "platform": "macos"}
+      ]
+    },
+    {"file": "unrestricted.toml", "mode": "unrestricted", "manifest": null, "device_hub": null, "approvers": []}
+  ]
+}

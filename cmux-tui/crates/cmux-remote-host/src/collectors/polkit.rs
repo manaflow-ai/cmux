@@ -148,6 +148,32 @@ mod tests {
         assert_eq!(action_for(Decision::Always), ACTION_APPROVE_ALWAYS);
     }
 
+    /// polkit refuses `CheckAuthorization` details from a caller that is not
+    /// uid 0 or the action's owner, and the host runs as the person's user: it
+    /// passes none, and the policy's messages are fixed text.
+    #[test]
+    fn an_unprivileged_check_passes_no_details() {
+        let request = ApprovalRequest::new(
+            Question {
+                client: "c".into(),
+                machine: "m".into(),
+                session: "s".into(),
+                agent: "Claude".into(),
+                workspace: "api".into(),
+                target: Target { bundle_id: None, executable: Some("/usr/bin/gedit".into()), name: "Text Editor".into() },
+                tool: "click".into(),
+                risk: "R1".into(),
+            },
+            1,
+        )
+        .unwrap();
+        for offered in [Decision::Once, Decision::Session, Decision::Always] {
+            assert!(details(&request, offered).is_empty());
+        }
+        let policy = include_str!("../../dist/com.cmux.computer-use.policy");
+        assert!(!policy.contains("$("), "a polkit message substitutes nothing the host can pass");
+    }
+
     #[test]
     fn only_a_dismissed_dialog_denies() {
         let none = HashMap::new();

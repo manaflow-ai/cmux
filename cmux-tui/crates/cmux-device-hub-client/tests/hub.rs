@@ -324,6 +324,23 @@ async fn a_decider_added_after_the_question_is_found_by_refetching() {
     rig.stop().await;
 }
 
+/// A device registered on the hub with platform `ios` and a valid signature
+/// (anyone with an account session can register one: a stolen token, another
+/// box of the user, a compromised hub) is not an approver this machine's owner
+/// pinned, so its decision never applies.
+#[tokio::test]
+async fn a_forged_ios_device_on_the_hub_cannot_approve() {
+    let rig = Rig::new().await;
+    let forged = Device::new();
+    rig.hub.add_device(&forged.id, "ios", &forged.signing_key());
+    refused(&rig, true, |request, id| {
+        let sig = forged.sign(&request.digest, Decision::Always);
+        rig.push_decided(id, "always", &request.digest, &forged.id, &sig);
+    })
+    .await;
+    rig.stop().await;
+}
+
 #[tokio::test]
 async fn windows_and_linux_deciders_are_refused() {
     let rig = Rig::new().await;
