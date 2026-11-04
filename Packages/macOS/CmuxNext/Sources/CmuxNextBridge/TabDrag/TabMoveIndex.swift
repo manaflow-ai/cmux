@@ -54,7 +54,7 @@ public nonisolated enum TabMoveIndex {
 
     /// Call-local transport IDs preserve Swift String equality, including canonical
     /// Unicode equivalence and embedded NULs. No string bytes cross the ABI.
-    private struct StringInterner {
+    private nonisolated struct StringInterner {
         private var ids: [String: UInt32] = [:]
 
         mutating func id(for value: String) -> UInt32 {
