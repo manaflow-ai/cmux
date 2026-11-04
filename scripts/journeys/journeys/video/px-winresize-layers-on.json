@@ -1,7 +1,7 @@
 {
  "id": "px-winresize-layers-on",
  "priority": "P1",
- "title": "FRAME OWNER: per drag pair, the view classes laid out and the per-frame main time across window corner drags (TUI + page, no recorder, no sampler) (S7 build: motion.frameOwner.liveResize default ON; + debug.frames, debug.layers)",
+ "title": "FRAME OWNER: per drag pair, the view classes laid out and the per-frame main time across window corner drags (TUI + page, no recorder, no sampler) (S7 build: motion.frameOwner.liveResize default ON; + debug.frames, debug.layers, debug.cef tracker)",
  "why": "frame-owner-s7 (2026-11-04): names the NSHostingView class whose SwiftUI update runs inside the tree layout, and every view class laid out per tick, for S7 items 1-3, a590 (sidebar) and S5 (page windows). No sampler: a whole-process /usr/bin/sample slowed the second drag pair 8x (s7-profile-on2-24).",
  "source": "one-off, scratch/pixel-perfect-s4-hang-sample (agent pixel-perfect)",
  "budget_seconds": 80,
@@ -195,6 +195,12 @@
   },
   {
    "do": "rpc",
+   "method": "debug.cef",
+   "params": {},
+   "title": "P1: debug.cef before the pair (tracker.geometry_posts, geometry_skips: page re-places, cumulative)"
+  },
+  {
+   "do": "rpc",
    "method": "debug.layers",
    "params": {
     "reset_layout_passes": true
@@ -253,6 +259,18 @@
    "method": "debug.layers",
    "params": {},
    "title": "P1: layout_passes (top_classes, max_in_one_turn, max_view_class) after the drag pair"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.cef",
+   "params": {},
+   "title": "P1: debug.cef after the pair (tracker.geometry_posts, geometry_skips)"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.cef",
+   "params": {},
+   "title": "P2: debug.cef before the pair (tracker.geometry_posts, geometry_skips: page re-places, cumulative)"
   },
   {
    "do": "rpc",
@@ -317,6 +335,18 @@
   },
   {
    "do": "rpc",
+   "method": "debug.cef",
+   "params": {},
+   "title": "P2: debug.cef after the pair (tracker.geometry_posts, geometry_skips)"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.cef",
+   "params": {},
+   "title": "P3: debug.cef before the pair (tracker.geometry_posts, geometry_skips: page re-places, cumulative)"
+  },
+  {
+   "do": "rpc",
    "method": "debug.layers",
    "params": {
     "reset_layout_passes": true
@@ -375,6 +405,12 @@
    "method": "debug.layers",
    "params": {},
    "title": "P3: layout_passes (top_classes, max_in_one_turn, max_view_class) after the drag pair"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.cef",
+   "params": {},
+   "title": "P3: debug.cef after the pair (tracker.geometry_posts, geometry_skips)"
   },
   {
    "do": "expect",
