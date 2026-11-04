@@ -361,5 +361,80 @@ class Sweep(unittest.TestCase):
             self.assertEqual(rescue.main(["--runners", str(runners)], {}), 0)
 
 
+class RecoverCancelled(unittest.TestCase):
+    """A confirmed rescue cancellation survives transient rerun failures and a handover."""
+
+    def fake(self, failures=1, *, accepted=False):
+        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
+        original = fake.run
+        def current(run_id):
+            state = original(run_id)
+            if state.get("status") == "completed":
+                state["conclusion"] = "cancelled"
+            if accepted and any(call[0] == "rerun" for call in fake.calls):
+                state.update(run_attempt=2, status="queued", conclusion=None)
+            return state
+        fake.run = current
+        def rerun(run_id):
+            fake.calls.append(("rerun", run_id))
+            if sum(call[0] == "rerun" for call in fake.calls) <= failures:
+                raise RuntimeError("POST rerun: HTTP 502")
+        fake.rerun_failed = rerun
+        return fake
+
+    def test_a_transient_rerun_error_recovers_without_another_cancel(self):
+        fake = self.fake()
+        lines = sweep(fake)
+        self.assertEqual(mutations(fake), [("cancel", 7), ("rerun", 7), ("rerun", 7)])
+        self.assertIn("1 failed over", lines[-1])
+
+    def test_a_rerun_accepted_before_a_transport_error_is_not_sent_again(self):
+        fake = self.fake(accepted=True)
+        sweep(fake)
+        self.assertEqual(mutations(fake), [("cancel", 7), ("rerun", 7)])
+
+    def test_exhausted_retries_leave_an_owned_journal_entry_for_the_next_pass(self):
+        fake = self.fake(failures=100)
+        pending, journal = set(), []
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW, dry_run=False, pending=pending,
+                     log=journal.append, sleep=lambda _: None, clock=lambda: 0)
+        self.assertEqual(pending, {7})
+        self.assertTrue(any("cancel sent, re-run to follow: run 7 attempt 1" in line for line in journal))
+        fake.rerun_failed = lambda run_id: fake.calls.append(("rerun", run_id))
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW, dry_run=False, pending=pending,
+                     log=journal.append, sleep=lambda _: None, clock=lambda: 0)
+        self.assertEqual(pending, set())
+        self.assertEqual(sum(call[0] == "cancel" for call in fake.calls), 1)
+        self.assertTrue(any("cancel settled: run 7 attempt 1" in line for line in journal))
+
+    def test_restored_owned_cancellation_is_retried_but_an_unmarked_one_is_not(self):
+        fake = self.fake(failures=0)
+        fake.cancelled[7] = -1
+        pending = {7}
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW, dry_run=False, pending=pending,
+                     log=lambda _: None, sleep=lambda _: None, clock=lambda: 0)
+        self.assertEqual(mutations(fake), [("rerun", 7)])
+        self.assertEqual(pending, set())
+        fake = self.fake(failures=0)
+        fake.cancelled[7] = -1
+        sweep(fake)
+        self.assertEqual(mutations(fake), [])
+
+    def test_closed_or_advanced_pending_runs_are_not_retried(self):
+        for closed in (False, True):
+            fake = self.fake(failures=0)
+            fake.cancelled[7] = -1
+            if closed:
+                fake.heads[7] = None
+            else:
+                previous = fake.run
+                fake.run = lambda run_id: dict(previous(run_id), run_attempt=2)
+            pending = {7}
+            rescue.sweep(fake, ["pr-checks.yml"], now=NOW, dry_run=False, pending=pending,
+                         log=lambda _: None, sleep=lambda _: None, clock=lambda: 0)
+            self.assertEqual(mutations(fake), [])
+            self.assertEqual(pending, set())
+
+
 if __name__ == "__main__":
     unittest.main()
