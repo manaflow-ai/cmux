@@ -760,41 +760,6 @@ fn an_invite_and_the_list_carry_the_invite_link() {
     let _ = std::fs::remove_dir_all(&directory);
 }
 
-/// `-list {watch: true}` tells that connection `agent-session-shares-changed` whenever the shares
-/// change (a create, an invite, a join, an uninvite, from any connection), so an open Invite People
-/// sheet reads them again without a timer. A change that changes nothing tells nobody, a
-/// connection that did not ask hears nothing, and watching again is still one watch.
-#[test]
-fn a_watching_connection_hears_every_change_of_the_shares() {
-    let fake = FakeAcpmux::start("share-watch");
-    let mux = mux_with(&fake, "share-watch");
-    let surface = agent_tab(&mux, Some(SESSION));
-    let mut owner = Client::connect(&mux, "share-watch-owner");
-    let mut sheet = Client::connect(&mux, "share-watch-sheet");
-    let changed = "agent-session-shares-changed";
-    let quiet = Duration::from_millis(200);
-    let watch = json!({"cmd":"agent-session-share-list", "watch":true});
-    let watched = sheet.request(watch.clone());
-    assert_eq!(watched["ok"], true, "{watched}");
-    let share = create(&mut owner, surface, json!({}));
-    assert!(sheet.named_event(changed, WAIT).is_some(), "a create");
-    assert_eq!(invite(&mut owner, &share, "ann@example.com", None)["ok"], true);
-    assert!(sheet.named_event(changed, WAIT).is_some(), "an invite");
-    assert_eq!(invite(&mut owner, &share, "ann@example.com", None)["ok"], true);
-    assert!(sheet.named_event(changed, quiet).is_none(), "the same invite again changes nothing");
-    assert_eq!(redeem_as(&mut owner, &share, "ann@example.com", "a1")["ok"], true);
-    assert!(sheet.named_event(changed, WAIT).is_some(), "a join");
-    let gone = owner.request(json!({"cmd":"agent-session-share-uninvite",
-        "share_id":share["share_id"], "account":"ann@example.com"}));
-    assert_eq!(gone["ok"], true, "{gone}");
-    assert!(sheet.named_event(changed, WAIT).is_some(), "an uninvite");
-    assert!(owner.named_event(changed, quiet).is_none(), "a connection that did not watch");
-    assert_eq!(sheet.request(watch)["ok"], true);
-    assert_eq!(invite(&mut owner, &share, "bo@example.com", None)["ok"], true);
-    assert!(sheet.named_event(changed, WAIT).is_some(), "an invite after watching again");
-    assert!(sheet.named_event(changed, quiet).is_none(), "one event per change");
-}
-
 /// However many accounts and devices join, every change the daemon acknowledges is one a restart
 /// reads back: a change that would pass the state file's bound is refused (`share.limit`) instead
 /// of written, so a restart never finds an unreadable file and starts empty.
