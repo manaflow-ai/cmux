@@ -18,7 +18,7 @@
 #     --arg=--experience=isolated|in-place|full-build --arg=--pr=N --arg=--kind=nightly|dev \
 #     --arg=--mode=installed|lab --arg=--app-zip=URL_OR_PATH --arg=--base=SHA \
 #     [--arg=--artifact-ref=SHA --arg=--artifact-sha256=HEX] \
-#     --arg=--probe=CMD [--arg=--state-probe=CMD] --arg=--expect-region=X,Y,W,H --arg=--expect-why=TEXT \
+#     --arg=--probe=CMD [--arg=--seed=CMD --arg=--state-probe=CMD] --arg=--expect-region=X,Y,W,H --arg=--expect-why=TEXT \
 #     --artifact artifacts/try-pr-apply/result.json
 #
 # Identity, recorded in every result (`identity`): the PR, head (this checkout), base (the manifest's
@@ -38,8 +38,9 @@
 #              exercised), and its settings file, debug tunables and web overlay are this run's own,
 #              passed at launch (`open -n --env`: CMUX_NEXT_CONFIG_FILE, CMUX_NEXT_DEBUG_TUNABLES_FILE,
 #              CMUX_WEB_OVERLAY_DIR); a person turns the overlay on in Debug Settings instead.
-#   lab        a side instance (#35544's mechanics): Info.plist edited (bundle id) and re-signed ad
-#              hoc. Evidence about the lab path only (`lab-<kind>`), never about an installed app. A lab
+#   lab        a tagged side instance (#35544's mechanics): Info.plist edited (bundle id
+#              <id>.side-try.t<pid>, unique per run) and re-signed ad hoc. Evidence about the lab path
+#              only (`lab-<kind>`), never about an installed app. A lab
 #              DEV copy has a changed id, which WebDevOverride.isAvailable refuses in a Release DEV.
 #
 # Base identity: the app's CMUXCommit (Info.plist). DEV builds carry none, so for them the fleet
@@ -57,13 +58,25 @@
 #                CMUX_TRY_SOCKET (the instance's control socket), CMUX_NEXT_CONFIG_FILE and
 #                CMUX_WEB_OVERLAY_DIR. It must fail on base and pass on the PR.
 #                Without it the run is `not_proven`, whatever the pixels show.
-#   integrity    in-place: the same process before and after (pid and start time), no relaunch, and,
-#                with --state-probe=CMD (a digest of state the PR does not change: windows,
-#                workspaces, tabs), the same digest before and after. isolated: a new process, its own
-#                settings and overlay folders, no other instance of the bundle running at launch, and
-#                the base instance quit before the PR instance starts. Every instance gets its own
-#                HOME (HOME and CFFIXED_USER_HOME) and control socket (CMUX_NEXT_SOCKET_PATH), and must
-#                create that socket.
+#   integrity    in-place: the same process before and after (pid and start time), no relaunch, and
+#                the seeded state surviving, named, not a digest: --seed=CMD (after the base launch,
+#                setup) makes 2+ workspaces, a terminal running a long-lived process with scrollback
+#                and an open chat; --state-probe=CMD prints JSON {"workspaces": N, "terminal_pid": PID,
+#                "scrollback_sha256": HEX, "chat": ID_AND_MESSAGE_COUNT}. Before and after must be
+#                equal, with N >= 2 and the terminal process alive; without both, the run is at most
+#                `not_proven` ("state survival not proven").
+#                isolated: a new process with its own settings and overlay folders, started after this
+#                run's own base instance quit. Every instance gets its own HOME (HOME and
+#                CFFIXED_USER_HOME) and control socket (CMUX_NEXT_SOCKET_PATH), and must create that
+#                socket; the state each one wrote under its HOME is listed.
+#   coexistence  the script never quits, signals or refuses because of an app it did not launch.
+#                With no other cmux running, an isolated run is a sequential test: `coexistence` says
+#                NOT PROVEN and the row is no evidence for a side instance next to a person's app.
+#                With others running, it runs alongside them and coexistence passes only when the
+#                isolation check (below) does. An installed copy under the shipped bundle id next to a
+#                running app with that same id would share its bundle-id state: that is a fallback
+#                (unsupported), and the running app is left alone; --mode=lab runs a tagged copy
+#                (its own bundle id, re-signed: LAB) instead.
 #   isolation    both experiences: other cmux processes (pid, start time), the cmux sockets and the cmux
 #                state under the account's real home (Application Support, ~/.cmux, Preferences, four
 #                levels deep: path, inode, size, mtime) are listed before the first launch and after
@@ -85,14 +98,14 @@
 # them in the app today; a fallback row says so (the view shell prototype does not count), and its
 # time is a full build's: the DEV build job's seconds plus a full-build run of this script.
 set -euo pipefail
-experience="" pr="" kind="" mode="" app_zip="" base="" artifact_ref="" artifact_sha="" region="" why="" probe="" state_probe=""
+experience="" pr="" kind="" mode="" app_zip="" base="" artifact_ref="" artifact_sha="" region="" why="" probe="" state_probe="" seed=""
 control_seconds="${CONTROL_SECONDS:-30}" usable_seconds="${USABLE_SECONDS:-60}"
 for a in "$@"; do
   case "$a" in
     --experience=*) experience="${a#*=}" ;; --pr=*) pr="${a#*=}" ;; --kind=*) kind="${a#*=}" ;; --mode=*) mode="${a#*=}" ;;
     --app-zip=*) app_zip="${a#*=}" ;; --base=*) base="${a#*=}" ;;
     --artifact-ref=*) artifact_ref="${a#*=}" ;; --artifact-sha256=*) artifact_sha="${a#*=}" ;;
-    --probe=*) probe="${a#*=}" ;; --state-probe=*) state_probe="${a#*=}" ;;
+    --probe=*) probe="${a#*=}" ;; --state-probe=*) state_probe="${a#*=}" ;; --seed=*) seed="${a#*=}" ;;
     --expect-region=*) region="${a#*=}" ;; --expect-why=*) why="${a#*=}" ;;
     *) echo "try-pr-apply: unknown argument $a" >&2; exit 2 ;;
   esac
@@ -100,7 +113,7 @@ done
 [[ "$experience" =~ ^(isolated|in-place|full-build)$ && "$pr" =~ ^[0-9]+$ ]] && [[ "$kind" == nightly || "$kind" == dev ]] \
   && [[ "$mode" == installed || "$mode" == lab ]] && [[ -n "$app_zip" && "$base" =~ ^[0-9a-f]{40}$ ]] \
   && [[ "$region" =~ ^[0-9]+,[0-9]+,[0-9]+,[0-9]+$ && -n "$why" ]] \
-  || { echo "try-pr-apply: needs --experience=isolated|in-place|full-build --pr=N --kind=nightly|dev --mode=installed|lab --app-zip --base=SHA --expect-region=X,Y,W,H --expect-why=TEXT [--probe=CMD]" >&2; exit 2; }
+  || { echo "try-pr-apply: needs --experience=isolated|in-place|full-build --pr=N --kind=nightly|dev --mode=installed|lab --app-zip --base=SHA --expect-region=X,Y,W,H --expect-why=TEXT [--probe=CMD] [--state-probe=CMD] [--seed=CMD]" >&2; exit 2; }
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 head="$(git -C "$root" rev-parse HEAD)"
 real_home="$HOME"
@@ -111,7 +124,7 @@ export CMUX_NEXT_CONFIG_FILE="$work/config/cmux-next.json" CMUX_WEB_OVERLAY_DIR=
 export CMUX_NEXT_DEBUG_TUNABLES_FILE="$work/config/debug-tunables.json"
 mkdir -p "$work/config" "$CMUX_WEB_OVERLAY_DIR"
 printf '{"version": 1, "values": {"webDev.override": true}}\n' > "$CMUX_NEXT_DEBUG_TUNABLES_FILE"
-pid="" sock="" socks=()
+pid="" sock="" socks=() survived="" coexisting=""
 cleanup() { [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true; rm -f "${socks[@]}"; git -C "$root" worktree remove --force "$work/base-tree" 2>/dev/null || true; rm -rf "$work"; }
 trap cleanup EXIT
 now() { python3 -c 'import time; print(f"{time.time():.3f}")'; }
@@ -151,9 +164,13 @@ if experience == "in-place":
 controls = {"s": span("controls_start", "controls_end")}
 counted = {"verdict": span("select", "verdicted"), "compile": span("verdicted", "compiled"),
            "apply": span("compiled", "applied"), "usable": span("applied", "usable")}
+coexistence = str(info.pop("coexistence", None))
 path = info.pop("path", None) or (("apply-" + kind) if mode == "installed" else "lab-" + kind)
 doc = {"experience": experience, "path": path, "mode": mode, "kind": kind, "identity": identity, "probe": probe,
-       "isolation": info.pop("isolation", None), "total_s": span("start", "end"), "status": status,
+       "isolation": info.pop("isolation", None), "coexistence": coexistence,
+       "e1_claim": (("side instance alongside a running app" if status == "ok" and coexistence.startswith("pass")
+                     else "sequential test: coexistence NOT PROVEN") if experience == "isolated" else None),
+       "total_s": span("start", "end"), "status": status,
        "reason": reason or None, "setup": setup, "controls": controls, "counted": counted,
        "select_to_usable_s": span("select", "usable") if runtime == "pass" and experience != "full-build" else None,
        "launch_to_probe_s": span("compiled", "usable") if experience == "full-build" else None,
@@ -213,7 +230,8 @@ if [[ "$mode" == installed ]]; then
   [[ "$bundle_id" == "$shipped" ]] || eligible_why="${eligible_why:-bundle id $bundle_id is not the shipped $shipped}"
 else
   # lab: a side instance with its own id, re-signed ad hoc; evidence about this path only.
-  bundle_id="$bundle_id.side-try"; $buddy -c "Set :CFBundleIdentifier $bundle_id" "$plist"
+  note shipped_bundle_id "$bundle_id"; bundle_id="$bundle_id.side-try.t$$"; $buddy -c "Set :CFBundleIdentifier $bundle_id" "$plist"
+  note bundle_id "$bundle_id"
   codesign --force --sign - --deep "$app" >/dev/null 2>&1
   note signature "ad hoc (lab)"
 fi
@@ -243,11 +261,22 @@ esac
 [[ -n "$probe" ]] || note proof "no --probe: runtime can be at most not_proven"
 
 # From here the script launches a real app: only inside a fleet step of class exclusive, never on a
-# person's Mac, and never next to another running instance of the same bundle.
+# person's Mac. It signals only the processes it launched.
 [[ -n "${CMUX_CI_STEP_KEY:-}" && "${CMUX_CI_STEP_CLASS:-}" == exclusive ]] \
   || { result fail not_run "refused: launches an app only inside a fleet step of class exclusive"; exit 2; }
-running_of_bundle() { pgrep -f "/Contents/MacOS/" | while read -r p; do
-  [[ "$(ps -o comm= -p "$p" 2>/dev/null)" == *"/$(basename "$app")/Contents/MacOS/"* ]] && echo "$p"; done; }
+ours_running() { ps -axo pid=,comm= | while read -r p c; do [[ "$c" == "$app/Contents/MacOS/"* ]] && echo "$p"; done; }
+# Other running apps with cmux in their path: "PID BUNDLE_ID" (unknown when the Info.plist is unreadable).
+other_apps() { python3 - "$work" <<'PY'
+import plistlib, subprocess, sys
+ours = sys.argv[1]
+for l in subprocess.run(["ps", "-axo", "pid=,comm="], capture_output=True, text=True).stdout.splitlines():
+    pid, _, comm = l.strip().partition(" ")
+    if "/Contents/MacOS/" not in comm or "cmux" not in comm.lower() or ours in comm: continue
+    try: bid = plistlib.load(open(comm.split("/Contents/MacOS/")[0] + "/Contents/Info.plist", "rb")).get("CFBundleIdentifier", "unknown")
+    except Exception: bid = "unknown"
+    print(pid, bid)
+PY
+}
 
 shot() { screencapture -x -D 1 "$out/$1.png" && sips -s format bmp "$out/$1.png" --out "$work/$1.bmp" >/dev/null; }
 # Changed pixels of B against A inside the region, as "count x,y,w,h" (the box of the changes).
@@ -274,12 +303,12 @@ settle() { shot "$1-prev"; for _ in $(seq 1 120); do sleep 0.5; shot "$1"; [[ "$
 build_web() { rm -rf "$work/web"; "$1/scripts/cmux-next/build-web-bundles.sh" --force --out-root "$work/web" >/dev/null; }
 install_web() { "$root/scripts/cmux-next/web-overlay.sh" install "$work/web" >/dev/null; }
 launch() { # NAME: the instance's own HOME and control socket (in /tmp: a socket path has a 104-byte limit)
-  [[ -z "$(running_of_bundle)" ]] || { result fail not_run "another instance of $(basename "$app") already runs: no isolation"; exit 1; }
+  [[ -z "$(ours_running)" ]] || { result fail not_run "this run's previous instance is still running"; exit 1; }
   local home="$work/home-$1"; mkdir -p "$home"; sock="/tmp/tpa-$$-$1.sock"; socks+=("$sock")
   open -n --env CMUX_NEXT_CONFIG_FILE="$CMUX_NEXT_CONFIG_FILE" --env CMUX_WEB_OVERLAY_DIR="$CMUX_WEB_OVERLAY_DIR" \
     --env CMUX_NEXT_DEBUG_TUNABLES_FILE="$CMUX_NEXT_DEBUG_TUNABLES_FILE" --env CMUX_NEXT_SOCKET_PATH="$sock" \
     --env HOME="$home" --env CFFIXED_USER_HOME="$home" "$app"
-  pid=""; for _ in $(seq 1 300); do pid="$(running_of_bundle | tail -1)"; [[ -n "$pid" ]] && break; sleep 0.1; done
+  pid=""; for _ in $(seq 1 300); do pid="$(ours_running | tail -1)"; [[ -n "$pid" ]] && break; sleep 0.1; done
   [[ -n "$pid" ]] || { result fail not_run "the app did not start"; exit 1; }
   for _ in $(seq 1 300); do [[ -S "$sock" ]] && break; sleep 0.1; done
   [[ -S "$sock" ]] || { result fail fail "the $1 instance did not create its own socket $sock"; exit 1; }
@@ -309,10 +338,12 @@ for r in sorted(roots):
 PY
 }
 isolation_check() {
+  local h; for h in "$work"/home-*; do [[ -d "$h" ]] && note "own_state_${h##*/home-}" "$(cd "$h" && find . -maxdepth 4 -type f | wc -l | tr -d ' ') files under its own HOME: $(cd "$h" && find . -maxdepth 3 -type d | LC_ALL=C sort | head -12 | tr '\n' ' ')"; done
   others >"$work/others-after.txt"
   local changed; changed="$(diff "$work/others-before.txt" "$work/others-after.txt" | sed -n 's/^[<>] //p' | head -20 | tr '\n' ';' || true)"
   note isolation "$(wc -l <"$work/others-before.txt" | tr -d ' ') other cmux processes and files before; ${changed:+changed: $changed}${changed:-unchanged after}"
   [[ -z "$changed" ]] || { result fail fail "isolation: another instance's process, socket or state changed"; exit 0; }
+  if [[ -n "$coexisting" ]]; then note coexistence "pass: ran alongside $coexisting, whose processes, sockets and state stayed unchanged"; fi
 }
 quit_app() { kill "$pid" 2>/dev/null || true; for _ in $(seq 1 100); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done; pid=""; }
 started() { ps -o lstart= -p "$1" 2>/dev/null | tr -s ' '; }
@@ -329,10 +360,33 @@ probe_answer() { # STATE UNTIL: pass, fail or timeout; UNTIL=pass keeps asking t
   done
   echo timeout
 }
-state_digest() { [[ -n "$state_probe" ]] || { echo none; return; }
-  CMUX_TRY_PID="$pid" CMUX_TRY_APP="$app" CMUX_TRY_SOCKET="$sock" bash -c "$state_probe" 2>/dev/null | shasum -a 256 | cut -d' ' -f1; }
+state_json() { [[ -n "$state_probe" ]] || { echo '{}'; return; }
+  CMUX_TRY_PID="$pid" CMUX_TRY_APP="$app" CMUX_TRY_SOCKET="$sock" bash -c "$state_probe" 2>/dev/null || echo '{}'; }
+# BEFORE AFTER (state_json output): "ok" or why the seeded state is not proven to survive.
+state_verdict() { python3 - "$1" "$2" <<'PY'
+import json, os, sys
+try: a, b = (json.loads(x or "{}") for x in sys.argv[1:])
+except ValueError: print("the state probe printed no JSON"); sys.exit()
+keys = ["workspaces", "terminal_pid", "scrollback_sha256", "chat"]
+missing = [k for k in keys if k not in a or k not in b]
+if missing: print("not proven: the state probe gives no " + ", ".join(missing)); sys.exit()
+if not isinstance(a["workspaces"], int) or a["workspaces"] < 2: print(f"not proven: {a['workspaces']} workspaces seeded, needs 2+"); sys.exit()
+changed = [k for k in keys if a[k] != b[k]]
+if changed: print("changed: " + ", ".join(f"{k} {a[k]} -> {b[k]}" for k in changed)); sys.exit()
+try: os.kill(int(b["terminal_pid"]), 0)
+except (OSError, ValueError): print(f"changed: terminal process {b['terminal_pid']} is gone"); sys.exit()
+print("ok")
+PY
+}
 
 others >"$work/others-before.txt"
+coexisting="$(other_apps | tr '\n' ',' | sed 's/,$//; s/,/, /g')"; note other_instances "${coexisting:-none}"
+if [[ "$mode" == installed && -n "$coexisting" ]] && other_apps | awk -v id="$bundle_id" '$2 == id || $2 == "unknown" {f=1} END {exit !f}'; then
+  note coexistence "unsupported: a running app has the shipped bundle id $bundle_id (or an unreadable one)"
+  result fallback not_run "coexistence: a second instance under the shipped bundle id $bundle_id would share the running one's bundle-id state, so an installed side instance next to it is unsupported; the running app was left alone (--mode=lab runs a tagged copy)"
+  exit 0
+fi
+[[ -n "$coexisting" ]] || note coexistence "NOT PROVEN: no other cmux was running, so this is a sequential test, not a side instance next to a running app"
 if [[ "$experience" == full-build ]]; then
   # The probe against a full build, no overlay: green on the head (parity), red on the base.
   want=fail; [[ "$app_commit" == "$head" ]] && want=pass; note probe_full_build_expected "$want"
@@ -348,6 +402,11 @@ git -C "$root" worktree add --detach -q "$work/base-tree" "$base"
 build_web "$work/base-tree"; install_web
 launch base; base_pid="$pid"; note base_pid "$base_pid"
 settle base || { result fail fail "the base app never settled"; exit 1; }
+if [[ "$experience" == in-place && -n "$seed" ]]; then
+  CMUX_TRY_PID="$pid" CMUX_TRY_APP="$app" CMUX_TRY_SOCKET="$sock" bash -c "$seed" >"$out/seed.log" 2>&1 \
+    || { result fail fail "the --seed command failed (seed.log)"; exit 0; }
+  settle seeded || { result fail fail "the seeded app never settled"; exit 1; }; mv "$work/seeded.bmp" "$work/base.bmp"
+fi
 mark based
 mark controls_start
 install_web; settle repeat || { result fail fail "the repeat install never settled"; exit 1; }
@@ -360,7 +419,7 @@ note pixel_control "$control"
 probe_base=""; if [[ -n "$probe" ]]; then probe_base="$(probe_answer base answer)"; note probe_base "$probe_base"; fi
 [[ "$probe_base" != pass ]] || { mark controls_end; result fail fail "the probe already passes on base: it does not test the PR's behaviour"; exit 0; }
 [[ "$probe_base" != timeout ]] || { mark controls_end; result fail fail "the probe never answered on base within ${usable_seconds} s"; exit 0; }
-state_before="$(state_digest)"; start_before="$(started "$pid")"
+state_before="$(state_json)"; start_before="$(started "$pid")"
 if [[ "$experience" == isolated ]]; then quit_app; fi
 mark controls_end
 
@@ -391,14 +450,17 @@ shot pr; sleep 1; shot pr2
 note pixel_change "$(diff_in base pr)"; note pixel_stable "$([[ "$(diff_in pr pr2)" == "0 -" ]] && echo yes || echo no)"
 if [[ "$experience" == in-place ]]; then
   same_pid="no"; kill -0 "$base_pid" 2>/dev/null && [[ "$pid" == "$base_pid" && "$(started "$pid")" == "$start_before" ]] && same_pid=yes
-  state_after="$(state_digest)"
-  note integrity "same process: $same_pid; state digest before $state_before, after $state_after"
+  state_after="$(state_json)"; survived="$(state_verdict "$state_before" "$state_after")"
+  note state_before "$state_before"; note state_after "$state_after"
+  note integrity "same process: $same_pid; seeded state: $survived"
   [[ "$same_pid" == yes ]] || { result fail fail "in-place: the app relaunched or exited"; exit 0; }
-  [[ "$state_before" == "$state_after" ]] || { result fail fail "in-place: state changed across the swap"; exit 0; }
+  [[ "$survived" != changed* ]] || { result fail fail "in-place: $survived"; exit 0; }
 fi
 isolation_check
 if [[ -z "$probe" ]]; then
   result not_proven not_proven "no PR-specific probe: pixels alone do not prove the behaviour"
+elif [[ -n "$usable" && "$experience" == in-place && "$survived" != ok ]]; then
+  result not_proven not_proven "the probe passed, but state survival is $survived"
 elif [[ -n "$usable" ]]; then
   result ok pass ""
 else
