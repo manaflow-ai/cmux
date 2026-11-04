@@ -74,7 +74,7 @@ pub(super) fn identify(
             .and_then(|value| value.into_string().ok())
             .filter(|value| !value.trim().is_empty())
     {
-        identity.insert("cloud_backend".into(), json!(backend));
+        identity.insert("cloud_backend", json!(backend));
     }
     // Opt-in like machine metadata: strict pre-revision SDKs decode the
     // default reply with deny_unknown_fields (machine_identity_reader_tests.rs).
