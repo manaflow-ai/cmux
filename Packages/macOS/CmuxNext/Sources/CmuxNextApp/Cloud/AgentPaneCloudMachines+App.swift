@@ -57,7 +57,7 @@ extension AgentPaneCloudMachines {
                   services.cloud.unavailableReason == nil,
                   services.cloud.isSignedIn, services.cloud.hasLoadedCurrentMachines,
                   let session = services.machines.cloud.first(where: { $0.machineID == id }),
-                  session.effectiveStatus == .paused, let resumer = session.resumer else { return false }
+                  session.effectiveStatus == .paused, let resumer = session.passiveResumer else { return false }
             // Typing is a hint, not a user action: resume through the account-scoped Cloud
             // service, then let its reconciliation connect the machine. No page gesture is used.
             do {
