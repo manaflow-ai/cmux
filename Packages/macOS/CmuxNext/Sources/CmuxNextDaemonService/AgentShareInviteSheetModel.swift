@@ -140,14 +140,14 @@ public final class AgentShareInviteSheetModel {
             changedAgain = true
             return
         }
-        // task-owner: the sheet's read after a daemon change (and one more for changes during it);
-        // ends with the read, and reads no more once the sheet closed
+        changedAgain = false
+        // task-owner: the sheet's one read after a daemon change; ends with the read, then starts one
+        // more only when another change came meanwhile and the sheet is still open
         rereading = Task { @MainActor [weak self] in
-            repeat {
-                self?.changedAgain = false
-                await self?.load()
-            } while self?.changedAgain == true && self?.stopChanges != nil
-            self?.rereading = nil
+            await self?.load()
+            guard let self else { return }
+            self.rereading = nil
+            if self.changedAgain, self.stopChanges != nil { self.reread() }
         }
     }
 
