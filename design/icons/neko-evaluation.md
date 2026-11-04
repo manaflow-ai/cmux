@@ -16,7 +16,7 @@ history, **not quotations of Leo's earlier prompts**:
 - Idlesse at `4f8556cba5a1`: `Sources/Harness/HomeWindowController.swift` says “A dedicated small-size
   mark keeps the cat legible in the footer.” Its 17pt `cat.fill` sits in a dedicated brand control.
   Commit `879a6214a8100fb77777797bf983456081f0501d` reverts the richer app-icon redesigns (#169/#170).
-  The rejected `scripts/generate-icon.swift` combined a wallpaper window, cat silhouette and glint.
+  The reverted `scripts/generate-icon.swift` combined a wallpaper window, cat silhouette and glint.
 - Inference: preserve action recognition and small-size clarity; use restrained, noun-specific cues.
   A good mascot does not automatically make a good copy/retry/speak glyph.
 
@@ -59,7 +59,9 @@ full relevant license texts are also in the generated third-party notices.
 | Fluent Emoji | Root `LICENSE`: MIT, Microsoft copyright. | Cat expressions and full-color artwork; no coherent semantic action set. |
 | Lucide | Root `LICENSE`: ISC; listed Feather-derived icons additionally carry MIT. `cat` is ISC. | Broad ordinary action, status and loader coverage; only a generic cat glyph, no neko action variants. |
 | Existing cmux Cat | First-party authored SVGs in `design/icons/source/`. | 36 eligible noun accents plus two experimental action fill-ins. Status/privacy variants excluded. |
-| oneko.js / sprite lineage | Audit pending; no sprite copied. | Desktop cat animation alone does not cover semantic actions. A script's MIT license is insufficient proof for inherited sprite artwork. |
+| oneko.js / sprite lineage | `adryd325/oneko.js` at `5281d057c4ea9bd4f6f997ee96ba30491aed16c0`, root `LICENSE`: MIT-style, Copyright 2022 adryd. | Ships `oneko.gif` and JS, no vector action set. The repository does not establish the inherited sprite lineage; not vendored. |
+| Fluent System Icons | `microsoft/fluentui-system-icons` at `9bfae3d782fda4c8764f2128cec4d0dda160b283`, root `LICENSE`: MIT, Copyright 2020 Microsoft. | Broad standard action/status family; no coherent neko semantic-action family. Not vendored. |
+| Tabler Icons | `tabler/tabler-icons` at `ed177a085b652fe04ec4f37ced867c94621e7840`, root `LICENSE`: MIT, Copyright 2020–2026 Paweł Kuna. | `icons/outline/cat.svg` plus broad standard action/status glyphs; no neko action variants. Not vendored. |
 
 The first-party fill-ins are recorded in `scripts/icons/build_pack.py` and generated into
 `nekoCandidate.json`, imported only by the gallery. They are not derived from the surveyed third-party

@@ -13,11 +13,13 @@ nonisolated enum AppearanceSettingsSchema {
         let window = SettingsText.keyed("settings.group.windowBackground", "Window Background")
         let ghostty = SettingsText.keyed("settings.source.ghostty", "Ghostty")
         let appTheme = SettingsText.keyed("settings.group.appTheme", "App Theme")
+        let iconTheme = SettingsText.keyed("settings.group.iconTheme", "Icon Theme")
         let tuning = SettingsText.keyed("settings.group.appearanceTuning", "Appearance Tuning")
         let artChoices = BackdropArt.allCases.map { SettingChoice($0.rawValue, $0.label) }
         // The background picker lists art by collection, Dark Art first.
         let backgroundChoices = BackdropCatalog.bundled.map { SettingChoice($0.id, $0.title) } + [SettingChoice(BackdropSelection.desktopID, SettingsText.keyed("settings.choice.desktopWallpaper", "Desktop Wallpaper"))]
         return [
+            NekoIconThemeSetting.descriptor(group: iconTheme),
             SettingDescriptor(
                 AppThemeSetting().configPath, section: .appearance, group: appTheme,
                 title: SettingsText.keyed("settings.appearance.theme", "Theme"),
