@@ -402,6 +402,9 @@ fn a_file_by_the_merge_files_name_is_never_overwritten() {
     std::fs::write(setup.folder.join("a.txt"), "1\n2\n3\n").unwrap();
     synced(&setup, "push");
     std::fs::write(setup.folder.join("a.txt.cmux-sync-conflict"), "my notes\n").unwrap();
+    // Nor a file by the old fixed temporary name.
+    std::fs::write(setup.folder.join(".a.txt.2.cmux-sync-conflict.cmux-sync-part"), "mine\n")
+        .unwrap();
     std::fs::write(setup.folder.join("a.txt"), "1\ntwo here\n3\n").unwrap();
     std::fs::write(setup.remote.join("a.txt"), "1\ntwo there\n3\n").unwrap();
 
@@ -419,6 +422,11 @@ fn a_file_by_the_merge_files_name_is_never_overwritten() {
     let side = std::fs::read_to_string(setup.folder.join("a.txt.2.cmux-sync-conflict")).unwrap();
     assert!(side.contains("two here") && side.contains("two there"), "{side}");
     assert!(!setup.folder.join("a.txt.3.cmux-sync-conflict").exists());
+    assert_eq!(
+        std::fs::read_to_string(setup.folder.join(".a.txt.2.cmux-sync-conflict.cmux-sync-part"))
+            .unwrap(),
+        "mine\n"
+    );
     assert_eq!(std::fs::read_to_string(setup.folder.join("a.txt")).unwrap(), "1\ntwo here\n3\n");
 }
 

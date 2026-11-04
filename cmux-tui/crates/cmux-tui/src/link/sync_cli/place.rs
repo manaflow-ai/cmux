@@ -170,12 +170,21 @@ impl Dir {
         if !matches!(self.entry(name)?, Entry::Missing) {
             return Err(io::Error::from(io::ErrorKind::AlreadyExists));
         }
-        let part = format!(".{name}.cmux-sync-part");
-        match self.unlink(&part, false) {
-            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
-            _ => {}
-        }
-        let mut file = self.create_file(&part, mode)?;
+        // A hidden name of its own, made with O_EXCL: nothing already there
+        // (anyone's file by any name) is removed or reused.
+        let (part, mut file) = {
+            let mut tries = 0u32;
+            loop {
+                let part = format!(".{name}.{}-{tries}.cmux-sync-part", std::process::id());
+                match self.create_file(&part, mode) {
+                    Ok(file) => break (part, file),
+                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists && tries < 64 => {
+                        tries += 1;
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+        };
         let written = file.write_all(bytes).and_then(|()| file.sync_all());
         drop(file);
         let placed = written.and_then(|()| {
