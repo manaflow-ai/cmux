@@ -798,6 +798,7 @@ test("while a Cloud start is out the box takes no edits, and takes them again on
       environments
       runMode={{ mode: "cloud", onMode: () => {} }}
       onCloud={() => false}
+      cloudStatus={<output data-testid="cloud-shell">Preparing machine</output>}
       cloudStarting={cloudStarting}
     />
   );
@@ -809,12 +810,15 @@ test("while a Cloud start is out the box takes no edits, and takes them again on
   const field = () => promptValue();
   await act(async () => root!.render(page(true)));
   await promptField();
+  expect(container.querySelector('[data-testid="cloud-shell"]')?.textContent).toBe("Preparing machine");
+  expect(container.querySelector(".nt-composer")?.getAttribute("data-cloud-starting")).toBe("true");
   expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(true);
   // Typing on the page (outside the field) goes nowhere while the start is out.
   await typeOnPage("x");
   expect(field()).toBe("");
   // A failed start keeps the prompt here to edit and send again.
   await act(async () => root!.render(page(false)));
+  expect(container.querySelector(".nt-composer")?.getAttribute("data-cloud-starting")).toBeNull();
   expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(false);
   await typeOnPage("x");
   expect(field()).toBe("x");
