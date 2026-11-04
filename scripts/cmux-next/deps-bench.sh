@@ -14,6 +14,8 @@
 #         the background (timed apart, by `machine deps wait`)
 #   warm  `acpmux machine deps warm` again: a restore, or a cold install when this machine's
 #         measurements say that is faster
+#   fresh the same with this machine's measurements ignored (a new machine), so the uploader's
+#         timing record decides
 # The last line is one JSON object of numbers and plain strings, the bench's evidence.
 set -euo pipefail
 
@@ -58,11 +60,13 @@ declare -A out
 put() { out["$1"]="$2"; }
 
 # One `machine deps warm` of DIR, timed; its report's fields for ECOSYSTEM go in under PREFIX.
+# Further arguments are NAME=VALUE pairs for acpmux's environment.
 warm() {
   local prefix="$1" eco="$2" dir="$3" t0 t1 json
+  shift 3
   json="$bench/logs/$prefix.json"
   t0="$(now)"
-  if ! "$acpmux" machine deps warm "$dir" --json >"$json" 2>"$bench/logs/$prefix.log"; then
+  if ! env "$@" "$acpmux" machine deps warm "$dir" --json >"$json" 2>"$bench/logs/$prefix.log"; then
     echo "$prefix failed:"
     tail -n 20 -- "$bench/logs/$prefix.log"
     exit 1
@@ -107,6 +111,10 @@ for eco in cargo bun; do
       exit 1
       ;;
   esac
+
+  wipe "$eco"
+  warm "${eco}Fresh" "$eco" "$dir" ACPMUX_DEPS_LOCAL_STATS=off
+  echo "$eco fresh machine: ${out[${eco}FreshS]}s (${out[${eco}FreshRestore]:-?})"
 done
 
 # Numbers stay numbers; everything else is a string.

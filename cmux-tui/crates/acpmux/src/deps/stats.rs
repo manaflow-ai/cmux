@@ -64,13 +64,24 @@ fn now() -> u64 {
 }
 
 impl Stats {
+    /// `ACPMUX_DEPS_LOCAL_STATS=off` (the bench's fresh-machine round): no record is read or written.
+    fn off() -> bool {
+        std::env::var_os("ACPMUX_DEPS_LOCAL_STATS").is_some_and(|v| v == "off")
+    }
+
     /// This machine's record; empty when there is none or it does not parse.
     pub fn load() -> Stats {
+        if Self::off() {
+            return Stats::default();
+        }
         std::fs::read(path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
     }
 
     /// Written whole to a temporary file and renamed over the old one, owner-only.
     pub fn save(&self) -> std::io::Result<()> {
+        if Self::off() {
+            return Ok(());
+        }
         let path = path();
         let Some(dir) = path.parent() else { return Ok(()) };
         std::fs::create_dir_all(dir)?;
@@ -130,6 +141,16 @@ impl Stats {
             (None, None) => return Choice::Restore,
         };
         if expected_ms >= cold_ms { Choice::Cold { cold_ms, expected_ms } } else { Choice::Restore }
+    }
+
+    /// Restore, or install cold, from the uploader's record when this machine has none of its own.
+    pub fn choose_from(&self, meta_cold_ms: u64, archive_bytes: u64) -> Choice {
+        let expected_ms = self.expected_restore_ms(archive_bytes);
+        if expected_ms >= meta_cold_ms {
+            Choice::Cold { cold_ms: meta_cold_ms, expected_ms }
+        } else {
+            Choice::Restore
+        }
     }
 
     /// Whether a download that has read `got` of `size` bytes in
@@ -228,6 +249,13 @@ mod tests {
         assert!(s.too_slow(5_000, 10 * MB, 200 * MB, 1_000));
         // 100 MB of 200 MB in 1 s: 1 s more and 0.7 s to unpack.
         assert!(!s.too_slow(5_000, 100 * MB, 200 * MB, 1_000));
+    }
+
+    #[test]
+    fn the_uploaders_record_decides_on_a_new_machine() {
+        let s = Stats::default();
+        assert!(matches!(s.choose_from(710, 185 * MB), Choice::Cold { cold_ms: 710, .. }));
+        assert_eq!(s.choose_from(40_000, 111 * MB), Choice::Restore);
     }
 
     #[test]
