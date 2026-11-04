@@ -1129,7 +1129,11 @@ def seed_chats():
     if opts.record_launch:
         # Its own chat, not a seeded one: its long transcript would push a seeded chat's turns out of the page's last
         # rows (show_long_chat). Not in CHATS, so it adds no chat rows; it is the tab shown at the quit.
-        LONG_CHAT.update(make_chat(client, "long", CHAT_PROFILES[0]) or {})
+        made = make_chat(client, "long", next(iter(CHAT_PROFILES)))
+        LONG_CHAT.update(made or {})
+        # Loud: without it the relaunch measures no chat, and nothing else would say so.
+        RESULTS.append(("seed agents: the long chat (--record-launch) is made", bool(made),
+                        made["session"] if made else "make_chat failed (see the seed log)", "seed"))
 
 
 def make_chat(client, label, harness):
@@ -2509,7 +2513,9 @@ def journey(base):
     global SINCE
     seed(base)
     if opts.record_launch:
-        show_long_chat()
+        shown = show_long_chat()
+        RESULTS.append(("seed agents: the long chat has its long transcript and is the shown tab", bool(shown),
+                        "shown" if shown else "no long chat page drew", "seed"))
     back_walk("seed")  # before any reopen: tells the live Back bug apart from a restore loss
     for n, variant in enumerate(v.strip() for v in opts.variants.split(",") if v.strip()):
         before = snapshot(f"{variant}-before")
@@ -2536,6 +2542,9 @@ def journey(base):
             # A real update relaunch opens a newer build, which shows the "cmux Updated!" card: the same build
             # relaunched shows it only when its last seen version is older (WhatsNewCenter.debugPretendUpdated).
             say(f"  update: last seen version 0.0.1 -> {json.dumps(rpc('debug.updater', {'action': 'updated', 'previous': '0.0.1'}))}")
+        if opts.record_launch:
+            at_quit = long_chat_shown()
+            RESULTS.append((f"{variant}: the long chat is the tab shown at the quit", at_quit is True, str(at_quit), "launch frames"))
         started = SINCE = time.time()
         if sampler:
             sampler.start(started)
@@ -2643,6 +2652,30 @@ def focus_long_chat():
         cli("workspace", ws["id"], "focus")
     cli("tab", chat["tab"], "focus")
     return bool(wait(lambda: "first_content_ms" in (page(None, "layout_watch", ms=300) or {}), 20, 0.5))
+
+
+def long_chat_shown():
+    """True when the long chat's tab is its pane's selected tab and its workspace is its window's shown one; else why not."""
+    if not LONG_CHAT:
+        return "no long chat"
+    topo = topology() or {}
+    for window in topo.get("windows", []):
+        for ws in topo.get("workspaces", []):
+            if ws.get("id") not in window.get("workspaces", []):
+                continue
+            for screen in ws.get("screens", []):
+                for pane in screen.get("panes", []):
+                    if any(t.get("id") == LONG_CHAT["tab"] for t in pane.get("tabs", [])):
+                        if pane.get("selected_tab") != LONG_CHAT["tab"]:
+                            return f"its pane shows tab {pane.get('selected_tab')}"
+                        if window.get("workspace") != ws.get("id"):
+                            return f"its window shows workspace {ws_name(topo, window.get('workspace'))}"
+                        return True
+    return "its tab is gone"
+
+
+def ws_name(topo, ws_id):
+    return next((w.get("name") for w in topo.get("workspaces", []) if w.get("id") == ws_id), ws_id)
 
 
 def start_chat_watch():
