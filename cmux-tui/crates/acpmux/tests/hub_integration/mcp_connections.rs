@@ -736,3 +736,58 @@ async fn mcp_connect_tools_that_change_after_a_new_key_wait_for_the_person() {
         ["127-0-0-1__get_doc", "127-0-0-1__delete_doc"]
     );
 }
+
+/// A server whose first list after the key is empty has nothing pinned: the tools it lists later
+/// are new to the person, so they wait for the person like any added tool (T10).
+#[tokio::test]
+async fn mcp_connect_tools_after_an_empty_first_list_wait_for_the_person() {
+    let empty = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let flag = empty.clone();
+    let handler: Handler = Arc::new(move |req, _| {
+        let (status, headers, body) = mcp_answer(req, Some("Bearer k-1"), "Bearer");
+        let listing = body.contains("\"tools\":[");
+        if listing && flag.load(std::sync::atomic::Ordering::SeqCst) {
+            let reply: Value = serde_json::from_str(&body).unwrap();
+            let id = reply["id"].clone();
+            (
+                status,
+                headers,
+                json!({"jsonrpc": "2.0", "id": id, "result": {"tools": []}}).to_string(),
+            )
+        } else {
+            (status, headers, body)
+        }
+    });
+    let (port, _seen) = http_mock(handler).await;
+    let url = format!("http://127.0.0.1:{port}/mcp");
+    let (hub, mut person) = setup(PermissionPolicy::Ask).await;
+    let id = new_session(&mut person).await;
+    let got = approve(&hub, &mut person, &id, &url, "chat").await;
+    let conn_id = got["connectionId"].as_str().unwrap().to_owned();
+    let key = json!({"id": conn_id, "key": "Bearer k-1"});
+    assert_eq!(
+        person.request("_acpmux/mcp_set_key", key.clone()).await.unwrap()["connect"],
+        "connected"
+    );
+    let mut proxy = connect_as(&hub, Origin::Local, Some(&id)).await;
+    let listed = || json!({"sessionId": id});
+    assert!(names(&proxy.request("_acpmux/mcp_tools", listed()).await.unwrap()).is_empty());
+
+    // The server now lists two tools; the person gives the key again.
+    empty.store(false, std::sync::atomic::Ordering::SeqCst);
+    person.request("_acpmux/mcp_set_key", key).await.unwrap();
+    assert!(
+        names(&proxy.request("_acpmux/mcp_tools", listed()).await.unwrap()).is_empty(),
+        "tools after an empty first list wait for the person"
+    );
+    let held = person
+        .wait_for(method::MUX_EVENT, |p| p["kind"] == "mcp_tools_changed" && p["sessionId"] == id)
+        .await;
+    assert_eq!(held["msg"]["held"], json!(["delete_doc", "get_doc"]), "{held}");
+
+    person.request("_acpmux/mcp_approve_tools", json!({"id": conn_id})).await.unwrap();
+    assert_eq!(
+        names(&proxy.request("_acpmux/mcp_tools", listed()).await.unwrap()),
+        ["127-0-0-1__get_doc", "127-0-0-1__delete_doc"]
+    );
+}
