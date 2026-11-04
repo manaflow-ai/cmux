@@ -332,7 +332,7 @@ mod tests {
             .transfer_request("_acpmux/transfer_begin", &json!({"sessionId": session.id}))
             .await
             .unwrap();
-        let params = json!({"sessionId": session.id, "transferId": begun["transferId"]});
+        let params = json!({"sessionId": session.id, "transferId": begun["transferId"], "epoch": begun["epoch"]});
         hub.transfer_request("_acpmux/transfer_abort", &params).await.unwrap();
         assert_eq!(
             *moving_at_abort.lock().unwrap(),
@@ -405,7 +405,8 @@ mod tests {
             .await
             .unwrap();
         let transfer = begun["transferId"].as_str().unwrap().to_owned();
-        let params = json!({"sessionId": session.id, "transferId": transfer});
+        let params =
+            json!({"sessionId": session.id, "transferId": transfer, "epoch": begun["epoch"]});
         let aborted = hub.transfer_request("_acpmux/transfer_abort", &params).await;
         let _ = std::fs::remove_dir_all(super::transfer_out::transfers_dir().join(&transfer));
         assert!(aborted.is_err(), "an abort reported done without its record: {aborted:?}");
