@@ -118,7 +118,7 @@ fn an_empty_or_oversized_batch_is_refused() {
     let mux = test_mux();
     let (first_pane, _) = two_columns(&mux);
     let before = widths_revision_and_undo(&mux);
-    for count in [0, MAX_LAYOUT_SIZE_VALUES + 1] {
+    for count in [0, crate::mux::layout_sizes::MAX_LAYOUT_SIZE_VALUES + 1] {
         let values = vec![LayoutSizeValue::PaneWidth { pane: first_pane, width: 0.4 }; count];
         let error = mux
             .set_layout_sizes_in_transaction_checked_as(&Actor::Daemon, &values, 7, 14)

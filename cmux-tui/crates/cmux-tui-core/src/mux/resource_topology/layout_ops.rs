@@ -299,8 +299,8 @@ impl Mux {
 #[derive(Debug)]
 pub(in crate::mux) struct LayoutSizesUnchanged;
 
-impl std::fmt::Display for LayoutSizesUnchanged {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for LayoutSizesUnchanged {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("the layout already has these sizes")
     }
 }
