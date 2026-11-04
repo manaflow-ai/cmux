@@ -133,8 +133,6 @@ pub(crate) fn checkpointer_seams<T>(
     with(seams.entry(home.to_path_buf()).or_default())
 }
 
-/// Tests: the next append stops right after its log write, says so on the first channel and
-/// waits for the second (the appends' lock held, as at that point in a real append).
 #[cfg(test)]
 thread_local! {
     /// Tests: the next removal of a chat's folder in `Store::delete` on this thread fails.
@@ -142,6 +140,8 @@ thread_local! {
         const { std::cell::Cell::new(false) };
 }
 
+/// Tests: the next append stops right after its log write, says so on the first channel and
+/// waits for the second (the appends' lock held, as at that point in a real append).
 #[cfg(test)]
 pub(crate) static PAUSE_AFTER_LOG_WRITE: Mutex<
     Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>,
