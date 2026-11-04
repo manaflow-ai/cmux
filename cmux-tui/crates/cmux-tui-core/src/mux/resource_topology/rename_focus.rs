@@ -32,7 +32,10 @@ impl Mux {
                 let index =
                     state.workspace_index(workspace).context("resolved workspace has no index")?;
                 let target = state.workspaces[index].public_id.clone();
-                let topology = registry.resource_topology_snapshot()?;
+                // A focus changes the workspace it leaves and the one it
+                // focuses; it reads only their subtrees.
+                let topology =
+                    registry.resource_topology_with_active(std::slice::from_ref(&target))?;
                 let previous = topology.active_workspace.clone();
                 let mut after = topology.clone();
                 after.active_workspace = Some(target.clone());
@@ -55,7 +58,8 @@ impl Mux {
                             stamp_pane_focus(&mux, state, pane);
                         }
                     },
-                ))
+                )
+                .keeping_dock_columns())
             },
         )
     }
@@ -87,7 +91,9 @@ impl Mux {
                 let screen_id = resolved.path.screen.context("screen selector has no public id")?;
                 let (workspace_index, screen_index) =
                     find_screen(state, screen).context("resolved screen disappeared")?;
-                let topology = registry.resource_topology_snapshot()?;
+                let topology = registry.resource_topology_scoped(std::slice::from_ref(
+                    &state.workspaces[workspace_index].public_id,
+                ))?;
                 let mut durable = topology_screen(&topology, &screen_id)?.clone();
                 durable.name = name.clone();
                 let value = screen_value(
@@ -136,7 +142,8 @@ impl Mux {
                     .map_err(anyhow::Error::new)?;
                 let pane = resolved.pane.context("pane selector has no live pane")?;
                 let pane_id = resolved.path.pane.context("pane selector has no public id")?;
-                let topology = registry.resource_topology_snapshot()?;
+                let topology =
+                    registry.resource_topology_scoped(&[workspace_of_pane(state, pane)?])?;
                 let mut durable = topology_pane(&topology, &pane_id)?.clone();
                 durable.name = name.clone();
                 let value = pane_value(state, &durable, &topology)?;
@@ -183,7 +190,14 @@ impl Mux {
                 let surface = resolved.tab.context("tab selector has no live surface")?;
                 let tab_id = resolved.path.tab.context("tab selector has no public id")?;
                 Self::ensure_tab_renamable(state, registry, surface, &tab_id)?;
-                let topology = registry.resource_topology_snapshot()?;
+                // The tab's workspace holds its row and its pane's; a tab
+                // outside every live pane reads the whole topology as before.
+                let topology = match state.pane_of(surface) {
+                    Some(pane) => {
+                        registry.resource_topology_scoped(&[workspace_of_pane(state, pane)?])?
+                    }
+                    None => registry.resource_topology_snapshot()?,
+                };
                 let mut durable = topology_tab(&topology, &tab_id)?.clone();
                 authority.apply(
                     &mut durable,
@@ -242,7 +256,8 @@ impl Mux {
                     resolved.workspace.context("screen selector has no live workspace")?;
                 let (workspace_index, screen_index) =
                     find_screen(state, screen).context("resolved screen disappeared")?;
-                let topology = registry.resource_topology_snapshot()?;
+                let topology =
+                    registry.resource_topology_with_active(std::slice::from_ref(&workspace_id))?;
                 let previous = topology.active_workspace.clone();
                 let mut after = topology.clone();
                 after.active_workspace = Some(workspace_id.clone());
@@ -273,7 +288,8 @@ impl Mux {
                         debug_assert_eq!(state.workspaces[workspace_index].id, workspace);
                         stamp_pane_focus(&mux, state, active_pane);
                     },
-                ))
+                )
+                .keeping_dock_columns())
             },
         )
     }
@@ -466,7 +482,9 @@ impl Mux {
                         |_| {},
                     )
                 };
-                let topology = registry.resource_topology_snapshot()?;
+                // The pane's own workspace holds every row this reads.
+                let topology =
+                    registry.resource_topology_scoped(&[workspace_of_pane(state, pane)?])?;
                 let pane_id = state.resource_indexes.pane_ids[&pane].clone();
                 let mut durable = topology_pane(&topology, &pane_id)?.clone();
                 let previous_active = durable.active_tab.clone();
@@ -517,8 +535,15 @@ impl Mux {
                     state.panes.get_mut(&pane).expect("planned pane remains live").active_tab =
                         index;
                 })
-                .with_metrics(metrics))
+                .with_metrics(metrics)
+                .keeping_dock_columns())
             },
         )
     }
+}
+
+/// The public id of the workspace that holds `pane`.
+fn workspace_of_pane(state: &State, pane: PaneId) -> anyhow::Result<WorkspacePublicId> {
+    let (workspace, _) = state.screen_of(pane).context("pane has no screen")?;
+    Ok(state.workspaces[workspace].public_id.clone())
 }
