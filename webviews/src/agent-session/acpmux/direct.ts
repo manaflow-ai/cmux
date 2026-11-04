@@ -8411,13 +8411,11 @@ export class AcpmuxDirectClient {
     sessionId: string,
     scope: "user" | "project",
     text: string | null,
-    cwd?: string,
   ): Promise<unknown> {
     return this.request("_acpmux/context_override", {
       sessionId,
       scope,
       text,
-      ...(cwd ? { cwd } : {}),
     });
   }
   /// Auth for this exact chat or a prospective New Tab target; the daemon owns freshness and

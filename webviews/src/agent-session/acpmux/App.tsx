@@ -7670,11 +7670,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       if (!client) throw new Error("Session is disconnected");
       const request = contextRequest.current;
       const next = contextInventory(
-        await client.setContextOverride(sessionId, scope, text, contextViewerSettings?.cwd),
+        await client.setContextOverride(sessionId, scope, text),
       );
       if (request === contextRequest.current) setContextViewerSettings(next.settings);
     },
-    [shownSessionId, snapshot.sessionId, contextViewerSettings?.cwd],
+    [shownSessionId, snapshot.sessionId],
   );
   const resetContextOverride = useCallback(
     async (scope: ContextOverrideScope) => {
@@ -7684,11 +7684,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       if (!client) throw new Error("Session is disconnected");
       const request = contextRequest.current;
       const next = contextInventory(
-        await client.setContextOverride(sessionId, scope, null, contextViewerSettings?.cwd),
+        await client.setContextOverride(sessionId, scope, null),
       );
       if (request === contextRequest.current) setContextViewerSettings(next.settings);
     },
-    [shownSessionId, snapshot.sessionId, contextViewerSettings?.cwd],
+    [shownSessionId, snapshot.sessionId],
   );
   useEffect(() => {
     closeContextViewer();
