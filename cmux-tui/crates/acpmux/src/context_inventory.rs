@@ -190,11 +190,13 @@ pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
         });
     }
     let provider_total_tokens = breakdown
-        .and_then(|v| v.get("totalTokens").and_then(Value::as_u64));
+        .and_then(|v| v.get("totalTokens").and_then(Value::as_u64))
+        .or_else(|| meta.usage.as_ref().and_then(|v| v.get("used")).and_then(Value::as_u64));
     // Category rows and their memory/tool/skill detail rows overlap. Never sum them.
     let cmux_tokens = parts.iter().filter(|p| p.included && p.source.starts_with("cmux-")).map(|p| p.tokens).sum();
     let total_tokens = provider_total_tokens.unwrap_or(cmux_tokens);
-    let max_tokens = breakdown.and_then(|v| v.get("maxTokens").and_then(Value::as_u64));
+    let max_tokens = breakdown.and_then(|v| v.get("maxTokens").and_then(Value::as_u64))
+        .or_else(|| meta.usage.as_ref().and_then(|v| v.get("size")).and_then(Value::as_u64));
     ContextInventory {
         parts,
         total_tokens,
@@ -293,6 +295,14 @@ mod tests {
         assert!(!got.parts.iter().any(|p| p.source == "cmux-user"));
         assert!(got.parts.iter().any(|p| p.text.as_deref() == Some("project text")));
         assert_eq!(got.overrides.project.as_deref(), Some("future text"));
+        // ACP harnesses such as Codex can report aggregate usage without a breakdown.
+        meta.context_breakdown = None;
+        meta.usage = Some(json!({"used":42,"size":200000}));
+        let usage = inventory(&meta, &cfg);
+        assert_eq!(usage.provider_total_tokens, Some(42));
+        assert_eq!(usage.total_tokens, 42);
+        assert_eq!(usage.max_tokens, Some(200000));
+        assert!(usage.parts.iter().any(|p| p.measurement == "unavailable"));
     }
 
     #[test]
