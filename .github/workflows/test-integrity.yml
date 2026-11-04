@@ -25,7 +25,10 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 2
-          persist-credentials: false
+          # The base SHA is fetched below from this private repository. Keep
+          # the read-only workflow token available for that fetch; no PR code
+          # is executed in this job.
+          persist-credentials: true
       - name: Flag deleted or weakened tests
         env:
           TEST_INTEGRITY_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
