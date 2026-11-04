@@ -88,6 +88,11 @@ final class CloudService {
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     /// The local side event subscription for `cloud.link.changed` (app link).
     @ObservationIgnored private var linkEvents: UInt64?
+    /// Delivers listening port changes to the agent tabs that run on that machine.
+    @ObservationIgnored var portChanged: @MainActor (CloudPortChange) -> Void = { _ in }
+    /// The authenticated Cloud machine event stream. It is independent of the app-server
+    /// daemon connection so ephemeral `cloud.machine.event` frames are not lost there.
+    @ObservationIgnored private var machineWire: CloudMachineWire?
     /// The `credential` provider family on the local daemon (cx-wb5.63):
     /// app servers' Cloud API calls, sent with the install token.
     @ObservationIgnored private var credentialProvider: CloudCredentialProvider?
@@ -321,9 +326,13 @@ final class CloudService {
         if configuration.linkSource == .appServer, linkEvents == nil {
             // `cloud.link.changed` arrives on the local daemon as an app server event.
             let machines = machines
-            linkEvents = machines.local.store.sideEvents.subscribe { event in
-                guard let change = CloudAppLinks.change(in: event) else { return }
-                machines.session(change.key.machine)?.linkChanged(change)
+            linkEvents = machines.local.store.sideEvents.subscribe { [weak self] event in
+                if let change = CloudAppLinks.change(in: event) {
+                    machines.session(change.key.machine)?.linkChanged(change)
+                }
+                if let change = CloudAppLinks.portChange(in: event) {
+                    self?.portChanged(change)
+                }
             }
             // task-owner: observers; cancelled in stop()
             observers.append(Task {
@@ -341,6 +350,13 @@ final class CloudService {
             // must fence the old Native mesh and link before reconnecting.
             for await accountScope in ObservationStream({ self.auth.isSignedIn ? "\(self.auth.user?.id ?? "")\u{0}\(self.auth.teamID ?? "")" : nil }) {
                 if accountScope != nil {
+                    if self.machineWire == nil {
+                        let auth = self.auth
+                        self.machineWire = CloudMachineWire(apiBaseURL: self.configuration.apiBaseURL,
+                                                            token: { [auth] in try await auth.tokens().access },
+                                                            team: { [auth] in await auth.teamID })
+                    }
+                    self.machineWire?.start { [weak self] change in self?.portChanged(change) }
                     AgentPaneTailCache.shared.resume()
                     await self.hub?.resume() // sign-out revoked the WireGuard peer and parked the hub
                     // Another account's machines, connections and share installs end first (its next share binds this one).
@@ -353,6 +369,7 @@ final class CloudService {
                     await self.ensureLink()
                     await self.refresh()
                 } else {
+                    self.machineWire?.stop()
                     self.dropAllMachines()
                     // The session ended (signed out here or elsewhere, or
                     // expired): no link keeps running for it.
@@ -405,6 +422,7 @@ final class CloudService {
         // homes for a later confirmed run after policy is restored.
         codexBroker.setAvailable(!disabled)
         if disabled {
+            machineWire?.stop()
             changes.stop()
             signedOutCreation.cancel()
             for session in machines.cloud {
@@ -418,6 +436,15 @@ final class CloudService {
             link.policyTurnedOff()
         } else {
             changes.start()
+            if auth.isSignedIn {
+                if machineWire == nil {
+                    let auth = auth
+                    machineWire = CloudMachineWire(apiBaseURL: configuration.apiBaseURL,
+                                                   token: { [auth] in try await auth.tokens().access },
+                                                   team: { [auth] in await auth.teamID })
+                }
+                machineWire?.start { [weak self] change in self?.portChanged(change) }
+            }
             dropAllMachines()
             // task-owner: one list fetch after the policy lifted
             Task { [weak self] in
@@ -431,6 +458,7 @@ final class CloudService {
 
     func stop() {
         refreshGate.cancel()
+        machineWire?.stop()
         signedOutCreation.cancel()
         for observer in observers { observer.cancel() }
         observers.removeAll(); changes.stop()

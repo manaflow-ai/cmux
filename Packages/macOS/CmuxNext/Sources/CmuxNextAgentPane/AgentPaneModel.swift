@@ -156,6 +156,8 @@ public final class AgentPaneModel {
     /// Opens a turn's local web page in a browser tab beside the agent;
     /// false when it could not.
     @ObservationIgnored public var onOpenPreview: (@MainActor (URL) -> Bool)?
+    /// Opens an authenticated Cloud preview for this chat's machine.
+    @ObservationIgnored public var onOpenCloudPreview: (@MainActor (Int) async throws -> Bool)?
     /// Claude's automatic sign-in page of a Cloud chat (``AgentPaneSignInPage/callbackPort(_:)``),
     /// in a Chromium tab whose localhost is the chat's machine: the open, or nil when no such tab
     /// can be made here (the card then opens the page that gives a code to paste). Asked before any
@@ -644,6 +646,17 @@ public final class AgentPaneModel {
                 return AgentPaneReply.failure(code: "open_failed", message: Self.openPreviewFailedMessage)
             }
             return AgentPaneReply.success()
+        case .openCloudPreview(let port):
+            guard userGesture || transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            guard let onOpenCloudPreview else { return Self.unsupported("cloud.preview.open") }
+            do {
+                guard try await onOpenCloudPreview(port) else {
+                    return AgentPaneReply.failure(code: "open_failed", message: Self.openPreviewFailedMessage)
+                }
+                return AgentPaneReply.success()
+            } catch {
+                return AgentPaneReply.failure(code: "open_failed", message: error.localizedDescription)
+            }
         case .gitWrite(let write): return await AgentPaneGitWriteReply.reply(to: write, in: self)
         case .git, .invalidGit, .githubRepository, .gitStage, .gitPullRequest, .transportOpen, .transportSend, .transportGesture, .transportGestureRelease, .transportClose, .harnessUpdate, .harnessRestart:
             return await AgentPaneTransportReply.reply(to: request, in: self)

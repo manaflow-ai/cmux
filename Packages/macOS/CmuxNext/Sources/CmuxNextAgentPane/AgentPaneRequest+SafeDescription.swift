@@ -106,6 +106,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .dictation: "dictation"
         case .openFile: "openFile"
         case .openPreview: "openPreview"
+        case .openCloudPreview: "openCloudPreview"
         case .quickDismiss: "quickDismiss"
         case .quickOpenInWindow: "quickOpenInWindow"
         case .quickStartInBackground: "quickStartInBackground"

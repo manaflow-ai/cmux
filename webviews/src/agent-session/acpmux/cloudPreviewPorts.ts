@@ -61,6 +61,11 @@ function contextKey(value: CloudPreviewContext | undefined): string {
   return [value.machineID ?? "", value.sessionId ?? "", value.turnId ?? ""].join("\u0000");
 }
 
+function machineSessionKey(value: CloudPreviewContext | undefined): string {
+  if (!value) return "";
+  return [value.machineID ?? "", value.sessionId ?? ""].join("\u0000");
+}
+
 function matches(event: PortEvent, target: CloudPreviewContext): boolean {
   if (event.machineID && event.machineID !== target.machineID) return false;
   if (event.sessionId && event.sessionId !== target.sessionId) return false;
@@ -78,10 +83,12 @@ function apply(event: PortEvent, target: CloudPreviewContext): boolean {
   if (event.known === true || !target.active || knownPorts.has(event.port)) {
     knownPorts.add(event.port);
     knownByContext.set(contextKey(target), knownPorts);
+    knownByContext.set(machineSessionKey(target), knownPorts);
     return false;
   }
   knownPorts.add(event.port);
   knownByContext.set(contextKey(target), knownPorts);
+  knownByContext.set(machineSessionKey(target), knownPorts);
   current = [...current, { port: event.port, ...(event.process ? { process: event.process } : {}) }];
   return true;
 }
@@ -92,7 +99,11 @@ export function setCloudPreviewContext(next: CloudPreviewContext): void {
   context = next;
   if (changed) {
     current = NONE;
-    knownPorts = new Set<number>([...(knownByContext.get(key) ?? []), ...unscopedKnown]);
+    knownPorts = new Set<number>([
+      ...(knownByContext.get(key) ?? []),
+      ...(knownByContext.get(machineSessionKey(next)) ?? []),
+      ...unscopedKnown,
+    ]);
     knownByContext.set(key, knownPorts);
   }
   if (pending.length === 0) return;
@@ -126,7 +137,10 @@ export function seedCloudPreviewPorts(values: readonly unknown[]): void {
       if (!context) unscopedKnown.add(event.port);
     }
   }
-  if (context) knownByContext.set(contextKey(context), knownPorts);
+  if (context) {
+    knownByContext.set(contextKey(context), knownPorts);
+    knownByContext.set(machineSessionKey(context), knownPorts);
+  }
 }
 
 export function cloudPreviewPorts(): readonly CloudPreviewPort[] {

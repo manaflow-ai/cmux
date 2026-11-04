@@ -28,6 +28,16 @@ describe("Cloud preview port cards", () => {
     expect(cloudPreviewPorts()).toEqual([]);
   });
 
+  test("keeps the machine baseline when a new turn becomes active", () => {
+    setCloudPreviewContext({ machineID: "machine-a", sessionId: "chat-a", turnId: "turn-a", active: true });
+    expect(addCloudPreviewPort({ port: 3000 })).toBe(true);
+    setCloudPreviewContext({ machineID: "machine-a", sessionId: "chat-a", turnId: "turn-b", active: false });
+    expect(addCloudPreviewPort({ port: 3000 })).toBe(false);
+    setCloudPreviewContext({ machineID: "machine-a", sessionId: "chat-a", turnId: "turn-b", active: true });
+    expect(addCloudPreviewPort({ port: 3000 })).toBe(false);
+    expect(cloudPreviewPorts()).toEqual([]);
+  });
+
   test("ports discovered before the active turn are remembered but never shown", () => {
     setCloudPreviewContext({ machineID: "machine-a", sessionId: "chat-a", turnId: "turn-a", active: false });
     expect(addCloudPreviewPort({ port: 3000, process: "vite" })).toBe(false);

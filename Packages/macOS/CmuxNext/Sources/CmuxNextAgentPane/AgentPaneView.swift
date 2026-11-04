@@ -622,4 +622,9 @@ public final class AgentPaneView: NSView {
             for script in scripts() { evaluateScript(script) }
         }
     }
+
+    /// Publishes a Cloud preview port event to the shared page host.
+    public func cloudPreviewPortOpened(port: Int, process: String?, machineID: String? = nil) {
+        deliver([.cloudPreviewPort(port: port, process: process, machineID: machineID)], scripts: [])
+    }
 }

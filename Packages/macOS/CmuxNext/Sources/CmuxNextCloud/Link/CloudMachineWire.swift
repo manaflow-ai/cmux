@@ -33,12 +33,14 @@ public final class CloudMachineWire {
 
     private func run(_ generation: Int, sink: @escaping @MainActor (CloudPortChange) -> Void) async {
         var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
+        // wakeup-allow: one pass per connection; each pass awaits the socket and, after a failure, a Backoff delay.
         while !Task.isCancelled, generation == self.generation {
             do {
                 try await session(generation, sink: sink, onSubscribed: { backoff.reset() })
             } catch is CancellationError {
                 return
             } catch {}
+            // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
             do { try await backoff.wait(owner: "cloud.machine.wire.reconnect") } catch { return }
         }
     }
@@ -65,6 +67,7 @@ public final class CloudMachineWire {
         task.resume()
         defer { task.cancel(with: .goingAway, reason: nil) }
         try await withTaskCancellationHandler {
+            // wakeup-allow: each turn awaits the next frame; a closed socket throws and ends the loop.
             while !Task.isCancelled {
                 let message = try await task.receive()
                 let data: Data

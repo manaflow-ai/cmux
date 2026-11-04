@@ -98,6 +98,13 @@ enum CloudAppLinks {
         return CloudLinkChange.parse(appServerEvent: line)
     }
 
+    /// The port change in a local daemon app-server event, or nil.
+    static func portChange(in event: DaemonEvent) -> CloudPortChange? {
+        guard let event = AppServerEvent(event), event.app == CloudLinkKey.app,
+              let line = try? JSONEncoder().encode(event.payload) else { return nil }
+        return CloudPortChange.parse(appServerEvent: line)
+    }
+
     /// The text a session shows after its link ended: what failed, then the
     /// next step ("click Connect"; v1 does not reconnect by itself). A
     /// failed check's own words stay in the log (``logEnded(_:)``).

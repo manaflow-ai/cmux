@@ -88,6 +88,14 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
         AgentPageEvent(kind: "transport", value: JSONValue(foundation: event.object) ?? .null)
     }
 
+    /// A newly listening port on the Cloud machine running this chat.
+    public static func cloudPreviewPort(port: Int, process: String?, machineID: String? = nil) -> AgentPageEvent {
+        var value: [String: Any] = ["port": port]
+        if let process, !process.isEmpty { value["process"] = process }
+        if let machineID, !machineID.isEmpty { value["machineID"] = machineID }
+        return AgentPageEvent(kind: "cloudPreviewPort", value: JSONValue(foundation: value) ?? .null)
+    }
+
     /// Focus Location Bar on a new tab page.
     public static let focusLocation = AgentPageEvent(kind: "focusLocation")
 }
