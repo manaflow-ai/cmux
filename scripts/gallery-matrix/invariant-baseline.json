@@ -121,7 +121,9 @@
     "agent-pane.artifact-panel#replace-complete": [],
     "agent-pane.artifact-panel#svg": [],
     "agent-pane.artifact-panel#versions": [],
-    "agent-pane.auth-health#expired": [],
+    "agent-pane.auth-health#expired": [
+      "menu-fit:div[aria-label=\"Model\"]"
+    ],
     "agent-pane.auth-health#signed-in": [
       "menu-fit:div[aria-label=\"Model\"]"
     ],
@@ -1270,11 +1272,7 @@
       "center-line:row user-8",
       "center-line:row user-9"
     ],
-    "agent-pane.incoming-message#minimal-open": [
-      "center-line:row user-10",
-      "center-line:row user-8",
-      "center-line:row user-9"
-    ],
+    "agent-pane.incoming-message#minimal-open": [],
     "agent-pane.incoming-message#notice": [],
     "agent-pane.incoming-message#opened": [
       "center-line:row user-52"
@@ -1417,6 +1415,7 @@
       "menu-row:div[aria-label=\"Model\"] \"EffortHigh\"",
       "menu-row:div[aria-label=\"Model\"] \"Fable 5.1⌘4\"",
       "menu-row:div[aria-label=\"Model\"] \"Haiku 5.5⌘3\"",
+      "menu-row:div[aria-label=\"Model\"] \"More models\"",
       "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Fast mode\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Opus 5.5\""
@@ -1433,6 +1432,7 @@
       "menu-row:div[aria-label=\"Model\"] \"EffortHigh\"",
       "menu-row:div[aria-label=\"Model\"] \"Fable 5.1⌘4\"",
       "menu-row:div[aria-label=\"Model\"] \"Haiku 5.5⌘3\"",
+      "menu-row:div[aria-label=\"Model\"] \"More models\"",
       "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Fast mode\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Opus 5.5\""
@@ -1455,6 +1455,7 @@
       "menu-row:div[aria-label=\"Model\"] \"EffortHigh\"",
       "menu-row:div[aria-label=\"Model\"] \"Fable 5.1⌘4\"",
       "menu-row:div[aria-label=\"Model\"] \"Haiku 5.5⌘3\"",
+      "menu-row:div[aria-label=\"Model\"] \"More models\"",
       "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Fast mode\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Opus 5.5\""
@@ -1465,6 +1466,7 @@
       "menu-row:div[aria-label=\"Model\"] \"EffortHigh\"",
       "menu-row:div[aria-label=\"Model\"] \"Fable 5.1⌘4\"",
       "menu-row:div[aria-label=\"Model\"] \"Haiku 5.5⌘3\"",
+      "menu-row:div[aria-label=\"Model\"] \"More models\"",
       "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Fast mode\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Opus 5.5\""
@@ -1474,6 +1476,7 @@
       "menu-row:div[aria-label=\"Model\"] \"EffortHigh\"",
       "menu-row:div[aria-label=\"Model\"] \"Fable 5.1⌘4\"",
       "menu-row:div[aria-label=\"Model\"] \"Haiku 5.5⌘3\"",
+      "menu-row:div[aria-label=\"Model\"] \"More models\"",
       "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Fast mode\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Opus 5.5\""
@@ -1490,6 +1493,7 @@
       "menu-row:div[aria-label=\"Model\"] \"EffortHigh\"",
       "menu-row:div[aria-label=\"Model\"] \"Fable 5.1⌘4\"",
       "menu-row:div[aria-label=\"Model\"] \"Haiku 5.5⌘3\"",
+      "menu-row:div[aria-label=\"Model\"] \"More models\"",
       "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Fast mode\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Opus 5.5\""
@@ -2662,6 +2666,7 @@
     "agent-pane.transcript-chevron-column#light": [],
     "agent-pane.transcript-row-alignment#finished": [],
     "agent-pane.transcript-row-alignment#finished-hover": [],
+    "agent-pane.transcript-row-alignment#finished-work": [],
     "agent-pane.transcript-row-alignment#footer": [
       "center-line:row subagentDone:agent-docs-check"
     ],
@@ -2705,6 +2710,7 @@
       "center-line:row spacing-received-a",
       "center-line:row spacing-received-b"
     ],
+    "agent-pane.transcript-type#claude-approve": [],
     "agent-pane.transcript-type#claude-code-entry": [],
     "agent-pane.transcript-type#codex-code": [],
     "agent-pane.transcript-type#reading": [],
@@ -3965,17 +3971,7 @@
     "viewer-empty.path-picker#recent-file": [],
     "viewer-empty.path-picker#recent-folders": [],
     "viewer-empty.path-picker#rtl": [
-      "menu-fit:div[aria-label=\"/Users/demo/Projects/cmux\"]",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-001\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-010\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-011\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-012\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-013\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-014\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-015\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-016\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-017\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-018\""
+      "menu-fit:div[aria-label=\"/Users/demo/Projects/cmux\"]"
     ],
     "viewer-empty.path-picker#virtualized": [
       "menu-fit:div[aria-label=\"/Users/demo/Projects/cmux/surfac"

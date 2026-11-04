@@ -134,26 +134,24 @@ await requireBrowserLane("new-tab-typing.test.ts", async () => {
       const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
       await page.goto(`http://127.0.0.1:${port}/test/browser/new-tab-typing.html?screen=${screen}`);
       const classic = screen === "classic";
-      const field = page.locator(classic ? "input.acpmux-newtab-field" : ".nt-field");
+      const selector = classic ? ".acpmux-newtab-field" : ".nt-field";
+      const field = page.locator(selector);
       await field.first().waitFor();
-      // The default field is the composer's Markdown field (#26567): its contenteditable takes the keys.
-      await page.waitForFunction((classic) => {
+      // Both fields are the composer's Markdown field (#26567): its contenteditable takes the keys.
+      await page.waitForFunction((selector) => {
         const active = document.activeElement;
-        return classic
-          ? active instanceof HTMLInputElement
-          : active instanceof HTMLElement && active.isContentEditable && !!active.closest(".nt-field");
-      }, classic);
+        return active instanceof HTMLElement && active.isContentEditable && !!active.closest(selector);
+      }, selector);
       // A key at a time, with the page rendering again before each, as the bead's keys came.
       for (const key of "hello world 123") {
         await page.evaluate(() => window.rerenderHost?.());
         await page.keyboard.type(key);
       }
       await page.evaluate(() => window.rerenderHost?.());
-      const typed = classic
-        ? await field.first().inputValue()
-        : await page.evaluate(() =>
-            document.querySelector<MarkdownFieldElement>(".nt-field")?.acpmuxMarkdownField?.value(),
-          );
+      const typed = await page.evaluate(
+        (selector) => document.querySelector<MarkdownFieldElement>(selector)?.acpmuxMarkdownField?.value(),
+        selector,
+      );
       expect(typed).toBe("hello world 123");
       await page.close();
     });

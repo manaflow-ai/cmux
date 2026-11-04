@@ -839,14 +839,18 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
       const page = await short.open();
       await installPaintedFrames(page);
       // Size the view so the transcript is 2-3px taller than it: the chat opens at its latest row.
+      // The view shrinks or grows to that, whichever the transcript's measured height asks for: three
+      // turns ran shorter than the default view until the reply footer row (#31690) made them taller.
       const fit = await page.evaluate(() => ({
         total: parseFloat(document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height),
         view: document.querySelector<HTMLElement>(".acpmux-scroll")!.clientHeight,
+        window: window.innerHeight,
       }));
-      await page.setViewportSize({ width: 900, height: 700 - (fit.view - (Math.floor(fit.total) - 2)) });
+      const target = Math.floor(fit.total) - 2;
+      await page.setViewportSize({ width: 900, height: fit.window - (fit.view - target) });
       await page.waitForFunction(
-        (view) => document.querySelector<HTMLElement>(".acpmux-scroll")!.clientHeight < view,
-        fit.view,
+        (target) => document.querySelector<HTMLElement>(".acpmux-scroll")!.clientHeight === target,
+        target,
       );
       await painted(page, 12);
       const opened = await page.evaluate(() => {

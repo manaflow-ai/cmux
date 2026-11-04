@@ -93,6 +93,8 @@ known = set()
 
 
 LAST_MCP_SERVERS = None
+# The additionalDirectories of the last session/new, load or fork ("dirs" replies with them).
+LAST_DIRS = None
 RUNNING_MCP = []
 # Whether the client asked for native subagent sessions the way codex-acp 1.10.0
 # reads it: the JetBrains AIR capability in clientCapabilities._meta (its ACP
@@ -176,6 +178,8 @@ def codex_store_prompt(rid, params):
                         and r["payload"]["content"][0]["text"] != "history-probe"],
             "sessions": sorted({r["payload"]["id"] for r in records if r["type"] == "session_meta"}),
         })
+    # Native rollouts retain the assistant reply as well as the user's prompt.
+    codex_write(sid, "response_item", {"type": "message", "role": "assistant", "phase": "final_answer", "content": [{"type": "output_text", "text": reply}]})
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}})
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
     # Codex's rollout writer flushes a turn's last records after the turn
@@ -233,6 +237,10 @@ def codex_prompt(rid, params):
 
 # FAKE_CLAUDE_STEER: sessions with a running turn.
 claude_turns = set()
+# FAKE_CLAUDE_STEER with FAKE_STEER_STEP: steers not read yet, by their hub promptId, and those
+# taken back (`_acpmux/steer_withdraw`, as Claude Code's cancel_async_message drops one).
+claude_unread = set()
+claude_withdrawn = set()
 
 
 def claude_prompt(rid, params):
@@ -248,9 +256,17 @@ def claude_prompt(rid, params):
         # FAKE_STEER_STEP=<fifo>: the steer is read at the agent's next tool step, which the
         # test makes by writing to the FIFO, as Claude Code answers a steer only there.
         step = os.environ.get("FAKE_STEER_STEP")
+        prompt_id = (params.get("_meta") or {}).get("promptId")
         if step:
+            with lock:
+                claude_unread.add(prompt_id)
             with open(step) as gate:
                 gate.read()
+            with lock:
+                claude_unread.discard(prompt_id)
+                if prompt_id in claude_withdrawn:
+                    send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32000, "message": "steer: withdrawn before the agent read it"}})
+                    return
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "steered"}})
         return
     try:
@@ -875,6 +891,11 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(LAST_MCP_SERVERS)}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "dirs" replies with the additionalDirectories of the last session/new, load or fork.
+    if text == "dirs":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(LAST_DIRS)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "argv" replies with this process's arguments as JSON, for spawn-time checks.
     if text == "argv":
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(sys.argv[1:])}})
@@ -1294,7 +1315,7 @@ def own_pri():
 
 
 def main():
-    global LAST_MCP_SERVERS
+    global LAST_MCP_SERVERS, LAST_DIRS
     # `--fake-login` (the terminal sign-in): sign in and exit.
     if "--fake-login" in sys.argv[1:]:
         open(os.environ["FAKE_AUTH_FILE"], "w").close()
@@ -1350,6 +1371,7 @@ def main():
             sys.exit(1)
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
+            LAST_DIRS = params.get("additionalDirectories")
         if m == "session/new" and os.environ.get("FAKE_CLASS_LOG"):
             with open(os.environ["FAKE_CLASS_LOG"], "a") as log:
                 log.write(json.dumps({"pid": os.getpid(), "pri": own_pri()}) + "\n")
@@ -1683,6 +1705,15 @@ def main():
                     clock.sleep(0.02)
         elif m == "session/cancel":
             cancelled.add(params.get("sessionId"))
+        elif m == "_acpmux/steer_withdraw" and os.environ.get("FAKE_CLAUDE_STEER") == "1":
+            # A steer still unread is dropped; one read already (or none) stays.
+            with lock:
+                prompt_id = params.get("promptId")
+                # FAKE_STEER_KEEP=1: it cannot take one back (codex-acp; a batched line).
+                dropped = prompt_id in claude_unread and os.environ.get("FAKE_STEER_KEEP") != "1"
+                if dropped:
+                    claude_withdrawn.add(prompt_id)
+            send({"jsonrpc": "2.0", "id": rid, "result": {"withdrawn": dropped}})
         elif rid is not None:
             send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32601, "message": "no such method"}})
 

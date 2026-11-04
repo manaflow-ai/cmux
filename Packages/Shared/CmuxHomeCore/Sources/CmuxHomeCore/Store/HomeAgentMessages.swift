@@ -132,10 +132,14 @@ struct HomeAgentMessages {
     private static func fold(_ members: [TranscriptItem], group: String, expanded: Set<String>) -> [TranscriptItem] {
         guard members.count > 1, let first = members.first else { return members }
         var peers: [String] = [], seenPeers: Set<String> = []
+        var states: [String: HomeAgentMessageRow.PeerState] = [:], latest: String?, titles: [String: String] = [:]
         for member in members {
-            guard case let .message(from, to, outgoing, _)? = member.agentMessage?.kind else { continue }
+            guard case let .message(from, to, outgoing, text)? = member.agentMessage?.kind else { continue }
             let peer = outgoing ? to : from
             if seenPeers.insert(peer).inserted { peers.append(peer) }
+            states[peer] = outgoing ? .told : .reported
+            if outgoing, titles[peer] == nil { titles[peer] = HomeAgentMessageRow.title(of: text) }
+            latest = text
         }
         let open = expanded.contains(group)
         var fold = TranscriptItem(
@@ -144,15 +148,19 @@ struct HomeAgentMessages {
             delivery: .committed, replyTo: first.replyTo, threadRoot: first.threadRoot)
         fold.isReadOnly = true
         fold.agentMessage = HomeAgentMessageRow(group: group, kind: .fold(count: members.count, peers: peers, expanded: open))
+        fold.agentMessage?.peerStates = peers.map { states[$0] ?? .told }
+        fold.agentMessage?.latest = latest
+        fold.agentMessage?.peerTitles = peers.map { titles[$0] ?? $0 }
         return open ? [fold] + members : [fold]
     }
 
     /// Status notes behind one notes row, whose group is ``HomeAgentMessageRow/notesGroup(_:)``.
     private static func foldNotes(_ notes: [TranscriptItem], group: String, expanded: Set<String>) -> [TranscriptItem] {
         guard let first = notes.first else { return [] }
-        var peers: [String] = [], seenPeers: Set<String> = [], reasons: [HomeAgentMessageRow.StatusNote] = []
+        var peers: [String] = [], seenPeers: Set<String> = [], reasons: [HomeAgentMessageRow.StatusNote] = [], latest: String?
         for note in notes {
-            guard case let .note(peer, reason, _)? = note.agentMessage?.kind else { continue }
+            guard case let .note(peer, reason, text)? = note.agentMessage?.kind else { continue }
+            latest = text
             if seenPeers.insert(peer).inserted { peers.append(peer) }
             if !reasons.contains(reason) { reasons.append(reason) }
         }
@@ -165,6 +173,9 @@ struct HomeAgentMessages {
         row.isReadOnly = true
         row.agentMessage = HomeAgentMessageRow(group: notesGroup, kind: .notes(
             count: notes.count, peers: peers, reason: reasons.count == 1 ? reasons.first : nil, expanded: open))
+        row.agentMessage?.peerStates = peers.map { _ in .stopped }
+        row.agentMessage?.latest = latest
+        row.agentMessage?.peerTitles = peers
         return open ? [row] + notes : [row]
     }
 }

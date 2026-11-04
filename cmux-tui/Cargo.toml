@@ -21,6 +21,7 @@ members = [
     "crates/acpmux-build-id",
     "crates/cmux-coderouter",
     "crates/cmux-history",
+    "crates/cmux-imessage",
     "crates/cmux-chat-index",
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
@@ -47,6 +48,7 @@ members = [
     "crates/cmux-tui-remote-access",
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
+    "crates/cmux-cloud-start-core",
     "crates/cmux-unix-socket",
     "crates/cmux-panic-log",
     "crates/cmux-pty",
@@ -64,9 +66,11 @@ members = [
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
     "crates/cmux-wg",
+    "crates/cmux-wg-tun",
     "crates/cmux-weft",
     "crates/cmux-transport",
     "crates/cmux-tasks-core",
+    "crates/cmux-bookmarks-core",
     "crates/cmux-automations",
     "crates/cmux-feed-core",
     "crates/cmux-tasks",
@@ -84,6 +88,7 @@ members = [
     "crates/cmux-rd-link",
     "crates/cmux-vnc",
     "crates/cmux-encode",
+    "crates/cmux-mcp-connect",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
     "crates/cmux-agent-pane-policy",
@@ -96,6 +101,8 @@ members = [
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
     "crates/cmux-host-budget",
+    "crates/cmux-url-input",
+    "crates/cmux-view-rows",
 ]
 default-members = [
     "crates/acpmux",
@@ -123,6 +130,7 @@ default-members = [
     "crates/cmux-tui-remote-access",
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
+    "crates/cmux-cloud-start-core",
     "crates/cmux-pty",
     "crates/cmux-process",
     "crates/cmux-remote-protocol",
@@ -134,9 +142,11 @@ default-members = [
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
     "crates/cmux-wg",
+    "crates/cmux-wg-tun",
     "crates/cmux-weft",
     "crates/cmux-transport",
     "crates/cmux-tasks-core",
+    "crates/cmux-bookmarks-core",
     "crates/cmux-automations",
     "crates/cmux-feed-core",
     "crates/cmux-tasks",
@@ -154,6 +164,7 @@ default-members = [
     "crates/cmux-rd-link",
     "crates/cmux-vnc",
     "crates/cmux-encode",
+    "crates/cmux-mcp-connect",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
     "crates/cmux-link",
@@ -165,6 +176,8 @@ default-members = [
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
     "crates/cmux-host-budget",
+    "crates/cmux-url-input",
+    "crates/cmux-view-rows",
 ]
 exclude = ["vendor/crossterm", "crates/cmux-rd-host"]
 
@@ -204,12 +217,15 @@ cmux-git = { path = "crates/cmux-git" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
+cmux-bookmarks-core = { path = "crates/cmux-bookmarks-core" }
+cmux-cloud-start-core = { path = "crates/cmux-cloud-start-core" }
 cmux-unix-socket = { path = "crates/cmux-unix-socket" }
 cmux-panic-log = { path = "crates/cmux-panic-log" }
 cmux-agent-pane-policy = { path = "crates/cmux-agent-pane-policy" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
 cmux-host-budget = { path = "crates/cmux-host-budget" }
+cmux-url-input = { path = "crates/cmux-url-input" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-holder = { path = "crates/cmux-holder" }
@@ -218,7 +234,9 @@ cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-history = { path = "crates/cmux-history" }
+cmux-imessage = { path = "crates/cmux-imessage" }
 cmux-local-auth = { path = "crates/cmux-local-auth" }
+cmux-mcp-connect = { path = "crates/cmux-mcp-connect" }
 cmux-config = { path = "crates/cmux-config" }
 cmux-tui-cloud-conversations = { path = "crates/cmux-tui-cloud-conversations" }
 cmux-tui-platform = { path = "crates/cmux-tui-platform" }
@@ -318,6 +336,8 @@ notify = "8"
 iroh = { version = "1.0.3", default-features = false, features = ["fast-apple-datapath", "portmapper", "tls-ring", "platform-verifier"] }
 subtle = "2.6.1"
 parking_lot = "0.12"
+# One-load published snapshots (cmux-tui-core `published.rs`, R-DAEMON-STATE); already in the tree through iroh-dns.
+arc-swap = "1.9"
 wait-timeout = "0.2"
 # rusqlite 0.40's libsqlite3-sys build script requires Rust 1.95 without
 # declaring that MSRV. Keep the workspace's advertised Rust 1.91 support.

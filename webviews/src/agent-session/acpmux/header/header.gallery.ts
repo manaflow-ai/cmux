@@ -19,12 +19,13 @@ const inTabRow: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-status--inline"));
 };
 
-// The same row while connected: the plain title and tools, with no location line below the tab row.
+// The same row while connected: only the tools (the pane's tab names the chat), with no location line below the tab row.
 const inTabRowConnected: Play = async (ctx) => {
   const { setTabRow } = await import("./tabRow");
   setTabRow({ height: 28, trailingInset: 0 });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-header[data-tab-row]"));
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-thread-title"));
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-header[data-tab-row] .acpmux-handoff-header-tools"));
+  if (ctx.document.querySelector(".acpmux-header[data-tab-row] .acpmux-thread-title"))
+    throw new Error("The tab row repeated the chat's title");
   if (ctx.document.querySelector(".acpmux-env-line, .acpmux-environment-row"))
     throw new Error("The chat header repeated the composer location");
 };
@@ -38,11 +39,21 @@ const sessionInfo =
     const { setSessionInfoOpen } = await import("../session-info/sessionInfoState");
     setTabRow({ height: 28, trailingInset: 0 });
     setHeaderState({ inspector: true });
-    setChatDisplay({ "agentPane.display.inspector.placement": placement });
+    setChatDisplay({ "agentPane.display.sessionInfo.placement": placement });
     setSessionInfoOpen(open);
+    // A pane that cannot hold a readable chat beside it, or a short one where it is a popover, opens
+    // Session Info only from the person's toggle (SessionInfo.tsx sessionInfoFits).
+    if (open) {
+      const toggle = '.acpmux-session-info-toggle[aria-pressed="false"]';
+      await ctx.waitFor(() => ctx.document.querySelector(".acpmux-session-info-toggle"));
+      if (ctx.document.querySelector(toggle)) await ctx.click({ selector: toggle });
+    }
+    // Push pushes only where the transcript's column keeps its width beside the panel; in this 760px pane a
+    // push would narrow it, so it lies over the chat instead (#33037, SessionInfo.tsx pushKeepsColumn).
+    const drawn = placement === "push" ? "overlay" : placement;
     await ctx.waitFor(() =>
       open
-        ? ctx.document.querySelector(`.acpmux-session-info[data-placement="${placement}"][data-presence="shown"]`)
+        ? ctx.document.querySelector(`.acpmux-session-info[data-placement="${drawn}"][data-presence="shown"]`)
         : !ctx.document.querySelector(".acpmux-session-info"),
     );
   };
@@ -101,7 +112,7 @@ export default agentPaneEntry({
       snapshot: chat(finished, { connection: "connecting: connection refused by the local daemon" }),
     },
     "tab-row": {
-      note: "The header shares the pane's tab row: the title menu stays available beside the tools, with no extra location row.",
+      note: "The header shares the pane's tab row: only its tools, no title (the tab names the chat) and no extra location row.",
       snapshot: chat(finished),
       play: inTabRowConnected,
     },
@@ -128,7 +139,7 @@ export default agentPaneEntry({
       play: sessionInfo("push", false),
     },
     "session-info-push-open": {
-      note: "Push always narrows the conversation below the header; the tools keep their full-width alignment.",
+      note: "Push chosen in a 760px pane: a push would narrow the conversation's column, so Session Info lies over the chat instead; the tools keep their full-width alignment.",
       snapshot: chat(finished),
       play: sessionInfo("push", true),
     },

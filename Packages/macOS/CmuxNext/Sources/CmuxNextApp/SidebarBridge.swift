@@ -7,6 +7,7 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextLayout
 import CmuxNextSettings
 import CmuxNextSidebar
 import Observation
@@ -179,9 +180,8 @@ final class SidebarBridge {
             PendingWorkspaceRows.shared.forget(in: windowState.id, listed: Set(sections.flatMap(\.workspaces).map(\.id.rawValue)),
                                                held: { machines.workspace(id: $0) != nil }) { id in
                 if let owner = registry.value.owner(of: id), owner != windowState.id { return true }
-                guard let workspace = WindowProfiles.qualified(id, machines: machines),
-                      let pin = WindowProfiles.membership(machines)?.pinned(workspace) else { return false }
-                return pin != windowState.profileID
+                guard let workspace = WindowProfiles.qualified(id, machines: machines), let membership = WindowProfiles.membership(machines) else { return false }
+                return PendingWorkspaceRows.shared.unpinned.contains(id) ? !membership.contains(workspace, in: windowState.profileID) : membership.pinned(workspace).map { $0 != windowState.profileID } ?? false // unpinned: its space no longer lists it
             }
         }
         PendingWorkspaceRows.shared.redraws.add(self) { [weak self] in
@@ -259,13 +259,13 @@ final class SidebarBridge {
         // After the merge, so a reconnecting machine's saved rows stand in first (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections, window: state?.id, windows: services.windows.connectingRowWindows(making: state?.id)) }
         let hadDocDrag = model.docDrag != nil
-        model.docDrag = services.sidebarDoc.docMachines.drag() // the sidebar document's drag half, nil keeps the older resolver
+        model.docDrag = services.sidebarDoc.drag(room: state?.profileID.rawValue) // the document's drag half, nil keeps the older resolver
         if let id = state?.id { model.docDrag?.listedElsewhere = WorkspaceLayoutRefs(machines: services.machines).listedElsewhere(window: id, registry: services.windows.registry) }
         model.ungroupedFirst = model.docDrag == nil && !usesMixedOrder
         if model.layout != layout { model.layout = layout }
         // A pass that lists what the rows show already (a daemon reorder the personal or document order hides, a store
         // snapshot laid over again) sets no sections: no arrange and compare of every row in the main thread's frame.
-        let elsewhere = model.docDrag.flatMap { drag in drag.document?.shown?.bandGroupsListedElsewhere(drag: drag) }
+        let elsewhere = model.docDrag.flatMap { drag in drag.document?.shown?.bandGroupsNotListedHere(drag: drag) }
         rows.show(sections, shownAt: shownAt, creating: (creating, NewWorkspacePlacements.home(services.machines)), unlessShown: hadDocDrag == (model.docDrag != nil),
                   elsewhere: elsewhere, showAppStore: services.settings?.snapshot.previewFeatures == true)
         selectionHold.flush()
@@ -357,7 +357,7 @@ final class SidebarBridge {
     /// yields its name to (`AppServices.sidebarPageFace`).
     typealias PageFace = (WorkspaceModel, TabModel, TabModel?) -> SidebarMapping.PageFace?
     /// A tab's name in the sidebar (a row's title, its hover card), as its strip names it.
-    typealias TabTitle = (TabModel) -> String
+    typealias TabTitle = (WorkspaceModel, TabModel) -> String
 
     /// The tabs that show the New Tab page, named "New Tab" and badged as a page.
     static func newTabPages(_ tabs: AgentTabStore, in store: DaemonStore?) -> Set<String> {
@@ -367,7 +367,7 @@ final class SidebarBridge {
     /// The strip's title rule (`TabTitleResolver`) for the sidebar's tab names.
     static func tabTitle(_ services: AppServices) -> TabTitle {
         let titles = TabTitleResolver(services: services)
-        return { titles.title($0) }
+        return { [weak services] workspace, tab in titles.title(tab, incognito: services?.windows.isIncognito(workspace: workspace)) }
     }
 
     static func hidesHome(_ layout: SidebarLayoutDocument) -> Bool {
@@ -387,6 +387,7 @@ final class SidebarBridge {
         let showsUnread = DesignSettings.shared.attention.showsOnSidebar
         let selectedTab = { (pane: PaneModel) in selection().selection(in: pane.id) }
         let groupIcon = IconAssetImages.shared.sidebarIcon(owner: machines.local)
+        let localHolds = { (id: String) in machines.local.store.workspace(id: id) != nil }
         var sections = SidebarMapping.shared.sections(PersonalSidebar.sections(of: machines.local, room: profile, machines: machines, doc: doc),
                                                machine: machine(for: machines.local, name: Strings.localMachine, kind: .local),
                                                hidesHomeWorkspace: hidesHome, showsUnread: showsUnread, muted: muted, selectedTab: selectedTab,
@@ -398,7 +399,7 @@ final class SidebarBridge {
             let header = CloudCreationRows.machine(session, compatibility: machines.compatibility(of: session.daemon), limits: machines.cloudLimits,
                                                    updates: machines.updates)
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines, doc: doc),
-                                                machine: header, showsUnread: showsUnread, muted: muted, selectedTab: selectedTab,
+                                                machine: header, showsUnread: showsUnread, muted: NotificationWorkspaceKey.workspaceIDs(muted, machine: session.daemon.machineID, localMachine: machines.local.machineID, localHolds: localHolds), selectedTab: selectedTab,
                                                 newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser, pageFace: pageFace,
                                                 tabTitle: tabTitle, notificationText: session.daemon.store.notificationText(for:),
                                                 iconAsset: IconAssetImages.shared.sidebarIcon(owner: session.daemon), groupIconAsset: groupIcon,
@@ -406,7 +407,7 @@ final class SidebarBridge {
         }
         for session in machines.ssh {
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines, doc: doc),
-                                                machine: sshMachine(session, machines: machines), muted: muted, selectedTab: selectedTab,
+                                                machine: sshMachine(session, machines: machines), muted: NotificationWorkspaceKey.workspaceIDs(muted, machine: session.daemon.machineID, localMachine: machines.local.machineID, localHolds: localHolds), selectedTab: selectedTab,
                                                 newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser, pageFace: pageFace,
                                                 tabTitle: tabTitle, notificationText: session.daemon.store.notificationText(for:),
                                                 iconAsset: IconAssetImages.shared.sidebarIcon(owner: session.daemon), groupIconAsset: groupIcon,
@@ -414,7 +415,8 @@ final class SidebarBridge {
         }
         for session in machines.servers {
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines, doc: doc),
-                                                machine: session.sidebarMachine(machines: machines), selectedTab: selectedTab, pageFace: pageFace,
+                                                machine: session.sidebarMachine(machines: machines),
+                                                muted: NotificationWorkspaceKey.workspaceIDs(muted, machine: session.daemon.machineID, localMachine: machines.local.machineID, localHolds: localHolds), selectedTab: selectedTab, pageFace: pageFace,
                                                 tabTitle: tabTitle, notificationText: session.daemon.store.notificationText(for:),
                                                 iconAsset: IconAssetImages.shared.sidebarIcon(owner: session.daemon), groupIconAsset: groupIcon,
                                                 rowSource: rows, workspaceFilter: workspaceFilter)

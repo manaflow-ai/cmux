@@ -66,7 +66,10 @@ SINGLE_HOST_VAR = re.compile(r"\bvars\.([A-Z0-9_]*TRUSTED_RUNNER)\b")
 # What may follow a single-host variable as its fallback: `||` then a non-empty label literal, or a variable
 # that is not another single-host one. A configured variable naming a dead host still never falls through;
 # the controller's fall-through and the queue rescue cover that at run time.
-POOL_FALLBACK = re.compile(r"\|\|\s*(?:'[^'\s]+'|vars\.(?![A-Z0-9_]*TRUSTED_RUNNER\b)[A-Z0-9_]+)")
+POOL_FALLBACK = re.compile(r"\|\|\s*(?:'[^'\s]+'|vars\.(?![A-Z0-9_]*TRUSTED_RUNNER\b)[A-Z0-9_]+|fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+)")
+# Declared pool members are unconditional fallbacks just like their former
+# literal labels.
+POOL_REFERENCE = re.compile(r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+")
 # A reserved slot's placement output: the DEV compile slot (side_lane_placement.fresh_route(), one side instance
 # per opted-in mini, glaeda#1628, for the compiles a feed's freshness waits on). It names a label only while that slot is idle, and
 # the runs-on alternative that reads it must check it is set, then fall through to a later pool literal, so a busy,
@@ -124,7 +127,8 @@ def unconditional(alternative: str) -> bool:
     alternatives = split_top(alternative, "||")
     if len(alternatives) > 1:
         return any(unconditional(part) for part in alternatives)
-    return re.fullmatch(r"'[^'\s]+'", alternative) is not None
+    return (re.fullmatch(r"'[^'\s]+'", alternative) is not None
+            or POOL_REFERENCE.fullmatch(alternative) is not None)
 
 
 def terminal_reserved(expression: str, variable: str) -> bool:
@@ -338,6 +342,11 @@ def lands_on_large_mac(job: dict) -> bool:
     if isinstance(runs_on, dict):
         runs_on = [runs_on.get("group", ""), *([runs_on.get("labels")] if isinstance(runs_on.get("labels"), str)
                                                  else runs_on.get("labels") or [])]
+    # A pool read is a stall-aware pick: scripts/ci/runner_pools.py leaves the pool's first member only once it
+    # starts nothing (macos_26 then takes LARGE_MAC). So a pool read lands where its first member is.
+    if isinstance(runs_on, str):
+        runs_on = POOL_REFERENCE.sub(lambda read: "'%s'" % runs_on_labels.pool_members(read.group(0).rsplit(".", 1)[1])[0],
+                                     runs_on)
     try:
         labels = runs_on_labels.resolve_labels(runs_on, silent=PICKER_CONTEXTS)
     except ValueError:
@@ -516,7 +525,8 @@ def overflow_preempted(text: str) -> list[str]:
         for alternative in flat_alternatives(expression):
             if "outputs.gui_overflow" in alternative:
                 break
-            if (BLACKSMITH_MAC_LITERAL.search(alternative) and FORK_CLAUSE not in alternative
+            if ((BLACKSMITH_MAC_LITERAL.search(alternative) or POOL_REFERENCE.search(alternative))
+                    and FORK_CLAUSE not in alternative
                     and not separate_pr_cascade(alternative)):
                 found.append(alternative)
     return found
@@ -586,12 +596,15 @@ def cascade_placed_failures(name: str, job_id: str, jobs: dict, placer: str, key
         if key not in str(env.get(variable) or "").split():
             failures.append(f"{name} {placer}: {variable} does not list {key}")
     side = runs_on.find("CI_SIDE_LANE_RUNNER")
-    for output, label in (("blacksmith_12_jobs", "blacksmith-12vcpu-macos-26"), ("blacksmith_6_jobs", "blacksmith-6vcpu-macos-26")):
+    for output, label, pool in (("blacksmith_12_jobs", "blacksmith-12vcpu-macos-26", "fromJSON(vars.RUNNER_POOLS).macos_26_large"),
+                                ("blacksmith_6_jobs", "blacksmith-6vcpu-macos-26", "fromJSON(vars.RUNNER_POOLS).macos_26")):
         if f"${{{{ steps.{place.get('id')}.outputs.{output} }}}}" != str((jobs[placer].get("outputs") or {}).get(output)):
             failures.append(f"{name} {placer}: output {output} is not the placement's")
-        read = (f"needs.{placer}.outputs.placed_attempt == format('{{0}}', github.run_attempt) && "
-                f"contains(needs.{placer}.outputs.{output}, ' {key} ') && '{label}'")
-        at = runs_on.find(read)
+        read_prefix = (f"needs.{placer}.outputs.placed_attempt == format('{{0}}', github.run_attempt) && "
+                       f"contains(needs.{placer}.outputs.{output}, ' {key} ') && ")
+        at = runs_on.find(read_prefix + pool)
+        if at < 0:
+            at = runs_on.find(read_prefix + "'" + label + "'")
         if at < 0 or (side >= 0 and at > side):
             failures.append(f"{name} {job_id}: runs-on does not take `{label}` for {key} ahead of the side label")
     # A re-run of the job alone keeps the placing job's outputs from the attempt before: a slot read then.
@@ -599,7 +612,7 @@ def cascade_placed_failures(name: str, job_id: str, jobs: dict, placer: str, key
         failures.append(f"{name} {placer}: no placed_attempt output for the attempt that placed")
     expressions = EXPRESSION.findall(runs_on)
     if not expressions or not unconditional(split_top(unwrap(expressions[0]), "||")[-1]):
-        failures.append(f"{name} {job_id}: runs-on does not end in a label literal")
+        failures.append(f"{name} {job_id}: runs-on does not end in a label or pool reference")
     return failures
 
 
@@ -700,7 +713,7 @@ class RunsOnFallbackTests(unittest.TestCase):
         # otherwise, and when unread, the build takes the plain ten-runner glaeda-nightly-only-m4pro.
         failures = [f"{path.name} {job_id}" for path in workflows()
                     for job_id, job in (load(path).get("jobs") or {}).items()
-                    if re.search(r"nightly-only-m4pro-builder|CI_NIGHTLY_ONLY_BUILDER_RUNNER", runs_on_text(job))]
+                    if re.search(r"nightly-only-m4pro-builder|nightly-only-xl-builder|CI_NIGHTLY_ONLY_BUILDER_RUNNER", runs_on_text(job))]
         self.assertEqual(failures, [], "the warm nightly builder label is a pick, never a runs-on literal")
 
     def test_a_single_host_variable_always_has_a_fallback(self) -> None:
@@ -792,6 +805,37 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertRegex(label, r"'glaeda-dev-std-xcode-[0-9.]+'")
         self.assertIsNone(SINGLE_HOST.search(label))
         self.assertIsNone(SINGLE_HOST_VAR.search(label))
+
+    def test_a_placement_never_hands_a_runs_on_the_busy_reserved_slot_while_blacksmith_moves(self) -> None:
+        """The reserved-slot rule above trusts each placement to name the slot only while it can take the job.
+        dev-daily-place reads the slot's label too (FRESH_LABEL) and its output goes straight into
+        cmux-scheme-compile's runs-on, so a busy slot there is the only route: on 2026-11-02 from 10:12Z 15 DEV
+        Release compiles queued up to 1.5 h on glaeda-dev-std-xcode-26.6 (one runner busy, the other offline) while
+        Blacksmith overflow was never tried. With every owned runner busy and a Blacksmith macOS label moving, no
+        such placement may answer the slot (or any owned label): the routing order's last resort comes first."""
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import datetime as dt
+        import dev_landing_place
+
+        readers = [job_id for path in workflows() for job_id, job in (load(path).get("jobs") or {}).items()
+                   if any("FRESH_LABEL" in (step.get("env") or {}) and "dev_landing_place.py" in str(step.get("run"))
+                          for step in job.get("steps") or [])]
+        self.assertEqual(readers, ["dev-daily-place"], "the placements that hand a runs-on the reserved slot label")
+        now = dt.datetime(2026, 11, 2, 10, 12, tzinfo=dt.timezone.utc)
+        moving = {"generated_at": "2026-11-02T10:10:00Z",
+                  "label_started": {"blacksmith-6vcpu-macos-26": "2026-11-02T10:10:00Z"},
+                  "pools": {"blacksmith-6vcpu-macos-26": {"queued": 0, "oldest_queued_minutes": 0, "running": 2},
+                            "blacksmith-12vcpu-macos-26": {"queued": 0, "oldest_queued_minutes": 0, "running": 1}}}
+        slot, side = "glaeda-dev-std-xcode-26.6", "glaeda-side-std-xcode-26.6"
+        busy = [{"name": "m1-glaeda-2", "status": "online", "busy": True, "labels": [{"name": slot}]},
+                {"name": "m2-glaeda-2", "status": "offline", "busy": False, "labels": [{"name": slot}]},
+                {"name": "m3-glaeda-1", "status": "online", "busy": True, "labels": [{"name": side}]}]
+        result = dev_landing_place.place(
+            {"SIDE_LABEL": side, "FRESH_LABEL": slot, "SHA": "a" * 40}, lambda: busy, lambda host: [],
+            overflow=lambda: dev_landing_place.blacksmith_overflow("", moving, now))
+        self.assertNotIn(slot, result["runs_on"], result["reason"])
+        self.assertNotIn(side, result["runs_on"], result["reason"])
+        self.assertEqual(json.loads(result["runs_on"]), "blacksmith-6vcpu-macos-26")
 
     def test_an_owned_gui_or_session_label_always_has_a_way_off(self) -> None:
         rescued, failures, seen = rescued_paths(), [], 0

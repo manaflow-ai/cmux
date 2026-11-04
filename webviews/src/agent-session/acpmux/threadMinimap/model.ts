@@ -32,6 +32,13 @@ export type MinimapTurn = {
   /// The start of the first reply after the prompt.
   reply: ReplyBlock[];
   metadata?: MinimapTurnMetadata;
+  /// A prompt the chat's count says exists but neither the rows nor the prompt index hold yet
+  /// (pendingTurn): it draws a resting tick in its final row so the rail is full length on its
+  /// first frame. Its jump loads history and its card stays blank until the prompt is known.
+  pending?: true;
+  /// A run of other chats' messages folded into this one tick (`foldIncoming`): every message's row
+  /// id, the first (this turn's own) first. Absent for a tick of one prompt.
+  members?: readonly string[];
 };
 
 /// The rail's geometry and timing, measured from 60 Hz recordings of the Codex desktop app's prompt
@@ -56,10 +63,16 @@ export function railPlacement(
   spacing: { min: number; max: number; compact: number; narrowest?: number } = { min: 8, max: 16, compact: 12 },
 ): { left: number; width: number; overlapsText: boolean; gutter: number } {
   const paneInset = transcriptColumn(paneWidth).inset;
-  const left = Math.min(spacing.max, Math.max(spacing.min, Math.floor(paneInset - ROW_WIDTH)));
   // The narrowest hit width: the compact step for the tight gutter (gutter.experiment.ts), so the
   // resting rail fits the page edge; the inset plus that step for the edge strip.
   const minimumWidth = spacing.narrowest ?? spacing.min + spacing.compact;
+  // The tight gutter: a gutter too short for the widest step keeps up to the compact step of room left
+  // of the ticks, taken from the hit width down to its narrowest, before the inset drops toward the
+  // narrowest step (Lawrence via Leo, 2026-10-28: "needs more left padding"). The edge strip keeps its
+  // 2026-10-28 placement.
+  const roomy =
+    spacing.narrowest === undefined ? spacing.min : Math.min(spacing.compact, Math.floor(paneInset - minimumWidth));
+  const left = Math.min(spacing.max, Math.max(spacing.min, Math.floor(paneInset - ROW_WIDTH), roomy));
   const width = Math.min(ROW_WIDTH, Math.max(minimumWidth, textInset - left));
   // `gutter` is the text's own inset, so the occluded rail's hover strip can stop at the text edge.
   return { left, width, overlapsText: left + width > textInset, gutter: Math.max(0, textInset) };
@@ -118,6 +131,145 @@ export function tickProgress(distance: number | undefined): number {
 /// The drawn length of a tick at `progress`: 6 px at rest, 26 px hovered.
 export const tickLength = (progress: number) => TICK_BOX * (0.2308 + 0.7692 * progress);
 
+/// The hover wave's shapes (wave.experiment.ts): how magnified a tick is (0 to 1) at `distance` rows
+/// from the pointer, measured from the tick's middle to the pointer's fractional row. Each is smooth
+/// and reaches 0 at its `reach`, so a tick past it rests.
+export type WaveShape = { reach: number; at(distance: number): number };
+const SIGMA = 1.4;
+const bell = (distance: number) => Math.exp(-(distance * distance) / (2 * SIGMA * SIGMA));
+export const WAVE_SHAPES = {
+  "cosine-4": { reach: 4, at: (distance: number) => 0.5 + 0.5 * Math.cos((Math.PI * distance) / 4) },
+  "cosine-5": { reach: 5, at: (distance: number) => 0.5 + 0.5 * Math.cos((Math.PI * distance) / 5) },
+  // The bell less its value at the reach, scaled back to 1 at the peak, so it meets rest at 4.5 rows.
+  gaussian: { reach: 4.5, at: (distance: number) => (bell(distance) - bell(4.5)) / (1 - bell(4.5)) },
+} as const satisfies Record<string, WaveShape>;
+export type WaveShapeId = keyof typeof WAVE_SHAPES;
+
+/// How magnified the tick at `index` is with the pointer at fractional row `focus` (row `i` spans
+/// `i` to `i + 1`, its middle at `i + 0.5`), at `amplitude` of the full bump.
+export function waveProgress(shape: WaveShape, index: number, focus: number, amplitude = 1): number {
+  const distance = Math.abs(index + 0.5 - focus);
+  return distance >= shape.reach ? 0 : amplitude * shape.at(distance);
+}
+
+/// The wave's time constant as it follows the pointer: the bump closes 95% of the way to a still
+/// pointer in 3 of these (90 ms), inside the motion scale's micro step, so a sweep reads as one
+/// smooth wave and a flick never jumps.
+export const WAVE_FOLLOW_MS = 30;
+/// The rail's spring (threadMinimap.css `--acpmux-minimap-spring`, about 0.8% overshoot) as points
+/// of progress over its duration: the wave grows in on it when the pointer arrives.
+const SPRING: ReadonlyArray<readonly [number, number]> = [
+  [0, 0],
+  [0.1, 0.398],
+  [0.2, 0.682],
+  [0.3, 0.843],
+  [0.4, 0.925],
+  [0.5, 0.972],
+  [0.6, 1.004],
+  [0.7, 1.008],
+  [0.8, 1.003],
+  [1, 1],
+];
+export const WAVE_IN_MS = MOTION_MS.micro;
+/// The wave's amplitude `elapsed` ms after the pointer arrived: the spring over the micro step.
+export function waveAmplitude(elapsed: number): number {
+  const at = Math.max(0, Math.min(1, elapsed / WAVE_IN_MS));
+  for (let index = 1; index < SPRING.length; index += 1) {
+    const [x1, y1] = SPRING[index]!;
+    if (at > x1) continue;
+    const [x0, y0] = SPRING[index - 1]!;
+    return y0 + ((y1 - y0) * (at - x0)) / (x1 - x0);
+  }
+  return 1;
+}
+/// The pointer's fractional row a wave eases toward this frame, `elapsed` ms after the last.
+export function waveFollow(focus: number, target: number, elapsed: number): number {
+  const next = focus + (target - focus) * (1 - Math.exp(-Math.max(0, elapsed) / WAVE_FOLLOW_MS));
+  // Within a hundredth of a row (0.1 px) it is there: the loop stops.
+  return Math.abs(target - next) < 0.01 ? target : next;
+}
+
+/// The zipper (wave.experiment.ts `zipper`, the default; Leo, 2026-11-03: "the in-between feels a
+/// bit strange and gooey i'd rather keep it per zipper rail thing"). Each tick has its own discrete
+/// length by whole rows from the hovered row, the stepped fisheye's 26, 20, 14, 10, then 6 px, which
+/// are ChatGPT's rail's own (52, 40, 28, 20 and 12 px in its 2x capture), and each tick runs its own
+/// ease to its new length when the hovered row changes, so a sweep zips down the rail tick by tick.
+/// A tick heading somewhere new starts from where it is, never from rest.
+export type ZipMotion = { from: number; to: number; start: number; ms: number };
+/// A tick that is not the hovered one easing to its new length.
+export const ZIP_MS = MOTION_MS.standard;
+/// The hovered tick growing as the pointer arrives from off the rail. On a move between rows the
+/// hovered tick is already longer than its old neighbours would allow it to wait, so it takes its
+/// full length at once (`zipStep`).
+export const ZIP_HOVER_MS = MOTION_MS.quick;
+/// The pointer leaving: every tick shrinks back to rest over the scale's ceiling (Leo, 2026-11-03:
+/// "chatgpt has an animation for when it shrinks").
+export const ZIP_RELEASE_MS = MOTION_MS.large;
+/// The zipper's ease: an ease-out cubic, fast off the mark and gentle into place, so it is never
+/// past its target and never turns back.
+export const zipEase = (at: number) => 1 - (1 - Math.max(0, Math.min(1, at))) ** 3;
+/// A tick's magnification (0 to 1) `now` along its motion.
+export function zipValue(motion: ZipMotion, now: number): number {
+  if (motion.ms <= 0 || now - motion.start >= motion.ms) return motion.to;
+  return motion.from + (motion.to - motion.from) * zipEase((now - motion.start) / motion.ms);
+}
+/// Each tick's target with `hovered` the hovered row (undefined: the pointer left, all at rest).
+export function zipTargets(hovered: number | undefined, rows: number): Map<number, number> {
+  const targets = new Map<number, number>();
+  if (hovered === undefined) return targets;
+  for (let distance = -(PROGRESS.length - 1); distance < PROGRESS.length; distance += 1) {
+    const index = hovered + distance;
+    if (index >= 0 && index < rows) targets.set(index, tickProgress(distance));
+  }
+  return targets;
+}
+/// Re-aims `motions` (by row) at the targets for `hovered`, `now`: a tick whose target changed starts
+/// a new motion from its current value; one already heading to its target keeps its own; one at rest
+/// and staying there is dropped.
+export function zipRetarget(
+  motions: Map<number, ZipMotion>,
+  hovered: number | undefined,
+  rows: number,
+  now: number,
+): void {
+  const targets = zipTargets(hovered, rows);
+  for (const index of new Set([...motions.keys(), ...targets.keys()])) {
+    const to = targets.get(index) ?? 0;
+    const motion = motions.get(index);
+    if (motion?.to === to) continue;
+    const value = motion ? zipValue(motion, now) : 0;
+    if (value === 0 && to === 0) {
+      motions.delete(index);
+      continue;
+    }
+    const ms = hovered === undefined ? ZIP_RELEASE_MS : index === hovered ? ZIP_HOVER_MS : ZIP_MS;
+    motions.set(index, { from: value, to, start: now, ms });
+  }
+}
+/// The ticks' values `now` by row. The hovered tick is always the single longest: if any other tick
+/// would draw as long as it this frame (the old hovered tick shrinking as the pointer moves on), it
+/// takes its full length at once, and its motion ends there.
+export function zipStep(
+  motions: Map<number, ZipMotion>,
+  hovered: number | undefined,
+  now: number,
+): Map<number, number> {
+  const values = new Map<number, number>();
+  for (const [index, motion] of motions) values.set(index, zipValue(motion, now));
+  if (hovered !== undefined && motions.has(hovered)) {
+    let others = 0;
+    for (const [index, value] of values) if (index !== hovered) others = Math.max(others, value);
+    if (values.get(hovered)! <= others) {
+      values.set(hovered, 1);
+      motions.set(hovered, { from: 1, to: 1, start: now, ms: 0 });
+    }
+  }
+  return values;
+}
+/// Whether every motion has reached its target by `now`.
+export const zipSettled = (motions: Map<number, ZipMotion>, now: number) =>
+  [...motions.values()].every((motion) => now - motion.start >= motion.ms);
+
 /// The transcript's soft edges (conversation.css `.acpmux-scroll[data-fade-*]`): its mask fades
 /// rows out over this many px under the top once scrolled from the start, and above the view's foot
 /// (the bottom stack's top) while more lies below. The composer edge is always 18 px, including
@@ -175,6 +327,27 @@ export function railTop(height: number, viewportHeight: number, foot = viewportH
   if (room.bottom - height >= room.top) return Math.max(room.top, Math.min(centered, Math.floor(room.bottom - height)));
   const view = Math.min(viewportHeight, foot);
   return Math.max(0, Math.min(Math.round((room.top + room.bottom - height) / 2), Math.floor(view - height)));
+}
+
+/// The rail's height over a bottom stack that reaches higher than the one its box was laid out for
+/// (a composer grown by a draft, a tray or bar opened over the view): the box keeps its top, so the
+/// rail does not move with the stack (Leo, 2026-11-01: "the left side scroll rail needs to not really
+/// get affected by most other layout things"), and its foot rises with the stack instead, so no tick
+/// runs under it (Leo, 2026-11-03: "this left scroll rail prob goes a little bit too far down now").
+/// A rail with room to spare under it keeps its height until the stack takes that room; past it the
+/// list scrolls in what is left. `restFoot` is the foot the box was laid out for, `liveFoot` the
+/// stack's top now, both in the rail's coordinates.
+export function railClearHeight(
+  height: number,
+  top: number,
+  viewportHeight: number,
+  restFoot: number,
+  liveFoot: number,
+): number {
+  const grown = restFoot - liveFoot;
+  if (grown <= 0) return height;
+  const clear = Math.floor(railRoom(viewportHeight, liveFoot).bottom - top);
+  return Math.max(0, Math.min(height, Math.max(clear, height - Math.ceil(grown))));
 }
 
 /// The fade a rail longer than its room draws at an edge with more rows past it: 2.5rem
@@ -323,7 +496,7 @@ function cardState(prompt: AcpmuxRow, row: AcpmuxRow, before?: CardState): CardS
 
 /// What a turn's tick on the rail shows: its prompt, by key. A tick changes only when its prompt
 /// does, not when the reply it previews streams on.
-export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt" | "from">;
+export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt" | "from" | "members">;
 
 /// Who sent a prompt that is not the person's (conversation/incomingMessage.ts): another session's
 /// message, or acpmux's inbox notice of several. The rail keeps their ticks, set apart from the
@@ -351,6 +524,8 @@ export type MinimapTurns = {
   loadedTicks?: readonly MinimapTick[];
   loadedStart?: number;
   earlierTurns?: readonly MinimapTurn[];
+  /// Historical prompts known only by count. They are not materialized in `turns` or `ticks`.
+  pendingCount?: number;
   /// The list the next changed turns are written into (the one before `turns`), never `turns`.
   spare?: MinimapTurn[];
 };
@@ -386,6 +561,7 @@ export function minimapTurns(
   previous?: MinimapTurns,
   change?: RowsChange,
   earlierRows: readonly AcpmuxRow[] = EMPTY_EARLIER_ROWS,
+  promptCount = 0,
 ): MinimapTurns {
   const prior = previous?.sessionId === sessionId ? previous : undefined;
   const reuse = prior
@@ -501,10 +677,16 @@ export function minimapTurns(
     spare?: MinimapTurn[],
   ): MinimapTurns => {
     const base = { rows, sessionId, loadedTurns, loadedTicks, ...(spare ? { spare } : {}) };
-    if (!earlierRows.length) return { ...base, turns: loadedTurns, ticks: loadedTicks, loadedStart: 0 };
+    // The prompts the count names that neither the rows nor the index hold yet. They draw as resting
+    // ticks above the held ones, so the rail has its final length and every tick its final row on the
+    // first frame; the index or a page then names them in place (Leo, 2026-11-03: "mostly i just
+    // don't like it when the thing shifts and whatnot trying to center itself").
+    const pending = Math.max(0, promptCount - earlierRows.length - loadedTurns.length);
+    if (!earlierRows.length)
+      return { ...base, turns: loadedTurns, ticks: loadedTicks, loadedStart: 0, pendingCount: pending };
     const sameEarlier = prior?.earlierRows === earlierRows && prior.earlierTurns !== undefined;
     if (sameEarlier && prior!.loadedTurns === loadedTurns && prior!.loadedTicks === loadedTicks)
-      return { ...prior!, ...base };
+      return { ...prior!, ...base, pendingCount: pending };
     const earlier = sameEarlier
       ? prior!.earlierTurns!
       : earlierRows.map((row): MinimapTurn => ({
@@ -523,6 +705,7 @@ export function minimapTurns(
       ticks: sameEarlier && prior!.loadedTicks === loadedTicks ? prior!.ticks : ticksOf(turns, prior?.ticks),
       earlierRows,
       earlierTurns: earlier,
+      pendingCount: pending,
       loadedStart: earlier.length,
     };
   };
@@ -614,9 +797,19 @@ function ticksOf(turns: readonly MinimapTurn[], previous: readonly MinimapTick[]
 }
 
 /// The turn the reader is in: the last prompt above a third of the way down the viewport.
+/// A row's layout top by index, undefined past the rows (an estimate's `tops[index]`, or a
+/// placement's index read for just the rows asked: the rail reads a few turns, never every row).
+export type RowTops = (index: number) => number | undefined;
+
+/// RowTops over a placed layout's geometry.
+export const rowTopsOf =
+  (geometry: { count: number; topAt: (index: number) => number }): RowTops =>
+  (index) =>
+    index >= 0 && index < geometry.count ? geometry.topAt(index) : undefined;
+
 export function currentTurn(
-  turns: readonly MinimapTurn[],
-  tops: Float64Array,
+  turns: Pick<ReadonlyArray<MinimapTurn>, "length" | "at">,
+  tops: RowTops,
   scrollTop: number,
   viewportHeight: number,
   firstLoaded = 0,
@@ -628,7 +821,7 @@ export function currentTurn(
   low = firstLoaded;
   while (low < high) {
     const middle = (low + high) >>> 1;
-    if ((tops[turns[middle].index] ?? 0) <= anchor) low = middle + 1;
+    if ((tops(turns.at(middle)!.index) ?? 0) <= anchor) low = middle + 1;
     else high = middle;
   }
   return Math.max(firstLoaded, low - 1);
@@ -642,8 +835,8 @@ export function currentTurn(
 /// layout top, so that is a layout top at or above `scrollTop + LANDING_OFFSET`. At the bottom a turn
 /// counts once its bubble is on screen: our turns have no block above the bubble to show first.
 export function visibleTurns(
-  turns: readonly MinimapTurn[],
-  tops: Float64Array,
+  turns: Pick<ReadonlyArray<MinimapTurn>, "length" | "at">,
+  tops: RowTops,
   totalHeight: number,
   scrollTop: number,
   viewportHeight: number,
@@ -653,14 +846,14 @@ export function visibleTurns(
   const bottom = scrollTop + viewportHeight - THREAD_PADDING_TOP;
   const first = currentTurn(turns, tops, scrollTop + LANDING_OFFSET, 0, firstLoaded);
   let last = first;
-  while (last + 1 < turns.length && (tops[turns[last + 1].index] ?? totalHeight) < bottom) last += 1;
+  while (last + 1 < turns.length && (tops(turns.at(last + 1)!.index) ?? totalHeight) < bottom) last += 1;
   return { first, last };
 }
 
 /// The scroll offset that lands a turn's prompt row (its images, else its bubble) LANDING_OFFSET
 /// below the viewport's top.
-export function turnScrollTop(turn: MinimapTurn, tops: Float64Array): number {
-  return Math.max(0, THREAD_PADDING_TOP + (tops[turn.index] ?? 0) - LANDING_OFFSET);
+export function turnScrollTop(turn: MinimapTurn, tops: RowTops): number {
+  return Math.max(0, THREAD_PADDING_TOP + (tops(turn.index) ?? 0) - LANDING_OFFSET);
 }
 
 /// The start of a reply as blocks with bold/code spans; fenced code, heading marks and link targets drop.
@@ -736,4 +929,97 @@ function inlineSpans(text: string): ReplySpan[] {
   }
   add(text.slice(at), false);
   return spans;
+}
+
+/// The rail's view of `turns` and `ticks` with each run of other chats' messages next to each other
+/// (two or more held turns with a sender, model.ts `promptSender`) folded into one tick (Leo,
+/// 2026-11-03: "i've always been on the fence about messages from other chats showing up in that
+/// prompt jump scroll rail individual elements"; incoming.experiment.ts). The folded tick is its
+/// first message's: its key, row and jump target, so it stays the same element as more messages
+/// join the run, and a bookmark on it marks that first message (ThreadMinimap `groupMarks`). Its
+/// card previews the run's last reply. Turns read from the prompt index (not held yet, index -1)
+/// are never folded, so `loadedStart` stays as it was.
+///
+/// Built per change of `ticks` (a new prompt, older turns), never per streamed token: the run
+/// boundaries are read from the ticks, and with no run to fold both lists are returned as they are.
+/// With runs, a token rebuilds the turn list (one entry per tick) and reuses each folded turn while
+/// its members are the same objects.
+export function foldIncoming(
+  turns: readonly MinimapTurn[],
+  ticks: readonly MinimapTick[],
+  loadedStart = 0,
+): { turns: readonly MinimapTurn[]; ticks: readonly MinimapTick[] } {
+  const runs = incomingRuns(ticks, loadedStart);
+  if (!runs.ranges.length) return { turns, ticks };
+  const folded: MinimapTurn[] = [];
+  let at = 0;
+  for (const [start, end] of runs.ranges) {
+    for (; at < start; at += 1) folded.push(turns[at]!);
+    folded.push(foldedTurn(turns.slice(start, end)));
+    at = end;
+  }
+  for (; at < turns.length; at += 1) folded.push(turns[at]!);
+  return { turns: folded, ticks: runs.ticks };
+}
+
+const runsByTicks = new WeakMap<
+  readonly MinimapTick[],
+  { loadedStart: number; ranges: [number, number][]; ticks: readonly MinimapTick[] }
+>();
+
+/// The runs of two or more held ticks with a sender next to each other, and the folded ticks.
+function incomingRuns(ticks: readonly MinimapTick[], loadedStart: number) {
+  const held = runsByTicks.get(ticks);
+  if (held && held.loadedStart === loadedStart) return held;
+  const ranges: [number, number][] = [];
+  for (let start = loadedStart; start < ticks.length;) {
+    if (ticks[start]!.from === undefined) {
+      start += 1;
+      continue;
+    }
+    let end = start + 1;
+    while (end < ticks.length && ticks[end]!.from !== undefined) end += 1;
+    if (end - start > 1) ranges.push([start, end]);
+    start = end;
+  }
+  let folded: readonly MinimapTick[] = ticks;
+  if (ranges.length) {
+    const list: MinimapTick[] = [];
+    let at = 0;
+    for (const [start, end] of ranges) {
+      for (; at < start; at += 1) list.push(ticks[at]!);
+      const run = ticks.slice(start, end);
+      list.push({ ...run[0]!, from: senders(run), members: run.map((tick) => tick.id) });
+      at = end;
+    }
+    for (; at < ticks.length; at += 1) list.push(ticks[at]!);
+    folded = list;
+  }
+  const result = { loadedStart, ranges, ticks: folded };
+  runsByTicks.set(ticks, result);
+  return result;
+}
+
+/// The senders of a run, each once, in the order they first wrote.
+const senders = (run: readonly Pick<MinimapTurn, "from">[]) =>
+  [...new Set(run.map((turn) => turn.from).filter((from): from is string => from !== undefined))].join(", ");
+
+const foldedTurns = new WeakMap<MinimapTurn, { run: readonly MinimapTurn[]; turn: MinimapTurn }>();
+
+/// One turn for a run: the first message's place and key, the run's senders and every member's row,
+/// with the last message's reply and details (what the agent did once they were all in).
+function foldedTurn(run: readonly MinimapTurn[]): MinimapTurn {
+  const first = run[0]!;
+  const held = foldedTurns.get(first);
+  if (held && held.run.length === run.length && held.run.every((turn, i) => turn === run[i])) return held.turn;
+  const last = run.at(-1)!;
+  const turn: MinimapTurn = {
+    ...first,
+    from: senders(run),
+    reply: last.reply,
+    metadata: last.metadata,
+    members: run.map((member) => member.id),
+  };
+  foldedTurns.set(first, { run, turn });
+  return turn;
 }

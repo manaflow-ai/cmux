@@ -965,10 +965,12 @@ class WorkflowRoute(unittest.TestCase):
         for tier in ("macos", "fast_tier", "swift", "native", "full"):
             self.assertEqual(result[tier], "false", tier)
 
-    def test_a_linux_job_no_mac_job_needs_runs_no_mac_tier(self):
+    def test_a_pool_backed_job_change_keeps_the_mac_tier_conservatively(self):
         base = self.base_without("    name: cmux-next checks (god files, concurrency, crash safety, l10n)",
                                  "    name: cmux-next checks (old)")
-        self.assertEqual(self.route_with_base(base)["macos"], "false")
+        # Pool-backed runner expressions are route-sensitive until the workflow comparator
+        # resolves the declared pool, so a workflow edit conservatively keeps the Mac tier.
+        self.assertEqual(self.route_with_base(base)["macos"], "true")
 
     def test_a_portable_placement_runner_reads_as_linux_and_no_other_output_does(self):
         """checks takes a free mini through portable placement; it runs no Mac tier there, so an edit to it

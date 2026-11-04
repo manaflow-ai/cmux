@@ -64,6 +64,8 @@ final class FocusCoordinator {
     var observer: ((Observation) -> Void)?
     /// Called once the queue drained and every effect ran (notifications).
     var settledObserver: ((FocusState) -> Void)?
+    /// The person's own focus or selection moves here (mouse, keyboard, palette): a keyboard claim ends at the next one.
+    private(set) var personIntents: (count: UInt64, input: TimeInterval?) = (0, nil)
 
     func send(_ event: FocusEvent) {
         // An action run that may not change this client's view (a CLI,
@@ -75,6 +77,8 @@ final class FocusCoordinator {
             observer?(.refusedByRun(event))
             return
         }
+        // The input dispatched now (nil between dispatches), the same stamp the claim took (`dispatchingInputEvent`).
+        if event.isPersonsOwn, event.changesView { personIntents = (personIntents.count &+ 1, (NSApp as? CmuxApplication)?.inputDispatch?.event?.timestamp) }
         // A changed topology goes first: the event (and its effects) see the current panes and tabs.
         if case .topology = event {} else { reducePendingTopologies() }
         queue.append(event)

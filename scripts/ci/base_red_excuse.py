@@ -10,7 +10,9 @@ compile error, say), and warnings never are: they vary run to run (SwiftPM's
 cache warnings refused #18147 on 2026-10-07). Names are compared, not counts:
 the base may fail more. A runner refusal (no steps, a failed setup step, or the glaeda
 hook's refusal), a cancelled or timed-out job, and a failure with no test or
-error line to compare are never excused. One base red then no longer freezes
+error line to compare are never excused. A job whose runner was lost (test_reds.lost_runner: GitHub's "lost
+communication with the server" annotation, a step left unfinished, no log stored) is refused as infra, not a
+verdict: never the PR's own red, it needs a re-run like a cancelled job. One base red then no longer freezes
 every pull request into that base (2026-10-07: four base reds, and the PRs
 fixing them deadlocked on each other's reds).
 
@@ -619,6 +621,52 @@ def validate_run_rollup(name: str, children: list[dict]) -> None:
         raise Refused(f"'{name}': no failed job under its needs ({', '.join(sorted(under))}) to compare with the base")
 
 
+# A status-only check (2026-11-02, cmux#30294): a same-tree run reports its verdict as a commit status on the
+# head it tested ('cmux-next daemon tests (same-tree)', cmux-next.yml's "Report the same-tree result on the tested
+# commit"), so the head has no check run of that name and every such red was refused as "has not run on exact
+# head", even when the base failed the same tests. The status is judged by the job that gave it: the job of the
+# same name without the " (same-tree)" suffix, in the run its target_url links (else the newest run that tested
+# the head and has that job). It is then compared per test like any job; a run that cannot be found is refused.
+SAME_TREE_SUFFIX = " (same-tree)"
+
+
+def status_job(repo: str, sha: str, name: str, github) -> dict | None:
+    """The completed Actions job behind commit status NAME on SHA, or None when SHA has no status NAME."""
+    statuses = github.json(f"repos/{repo}/commits/{sha}/status?per_page=100").get("statuses") or []
+    # The combined status lists the newest per context.
+    status = next((found for found in statuses if found.get("context") == name), None)
+    if status is None:
+        return None
+    state, job_name = status.get("state"), name.removesuffix(SAME_TREE_SUFFIX)
+    if state == "pending":
+        raise Refused(f"'{name}': its status is still pending on {sha}")
+    url = status.get("target_url") or ""
+    match = re.fullmatch(r"https://github\.com/" + re.escape(repo) + r"/actions/runs/(\d+)(?:/job/\d+)?/?", url)
+    if match:
+        runs = [github.json(f"repos/{repo}/actions/runs/{match[1]}")]
+        if tested_sha(runs[0]) != sha:
+            raise Refused(f"'{name}': its status links run {match[1]}, which tested {tested_sha(runs[0])[:12]}, "
+                          f"not {sha}")
+    else:
+        listed = github.json(f"repos/{repo}/actions/runs?head_sha={sha}&per_page=100")
+        runs = [run for run in listed.get("workflow_runs") or [] if tested_sha(run) == sha]
+    for run in runs:
+        found = next((job for page in github.json(
+            f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100", paginate=True)
+            for job in page.get("jobs") or [] if job.get("name") == job_name), None)
+        if found is None:
+            continue
+        if found.get("status") != "completed":
+            raise Refused(f"'{name}': job '{job_name}' in run {run['id']} has not completed")
+        if found.get("conclusion") == "success" or state == "success":
+            raise Refused(f"'{name}': its status is {state} but job '{job_name}' in run {run['id']} is "
+                          f"{found.get('conclusion')}; nothing to compare with the base")
+        return found
+    where = f"run {match[1]} (its target_url)" if match else f"any run that tested {sha}"
+    raise Refused(f"'{name}': a status ({state}: {status.get('description') or 'no description'}) with no job "
+                  f"'{job_name}' in {where} to compare with the base")
+
+
 def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github) -> list[dict]:
     jobs: dict[int, dict] = {}
     for run in runs:
@@ -648,7 +696,10 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github) -
         aggregate_runs = []
         for name in checks:
             if name not in latest:
-                raise Refused(f"{name}: has not run on exact head {sha}")
+                if (job := status_job(repo, sha, name, github)) is None:
+                    raise Refused(f"{name}: has not run on exact head {sha}")
+                jobs[job["id"]] = job
+                continue
             job = job_for(repo, latest[name], sha, github)
             if is_aggregate(name):
                 if name in rollups()["run"]:
@@ -724,6 +775,32 @@ def base_verdicts(repo: str, base: str, workflow, name: str, github, base_runs: 
             if run["id"] not in seen:
                 seen.add(run["id"])
                 yield run, found
+
+
+# A stale base pass (2026-11-02): base_red_excuse.py read only completed base runs, and a base run completes when its
+# slowest job does. Between 09:13Z and 09:23Z every feat-cmux-next run from #31930 on was still running, so the newest
+# completed run was 41418052327 at c47a99fcb9, before #31930 and before cmux#31338's merge-base e3c495d3 (#31931). Its
+# 'cmux-next guards / defaults-snapshot' passed, and the real base red #31930 caused there was refused as the PR's own.
+# So the base window lists runs of every status, and a finished job in a running run is a verdict. And a pass that
+# tested a commit before the PR's merge-base says nothing about the base the PR was built on: a red then waits for a
+# newer verdict (before_merge_base) instead of being called the PR's own.
+
+
+def before_merge_base(repo: str, base: str, sha: str, base_run: dict, github, cache: dict[str, str]) -> str | None:
+    """Why BASE_RUN tested a commit older than the merge-base of SHA with BASE, or None when it did not (or that
+    cannot be told). CACHE holds the merge-base, read once per judge."""
+    if sha not in cache:
+        diff = github.json(f"repos/{repo}/compare/{base}...{sha}?per_page=1")
+        cache[sha] = ((diff.get("merge_base_commit") or {}).get("sha")) or ""
+    merge_base, tested = cache[sha], tested_sha(base_run)
+    if not re.fullmatch(r"[0-9a-f]{40}", merge_base) or not re.fullmatch(r"[0-9a-f]{40}", tested):
+        return None
+    if tested == merge_base:
+        return None
+    status = github.json(f"repos/{repo}/compare/{merge_base}...{tested}?per_page=1").get("status")
+    if status in ("ahead", "identical"):
+        return None
+    return f"tested {tested[:12]}, which is {status or 'not after'} the merge-base {merge_base[:12]}"
 
 
 def created(run: dict) -> datetime | None:
@@ -979,7 +1056,9 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_log: str, 
                         f"{'; '.join(unmatched)[:600]}")
         head_errors = head_errors - ratchet
     compared = [("failed steps", head_steps, base_steps), ("failing tests", head_tests, base_tests)]
-    if not head_tests:
+    # A crash-class rule line is a named failure, but its job also has steps that print only error lines
+    # (the concurrency rule): those stay compared unless a real test failed.
+    if not any(not test_reds.is_crash_rule_failure(test) for test in head_tests):
         compared.append(("errors", head_errors, base_errors))
     for kind, head, seen in compared:
         if missing := sorted(head - seen):
@@ -1000,12 +1079,41 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_log: str, 
             f"fails the same way ({url}): {what[:400]}")
 
 
+class Infra(Refused):
+    """A red that is the infrastructure's (test_reds.lost_runner: the runner was lost), not a verdict: never the
+    pull request's own red, never excused, and it needs a re-run, like a cancelled job."""
+
+
+def infra(name: str, job: dict, why: str) -> Infra:
+    return Infra(f"'{name}' is infra, not a verdict (job {job.get('id')}: {why}); it is never this PR's own red "
+                 "and needs a re-run, like a cancelled job")
+
+
+def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
+    """JOB's log, after refusing a job that lost its runner (test_reds.lost_runner) as Infra. Its steps decide first, at
+    no cost; a log GitHub cannot serve (a lost runner leaves none: BlobNotFound) has its check run's annotations read
+    to tell a lost runner from an unreadable verdict, which stays the refusal it was."""
+    if why := test_reds.lost_runner(job):
+        raise infra(name, job, why)
+    try:
+        return github.log(repo, job)
+    except Refused as error:
+        try:
+            notes = github.json(f"repos/{repo}/check-runs/{job['id']}/annotations")
+        except (Refused, KeyError, ValueError):
+            notes = []
+        if why := test_reds.lost_runner(job, notes if isinstance(notes, list) else [], str(error)):
+            raise infra(name, job, why) from None
+        raise
+
+
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = ()) -> list[str]:
     """Audit lines for every excused failure; raises Refused on the first that is not."""
     audit: list[str] = []
     base_runs: dict[int, list[dict]] = {}
     base_jobs: dict[int, list[dict]] = {}
     job_reads: dict[int, int] = {}
+    merge_bases: dict[str, str] = {}
     jobs = head_jobs(repo, sha, runs, list(checks), github)
     if not jobs:
         # A red run or check with no failed job to show has nothing the base can excuse.
@@ -1016,7 +1124,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             raise Refused(f"'{name}' is {job.get('conclusion')}: it has no verdict to compare with the base; re-run it")
         if refused_at_setup(job):
             raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
-        head_log = github.log(repo, job)
+        head_log = lost_runner_log(repo, name, job, github)
         if refused_at_setup(job, head_log):
             raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
         if name == GENERATED_VERDICT_JOB and (said := generated_no_verdict(head_log)) is not None:
@@ -1039,7 +1147,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                           + " (a crash or a cut-short run is never a base red)")
         workflow = github.json(f"repos/{repo}/actions/runs/{job['run_id']}").get("workflow_id")
         if workflow not in base_runs:
-            listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&status=completed"
+            # Every status: a job's verdict is final once the job completes, so a base run still running its slower
+            # jobs already answers for its finished ones (before_merge_base's note).
+            listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}"
                                  f"&per_page={BASE_RUNS_PAGE}")
             base_runs[workflow] = [run for run in listed.get("workflow_runs") or []
                                    if run.get("event") != "pull_request" and run.get("conclusion") != "skipped"]
@@ -1047,7 +1157,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         verdicts = base_verdicts(repo, base, workflow, name, github, base_runs, base_jobs, job_reads)
         base_run, base_job = next(verdicts, (None, None))
         if base_run is None:
-            raise Refused(f"'{name}': no completed {base} run of its workflow has a verdict for it to compare with "
+            raise Refused(f"'{name}': no {base} run of its workflow has a verdict for it to compare with "
                           f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "
                           f"and its tip suite runs)")
         if name == GUARD_GROUP_JOB:
@@ -1057,6 +1167,10 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             try:
                 audit.append(fixed_on_base(repo, base, sha, name, head_log, base_run, github))
             except Refused as why:
+                if (stale := before_merge_base(repo, base, sha, base_run, github, merge_bases)) is not None:
+                    raise Refused(f"'{name}' has no {base} verdict at or after this PR's merge-base yet: the newest, "
+                                  f"a pass in run {base_run['id']}, {stale}; re-check once a {base} run at or after "
+                                  "the merge-base has a verdict for it") from None
                 raise Refused(f"'{name}' is not red on {base} run {base_run['id']} ({base_job.get('conclusion')}), "
                               f"and not fixed on base: {why}; fix it on this head") from None
             continue
@@ -1100,6 +1214,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         audit = judge(args.repo, args.base, args.sha, args.run, GitHub(), checks=args.check)
+    except Infra as error:
+        print(f"not excused: infra, not a verdict: {error}", file=sys.stderr)
+        return 1
     except (Refused, KeyError, ValueError) as error:
         print(f"not excused: {error}", file=sys.stderr)
         return 1

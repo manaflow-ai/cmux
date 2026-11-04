@@ -123,9 +123,13 @@ fn emit_changes(mux: &Mux, changes: impl IntoIterator<Item = Change>) {
         });
         mux.emit(MuxEvent::SettingsChanged(change));
     }
+    // The idle reminders live in agent_chat_notices, which is unix only.
+    #[cfg(unix)]
     if changed {
         mux.reload_cache_ttl_timers();
     }
+    #[cfg(not(unix))]
+    let _ = changed;
 }
 
 fn open_owner(mux: &Arc<Mux>, paths: SettingsPaths) -> SettingsOwner {

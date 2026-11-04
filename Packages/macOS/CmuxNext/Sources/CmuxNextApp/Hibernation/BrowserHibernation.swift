@@ -182,6 +182,7 @@ final class BrowserHibernation {
     }
 
     func stop() {
+        agentPages?.pages.stop()
         settingsObservation?.cancel()
         pressureObservation?.cancel()
         pressureObservation = nil
@@ -717,10 +718,10 @@ final class BrowserHibernation {
         workspacePageOutcomes[outcome, default: 0] += 1
     }
 
-    /// Takes a hidden page's picture (a seam for tests).
+    /// Takes a hidden page's picture (a seam for tests): a thumbnail, so none from Chromium (P0 #1; `snapshot` then uses the leave picture).
     var capture: (any BrowserTab) async -> CGImage? = { tab in
         try? await ControlDeadline.shared.run(method: "hibernation.snapshot", deadline: .now + .seconds(2)) { @MainActor in
-            try await tab.snapshot()
+            try await tab.thumbnail()
         }
     }
 

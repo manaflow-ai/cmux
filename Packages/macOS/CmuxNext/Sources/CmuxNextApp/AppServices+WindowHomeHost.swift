@@ -13,6 +13,7 @@ extension AppServices: WindowHomeHost {
     var windowHomeWindows: [String: [String]] { windows.membersByWindow }
     func windowHomeClose(_ workspace: String) { windows.discard([workspace]) }
     func windowHomeWorkspace(_ id: String) -> WorkspaceModel? { workspace(id: id) }
+    func windowHomeRoom(_ window: String) -> ProfileID? { windows.states[window].flatMap { daemon.store.profile($0.profileID)?.id } }
     func windowHomeShow(_ workspace: String, in window: String) { windows.show(workspaceID: workspace, inWindow: window) }
     func windowHomeClaim(_ workspace: String, window: String) { windows.claimNew(workspaceID: workspace, window: window) }
     func windowHomeDropClaim(_ workspace: String) { windows.claims.pending[workspace] = nil }

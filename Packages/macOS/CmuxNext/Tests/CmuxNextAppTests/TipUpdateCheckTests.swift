@@ -81,6 +81,9 @@ import CmuxNextWakeupsTestSupport
         updater.stagedRefresh.replaceable = { true }
         updater.stagedRefresh.startCheck = { sparkle.backgroundChecks += 1 }
         updater.tipCheck.startCheck = { checks.count += 1 }
+        // No live release push: the Worker's first frame repeats the newest published build, which reads the
+        // feed outside the schedule under test (#32090 found the same in UpdateStagedYieldsToNewerTests).
+        updater.releasePush.connect = { _ in ReleasePushListenerTests.FakeSocket() }
         updater.configure(checkAutomatically: checkAutomatically, checkInterval: 3600, downloadAutomatically: downloadAutomatically, ring: "nightly")
         updater.start()
         return Harness(updater: updater, clock: clock, feed: feed, sparkle: sparkle, policy: policy, checks: checks)
@@ -348,6 +351,6 @@ import CmuxNextWakeupsTestSupport
         try await Task.sleep(for: .milliseconds(100))
         #expect(h.feed.fetches == 0, "a NIGHTLY probed its staged update at the tip interval")
         h.clock.advance(by: .seconds(3600 - TipUpdateCheck.interval))
-        #expect(await eventually { h.feed.fetches == 1 }, "the NIGHTLY's hourly probe never ran")
+        #expect(await eventually { h.feed.fetches == 1 }, "the NIGHTLY's hourly probe never ran, or ran with another read (\(h.feed.fetches) reads)")
     }
 }

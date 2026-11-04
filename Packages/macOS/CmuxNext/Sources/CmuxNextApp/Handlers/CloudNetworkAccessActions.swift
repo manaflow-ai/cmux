@@ -14,14 +14,14 @@ enum CloudNetworkAccessActions {
     /// or script run gets `machine_id`, `network_access`, `mode` and `applied` back; a person's run
     /// reports a failure in a sheet. The GET and then the PUT can outlast `action.run`'s result
     /// deadline, so a run still going after `pendingAfter` answers `machine_id`, the requested
-    /// `network_access` and `pending: true`, and the change goes on (#28855).
+    /// `network_access` and `pending: true`, and the change goes on (#28855). `link`: the app's own unless a test names it.
     static func set(_ invocation: ActionInvocation, _ context: AppActionContext,
-                    pendingAfter: Duration = CloudHandlers.answerWithin,
+                    pendingAfter: Duration = CloudHandlers.answerWithin, link: CloudConfiguration.LinkSource? = nil,
                     read: @escaping @MainActor (String) async throws -> CloudNetworkPolicyState,
                     write: @escaping @MainActor (String, CloudNetworkPolicy) async throws -> CloudNetworkPolicyState) throws {
         let session = try CloudHandlers.machine(invocation, context)
         // The policy lives on the web control plane (`/api/vm`); the app server link's machines have none yet.
-        guard context.services.cloud.configuration.linkSource == .legacy else { throw unavailable }
+        guard (link ?? context.services.cloud.configuration.linkSource) == .legacy else { throw unavailable }
         let access = try level(invocation)
         // The run's effective origin counts: an action an MCP run nests carries a .user origin of its own.
         let machineID = session.machineID, isAgent = CloudStartSession.isAgent(invocation)

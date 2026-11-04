@@ -1,6 +1,7 @@
 @testable import CmuxNextApp
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import Foundation
 import Testing
 
@@ -99,6 +100,29 @@ import Testing
 
     @MainActor final class Sends { var count = 0 }
 
+    @Test func aFailedDurableSentWriteSendsNoCreate() async throws {
+        let backend = Backend()
+        let flow = CloudMachineCreateFlow(run: CloudService.pinnedRun(team: "team_a", currentTeam: { "team_a" },
+            sent: { throw CancellationError() }, ops: { _, _, key, _ in try await MainActor.run { try backend.call(key) } }),
+            confirm: { _ in true }, approve: { _, _, _ in }, pause: { _ in })
+        await #expect(throws: CancellationError.self) {
+            _ = try await flow.create(name: "cloud-chats", startedByPerson: true, key: "lost-answer")
+        }
+        #expect(backend.keys.isEmpty)
+        #expect(backend.machines.isEmpty)
+    }
+
+    @Test func aTeamSwitchWhilePersistingTheSendSendsNoCreate() async throws {
+        let backend = Backend()
+        let flow = CloudMachineCreateFlow(run: CloudService.pinnedRun(team: "team_a", currentTeam: { await MainActor.run { backend.team } },
+            sent: { backend.team = "team_b" }, ops: { _, _, key, _ in try await MainActor.run { try backend.call(key) } }),
+            confirm: { _ in true }, approve: { _, _, _ in }, pause: { _ in })
+        await #expect(throws: ActionFailure.self) {
+            _ = try await flow.create(name: "cloud-chats", startedByPerson: true, key: "lost-answer")
+        }
+        #expect(backend.keys.isEmpty)
+    }
+
     @Test func aTeamSwitchBeforeTheFirstSendSendsNothing() async throws {
         let backend = Backend(), sends = Sends()
         backend.team = "team_b"
@@ -172,10 +196,10 @@ import Testing
         for code in ["cmux.cloud.quota_exceeded", "cloud.quota.exceeded", CloudAppOpFailure.planRequired, "cmux.cloud.size_locked",
                      "cmux.cloud.approval_denied", "cmux.cloud.approval_expired", "approval.expired",
                      "cmux.cloud.secrets_unavailable", "cloud.environment.secrets_unavailable", "cmux.cloud.no_snapshot_configured", "cmux.cloud.not_found"] {
-            #expect(CloudService.isDefinitiveRefusal(CloudAppOpFailure(code: code, message: "")), "\(code)")
+            #expect(CloudMachineCreateRetry().isDefinitiveRefusal(CloudAppOpFailure(code: code, message: "")), "\(code)")
         }
         for code in [CloudAppOpFailure.approvalPending, "cmux.cloud.relay_unavailable", "cmux.cloud.bad_response", "cmux.cloud.failed"] {
-            #expect(!CloudService.isDefinitiveRefusal(CloudAppOpFailure(code: code, message: "")), "an uncertain outcome lost its key: \(code)")
+            #expect(!CloudMachineCreateRetry().isDefinitiveRefusal(CloudAppOpFailure(code: code, message: "")), "an uncertain outcome lost its key: \(code)")
         }
         let creation = CloudMachineCreation(windowID: nil)
         let key = creation.request.idempotencyKey
@@ -211,13 +235,16 @@ import Testing
         let machine = try await flow.create(name: nil, startedByPerson: false, key: "k1")
         #expect(machine["id"]?.stringValue == "vm_1")
         #expect(backend.machines.count == 1)
-        #expect(CloudMachineCreateFlow.alreadyAnswered(.mismatch(request: "r", reason: "state"), request: "r", answeredEarlier: false))
-        #expect(!CloudMachineCreateFlow.alreadyAnswered(.mismatch(request: "r", reason: "params"), request: "r", answeredEarlier: true))
-        #expect(!CloudMachineCreateFlow.alreadyAnswered(.notInFeed(request: "r"), request: "r", answeredEarlier: true))
-        #expect(!CloudMachineCreateFlow.alreadyAnswered(.mismatch(request: "other", reason: "state"), request: "r", answeredEarlier: true))
+        #expect(CloudApprovalAnswer.Failure.mismatch(request: "r", reason: "state").alreadyAnswered(request: "r", answeredEarlier: false))
+        #expect(!CloudApprovalAnswer.Failure.mismatch(request: "r", reason: "params").alreadyAnswered(request: "r", answeredEarlier: true))
+        #expect(!CloudApprovalAnswer.Failure.notInFeed(request: "r").alreadyAnswered(request: "r", answeredEarlier: true))
+        #expect(!CloudApprovalAnswer.Failure.mismatch(request: "other", reason: "state").alreadyAnswered(request: "r", answeredEarlier: true))
         // A closed feed item counts only after this key began answering the request.
-        #expect(CloudMachineCreateFlow.alreadyAnswered(.mismatch(request: "r", reason: CloudApprovalAnswer.closedItem), request: "r", answeredEarlier: true))
-        #expect(!CloudMachineCreateFlow.alreadyAnswered(.mismatch(request: "r", reason: CloudApprovalAnswer.closedItem), request: "r", answeredEarlier: false))
+        #expect(CloudApprovalAnswer.Failure.mismatch(request: "r", reason: CloudApprovalAnswer.closedItem).alreadyAnswered(request: "r", answeredEarlier: true))
+        #expect(!CloudApprovalAnswer.Failure.mismatch(request: "r", reason: CloudApprovalAnswer.closedItem).alreadyAnswered(request: "r", answeredEarlier: false))
+        // This team's closed item (answered elsewhere) goes on without an answer here; another team's never does.
+        #expect(CloudApprovalAnswer.Failure.answered(request: "r").answeredElsewhere(request: "r"))
+        #expect(!CloudApprovalAnswer.Failure.mismatch(request: "r", reason: CloudApprovalAnswer.closedItem).answeredElsewhere(request: "r"))
     }
 
     @Test func aRetryCancelledMidAnswerWaitsForTheRunningApprovedOp() async throws {

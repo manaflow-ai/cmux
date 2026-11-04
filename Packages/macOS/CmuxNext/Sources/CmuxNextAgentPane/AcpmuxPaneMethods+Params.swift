@@ -10,8 +10,10 @@ nonisolated extension AcpmuxPaneMethods {
         // `noProject` is the pane's own (Do not work in a project): AcpmuxPathPolicy reads and strips it.
         // Never `workspaceId`: the host adds the pane's own after this rule (AcpmuxPathPolicy+Workspace).
         // `model`: a chat on another machine starts on the model the page showed (direct.ts
-        // newSessionParams); one model id only (``isModelID(_:)``).
-        "session/new": (["cwd", "mcpServers", "_meta"], ["harness", "adopt", "peer", "noProject", "model"]),
+        // newSessionParams); one model id only (``isModelID(_:)``). `additionalDirectories`: the folders
+        // the chat sees beside its own (the composer's Add folder…, cmux#32811); AcpmuxPathPolicy checks
+        // each as it checks `cwd`.
+        "session/new": (["cwd", "mcpServers", "additionalDirectories", "_meta"], ["harness", "adopt", "peer", "noProject", "model"]),
         // `context`: a chat's workspace context on its first prompt (cx-ihyx2); acpmux sends it to the
         // agent and keeps it out of the transcript text. `surface`: the place a prompt was typed
         // (labs.previewFeatures; acpmux hub/composers.rs, cmuxterm-hq#2580). No `provenance`: a reply
@@ -113,6 +115,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/subagent_stop": (["sessionId", "subagentSessionId"], []),
         // `peerSessionId`: one of that chat's paused pairs, a selector only (acpmux checks the pair has the chat).
         "_acpmux/agent_pair_resume": (["sessionId", "peerSessionId"], []),
+        "_acpmux/agent_hold": (["sessionId", "held"], []),
         // The pane's chat (`sessionId`) answers `replyTo` of `threadId`, which chat `to` sent it;
         // `replyId` keys it. No recipient, sender name or credential: acpmux signs it, the daemon
         // sends it to the message's sender (``AgentPaneAgentReply``).

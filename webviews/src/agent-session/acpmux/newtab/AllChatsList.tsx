@@ -437,6 +437,7 @@ export function AllChatsList({
   load,
   onOpen,
   active = [],
+  leads = [],
   onOpenActive,
   onOpenInTerminal,
   onViewOnly,
@@ -447,6 +448,9 @@ export function AllChatsList({
   load: LoadChatsPage;
   onOpen(key: string): unknown;
   active?: ActiveChat[];
+  /// The leaders (leads.ts): every live chat other chats report to, listed once above the live
+  /// chats; a click opens it as a live chat's does.
+  leads?: ActiveChat[];
   onOpenActive?(id: string): void;
   onOpenInTerminal?(key: string): void;
   /// View Only: a Claude Code or Codex chat in a tab that shows it and follows the app that runs
@@ -484,6 +488,33 @@ export function AllChatsList({
             FILTER_STATES[filter].has(chat.state) &&
             (indexed ? !state.query : chat.title.toLowerCase().includes(query)),
         );
+  // The leaders show under All with no search; a filter or a search is about the chats.
+  const leadsShown = filter === "all" && !state.query ? leads : [];
+  // A live chat's row, a leader's too: its right-click menu is Open, as its click (cx-2lm4).
+  const liveRow = (chat: ActiveChat) => (
+    <li key={chat.id}>
+      <ContextMenu
+        className="nt-row-host"
+        items={[{ id: "open", label: nt("row.open"), onSelect: () => onOpenActive?.(chat.id) }]}
+      >
+        <button
+          type="button"
+          className="nt-all-row"
+          data-focus-ring="row"
+          data-state={chat.state}
+          {...pressToOpen(() => onOpenActive?.(chat.id))}
+        >
+          <span className="nt-all-glyph">
+            <AgentMark harness={chat.harness} />
+          </span>
+          <span className="nt-all-title" title={chat.title}>
+            {chat.title}
+          </span>
+          <span className="nt-all-state">{chat.label}</span>
+        </button>
+      </ContextMenu>
+    </li>
+  );
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
   const entries = listEntries(rows, view, folded);
   // A Shift-click range runs over the chats as the list shows them.
@@ -575,7 +606,7 @@ export function AllChatsList({
               });
             }}
           >
-            <svg className="nt-all-group-chevron" viewBox="0 0 16 16" width="10" height="10" aria-hidden="true">
+            <svg className="nt-all-group-chevron" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
               <path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
             <span className="nt-all-group-name">{label}</span>
@@ -699,7 +730,7 @@ export function AllChatsList({
           }}
         />
         <label className="nt-all-search">
-          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
             <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
             <path d="m10.5 10.5 3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
           </svg>
@@ -729,33 +760,18 @@ export function AllChatsList({
           )}
         </div>
       )}
+      {leadsShown.length > 0 && (
+        <ul className="nt-all-active nt-all-leads" aria-label={nt("leads")}>
+          <li className="nt-all-leads-head" aria-hidden="true">
+            <span className="nt-all-group-name">{nt("leads")}</span>
+            <span className="nt-all-group-count">{leadsShown.length}</span>
+          </li>
+          {leadsShown.map(liveRow)}
+        </ul>
+      )}
       {activeShown.length > 0 && (
         <ul className="nt-all-active" aria-label={t("sidebar.active")}>
-          {activeShown.map((chat) => (
-            <li key={chat.id}>
-              {/* Its right-click menu: Open, as its click (cx-2lm4). */}
-              <ContextMenu
-                className="nt-row-host"
-                items={[{ id: "open", label: nt("row.open"), onSelect: () => onOpenActive?.(chat.id) }]}
-              >
-                <button
-                  type="button"
-                  className="nt-all-row"
-                  data-focus-ring="row"
-                  data-state={chat.state}
-                  {...pressToOpen(() => onOpenActive?.(chat.id))}
-                >
-                  <span className="nt-all-glyph">
-                    <AgentMark harness={chat.harness} />
-                  </span>
-                  <span className="nt-all-title" title={chat.title}>
-                    {chat.title}
-                  </span>
-                  <span className="nt-all-state">{chat.label}</span>
-                </button>
-              </ContextMenu>
-            </li>
-          ))}
+          {activeShown.map(liveRow)}
         </ul>
       )}
       {!indexed ? (

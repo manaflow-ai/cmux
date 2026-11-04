@@ -35,13 +35,14 @@ extension TerminalSurfaceView: PaneMotionTargeting {
     /// The surface's size once its pane's content area grows by `sizeChange` (measured against the area's
     /// live size): from its host's live size, never from `bounds`, which a spring already under way holds
     /// at the last rest size (``TerminalHostView/holdSurface(size:anchor:)``). A spring retargeted mid-flight
-    /// (a window resize, a second Cmd-D) got the held size plus the change against the live size.
+    /// (a window resize, a second Cmd-D) got the held size plus the change against the live size. A host that follows
+    /// its pane through a key hold (FRAME OWNER S3) measures from its size when the hold began, as the change is.
     private func restSize(sizeChange: CGSize) -> NSSize {
         guard let host = superview as? TerminalHostView else {
             return NSSize(width: max(0, bounds.width + sizeChange.width), height: max(0, bounds.height + sizeChange.height))
         }
-        let hostSize = CGSize(width: max(0, host.bounds.width + sizeChange.width),
-                              height: max(0, host.bounds.height + sizeChange.height))
+        let basis = host.paneMotionBasisSize
+        let hostSize = CGSize(width: max(0, basis.width + sizeChange.width), height: max(0, basis.height + sizeChange.height))
         return host.surfaceSize(forHostSize: hostSize)
     }
 
@@ -76,13 +77,24 @@ extension TerminalSurfaceView: PaneMotionTargeting {
 /// A person's divider or edge drag (`ScreenContentView+ResizeGesture`): the pane follows the pointer with no
 /// spring, so without this the terminal reported a grid on every drag event and its program redrew at each
 /// size while the owner's announcements came a round trip behind the view (torn rows mid-drag). Through the
-/// drag the surface draws its grid reflowed to the pane locally (the reflow preview, as in a split's spring)
-/// and holds the report; when the drag and its release's spring landed, the grid the view fits goes to the
-/// PTY once (none when the release's spring already sent it at its start, `restAt`).
+/// drag the surface keeps its size and its text (no report, no reflow); when the drag and its release's spring
+/// landed, the grid the view fits goes to the PTY once (none when the release's spring already sent it at its
+/// start, `restAt`).
 extension TerminalSurfaceView: PaneResizeGestureFollowing {
     public func paneResizeGestureDidChange(active: Bool) {
         guard isFollowingResizeGesture != active else { return }
         isFollowingResizeGesture = active
-        if !active, isHeldGridPending { updateSurfaceSize() }
+        if active, TerminalDragTunables.holdsSurfaceDuringDrag.value {
+            // The text stays where it is through the drag (RESIZE VIDEOS A3: drawn reflowed to the pane on every drag
+            // frame, the wrap point moved in every frame): the surface keeps its size, clipped where the pane is
+            // narrower and beside the terminal background where it is wider, as a Chromium page does.
+            (superview as? TerminalHostView)?.holdSurface(size: bounds.size, anchor: .top)
+            return
+        }
+        guard !active else { return }
+        // A release that springs moved the hold to its final size at the spring's start (`restAt`) and let it go when
+        // it landed; one that did not spring lets go here: the surface takes its pane's size and reflows once.
+        if !isInPaneMotion { (superview as? TerminalHostView)?.releaseSurfaceHold() }
+        if isHeldGridPending { updateSurfaceSize() }
     }
 }

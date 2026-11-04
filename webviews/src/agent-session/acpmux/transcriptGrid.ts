@@ -11,6 +11,10 @@ export const TRANSCRIPT_BLOCK_GAP = gridLength("gap-block");
 export const TRANSCRIPT_INNER_GAP = gridLength("gap-inner");
 export const TRANSCRIPT_TURN_GAP = gridLength("gap-turn");
 export const TRANSCRIPT_COMPOSER_GAP = gridLength("gap-composer");
+/// A run of one-line rows and the prose over or under it (design/transcript-spacing.md, "The table":
+/// chatgpt.com 16 box to box, ChatGPT and Claude Code desktop ~40 centre to centre). Leo, 2026-11-02:
+/// "now there's sometimes too much spacing between tool calls".
+export const TRANSCRIPT_RUN_GAP = gridLength("gap-run");
 /// A reply footer (design/transcript-spacing.md "Reply footer"; Leo, 2026-11-02: "didn't i always
 /// say we can do it like chatgpt"): ChatGPT's 32 button around a 20 glyph, 8 under the reply's last
 /// line, then the block gap to whatever comes next.
@@ -47,6 +51,11 @@ export const MARK_FOOTER_ROW = 6;
 /// ends, at the footer's place and height, so the end moves nothing (chat-transcript.md "A turn that
 /// ends moves nothing").
 export const MARK_FOOTER_SLOT = 7;
+/// A status row that is not a step row (model.ts `isStatusRow`: a background task's or a subagent's
+/// end, a background turn's line, a compaction, a failover, ...): one quiet line that sits flush with
+/// the step and status rows beside it, as far from the prose around it as a run is (row-alignment.test.ts: every status row between two replies has
+/// one gap above and one below).
+export const MARK_STATUS = 8;
 
 type MarkedRow = {
   kind: string;
@@ -56,6 +65,8 @@ type MarkedRow = {
   status?: string;
   resumable?: boolean;
   below?: boolean;
+  retryable?: boolean;
+  turnCopy?: readonly unknown[];
 };
 export function rowMark(row: MarkedRow): number {
   if (row.kind === "user" && !row.incoming && !row.received) return MARK_PROMPT;
@@ -67,7 +78,10 @@ export function rowMark(row: MarkedRow): number {
   if (row.kind === "working" || row.kind === "thinking") return MARK_INDICATOR;
   if (row.kind === "turnSummary")
     // turns.ts isEmptyFooter's inverse, inline so this module stays import-free.
-    return row.status !== "failed" && row.status !== "error" && !row.resumable && (row.text?.length ?? 0) > 0
+    return row.status !== "failed" &&
+      row.status !== "error" &&
+      !row.resumable &&
+      ((row.text?.length ?? 0) > 0 || (row.retryable === true && (row.turnCopy?.length ?? 0) > 0))
       ? MARK_FOOTER_ROW
       : MARK_FOOTER;
   return MARK_OTHER;
@@ -80,11 +94,23 @@ export function transcriptGap(previous: number, next: number): number {
   // turn gap follows it, by the rules below.
   if ((next === MARK_FOOTER_ROW || next === MARK_FOOTER_SLOT) && previous === MARK_MESSAGE)
     return TRANSCRIPT_FOOTER_GAP;
+  // The last turn that ended on work (turns.ts endsChatOnWork): its footer row sits the same 8 under
+  // the run's last line, never a block gap away (Leo, 2026-11-02: "this spacing would be good", on
+  // ChatGPT's row right under the turn's last line).
+  if (next === MARK_FOOTER_ROW && (previous === MARK_STEP || previous === MARK_STATUS)) return TRANSCRIPT_FOOTER_GAP;
   // Waiting for the first output: the indicator right under its prompt takes the block gap.
   if ((next === MARK_INDICATOR || next === MARK_FOOTER_SLOT) && previous === MARK_PROMPT) return TRANSCRIPT_BLOCK_GAP;
   if (previous === MARK_PROMPT || next === MARK_PROMPT) return TRANSCRIPT_TURN_GAP;
   // The live line under a run is one more line of it (#29965): flush too.
   if (previous === MARK_STEP && (next === MARK_STEP || next === MARK_INDICATOR || next === MARK_FOOTER_SLOT)) return 0;
+  // Any two one-line rows in a row, a status line among them ("Scheduled check", "Compacting the
+  // conversation…", a background task's end), sit flush on the 22 pitch: one row height and no gap
+  // (design/transcript-spacing.md rule 3; Leo, 2026-11-02, on a Claude chat where they stood a
+  // block apart: "these are all so stupid looking").
+  const line = (mark: number) => mark === MARK_STEP || mark === MARK_STATUS;
+  if (line(previous) && line(next)) return 0;
+  // A run, or any status line, and the reply's prose around it sit 16 apart, either way.
+  if ((line(previous) && next === MARK_MESSAGE) || (previous === MARK_MESSAGE && line(next))) return TRANSCRIPT_RUN_GAP;
   return TRANSCRIPT_BLOCK_GAP;
 }
 

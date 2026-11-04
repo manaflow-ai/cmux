@@ -17,6 +17,12 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     /// The transcript rested at its latest message. With neither this nor ``scrollAnchor`` its
     /// place is unknown (never shown, or a subagent's view was open): the kept anchor stands.
     public var atLatest: Bool?
+    /// The page holds or sends prompts waiting for a folder trust answer (webviews trustHeld.ts),
+    /// each with its send's gesture ticket, which ends with the page: it is not let go.
+    public var holdsPrompts: Bool?
+    /// The page holds edits, attachments or sends that its wake state cannot restore, or has an
+    /// input method or popup open. Only a hidden-page release asks to retain that state.
+    public var holdsPageState: Bool?
 
     public nonisolated struct Attachment: Codable, Sendable, Equatable {
         public var id: String
@@ -46,17 +52,21 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     }
 
     public init(attachments: [Attachment]? = nil, shell: Bool? = nil, shellText: String? = nil,
-                scrollAnchor: AgentPaneScrollAnchor? = nil, atLatest: Bool? = nil) {
+                scrollAnchor: AgentPaneScrollAnchor? = nil, atLatest: Bool? = nil, holdsPrompts: Bool? = nil,
+                holdsPageState: Bool? = nil) {
         self.attachments = attachments
         self.shell = shell
         self.shellText = shellText
         self.scrollAnchor = scrollAnchor
         self.atLatest = atLatest
+        self.holdsPrompts = holdsPrompts
+        self.holdsPageState = holdsPageState
     }
 
     /// Nothing to hand back.
     public var isEmpty: Bool {
         (attachments ?? []).isEmpty && shell != true && scrollAnchor == nil && atLatest != true
+            && holdsPrompts != true && holdsPageState != true
     }
 
     /// The page's `pane.wakeState` answer; empty when the page has no such action (an older page)
@@ -76,10 +86,58 @@ extension AgentPaneView {
     /// Asks the page what it holds that acpmux does not, before it lets go. Nil when it does not
     /// answer within `limit`; empty when it holds nothing.
     public func wakeState(limit: Duration = .seconds(1)) async -> AgentPaneWakeState? {
-        await agentPaneFirst(within: limit) { [weak self] in
-            guard let self else { return nil }
-            let script = "const read = window.cmuxAcpmuxActions?.['pane.wakeState']; return read ? await read({}) : null;"
-            let value = try? await self.callPageScript(script)
+        await AgentPaneWakeState.read(self, limit: limit, ask: "{}")
+    }
+
+    /// A retired page: prompts it holds for a folder trust answer live only in it, so it puts them
+    /// into their chats' drafts before its bridge goes (webviews trustHeld.ts); then `close` runs.
+    public func releaseHeldPrompts(then close: @escaping @MainActor (AgentPaneView) -> Void) {
+        // task-owner: one release then close per retired page; ends with its close
+        Task { @MainActor in
+            await AgentPaneWakeState.releaseHeldPrompts(in: self)
+            close(self)
+        }
+    }
+}
+
+extension AgentPaneWakeState {
+    /// `view`'s wake state as the app quits: the page puts prompts it holds for a folder trust
+    /// answer into its drafts (webviews trustHeld.ts) instead of asking to stay.
+    @MainActor public static func quitting(_ view: AgentPaneView, limit: Duration) async -> AgentPaneWakeState? {
+        await read(view, limit: limit, ask: "{quitting: true}")
+    }
+
+    /// The tab closes: the page puts prompts it holds for a folder trust answer into their chats'
+    /// drafts while its bridge still answers. Done when it answered or `limit` passed. The page
+    /// writes them within `draftSettleMs` of schemas/agent-pane/wake-state.json, so this waits as
+    /// long as a quit's ask (``AgentPaneRelaunchWake/askLimit``), which outlasts it.
+    @MainActor public static func releaseHeldPrompts(
+        in view: AgentPaneView,
+        limit: Duration = AgentPaneRelaunchWake.askLimit
+    ) async {
+        _ = await read(view, limit: limit, ask: "{closing: true}")
+    }
+
+    /// Why a hidden page asked for its wake state (`wake`, nil when it did not answer in time) stays
+    /// instead of being let go, for the log; nil when it may go. A kept page is asked again after
+    /// the planner's `keptRecheck`.
+    public static func keepReason(_ wake: AgentPaneWakeState?, hasHandshake: Bool) -> String? {
+        // A connected page that did not say what it holds (a large attachment still encoding)
+        // stays: letting it go would drop its chips.
+        if wake == nil, hasHandshake { return "no wake state in time" }
+        // A page holding prompts for a folder trust answer stays: each keeps its send's gesture
+        // ticket, which ends with the page (webviews trustHeld.ts). Asked again, it goes once its
+        // prompts have.
+        if wake?.holdsPrompts == true { return "holds prompts for a trust answer" }
+        if wake?.holdsPageState == true { return "holds page state" }
+        return nil
+    }
+
+    @MainActor static func read(_ view: AgentPaneView, limit: Duration, ask: String) async -> AgentPaneWakeState? {
+        await agentPaneFirst(within: limit) { [weak view] in
+            guard let view else { return nil }
+            let script = "const read = window.cmuxAcpmuxActions?.['pane.wakeState']; return read ? await read(\(ask)) : null;"
+            let value = try? await view.callPageScript(script)
             return AgentPaneWakeState(page: value)
         }
     }

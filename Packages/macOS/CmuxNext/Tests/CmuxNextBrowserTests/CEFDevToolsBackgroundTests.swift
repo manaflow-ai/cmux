@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -8,7 +9,7 @@ import Testing
 /// The DevTools browser took no background of its own: Chromium painted it with CefSettings.background_color from CEF
 /// start (the theme the app launched in), never the pane's theme now. Every other browser of a pane starts on the
 /// pane's theme color (`CEFPaneHost`: `PageBackground.themeARGB(in: hostView)`); DevTools now does too.
-@MainActor @Suite(.serialized) struct CEFDevToolsBackgroundTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct CEFDevToolsBackgroundTests {
     @Test func devToolsStartsOnThePanesThemeColorNotTheColorCEFStartedWith() throws {
         let rig = try Rig()
         defer { rig.close() }
@@ -56,6 +57,8 @@ import Testing
 
         func close() {
             window.contentView?.subviews.forEach { $0.removeFromSuperview() }
+            // Closed, not only emptied: a window never closed is left open (`.closesItsWindows`).
+            window.closeAfterTest()
             try? FileManager.default.removeItem(at: root)
             // The runtime is `unowned` in its tabs and hosts, and a tab shown in a window outlives the test's locals
             // (its views, the window): ending the runtime first crashed the run at teardown on the fleet ("read an

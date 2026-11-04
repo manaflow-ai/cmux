@@ -10,6 +10,10 @@ pub enum Mode {
     Hybrid,
     /// Poll the clock to the due time (one core; holds 8.33 ms at 120 fps on a mini).
     Spin,
+    /// macOS: a time-constraint (real-time) thread that waits with mach_wait_until, as audio and
+    /// games pace frames (no timer coalescing, no spinning). The binaries set it up; the Pacer
+    /// treats it as a sleep to the due time. Elsewhere: as Spin.
+    Rt,
 }
 
 impl Mode {
@@ -18,6 +22,7 @@ impl Mode {
             "sleep" => Some(Mode::Sleep),
             "hybrid" => Some(Mode::Hybrid),
             "spin" => Some(Mode::Spin),
+            "rt" => Some(Mode::Rt),
             _ => None,
         }
     }
@@ -61,6 +66,12 @@ impl Pacer {
             self.before = 0.0;
             match self.mode {
                 Mode::Sleep => sleep(due - now),
+                Mode::Rt if cfg!(target_os = "macos") => sleep(due - now),
+                Mode::Rt => {
+                    while clock() < due {
+                        std::hint::spin_loop();
+                    }
+                }
                 Mode::Hybrid | Mode::Spin => {
                     if self.mode == Mode::Hybrid && due - now > self.spin {
                         sleep(due - now - self.spin);

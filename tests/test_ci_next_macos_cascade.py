@@ -2303,5 +2303,20 @@ class SharedRunnerStateCascadeTests(unittest.TestCase):
         self.assertEqual(counts, {LARGE: 1, SMALL: 1})
         self.assertEqual(live.call_count, 3)
 
+    def test_missing_optional_pool_count_rechecks_its_visible_group_live(self):
+        import os
+        from unittest import mock
+        def get(path):
+            if "visible_to_repository" in path:
+                return {"runner_groups": [{"name": f"Blacksmith scale sets - {label}", "id": 20 + index}
+                                          for index, label in enumerate(cascade.POOL_LABELS)]}
+            return {"runners": [{"status": "online"}] * 3}
+        document = self.document(scale_sets={LARGE: 2, SMALL: 5})
+        with mock.patch.dict(os.environ, {"CI_RUNNER_STATE": self.encoded(document)}), \
+                mock.patch.object(cascade.Api, "_get", side_effect=get) as live:
+            counts = cascade.Api("synthetic-token", "manaflow-ai/cmux").in_flight()
+        self.assertEqual(counts, {LARGE: 3, SMALL: 3, MACOS_15: 3})
+        self.assertEqual(live.call_count, 4)
+
 if __name__ == "__main__":
     unittest.main()

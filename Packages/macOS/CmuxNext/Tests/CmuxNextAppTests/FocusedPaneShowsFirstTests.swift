@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// REOPEN-F4 (STATUS 4618): a reopened window shows its panes one new surface per frame
@@ -7,7 +8,7 @@ import Testing
 /// `Set`. The first key a person typed into the focused terminal was kept only in the cycles where
 /// that terminal's pane happened to come first (5 of 15 on cmux21); in the others its surface came
 /// 100-200 ms later, after the key. The pane the person types into is presented first.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct FocusedPaneShowsFirstTests {
     /// Records the presence reports in the order the layout sends them.
     final class Panes: LayoutPaneContentProvider {

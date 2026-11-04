@@ -30,6 +30,7 @@ describe("provider-state observation schema", () => {
     { observed_revision: 42 },
     { observed_revision: "not-a-revision" },
     { observed_provider_name: 42 },
+    { observed_provider_name: "" },
     { observed_transport: "unknown-provider" }
   ])("rejects an invalid observation field %j", (invalid) => {
     expect(() => decode({ machine, state: "paused", ...invalid }, { onExcessProperty: "error" })).toThrow()

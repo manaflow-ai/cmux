@@ -42,6 +42,7 @@ owned-mini pool. Other callers write empty values and keep their Blacksmith rout
 
 LINUX_ONLY jobs (the nightly signer compiler emits a Linux executable) never
 take a mini. NIGHTLY_WAIT_FOR_FLEET=1 retries placement for at most three minutes
+(NIGHTLY_WAIT_SECONDS shortens that)
 before returning unplaced jobs to overflow. The process-wide deadline bounds
 reads too, and main always clears its alarm and restores the previous handler.
 REQUIRE_LIVE_CAPACITY=1 never emits an owned-mini label without a fresh
@@ -154,6 +155,13 @@ def eligible(env: Mapping[str, str]) -> str:
     if refusal:
         return refusal
     label = (env.get("SIDE_LABEL") or "").strip()
+    jobs = set((env.get("JOBS") or "").split())
+    linux_only = set((env.get("LINUX_ONLY") or "").split())
+    # A Linux-only picker (for example the cmux-tui daemon marker) has no
+    # owned-Mac leg. It must still read the live Linux group even when the
+    # caller has no side-pool label to offer.
+    if jobs and jobs.issubset(linux_only):
+        return ""
     if not label.startswith(pool.SIDE_PREFIX) or not pool.persistent(label):
         return f"`{label or 'no label'}` is not an owned side label"
     if label.startswith("glaeda-aws-"):
@@ -240,12 +248,15 @@ def delimited(jobs: Sequence[str]) -> str:
     return f" {' '.join(jobs)} " if jobs else ""
 
 
-def read(env: Mapping[str, str], now: dt.datetime
+def read(env: Mapping[str, str], now: dt.datetime, *, use_state: bool = True
          ) -> tuple[Sequence[Mapping[str, Any]] | None, Mapping[str, Any] | None]:
     """The runners (routing App, then cmux-bot) and the janitor's pool snapshot; None when unread."""
     repo = env.get("GITHUB_REPOSITORY", "")
     runners = snapshot = None
-    if not repo or eligible(env):
+    # The all-nightly reservation is no side label: a nightly run that offers it reads capacity even with no
+    # side label to offer (decide's reservation-route placement), still only on an attempt that may move.
+    reserved = env.get("NIGHTLY") == "1" and bool((env.get("NIGHTLY_ONLY_LABEL") or "").strip())
+    if not repo or (eligible(env) and not (reserved and not attempt_refusal(env))):
         return runners, snapshot
     retries = pool.RetryBudget(1)
     for name in ("ROUTE_TOKEN", "ROUTE_TOKEN_FALLBACK"):
@@ -253,7 +264,8 @@ def read(env: Mapping[str, str], now: dt.datetime
         if not token:
             continue
         try:
-            runners = pool.GitHub(token, repo, retry_cap=side.SIDE_RETRY_CAP_SECONDS, retries=retries).runners()
+            client = pool.GitHub(token, repo, retry_cap=side.SIDE_RETRY_CAP_SECONDS, retries=retries)
+            runners = client.runners(use_state=use_state)
             break
         except Exception as error:  # noqa: BLE001 - fail open: every job keeps Blacksmith
             print(f"::warning title=portable placement::could not list runners with {name} ({error})")
@@ -292,6 +304,10 @@ def main(env: Mapping[str, str] = os.environ) -> int:
         # This is placement only: it never cancels a started job or run. Other
         # callers keep their immediate placement behavior.
         wait_seconds = 180 if env.get("NIGHTLY_WAIT_FOR_FLEET") == "1" else 0
+        # A caller may shorten the window (never lengthen it): decide's light jobs
+        # wait on the feed's critical path (run 41655282358: 163 s of 2.9 min).
+        if wait_seconds and (env.get("NIGHTLY_WAIT_SECONDS") or "").isdigit():
+            wait_seconds = min(wait_seconds, int(env["NIGHTLY_WAIT_SECONDS"]))
         signal.setitimer(signal.ITIMER_REAL, DEADLINE_SECONDS + wait_seconds)
         runners, snapshot = read(env, now)
         # Waiting is safe only when both runner inventory and the janitor snapshot
@@ -310,8 +326,13 @@ def main(env: Mapping[str, str] = os.environ) -> int:
                 break
             time.sleep(min(30, remaining))
             now = dt.datetime.now(dt.timezone.utc)
-            runners, snapshot = read(env, now)
+            runners, snapshot = read(env, now, use_state=False)
             placed = decide(env, runners, snapshot, now)
+            # A re-read that can no longer see capacity (a refused or rate-limited
+            # API, a stale snapshot) ends the wait, as an unread first read does:
+            # waiting out the rest of the three minutes cannot place anything.
+            if runners is None or pool.snapshot_problem(snapshot, now):
+                break
         signal.setitimer(signal.ITIMER_REAL, 0)
         write(placed, env)
     except Deadline:

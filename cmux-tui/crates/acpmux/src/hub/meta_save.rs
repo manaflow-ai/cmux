@@ -317,7 +317,11 @@ fn hold_seam(session_id: &str) {
     // Removed first, so the next daemon does not kill itself again.
     if std::fs::remove_file(dir.join(format!("kill-{session_id}"))).is_ok() {
         // SAFETY: a signal to this process; the test that asked for it restarts the daemon.
-        unsafe { libc::kill(libc::getpid(), libc::SIGKILL) };
+        #[cfg(unix)]
+        unsafe {
+            libc::kill(libc::getpid(), libc::SIGKILL)
+        };
+        // Off unix the seam does not kill: the tests that ask for it run on unix only.
     }
     let hold = dir.join(format!("hold-{session_id}"));
     if std::fs::rename(&hold, dir.join(format!("held-{session_id}"))).is_err() {

@@ -4,8 +4,8 @@
 // runs, never a dot) and time, under them its harness, model and effort and the machine it
 // runs on, and once it ended, what it finally
 // said, cut to three lines. Raw opens the command as the call ran it; Show output opens the run's
-// own view (the command and all it printed). An acpmux session the session list has opens as its
-// chat instead (Open chat).
+// own view (the command and all it printed). When the run has an acpmux session in the session list,
+// its card row opens that chat instead.
 // Its state, time and reply also show in the tray above the composer and the summary card's
 // Subagents list, as every subagent's do.
 import { useContext, useId, useState } from "react";

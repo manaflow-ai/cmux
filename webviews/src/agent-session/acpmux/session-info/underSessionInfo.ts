@@ -12,16 +12,18 @@ export const SESSION_INFO_STACK_GAP = 8;
 /// its top the panel's foot plus the gap, less the stage's top in the shell (`stageTop`); its right
 /// edge the panel's. Floating, the panel keeps `margin` from the stage's right edge, so the card does
 /// too. Pushing, the panel is beside the stage, so the card reaches past the stage's edge by the
-/// panel's width.
+/// panel's width; pushing by less than its full room (`room`, SessionInfo.tsx pushedRoom), by the room
+/// less the panel's margin.
 export function underSessionInfo(
   panel: { top: number; height: number; width: number },
   stageTop: number,
   push: boolean,
   margin: number,
+  room?: number,
 ): { top: number; right: number } {
   return {
     top: Math.round(panel.top + panel.height + SESSION_INFO_STACK_GAP - stageTop),
-    right: push ? -Math.round(panel.width) : margin,
+    right: push ? (room === undefined ? -Math.round(panel.width) : margin - Math.round(room)) : margin,
   };
 }
 
@@ -52,6 +54,7 @@ export function useUnderSessionInfo(
   push: boolean,
   margin: number,
   under?: string,
+  room?: number,
 ): void {
   useLayoutEffect(() => {
     const panel = drawn ? shell?.querySelector<HTMLElement>(PANEL) : null;
@@ -63,6 +66,7 @@ export function useUnderSessionInfo(
         stage ? topIn(stage, shell) : 0,
         push,
         margin,
+        room,
       );
       shell.style.setProperty(TOP, `${place.top}px`);
       shell.style.setProperty(RIGHT, `${place.right}px`);
@@ -75,7 +79,7 @@ export function useUnderSessionInfo(
       shell.style.removeProperty(TOP);
       shell.style.removeProperty(RIGHT);
     };
-  }, [shell, drawn, push, margin, under]);
+  }, [shell, drawn, push, margin, under, room]);
 }
 
 /// While `card` shows, publishes on its pane's shell the room it takes under the panel

@@ -107,6 +107,7 @@ pub struct HostConfig {
     pub include_loopback: bool,
     /// Never offer or use 100.64.0.0/10 (Tailscale) addresses.
     pub exclude_cgnat: bool,
+    pub session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
     pub services: ServiceConfig,
 }
 
@@ -426,6 +427,7 @@ impl HostConfig {
             owner_user_id: env("CMUX_MOBILE_OWNER_USER_ID"),
             include_loopback: env("CMUX_MOBILE_INCLUDE_LOOPBACK").is_some_and(|v| v == "1"),
             exclude_cgnat: env("CMUX_MOBILE_EXCLUDE_CGNAT").is_some_and(|v| v == "1"),
+            session_exposure: supplied.map(|value| value.session_exposure),
             services: ServiceConfig {
                 chief_socket: Some(chief_socket(
                     &env("CMUX_MOBILE_TUI_SOCKET_DIR")

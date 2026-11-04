@@ -22,9 +22,7 @@ package final class ChildProcess: Sendable {
     private let environment: [String: String]
     private let input: Data?
 
-    /// - Parameter input: Written to the child's stdin, which then closes: how a secret (the
-    ///   WireGuard config, the hub's client token) reaches it without argv, the environment or
-    ///   a file. Nil gives the child no stdin.
+    /// A bounded secret is written before launch; inherited Native sockets use start(inheritedInput:).
     package init(executable: URL, arguments: [String], environment: [String: String] = ProcessInfo.processInfo.environment,
                  input: Data? = nil) {
         self.executable = executable
@@ -35,33 +33,49 @@ package final class ChildProcess: Sendable {
     }
 
     package func start() throws {
+        let stdin = input.map { _ in Pipe() }
+        if let stdin, let input {
+            // The read end remains ours and the payload fits the pipe's 16 KB
+            // buffer, so this pre-launch write cannot block or raise SIGPIPE.
+            guard input.count <= 16 * 1024 else { throw CocoaError(.fileWriteOutOfSpace) }
+            let writer = stdin.fileHandleForWriting
+            defer { try? writer.close() }
+            try writer.write(contentsOf: input)
+        }
+        try launch(standardInput: stdin?.fileHandleForReading ?? FileHandle.nullDevice)
+    }
+
+    /// A private socket inherited as stdin, for the owned Native link only.
+    package func start(inheritedInput: FileHandle) throws {
+        try launch(standardInput: inheritedInput)
+    }
+
+    private func launch(standardInput: FileHandle) throws {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
         process.environment = environment
-        let stdin = input.map { _ in Pipe() }
-        process.standardInput = stdin ?? FileHandle.nullDevice
+        process.standardInput = standardInput
         let stdout = Pipe(), stderr = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr
         let splitter = LineSplitter()
         let continuation = continuation
         stdout.fileHandleForReading.readabilityHandler = { handle in
+            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
             switch handle.readReady() {
             case .bytes(let data): for line in splitter.append(data) { continuation.yield(line) }
             case .retry: return
-            case .end:
-                handle.readabilityHandler = nil
-                continuation.finish()
+            case .end: handle.readabilityHandler = nil; continuation.finish()
             }
         }
         stderr.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
             switch handle.readReady() {
-            case .bytes(let data):
-                self?.state.withLock { state in
-                    state.stderrTail.append(data)
-                    if state.stderrTail.count > 4096 { state.stderrTail.removeFirst(state.stderrTail.count - 4096) }
-                }
+            case .bytes(let data): self?.state.withLock { state in
+                state.stderrTail.append(data)
+                if state.stderrTail.count > 4096 { state.stderrTail.removeFirst(state.stderrTail.count - 4096) }
+            }
             case .retry: return
             case .end: handle.readabilityHandler = nil
             }
@@ -75,16 +89,13 @@ package final class ChildProcess: Sendable {
             } ?? []
             for waiter in waiters { waiter.resume(returning: status) }
         }
-        if let stdin, let input {
-            // Written before the child starts: the read end is still ours, so no SIGPIPE, and
-            // a secret within the pipe's 16 KB buffer never blocks. The child reads it, then EOF.
-            guard input.count <= 16 * 1024 else { throw CocoaError(.fileWriteOutOfSpace) }
-            let writer = stdin.fileHandleForWriting
-            defer { try? writer.close() }
-            try writer.write(contentsOf: input)
-        }
         state.withLock { $0.process = process }
-        try process.run()
+        do {
+            try process.run()
+        } catch {
+            if process.isRunning { process.terminate() }
+            throw error
+        }
     }
 
     package var pid: Int32? { state.withLock { $0.process?.processIdentifier } }

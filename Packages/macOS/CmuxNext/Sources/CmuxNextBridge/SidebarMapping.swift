@@ -61,7 +61,7 @@ public struct SidebarMapping {
     /// a workspace's front tab (any kind) lends its row, given the work tab a
     /// browser front tab yields its name to (`workTab`), and the favicon of
     /// each browser tab in the tab list (no work tab). `tabTitle` names each tab in the tab
-    /// list as its strip does (the App's `TabTitleResolver`); without it a
+    /// list as its strip does (the App's `TabTitleResolver`, given the row's workspace); without it a
     /// tab shows its record's title. `iconAsset` draws a stored image or SVG
     /// icon (`image:` / `svg:sha256-<hex>`); nil while it loads.
     /// `rowSource`, when given, supplies each row instead of mapping it here:
@@ -78,7 +78,7 @@ public struct SidebarMapping {
                                 selectedTab: @escaping (PaneModel) -> String? = { _ in nil },
                                 newTabPages: Set<String> = [], newTabTitle: String = "",
                                 pageFace: @escaping (WorkspaceModel, TabModel, TabModel?) -> PageFace? = { _, _, _ in nil },
-                                tabTitle: ((TabModel) -> String)? = nil, notificationText: @escaping (TabModel) -> String? = { _ in nil },
+                                tabTitle: ((WorkspaceModel, TabModel) -> String)? = nil, notificationText: @escaping (TabModel) -> String? = { _ in nil },
                                 iconAsset: @escaping (String) -> SidebarFavicon? = { _ in nil },
                                 groupIconAsset: ((String) -> SidebarFavicon?)? = nil,
                                 rowSource: RowSource? = nil,
@@ -103,10 +103,11 @@ public struct SidebarMapping {
                 var made = SidebarGroup(
                     id: GroupID(group.id.rawValue),
                     name: group.name,
-                    // No stored color (a group an agent or the CLI made): a stable palette color, not grey.
-                    color: group.color == GroupTint.noneWire ? .grey : color(group.color) ?? .unset(id: group.id.rawValue),
-                    // A custom `#RRGGBB` (cx-25az) or no color (`none`) draws instead of the token.
-                    custom: group.color.flatMap { $0.hasPrefix("#") || $0 == GroupTint.noneWire ? GroupTint(wire: $0)?.wire : nil },
+                    color: color(group.color) ?? .grey,
+                    // A custom `#RRGGBB` (cx-25az) or no color (`none`) draws instead of the token. No stored color, or one
+                    // this Mac cannot read, is no color: a group shows a color only when a person picked one
+                    // (Leo 2026-10-31: "WHERE IS ORANGE COMING FROM").
+                    custom: color(group.color) != nil ? nil : (group.color.flatMap { GroupTint(wire: $0)?.wire } ?? GroupTint.noneWire),
                     isCollapsed: group.collapsed || collapsedGroups.contains(group.id.rawValue),
                     isPinned: group.pinned,
                     icon: group.icon.flatMap { groupImage($0).map(WorkspaceIcon.favicon) ?? WorkspaceIcon.parse($0) },
@@ -132,7 +133,7 @@ public struct SidebarMapping {
     public func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true,
                     muted: Bool = false, selectedTab: (PaneModel) -> String? = { _ in nil }, newTabPages: Set<String> = [],
                     newTabTitle: String = "", pageFace: (WorkspaceModel, TabModel, TabModel?) -> PageFace? = { _, _, _ in nil },
-                    tabTitle: ((TabModel) -> String)? = nil, notificationText: (TabModel) -> String? = { _ in nil },
+                    tabTitle: ((WorkspaceModel, TabModel) -> String)? = nil, notificationText: (TabModel) -> String? = { _ in nil },
                     iconAsset: (String) -> SidebarFavicon? = { _ in nil },
                     harnessIcons: HarnessIconLookup = .none) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
@@ -193,7 +194,7 @@ public struct SidebarMapping {
             progress: progress(workspace, tabs: tabs),
             tabs: zip(tabs, statuses.tabs).map { tab, state in
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
-                let title = Self.shortenedPath(tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle), of: tab, shorten: shorten)
+                let title = Self.shortenedPath(tabTitle?(workspace, tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle), of: tab, shorten: shorten)
                 // The hover card's tab rows show each tab's own folder and status; a New Tab page shows neither.
                 var listed = SidebarTab(id: TabID(tab.id), title: title,
                                   kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,

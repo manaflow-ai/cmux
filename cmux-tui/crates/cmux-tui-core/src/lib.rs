@@ -14,6 +14,7 @@ pub mod agent_launch;
 pub mod agent_message_prompt;
 pub mod agent_view;
 mod apps;
+pub mod route_table;
 /// Daemon primitives; the cmux-tui-util crate, re-exported at the old paths.
 pub use cmux_tui_util::backoff;
 mod browser;
@@ -69,9 +70,13 @@ pub mod provider_management;
 mod pty_input_room;
 #[cfg(unix)]
 mod pty_write;
+/// A mutex-guarded value whose readers load a published projection without the lock (R-DAEMON-STATE).
+mod published;
 mod terminal_title;
 use cmux_tui_remote_access::remote_relay_state;
 mod login_shell;
+/// The R-DAEMON-STATE stage switches (one per stage, deleted when the stage passes).
+mod rds_switch;
 pub mod release;
 mod request_origin;
 pub mod resource;

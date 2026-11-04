@@ -73,3 +73,18 @@ test("a Claude turn keeps its per-run folding and draws no header", () => {
   ];
   expect(header(rows, "claude")).toBeUndefined();
 });
+
+test("a message joining the fold redraws the header: its count is part of the row's version", () => {
+  const before = header([prompt, work("w1", 1_000, 2), work("w2", 20_000, 3), say("a", 50_000, "Done."), end]);
+  const after = header([
+    prompt,
+    work("w1", 1_000, 2),
+    say("n1", 10_000, "Found the cause in the parser."),
+    work("w2", 20_000, 3),
+    say("a", 50_000, "Done."),
+    end,
+  ]);
+  expect(before?.previous).toBeUndefined();
+  expect(after?.previous).toBe(6);
+  expect(after?.version).not.toBe(before?.version);
+});

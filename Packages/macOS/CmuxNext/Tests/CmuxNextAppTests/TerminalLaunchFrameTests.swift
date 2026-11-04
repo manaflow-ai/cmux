@@ -91,6 +91,78 @@ import os
         #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal), "a frame is shown once per launch")
     }
 
+    /// Lawrence 2026-10-27 (restore): after a relaunch with 60 workspaces, three visible terminals showed an empty pane
+    /// with a cursor box and "Restoring…". The pane showed its last frame from the first launch frame, but the hold gave
+    /// up after 3 s while the attach still waited for a busy daemon, so the empty surface showed until the attach came
+    /// back. Chrome keeps a tab's last content up until the new content paints, however long that takes: the last frame
+    /// stays until the terminal's first content is drawn.
+    @Test func aLastFrameStaysUntilTheTerminalsContentDrawsHoweverLongTheAttachTakes() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let pane = Pane(reveal: reveal)
+        defer { pane.close() }
+        try #require(pane.session.surfaceView.surface != nil, "libghostty created no surface")
+        let directory = try await Self.saved(["tab-1": Self.frame(pane.session.surfaceView.bounds.size, scale: pane.window.backingScaleFactor)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let frames = await Self.launch(directory)
+        #expect(frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
+        #expect(pane.held != nil)
+        // The attach answers late (a daemon that restores hundreds of workspaces): nothing but the terminal's
+        // content may end the hold, so no timer runs for it before that content comes.
+        #expect(!pane.session.frameHold.hasDeadline,
+                "a timer ends the last frame before the attach answers: the pane then shows its empty terminal (a cursor box)")
+        #expect(pane.held != nil)
+        #expect(pane.session.frameHold.isHolding)
+    }
+
+    /// A frame of `size` at `scale`, filled with one opaque color (so a saved copy can be told from an empty surface).
+    static func solid(_ size: NSSize, scale: CGFloat, red: CGFloat, green: CGFloat, blue: CGFloat) -> NSImage {
+        let image = frame(size, scale: scale)
+        guard let rep = image.representations.first as? NSBitmapImageRep, let context = NSGraphicsContext(bitmapImageRep: rep) else { return image }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        NSColor(srgbRed: red, green: green, blue: blue, alpha: 1).setFill()
+        NSRect(origin: .zero, size: size).fill()
+        NSGraphicsContext.restoreGraphicsState()
+        return image
+    }
+
+    /// The color at the center of `image` (sRGB, 0...1).
+    static func centerColor(_ image: NSImage) -> (red: CGFloat, green: CGFloat, blue: CGFloat)? {
+        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let crop = cg.cropping(to: CGRect(x: cg.width / 2, y: cg.height / 2, width: 1, height: 1)) else { return nil }
+        let color = NSBitmapImageRep(cgImage: crop).colorAt(x: 0, y: 0)?.usingColorSpace(.sRGB)
+        return color.map { ($0.redComponent, $0.greenComponent, $0.blueComponent) }
+    }
+
+    /// The quit saves each visible terminal's frame for the next launch from its surface. A terminal still held over its
+    /// slow attach showed its last frame, but the quit saved the empty surface under it (or nothing, before its first
+    /// draw): the next launch then showed an empty pane with a cursor box as the terminal's last frame. The quit saves
+    /// what the pane shows.
+    @Test func aQuitDuringASlowAttachSavesTheHeldFrameNotTheEmptySurface() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let pane = Pane(reveal: reveal)
+        defer { pane.close() }
+        pane.window.orderFrontRegardless()
+        try #require(pane.session.surfaceView.surface != nil, "libghostty created no surface")
+        let scale = pane.window.backingScaleFactor
+        let directory = try await Self.saved(["tab-1": Self.solid(pane.session.surfaceView.bounds.size, scale: scale, red: 1, green: 0, blue: 0)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let frames = await Self.launch(directory)
+        try #require(frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
+        // The attach has not answered: the quit saves the frames now (into its own directory, so the launch's red file
+        // can never pass for a saved one).
+        let quit = FileManager.default.temporaryDirectory.appending(path: "terminal-launch-frames-quit-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: quit, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: quit) }
+        await TerminalLaunchFrames(directory: quit).save(["tab-1": pane.session])
+        let file = try #require(try FileManager.default.contentsOfDirectory(at: quit, includingPropertiesForKeys: nil)
+            .first { $0.lastPathComponent.hasPrefix("tab-1") }, "the quit saved no frame for a terminal that showed its last frame")
+        let image = try #require(NSImage(contentsOf: file))
+        let center = try #require(Self.centerColor(image))
+        #expect(center.red > 0.8 && center.green < 0.2 && center.blue < 0.2,
+                "the quit saved \(center), not the frame the pane showed (red): the empty surface under the hold")
+    }
+
     /// Slice (c) of the main-thread sweep: the frame (up to 16 MB) was read and decoded on the main thread as
     /// the pane showed its terminal. The launch now reads every frame off the main thread from its start; a pane
     /// shown before that read ends never waits: it stays held clear, as with no frame, and gets its frame when
@@ -146,6 +218,24 @@ import os
         #expect(pane.held == nil)
     }
 
+    /// Issue #32493: a frame refused for its size reported `no_frame` once the pane asked again (the frame was taken by
+    /// the first ask), so `debug.timings` hid the real cause of an empty pane at reopen. The first reason stays.
+    @Test func aFrameRefusedForItsSizeReportsSizeWhenThePaneAsksAgain() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let pane = Pane(reveal: reveal)
+        defer { pane.close() }
+        let surface = pane.session.surfaceView.bounds.size
+        let directory = try await Self.saved(["tab-1": Self.frame(NSSize(width: surface.width + 160, height: surface.height), scale: pane.window.backingScaleFactor)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let frames = await Self.launch(directory)
+        #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
+        #expect(frames.launchPanes["tab-1"]?.missed == "size")
+        // The pane asks again (its selection settles, or its surface comes after a show ahead).
+        #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
+        #expect(frames.launchPanes["tab-1"]?.missed == "size",
+                "the second ask replaced the reason: \(frames.launchPanes["tab-1"]?.missed ?? "nil") hides why the pane was empty")
+    }
+
     /// A pane's content held for launch whose terminal has no surface yet (the scheduler keeps it for a later frame).
     @MainActor struct WaitingPane {
         let window: NSWindow
@@ -185,6 +275,74 @@ import os
         #expect(frames.show("tab-1", on: session, in: waiting.content, reveal: reveal), "the surface did not take the frame over")
         #expect(!frames.showsAhead(in: waiting.content), "two frames: the one shown ahead stayed over the surface")
         #expect(waiting.content.alphaValue == 1)
+    }
+
+    /// Issue #32274: under STRESS, 3 of 20 reopens had a visible pane that showed no saved frame (an empty pane until
+    /// its live content). At the quit before, that pane still showed its frame ahead of its surface (the surface had not
+    /// come, so it had no session), and the quit replaced the saved frames with the sessions' frames only: it removed
+    /// the frame of a pane on screen. A pane still waiting for its surface at a quit keeps the frame it shows.
+    @Test func aPaneStillWaitingForItsSurfaceAtQuitKeepsItsFrameForTheNextLaunch() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let waiting = WaitingPane(reveal: reveal), next = WaitingPane(reveal: reveal)
+        defer { for pane in [waiting, next] { pane.window.close() } }
+        waiting.window.orderFrontRegardless()
+        let directory = try await Self.saved(["tab-1": Self.frame(waiting.surfaceSize, scale: waiting.window.backingScaleFactor)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let frames = await Self.launch(directory)
+        try #require(frames.showAhead("tab-1", in: waiting.content, reveal: reveal))
+        // The app quits before the pane's surface comes: no session shows the pane yet.
+        await frames.save([:])
+        #expect(await Self.launch(directory).showAhead("tab-1", in: next.content, reveal: reveal),
+                "the quit removed the frame of a pane on screen: the next launch shows that pane empty")
+    }
+
+    /// Review of #32372 (P3): a pane that asked ahead of its surface while the launch read still ran gets its frame
+    /// when the read ends; a quit before then must not remove that frame either.
+    @Test func aPaneThatAskedAheadBeforeTheReadEndedKeepsItsFrameAtQuit() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let waiting = WaitingPane(reveal: reveal), next = WaitingPane(reveal: reveal)
+        defer { for pane in [waiting, next] { pane.window.close() } }
+        waiting.window.orderFrontRegardless()
+        let directory = try await Self.saved(["tab-1": Self.frame(waiting.surfaceSize, scale: waiting.window.backingScaleFactor)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let probe = LaunchReadProbe(held: true)
+        let frames = TerminalLaunchFrames(directory: directory, reader: probe.reader)
+        let read = try #require(frames.prefetch(on: Self.work), "the launch read did not start")
+        #expect(await probe.waitForStart(), "the read never started")
+        #expect(!frames.showAhead("tab-1", in: waiting.content, reveal: reveal), "it shows nothing before the read ends")
+        // The app quits while the read still runs: no session shows the pane.
+        await frames.save([:])
+        probe.release()
+        await read.value
+        #expect(await Self.launch(directory).showAhead("tab-1", in: next.content, reveal: reveal),
+                "the quit removed the frame of a pane waiting for the read: the next launch shows that pane empty")
+    }
+
+    /// Review of #32372 (P3): the launch read takes at most `maximumFiles` names, and it took them before it kept only
+    /// saved frames. Atomic-write files left by kills mid-write (`<key>@1x.jpg.sb-<id>`) sort before a later key and
+    /// took every slot: that terminal showed no frame.
+    @Test func filesLeftByKilledWritesNeverCrowdOutASavedFrame() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let waiting = WaitingPane(reveal: reveal)
+        defer { waiting.window.close() }
+        let directory = try await Self.saved(["tab_z": Self.frame(waiting.surfaceSize, scale: waiting.window.backingScaleFactor)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        for index in 0..<TerminalLaunchFrames.maximumFiles {
+            try Data("partial".utf8).write(to: directory.appending(path: "tab_a\(index)@1x.jpg.sb-killed-\(index)"))
+        }
+        #expect(await Self.launch(directory).showAhead("tab_z", in: waiting.content, reveal: reveal),
+                "files of killed writes took the read's slots: the saved frame was never read")
+    }
+
+    /// Review of #32372 (P3): a terminal on screen whose shown image gives no bitmap at quit keeps its saved frame.
+    @Test func aShownTerminalWhoseImageGivesNoBitmapKeepsItsSavedFrame() async throws {
+        let directory = try await Self.saved(["tab-1": Self.frame(Self.size, scale: 1)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        // An image with no representation gives no CGImage.
+        await TerminalLaunchFrames(directory: directory).save(images: ["tab-1": NSImage(size: Self.size)])
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        #expect(names.contains { TerminalLaunchFrames.owner(of: $0) == "tab-1" },
+                "the quit removed the saved frame of a terminal on screen it had no new frame for")
     }
 
     /// The reopen number is the LAST terminal of the first window frame to show its frame, never the first; a terminal

@@ -69,6 +69,7 @@ export async function traceUpwardAnchors({
       kind === "acpmux-policyUnenforced" ||
       kind === "acpmux-agentPair" ||
       kind === "acpmux-sessionStart" ||
+      kind === "acpmux-backgroundTurn" ||
       kind === "acpmux-messageRun" ||
       kind === "acpmux-laneNoticeBatch" ||
       kind === "acpmux-pendingMessages"
@@ -91,10 +92,10 @@ export async function traceUpwardAnchors({
   function expectedGap(
     previous: number | null,
     next: number | null,
-    tokens: { footer: number; block: number; turn: number },
+    tokens: { footer: number; block: number; turn: number; run: number },
   ): number {
     if (previous === null || next === null) return 0;
-    const { footer, block, turn } = tokens;
+    const { footer, block, turn, run } = tokens;
     if (
       (next === transcriptMark.footerRow || next === transcriptMark.footerSlot) &&
       previous === transcriptMark.message
@@ -108,6 +109,13 @@ export async function traceUpwardAnchors({
       (next === transcriptMark.step || next === transcriptMark.indicator || next === transcriptMark.footerSlot)
     )
       return 0;
+    // A run of steps or a status line and the reply's prose by it (transcriptGrid.ts TRANSCRIPT_RUN_GAP,
+    // design/transcript-spacing.md rule 4).
+    if (
+      (previous === transcriptMark.step && next === transcriptMark.message) ||
+      (previous === transcriptMark.message && next === transcriptMark.step)
+    )
+      return run;
     return block;
   }
 
@@ -115,6 +123,7 @@ export async function traceUpwardAnchors({
     footer: gridPx("--grid-gap-footer"),
     block: gridPx("--grid-gap-block"),
     turn: gridPx("--grid-gap-turn"),
+    run: gridPx("--grid-gap-run"),
   };
   const read = () => {
     const view = scroller.getBoundingClientRect();

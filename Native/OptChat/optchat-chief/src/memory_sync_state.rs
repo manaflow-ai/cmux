@@ -13,9 +13,9 @@ use crate::paths::Paths;
 pub struct Detected {
     /// The `import-from` source name: `claude-code`, `claude-memory`, `codex`, `zip:/path`.
     pub source: String,
-    /// `claude-code`, `claude-memory`, `codex`, `chatgpt-export`, `claude-ai-export`, `export`.
+    /// `claude-code`, `claude-memory`, `codex`, `codex-sessions`, `chatgpt-export`, `claude-ai-export`, `export`.
     pub kind: String,
-    /// Conversations (claude-code), notes (memory kinds) or 1 (a zip).
+    /// Conversations (claude-code, codex-sessions), notes (memory kinds) or 1 (a zip).
     pub count: usize,
     pub bytes: u64,
     /// The folder or file it was found in.
@@ -39,6 +39,20 @@ pub fn detect(user_home: &Path, claude_config_dir: Option<String>) -> Vec<Detect
             count: sessions,
             bytes,
             path: projects.display().to_string(),
+        });
+    }
+    let codex_sessions = crate::codex_sessions_import::default_sessions_dir(
+        user_home,
+        std::env::var("CODEX_HOME").ok(),
+    );
+    let (sessions, bytes) = crate::codex_sessions_import::count_sessions(&codex_sessions);
+    if sessions > 0 {
+        found.push(Detected {
+            source: "codex-sessions".into(),
+            kind: "codex-sessions".into(),
+            count: sessions,
+            bytes,
+            path: codex_sessions.display().to_string(),
         });
     }
     for (codex, kind, dir) in [
@@ -252,18 +266,42 @@ pub fn forget(paths: &Paths, batch: &str) -> Result<(), String> {
 /// Returns what it did.
 pub fn undo_local(paths: &Paths, batch: Option<&str>) -> Result<(usize, String), String> {
     let all = runs(paths);
-    let run = match batch {
-        Some(b) => all.iter().rev().find(|r| r.batch == b),
-        None => all.iter().rev().find(|r| r.to == "local"),
+    let batch = match batch {
+        Some(b) => b.to_owned(),
+        None => all
+            .iter()
+            .rev()
+            .find(|r| r.to == "local")
+            .map(|r| r.batch.clone())
+            .ok_or("nothing to undo: no earlier import into this memory")?,
+    };
+    // One UI Import can write several source rows with the same batch. Treat
+    // them as one append: restore the first backup, validate the total tail,
+    // and remove all keys/records together.
+    let grouped: Vec<&Run> = all.iter().filter(|r| r.batch == batch).collect();
+    if grouped.is_empty() {
+        return Err("nothing to undo: no earlier import into this memory".into());
     }
-    .ok_or("nothing to undo: no earlier import into this memory")?
-    .clone();
-    if run.to != "local" {
+    if grouped.iter().any(|r| r.to != "local") {
         return Err(format!(
             "batch {} went to the cloud: undo it with --to cloud",
-            run.batch
+            batch
         ));
     }
+    let run = Run {
+        batch: batch.clone(),
+        to: "local".into(),
+        source: grouped
+            .iter()
+            .map(|r| r.source.as_str())
+            .collect::<Vec<_>>()
+            .join(", "),
+        written: grouped.iter().map(|r| r.written).sum(),
+        messages_before: grouped[0].messages_before,
+        backup: grouped[0].backup.clone(),
+        chief: None,
+        keys: grouped.iter().flat_map(|r| r.keys.clone()).collect(),
+    };
     let now = crate::claude_import::existing_messages(&paths.chat, &paths.memory_db)?;
     if now != run.messages_before + run.written as u64 {
         return Err(format!(
@@ -420,6 +458,10 @@ mod tests {
             "I like Rust",
         );
         write(&home.join(".codex/memories/MEMORY.md"), "codex note");
+        write(
+            &home.join(".codex/sessions/2026/11/02/rollout-a.jsonl"),
+            "{\"type\":\"session_meta\"}\n",
+        );
         let stage = temp("stage");
         write(&stage.join("conversations.json"), "[]");
         write(&stage.join("chat.html"), "<html>");
@@ -437,8 +479,16 @@ mod tests {
         assert!(kinds.contains(&"claude-code"), "{kinds:?}");
         assert!(kinds.contains(&"claude-memory"), "{kinds:?}");
         assert!(kinds.contains(&"codex"), "{kinds:?}");
+        if std::env::var("CODEX_HOME").is_err() {
+            let codex = found.iter().find(|d| d.kind == "codex-sessions").unwrap();
+            assert_eq!(codex.count, 1);
+        }
         assert!(kinds.contains(&"chatgpt-export"), "{kinds:?}");
-        assert_eq!(found.len(), 4, "photos.zip is not an export: {found:?}");
+        assert_eq!(
+            found.iter().filter(|d| d.kind != "codex-sessions").count(),
+            4,
+            "photos.zip is not an export: {found:?}"
+        );
         let code = found.iter().find(|d| d.kind == "claude-code").unwrap();
         assert_eq!(code.count, 2);
         assert!(
@@ -542,6 +592,49 @@ mod tests {
             &local_known(&paths).unwrap(),
         );
         assert_eq!(again.0.new, 1);
+    }
+
+    #[test]
+    fn undo_local_coalesces_sources_with_one_batch() {
+        let dir = temp("undo-batch");
+        let paths = Paths::new(&dir);
+        crate::browse::import(
+            &paths.chat,
+            &paths.memory_db,
+            &[Imported {
+                kind: optchat_core::Kind::Note,
+                text: "mine".into(),
+                date: None,
+            }],
+        )
+        .unwrap();
+        let before =
+            crate::claude_import::existing_messages(&paths.chat, &paths.memory_db).unwrap();
+        for (source, text) in [("codex", "one"), ("grok-bot", "two")] {
+            let fresh = vec![item("note", text, "2026-10-02T00:00:00Z", source)];
+            let (n, backup) = write_local(&paths, &fresh).unwrap();
+            record(
+                &paths,
+                &Run {
+                    batch: "shared".into(),
+                    to: "local".into(),
+                    source: source.into(),
+                    written: n,
+                    messages_before: before + if source == "codex" { 0 } else { 1 },
+                    backup,
+                    chief: None,
+                    keys: fresh.iter().map(|i| i.key.clone()).collect(),
+                },
+            )
+            .unwrap();
+        }
+        let (removed, _) = undo_local(&paths, Some("shared")).unwrap();
+        assert_eq!(removed, 2);
+        assert_eq!(
+            crate::claude_import::existing_messages(&paths.chat, &paths.memory_db).unwrap(),
+            before
+        );
+        assert!(runs(&paths).is_empty());
     }
 
     #[test]

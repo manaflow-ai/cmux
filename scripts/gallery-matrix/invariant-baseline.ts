@@ -65,6 +65,33 @@ export function readInvariantBaseline(path = INVARIANT_BASELINE_PATH): Invariant
   return { states: parsed.states };
 }
 
+/**
+ * A violation's key with its rows' list positions blanked: `center-line:row activity-24` and
+ * `center-line:row activity-28` are one kind. A row id carries its place in the gallery's fixture
+ * (model.ts row ids), so a fixture that gains rows above renumbers every key below it; matching by
+ * exact key failed base on rows that never moved (2026-11-02, gallery health 0-7). Rows are matched
+ * by kind and counted, so a state that breaks the rule on one more row of a kind still fails.
+ */
+export function keyKind(key: string): string {
+  return key.replace(/-\d+(?=$|[-:\s])/g, "-#");
+}
+
+function byKind<T>(items: T[], keyOf: (item: T) => string): Map<string, T[]> {
+  const kinds = new Map<string, T[]>();
+  for (const item of items) {
+    const kind = keyKind(keyOf(item));
+    kinds.set(kind, [...(kinds.get(kind) ?? []), item]);
+  }
+  return kinds;
+}
+
+/** Of `items` (one kind), the `count` to report: those whose exact key is not in `exact` first. */
+function excess<T>(items: T[], count: number, keyOf: (item: T) => string, exact: Set<string>): T[] {
+  const unmatched = items.filter((item) => !exact.has(keyOf(item)));
+  const matched = items.filter((item) => exact.has(keyOf(item)));
+  return [...unmatched, ...matched].slice(0, count);
+}
+
 /** New violations (the check fails on these), states with no row (it warns), and listed ones now gone. */
 export function judgeInvariants(
   states: Map<string, Map<string, Violation>>,
@@ -79,11 +106,20 @@ export function judgeInvariants(
       unlisted.push({ state, violations: [...found.values()] });
       continue;
     }
-    const known = new Set(row);
-    const fresh = [...found.values()].filter(({ key }) => !known.has(key));
+    const listed = byKind(row, (key) => key);
+    const seen = byKind([...found.values()], ({ key }) => key);
+    const fresh: Violation[] = [];
+    for (const [kind, violations] of seen) {
+      const known = listed.get(kind) ?? [];
+      if (violations.length > known.length) fresh.push(...excess(violations, violations.length - known.length, ({ key }) => key, new Set(known)));
+    }
     if (fresh.length) broke.push({ state, violations: fresh });
-    const gone = row.filter((key) => !found.has(key));
-    if (gone.length) mended.push({ state, keys: gone });
+    const gone: string[] = [];
+    for (const [kind, keys] of listed) {
+      const still = seen.get(kind) ?? [];
+      if (keys.length > still.length) gone.push(...excess(keys, keys.length - still.length, (key) => key, new Set(still.map(({ key }) => key))));
+    }
+    if (gone.length) mended.push({ state, keys: gone.sort() });
   }
   return { broke, unlisted, mended };
 }
@@ -113,7 +149,14 @@ export function shrunk(baseline: InvariantBaseline, states: Map<string, Map<stri
   const next: Record<string, string[]> = {};
   for (const [state, row] of Object.entries(baseline.states)) {
     const found = states.get(state);
-    next[state] = found ? row.filter((key) => found.has(key)) : row;
+    // A listed kind stays for as many rows of it as the run still showed (keyKind), under the run's keys.
+    if (!found) next[state] = row;
+    else {
+      const seen = byKind([...found.keys()], (key) => key);
+      const kept: string[] = [];
+      for (const [kind, keys] of byKind(row, (key) => key)) kept.push(...(seen.get(kind) ?? []).slice(0, keys.length));
+      next[state] = kept.sort();
+    }
   }
   if (add) for (const [state, found] of states) if (!(state in next)) next[state] = [...found.keys()].sort();
   return { states: Object.fromEntries(Object.entries(next).sort(([a], [b]) => a.localeCompare(b))) };

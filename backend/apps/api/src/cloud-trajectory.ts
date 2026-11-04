@@ -93,16 +93,14 @@ const principalOf = async (request: Request, env: Env): Promise<Principal | Resp
   if (token.agent !== undefined) return answer(403, "auth.forbidden", "agents cannot read or write chat trajectories")
   // Only a personal machine's own install among machine installs (machine-installs.ts); a team VM's is refused here.
   if (isMachineInstallKind(token.install_kind) && token.install_kind !== "vm") return answer(403, "auth.forbidden", "a machine install has no access to chats")
-  let p: Principal = token
-  if (token.kind === "session") {
-    const selected = await selectTeam(env, { ...token, user: token.user, team: token.team }, request.headers.get(TEAM_HEADER))
-    if (!selected.ok) return answer(selected.code === "owner.unreachable" ? 503 : 403, selected.code, selected.message)
-    const gate = await ssoGate(env, selected.principal).catch(() => null)
-    if (!gate) return answer(503, "owner.unreachable", "the sign-in policy could not be checked; retry")
-    if (gate.refusal) return answer(403, gate.refusal.code, gate.refusal.message)
-    const { stack_session: _session, email_domain: _domain, ...authed } = gate.principal
-    p = authed
-  }
+  // Team selection and the sign-in policy hold for every token kind (an install's too), as on the op path and
+  // client-session; checking sessions only let an install token skip a team's SSO requirement.
+  const selected = await selectTeam(env, { ...token, user: token.user, team: token.team }, request.headers.get(TEAM_HEADER))
+  if (!selected.ok) return answer(selected.code === "owner.unreachable" ? 503 : 403, selected.code, selected.message)
+  const gate = await ssoGate(env, selected.principal).catch(() => null)
+  if (!gate) return answer(503, "owner.unreachable", "the sign-in policy could not be checked; retry")
+  if (gate.refusal) return answer(403, gate.refusal.code, gate.refusal.message)
+  const { stack_session: _session, email_domain: _domain, ...p } = gate.principal
   const granted = await principalForOwner(env, "cloud:CloudDO", p).catch(() => null)
   if (granted === null) return answer(503, "owner.unreachable", "team membership could not be checked; retry")
   if (!granted || "refused" in granted) return answer(403, "auth.forbidden", "no access to this team's machines")

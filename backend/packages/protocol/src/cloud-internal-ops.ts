@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import type { CloudOpDef } from "./op-def.ts"
 import { InstallId, Revision } from "./schemas.ts"
+import { CloudVmNetwork } from "./cloud-network.ts"
 import { isMinLength, isPattern } from "./json-checks.ts"
 
 /**
@@ -13,6 +14,8 @@ export const CloudDriverResultParams = Schema.Struct({
   ok: Schema.Boolean,
   /** create: the provider's VM id. */
   provider_id: Schema.optionalKey(Schema.String),
+  /** Native create: membership confirmed before the guest receives its bind file. */
+  network: Schema.optionalKey(CloudVmNetwork),
   error: Schema.optionalKey(Schema.Struct({ code: Schema.String, message: Schema.String })),
   /** Retrying cannot help (configuration, authorization, a name owned by someone else). */
   final: Schema.optionalKey(Schema.Boolean),
@@ -81,7 +84,7 @@ export const CloudMachineProviderStateParams = Schema.Struct({
   state: Schema.NullOr(Schema.String),
   // Optional for previously committed observations, which predate the fence.
   observed_revision: Schema.optionalKey(Revision),
-  observed_provider_name: Schema.optionalKey(Schema.String),
+  observed_provider_name: Schema.optionalKey(Schema.String.check(isMinLength(1))),
   observed_transport: Schema.optionalKey(Schema.Literals(["direct", "vm-api"]))
 })
 

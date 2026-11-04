@@ -226,11 +226,11 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
     const page = await open(BUSY);
     // The Linter finished and the watcher stopped: neither counts.
     expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(
-      /^Read [^·]+ · 2 subagents · 1 command$/,
+      /^Read [^·]+ · [^·]+ total · 2 subagents · 1 command$/,
     );
     await page.close();
     const plain = await open(QUIET);
-    expect((await line(plain).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+$/);
+    expect((await line(plain).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+ · [^·]+ total$/);
     await plain.close();
   });
 
@@ -240,14 +240,14 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
     await tray.waitFor({ timeout: 5_000 });
     // It starts folded to its header (cmux#28875); the person opens it.
     await openRunningTray(page);
-    // What runs is listed first; the Linter that ended stays as a finished card under it
-    // (49acdd1d589d keeps finished cards mounted in the tray).
+    // What runs is listed first, newest first (#33364: Tester started after Reviewer); the Linter
+    // that ended stays as a finished card under it (49acdd1d589d keeps finished cards mounted in the tray).
     const lines = await tray
       .locator("li:not([data-finished]) .acpmux-agent-line .acpmux-summary-agent__name")
       .allInnerTexts();
-    expect(lines).toEqual(["Reviewer", "Tester", "npm run dev"]);
+    expect(lines).toEqual(["Tester", "Reviewer", "npm run dev"]);
     expect(await tray.locator("li[data-finished] .acpmux-summary-agent__name").allInnerTexts()).toEqual(["Linter"]);
-    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+$/);
+    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+ · [^·]+ total$/);
     await page.close();
   });
 
@@ -271,8 +271,9 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
             height: row.height,
             labelLeft: label.left - row.left,
             labelHeight: label.height,
-            // The line's box is one meta row plus the turn gap it reserves under it (625f2e3d1b32).
-            oneLine: px("--cv-meta-row") + px("--cv-turn-gap"),
+            // The line's box is the reply footer's slot, so the end-of-turn swap moves nothing
+            // (#31690, transcriptGrid.ts MARK_FOOTER_SLOT).
+            oneLine: px("--cv-footer-row"),
           };
         });
         await page.close();
@@ -280,8 +281,8 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
       };
       const busyBox = await measure(BUSY);
       expect(busyBox).toEqual(await measure(QUIET));
-      // One 20px line, even in a narrow pane: the line's box holds one line and the turn gap it
-      // reserves below it (fec3ac0e5125, 625f2e3d1b32); a second line would grow it by 20px.
+      // One 20px line, even in a narrow pane: the line's box is the footer slot (fec3ac0e5125,
+      // #31690); a second line would grow it by 20px.
       expect(busyBox.height).toBe(busyBox.oneLine);
       expect(busyBox.labelHeight).toBe(20);
     }

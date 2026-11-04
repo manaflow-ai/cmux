@@ -44,10 +44,41 @@ public struct HomeAgentMessageRow: Hashable, Sendable {
         case unreadable
     }
 
+    /// Where an agent of a fold stands, from its newest message in the fold.
+    public enum PeerState: Hashable, Sendable {
+        /// The Chief's message to it is the newest: it is working on it.
+        case told
+        /// Its report is the newest.
+        case reported
+        /// It stopped with no report (a status note).
+        case stopped
+    }
+
     /// The fold this row belongs to: a stable id from the Chief and the answer the messages follow.
     public var group: String
     /// What the row shows.
     public var kind: Kind
+    /// For a fold or notes row: each agent's state, in the order of its `peers`; empty for other rows.
+    public var peerStates: [PeerState] = []
+    /// For a fold or notes row: the newest message's words (a one-line preview); nil for other rows.
+    public var latest: String?
+    /// For a fold or notes row: each agent's title, in the order of its `peers`: the `Title:` line of the
+    /// first message the Chief sent it (a spawn task's first line), else its first words; the agent's id
+    /// when the Chief sent it nothing here. Empty for other rows.
+    public var peerTitles: [String] = []
+
+    /// A task's title: its `Title:` line, else the first line's first five words (Markdown marks dropped).
+    public static func title(of text: String) -> String? {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: true).map { $0.trimmingCharacters(in: .whitespaces) }
+        if let line = lines.first(where: { $0.lowercased().hasPrefix("title:") }) {
+            let title = line.dropFirst("title:".count).trimmingCharacters(in: .whitespaces)
+            if !title.isEmpty { return title }
+        }
+        guard let first = lines.first else { return nil }
+        let words = first.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
+            .split(separator: " ").prefix(5).joined(separator: " ")
+        return words.isEmpty ? nil : words
+    }
 
     /// Creates a row of `group`.
     ///

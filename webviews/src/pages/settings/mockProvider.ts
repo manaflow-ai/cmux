@@ -485,6 +485,7 @@ export class MockSettingsProvider {
       "cmux.settings.backdrop.workspace.preview": () => ({}),
       "cmux.settings.art.search": () => ({ results: this.museumArt }),
       "cmux.settings.art.use": () => ({ id: "" }),
+      "cmux.settings.app_update.run": () => ({}),
       "cmux.settings.web_updates.check": () => ({}),
       "cmux.settings.web_updates.rollback": () => ({}),
       "cmux.settings.folders.add": (params) => {
@@ -613,6 +614,7 @@ export class MockSettingsProvider {
       "cmux.settings.backdrop.workspace.preview",
       "cmux.settings.art.search",
       "cmux.settings.art.use",
+      "cmux.settings.app_update.run",
       "cmux.settings.web_updates.check",
       "cmux.settings.web_updates.rollback",
       "cmux.settings.server.restart",
@@ -1297,6 +1299,7 @@ export class MockSettingsProvider {
         : {}),
       value: managed ? managed.value : this.values.has(key) ? this.values.get(key) : row.default,
       default: row.default,
+      stored: this.values.get(key) ?? null,
       customized: this.values.has(key),
       managed: managed ? { source: managed.source, reason: managed.reason, team: managed.team ?? null } : null,
     };

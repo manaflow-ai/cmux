@@ -50,13 +50,18 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
     /// A short tag after the name (the engine a Home Chief runs on, "UniiChat"); nil shows none.
     /// The vendored row draws only the name, so the tag is part of the name it is given.
     public var badge: String?
-    /// How the conversation's own `avatar` moves: nil stands still (``SidebarAvatarMotion``).
+    /// What the conversation's own `avatar` shows its Chief doing: nil shows nothing (``SidebarAvatarMotion``).
     public var avatarMotion: AvatarMotion?
 
-    /// A moving avatar: a Chief's slow idle loop, livelier while it works.
+    /// A Chief's state, each drawn its own way on its avatar (the Codex pet's states).
     public enum AvatarMotion: Hashable, Sendable {
         case idle
+        /// Its turn is running.
         case working
+        /// A reply is unread: it waits for the person.
+        case waiting
+        /// A message to it failed to send.
+        case failed
     }
 
     public init(id: String, title: String, people: [Person], preview: String, previewSender: String?, lastAt: Date,
@@ -105,7 +110,14 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
         s.knownSender = knownSender
         s.spam = spam
         s.deletedAt = deletedAt
-        s.avatarMotion = own == nil ? nil : avatarMotion.map { $0 == .working ? .working : .idle }
+        s.avatarMotion = own == nil ? nil : avatarMotion.map {
+            switch $0 {
+            case .idle: .idle
+            case .working: .working
+            case .waiting: .waiting
+            case .failed: .failed
+            }
+        }
         return s
     }
 }
@@ -300,6 +312,13 @@ public final class CmuxSidebarView: NSView {
     public var unreadOnly: Bool {
         get { controller.filter == .unread }
         set { controller.filter = newValue ? .unread : .all }
+    }
+
+    /// The empty list's Show All was clicked: the filter is off (``unreadOnly`` is false) and the
+    /// host's own filter controls follow.
+    public var onShowAll: (() -> Void)? {
+        get { controller.onShowAll }
+        set { controller.onShowAll = newValue }
     }
 
     /// Ends a search: the field empties and the list shows every conversation again.

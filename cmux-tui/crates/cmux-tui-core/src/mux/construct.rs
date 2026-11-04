@@ -81,14 +81,15 @@ impl Mux {
         state_root: &Path,
     ) -> anyhow::Result<Arc<Self>> {
         let session = session.into();
-        let registry = WorkspaceRegistry::open(state_root, &session)?;
-        Self::from_workspace_registry(
-            session,
-            surface_options,
-            registry,
-            ProviderWorkspaceState::default(),
-            false,
-        )
+        WorkspaceRegistry::open_with(state_root, &session, |registry| {
+            Self::from_workspace_registry(
+                session.clone(),
+                surface_options.clone(),
+                registry,
+                ProviderWorkspaceState::default(),
+                false,
+            )
+        })
     }
 
     pub fn open_persistent_provider_managed(
@@ -98,19 +99,20 @@ impl Mux {
         authority: ProviderWorkspaceAuthority,
     ) -> anyhow::Result<Arc<Self>> {
         let session = session.into();
-        let registry = WorkspaceRegistry::open(state_root, &session)?;
-        Self::from_workspace_registry(
-            session,
-            surface_options,
-            registry,
-            ProviderWorkspaceState {
-                managed: true,
-                mux_generation: None,
-                authority_generation: 1,
-                authority: Some(authority),
-            },
-            false,
-        )
+        WorkspaceRegistry::open_with(state_root, &session, |registry| {
+            Self::from_workspace_registry(
+                session.clone(),
+                surface_options.clone(),
+                registry,
+                ProviderWorkspaceState {
+                    managed: true,
+                    mux_generation: None,
+                    authority_generation: 1,
+                    authority: Some(copy_authority(&authority)?),
+                },
+                false,
+            )
+        })
     }
 
     pub fn open_persistent_provider_managed_pending(
@@ -122,19 +124,20 @@ impl Mux {
         let mux_generation = mux_generation.into();
         validate_mux_generation(&mux_generation)?;
         let session = session.into();
-        let registry = WorkspaceRegistry::open(state_root, &session)?;
-        Self::from_workspace_registry(
-            session,
-            surface_options,
-            registry,
-            ProviderWorkspaceState {
-                managed: true,
-                mux_generation: Some(mux_generation.into_boxed_str()),
-                authority_generation: 0,
-                authority: None,
-            },
-            false,
-        )
+        WorkspaceRegistry::open_with(state_root, &session, |registry| {
+            Self::from_workspace_registry(
+                session.clone(),
+                surface_options.clone(),
+                registry,
+                ProviderWorkspaceState {
+                    managed: true,
+                    mux_generation: Some(mux_generation.clone().into_boxed_str()),
+                    authority_generation: 0,
+                    authority: None,
+                },
+                false,
+            )
+        })
     }
 
     pub(crate) fn from_workspace_registry(
@@ -199,6 +202,9 @@ impl Mux {
         let launch_identity = crate::launch_credential::LaunchIdentity::load(
             registry.session_journal_database_path().as_deref().and_then(Path::parent),
         );
+        // One stage S1 switch for the mux (R-DAEMON-STATE): the state's routes and the client registry's facts.
+        let input_lane = crate::rds_switch::InputLaneSwitch::from_env();
+        let publish_routes = input_lane.on();
         let mux = Arc::new(Mux {
             launch_identity,
             registry_connection: registry.connection.clone(),
@@ -210,7 +216,7 @@ impl Mux {
             registry_identity,
             resource_projection_stats,
             started_at: Instant::now(),
-            state: signaled_mutex::StateMutex::new(state),
+            state: signaled_mutex::StateMutex::new(state, publish_routes),
             subscribers: MuxEventBroadcaster::default(),
             config_reload: Mutex::new(ConfigReloadState::default()),
             config_reload_changed: Condvar::new(),
@@ -270,7 +276,11 @@ impl Mux {
             #[cfg(test)]
             resource_projection_before_commit: Mutex::new(None),
             #[cfg(test)]
+            resource_close_before_commit: Mutex::new(None),
+            #[cfg(test)]
             resource_close_after_commit: Mutex::new(None),
+            #[cfg(test)]
+            state_commit_after_apply: Mutex::new(None),
             #[cfg(test)]
             layout_undo_before_commit: Mutex::new(None),
             #[cfg(test)]
@@ -325,7 +335,7 @@ impl Mux {
             agent_hook_children: Mutex::new(HashMap::new()),
             agent_prompts: Mutex::new(agent_prompts::AgentTexts::default()),
             agent_roster: Mutex::new(agent_roster),
-            agent_roster_fold: Mutex::new(()),
+            agent_roster_fold: Mutex::default(),
             agent_message_pump: Default::default(),
             #[cfg(unix)]
             agent_chat_notices: Default::default(),
@@ -346,6 +356,7 @@ impl Mux {
             output_store,
             incognito_workspace_keys: Mutex::new(HashSet::new()),
             journal_maintenance: Mutex::new(None),
+            output_cleanup: Default::default(),
             journal_maintenance_control: Arc::default(),
             journal_hook_dispatcher_started: AtomicBool::new(false),
             journal_hook_runtime: Arc::new(crate::journal_hooks::JournalHookRuntime::default()),
@@ -362,14 +373,18 @@ impl Mux {
             terminal_exit_waiters: TerminalExitWaiters::default(),
             #[cfg(test)]
             terminal_exit_state_queries: AtomicU64::new(0),
-            resource_creation_handoff: Mutex::new(()),
+            resource_creation_handoff: RwLock::new(()),
             initial_bootstrap: Mutex::new(()),
             resource_creation_execution: Mutex::new(()),
+            creation_groups: Default::default(),
+            #[cfg(test)]
+            creation_burst_seams: Default::default(),
             #[cfg(unix)]
             agent_cli_job_execution: Mutex::new(()),
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
             startup_adoption_gate: Default::default(),
+            respawn_gate: Arc::new(terminal_respawn::respawn_gate()),
             terminal_adoption_ended: Condvar::new(),
             terminal_adoptions_now: Mutex::new(HashSet::new()),
             restored_tab_names: Mutex::new(HashMap::new()),
@@ -397,7 +412,7 @@ impl Mux {
             exit_settles: Arc::default(),
             terminal_respawns: terminal_respawn::TerminalRespawns::from_env(),
             daemon_shutdown_waker: Mutex::new(None),
-            control_clients: crate::server::ClientRegistry::new(),
+            control_clients: crate::server::ClientRegistry::new(input_lane),
             #[cfg(unix)]
             agent_transfers: Default::default(),
             #[cfg(unix)]
@@ -495,6 +510,9 @@ impl Mux {
         crate::journal_hooks::start(&mux)?;
         timings.lap("agent.hooks");
         mux.start_journal_maintenance()?;
+        if let Err(error) = mux.start_output_cleanup() {
+            eprintln!("cmux-tui: output cleanup: not started: {error:#}");
+        }
         crate::state::project_watch::start(&mux);
         timings.lap("journal.maintenance_start");
         *mux.startup_timings.lock().unwrap_or_else(PoisonError::into_inner) = Some(timings);
@@ -557,4 +575,12 @@ impl Mux {
         validate_mux_generation(mux_generation).unwrap();
         mux
     }
+}
+
+/// A second copy of a provider credential for the retried owner build after
+/// an output cleanup rollback (`WorkspaceRegistry::open_with`).
+fn copy_authority(
+    authority: &ProviderWorkspaceAuthority,
+) -> anyhow::Result<ProviderWorkspaceAuthority> {
+    ProviderWorkspaceAuthority::new(String::from_utf8(authority.expose().to_vec())?)
 }

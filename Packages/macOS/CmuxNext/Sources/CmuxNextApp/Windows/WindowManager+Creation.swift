@@ -119,6 +119,7 @@ extension WindowManager {
     func createFailed(_ id: String, _ error: any Error) -> any Error {
         PendingWorkspaceRows.shared.remove(id)
         if claims.release(failed: id, listed: services.machines.workspace(id: id) != nil) { repairSelections(previous: membersByWindow) }
+        for controller in controllers where controller.state.workspaceID == id { controller.showWorkspace(requested: id) }  // it waited (awaits)
         return error
     }
 }

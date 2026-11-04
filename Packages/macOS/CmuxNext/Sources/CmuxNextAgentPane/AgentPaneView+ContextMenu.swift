@@ -7,7 +7,7 @@ public import Foundation
 import WebKit
 
 public extension Notification.Name {
-    /// Posted by an app-owned webview context menu while the Labs pointer inspector is enabled.
+    /// Posted by an app-owned web page's context menu for Inspect Element (the page is the object).
     static let cmuxNextInspectUIElement = Notification.Name("cmux.next.inspect-ui-element")
 }
 
@@ -284,10 +284,16 @@ extension AgentPaneView {
 
     /// The pane's menu for `target` and `selection` in `menu`, which holds WebKit's items (none for More).
     private func fillContextMenu(_ menu: NSMenu, target: AgentPaneMessageTarget?, selection: String?) {
+        lastContextMenu = (NSEvent.mouseLocation, ProcessInfo.processInfo.systemUptime)
         let chatMenu = target == nil && selection == nil ? model.chatMenuItems?() ?? [] : []
         AgentPaneContextMenu.rebuild(menu, target: target, selection: selection, devTools: DevTools.isEnabled, chatMenu: chatMenu,
                                      scope: themeScope.fullStrength, actions: .init(
-            copy: { [weak self] text in self?.copyText(text) },
+            copy: { [weak self] text in
+                guard let self else { return }
+                AgentPanePersonInput.record(self.model.transport.gestures, sources: self.eventSources)
+                guard self.model.transport.gestures.consume() else { return }
+                self.copyText(text)
+            },
             fork: { [weak self] seq in self?.fork(through: seq) },
             retry: { [weak self] row in self?.runMessageAction("chat.retryPrompt", ["rowId": row]) },
             edit: { [weak self] text in self?.runMessageAction("chat.editPrompt", ["text": text]) },

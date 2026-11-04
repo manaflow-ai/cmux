@@ -3,8 +3,8 @@
 // background end with acpmux's `background_task_update`. The call's own "Ran" row says how its
 // shell stands (running in the background, then stopped or finished), in whichever turn it ended;
 // a shell whose call is not in the transcript is noted where it ended, in a few words
-// ("Background task finished: pytest -x"). Session Info's Background tasks (Debug Settings
-// `agent.inspector`; with it off, the header's summary) lists the chat's background tasks with how
+// ("Background command completed pytest -x"). Session Info's Background tasks (Debug Settings
+// `agent.sessionInfo`; with it off, the header's summary) lists the chat's background tasks with how
 // each stands, the ones only the transcript knows included (this daemon keeps no process registry).
 // A click on a task's row in Session Info or the summary opens the task's terminal
 // (`chat.processTerminal`, background-task-terminal-DESIGN.md). A click on a note opens it in place
@@ -179,9 +179,9 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     await page.goto(url(CHAT));
     await page.getByText("Dev server stopped.").waitFor();
     // No second row for a shell whose call is in the transcript.
-    expect(await page.getByText(/Background task .*npm run dev/).count()).toBe(0);
+    expect(await page.getByText(/Background (task|command) .*npm run dev/).count()).toBe(0);
     // The one whose call is not loaded is noted in the turn it ended, before its reply.
-    const note = page.getByText("Background task finished: pytest -x");
+    const note = page.locator(".cv-bgtask .cv-tool__text", { hasText: "Background command completed pytest -x" });
     expect(await note.isVisible()).toBe(true);
     const top = (text: string) => page.getByText(text).evaluate((node) => node.getBoundingClientRect().top);
     const at = await note.evaluate((node) => node.getBoundingClientRect().top);
@@ -260,7 +260,7 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
 
   test("clicking a background task's end opens it in place; only Open in terminal opens its terminal", async () => {
     const page = await recordingPage();
-    const note = page.getByRole("button", { name: /Background task finished: pytest -x/ });
+    const note = page.getByRole("button", { name: /Background command completed pytest -x/ });
     const top = await note.evaluate((node) => node.getBoundingClientRect().top);
     await note.click();
     expect(await note.getAttribute("aria-expanded")).toBe("true");
@@ -283,7 +283,7 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
 
   type Page = Awaited<ReturnType<typeof recordingPage>>;
   /// Where the chat lists its background tasks: Session Info's section (the App pushes Debug
-  /// Settings `agent.inspector` with the header state; Session Info opens by default), or, with it
+  /// Settings `agent.sessionInfo` with the header state; Session Info opens by default), or, with it
   /// off, the summary card's under the header's Chat summary.
   const surfaces = {
     inspector: {

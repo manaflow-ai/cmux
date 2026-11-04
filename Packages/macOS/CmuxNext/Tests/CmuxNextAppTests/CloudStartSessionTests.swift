@@ -138,16 +138,17 @@ struct CloudStartSessionTests {
         let task = try #require(run.results.first, "start-session tracked no result")
         let asking = try #require(await Self.cards(shown) { !$0.isEmpty }, "the agent's card never showed")
         #expect(asking.first?.state == .ask)
+        // The agent's run answers pending as soon as its card asks, naming the dialog that answers it.
+        guard case .success(let pending) = await task.value else {
+            Issue.record("the agent's run did not answer pending once its card asked")
+            return
+        }
+        #expect(pending["pending"] == .bool(true) && pending["dialog_id"] != nil)
         // What the account observer does on a sign-out or team switch.
         f.services.cloud.startSessionRuns.forgetAll()
         f.services.cloud.startSessionAsks.endAll()
-        guard case .failure(let failure) = await task.value else {
-            Issue.record("the agent's run went on after its account ended")
-            return
-        }
-        let request = CloudStartSession.Request(machineID: f.session.machineID, name: nil, agent: "claude", cwd: nil)
-        #expect(failure.message == CloudStartSessionStrings.accountChanged(request.asked(machine: f.session.machine.title)))
         #expect(await Self.cards(shown) { $0.isEmpty } != nil, "the agent's card stayed")
+        #expect(f.services.cloud.startSessionAsks.waiting.isEmpty, "the ask still waits after its account ended")
         #expect(f.session.daemon.connection == nil, "nothing connected")
     }
 
@@ -432,6 +433,25 @@ struct CloudStartSessionTests {
         #expect(failure.message == CloudStartSessionStrings.targetUnread(request.asked(machine: f.session.machineID)))
         #expect(failure.message.contains("`cmux cloud start-session --target machine:\(f.session.machineID) --agent claude`"))
         #expect(f.session.daemon.connection == nil, "nothing connected")
+    }
+
+    /// The session's machine gets the person's harness login before the session starts, as a composer
+    /// Cloud start's does: without it Claude there answered "The provider rejected Claude Code's
+    /// credentials on this Cloud machine" (cmuxterm-hq cloud-start-session capture, run 41415284694).
+    /// The step always records why it passed a login or not on the machine's row.
+    @Test func theSessionsMachineTakesTheHarnessLoginStep() async throws {
+        let f = Self.fixture()
+        #expect(f.session.harnessLogin == nil)
+        let start = CloudStartSession(services: f.services)
+        try await start.passHarnessLogin(f.session, agent: "claude") {}
+        let decision = try #require(f.session.harnessLogin, "start-session ran no harness login step")
+        #expect(decision.provider == .claude)
+        try await start.passHarnessLogin(f.session, agent: "pi") {}
+        #expect(f.session.harnessLogin?.provider == nil, "pi has no login to pass")
+        // A sign-out or team switch while the login waited (its confirm) stops the run there.
+        await #expect(throws: CloudStartSession.AccountChanged.self) {
+            try await start.passHarnessLogin(f.session, agent: "claude") { try CloudStartSession.check(Self.account, now: ["user-1", "team-2"], Self.asked) }
+        }
     }
 
     @Test func theAccountCheckRefusesAChangeAndStopsACancelledRun() async throws {
