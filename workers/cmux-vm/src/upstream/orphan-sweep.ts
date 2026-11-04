@@ -118,6 +118,13 @@ export const sweepOrphanVms = <E, R>(config: UpstreamConfig, options: OrphanSwee
     const failed: string[] = [];
     if (!options.dryRun) {
       for (const vm of orphans.slice(0, options.maxDeletes ?? 200)) {
+        // Asked again right before the delete: a create retried since the listing may have recorded this VM.
+        const recordedNow = yield* Effect.either(options.recorded([vm.cmuxId]));
+        if (recordedNow._tag === "Left") {
+          failed.push(vm.upstreamId);
+          continue;
+        }
+        if (recordedNow.right.has(vm.cmuxId)) continue;
         const outcome = yield* Effect.either(
           http.json("deleteOrphanVm", "DELETE", `/v5/vms/${encodeURIComponent(vm.upstreamId)}`).pipe(
             Effect.catchAll((error) => (error.status === 404 ? Effect.void : Effect.fail(error))),
