@@ -1,5 +1,8 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-04: at Expanded, the bands above the list (Home, pinned rows) and the workspace hover card use the
+  Comfortable tokens (`SidebarRowTokens.band`): pinned row 28 pt (was 24), card 207×187 (was 203×167). List rows
+  and the footer keep the app row. Lawrence: pinned rows were too short. Regression: SidebarBandTokensTests.
 - 2026-11-03 FYI from a939 (Home filter): the filter button stays filled while the filter is on; an "Unread
   Messages ×" chip shows under search; the empty state reads "No Unread Chats" with Show All. Owner commits and the
   Sidebar States Playground match it; owner helpers do not change these views.

@@ -29,6 +29,12 @@ export type ToolGroup =
   /// shape (acpmuxMcpSends.ts) sent: the sent-message row (SentMessageLine.tsx). A call that sent
   /// several (a batch) is one entry per message, all with the same `item`.
   | { type: "send"; item: AcpmuxActivity; send: AcpmuxSendCallPart }
+  /// Two or more sent messages in a row (`SentEntry`: a shell or MCP `acpmux send`, a message card, a
+  /// sub-session's `send_message`), from one call (a shell loop of sends) or adjacent calls: one
+  /// closed line, "Sent 8 messages", that opens to each message's row (SentMessageLine.tsx
+  /// `SentMessageGroup`; Leo, 2026-11-04: "why arent these collapsed/collapsible"). `items` are the
+  /// calls, each once; `entries` every message, in order.
+  | { type: "sendGroup"; items: AcpmuxActivity[]; entries: SentEntry[] }
   /// A sub-session started, sent a message or waited on (subsessionCalls.ts), each its own card.
   | { type: "subsession"; item: AcpmuxActivity; call: SubsessionCall }
   /// Adjacent start_session calls become one disclosure row with one expandable child per session.
@@ -42,6 +48,15 @@ export type ToolGroup =
   | { type: "item"; item: AcpmuxActivity };
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
+
+/// One message to another agent, as its own entry: what a `sendGroup` gathers.
+export type SentEntry =
+  | Extract<ToolGroup, { type: "send" }>
+  | Extract<ToolGroup, { type: "message" }>
+  | { type: "subsession"; item: AcpmuxActivity; call: Extract<SubsessionCall, { tool: "send" }> };
+
+export const isSentEntry = (group: ToolGroup): group is SentEntry =>
+  group.type === "send" || group.type === "message" || (group.type === "subsession" && group.call.tool === "send");
 
 /// The group a call joins, or nil for a call drawn on its own. Only calls with a command line
 /// are commands; an MCP call can also say "execute". An edit still waiting for its permission
@@ -293,7 +308,38 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
   }
   close();
   flushLead();
-  return groups;
+  return withSendGroups(groups);
+}
+
+/// Every shell or MCP `acpmux send` message among `groups`, a group's each as its own entry, in order.
+export function sendEntries(groups: readonly ToolGroup[]): Extract<ToolGroup, { type: "send" }>[] {
+  return groups.flatMap((group) =>
+    (group.type === "sendGroup" ? group.entries : [group]).flatMap((entry) => (entry.type === "send" ? [entry] : [])),
+  );
+}
+
+/// `groups` with each run of two or more consecutive sent messages as one `sendGroup`. A lone send
+/// keeps its own row.
+function withSendGroups(groups: ToolGroup[]): ToolGroup[] {
+  let run = 0;
+  for (let at = 0; at < groups.length && run < 2; at += 1) run = isSentEntry(groups[at]!) ? run + 1 : 0;
+  if (run < 2) return groups;
+  const out: ToolGroup[] = [];
+  for (let at = 0; at < groups.length;) {
+    let end = at;
+    while (end < groups.length && isSentEntry(groups[end]!)) end += 1;
+    if (end - at < 2) {
+      out.push(groups[at]!);
+      at += 1;
+      continue;
+    }
+    const entries = groups.slice(at, end) as SentEntry[];
+    const items: AcpmuxActivity[] = [];
+    for (const entry of entries) if (items.at(-1) !== entry.item) items.push(entry.item);
+    out.push({ type: "sendGroup", items, entries });
+    at = end;
+  }
+  return out;
 }
 
 /// The one whole file a completed file tool wrote, by its absolute path: a single diff with no old
@@ -472,6 +518,7 @@ export function staysInSight(group: ToolGroup): boolean {
   if (
     group.type === "message" ||
     group.type === "send" ||
+    group.type === "sendGroup" ||
     group.type === "subsession" ||
     group.type === "subsessionGroup" ||
     group.type === "dispatch"
