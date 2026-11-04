@@ -118,6 +118,8 @@ pub(super) fn parse_projection_agent_state(value: &str) -> AgentState {
 pub(super) struct AgentRosterHost {
     pub(super) roster: crate::journal_reducers::AgentRoster,
     pub(super) cursor: u64,
+    /// What requests asked of a fold another thread held (`agent_roster_fold.rs`).
+    pub(super) requests: super::agent_roster_fold::RosterRequests,
 }
 
 pub(super) fn agent_provider_identity(ingress: &crate::JournalIngress) -> Option<String> {
