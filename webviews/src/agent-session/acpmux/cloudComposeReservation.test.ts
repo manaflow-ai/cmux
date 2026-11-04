@@ -146,9 +146,13 @@ test("abandon while reserve is in flight releases after allocation, only once", 
     ["cloud.releaseReservation", { composeKey: "compose-1" }],
   ]);
   h.reservation.selected();
-  expect(h.reservation.handoff()).toBeUndefined();
   await settle();
-  expect(h.calls).toHaveLength(2);
+  expect(h.reservation.handoff()).toBe("compose-2");
+  expect(h.calls.map(([method]) => method)).toEqual([
+    "cloud.reserve",
+    "cloud.releaseReservation",
+    "cloud.reserve",
+  ]);
 });
 
 test("clearing releases after the short grace period; retyping cancels the timer", async () => {

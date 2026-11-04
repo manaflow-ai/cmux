@@ -390,7 +390,7 @@ struct AgentPaneCloudReservationTests {
             let answer = await model.respond(to: request)
             #expect(answer["ok"] as? Bool == true)
         }
-        #expect(model.transport.gestures.consume())
+        #expect(!model.transport.gestures.consume())
         #expect(requests.map(\.release) == [false, true])
         #expect(requests.first?.params["composeKey"]?.stringValue == key)
         model.remoteChat = true

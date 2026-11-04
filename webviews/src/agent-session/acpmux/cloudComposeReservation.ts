@@ -25,7 +25,8 @@ export class CloudComposeReservation {
 
   selected(): void {
     this.stopRelease();
-    if (this.attempt) return;
+    if (this.attempt && !this.attempt.abandoned && !this.attempt.released) return;
+    this.attempt = undefined;
     const attempt: Attempt = {
       key: this.newKey(),
       ready: Promise.resolve(false),

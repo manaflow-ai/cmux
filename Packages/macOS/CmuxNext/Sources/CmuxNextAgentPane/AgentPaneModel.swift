@@ -610,13 +610,14 @@ public final class AgentPaneModel {
             if let current = cloudReservationComposeKey, current != composeKey {
                 return AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
             }
-            // Picking Cloud is a page gesture recorded by the native pane. A retry of the same
-            // live key is already native-owned and need not spend another gesture credit.
-            guard cloudReservationComposeKey == composeKey || transport.gestures.isAvailable else {
-                return Self.transportFailure(.gestureRequired)
+            // Picking Cloud is a page gesture recorded by the native pane. Consume it before
+            // the await so concurrent page calls cannot both authorize a paid reservation.
+            if cloudReservationComposeKey != composeKey {
+                guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+                cloudReservationComposeKey = composeKey
             }
             let reply = await onCloudReservation(request)
-            if reply["ok"] as? Bool == true { cloudReservationComposeKey = composeKey }
+            if reply["ok"] as? Bool != true, cloudReservationComposeKey == composeKey { cloudReservationComposeKey = nil }
             return reply
         case .cloudEnvironment(let request):
             guard let onCloudEnvironment else { return Self.unsupported("cloud.environment.\(request.action)") }
