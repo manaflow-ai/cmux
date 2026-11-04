@@ -230,6 +230,7 @@ mod subsession_results;
 mod subsession_runs;
 mod subsession_send;
 pub mod subsessions;
+pub mod races;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub use subsession_send::Delivery;
 mod drafts;
@@ -758,6 +759,7 @@ pub struct Hub {
     lane_report_reads: lane_report_reads::LaneReportReads,
     /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
     pub(super) subsessions: subsessions::Index,
+    pub(super) races_running: StdMutex<std::collections::HashSet<String>>,
     /// Creates admitted and still starting (`admission.rs`).
     pub(super) admitting: admission::Admitting,
     /// Run slots of each session's sub-sessions (`subsession_runs.rs`).
@@ -988,6 +990,7 @@ impl Hub {
             lane_reports: Default::default(),
             lane_report_reads: Default::default(),
             subsessions: Default::default(),
+            races_running: Default::default(),
             admitting: Default::default(),
             subsession_runs: Default::default(),
             open_waits: Default::default(),
@@ -1134,6 +1137,7 @@ impl Hub {
         if deferred {
             self.logs_ready.send_replace(false);
         }
+        self.resume_races();
     }
 
     pub(super) fn install_stored_session(&self, meta: SessionMeta, deferred: bool, hosted: bool) {

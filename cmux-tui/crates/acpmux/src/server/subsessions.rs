@@ -67,7 +67,7 @@ fn caller_required(hub: &Hub, conn: &Conn) -> RpcError {
 /// The session a start acts for: the proven caller, itself or a descendant it names as
 /// `parent`, or the session the person names. Any other connection is refused, as for every
 /// sub-session tool: the child runs its parent's policy and mode, so naming a parent widens.
-fn start_parent(hub: &Hub, conn: &Conn, params: &Value) -> Result<Arc<Session>, RpcError> {
+pub(super) fn start_parent(hub: &Hub, conn: &Conn, params: &Value) -> Result<Arc<Session>, RpcError> {
     let named = str_param(params, "parent").filter(|p| !p.is_empty());
     match (conn.caller(), named) {
         (Some(caller), named) => {

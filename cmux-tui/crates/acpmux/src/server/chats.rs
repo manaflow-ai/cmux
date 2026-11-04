@@ -113,6 +113,9 @@ pub(super) async fn route(
     if let Some(reply) = heap(|| super::subsessions::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
+    if let Some(reply) = heap(|| super::races::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
     // So do the forum methods (`forum.rs`): this daemon's own log.
     if let Some(reply) = heap(|| super::forum::dispatch(hub, conn, m, &params)).await {
         return reply;

@@ -653,6 +653,12 @@ pub mod method {
     pub const MUX_OFFER_RESPOND: &str = "_acpmux/offer_respond";
     /// Sub-sessions (`hub/subsessions.rs`, `server/subsessions.rs`): an agent
     /// session's own children, with the caller proven by its token.
+
+    pub const MUX_RACE_START: &str = "_acpmux/race/start";
+    pub const MUX_RACE_LIST: &str = "_acpmux/race/list";
+    pub const MUX_RACE_GET: &str = "_acpmux/race/get";
+    pub const MUX_RACE_CANCEL: &str = "_acpmux/race/cancel";
+    pub const MUX_RACE_STATS: &str = "_acpmux/race/stats";
     pub const MUX_SUBSESSION_START: &str = "_acpmux/subsession/start";
     pub const MUX_SUBSESSION_LIST: &str = "_acpmux/subsession/list";
     pub const MUX_SUBSESSION_GET: &str = "_acpmux/subsession/get";

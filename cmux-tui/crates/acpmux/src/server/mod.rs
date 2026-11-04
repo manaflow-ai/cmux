@@ -2139,6 +2139,7 @@ mod session_auth;
 mod session_files;
 mod stream;
 mod subsessions;
+mod races;
 pub(crate) mod trust_gate;
 pub mod upload_frames;
 mod view;
