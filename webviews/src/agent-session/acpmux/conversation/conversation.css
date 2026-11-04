@@ -1711,6 +1711,12 @@ pre.cv-math-source {
   --cmux-scroller-fade-in: var(--agent-motion-in, 120ms);
   --cmux-scroller-fade-out: var(--agent-motion-move, 180ms);
 }
+/* Where Session Info lies over the chat, the transcript leaves its box out (session-info/chatCut.ts):
+   nothing scrolls behind its glass, so it never flickers under a scroll (Leo, 2026-11-03). Only the
+   chat's own transcript, under the shell the panel sets it on. */
+.acpmux-main .acpmux-scroll {
+  clip-path: var(--acpmux-session-info-cut, none);
+}
 /* The spacer runs across the scrollbar's lane (VirtualTranscript `lane`), so the column matches the
    composer's; the transcript never scrolls sideways. */
 .acpmux-scroll[data-cmux-shown-scroller] {
@@ -2019,13 +2025,16 @@ pre.cv-math-source {
   margin-inline-start: calc(var(--cv-disclosure-gap) - var(--cv-worked-gap, 2px));
 }
 /* The running line's counts (WorkingFor.tsx), after its label on the same 20px line. They keep
-   to one line and give way at the line's end, never wrapping it to a second. */
+   to one line and give way at the line's end, never wrapping it to a second. The dot sits 4px
+   from what comes before it, as from what follows it: the margin takes back the line's own gap,
+   which had left a wide hole before every "·" (Leo, 2026-11-04, on "2s · 15s total": "same here
+   it's annoying to look at"). */
 .cv-worked__count {
   display: inline-flex;
   flex: 0 1 auto;
   min-width: 0;
   gap: 4px;
-  margin-left: 2px;
+  margin-left: calc(4px - var(--grid-gap));
   white-space: nowrap;
 }
 /* The turn's tokens ("· 679.9K tokens") are secondary to its label and time, as on Claude
@@ -2084,8 +2093,8 @@ pre.cv-math-source {
   flex: none;
   margin-inline-start: 6px;
 }
-/* Past the turn's first step its clock reads as the total ("· 4m total", Thinking.tsx): the words
-   around it sit at the count's own gap. */
+/* Past the turn's first step its clock follows a step's own time after a dot ("2s · 4m",
+   Thinking.tsx), at the count's own gap. */
 .cv-worked__total .cv-worked__time {
   margin-inline: 0;
 }
@@ -3126,13 +3135,14 @@ button.cv-video-frames__frame:focus-visible {
 }
 /* Inner calls in an opened group keep their disclosure slot, but the quiet chevron only appears
    when that row is under the pointer (Leo, 2026-11-01). The group header keeps its own disclosure.
-   A focused or opened row stays revealed while its menu or body is open. */
+   A focused or opened row stays revealed and lifted while its menu or body is open. Hover only
+   reveals the chevron: a step's words and glyph keep their tone under the pointer, as a lone tool
+   row's do (#20330: tool rows "no longer change on hover"; agent-pane-step-rows.test.ts). */
 .cv-steps > .cv-step > .cv-tool > .cv-tool__chevron {
   opacity: 0;
   transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
 }
 .cv-steps > .cv-step > .cv-tool:is(
-  :hover,
   :focus-within,
   [aria-expanded="true"],
   [data-popup-open],
@@ -3142,7 +3152,6 @@ button.cv-video-frames__frame:focus-visible {
   color: var(--cv-text);
 }
 .cv-steps > .cv-step > .cv-tool:is(
-  :hover,
   :focus-within,
   [aria-expanded="true"],
   [data-popup-open],
@@ -3160,7 +3169,7 @@ button.cv-video-frames__frame:focus-visible {
   transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
 }
 /* A thought step has no glyph: its words start at the rows' text column. */
-.cv-step-thought:not(.is-open),
+.cv-step-thought,
 .cv-step-thought__body,
 .cv-step > .cv-tool-error {
   padding-left: var(--cv-step-text);
@@ -3206,30 +3215,31 @@ button.cv-video-frames__frame:focus-visible {
 }
 /* A failed step's tag (CommandRow.tsx) has no column between the words and the chevron in these
    gallery looks: it keeps their old place, at the end of the spacer before the trailing column. */
-:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step > .cv-command > .cv-command__failed {
+:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step > .cv-tool > :is(.cv-command__failed, .cv-tool__failed:not(.cv-tool__icon)) {
   grid-column: 3;
   justify-self: end;
   margin-inline-start: 0;
 }
-/* A thought step: muted words, one line closed; open, its whole text with the disclosure at the
-   top of the row's end. */
+/* A thought step: muted words, one line closed; open, "Thought for 6s" with its chevron right after
+   the words (design/chat-transcript.md, the chevron after its label) and its whole text under them.
+   Gallery-only looks for the opened lead thought (`data-lead-thought-look`, ClaudeDesktopOrganization
+   .gallery.ts): `edge`, the disclosure alone at the top of the row's end (cmux#27896, replaced), and
+   `bare`, the disclosure alone at the text column. */
 .cv-step-thought {
   color: var(--cv-text-muted);
 }
-.cv-step-thought.is-open {
+:root:is([data-lead-thought-look="edge"], [data-lead-thought-look="bare"]) .cv-step-thought.is-open > .cv-tool__text {
+  display: none;
+}
+:root[data-lead-thought-look="edge"] .cv-step-thought.is-open {
   float: right;
   width: var(--cv-disclosure-slot);
   min-height: 20px;
   margin-left: 8px;
+  padding-left: 0;
 }
-.cv-step-thought.is-open > .cv-tool__chevron {
+:root[data-lead-thought-look="edge"] .cv-step-thought.is-open > .cv-tool__chevron {
   margin-inline-start: 0;
-}
-:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step-thought.is-open {
-  grid-template-columns: var(--cv-disclosure-slot);
-}
-:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step-thought.is-open > .cv-tool__chevron {
-  grid-column: 1;
 }
 .cv-step-thought__body {
   display: block;
@@ -3266,11 +3276,8 @@ button.cv-video-frames__frame:focus-visible {
 :root[data-tool-steps-look="tree"] .cv-step > .cv-tool > .cv-command__meta {
   grid-column: 5;
 }
-:root[data-tool-steps-look="tree"] .cv-step > .cv-command > .cv-command__failed {
+:root[data-tool-steps-look="tree"] .cv-step > .cv-tool > :is(.cv-command__failed, .cv-tool__failed:not(.cv-tool__icon)) {
   grid-column: 4;
-}
-:root[data-tool-steps-look="tree"] .cv-step-thought.is-open {
-  grid-template-columns: var(--cv-disclosure-slot);
 }
 /* "zebra": no ring and no hairlines; every other step on the cards' fill, inset and rounded. */
 :root[data-tool-steps-look="zebra"] .cv-steps {
@@ -3339,16 +3346,19 @@ button.cv-video-frames__frame:focus-visible {
 .cv-command__failed {
   color: var(--agent-status-failure);
 }
-/* "Failed" right after a failed call's title, before its chevron (CommandRow.tsx): never cut, one
-   space from the words rather than the row's gap. */
-.cv-command > .cv-command__failed {
+/* "Failed" right after a failed call's title, before its chevron (CommandRow.tsx, ToolRow.tsx):
+   never cut, so a long label takes the ellipsis and the failure still shows, one space from the
+   words rather than the row's gap. */
+.cv-command > .cv-command__failed,
+.cv-tool > .cv-tool__failed:not(.cv-tool__icon) {
   display: inline-block;
   flex: none;
   margin-inline-start: calc(0.3em - var(--cv-tool-gap));
   white-space: nowrap;
 }
 /* A tag reads as one, "Failed", while its text stays the row's word ("failed") for Find and copy. */
-.cv-command > .cv-command__failed::first-letter {
+.cv-command > .cv-command__failed::first-letter,
+.cv-tool > .cv-tool__failed:not(.cv-tool__icon)::first-letter {
   text-transform: uppercase;
 }
 /* "Background command completed" muted, then what the command did in the transcript's ink, as
@@ -3368,6 +3378,10 @@ button.cv-video-frames__frame:focus-visible {
   color: var(--cv-activity-text);
   line-height: 20px;
   white-space: nowrap;
+}
+.cv-bgstatus__text {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
 }
 /* A failed call's cause (ToolFailureCause.tsx, the `tool-error-look` experiment): one quiet line
