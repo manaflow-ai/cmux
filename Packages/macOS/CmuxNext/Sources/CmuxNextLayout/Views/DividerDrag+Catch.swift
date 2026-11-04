@@ -26,7 +26,11 @@ extension DividerDrag {
             ScreenGeometry.compute(value.applied(to: layout), viewport: viewport, style: style, scale: 0)
         }
         let caughtGeometry = geometry(caught.value)
-        let influence = caught.probes.lazy.compactMap({
+        // The probes go a few points either way from where the layout rests the line (a clamped value rests it at the
+        // anchor's rest place plus the pane's minimum, not where it is drawn), so one of them moves it.
+        let rested = SharedEdgeMotion.restLine(kind, axis: caught.axis, in: caughtGeometry) ?? caught.held
+        let probes = [rested + SharedEdgeMotion.probeStep, rested - SharedEdgeMotion.probeStep].map { caught.valueAt($0 - caught.base) }
+        let influence = probes.lazy.compactMap({
             SharedEdgeMotion.Influence(kind, caught: caughtGeometry, probe: geometry($0), axis: caught.axis)
         }).first
         if caught.catches, influence == nil { return turnSharedEdgesOff() }

@@ -118,12 +118,14 @@ enum SharedEdgeMotion {
 
 extension SharedEdgeMotion {
     /// What a press catches (rule D): the drag's value that puts the dragged line's rest place where the screen draws
-    /// the line now, the values a few points to either side (the probes: how far each edge moves with the line), the
-    /// change of speed and of place that stop the line on its drawn pixel, and that drawn place (`held`, in the
-    /// geometry's space along the axis: the drag measures the pointer from it).
+    /// the line now (`valueAt` gives it for any extent from the anchor's rest place `base`: the probes, a few points
+    /// to either side of where the layout rests the line, measure how far each edge moves with it), the change of speed
+    /// and of place that stop the line on its drawn pixel, and that drawn place (`held`, in the geometry's space along
+    /// the axis: the drag measures the pointer from it).
     struct Caught {
         var value: DividerDragValue
-        var probes: [DividerDragValue]
+        var valueAt: (CGFloat) -> DividerDragValue
+        var base: CGFloat
         var axis: SplitAxis
         /// The line's velocity, negated: added to the line, it stops it.
         var speedChange: CGFloat
@@ -160,9 +162,8 @@ extension SharedEdgeMotion {
                 .ratio(id, SplitGeometry.ratio(forPointer: base + extent, container: divider.container, axis: divider.axis, style: style,
                                                minimumA: divider.minimumA, minimumB: divider.minimumB))
             }
-            let extent = hold.drawn - base
-            return .caught(Caught(value: ratio(extent), probes: [ratio(extent + probeStep), ratio(extent - probeStep)], axis: divider.axis,
-                                  speedChange: -hold.velocity, placeChange: hold.drawn - hold.value, held: hold.drawn, catches: hold.moves))
+            return .caught(Caught(value: ratio(hold.drawn - base), valueAt: ratio, base: base, axis: divider.axis, speedChange: -hold.velocity,
+                                  placeChange: hold.drawn - hold.value, held: hold.drawn, catches: hold.moves))
         case let .columnEdge(id):
             guard let frame = geometry.columns[id], let column = screen.layout.columns.first(where: { $0.id == id }) else { return .cannotCatch }
             let edge = geometry.columnEdges.first { $0.column == id }?.dockEdge
@@ -184,9 +185,8 @@ extension SharedEdgeMotion {
             func width(_ extent: CGFloat) -> DividerDragValue {
                 .width(id, ColumnStripGeometry.fraction(forPixelWidth: max(extent * sign, minimum), viewportWidth: viewport, gap: style.stripGap))
             }
-            let extent = hold.drawn - base
-            return .caught(Caught(value: width(extent), probes: [width(extent + probeStep * sign), width(extent - probeStep * sign)], axis: axis,
-                                  speedChange: -hold.velocity, placeChange: hold.drawn - hold.value, held: hold.drawn, catches: hold.moves))
+            return .caught(Caught(value: width(hold.drawn - base), valueAt: width, base: base, axis: axis, speedChange: -hold.velocity,
+                                  placeChange: hold.drawn - hold.value, held: hold.drawn, catches: hold.moves))
         case .rowEdge:
             return .cannotCatch
         }
@@ -227,8 +227,9 @@ extension SharedEdgeMotion {
         }
     }
 
-    /// How far the probe moves the line from the caught value: past pixel rounding, short of any minimum it is not at.
-    private static let probeStep: CGFloat = 8
+    /// How far a probe moves the line from where the caught value rests it: past pixel rounding, short of any minimum
+    /// it is not at.
+    static let probeStep: CGFloat = 8
 
     /// Where the screen draws a coordinate of `kind`'s geometry along `axis`: placed in the view (the strip's scroll, a
     /// scroll area's and a scrolling row's offsets, as `ScreenContentView.applyPresentation` places hosts and handles) and
