@@ -1,6 +1,7 @@
 public import CmuxNextWakeups
 public import Foundation
 import CmuxNextCompat
+import CmuxNextDaemon
 import Darwin
 
 /// A Worker machine's exec and file routes through the bundled cmux-tui (`cmux cloud machine-io`,
@@ -33,13 +34,21 @@ public struct CloudMachineIO: Sendable {
         self.work = work
     }
 
-    /// The app's: the bundled cmux at `bundleResources/bin/cmux` and its client sessions in `cloudRoot/client-sessions`.
+    /// The app's: the bundled cmux at `bundleResources/bin/cmux` (or the cmux-tui built from source that
+    /// `environment`'s `CMUX_NEXT_TUI_BIN` names) and its client sessions in `cloudRoot/client-sessions`.
     /// It touches no file (the Cloud service makes it on the main thread at start): whether that cmux is there is
     /// asked by the first call's probe, off the main thread (``speaksMachineIO()``), and a build without it sends every
     /// call over HTTP.
-    public init?(bundleResources: URL?, cloudRoot: URL, work: BackgroundWork) {
-        guard let resources = bundleResources else { return nil }
-        self.init(binary: resources.appendingPathComponent("bin/cmux"),
+    public init?(bundleResources: URL?, cloudRoot: URL, work: BackgroundWork,
+                 environment: [String: String] = ProcessInfo.processInfo.environment) {
+        let binary: URL
+        if let override = environment[DaemonLauncher.binaryOverrideKey], !override.isEmpty {
+            binary = URL(fileURLWithPath: override)
+        } else {
+            guard let resources = bundleResources else { return nil }
+            binary = resources.appendingPathComponent("bin/cmux")
+        }
+        self.init(binary: binary,
                   cacheDirectory: cloudRoot.appendingPathComponent("client-sessions", isDirectory: true), work: work)
     }
 

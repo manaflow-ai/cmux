@@ -68,6 +68,12 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 help: SettingsText.keyed("settings.agentPane.display.vscodeMinimap.help",
                                          "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll."),
                 .toggle, .bool(false), ["minimap", "vscode", "vs code", "code", "map", "overview", "scroll", "scrollbar", "right", "toggle"]),
+            // The running turn's task list pinned under its latest message (webviews conversation/turns.ts).
+            // Off by default: the composer's hat shows it (subagents/SubagentTray.tsx `plan`; Leo, 2026-11-03).
+            row(["pinnedPlan"], SettingsText.keyed("settings.agentPane.display.pinnedPlan", "Pin Task List in Chat"),
+                help: SettingsText.keyed("settings.agentPane.display.pinnedPlan.help",
+                                         "While the agent works, its task list stays under the latest message instead of in the bar over the composer."),
+                .toggle, .bool(false), ["plan", "task", "tasks", "todo", "checklist", "pin", "pinned", "list", "progress"]),
             row(["font", "preset"], SettingsText.keyed("settings.agentPane.display.font", "Chat Font"),
                 .choice([
                     SettingChoice("markdown", SettingsText.keyed("settings.choice.agentChatFontMarkdown", "Same as Markdown Viewer")),
@@ -175,6 +181,14 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                     SettingChoice("right", SettingsText.keyed("settings.choice.right", "Right")),
                 ]),
                 .string("left"), ["rail", "minimap", "prompts", "ticks", "scroll", "side", "left", "right"]),
+            // How the chat's running tray names background commands no built-in rule knows
+            // (``CommandLabelsSetting``; webviews session-info/commandLabelSettings.ts): preset names
+            // and rules of one's own, edited as JSON.
+            row(["commandLabels"], SettingsText.keyed("settings.agentPane.display.commandLabels", "Command Labels"),
+                help: SettingsText.keyed("settings.agentPane.display.commandLabels.help",
+                                         "How the chat names background commands: preset names such as cmux-fleet, and rules with a program or pattern and a label."),
+                .text, .array([]), ["command", "label", "rule", "preset", "background", "tray", "shell"])
+                .hiddenFromSettingsPage("a list of preset names and rule objects, edited in cmux-next.json"),
         ]
     }
 }

@@ -1,3 +1,4 @@
+import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
 import type { ChatUnavailable } from "./chatUnavailable";
 import { Spinner } from "./conversation/icons";
 import { relativeTime } from "./conversation/relativeTime";
@@ -27,6 +28,7 @@ export function ChatUnavailableState({
   onReconnect,
   onResume,
   onClose,
+  noteDelayMs = RESUME_NOTE_DELAY_MS,
 }: {
   unavailable: ChatUnavailable;
   /// The session the tab recorded (`missingSession`); its first 13 characters show under the detail.
@@ -42,10 +44,20 @@ export function ChatUnavailableState({
   onResume?(): void;
   /// Close Tab, on every case but deleted (Remove from Sidebar closes that one's tab).
   onClose?(): void;
+  /// How long a paused machine, and a resume, stay out of sight (afterDelay.ts); the gallery's
+  /// settled variants pass 0.
+  noteDelayMs?: number;
 }) {
   const t = useT();
-  // Still loading: nothing shows until the chat opens or the grace ends (then offline, below).
-  if (unavailable.reason === "connecting")
+  // A pause is invisible at first, as a resume is (Leo, 2026-11-03: the wait "you mostly perceive as
+  // "thinking""): a machine that wakes within RESUME_NOTE_DELAY_MS never shows its card, and one
+  // resuming shows its spinner only past it. The spinner's slot is kept from the first frame, so it
+  // shifts nothing when it appears.
+  const pausedShown = useAfterDelay(unavailable.reason === "paused", noteDelayMs);
+  const resumeSlow = useAfterDelay(resuming, noteDelayMs);
+  // Still loading, or paused for less than the threshold: nothing shows, in the loading layout, until
+  // the chat opens or the wait goes on (then offline or paused, below).
+  if (unavailable.reason === "connecting" || (unavailable.reason === "paused" && !pausedShown))
     return <div className="acpmux-empty acpmux-unavailable" data-unavailable="connecting" aria-busy="true" />;
   // A deleted chat names the machine acpmux had it on when the pane knows it, else the tab's machine;
   // one not connected names only the peer acpmux had it on, never this Mac's name (the handshake's
@@ -96,7 +108,9 @@ export function ChatUnavailableState({
     <div
       className="acpmux-empty acpmux-unavailable"
       data-unavailable={unavailable.reason}
-      role={unavailable.reason === "offline" ? "status" : "alert"}
+      // A paused machine is a calm state, never an alert (a resume is one click or one send away).
+      role={unavailable.reason === "offline" || unavailable.reason === "paused" ? "status" : "alert"}
+      data-enter="fade"
     >
       {unavailable.reason === "offline" ? (
         <Spinner size={28} loading className="acpmux-unavailable-spinner" />
@@ -124,7 +138,17 @@ export function ChatUnavailableState({
       )}
       <h2 className="acpmux-empty-title acpmux-unavailable-title">{title}</h2>
       <div className="acpmux-unavailable-copy">
-        {resuming && <Spinner size={20} loading />}
+        {unavailable.reason === "paused" ? (
+          <span className="acpmux-unavailable-progress" aria-hidden={!resumeSlow}>
+            {resumeSlow && (
+              <span className="acpmux-unavailable-progress-mark" data-enter="fade">
+                <Spinner size={20} loading />
+              </span>
+            )}
+          </span>
+        ) : (
+          resuming && <Spinner size={20} loading />
+        )}
         {error && (
           <p className="acpmux-unavailable-detail" role="alert">
             {error}

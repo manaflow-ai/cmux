@@ -29,7 +29,7 @@ public nonisolated struct AcpmuxSessionPage: Sendable {
 
     public init(socketPath: String) { self.socketPath = socketPath }
 
-    @concurrent public func closed(peer: String, cursor: String?, limit: Int, deadline: Duration = .seconds(2)) async throws -> Page {
+    @concurrent public func closed(peer: String, cursor: String?, limit: Int, deadline: Duration = AcpmuxEnvironment.answerDeadline) async throws -> Page {
         var params: [String: any Sendable] = ["peer": peer, "status": "closed", "limit": limit]
         if let cursor { params["cursor"] = cursor }
         let result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/sessions", params: params, deadline: deadline)
@@ -40,7 +40,7 @@ public nonisolated struct AcpmuxSessionPage: Sendable {
     /// peer, nil for this Mac's): the `cmux://session/<id>` question names it. Nil when acpmux has
     /// no such session. `_acpmux/resolve` reads one local or mirrored row in
     /// its exact-id mode.
-    @concurrent public func session(_ id: String, deadline: Duration = .seconds(2)) async throws -> (chat: Chat, peer: String?)? {
+    @concurrent public func session(_ id: String, deadline: Duration = AcpmuxEnvironment.answerDeadline) async throws -> (chat: Chat, peer: String?)? {
         guard let result = try await AcpmuxStatusClient.sessionSummary(socketPath: socketPath, sessionId: id, deadline: deadline) else { return nil }
         return Self.chat(id, in: result)
     }
@@ -49,7 +49,7 @@ public nonisolated struct AcpmuxSessionPage: Sendable {
     /// form), on this Mac or a peer it mirrors: `_acpmux/resolve {query}`, which reads the link
     /// itself (hub/locate.rs, agent_link.rs). Nil when acpmux lists no such session, which is
     /// someone else's, or one that never ran under acpmux.
-    @concurrent public func linked(_ link: String, deadline: Duration = .seconds(2)) async throws -> String? {
+    @concurrent public func linked(_ link: String, deadline: Duration = AcpmuxEnvironment.answerDeadline) async throws -> String? {
         let result: [String: Any]
         do {
             result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/resolve",

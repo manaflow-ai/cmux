@@ -29,7 +29,9 @@ export type AcpmuxDebug = {
   /// workedTurn.ts when `fixture` is "worked-turn", or with received agent messages
   /// (incomingFixture.ts) when it is "incoming", or with a turn linking a synthetic pull request page
   /// (linkFixture.ts) when it is "link", or with a turn organized as Claude Code desktop
-  /// draws one (organizationFixture.ts) when it is "organization", or with a shared chat (teammates' prompts, who
+  /// draws one (organizationFixture.ts) when it is "organization", or with a run of shell calls
+  /// summarized as Claude Code desktop summarizes one (toolSummaryFixture.ts) when it is
+  /// "tool-summary", or with a shared chat (teammates' prompts, who
   /// answered an ask, who else is here and typing; multiplayer/sharedFixture.ts) when it is "shared",
   /// or with step `count` (0-5, else 0) of the subagent tray's life (subagentsFixture.ts) when it is
   /// "subagents".
@@ -148,6 +150,7 @@ export function createAcpmuxDebug(
         incomingRows,
         linkRows,
         organizationRows,
+        toolSummaryRows,
         SUBAGENT_TRAY_STEPS,
         subagentTrayRows,
         SHARED_PRESENCE,
@@ -171,9 +174,11 @@ export function createAcpmuxDebug(
                 ? linkRows(Date.now() - 30_000)
                 : fixture === "organization"
                   ? organizationRows(Date.now() - 120_000)
-                  : fixture === "shared"
-                    ? sharedRows(Date.now() - 1_020_000)
-                    : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
+                  : fixture === "tool-summary"
+                    ? toolSummaryRows(Date.now() - 60_000)
+                    : fixture === "shared"
+                      ? sharedRows(Date.now() - 1_020_000)
+                      : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(rows);
@@ -266,6 +271,7 @@ export function createAcpmuxDebug(
         running,
         ...acpmuxPerf.stats(options.raw === true),
         agent: acpmuxPerf.agentLatency(),
+        launch: acpmuxPerf.launchTimeline(),
       };
     },
 

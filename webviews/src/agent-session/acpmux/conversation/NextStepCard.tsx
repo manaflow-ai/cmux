@@ -12,6 +12,8 @@ import "./NextStepCard.css";
 /// next turn. Once a prompt follows, the card folds to the question and the answer in grey, as an
 /// answered AskUserQuestion does (QuestionCard.tsx AnsweredQuestion). ⌘↩ on an empty composer sends
 /// the first answer through `registerKey` (the composer's empty ⌘↩); a draft keeps the key.
+/// The agent's own wrap-up call (wrapUp.ts) adds its recap, muted at the top of the same box
+/// (reference claude/web/october-recap-card); with no question the box holds the recap alone.
 export const NextStepCard = memo(function NextStepCard({
   ask,
   answer,
@@ -29,16 +31,21 @@ export const NextStepCard = memo(function NextStepCard({
   const t = useT();
   const [sending, setSending] = useState<string>();
   const primary = useRef<HTMLButtonElement>(null);
-  const pending = answer === undefined && onAnswer !== undefined;
+  // A recap alone has no answer to send, so it leaves ⌘↩ to the composer.
+  const pending = answer === undefined && onAnswer !== undefined && ask.options.length > 0;
   useEffect(() => {
     if (!pending || !registerKey) return;
     return registerKey(() => primary.current?.click());
   }, [pending, registerKey]);
+  const recap = ask.recap ? <p className="acpmux-next-step__recap">{inlineText(ask.recap)}</p> : null;
+  // A wrap-up with nothing to decide (wrapUp.ts): the recap alone, in the same box.
+  if (!ask.question) return recap ? <div className="acpmux-next-step acpmux-next-step--recap">{recap}</div> : null;
   if (answer !== undefined) {
     // An answer the card made up (Yes, Not now) reads in the pane's words.
     const made = ask.options.find((option) => option.key && option.label === answer)?.key;
     return (
       <div className="acpmux-question-answered acpmux-next-step acpmux-next-step--answered">
+        {recap}
         <span className="acpmux-hidden-label">{t("question.answered")}</span>
         <div className="acpmux-question-answered-item">
           <span className="acpmux-question-answered-prompt">{inlineText(ask.question)}</span>
@@ -54,6 +61,7 @@ export const NextStepCard = memo(function NextStepCard({
   };
   return (
     <fieldset className="acpmux-next-step" aria-label={ask.question}>
+      {recap}
       <p className="acpmux-next-step__question">{inlineText(ask.question)}</p>
       {ask.detail && <p className="acpmux-next-step__detail">{inlineText(ask.detail)}</p>}
       {onAnswer && (
