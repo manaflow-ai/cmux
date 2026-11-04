@@ -222,7 +222,7 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
       if (at === null || t < at) at = t
     }
     for (const a of allAutomations(rows)) {
-      if (!a.enabled) continue
+      if (!a.enabled || a.handoff) continue
       for (const t of a.triggers) {
         if (t.status !== "active" || t.next_at === null) continue
         take(t.next_at > now ? t.next_at : (this.retryAt(fireKey(a.id, t.id, t.next_at)) ?? t.next_at))
