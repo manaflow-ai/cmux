@@ -368,6 +368,7 @@ type PromptIndexRead = {
   rows?: AcpmuxRow[];
   failed?: boolean;
   read?: Promise<boolean>;
+  cancel?: () => void;
   tries: number;
   retryAt: number;
 };
@@ -1342,8 +1343,8 @@ export type GitRoute = "native" | "daemon";
 /// fallback did before.
 const HIDDEN_DRAW_MS = 50;
 
-/// What hidden pages left for their first frame once shown (`nextFrame`): at most one per client,
-/// since a client waits for one frame at a time and cancels it on close.
+/// What hidden pages left for their first frame once shown: a client's snapshot and deferred
+/// prompt index each wait once and cancel on close. All waits share one visibility listener.
 const waitingForShow = new Set<() => void>();
 function waitForShow(wait: () => void): void {
   if (waitingForShow.size === 0) document.addEventListener("visibilitychange", drawShown);
@@ -1389,6 +1390,44 @@ export const nextFrame = (run: () => void): (() => void) => {
     stopWaiting(frame);
   };
 };
+
+/** Run non-visible work after a visible frame, never while its page is hidden.
+ * The task after rAF lets the browser paint before work (including a fast RPC reply) starts.
+ * The existing visible-frame queue also holds hidden pages; selection/close cancels all work.
+ */
+function afterPaint(run: () => void): () => void {
+  let frame: number | undefined;
+  let task: ReturnType<typeof setTimeout> | undefined;
+  let done = false;
+  const hidden = () => typeof document !== "undefined" && document.visibilityState === "hidden";
+  const stop = () => {
+    done = true;
+    if (frame !== undefined) cancelAnimationFrame(frame);
+    if (task !== undefined) clearTimeout(task);
+    stopWaiting(schedule);
+  };
+  const finish = () => {
+    task = undefined;
+    if (done) return;
+    if (hidden()) return waitForShow(schedule);
+    stop();
+    run();
+  };
+  const schedule = () => {
+    if (done || frame !== undefined || task !== undefined) return;
+    if (hidden()) return waitForShow(schedule);
+    if (typeof requestAnimationFrame === "undefined") {
+      task = setTimeout(finish, 0);
+      return;
+    }
+    frame = requestAnimationFrame(() => {
+      frame = undefined;
+      if (!done) task = setTimeout(finish, 0);
+    });
+  };
+  schedule();
+  return stop;
+}
 
 /// A thought chunk continues the thought it follows: a thought streams into one growing item,
 /// not one row per chunk. `at` (the chunk's time) dates the thought's first and latest chunk, so
@@ -2893,6 +2932,7 @@ export class AcpmuxDirectClient {
     for (const { timers } of this.deliveries.values()) timers.forEach(clearTimeout);
     this.deliveries.clear();
     this.firstSeq = undefined;
+    this.promptIndex?.cancel?.();
     this.promptIndex = undefined;
     this.lastSeq = 0;
     this.clockOffset = undefined;
@@ -4598,6 +4638,7 @@ export class AcpmuxDirectClient {
       this.turnOpener = undefined;
       this.historyExhausted = false;
       // The prompt index was read for the held history that just went: read it again.
+      this.promptIndex?.cancel?.();
       this.promptIndex = undefined;
       this.usageFromSeq = Infinity;
       this.forkedAtSeq = undefined;
@@ -9686,49 +9727,82 @@ export class AcpmuxDirectClient {
 
   private readPromptIndex(sessionId: string, before: number, tries = 0): Promise<boolean> {
     const generation = this.selectionGeneration;
+    this.promptIndex?.cancel?.();
     const entry: PromptIndexRead = { sessionId, generation, tries: tries + 1, retryAt: 0 };
     this.promptIndex = entry;
-    entry.read = this.typed(
-      "_acpmux/events",
-      {
-        sessionId,
-        beforeSeq: before,
-        promptIndex: true,
-        kinds: ["user_message"],
-        limit: 5000,
-        maxBytes: OLDER_PAGE_BYTES,
-      },
-      PROMPT_INDEX_DEADLINE_MS,
-    )
-      .then((result: any) => {
-        if (this.closed || this.promptIndex !== entry) return false;
-        entry.read = undefined;
-        entry.rows = records(result?.events)
-          .filter(startsTurn)
-          .map((event): AcpmuxRow => {
-            const promptId = typeof event.msg?.promptId === "string" ? event.msg.promptId : undefined;
-            return {
-              id: `user-${event.seq}`,
-              version: 1,
-              at: event.at,
-              kind: "user",
-              text: String(event.msg?.text ?? "").slice(0, 240),
-              ...(promptId ? { promptId } : {}),
-            };
-          });
-        this.emit();
-        return true;
-      })
-      .catch(() => {
-        // Without the index the rail keeps the summary's count (promptCountAwaited) while pages load,
-        // and reads the index again past the back-off (shownEarlierPrompts, loadPromptIndex).
-        if (this.promptIndex !== entry) return false;
-        entry.read = undefined;
-        entry.rows = [];
-        entry.failed = true;
-        entry.retryAt = Date.now() + PROMPT_INDEX_RETRY_MS * entry.tries;
-        return false;
-      });
+    let finish!: (value: boolean) => void;
+    entry.read = new Promise<boolean>((resolve) => {
+      finish = resolve;
+    });
+    let settled = false;
+    const settle = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      finish(value);
+    };
+    // This read scans every historical prompt, and its reply parses/maps them all. The first
+    // snapshot only needs the bounded tail; promptCount keeps the rail's final geometry while
+    // its labels arrive. Do not let even a local daemon's immediate reply precede that paint.
+    const cancelPaint = afterPaint(() => {
+      entry.cancel = undefined;
+      if (this.closed || this.promptIndex !== entry || generation !== this.selectionGeneration) {
+        settle(false);
+        return;
+      }
+      void this.typed(
+        "_acpmux/events",
+        {
+          sessionId,
+          beforeSeq: before,
+          promptIndex: true,
+          kinds: ["user_message"],
+          limit: 5000,
+          maxBytes: OLDER_PAGE_BYTES,
+        },
+        PROMPT_INDEX_DEADLINE_MS,
+      )
+        .then((result: any) => {
+          if (this.closed || this.promptIndex !== entry) {
+            settle(false);
+            return false;
+          }
+          entry.read = undefined;
+          entry.rows = records(result?.events)
+            .filter(startsTurn)
+            .map((event): AcpmuxRow => {
+              const promptId = typeof event.msg?.promptId === "string" ? event.msg.promptId : undefined;
+              return {
+                id: `user-${event.seq}`,
+                version: 1,
+                at: event.at,
+                kind: "user",
+                text: String(event.msg?.text ?? "").slice(0, 240),
+                ...(promptId ? { promptId } : {}),
+              };
+            });
+          this.emit();
+          settle(true);
+          return true;
+        })
+        .catch(() => {
+          // Without the index the rail keeps the summary's count (promptCountAwaited) while pages load,
+          // and reads the index again past the back-off (shownEarlierPrompts, loadPromptIndex).
+          if (this.promptIndex !== entry) {
+            settle(false);
+            return false;
+          }
+          entry.read = undefined;
+          entry.rows = [];
+          entry.failed = true;
+          entry.retryAt = Date.now() + PROMPT_INDEX_RETRY_MS * entry.tries;
+          settle(false);
+          return false;
+        });
+    });
+    entry.cancel = () => {
+      cancelPaint();
+      settle(false);
+    };
     return entry.read;
   }
 
@@ -10142,6 +10216,7 @@ export class AcpmuxDirectClient {
     this.replayMode = false;
     this.fedMode = false;
     this.closed = true;
+    this.promptIndex?.cancel?.();
 
     clearTimeout(this.hiddenDraw);
     this.frameRequest?.cancel?.();

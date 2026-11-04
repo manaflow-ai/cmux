@@ -28,6 +28,8 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     public var depth = 0
     /// Archived in the sidebar document: its header draws dimmed (its members too). Set by `arrange`.
     public var isArchived = false
+    /// How its workspaces list (the editor's Sort; the document's `extra.sort`). Set by `arrange`.
+    public var sort: SidebarGroupSort = .manual
     /// The machine a remote group stands for (``SidebarSection/wrappedAsHostGroup()``): its header is
     /// a group's, with the machine's mark and status dot (``SidebarHostGroupLook``); nil for every other group.
     public var machine: SidebarMachine?
