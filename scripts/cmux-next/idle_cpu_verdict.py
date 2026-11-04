@@ -15,7 +15,7 @@ if not lines:
 elif lines[-1][0] == "pass" and os.environ.get("MINI_JOB_EXIT", "0") == "0":
     print(f"PASS idle within budget{lines[-1][1][:200]}; {summary}")
 elif lines[-1][0] == "fail":
-    print(f"FAIL over budget{lines[-1][1][:300]}; {summary}")
+    print(f"FAIL{lines[-1][1][:300]}; {summary}")
 elif lines[-1][0] == "pass":
     print(f"NOVERDICT the step said pass but exited {os.environ.get('MINI_JOB_EXIT')}")
 else:

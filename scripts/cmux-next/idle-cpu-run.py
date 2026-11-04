@@ -103,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     label = a.label or f"{build['id'][:8]}-{int(a.minutes)}m-c{a.chats}"
     sid = re.sub(r"[^A-Za-z0-9_.-]", "-", f"idle-cpu-{label}-{int(time.time())}")
-    minutes_total = int(a.minutes + a.windows * a.window / 60 + 25)
+    minutes_total = int(a.minutes + a.windows * a.window / 60 + 25 + 4 * a.chats)  # each chat: up to 240 s to make
     spec = {
         "name": f"IDLE CPU: build {build['id'][:8]} ({build['tag']}) idle {a.minutes:g} min, {a.chats} finished chats",
         "owner": "IDLE CPU" + (f" agent {a.agent_id}" if a.agent_id else ""),
