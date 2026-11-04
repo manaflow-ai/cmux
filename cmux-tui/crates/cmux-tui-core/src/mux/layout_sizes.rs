@@ -32,9 +32,9 @@ pub enum LayoutSizesError {
     Width { index: usize, error: ViewportWidthError },
     /// The value at `index` is on another screen than the first value.
     OtherScreen { index: usize },
-    /// The ratio at `index` is not a finite number (in-process callers; JSON cannot carry one), as the single
-    /// command refuses it.
-    NonFiniteRatio { index: usize },
+    /// The ratio at `index` is not a number (in-process callers; JSON cannot carry one). An infinite ratio is not
+    /// refused: it clamps, as `set-split-ratio` clamps it.
+    NanRatio { index: usize },
     /// The commit failed (the store refused it); nothing changed.
     NotPersisted { reason: String },
 }
@@ -42,7 +42,7 @@ pub enum LayoutSizesError {
 impl LayoutSizesError {
     pub const BAD_COUNT_CODE: &'static str = "invalid-argument";
     pub const OTHER_SCREEN_CODE: &'static str = "layout-sizes-other-screen";
-    pub const NON_FINITE_RATIO_CODE: &'static str = "invalid-argument";
+    pub const NAN_RATIO_CODE: &'static str = "invalid-argument";
     pub const NOT_PERSISTED_CODE: &'static str = "layout-sizes-not-persisted";
 
     /// The single command's error code for a refused value, else the batch's own.
@@ -52,7 +52,7 @@ impl LayoutSizesError {
             Self::Ratio { error, .. } => error.code(),
             Self::Width { error, .. } => error.code(),
             Self::OtherScreen { .. } => Self::OTHER_SCREEN_CODE,
-            Self::NonFiniteRatio { .. } => Self::NON_FINITE_RATIO_CODE,
+            Self::NanRatio { .. } => Self::NAN_RATIO_CODE,
             Self::NotPersisted { .. } => Self::NOT_PERSISTED_CODE,
         }
     }
@@ -64,7 +64,7 @@ impl LayoutSizesError {
             Self::Ratio { index, .. }
             | Self::Width { index, .. }
             | Self::OtherScreen { index }
-            | Self::NonFiniteRatio { index } => Some(*index),
+            | Self::NanRatio { index } => Some(*index),
         }
     }
 }
@@ -81,8 +81,8 @@ impl fmt::Display for LayoutSizesError {
             Self::OtherScreen { index } => {
                 write!(formatter, "value {index} is on another screen than value 0")
             }
-            Self::NonFiniteRatio { index } => {
-                write!(formatter, "value {index}: the split ratio is not a finite number")
+            Self::NanRatio { index } => {
+                write!(formatter, "value {index}: the split ratio is not a number")
             }
             Self::NotPersisted { reason } => {
                 write!(formatter, "could not persist layout sizes: {reason}")

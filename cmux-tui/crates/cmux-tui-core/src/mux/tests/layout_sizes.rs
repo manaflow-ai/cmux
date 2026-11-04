@@ -190,7 +190,7 @@ fn a_nan_ratio_is_refused_and_changes_nothing() {
             16,
         )
         .expect_err("a NaN ratio was taken");
-    assert_eq!(error.index(), Some(1), "{error}");
+    assert!(matches!(error, LayoutSizesError::NanRatio { index: 1 }), "{error}");
     assert_eq!(error.code(), "invalid-argument");
     assert_eq!(widths_revision_and_undo(&mux), before, "a refused batch changed the layout");
 }
@@ -298,7 +298,7 @@ fn a_nan_ratio_on_a_tree_split_is_refused_and_an_infinite_one_clamps() {
             20,
         )
         .expect_err("a NaN ratio on a tree split was taken");
-    assert_eq!(error.index(), Some(0), "{error}");
+    assert!(matches!(error, LayoutSizesError::NanRatio { index: 0 }), "{error}");
     assert_eq!(root_ratio(&mux), before, "a refused ratio changed the split");
 
     mux.set_layout_sizes_in_transaction_checked_as(
