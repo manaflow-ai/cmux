@@ -101,7 +101,7 @@ test("Push always stays flush and keeps its pinned column across adjacent pane a
       expect(sessionInfoStage("push", pane, panel, STANDARD)).toBe("push");
       const room = pushedRoom(paneWidth, panel, STANDARD, 0, true);
       expect(room).toBe(panel + 8);
-      expect(pushKeepsColumn(paneWidth, room, STANDARD, true)).toBe(true);
+      expect(pushKeepsColumn(paneWidth, room, STANDARD)).toBe(true);
       // This is the width CSS can draw while keeping the minimum page edge on either side.
       expect(paneWidth - room - 2 * transcriptColumn(0, STANDARD).inset).toBeGreaterThanOrEqual(
         transcriptColumn(paneWidth, STANDARD).width,

@@ -41,6 +41,22 @@ describe("sessionInfoPopover", () => {
   // then session info should be an overlay", #33037). So each width a drag passes through only moves
   // the stage on from float to push to overlay, and while it pushes, the room grows with the panel,
   // the column keeps its width and ends left of the panel.
+  // Odd panel widths and content past the column take an odd room at the snap to the whole room: the
+  // stage still only moves on, one pixel of drag at a time.
+  test("no pixel of a drag moves the stage back, at any overflow", () => {
+    const order = ["float", "push", "overlay"];
+    for (const overflow of [0, 3, 5, 40]) {
+      for (const paneWidth of [900, 1017, 1021, 1100, 1401]) {
+        let lastStage = 0;
+        for (let width = SESSION_INFO_WIDTH.min; width <= SESSION_INFO_WIDTH.max; width++) {
+          const stage = order.indexOf(sessionInfoStage("overlay", { width: paneWidth, height: 960 }, width, undefined, false, overflow));
+          expect(stage).toBeGreaterThanOrEqual(lastStage);
+          lastStage = stage;
+        }
+      }
+    }
+  });
+
   test("dragging the edge wider pushes the chat left until the column would narrow", () => {
     const order = ["float", "push", "overlay"];
     for (const paneWidth of [760, 900, 1100, 1200, 1400, 1600, 2000]) {

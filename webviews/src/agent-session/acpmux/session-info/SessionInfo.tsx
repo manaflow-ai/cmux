@@ -242,7 +242,7 @@ export const sessionInfoStage = (
     if (wide || sessionInfoPopover(pane.height, true) || !sessionInfoFits(pane.width)) return "overlay";
   }
   const room = pushedRoom(pane.width, pushedWidth(pane.width, width), column, overflow, pushes(placement));
-  return pushKeepsColumn(pane.width, room, column, pushes(placement)) ? "push" : "overlay";
+  return pushKeepsColumn(pane.width, room, column) ? "push" : "overlay";
 };
 
 /// The shell's pin on the transcript's column while Session Info pushes (sessionInfo.css).
@@ -273,16 +273,13 @@ export const findBarCramped = (chatWidth: number, clear: number) =>
 /// width it has in the whole pane (model.ts transcriptColumn): only the gutters shrink, so the column
 /// moves left and no line of the chat wraps anew. While it pushes, the page pins the column to that
 /// width (sessionInfo.css --acpmux-session-info-column), so no frame of the slide narrows it either.
-export const pushKeepsColumn = (paneWidth: number, room: number, column?: ChatColumn, allowGridRounding = false) =>
+export const pushKeepsColumn = (paneWidth: number, room: number, column?: ChatColumn) =>
   paneWidth <= 0 ||
   room <= 0 ||
   (room < paneWidth &&
-    // Push always takes an exact, user-dragged width. Its CSS pins the original column without
-    // rounding the inset, so check that width plus the two minimum page edges fits in the chat.
-    // Default placement steps in 2s and keeps its existing exact-width guard.
-    (allowGridRounding
-      ? paneWidth - room >= transcriptColumn(paneWidth, column).width + 2 * transcriptColumn(0, column).inset
-      : transcriptColumn(paneWidth - room, column).width === transcriptColumn(paneWidth, column).width) &&
+    // A push's CSS pins the original column without rounding the inset, so an odd room keeps it too:
+    // check that width plus the two minimum page edges fits in the chat.
+    paneWidth - room >= transcriptColumn(paneWidth, column).width + 2 * transcriptColumn(0, column).inset &&
     // The column itself too, not only its drawn width: the inset's rounding can make up a pixel of a
     // column the narrower chat shrank, and that push is one a narrower column would need (Leo,
     // 2026-11-03: "if it would need to be then session info should be an overlay").
@@ -302,8 +299,6 @@ export const sessionInfoPushes = (
 /// moves right as the chat widens.
 const columnEnd = (chatWidth: number, column?: ChatColumn) => chatWidth - transcriptColumn(chatWidth, column).inset;
 
-/// A room stepped in 2px increments while the column needs only part of the panel: an even room keeps the
-/// centered column's inset on a whole pixel (model.ts transcriptColumn), so the column keeps its width.
 /// The room a pushed panel `panel` wide (pushedWidth) takes from the chat's right end: by default only
 /// what the gutter lacks, so the chat narrows gradually from the pane width where the gutter stops
 /// holding the panel (0 there) to the panel and its margin (Leo, 2026-11-03: "gradually pushing into the
