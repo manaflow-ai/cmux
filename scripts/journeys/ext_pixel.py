@@ -887,6 +887,10 @@ GRAB_SHARE = 0.5  # the dragged edge followed the pointer: it moved at least thi
 # the next divider on its axis by STILL_GRAB_PT or more between the mouse-down and the end of the drag.
 STILL_DRAG_PT = 5.0
 STILL_GRAB_PT = 3.0
+# The press must land in the dragged divider's hit band as the trace has it at the mouse-down (half its width), plus this.
+# The trace's divider rects are 7 pt wide even with metrics.dividerHitWidth 24 applied by debug.tunables, and a press 4.1 pt
+# off a split missed it (ab-s2bdc-813ac15): the band that counts is the trace's, with no slack.
+PRESS_SLACK_PT = 0.0
 
 
 def spring_fraction(t, response, damping=1.0):
@@ -960,6 +964,22 @@ def _journal_times(j, since):
     return key, mouse
 
 
+def _press_focus(j, mouse_down, window_s=0.1):
+    """The pane the app focused by the mouse within WINDOW_S of MOUSE_DOWN (host s), or None. A press on a divider starts a
+    drag and focuses no pane; a press that misses it lands in a pane, which takes the focus (journal kind focus, focusPane,
+    source mouse): ab-s2bdc-813ac15, a press 4.1 pt off a split during its spring."""
+    for e in _journal(j):
+        t = float(e.get("uptimeNanos") or 0) / 1e9
+        if not mouse_down - 0.002 <= t <= mouse_down + window_s:
+            continue
+        focus = (e.get("kind") or {}).get("focus")
+        body = focus.get("_0") if isinstance(focus, dict) else None
+        pane = body.get("focusPane") if isinstance(body, dict) else None
+        if isinstance(pane, dict) and pane.get("source") == "mouse":
+            return pane.get("_0") or "a pane"
+    return None
+
+
 def _journal(j, last=200):
     """The app's input journal's last LAST entries, in their order (a key press writes about 6, a 400 ms drag a few)."""
     reply = j.app.rpc("debug.journal", {"last": last}) or {}
@@ -1018,6 +1038,9 @@ def step_px_key_then_drag(j, step):
     drag = dict(step["drag"])
     target, by = dict(drag["target"]), [float(v) for v in drag["by"]]
     share = float(drag.get("share", 1.0))
+    # less_pt: points the dragged divider's own spring travels short of SHARE x the key's step (the S2B clamp case: b1 starts
+    # CLAMP_ROOM_PT above its minimum, so the split travels the step less that room: 59 of 65 pt; ab-s2bdc-813ac15 missed by 4.1).
+    less = float(drag.get("less_pt", 0.0))
     after = float(step.get("after_ms", 60)) / 1000.0
     spring = (st.get("springs") or {}).get("move") or step.get("spring_default") or {"response": 0.15, "damping": 1.0}
     response = 0.0 if st.get("reduce") else float(spring["response"])
@@ -1048,11 +1071,11 @@ def step_px_key_then_drag(j, step):
     cx, cy, w, h = rest[dragged]
     # Where the drag's mouse-down will find the edge: the key's spring moves every divider right of p0 by its step.
     expect = after + DRAG_DOWN_S
-    moved = share * (step_pt * spring_fraction(expect, response) if response else step_pt)
+    moved = (share * step_pt - less) * (spring_fraction(expect, response) if response else 1.0)
     press = [cx + moved, cy]  # SHARE of the key's step: 1 for the key's own edge, 0 for an edge past the traded columns
     info = {"key": {"key": step["key"], "modifiers": list(step.get("modifiers", []))},
             "drag": {"target": target, "by": by, "duration_ms": int(drag["duration_ms"]), "divider": dragged,
-                     "rest": [cx, cy], "press": press, "share": share},
+                     "rest": [cx, cy], "press": press, "share": share, "less_pt": less},
             "spring_edge": spring_edge, "spring_edge_rest": rest[spring_edge][0], "key_step_pt": step_pt,
             "spring": {"response": response, "damping": float(spring.get("damping", 1.0))},
             "planned": {"after_ms": round(after * 1000, 3), "mouse_down_after_key_ms": round(expect * 1000, 3),
@@ -1104,20 +1127,38 @@ def step_px_key_then_drag(j, step):
             travel = end[dragged][k] - shown[k]
         want = by[0] if axis == "x" else by[1]
         info["dragged_travel_pt"] = None if travel is None else round(travel, 3)
-        if abs(want) < STILL_DRAG_PT:
+        # The press against the dragged divider's hit band at the mouse-down (the trace's frame there): a press outside it
+        # missed, whatever the divider does after (a missed press beside a springing edge shows the same end state).
+        if shown:
+            k = 0 if axis == "x" else 1
+            half = (shown[2] if axis == "x" else shown[3]) / 2.0
+            info["press_off_pt"] = round(press[k] - shown[k], 3)
+            info["press_band_pt"] = round(half, 3)
+            info["press_in_band"] = abs(press[k] - shown[k]) <= half + PRESS_SLACK_PT
+        focused = _press_focus(j, mouse_down)
+        info["press_focused_pane"] = focused
+        if focused:
+            # The app's own answer: the press went into a pane, not to the divider.
+            info["grabbed"] = False
+        elif abs(want) < STILL_DRAG_PT:
+            # A still drag: its own travel cannot tell a grab (the edge may spring on either way), only the press point can.
             k = 0 if axis == "x" else 1
             nxt = ids[index + 1] if index + 1 < len(ids) else None
             shown_next = at.get(nxt) if nxt else None
             travel_next = end[nxt][k] - shown_next[k] if shown_next and nxt in end else None
             info["still_drag"] = {"next_divider": nxt, "next_travel_pt": None if travel_next is None else round(travel_next, 3),
-                                  "grab_pt": STILL_GRAB_PT}
-            info["grabbed"] = travel is not None and travel_next is not None and abs(travel - travel_next) >= STILL_GRAB_PT
+                                  "rule": "the press in the divider's hit band at the mouse-down"}
+            info["grabbed"] = bool(info.get("press_in_band"))
         else:
             info["grabbed"] = travel is not None and want != 0 and travel / want >= GRAB_SHARE
-        if not info["grabbed"]:
+        if not info["grabbed"] and focused:
+            verdict = (f"the press missed the edge: it focused pane {focused} (journal focus, source mouse) at the mouse-down; "
+                       f"pressed at {press}, {dragged} at {info['dragged_at_down']}")
+        elif not info["grabbed"]:
             verdict = (f"the press missed the edge: {dragged} moved {travel} pt of the drag's {want} pt (pressed at {press}, "
                        f"the edge at the mouse-down {info['dragged_at_down']}"
-                   + (f"; a still drag: the next divider moved {info['still_drag']['next_travel_pt']} pt" if "still_drag" in info else "")
+                   + (f"; a still drag: the press was {info.get('press_off_pt')} pt from the divider, its band +-{info.get('press_band_pt')} pt"
+                      if "still_drag" in info else "")
                    + ")")
         elif not info["edge_moving_at_down"]:
             verdict = (f"no overlap: the key's spring edge {spring_edge} was not moving at the drag's mouse-down "

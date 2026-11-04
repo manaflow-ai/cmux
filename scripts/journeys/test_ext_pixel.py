@@ -1129,7 +1129,7 @@ class PixelCasesTests(unittest.TestCase):
             # s0125: the terminal-only S2b cases (x0.125, the slowest speed every spring takes: a response is clamped to 2 s).
             self.assertEqual(labels, {"s0125", "s025", "s05", "s1", "s2", "s4", "reduce"})
             self.assertEqual(sorted(s["id"] for s in specs if any(n.endswith("-s0125") for n in s["recordings"])),
-                             ["px-keys-then-clamp-3x", "px-keys-then-clamp-chase-3x", "px-keys-then-drag-3t", "px-keys-then-split-drag-2st"])
+                             ["px-keys-then-clamp-2x", "px-keys-then-clamp-chase-2x", "px-keys-then-drag-3t", "px-keys-then-split-drag-2st"])
             for s in specs:
                 self.assertLessEqual(s["budget_seconds"], 250, s["id"])
                 films = [st for st in s["steps"] if st["do"] == "px_film"]
@@ -1769,6 +1769,7 @@ class SpringApp(FakeApp):
 
     def drag(self, point, by):
         self.mouse_down = self.host() + self.latency_s
+        self.focus_on_miss = getattr(self, "focus_on_miss", False)
         self.by = (float(by[0]), float(by[1]))
         d = {k[0]: k for k in self.dividers(self.mouse_down)}
         c1 = d["column:c1"]
@@ -1782,6 +1783,10 @@ class SpringApp(FakeApp):
             self.grabbed = "split"
         self.journal.append({"seq": len(self.journal) + 1, "uptimeNanos": int(self.mouse_down * 1e9),
                              "kind": {"mouse": {"_0": {"phase": "down", "x": point[0], "y": point[1]}}}})
+        if self.grabbed is None and self.focus_on_miss:
+            # A press beside the divider lands in the pane under it, which takes the focus (as the app's journal shows it).
+            self.journal.append({"seq": len(self.journal) + 1, "uptimeNanos": int(self.mouse_down * 1e9) + 100_000,
+                                 "kind": {"focus": {"_0": {"focusPane": {"_0": "pane-b1", "source": "mouse"}}}}})
 
 
 class SpringJourney(FakeJourney):
@@ -1930,6 +1935,34 @@ class KeyThenDragTests(unittest.TestCase):
                 self.assertAlmostEqual(note["drag"]["press"][0], 1075.5, places=6)
                 self.assertEqual(note["verdict"], "overlap")
                 self.assertEqual(app.grabbed, "column")
+
+    def test_a_press_that_focuses_a_pane_is_a_miss(self):
+        """The app's journal decides: a press that focused a pane by the mouse at its mouse-down went into the pane, not to the
+        divider (ab-s2bdc-813ac15: 4.1 pt off a split, inside the trace's band, and the pane took the focus)."""
+        app = SpringApp(self.clock, 8000.0, response=1.2, latency_s=0.9, hit_pt=7.0, drag_ms=1500, vsplit=True)
+        app.focus_on_miss = True
+        j, note = self.still_drag(app)
+        self.assertIsNone(app.grabbed)
+        self.assertEqual(note["press_focused_pane"], "pane-b1")
+        self.assertFalse(note["grabbed"])
+        self.assertIn("it focused pane pane-b1", j.px["film_not_run"])
+
+    def test_less_pt_takes_the_divider_s_shorter_travel(self):
+        """drag.less_pt: the split travels the key's step less b1's room (59 of 65 pt); the press plans that."""
+        app = SpringApp(self.clock, 8000.0, response=1.2, drag_ms=1500, vsplit=True)
+        j = SpringJourney(app, tempfile.mkdtemp(), self.clock)
+        j.px = {"speed": 0.125, "reduce": False, "springs": {"move": {"response": 1.2, "damping": 1.0}},
+                "springs_source": "overrides", "tunables": {}, "films": []}
+        X.step_px_key_then_drag(j, {"key": "l", "modifiers": ["control", "shift"], "after_ms": 60,
+                                    "drag": {"target": {"divider": 1}, "by": [1, 0], "duration_ms": 1500, "less_pt": 6}})
+        note = j.video["notes"]["pixel"]["key_then_drag"]
+        # The step's own plan: the key's step (KEY_STEP of the main pane, rounded to half a point) less 6 pt, times the
+        # spring's progress at the planned mouse-down (after_ms + DRAG_DOWN_S).
+        step = round(X.KEY_STEP * 1304 * 2) / 2
+        frac = spring_fraction(0.06 + X.DRAG_DOWN_S, 1.2)
+        self.assertAlmostEqual(note["drag"]["press"][0] - note["drag"]["rest"][0], (step - 6) * frac, places=3)
+        self.assertAlmostEqual(note["planned"]["moved_pt"], round((step - 6) * frac, 3), places=3)
+        self.assertEqual(note["drag"]["less_pt"], 6.0)
 
     def still_drag(self, app):
         j = SpringJourney(app, tempfile.mkdtemp(), self.clock)

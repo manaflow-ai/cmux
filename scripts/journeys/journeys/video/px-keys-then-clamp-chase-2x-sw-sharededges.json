@@ -1,14 +1,14 @@
 {
- "id": "px-keys-then-clamp-chase-3x-sw-sharededges",
+ "id": "px-keys-then-clamp-chase-2x-sw-sharededges",
  "priority": "P1",
- "title": "PIXEL: Ctrl-Shift-L on p0, then the split x in B dragged 30 pt right in 0.6 s during its spring, past the clamp at A's rest edge plus b1's minimum (columns p0 T | (p1 T | p2 T) | p3 T; terminals only), at x0.125 OFF, x0.125 ON (motion.frameOwner.sharedEdges OFF and ON)",
+ "title": "PIXEL: Ctrl-Shift-L on p0, then the split x in B dragged 30 pt right in 0.6 s during its spring, past the clamp at A's rest edge plus b1's minimum (columns p0 T | (p1 T | p2 T); terminals only), at x0.125 OFF, x0.125 ON (motion.frameOwner.sharedEdges OFF and ON)",
  "why": "Lawrence 2026-11-03: resizing columns and splits is not pixel perfect when animated. Loud fixture colors (shell #FF00FF, terminal ground #00FFFF, tab strips #000000, rings #FF0000/#FFFFFF/#000000) make any gap, overlap or lag visible; judge_pixel.py reads every pane edge, tab strip and divider per film frame from the exact scan lines.",
  "source": "PIXEL PERFECT kit (video-cases/gen_pixel.py)",
- "budget_seconds": 83,
- "estimate_seconds": 69,
+ "budget_seconds": 79,
+ "estimate_seconds": 65,
  "recordings": [
-  "px-keys-then-clamp-chase-3x-sw-sharededges-off-s0125",
-  "px-keys-then-clamp-chase-3x-sw-sharededges-on-s0125"
+  "px-keys-then-clamp-chase-2x-sw-sharededges-off-s0125",
+  "px-keys-then-clamp-chase-2x-sw-sharededges-on-s0125"
  ],
  "options": {
   "key_path": "real"
@@ -65,7 +65,7 @@
   {
    "do": "new_terminal",
    "via": "key",
-   "name": "px-keys-then-clamp-chase-3x-sw-sharededges"
+   "name": "px-keys-then-clamp-chase-2x-sw-sharededges"
   },
   {
    "do": "neutral_prompt"
@@ -152,11 +152,6 @@
    "do": "neutral_prompt"
   },
   {
-   "do": "try_action",
-   "action": "column.widthOneThird",
-   "title": "set-up: p1's column takes its share"
-  },
-  {
    "do": "type",
    "text": "python3 /tmp/jr-tui-border.py --fill 00FF00 --label p1",
    "enter": true,
@@ -205,58 +200,13 @@
    ]
   },
   {
-   "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (p3)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "p3"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "try_action",
-   "action": "column.widthOneThird",
-   "title": "set-up: p3's column takes its share"
-  },
-  {
-   "do": "type",
-   "text": "python3 /tmp/jr-tui-border.py --fill 00FF00 --label p3",
-   "enter": true,
-   "mark": "tui-p3",
-   "title": "set-up: the terminal fixture in p3 (fill #00FF00)"
-  },
-  {
-   "do": "expect",
-   "title": "set-up: the fixture runs in p3 (its alternate screen hides the prompt)",
-   "since": "tui-p3",
-   "timeout": 8,
-   "all": [
-    {
-     "daemon_lacks": "J> "
-    }
-   ]
-  },
-  {
-   "do": "rk_focus",
-   "pane": "p0",
-   "title": "set-up: focus p0 (cmux pane focus)"
-  },
-  {
-   "do": "try_action",
-   "action": "column.widthOneThird",
-   "title": "set-up: p0's column takes its share"
-  },
-  {
    "do": "wait",
    "seconds": 1.5,
    "title": "the layout and the load settle (nothing observable to wait on)"
   },
   {
    "do": "px_film",
-   "name": "px-keys-then-clamp-chase-3x-sw-sharededges-off-s0125",
+   "name": "px-keys-then-clamp-chase-2x-sw-sharededges-off-s0125",
    "steps": [
     {
      "do": "rk_focus",
@@ -266,7 +216,7 @@
     {
      "do": "try_action",
      "action": "column.widthOneThird",
-     "title": "set-up: p0's column back to a third"
+     "title": "set-up: p0's column to a third of the viewport"
     },
     {
      "do": "rk_focus",
@@ -275,18 +225,8 @@
     },
     {
      "do": "try_action",
-     "action": "column.widthOneThird",
-     "title": "set-up: p1's column back to a third"
-    },
-    {
-     "do": "rk_focus",
-     "pane": "p3",
-     "title": "set-up: focus p3 (cmux pane focus)"
-    },
-    {
-     "do": "try_action",
-     "action": "column.widthOneThird",
-     "title": "set-up: p3's column back to a third"
+     "action": "column.widthTwoThirds",
+     "title": "set-up: p1's column to two thirds of the viewport"
     },
     {
      "do": "wait",
@@ -308,12 +248,12 @@
       "divider": 1
      },
      "by": [
-      -80,
+      -300,
       0
      ],
-     "duration_ms": 400,
+     "duration_ms": 500,
      "mark": "minimum",
-     "title": "set-up: the split x 80 pt left (b1 stops at its minimum)"
+     "title": "set-up: the split x 300 pt left (b1 stops at its minimum)"
     },
     {
      "do": "wait",
@@ -357,7 +297,7 @@
     },
     {
      "do": "px_record_start",
-     "name": "px-keys-then-clamp-chase-3x-sw-sharededges-off-s0125",
+     "name": "px-keys-then-clamp-chase-2x-sw-sharededges-off-s0125",
      "seconds": 10.9,
      "require_hz": 120,
      "mbps": 60,
@@ -373,15 +313,11 @@
       "p2": {
        "kind": "tui",
        "fill": "#FFFF00"
-      },
-      "p3": {
-       "kind": "tui",
-       "fill": "#00FF00"
       }
      },
      "spring": "move",
      "input": "key then drag past the clamp",
-     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-keys-then-clamp-chase-3x-sw-sharededges-off-s0125)",
+     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-keys-then-clamp-chase-2x-sw-sharededges-off-s0125)",
      "spring_default": {
       "response": 0.15,
       "damping": 1.0
@@ -403,7 +339,8 @@
        30,
        0
       ],
-      "duration_ms": 600
+      "duration_ms": 600,
+      "less_pt": 6
      },
      "spring_default": {
       "response": 0.15,
@@ -419,9 +356,9 @@
     },
     {
      "do": "video_stop",
-     "name": "px-keys-then-clamp-chase-3x-sw-sharededges-off-s0125",
+     "name": "px-keys-then-clamp-chase-2x-sw-sharededges-off-s0125",
      "tail": 0.4,
-     "title": "the motion ends; stop the recording (px-keys-then-clamp-chase-3x-sw-sharededges-off-s0125)"
+     "title": "the motion ends; stop the recording (px-keys-then-clamp-chase-2x-sw-sharededges-off-s0125)"
     }
    ],
    "after": [
@@ -448,7 +385,7 @@
      "title": "p0's column back (its key spring lands)"
     }
    ],
-   "title": "film px-keys-then-clamp-chase-3x-sw-sharededges-off-s0125: every motion.spring.* response / 0.125, motion.frameOwner.sharedEdges OFF",
+   "title": "film px-keys-then-clamp-chase-2x-sw-sharededges-off-s0125: every motion.spring.* response / 0.125, motion.frameOwner.sharedEdges OFF",
    "speed": 0.125,
    "switch": {
     "key": "motion.frameOwner.sharedEdges",
@@ -457,7 +394,7 @@
   },
   {
    "do": "px_film",
-   "name": "px-keys-then-clamp-chase-3x-sw-sharededges-on-s0125",
+   "name": "px-keys-then-clamp-chase-2x-sw-sharededges-on-s0125",
    "steps": [
     {
      "do": "rk_focus",
@@ -467,7 +404,7 @@
     {
      "do": "try_action",
      "action": "column.widthOneThird",
-     "title": "set-up: p0's column back to a third"
+     "title": "set-up: p0's column to a third of the viewport"
     },
     {
      "do": "rk_focus",
@@ -476,18 +413,8 @@
     },
     {
      "do": "try_action",
-     "action": "column.widthOneThird",
-     "title": "set-up: p1's column back to a third"
-    },
-    {
-     "do": "rk_focus",
-     "pane": "p3",
-     "title": "set-up: focus p3 (cmux pane focus)"
-    },
-    {
-     "do": "try_action",
-     "action": "column.widthOneThird",
-     "title": "set-up: p3's column back to a third"
+     "action": "column.widthTwoThirds",
+     "title": "set-up: p1's column to two thirds of the viewport"
     },
     {
      "do": "wait",
@@ -509,12 +436,12 @@
       "divider": 1
      },
      "by": [
-      -80,
+      -300,
       0
      ],
-     "duration_ms": 400,
+     "duration_ms": 500,
      "mark": "minimum",
-     "title": "set-up: the split x 80 pt left (b1 stops at its minimum)"
+     "title": "set-up: the split x 300 pt left (b1 stops at its minimum)"
     },
     {
      "do": "wait",
@@ -558,7 +485,7 @@
     },
     {
      "do": "px_record_start",
-     "name": "px-keys-then-clamp-chase-3x-sw-sharededges-on-s0125",
+     "name": "px-keys-then-clamp-chase-2x-sw-sharededges-on-s0125",
      "seconds": 10.9,
      "require_hz": 120,
      "mbps": 60,
@@ -574,15 +501,11 @@
       "p2": {
        "kind": "tui",
        "fill": "#FFFF00"
-      },
-      "p3": {
-       "kind": "tui",
-       "fill": "#00FF00"
       }
      },
      "spring": "move",
      "input": "key then drag past the clamp",
-     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-keys-then-clamp-chase-3x-sw-sharededges-on-s0125)",
+     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-keys-then-clamp-chase-2x-sw-sharededges-on-s0125)",
      "spring_default": {
       "response": 0.15,
       "damping": 1.0
@@ -604,7 +527,8 @@
        30,
        0
       ],
-      "duration_ms": 600
+      "duration_ms": 600,
+      "less_pt": 6
      },
      "spring_default": {
       "response": 0.15,
@@ -620,13 +544,13 @@
     },
     {
      "do": "video_stop",
-     "name": "px-keys-then-clamp-chase-3x-sw-sharededges-on-s0125",
+     "name": "px-keys-then-clamp-chase-2x-sw-sharededges-on-s0125",
      "tail": 0.4,
-     "title": "the motion ends; stop the recording (px-keys-then-clamp-chase-3x-sw-sharededges-on-s0125)"
+     "title": "the motion ends; stop the recording (px-keys-then-clamp-chase-2x-sw-sharededges-on-s0125)"
     }
    ],
    "after": [],
-   "title": "film px-keys-then-clamp-chase-3x-sw-sharededges-on-s0125: every motion.spring.* response / 0.125, motion.frameOwner.sharedEdges ON",
+   "title": "film px-keys-then-clamp-chase-2x-sw-sharededges-on-s0125: every motion.spring.* response / 0.125, motion.frameOwner.sharedEdges ON",
    "speed": 0.125,
    "switch": {
     "key": "motion.frameOwner.sharedEdges",
