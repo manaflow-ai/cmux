@@ -1482,4 +1482,32 @@ mod tests {
         );
         assert_eq!(gh_hosts_path(None, None, None), None);
     }
+
+    #[test]
+    fn own_gh_login_reads_an_indented_or_inline_github_com_entry() {
+        // cmux#35095: an indented root mapping, a tab-indented one, or an inline
+        // (flow) mapping is still a github.com login gh reads.
+        for hosts in [
+            "  github.com:\n      oauth_token: gho_x\n      user: me\n",
+            "\tgithub.com:\n\t\tuser: me\n",
+            "{github.com: {user: me, oauth_token: gho_x}}\n",
+            "{\"ghe.example.com\": {user: a}, github.com: {user: b}}\n",
+            "github.com: {user: me, oauth_token: gho_x}\n",
+            "github.com: # personal\n    user: me\n",
+            "---\n\"github.com\":\n  user: me\n",
+            "'GitHub.com':\n  user: me\n",
+        ] {
+            assert!(hosts_has_github(hosts), "{hosts:?}");
+        }
+        // A login for another host only, or github.com as a nested key, is not one.
+        for hosts in [
+            "  ghe.example.com:\n      user: a\n",
+            "{ghe.example.com: {user: a, note: github.com}}\n",
+            "  x:\n      github.com: 1\n",
+            "{}\n",
+            "# github.com:\n",
+        ] {
+            assert!(!hosts_has_github(hosts), "{hosts:?}");
+        }
+    }
 }
