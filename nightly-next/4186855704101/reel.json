@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "build": "4186855704101",
+  "notes": "notes/4186855704101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 35464,
+      "title": "test(acpmux): stop-before-scheduling test takes the config lock once the agent has the prompt",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35615,
+      "title": "idle-cpu: agents at work outside cmux (--writers) and real-size Codex rows (--history-prompt-kb)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35607,
+      "title": "base red: register backend.yml:journey-staging in warm-sources (release-notary)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35586,
+      "title": "ci: cloud-chat-proof cleanup_machine input to inspect and kill a leaked machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35438,
+      "title": "cmux NEXT: NIGHTLY hands its Stack session to a signed DEV build over its local socket",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34661,
+      "title": "relaunch shift bench: count unfinished recordings, read only this run, no double-counted layouts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35183,
+      "title": "cmux daemon: one verb invites an account to a chat, making its invite share when needed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35174,
+      "title": "acpmux: wait for live daemon peers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35582,
+      "title": "fix(tui): a created terminal's launch activation finds its runtime, not its tab",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35537,
+      "title": "Agent pane: a finished Claude turn keeps its runs in place; its whole-turn Worked for is an opt-in",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35557,
+      "title": "test(cmux-tui): cloud help's quick-start check leaves out the local `cloud env` lines; they parse in cloud_environment",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35552,
+      "title": "test(cmux-tui): a seeded folder keeps its repository sync barrier beside it",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35551,
+      "title": "test(acpmux): native_store_move runs in the hermetic test environment",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35550,
+      "title": "test(acpmux): the never-widens auto-start test runs with holdAgentStartsToStarter",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35548,
+      "title": "test(acpmux): background task updates and the process list carry the Bash call's description",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35545,
+      "title": "test(acpmux): the fake agents hide only cmux's guidance blocks, not the rules, btw and attachments context",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35549,
+      "title": "test(acpmux): the person's task joins a lane report's turn by a steer-only prompt",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35554,
+      "title": "fix(cmux-tui): cloud help lists preview-share and preview-revoke, which #34460 offers",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35585,
+      "title": "cmux-vm staging: approve the Cloud Native image with cmux-tui b1f8fc4d",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35566,
+      "title": "swift-logic table: rows whose rules now live in Rust and whose Swift only calls the FFI (4 PLATFORM, 4 MIXED)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
