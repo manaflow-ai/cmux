@@ -150,8 +150,10 @@ jobs:
 
       # The rolling rule (scripts/ci/nightly_next_rolling.py): promote at once when nothing is
       # building nightly-next, else once the oldest landing the running build does not carry
-      # has waited 10 minutes. A dispatch for one commit skips it. It reads through the API only;
-      # its failure modes are in the script's docstring.
+      # has waited 10 minutes. A dispatch for one commit skips it. It reads nightly-next with
+      # git ls-remote (no API budget; ticks 41791114042 and 41791169626 lost their promotion to
+      # an exhausted budget on the refs API), the rest through the API; its failure modes are in
+      # the script's docstring.
       - name: Apply the rolling rule
         id: rolling
         if: vars.NIGHTLY_NEXT_TRAIN != 'on' && inputs.sha == ''
