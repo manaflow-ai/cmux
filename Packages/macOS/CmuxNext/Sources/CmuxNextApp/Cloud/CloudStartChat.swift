@@ -122,8 +122,8 @@ struct CloudStartChat {
         guard let chat = origin.chat, await CloudMoveFolder.isFolder(chat),
               let folder = CloudMoveFolder(chat: chat) else { throw CloudMove.Failure(message: CloudMoveStrings.noFolder) }
         guard !folder.isTooBroad else { throw CloudMove.Failure(message: CloudMoveStrings.homeFolder) }
-        // A folder the page named is copied only as the pane checked it: its upload root, in the
-        // pane's roots (``AgentPaneHandOff``). A `.git` found above it since then is refused.
+        // A folder the page named is copied only as the pane checked it: its upload root, never home
+        // or a credential folder (``AgentPaneHandOff``). A `.git` found above it since then is refused.
         guard start.uploads(folder) else { throw CloudMove.Failure(message: CloudMoveStrings.noFolder) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)

@@ -25,7 +25,7 @@ that fails now and then there. A missing or unreadable file lists nothing.
 webview test name before " > "), and exits 0. ci-web.yml re-runs those files alone on the head.
 
 --head-rerun names that re-run's results (webviews_test_results.py, {name: passed}). A red the change would be
-charged with whose file passed there, alone, is a warning (kind `flaky`), never the change's: the head shard
+charged with that explicitly passed there (or whose whole file passed), alone, is a warning (kind `flaky`), never the change's: the head shard
 retries a red file alone and counts its pass, but only while its retry budget lasts, so a late red on a long
 shard was never retried. #27710 (run 41525196343) went red on three gallery-frame timeouts its head shards had no
 budget left to retry; the base push after it merged passed all three. A file that fails again, or is missing from
@@ -115,7 +115,17 @@ def main(argv: list[str]) -> int:
         for file in sorted({test_file(step) for step in new}):
             print(file)
         return 0
-    passed_again = [step for step in new if rerun and rerun.get(test_file(step)) is True]
+    def passed_in_rerun(step: str) -> bool:
+        if not rerun:
+            return False
+        # Newer result files include named outcomes for a failed file.  Respect an
+        # explicit test result first so a named failure cannot be hidden by the
+        # legacy whole-file pass fallback.
+        if step in rerun:
+            return rerun[step] is True
+        return rerun.get(test_file(step)) is True
+
+    passed_again = [step for step in new if passed_in_rerun(step)]
     new = [step for step in new if step not in passed_again]
     flaked = sorted(flaked + passed_again)
     old = sorted(step for step, ok in head.items() if not ok and base.get(step) is False)

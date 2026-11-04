@@ -48,7 +48,20 @@ struct AgentPaneDisplaySettingTests {
         Row(key: "agentPane.display.rail.side", fallback: .string("left"), accepted: [.string("right")],
             refused: [.string("top"), .bool(true)]),
         Row(key: "markdown.code.family", fallback: nil, accepted: [.string("Menlo")], refused: [.bool(true)]),
+        // How the running tray names background commands: preset names and rules of one's own.
+        Row(key: "agentPane.display.commandLabels", fallback: .array([]),
+            accepted: [.array([.string("cmux-fleet"), .object(["program": .string("deploy"), "label": .string("Deploying")])]),
+                       .array([.object(["match": .string("^x"), "label": .string("X"), "icon": .string("cloud")])])],
+            refused: [.string("cmux-fleet"), .array([.object(["label": .string("x")])]), .array([.string(" ")])]),
     ]
+
+    @Test func thePageGetsAValidCommandLabelsListAndNotAnInvalidOne() {
+        let key = "agentPane.display.commandLabels"
+        let valid: JSONValue = ["agentPane": ["display": ["commandLabels": .array([.string("cmux-fleet")])]]]
+        #expect(AgentPaneDisplaySetting(fileRoot: valid).values[key] == .array([.string("cmux-fleet")]))
+        let invalid: JSONValue = ["agentPane": ["display": ["commandLabels": .array([.number(1)])]]]
+        #expect(AgentPaneDisplaySetting(fileRoot: invalid).values[key] == nil)
+    }
 
     @Test(arguments: rows)
     func eachRowHasThePageDefaultAndRange(_ row: Row) throws {
