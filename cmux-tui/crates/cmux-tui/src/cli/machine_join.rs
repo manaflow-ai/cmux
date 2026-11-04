@@ -698,7 +698,7 @@ fn entries(body: Value) -> Option<Vec<Value>> {
 }
 
 /// The platform's machine-join refusal codes. Errors print only these, from this table.
-const KNOWN_CODES: [&str; 44] = [
+const KNOWN_CODES: [&str; 46] = [
     "lease.not_found",
     "reservation.expired",
     "reservation.terminal",
@@ -706,7 +706,6 @@ const KNOWN_CODES: [&str; 44] = [
     "reservation.not_ready",
     "reservation.unavailable",
     "reservation.owner",
-    "auth.unauthenticated",
     "auth.unauthenticated",
     "auth.forbidden",
     "auth.sso_required",

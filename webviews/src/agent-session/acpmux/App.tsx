@@ -8839,16 +8839,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudPicked = sandbox.mode === "cloud" && !snapshot.sessionId;
   cloudComposeEligible.current = cloudPicked && sandboxOfferable;
   const cloudPickedNotOffered = cloudPicked && !sandboxOffered;
-const [startCloud] = useState(() =>
-    oneCloudStart(
-      reservedCloudCall(
-        (method, params) =>
-          cloudFolderGrant
-            .settled(typeof params.cwd === "string" ? params.cwd : undefined)
-            .then(() => callNative(method, params)),
-        cloudReservation,
-      ),
-    ),
+  const [startCloud] = useState(() =>
+    grantedCloudStart(reservedCloudCall(callNative, cloudReservation), cloudFolderGrant),
   );
   const [cloudStartKeys] = useState(() => makeCloudStartKeys());
   const [cloudStart, setCloudStart] = useState<CloudStartProgress>();

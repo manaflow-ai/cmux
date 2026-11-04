@@ -107,8 +107,11 @@ export class CloudComposeReservation {
 
 /// Keep oneCloudStart's pending-send guard while waiting for the speculative request. A failed
 /// prewarm falls back to the ordinary Send path; it never prevents sending a chat.
-export function reservedCloudCall(call: Native, reservation: CloudComposeReservation): Native {
-  return async (method, params) => {
+export function reservedCloudCall(
+  call: Native,
+  reservation: CloudComposeReservation,
+): (method: string, params?: Record<string, unknown>) => Promise<unknown> {
+  return async (method, params = {}) => {
     if (typeof params.reservationKey === "string" && !(await reservation.ready(params.reservationKey))) {
       const { reservationKey: _reservationKey, ...ordinary } = params;
       return call(method, ordinary);
