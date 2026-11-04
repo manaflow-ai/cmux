@@ -102,7 +102,7 @@ Enable's result is `cmux_cloud_enable_completed`. Upgrade continues as
 | `cmux_sign_in_started` | The user asks to sign in (Sign In, pane sign-in, Switch Account, socket `auth` sign-in), once per request, as before. `start_outcome` says what the request did; see [Requests and attempts](#requests-and-attempts) | `entrypoint` (`app`, `pane`, `switch_account`, `socket`), `start_outcome` (`opened`, `reused`, `already_signed_in`), `replaced_pending` (bool), `attempt_id` (only when `opened`), `replaced_attempt_id` (only when `opened` and an earlier opened attempt had no result yet; that attempt's id) |
 | `cmux_sign_in_callback_received` | An auth callback URL was handed to the app's sign-in completion. Receipt only: its payload, state and tokens are not validated yet, so it does not prove the browser or provider sign-in succeeded. Once per attempt. | `attempt_id`, `delivery` (`sign_in_window`, `external`, `embedded_browser`), `attempt_link` (`state`, `none`) |
 | `cmux_sign_in_window_closed` | The user closes the sign-in window before a callback, which ends the window. Not a result: a callback from the same attempt can still arrive. Once per attempt. | `attempt_id` |
-| `cmux_sign_in_succeeded` | That sign-in completes, including one that ends on the account already signed in. A session restore does not count. | `attempt_id`, `attempt_link` |
+| `cmux_sign_in_succeeded` | That sign-in completes, including one that ends on the account already signed in, and once per attempt, also after that attempt's failure (see [Results per attempt](#results-per-attempt)). A session restore does not count. | `attempt_id`, `attempt_link` |
 | `cmux_sign_in_failed` | That sign-in fails, once per attempt. A 429 that is still being retried is not a failure. A callback's failure goes to the attempt that issued its state. | `reason` (`offline`, `network`, `timed_out`, `server`, `invalid_link`, `browser_unavailable`, `unauthorized`, `rejected`, `cancelled`, `rate_limited`), `attempt_id` |
 | `cmux_signed_out` | The account signs out (captured before the identity reset) | none |
 
@@ -119,8 +119,8 @@ credited to the pending sign-in with `attempt_link = none`, which does not
 mean that sign-in caused it. A refused callback whose state no tracked
 attempt issued is credited to no attempt and is not measured. The app tracks
 the latest eight started sign-ins; a callback from an older one is not
-measured either. Failures the app sets outside a callback (`timed_out`,
-`browser_unavailable`) go to the newest opened attempt. `reason = cancelled` is never
+measured either. A deadline (`timed_out`) or a failed browser session
+(`browser_unavailable`) goes to the attempt it ended. `reason = cancelled` is never
 sent: closing the window is `cmux_sign_in_window_closed`.
 
 Events sent before this catalog had `attempt_id` carry no attempt properties
@@ -267,17 +267,20 @@ its steps are sent. Today that is the browser-app link handoff
 (`BrowserAppLinkHandoffCoordinator`), which starts a sign-in when an
 embedded-browser link needs one.
 
-### One result per attempt
+### Results per attempt
 
-An attempt gets at most one `cmux_sign_in_succeeded` or `cmux_sign_in_failed`:
-the first. If an attempt failed (for example `timed_out`) and its kept state
-later signs the app in, the sign-in succeeds and the account is identified,
-but no success is sent for that attempt; it stays `failed`.
+Each attempt sends at most one `cmux_sign_in_failed` and at most one
+`cmux_sign_in_succeeded`. A failure is never sent after the attempt's
+success. A success can follow the attempt's failure: when the browser
+session fails (`browser_unavailable`), the app keeps the attempt's state, and
+the default browser can still finish the sign-in with it. That attempt then
+sends `failed` and later `succeeded`; count it as **succeeded (eventual
+success)**. The outcome query gives success precedence.
 
-A failure the app records outside a callback (a timeout, a browser failure)
-is not sent again when it has the same reason as the failure just sent for
-another attempt's callback. This is rare: it needs an old tab's failed
-callback and then the newer attempt failing with the same reason.
+Every failure comes from the sign-in step that caused it and names that
+step's attempt: a callback that failed or was refused, the attempt's 10-minute
+deadline, or a failed browser session. Two attempts that fail for the same
+reason send two failures. A 429 that is still being retried sends none.
 
 ### Hosted page
 
@@ -340,7 +343,9 @@ data into this funnel or assume a cross-population identity join.
 
 First match, within the step window:
 
-1. `succeeded`: `cmux_sign_in_succeeded` for the attempt.
+1. `succeeded`: `cmux_sign_in_succeeded` for the attempt, also after a
+   failure of the same attempt (eventual success). To see those, count
+   attempts with both events.
 2. `failed:<reason>`: `cmux_sign_in_failed` for the attempt.
 3. `replaced`: another start names this attempt in `replaced_attempt_id`.
 4. `callback_without_result`: `cmux_sign_in_callback_received` and nothing

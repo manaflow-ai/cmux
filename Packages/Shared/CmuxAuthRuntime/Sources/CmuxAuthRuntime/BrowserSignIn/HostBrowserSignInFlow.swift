@@ -521,6 +521,7 @@ public final class HostBrowserSignInFlow {
             guard !Task.isCancelled, let self, self.activeAttemptID == attemptID else { return }
             self.log.log("auth.browser.attempt.timeout id=\(attemptID)")
             self.lastFailure = .timedOut
+            self.onEvent?(.attemptFailed(HostBrowserSignInAttempt(attemptID)))
             self.cancelActiveAttempt()
         }
     }
@@ -563,6 +564,7 @@ public final class HostBrowserSignInFlow {
         log.log("auth.browser.attempt.failed id=\(attemptID) reason=\(reason) signedIn=\(coordinator.isAuthenticated)")
         if !coordinator.isAuthenticated {
             lastFailure = .browserSignInFailed(reason)
+            onEvent?(.attemptFailed(HostBrowserSignInAttempt(attemptID)))
         }
     }
 

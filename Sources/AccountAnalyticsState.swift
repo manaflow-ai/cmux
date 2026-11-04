@@ -28,7 +28,11 @@ struct AccountAnalyticsState: Equatable {
         var browserAttempts: Set<HostBrowserSignInAttempt> = []
         var reportedCallback = false
         var reportedWindowClosed = false
-        var hasResult = false
+        /// At most one failure and one success per attempt. A success can
+        /// follow a failure (a kept state completed after the deadline or a
+        /// browser failure); a failure never follows a success.
+        var reportedFailure = false
+        var reportedSuccess = false
     }
 
     /// The latest started sign-ins, newest last. Bounded to eight: a callback
@@ -56,7 +60,6 @@ struct AccountAnalyticsState: Equatable {
     /// sets it.
     private(set) var pendingAttempt: SignInAttemptID?
     var isSignInPending: Bool { pendingAttempt != nil }
-    private var reportedFailure: SignInFailureReason?
 
     /// The user asked to sign in from `entrypoint`. Its start is reported
     /// when the browser flow opens an attempt for it (`opened`), or else when
@@ -85,7 +88,6 @@ struct AccountAnalyticsState: Equatable {
     ) -> [Action] {
         let replaced = pendingAttempt
         pendingAttempt = attemptID
-        reportedFailure = nil
         attempts.append(Attempt(id: attemptID))
         if attempts.count > Self.maximumAttempts {
             attempts.removeFirst(attempts.count - Self.maximumAttempts)
@@ -100,30 +102,16 @@ struct AccountAnalyticsState: Equatable {
         attempts.removeAll()
     }
 
+    /// Identity and sign-out only. Every failure comes from a flow event that
+    /// names its attempt, so none is inferred from the flow's latest failure.
     /// - Parameters:
     ///   - userID: The signed-in Stack user id, or nil.
     ///   - isSettling: A restore or sign-in is still running, so nil is not yet signed out.
-    ///   - failure: The browser sign-in's latest failure, nil while a 429 is
-    ///     still being retried.
-    mutating func observe(
-        userID newUserID: String?,
-        isSettling: Bool,
-        failure: SignInFailureReason?
-    ) -> [Action] {
+    mutating func observe(userID newUserID: String?, isSettling: Bool) -> [Action] {
         var actions = noteUser(newUserID)
         if newUserID == nil, !isSettling, userID != nil {
             actions.append(.signedOut)
             userID = nil
-        }
-        // A failure the flow set outside a callback (timeout, browser failure,
-        // a callback it refused before completion) belongs to its live
-        // attempt, the newest start. Callback failures arrive first through
-        // `flowEvent` with their own attempt and set `reportedFailure`.
-        if let pending = pendingAttempt, let failure, failure != reportedFailure {
-            actions.append(.signInFailed(failure, pending))
-            reportedFailure = failure
-            markResult(pending)
-            pendingAttempt = nil
         }
         return actions
     }
@@ -134,7 +122,7 @@ struct AccountAnalyticsState: Equatable {
     /// that ends on the account already signed in is counted too.
     /// - Parameters:
     ///   - userID: The signed-in Stack user id after the step.
-    ///   - failure: The flow's failure after the step; read for `callbackFailed`.
+    ///   - failure: The flow's failure after the step; read for failure steps.
     mutating func flowEvent(
         _ event: HostBrowserSignInEvent,
         userID currentUserID: String?,
@@ -162,17 +150,19 @@ struct AccountAnalyticsState: Equatable {
             else { return [] }
             attempts[index].reportedWindowClosed = true
             return [.signInWindowClosed(attempts[index].id)]
+        case let .attemptFailed(browserAttempt):
+            return attemptFailure(failure, index: credit(browserAttempt)?.0)
         case let .callbackFailed(browserAttempt):
-            return callbackFailure(failure, index: credit(browserAttempt)?.0)
+            return attemptFailure(failure, index: credit(browserAttempt)?.0)
         case let .callbackRefused(browserAttempt):
             // A refused callback names only the attempt that issued its state;
             // one no tracked attempt issued belongs to none, not the newest.
-            return callbackFailure(failure, index: browserAttempt.flatMap { credit($0)?.0 })
+            return attemptFailure(failure, index: browserAttempt.flatMap { credit($0)?.0 })
         case let .signInCompleted(browserAttempt):
             // Identify first, as a sign-in that changes the account does.
             var actions = noteUser(currentUserID)
-            if let (index, link) = credit(browserAttempt), !attempts[index].hasResult {
-                attempts[index].hasResult = true
+            if let (index, link) = credit(browserAttempt), !attempts[index].reportedSuccess {
+                attempts[index].reportedSuccess = true
                 actions.append(.signInSucceeded(attempts[index].id, link))
             }
             // The app is signed in, and a callback carrying an earlier
@@ -183,14 +173,14 @@ struct AccountAnalyticsState: Equatable {
         }
     }
 
-    /// A failure the flow set for one callback. Reported here or not at all:
-    /// `observe` must not also credit it to the newest start, whose window
-    /// may still be open and succeed.
-    private mutating func callbackFailure(_ failure: SignInFailureReason?, index: Int?) -> [Action] {
-        guard let failure else { return [] }
-        reportedFailure = failure
-        guard let index, !attempts[index].hasResult else { return [] }
-        attempts[index].hasResult = true
+    /// A failure of the attempt at `index`, once per attempt and never after
+    /// its success. Another attempt's failure, even with the same reason, is
+    /// that attempt's own.
+    private mutating func attemptFailure(_ failure: SignInFailureReason?, index: Int?) -> [Action] {
+        guard let failure, let index,
+              !attempts[index].reportedFailure, !attempts[index].reportedSuccess
+        else { return [] }
+        attempts[index].reportedFailure = true
         if attempts[index].id == pendingAttempt { pendingAttempt = nil }
         return [.signInFailed(failure, attempts[index].id)]
     }
@@ -215,10 +205,6 @@ struct AccountAnalyticsState: Equatable {
 
     private func index(of id: SignInAttemptID) -> Int? {
         attempts.lastIndex { $0.id == id }
-    }
-
-    private mutating func markResult(_ id: SignInAttemptID) {
-        if let index = index(of: id) { attempts[index].hasResult = true }
     }
 
     static func delivery(_ source: HostBrowserCallbackSource) -> SignInCallbackDelivery {

@@ -5,13 +5,11 @@ extension HostAccountFlow {
     /// Reports sign-in, identity, team and sign-out changes. Called on every
     /// coordinator change and once at init; cheap when nothing changed.
     func syncAnalytics() {
-        // A 429 that is still being retried is not a result; the retry's
-        // success or its final failure is.
-        let failure = isRetryingAfterRateLimit ? nil : lastSignInFailure
+        // Failures come only from flow events, so a 429 that is still being
+        // retried (no event) is never one.
         reportAnalytics(analyticsState.observe(
             userID: coordinator.currentUser?.id,
-            isSettling: isWorkingOnAuth,
-            failure: AccountAnalyticsState.reason(failure)
+            isSettling: isWorkingOnAuth
         ))
     }
 

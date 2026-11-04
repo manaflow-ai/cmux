@@ -189,6 +189,33 @@ struct HostAccountSignInAnalyticsTests {
         harness.tearDown()
     }
 
+    @Test("a browser failure is the attempt's failure; its kept state signing in later is that attempt's success")
+    func lateSuccessAfterBrowserFailure() async throws {
+        let harness = try await SignInAnalyticsHarness.make()
+        // The flow records a browser failure only while signed out.
+        await harness.flow.signOut()
+
+        harness.flow.startSignIn()
+        let session = await harness.sessions.session(0)
+        let callback = harness.callback(for: session)
+        session.deliver(.failed(reason: "presentation_failed"))
+        await harness.waitForAttemptToEnd()
+        harness.flow.syncAnalytics()
+        // Safari finishes the hosted sign-in after the window reported failure.
+        #expect(await harness.flow.handleCallbackURL(callback, delivery: .external))
+        harness.flow.syncAnalytics()
+
+        let events = await harness.signInEvents()
+        #expect(events.map(\.name) == [
+            "cmux_sign_in_started", "cmux_sign_in_failed",
+            "cmux_sign_in_callback_received", "cmux_sign_in_succeeded",
+        ])
+        #expect(events[1].string("reason") == "browser_unavailable")
+        #expect(events[3].string("attempt_link") == "state")
+        #expect(Set(events.compactMap { $0.string("attempt_id") }).count == 1)
+        harness.tearDown()
+    }
+
     @Test("a rejected callback fails once with a bounded reason for its attempt")
     func rejectedCallbackFailsOnce() async throws {
         let harness = try await SignInAnalyticsHarness.make()

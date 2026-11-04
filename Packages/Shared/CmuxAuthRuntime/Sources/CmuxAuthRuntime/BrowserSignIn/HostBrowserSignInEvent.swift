@@ -23,6 +23,11 @@ public enum HostBrowserSignInEvent: Equatable, Sendable {
     /// `attempt` is the attempt that issued the callback's state, or nil when
     /// no tracked attempt did; such a refusal belongs to no attempt.
     case callbackRefused(attempt: HostBrowserSignInAttempt?)
+    /// The attempt ended with a failure outside a callback (its deadline
+    /// passed, or the browser session failed) and set
+    /// ``HostBrowserSignInFlow/lastFailure``. A kept state can still complete
+    /// it later.
+    case attemptFailed(HostBrowserSignInAttempt)
     /// The user closed the attempt's sign-in window and that ended the
     /// attempt. A callback carrying its state can still complete it later.
     case windowClosedByUser(HostBrowserSignInAttempt)
@@ -33,7 +38,8 @@ public enum HostBrowserSignInEvent: Equatable, Sendable {
 public struct HostBrowserSignInAttempt: Hashable, Sendable {
     let rawValue: UInt64
 
-    init(_ rawValue: UInt64) {
+    /// Public so a host's tests can name attempts; the flow numbers them.
+    public init(_ rawValue: UInt64) {
         self.rawValue = rawValue
     }
 }

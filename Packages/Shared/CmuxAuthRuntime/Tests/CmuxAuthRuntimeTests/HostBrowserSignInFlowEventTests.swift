@@ -180,6 +180,31 @@ import Testing
         ])
     }
 
+    @Test func passedDeadlineAndBrowserFailureEachNameTheirAttempt() async {
+        let clock = ManualTestClock()
+        let harness = HostBrowserSignInFlowHarness(browserAttemptTimeout: 1, clock: clock)
+        let recorder = recordEvents(harness)
+
+        harness.flow.beginSignIn()
+        await harness.waitForSession()
+        await clock.waitUntilSleepers(count: 2)
+        clock.advance(by: .seconds(1))
+        await harness.waitForCondition { harness.flow.isSigningIn == false }
+        #expect(harness.flow.lastFailure == .timedOut)
+
+        let retry = harness.flow.beginSignIn()
+        await harness.waitForSession(count: 2)
+        harness.factory.sessions[1].deliver(.failed(reason: "presentation_failed"))
+        #expect(await retry.value == false)
+
+        #expect(recorder.events == [
+            .attemptStarted(Self.first),
+            .attemptFailed(Self.first),
+            .attemptStarted(Self.second),
+            .attemptFailed(Self.second),
+        ])
+    }
+
     @Test func rejectedWindowCallbackReportsTheCallbackButNoCompletion() async {
         let harness = HostBrowserSignInFlowHarness(user: Self.user)
         let recorder = recordEvents(harness)
