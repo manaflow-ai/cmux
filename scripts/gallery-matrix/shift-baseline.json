@@ -1596,7 +1596,7 @@
     "agent-pane.subagent-row-anatomy#mixed": 0.0399,
     "agent-pane.subagent-row-anatomy#running-stats": 0.031,
     "agent-pane.subagent-tray-head#folded": 0,
-    "agent-pane.subagent-tray-head#open": 0.0295,
+    "agent-pane.subagent-tray-head#open": 0.0387,
     "agent-pane.subagent-tray-motion#enter-exit": 0.1532,
     "agent-pane.subagent-tray-motion#line-joins": 0.0566,
     "agent-pane.subagent-tray-motion#start-empty": 0,
