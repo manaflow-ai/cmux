@@ -301,10 +301,53 @@ fn remove(sets: &mut BTreeMap<String, BTreeSet<String>>, sid: &str, id: &str) {
     }
 }
 
+/// Resolves once `path` exists: at once on a Cloud machine. Elsewhere it waits for a file event in
+/// the nearest folder of the path that exists (`/run/cmux-vm-agent`, else `/run`), with no timer,
+/// and looks again on each. A watch that cannot start resolves at once (the loop then runs as
+/// before: it reports nothing while the socket is absent).
+async fn agent_socket_appears(path: &Path) {
+    use notify::Watcher as _;
+    if path.exists() {
+        return;
+    }
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let Ok(mut watcher) =
+        notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+            if !matches!(&event, Ok(e) if e.kind.is_access()) {
+                let _ = tx.send(());
+            }
+        })
+    else {
+        return;
+    };
+    let mut watched: Option<std::path::PathBuf> = None;
+    loop {
+        // Watch before checking, so a socket made in between is seen by the check or wakes the wait.
+        let Some(dir) = path.ancestors().skip(1).find(|d| d.is_dir()).map(Path::to_path_buf) else {
+            return;
+        };
+        if watched.as_ref() != Some(&dir) {
+            if let Some(old) = watched.take() {
+                let _ = watcher.unwatch(&old);
+            }
+            if watcher.watch(&dir, notify::RecursiveMode::NonRecursive).is_err() {
+                return;
+            }
+            watched = Some(dir);
+        }
+        if path.exists() || rx.recv().await.is_none() {
+            return;
+        }
+    }
+}
+
 /// Follows this daemon's own sessions and reports how many are at work while the Cloud agent's
 /// socket is there.
 pub(super) async fn activity_loop(hub: Arc<Hub>) {
     let path = super::cloud_handoff::agent_socket();
+    // Off a Cloud machine nothing reads the report: no renew tick and no resume subscription (it
+    // keeps the hub's resume tick running) until the agent's socket appears (cmux-ad m9).
+    agent_socket_appears(&path).await;
     let mut events = hub.subscribe();
     let mut resumes = hub.subscribe_resumes();
     let mut person_prompts = hub.subscribe_person_prompts();
