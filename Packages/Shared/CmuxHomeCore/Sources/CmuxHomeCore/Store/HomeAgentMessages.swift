@@ -107,9 +107,10 @@ struct HomeAgentMessages {
         return .message(from: from, to: to, outgoing: message.outgoing, text: message.text)
     }
 
-    /// `messages` (one row's, in order) with each Chief's two or more messages behind one fold row,
-    /// and its status notes, any number, behind one notes row after them (user 2026-10-31: five
-    /// "stopped without a report" bubbles after one answer are one quiet line).
+    /// `messages` (one row's, in order) behind one agents row per Chief: one pill per agent the Chief
+    /// told or heard from after that row (user 2026-11-03, msg 19960), status notes included (they stop
+    /// the agent's pill), so a lone task is a pill too and five "stopped without a report" notes are no
+    /// second row.
     private static func folded(_ messages: [TranscriptItem], expanded: Set<String>) -> [TranscriptItem] {
         guard !messages.isEmpty else { return messages }
         var groups: [String] = []
@@ -119,26 +120,33 @@ struct HomeAgentMessages {
             if byGroup[group] == nil { groups.append(group) }
             byGroup[group, default: []].append(message)
         }
-        return groups.flatMap { group -> [TranscriptItem] in
-            var notes: [TranscriptItem] = [], others: [TranscriptItem] = []
-            for member in byGroup[group] ?? [] {
-                if case .note? = member.agentMessage?.kind { notes.append(member) } else { others.append(member) }
-            }
-            return fold(others, group: group, expanded: expanded) + foldNotes(notes, group: group, expanded: expanded)
-        }
+        return groups.flatMap { fold(byGroup[$0] ?? [], group: $0, expanded: expanded) }
     }
 
-    /// Two or more messages behind one fold row; one message shows as itself.
+    /// One agents row for `members`, then every member in order when the group is open.
+    ///
+    /// Each agent, first-seen order: its state is its newest member's (the Chief's message: told; a
+    /// report: reported; a status note: stopped); its title is the Chief's first message to it.
     private static func fold(_ members: [TranscriptItem], group: String, expanded: Set<String>) -> [TranscriptItem] {
-        guard members.count > 1, let first = members.first else { return members }
+        guard let first = members.first else { return [] }
         var peers: [String] = [], seenPeers: Set<String> = []
-        var states: [String: HomeAgentMessageRow.PeerState] = [:], latest: String?
+        var states: [String: HomeAgentMessageRow.PeerState] = [:], latest: String?, titles: [String: String] = [:]
         for member in members {
-            guard case let .message(from, to, outgoing, text)? = member.agentMessage?.kind else { continue }
-            let peer = outgoing ? to : from
+            let peer: String
+            switch member.agentMessage?.kind {
+            case let .message(from, to, outgoing, text)?:
+                peer = outgoing ? to : from
+                states[peer] = outgoing ? .told : .reported
+                if outgoing, titles[peer] == nil { titles[peer] = HomeAgentMessageRow.title(of: text) }
+                latest = text
+            case let .note(notePeer, _, text)?:
+                peer = notePeer
+                states[peer] = .stopped
+                latest = text
+            default:
+                continue
+            }
             if seenPeers.insert(peer).inserted { peers.append(peer) }
-            states[peer] = outgoing ? .told : .reported
-            latest = text
         }
         let open = expanded.contains(group)
         var fold = TranscriptItem(
@@ -149,30 +157,7 @@ struct HomeAgentMessages {
         fold.agentMessage = HomeAgentMessageRow(group: group, kind: .fold(count: members.count, peers: peers, expanded: open))
         fold.agentMessage?.peerStates = peers.map { states[$0] ?? .told }
         fold.agentMessage?.latest = latest
+        fold.agentMessage?.peerTitles = peers.map { titles[$0] ?? $0 }
         return open ? [fold] + members : [fold]
-    }
-
-    /// Status notes behind one notes row, whose group is ``HomeAgentMessageRow/notesGroup(_:)``.
-    private static func foldNotes(_ notes: [TranscriptItem], group: String, expanded: Set<String>) -> [TranscriptItem] {
-        guard let first = notes.first else { return [] }
-        var peers: [String] = [], seenPeers: Set<String> = [], reasons: [HomeAgentMessageRow.StatusNote] = [], latest: String?
-        for note in notes {
-            guard case let .note(peer, reason, text)? = note.agentMessage?.kind else { continue }
-            latest = text
-            if seenPeers.insert(peer).inserted { peers.append(peer) }
-            if !reasons.contains(reason) { reasons.append(reason) }
-        }
-        let notesGroup = HomeAgentMessageRow.notesGroup(group)
-        let open = expanded.contains(notesGroup)
-        var row = TranscriptItem(
-            key: IdempotencyKey("agent-notes:\(group)"), seq: nil, author: first.author,
-            parts: [.text("\(open ? "▾" : "▸") \(HomeAgentMessageRow.peerPreview(peers, separator: " · "))")], createdAt: first.createdAt,
-            delivery: .committed, replyTo: first.replyTo, threadRoot: first.threadRoot)
-        row.isReadOnly = true
-        row.agentMessage = HomeAgentMessageRow(group: notesGroup, kind: .notes(
-            count: notes.count, peers: peers, reason: reasons.count == 1 ? reasons.first : nil, expanded: open))
-        row.agentMessage?.peerStates = peers.map { _ in .stopped }
-        row.agentMessage?.latest = latest
-        return open ? [row] + notes : [row]
     }
 }

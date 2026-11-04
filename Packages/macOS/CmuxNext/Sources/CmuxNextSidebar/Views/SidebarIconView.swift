@@ -12,9 +12,14 @@ final class SidebarIconView: NSView {
     private let imageView = DecorativeImageView()
     private let swatch = CALayer()
     private let emoji = SidebarEmojiGlyphView()
+    /// The shown favicons' measured ink and drawn bitmaps (the one favicon path, `SidebarFaviconRenditions`).
+    private let renditions = SidebarFaviconRenditions()
     private var icon: WorkspaceIcon?
-    /// What the last `configure` drew from (the glyphs scale with the title font and the density's icon column).
-    private var configured: (icon: WorkspaceIcon?, pointSize: CGFloat)?
+    /// What the last `configure` drew from (the glyphs scale with the title font and the density's icon column; a favicon follows the favicon style).
+    private var configured: (icon: WorkspaceIcon?, pointSize: CGFloat, faviconStyle: SidebarFaviconStyle)?
+    /// How the shown favicon draws and the pixel side its bitmap was made at; nil without a favicon. Drawn again
+    /// when the theme, the backing scale or the style changes, never per frame.
+    private var faviconDrawing: SidebarFaviconDrawing?
     /// One ink for every symbol, tinted or not (the solid group header's
     /// glyph ink, cx-qno.22: a red icon must not vanish on a red bar); nil
     /// keeps a symbol's tint and draws an uncolored one in the secondary text color.
@@ -65,11 +70,13 @@ final class SidebarIconView: NSView {
         // A row's status tick configures the row again with the same icon: keep the image. A new
         // NSImage redraws (pack icons run their drawing handler) and relays out at the next display.
         let pointSize = SidebarStyle.workspaceSymbolPointSize
-        if let configured, configured.icon == icon, configured.pointSize == pointSize { return }
-        configured = (icon, pointSize)
+        let faviconStyle = SidebarFaviconStyle.tunable.value
+        if let configured, configured.icon == icon, configured.pointSize == pointSize, configured.faviconStyle == faviconStyle { return }
+        configured = (icon, pointSize, faviconStyle)
         self.icon = icon
         isHidden = !Self.showsIcon(icon)
         emoji.isHidden = true
+        faviconDrawing = nil
         switch icon {
         case let .emoji(text, chip)?:
             emoji.text = text
@@ -83,9 +90,13 @@ final class SidebarIconView: NSView {
             inkKey = "symbol|\(name)|\(pointSize)"
             imageView.isHidden = false
         case let .favicon(favicon)?:
-            let side = SidebarStyle.workspaceFaviconSide
-            imageView.image = NSImage(cgImage: favicon.image, size: NSSize(width: side, height: side))
-            inkKey = "favicon|\(UInt(bitPattern: ObjectIdentifier(favicon.image).hashValue))"
+            showFavicon(favicon)
+            imageView.isHidden = false
+        case .pagePlaceholder?:
+            // The favicon's slot and size, as a symbol draws (`SidebarFaviconRenditions` has no image to treat yet).
+            let name = WorkspaceIcon.pagePlaceholderSymbol
+            imageView.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(SidebarStyle.glyphConfig)
+            inkKey = "symbol|\(name)|\(pointSize)"
             imageView.isHidden = false
         case .swatch?, nil:
             imageView.image = nil
@@ -101,12 +112,15 @@ final class SidebarIconView: NSView {
         performWithTheme {
             let tint: NSColor? = if case let .symbol(_, tint)? = icon {
                 symbolInk ?? tint.map(SidebarStyle.color) ?? Palette.textSecondary
+            } else if icon == .pagePlaceholder {
+                symbolInk ?? Palette.textSecondary
             } else if icon == nil {
                 Palette.textSecondary
             } else {
                 nil
             }
             if let tint { imageView.setTint(tint) }
+            if let favicon = shownFavicon { themeFavicon(favicon) }
             switch icon {
             case let .swatch(color)?:
                 swatch.isHidden = false
@@ -121,10 +135,17 @@ final class SidebarIconView: NSView {
         CATransaction.commit()
     }
 
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        // A favicon's bitmap is made at the drawn pixel size: a new scale makes it again.
+        if let favicon = shownFavicon { showFavicon(favicon); needsLayout = true }
+    }
+
     override func layout() {
         super.layout()
-        // The glyph fills the density's icon column (`SidebarStyle.workspaceGlyphSide`: 16 compact, 20 comfortable), so
-        // a roomier density draws a larger icon, not the compact one in a wider slot.
+        if let favicon = shownFavicon, faviconDrawing?.pixels != faviconPixels { showFavicon(favicon) }
+        // A row's icon column can be wider than the glyph (the comfortable 20 pt box): the glyph keeps its own
+        // `iconBox` square, centered in the column, so density moves the column and not the glyph's size.
         // `leadsWithInk`: each glyph's drawn ink starts at x 0 by `SidebarStyle.iconColumnGlyphX`; the chip, the dot and
         // the emoji's square are their own ink, a symbol or favicon image is measured (`SidebarGlyphInk`).
         let side = min(bounds.width, bounds.height, SidebarStyle.workspaceGlyphSide)
@@ -132,6 +153,7 @@ final class SidebarIconView: NSView {
         let content = CGRect(x: leadsWithInk ? SidebarStyle.iconColumnGlyphX(leading: 0, ink: square) : (bounds.width - side) / 2,
                              y: (bounds.height - side) / 2, width: side, height: side)
         imageView.frame = leadsWithInk ? leadingImageFrame(side: side) ?? content : content
+        if shownFavicon != nil { layoutFavicon(content: content) }
         emoji.frame = content
         // A bare emoji's ink is narrower than its square: it starts its ink at the edge; on a chip it centers in it.
         if case .emoji(_, nil)? = icon { emoji.leadsWithInk = leadsWithInk } else { emoji.leadsWithInk = false }
@@ -164,5 +186,60 @@ final class SidebarIconView: NSView {
         let snap = { (value: CGFloat) in (value * scale).rounded() / scale }
         return CGRect(x: snap(SidebarStyle.iconColumnGlyphX(leading: 0, ink: drawnInk)), y: snap((bounds.height - height) / 2),
                       width: width, height: height)
+    }
+
+    // MARK: Favicon (Lawrence msg 19869: legible on light and dark)
+
+    /// The favicon shown, if the icon is one.
+    private var shownFavicon: SidebarFavicon? { if case let .favicon(favicon)? = icon { favicon } else { nil } }
+    private var backingScale: CGFloat { window?.backingScaleFactor ?? 2 }
+    private func snap(_ value: CGFloat) -> CGFloat { (value * backingScale).rounded() / backingScale }
+    /// The favicon's drawn side, on the pixel grid.
+    private var faviconSide: CGFloat { max(1 / backingScale, snap(SidebarStyle.workspaceFaviconSide)) }
+    /// The pixel side the favicon's bitmap is made at now (`SidebarFaviconRenditions.drawing`).
+    private var faviconPixels: Int { max(1, Int((faviconSide * max(2, backingScale)).rounded())) }
+
+    /// Hands the image view `favicon` as the favicon style draws it on the sidebar ground in this view's theme, and
+    /// lays out again when the drawing changed (its ink box, `SidebarGlyphInk`, is keyed by the treatment).
+    private func showFavicon(_ favicon: SidebarFavicon) {
+        renditions.onStyleChange = { [weak self] in self?.faviconStyleChanged() }
+        let drawing = performWithTheme {
+            renditions.drawing(favicon, side: faviconSide, scale: backingScale,
+                               ground: SidebarFaviconRenditions.groundLuminance(Palette.sidebarBackground))
+        }
+        faviconDrawing = drawing
+        inkKey = "favicon|\(UInt(bitPattern: ObjectIdentifier(favicon.image).hashValue))|\(drawing.treatment)"
+        if imageView.image !== drawing.image {
+            imageView.image = drawing.image
+            needsLayout = true
+        }
+    }
+
+    /// Inside `updateLayer`'s theme: a theme change can change the drawing (a mono icon tints on dark, not on light;
+    /// a plate is light on dark); a template takes the label colour.
+    private func themeFavicon(_ favicon: SidebarFavicon) {
+        showFavicon(favicon)
+        if faviconDrawing?.isTemplate == true { imageView.setTint(symbolInk ?? Palette.textPrimary) }
+    }
+
+    /// Puts a treated favicon on the pixel grid at its drawn side; `content` is the glyph's square in the icon column.
+    /// The original treatment keeps the frame it always had.
+    private func layoutFavicon(content: CGRect) {
+        guard let drawing = faviconDrawing, drawing.treatment != .original else { return }
+        let side = faviconSide
+        if leadsWithInk {
+            let frame = imageView.frame
+            imageView.frame = CGRect(x: snap(frame.minX), y: snap(frame.minY), width: side, height: side)
+        } else {
+            imageView.frame = CGRect(x: snap(content.midX - side / 2), y: snap(content.midY - side / 2), width: side, height: side)
+        }
+    }
+
+    private func faviconStyleChanged() {
+        guard let favicon = shownFavicon else { return }
+        configured?.faviconStyle = SidebarFaviconStyle.tunable.value
+        showFavicon(favicon)
+        needsDisplay = true
+        needsLayout = true
     }
 }

@@ -207,8 +207,11 @@ export function applyDiffViewerAppearance(appearance?: DiffViewerAppearance) {
   rootStyle.setProperty("--cmux-diff-selection-bg-light", colorString(lightTheme.selectionBackground, "#abd8ff"));
   rootStyle.setProperty("--cmux-diff-selection-bg-dark", colorString(darkTheme.selectionBackground, "#3f638b"));
   rootStyle.setProperty("--cmux-diff-code-font-family", codeFontFamily(appearance.fontFamily));
-  rootStyle.setProperty("--cmux-diff-font-size", `${metric(appearance.fontSize, 10)}px`);
-  rootStyle.setProperty("--cmux-diff-line-height", `${metric(appearance.lineHeight, 20)}px`);
+  // Keep the host fallback aligned with the shared code type step used by the
+  // page stylesheet (12/18), including hosts that do not provide appearance
+  // metrics yet.
+  rootStyle.setProperty("--cmux-diff-font-size", `${metric(appearance.fontSize, 12)}px`);
+  rootStyle.setProperty("--cmux-diff-line-height", `${metric(appearance.lineHeight, 18)}px`);
   // Code colors (syntax-theme.ts): each token rule reads its role's variable, so this recolors
   // code in place.
   for (const [type, theme] of [

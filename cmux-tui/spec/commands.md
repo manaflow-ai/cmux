@@ -624,7 +624,8 @@ object{
   write_path?:object{
     effect_intents:uint64, effect_intent_failures:uint64,
     effect_intent_batches:uint64, request_effect_commits:uint64,
-    writer_registry_locks:uint64
+    writer_registry_locks:uint64, wal_commits?:uint64,
+    wal_synced_commits?:uint64, registry_wal_frame_bytes?:uint64
   },
   locks?:object{registry:lock_detail, state:lock_detail},
   hook_queue?:object{queued_events:uint64,reset_dropped_events:uint64,undeliverable_events:uint64}
@@ -680,7 +681,14 @@ stopped, or not yet running. `writer_registry_locks` counts, process-wide,
 registry lock, registry connection or mux state lock acquisitions on a
 journal writer thread. It is always `0`: a request thread holds the registry
 lock (and may hold state) while it waits for its writer receipt, so the
-writer never takes either.
+writer never takes either. `wal_commits` counts the registry commits written
+to the WAL (`synchronous=NORMAL`) and `wal_synced_commits` those the WAL syncer
+has flushed to disk. `registry_wal_frame_bytes` counts the bytes of the WAL
+frames those commits appended (each frame is a 24-byte header and one page):
+what the registry's writes put on the disk, before the checkpoint copies each
+page into the database once more. Its first count after a start also holds the
+frames a previous run left in the WAL, so a reader compares two reads (the
+bytes one change writes). Daemons older than each field omit it.
 
 `locks` reports the workspace registry lock (`registry`) and the mux state
 lock (`state`) by acquiring site, so a convoy names the code that holds it.
@@ -7085,6 +7093,56 @@ Params: `path` (required), `query` (optional map of strings).
 Result: `object{status:uint64, body?:JsonValue, error?:string}` (the brain's
 HTTP-like status, its JSON answer, or its reason).
 
+### chief-work
+
+| Field | Value |
+| --- | --- |
+| name | `chief-work` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `chief-work-v1` |
+
+Reads a bounded snapshot of the named Chief's subagents and harness background
+commands on its configured machine. The capability is advertised when the daemon
+has a configured Chief home or tools socket. `chief` is an existing Chief
+participant id, never a client-supplied home path or acpmux session id. The daemon
+resolves that Chief's home, verifies its ownership identity, and includes its
+tagged sessions and descendants at any depth. Another Chief's explicitly tagged
+sessions and sessions on peer daemons are excluded. Chief turn and compactor
+roots supply command scope but do not appear as subagent rows.
+
+Only the owner's registered Unix connection or authenticated owner WebSocket may
+read it: the principal is `user_local`, no remote or bound agent, and a WebSocket
+has either no page and the daemon credential, or the scoped `home-channels` page
+credential. Other pages, paired devices and unregistered connections are refused
+with `origin.forbidden` before any work is read. This is the same owner-page
+admission as the Chief registry; it is a raw command, not a catalog operation.
+
+Params: `chief` (required string).
+
+Result: `object{agents:array<ChiefWorkAgent>, tasks:array<ChiefWorkTask>,
+truncated:boolean, taskSources:array<string>}`.
+
+- `ChiefWorkAgent = {id:string, name:string,
+  state:"working"|"waiting"|"idle"|"failed", task:string|null,
+  startedAt:uint64|null, updatedAt:uint64|null}`. Working and waiting take
+  precedence over a previous failed turn; failed or lost agents never look idle.
+- `ChiefWorkTask = {id:string, sessionId:string, title:string, command:string,
+  status:"running"|"done"|"failed"|"cancelled"|"unknown",
+  startedAt:uint64|null, endedAt:uint64|null, detail:string|null}`. Timestamps are
+  epoch milliseconds when supplied by acpmux. A lost process has `unknown`
+  status; a successful exit is `done`, a nonzero exit or start failure is
+  `failed`, and a killed process is `cancelled`.
+
+`taskSources` is currently `["harness"]`: only the harness process registry is
+read. Daemon-owned `bg` tasks keep their separate person-proof gate and are not
+included. No task mutation, subscription, or background polling is started.
+All paginated reads share a 15-second deadline; at most 200 owned sessions
+(active first) and 500 commands are returned. `truncated` reports those bounds,
+never a failed read. A failed or malformed source page returns
+`chief.work_unavailable` without a partial or empty success. An unknown Chief
+returns `chief.work_not_found`; an unconfigured machine returns
+`chief.work_not_configured`.
+
 ### conversation-attachment-upload
 
 | Field | Value |
@@ -10390,6 +10448,17 @@ answers `{"ready":true}` after the path, mode and free space are checked,
 then reads exactly `size` raw bytes (at most 64 GiB) and answers `{entry}`.
 A write stream that closes or stays idle for 60 seconds before `size` bytes
 leaves no file at `path`.
+
+A server that also advertises `fs-write-deflate-v1` takes compressed write
+bytes. An `fs.write` line or write stream may carry `"encoding":"deflate"`
+with `decoded_size`: the wire bytes (the line's `bytes_base64`, or the
+stream's `size` raw bytes) are one raw deflate stream (RFC 1951) that must
+decode to exactly `decoded_size` bytes. The free-space check and the
+single-write limit apply to `decoded_size`; decoding stops at it, and more
+or fewer decoded bytes, or bytes that are not deflate, are `params.invalid`
+and leave no file. A write stream there also takes `permissions`, as the
+line op does. Without these fields every write is as above, and a client
+sends them only to a server that advertises the capability.
 
 ## Guest browser opening
 

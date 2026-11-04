@@ -17,8 +17,10 @@
 //! harness up. A hosted harness's servers are kept in its session's meta with its host's
 //! incarnation (`StoredLaunch`, `SessionMeta::idle_launch`), so a next daemon that adopts the host
 //! after a restart, an update or a crash judges it by the same servers. For a harness another
-//! daemon started with none kept (a build before this one), none are known: it ends only when
-//! nothing runs under it.
+//! daemon started with none kept (a build before those were kept), they are read from the
+//! running harness at its adoption: its argv and the environment it started with, as the kernel
+//! has them, and its configs as they are then (`LaunchServers::read_live`). When that read fails
+//! none are known: it ends only when nothing runs under it.
 //!
 //! Only a child of the harness can be a server, and only when its argv is exactly the server's:
 //! its program (as configured, or what `PATH` runs for a name), or an interpreter running that
@@ -221,6 +223,32 @@ impl LaunchServers {
             _ => Self::Unknown,
         }
     }
+
+    /// For a running harness whose start no daemon kept the servers of (a host an older build
+    /// started, before `StoredLaunch`): read from the harness itself, its argv and the
+    /// environment it was started with as the kernel has them (`tree::argv`, `tree::environ`),
+    /// in `cwd`, its session's folder, with the configs as they are now. A server since removed
+    /// from them keeps the harness up as unknown work does; one since added counts only when a
+    /// child of the harness runs exactly its argv. None when the harness cannot be read in time.
+    #[cfg(unix)]
+    pub(crate) async fn read_live(
+        pid: u32,
+        cwd: PathBuf,
+        family: String,
+        kind: crate::config::HarnessKind,
+    ) -> Option<Self> {
+        let live = tokio::task::spawn_blocking(move || {
+            let argv = crate::agent_host::tree::argv(pid)?;
+            let env = crate::agent_host::tree::environ(pid)?;
+            let (program, args) = argv.split_first()?;
+            Some(crate::agent::Launch::new(program, args, &env, &cwd))
+        });
+        let launch = tokio::time::timeout(CENSUS_BUDGET, live).await.ok()?.ok()??;
+        match Self::read(&launch, family, kind).await {
+            known @ Self::Known { .. } => Some(known),
+            Self::Unknown => None,
+        }
+    }
 }
 
 impl ChildAgent {
@@ -276,18 +304,40 @@ impl Hub {
     }
 
     /// An adopted host's servers, from its session's meta when they were kept for this
-    /// `incarnation`: the idle census then judges it as the daemon that started it did.
-    pub(super) fn restore_launch(&self, session: &Session, child: &ChildAgent, incarnation: &str) {
-        let Some(stored) = session.meta().idle_launch.filter(|l| l.incarnation == incarnation)
-        else {
+    /// `incarnation`: the idle census then judges it as the daemon that started it did. When
+    /// none were kept (a host an older build started), they are read from the running harness
+    /// (`LaunchServers::read_live`, for a profile of `kind`) and kept for the next daemon. Before,
+    /// such a harness knew no server, so the one its user config names (a `.claude.json` server)
+    /// kept it up for good: 27 idle harnesses, 8.3 GB, on one lane VM (2026-11-03).
+    pub(super) async fn restore_launch(
+        &self,
+        session: &Session,
+        child: &ChildAgent,
+        incarnation: &str,
+        kind: Option<crate::config::HarnessKind>,
+    ) {
+        if let Some(stored) = session.meta().idle_launch.filter(|l| l.incarnation == incarnation) {
+            child.record_launch(LaunchServers::Known {
+                servers: stored.servers,
+                path: stored.path,
+                cwd: stored.cwd,
+            });
+            *child.given_servers.lock().unwrap_or_else(|e| e.into_inner()) = stored.given;
             return;
-        };
-        child.record_launch(LaunchServers::Known {
-            servers: stored.servers,
-            path: stored.path,
-            cwd: stored.cwd,
-        });
-        *child.given_servers.lock().unwrap_or_else(|e| e.into_inner()) = stored.given;
+        }
+        #[cfg(unix)]
+        if let (Some(pid), Some(kind)) = (child.pid, kind) {
+            let meta = session.meta();
+            let family = meta.family.clone().unwrap_or_default();
+            if let Some(read) = LaunchServers::read_live(pid, meta.cwd.clone(), family, kind).await
+            {
+                child.record_launch(read);
+                self.note_launch(session, child);
+                self.save_meta(session);
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = kind;
     }
 }
 

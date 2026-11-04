@@ -10,8 +10,10 @@ nonisolated extension AcpmuxPaneMethods {
         // `noProject` is the pane's own (Do not work in a project): AcpmuxPathPolicy reads and strips it.
         // Never `workspaceId`: the host adds the pane's own after this rule (AcpmuxPathPolicy+Workspace).
         // `model`: a chat on another machine starts on the model the page showed (direct.ts
-        // newSessionParams); one model id only (``isModelID(_:)``).
-        "session/new": (["cwd", "mcpServers", "_meta"], ["harness", "adopt", "peer", "noProject", "model"]),
+        // newSessionParams); one model id only (``isModelID(_:)``). `additionalDirectories`: the folders
+        // the chat sees beside its own (the composer's Add folder…, cmux#32811); AcpmuxPathPolicy checks
+        // each as it checks `cwd`.
+        "session/new": (["cwd", "mcpServers", "additionalDirectories", "_meta"], ["harness", "adopt", "peer", "noProject", "model"]),
         // `context`: a chat's workspace context on its first prompt (cx-ihyx2); acpmux sends it to the
         // agent and keeps it out of the transcript text. `surface`: the place a prompt was typed
         // (labs.previewFeatures; acpmux hub/composers.rs, cmuxterm-hq#2580). No `provenance`: a reply
@@ -26,7 +28,9 @@ nonisolated extension AcpmuxPaneMethods {
         // `usage`: each chat's usage read first (SessionSummary.usageStats), for Session Info's Usage.
         "_acpmux/sessions": (["limit", "cursor", "usage"], []),
         // `maxBytes`: the most one page downloads, opening a chat or paging older turns in (cx-2lv1k).
-        "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds"], []),
+        // `promptIndex`: the prompt rail's index of every turn (direct.ts readPromptIndex; acpmux
+        // hub/paging.rs prompt_index, #34273). Refused, the rail never learns a long chat's turns.
+        "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds", "promptIndex"], []),
         "_acpmux/attachment": (["sessionId", "id"], []),
         // The pane names the listed chat (its id or `HOST/id`) and takes acpmux's default bounds:
         // no `host`, `limit` or `maxBytes`.

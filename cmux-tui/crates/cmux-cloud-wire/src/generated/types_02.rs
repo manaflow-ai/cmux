@@ -4,6 +4,51 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedPrefsPushDelay {
+    pub urgent: Option<i64>,
+    pub high: Option<i64>,
+    pub normal: Option<i64>,
+    pub low: Option<i64>,
+}
+
+wire_enum! {
+    FeedPriority {
+        Low = "low",
+        Normal = "normal",
+        High = "high",
+        Urgent = "urgent",
+    }
+}
+
+wire_enum! {
+    FeedState {
+        Open = "open",
+        Answered = "answered",
+        Cancelled = "cancelled",
+        Expired = "expired",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Grant {
+    pub id: GrantId,
+    pub grantee: String,
+    pub op_classes: Vec<OpClass>,
+    pub approval: GrantApproval,
+    pub expires_at: Option<i64>,
+    pub revoked_at: Option<i64>,
+    pub created_from: GrantCreatedFrom,
+}
+
+wire_enum! {
+    GrantApproval {
+        None = "none",
+        PerCall = "per_call",
+        PerSession = "per_session",
+    }
+}
+
 wire_enum! {
     GrantCreatedFrom {
         Install = "install",
@@ -37,6 +82,14 @@ wire_enum! {
 }
 
 pub type GroupWorkspaceId = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Handoff {
+    pub id: String,
+    pub to: String,
+    pub epoch: i64,
+    pub at: i64,
+}
 
 /// Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: "poster"}.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -785,6 +838,16 @@ wire_enum! {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MovedAutomation {
+    pub id: AutomationId,
+    pub name: String,
+    pub moved_to: String,
+    pub moved_id: String,
+    pub epoch: i64,
+    pub moved_at: i64,
+}
+
 pub type NativeDeviceId = String;
 
 pub type NativeMeshId = String;
@@ -838,68 +901,3 @@ pub struct PairingPreview {
 
 /// user_<id>, agent_<name> or addr_<26> (an invited address).
 pub type ParticipantId = String;
-
-wire_enum! {
-    Platform {
-        Macos = "macos",
-        Ios = "ios",
-        Linux = "linux",
-        Windows = "windows",
-        Web = "web",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PolicyChange {
-    pub key: PolicyKey,
-    pub value: Option<PolicyChangeValue>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PolicyChangeValue {
-    pub value: Value,
-    pub mode: PolicyMode,
-}
-
-wire_enum! {
-    /// A team policy key (spec/enterprise.md 4.2).
-    PolicyKey {
-        GithubRepoScope = "github.repoScope",
-        GithubRequireOrgAdmin = "github.requireOrgAdmin",
-        GithubRepoAllowList = "github.repoAllowList",
-        GithubAllowWorkflows = "github.allowWorkflows",
-        IntegrationsAllowedProviders = "integrations.allowedProviders",
-        McpServer = "mcp.server",
-        McpRemoteTransport = "mcp.remoteTransport",
-        AppsInstall = "apps.install",
-        AppsAllowedTiers = "apps.allowedTiers",
-        AppsAllowList = "apps.allowList",
-        AppsForcedInstalls = "apps.forcedInstalls",
-        ComputerUseAllowed = "computerUse.allowed",
-        BrowserAutomationRawCdp = "browserAutomation.rawCdp",
-        CloudSandboxes = "cloud.sandboxes",
-        CloudConnectServices = "cloud.connectServices",
-        CloudIdlePause = "cloud.idlePause",
-        TelemetryLevel = "telemetry.level",
-        UpdatesChannel = "updates.channel",
-        UpdatesMinimumVersion = "updates.minimumVersion",
-        RetentionCuaEventsDays = "retention.cuaEventsDays",
-        RetentionCuaFramesDays = "retention.cuaFramesDays",
-        RetentionTranscriptDays = "retention.transcriptDays",
-        RetentionAuditDays = "retention.auditDays",
-        SsoEnforce = "sso.enforce",
-        SsoEnforceForOwners = "sso.enforceForOwners",
-        SsoAllowGuests = "sso.allowGuests",
-        SsoSessionMaxAgeHours = "sso.sessionMaxAgeHours",
-        SsoIdleTimeoutHours = "sso.idleTimeoutHours",
-        AgentsAllowedClasses = "agents.allowedClasses",
-        DeviceSettings = "device.settings",
-    }
-}
-
-wire_enum! {
-    PolicyMode {
-        Enforced = "enforced",
-        Default = "default",
-    }
-}

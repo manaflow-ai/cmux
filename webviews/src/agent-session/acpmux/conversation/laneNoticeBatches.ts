@@ -331,7 +331,9 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
     const push = (row: AcpmuxRow) => {
       if (row.laneNoticeBatch?.kind === "inbox") {
         const children = project(row.laneNoticeBatch.rows, true);
-        if (insideInbox) out.push(...children);
+        // A batch of one message is that message's own line: a head over a lone row names its
+        // sender twice.
+        if (insideInbox || children.length === 1) out.push(...children);
         else if (children.length) out.push(projectedBatch(row, children));
         return;
       }

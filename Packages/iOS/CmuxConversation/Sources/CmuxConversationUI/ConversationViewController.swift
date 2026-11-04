@@ -755,6 +755,7 @@ public final class ConversationViewController: UIViewController {
             // Anything else applying now carries a waiting page with it.
             liveGate.endPageHold()
             applyTranscriptChange(change)
+            if case .live = change { trimAfterArrival() }
         }
     }
 
@@ -1724,6 +1725,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: MessageCell.reuseID(class: reuseClass), for: indexPath) as! MessageCell
             messageReuseClasses.dequeued(ObjectIdentifier(cell), forRow: model.rowID, reuseClass: reuseClass, previousRowID: cell.model?.rowID)
             cell.audioDelegate = self
+            cell.threadLeadIn = threadLeadIn(at: indexPath.item, layout: cellLayout)
             cell.configure(model: model, layout: cellLayout, text: layoutCache.attributedText(for: model))
             cell.setFlightHidden(flyingRowIDs.contains(model.rowID))
             cell.timestampRevealDistance = timestampRevealDistance
@@ -1853,6 +1855,15 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         landHeldPageIfFree()
     }
 
+    /// Messages arriving while the reader rests at the bottom also bound the
+    /// window: a chat left open never scrolls, so the scroll-end trim alone
+    /// would let it grow without limit. Runs on the next turn, after this
+    /// change lands, since a trim resets the rows.
+    func trimAfterArrival() {
+        guard store.messages.count > ConversationStore.windowTrimThreshold else { return }
+        Task { @MainActor [weak self] in self?.trimHistoryIfResting() }
+    }
+
     /// A reader who scrolled back down and rests on the newest message bounds
     /// the loaded window, so later updates stay cheap (rows far above reload
     /// as pages if the reader returns to them).
@@ -1942,6 +1953,23 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         }
     }
 
+    /// Where a reply joining the thread block above starts its line, in its
+    /// row's coordinates: at the row above's bottom edge when the line runs
+    /// on beside that reply, or one transcript space under the body of a
+    /// leading reply the line stopped above (Messages starts it level with
+    /// the next bubble's top, iOS 27.0 simulator).
+    func threadLeadIn(at index: Int, layout: MessageCellLayout) -> CGFloat {
+        guard let arrival = layout.threadArrival, index > 0, case let .message(previous) = rows[index - 1] else { return 0 }
+        let spacing = transcriptSpacing(before: index)
+        switch arrival {
+        case .line:
+            return -spacing
+        case .belowLeading:
+            let overhang = layoutCache.layout(for: previous, width: collectionView.bounds.width, margin: layoutMargin).tailOverhang
+            return -spacing - overhang + ConversationTheme.ungroupedSpacing + ConversationReplyThread.lineWidth / 2
+        }
+    }
+
     func transcriptSpacing(before index: Int) -> CGFloat {
         if index < rowMetrics.count, !rowMetrics[index].spacing.isNaN { return rowMetrics[index].spacing }
         let spacing = measuredSpacing(before: index)
@@ -1974,9 +2002,14 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         let previousLayout = layoutCache.layout(for: previous, width: width, margin: layoutMargin)
         let overhang = previousLayout.tailOverhang
         var gap = model.isFirstInGroup ? ConversationTheme.ungroupedSpacing : ConversationTheme.groupedSpacing
-        // An inline reply stands apart: Messages adds `selfReplyTranscriptSpace`
-        // above its quote and under the reply (iPhone 17 Pro Max, iOS 27).
-        if model.replyQuote != nil || previous.replyQuote != nil { gap += ConversationTheme.transcriptSpace(ConversationTranscriptMetrics.replyBlockSpace) }
+        // A thread block stands apart: Messages adds space above its quote and
+        // under its last reply, none between the replies of one block
+        // (simulator Messages 27.0).
+        if model.replyQuote != nil {
+            gap += ConversationTheme.transcriptSpace(ConversationTranscriptMetrics.replyBlockSpaceAbove)
+        } else if previous.replyThread != nil, model.replyThread?.arrival == nil {
+            gap += ConversationTheme.transcriptSpace(ConversationTranscriptMetrics.replyBlockSpaceBelow)
+        }
         // Under a status line ChatKit keeps `smallTranscriptSpace` (6 pt at
         // Large, iOS 27.0 "Delivered" to the next bubble), even in a run.
         if previousLayout.endsWithCaption { gap = max(gap, ConversationTheme.footerGap) }

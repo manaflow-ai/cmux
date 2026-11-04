@@ -28,6 +28,25 @@ extension CloudService {
         return machines
     }
 
+    /// A machine's record where it was made: `cloud.machine.get` on the app server link (`/api/vm` has
+    /// no Worker machine and answers "Cloud VM vm_… was not found."), `GET /api/vm/{id}` otherwise.
+    func machineRecord(_ id: String) async throws -> CloudMachine {
+        configuration.linkSource == .appServer ? try await Self.appServerRecord(id, ops: appOps) : try await api.machine(id)
+    }
+
+    static func appServerRecord(_ id: String, ops: CloudAppOp) async throws -> CloudMachine {
+        guard let machine = CloudMachine(next: try await ops("cloud.machine.get", .object(["machine": .string(id)]), nil, .script))
+        else { throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.machine.get answered no machine") }
+        return machine
+    }
+
+    /// The record and stats; the Worker has no stats route, so there the stats are the record's state.
+    func machineStatus(_ id: String) async throws -> (record: CloudMachine, stats: CloudMachineStats) {
+        guard configuration.linkSource != .appServer else { let r = try await machineRecord(id); return (r, CloudMachineStats(state: r.status.rawValue)) }
+        async let stats = api.stats(id), record = api.machine(id)
+        return try await (record, stats)
+    }
+
     /// One `cloud.machine.create` (or `cloud.environment.boot` for `environment`) through
     /// ``CloudMachineCreateFlow``, with the request's one idempotency key (cmuxterm-hq#4709): the
     /// creation's Retry sends the same key to the same team, so a create whose answer was lost

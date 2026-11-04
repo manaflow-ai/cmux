@@ -733,6 +733,11 @@ pub struct SessionDefaults {
     /// a router key variable). The profile's own `env` wins on conflicts.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
+    /// `permissionMode`: the permission mode a new chat of this family or
+    /// profile starts in, over the daemon-wide `defaultPermissionMode`
+    /// (`hub/start_mode.rs`): `fullAccess` (alias `yolo`), `standard` or `ask`.
+    #[serde(default, alias = "permission_mode", skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<String>,
 }
 
 impl SessionDefaults {
@@ -751,6 +756,9 @@ impl SessionDefaults {
         }
         for (k, v) in &top.env {
             self.env.insert(k.clone(), v.clone());
+        }
+        if top.permission_mode.is_some() {
+            self.permission_mode = top.permission_mode.clone();
         }
     }
     pub fn is_empty(&self) -> bool {
@@ -1108,6 +1116,10 @@ pub struct Config {
     /// the normal peer route and send behavior unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine_wake: Option<MachineWakeConfig>,
+    /// The read replica and write journal for paused machines (`crate::write_journal`). Off
+    /// unless `writeJournal.enabled` is true; off changes nothing.
+    #[serde(default, skip_serializing_if = "WriteJournalConfig::is_default")]
+    pub write_journal: WriteJournalConfig,
     #[serde(default, alias = "defaultAgent")]
     pub default_harness: Option<String>,
     /// More login-shell variables agents get, beyond the allow-list
@@ -1138,6 +1150,14 @@ pub struct Config {
     /// dropped at the next save.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_permission_mode: Option<String>,
+    /// `holdAgentStartsToStarter`: a chat an agent starts from its shell (`acpmux new|run`,
+    /// `cmux agents chat new`, a local `_acpmux/dispatch`) naming no mode or policy takes its
+    /// starter's limits (`hub/start_mode.rs`, "Inherit"). Off (the default, user 2026-11-03):
+    /// it starts at the person's configured start level and default policy, as a start with no
+    /// starter does; a starter in full access still passes it on, and a sub-session is always
+    /// held to its parent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hold_agent_starts_to_starter: bool,
     /// `composerMaxRows`: most rows the TUI composer grows to before it
     /// scrolls. Env `ACPMUX_COMPOSER_ROWS` overrides. Default 12.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1341,9 +1361,76 @@ pub struct MachineWakeConfig {
     pub token: Option<String>,
 }
 
+/// `writeJournal` in config.json: off by default; new, and not yet a default anyone asked for.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteJournalConfig {
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+impl WriteJournalConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 impl Config {
     /// Set a host-wide session resource setting from the CLI. `default`,
     /// `none`, and `clear` remove an override and restore the computed default.
+    /// `acpmux config --set KEY=VALUE`: a permission-mode key
+    /// (`set_permission_mode`), else a session resource limit
+    /// (`set_session_resource`).
+    pub fn set(&mut self, key: &str, value: &str) -> Result<()> {
+        if self.set_permission_mode(key, value)? {
+            return Ok(());
+        }
+        self.set_session_resource(key, value)
+    }
+
+    /// The permission mode new chats start in: `permissions.default` (also
+    /// `defaultPermissionMode`) for every harness, `permissions.HARNESS` (also
+    /// `defaults.HARNESS.permissionMode`) for one family or profile. Values:
+    /// `yolo` / `fullAccess`, `standard`, `ask`, or `default` to clear.
+    /// `Ok(false)`: not a permission key.
+    pub fn set_permission_mode(&mut self, key: &str, value: &str) -> Result<bool> {
+        let key = key.trim();
+        let harness = if matches!(
+            key,
+            "permissions.default" | "defaultPermissionMode" | "default_permission_mode"
+        ) {
+            None
+        } else if let Some(h) = key.strip_prefix("permissions.") {
+            Some(h)
+        } else if let Some(h) = key.strip_prefix("defaults.").and_then(|r| {
+            r.strip_suffix(".permissionMode").or_else(|| r.strip_suffix(".permission_mode"))
+        }) {
+            Some(h)
+        } else {
+            return Ok(false);
+        };
+        if harness.is_some_and(|h| h.is_empty() || h.contains('.')) {
+            anyhow::bail!("{key}: name one harness, for example permissions.codex");
+        }
+        let mode = match value.trim() {
+            "" | "default" | "none" | "clear" => None,
+            v => Some(normalize_permission_mode(v).ok_or_else(|| {
+                anyhow::anyhow!("{key} must be yolo (fullAccess), standard, ask or default")
+            })?),
+        };
+        match harness {
+            None => self.default_permission_mode = mode.map(str::to_owned),
+            Some(h) => {
+                let entry = self.defaults.entry(h.to_owned()).or_default();
+                entry.permission_mode = mode.map(str::to_owned);
+                if entry.is_empty() {
+                    self.defaults.remove(h);
+                }
+            }
+        }
+        Ok(true)
+    }
+
     pub fn set_session_resource(&mut self, key: &str, value: &str) -> Result<()> {
         let key = key.trim().replace('-', "_").to_ascii_lowercase();
         if matches!(
@@ -1517,8 +1604,7 @@ impl Config {
                 model: p.model.clone(),
                 effort: p.effort.clone(),
                 policy: p.policy,
-                prefer: vec![],
-                env: BTreeMap::new(),
+                ..Default::default()
             });
         }
         d
@@ -1851,6 +1937,19 @@ pub use preset_args::{
     Preset, SYSTEM_PROMPT_FILE, check_preset_args, check_preset_dir_name, checked_system_prompt,
     parse_preset_args, remove_preset_dir, write_system_prompt,
 };
+
+/// The stored spelling of a permission mode a person typed: `fullAccess`
+/// (also `yolo`, `full-access`, `bypassPermissions`), `standard` or `ask`.
+/// Exact words only: any other spelling (`Ask`) is `None`, which a reader
+/// takes as `standard`, never full access.
+pub fn normalize_permission_mode(value: &str) -> Option<&'static str> {
+    match value {
+        "fullAccess" | "yolo" | "full-access" | "bypassPermissions" => Some("fullAccess"),
+        "standard" => Some("standard"),
+        "ask" => Some("ask"),
+        _ => None,
+    }
+}
 
 #[cfg(test)]
 mod tests;
