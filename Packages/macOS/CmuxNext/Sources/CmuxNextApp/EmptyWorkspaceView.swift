@@ -21,7 +21,7 @@ final class EmptyWorkspaceView: NSView, TitlebarPressDeciding {
     }
 
     private let titleLabel = ChromeLabel(labelWithString: EmptyWorkspaceStrings.title)
-    private let artLabel = NSTextField(labelWithString: EmptyWorkspaceArt.wordmark)
+    private let artLabel = NSTextField(wrappingLabelWithString: EmptyWorkspaceArt.wordmark)
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
 
     override init(frame frameRect: NSRect) {
@@ -45,6 +45,8 @@ final class EmptyWorkspaceView: NSView, TitlebarPressDeciding {
         let art = artLabel
         art.font = Typography.system(.monospaced, size: Typography.title.pointSize, weight: TypeScale.emphasis)
         art.alignment = .center
+        art.usesSingleLineMode = false
+        art.maximumNumberOfLines = 0
         art.lineBreakMode = .byClipping
         art.setAccessibilityLabel("cmux")
 
