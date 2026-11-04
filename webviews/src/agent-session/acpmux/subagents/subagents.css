@@ -1827,6 +1827,11 @@ button.cv-subagent > :last-child {
   gap: var(--ds-space-2);
   padding: var(--ds-space-3) var(--ds-space-4);
   border-bottom: 1px solid var(--cv-divider);
+  /* The panel and split transcript are flex columns: the head yields space before it can crowd
+     the transcript, while its report keeps its own scroll for long results. */
+  flex: 0 1 35%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .cv-subagent-result__meta {
@@ -1847,13 +1852,16 @@ button.cv-subagent > :last-child {
 
 .cv-subagent-result__report,
 .cv-subagent-result__empty {
-  /* Keep a useful transcript viewport in the compact Background tasks dock; the report remains
-     fully reachable by scrolling inside this bounded head. */
-  max-height: min(12rem, 24vh);
   min-height: 0;
   overflow: auto;
   color: var(--cv-text);
   font-size: var(--ds-font-size-sm);
+}
+
+/* The compact Background tasks dock gets a bounded report viewport; the split pane can use all of
+   its flex share before the report scrolls. */
+.acpmux-bg .cv-subagent-result__report {
+  max-height: min(12rem, 24vh);
 }
 
 .cv-subagent-result__report > :first-child {
@@ -1862,18 +1870,4 @@ button.cv-subagent > :last-child {
 
 .cv-subagent-result__report > :last-child {
   margin-bottom: 0;
-}
-
-/* The panel and split transcript are flex columns: the head yields space before it can crowd the
-   transcript, while its report keeps its own scroll for long results. */
-.cv-subagent-result {
-  flex: 0 1 35%;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.cv-subagent-result__report {
-  max-height: none;
-  min-height: 0;
-  overflow: auto;
 }
