@@ -49,7 +49,7 @@ PRIORITY_RANK = {band: rank for rank, band in enumerate(PRIORITY_BANDS)}
 PRIORITY_QUOTA = {
     PRIORITY_NIGHTLY: 1.0,
     PRIORITY_PROMOTE: 1.0,
-    PRIORITY_PR: 0.5,
+    PRIORITY_PR: 1.0,
     PRIORITY_DEV: 0.25,
     PRIORITY_SIDE_JOB: 0.25,
 }

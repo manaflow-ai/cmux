@@ -33,7 +33,7 @@ class PickRuleTests(unittest.TestCase):
                          (picker.PRIORITY_NIGHTLY, picker.PRIORITY_PROMOTE, picker.PRIORITY_PR,
                           picker.PRIORITY_DEV, picker.PRIORITY_SIDE_JOB))
         self.assertEqual(picker.priority_quota(picker.PRIORITY_NIGHTLY, 14), 14)
-        self.assertEqual(picker.priority_quota(picker.PRIORITY_PR, 14), 7)
+        self.assertEqual(picker.priority_quota(picker.PRIORITY_PR, 14), 14)
         self.assertEqual(picker.priority_quota(picker.PRIORITY_DEV, 14), 4)
         self.assertEqual(picker.preemptible_queued({picker.PRIORITY_SIDE_JOB: 2}, picker.PRIORITY_NIGHTLY),
                          (picker.PRIORITY_SIDE_JOB,))
