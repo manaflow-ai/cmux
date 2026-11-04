@@ -163,8 +163,18 @@ class OwnedPoolSources(unittest.TestCase):
             if text is None:
                 continue
             with self.subTest(tree=str(tree)):
-                self.assertTrue(sources.sign_stall_candidates(text), f"{tree}: no sign or verify job found; "
-                                "the detector no longer matches nightly.yml")
+                jobs = sources.sign_jobs(text)
+                self.assertTrue(jobs, f"{tree}: no sign or verify job found; the detector no longer matches nightly.yml")
+                # main's nightly still signs on Blacksmith macOS, so an empty candidate list there means the runs-on
+                # detector stopped matching. feat-cmux-next's nightly runs only on owned Macs (d5997935ef7), so it
+                # may have none, but only while none of its sign jobs names Blacksmith or a MACOS_RUNNER variable.
+                hinted = {job: runs_on for job, runs_on in jobs.items()
+                          if "blacksmith" in sources.OUTAGE_MACOS_FALLBACK.sub("", runs_on).lower()
+                          or "MACOS_RUNNER" in runs_on}
+                if tree is self.rescue_tree or hinted:
+                    self.assertTrue(sources.sign_stall_candidates(text), "\n".join(
+                        [f"{tree}: no sign or verify job on a Blacksmith macOS label found; the detector no longer "
+                         "matches nightly.yml:"] + [f"  {job}: {runs_on}" for job, runs_on in sorted(hinted.items())]))
                 missing = sources.uncovered_sign_jobs(text, table)
                 self.assertFalse(missing, "\n".join(
                     [f"{tree}: these nightly.yml jobs can queue on a Blacksmith macOS label, but main's "
@@ -191,6 +201,18 @@ class OwnedPoolSources(unittest.TestCase):
         """)
         self.assertEqual(sorted(sources.sign_stall_candidates(workflow)),
                          ["signer-dmg-image", "signer-verify", "verify-final-dmg-nightly"])
+        self.assertEqual(sorted(sources.sign_jobs(workflow)), [
+            "pick-nightly-sign-runner", "signer-build", "signer-dmg-image", "signer-verify", "verify-final-dmg-nightly"])
+        owned_only = textwrap.dedent("""
+            jobs:
+              build-sign-notarize-nightly:
+                runs-on: ${{ needs.pick-nightly-sign-runner.outputs.sign_owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER }}
+              verify-signed-nightly:
+                runs-on: ${{ needs.pick-nightly-sign-runner.outputs.owned || 'glaeda-std-xcode-26.6' }}
+        """)
+        self.assertEqual(sorted(sources.sign_jobs(owned_only)), ["build-sign-notarize-nightly", "verify-signed-nightly"])
+        self.assertEqual(sources.sign_stall_candidates(owned_only), {})
+        self.assertEqual(sources.uncovered_sign_jobs(owned_only, {}), {})
         self.assertEqual(sources.uncovered_sign_jobs(workflow, {**table, "verify-final-dmg-nightly": ("x",)}), {
             "signer-dmg-image": f"not in {sources.SIGN_TABLE_NAME}",
             "verify-final-dmg-nightly": "its runs-on takes none of its alternate-label expressions on a re-run"})

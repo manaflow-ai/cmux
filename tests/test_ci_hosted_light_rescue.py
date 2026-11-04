@@ -53,7 +53,9 @@ class Fake:
 
     def runs(self, workflow, status, start, end, *, page=1):
         self.calls.append(("runs", workflow, status, page))
-        rows = [r for r in self.runs_by_workflow.get(workflow, []) if r["status"] == status]
+        source = (self.runs_by_workflow.get(workflow, []) if workflow is not None
+                  else [r for rows in self.runs_by_workflow.values() for r in rows])
+        rows = [r for r in source if r["status"] == status]
         rows.sort(key=lambda item: (item["created_at"], item["id"]), reverse=True)
         return rows[(page - 1) * 100:page * 100]
 
@@ -214,6 +216,11 @@ class WorkflowToken(unittest.TestCase):
                 callback = rescue.from_env(env, "o/r", now=lambda: NOW, log=lambda text: None)
                 callback()
             client.assert_called_once_with("workflow-token", "o/r")
+            with mock.patch.object(rescue, "GitHub") as client, mock.patch.object(rescue, "sweep", return_value=[]):
+                client.return_value.pending_cancellations.return_value = set()
+                rescue.from_env(dict(env, HOSTED_LIGHT_TOKEN="bot-token", HOSTED_LIGHT_FALLBACK_TOKEN="workflow-token"),
+                                "o/r", now=lambda: NOW, log=lambda text: None)()
+            client.assert_called_once_with("bot-token", "o/r", fallback="workflow-token", mint=None)
             self.assertIsNone(rescue.from_env(dict(env, HOSTED_LIGHT_DISABLED="1"), "o/r",
                                              now=lambda: NOW, log=lambda text: None))
 
@@ -251,7 +258,7 @@ class Sweep(unittest.TestCase):
         cursor = rescue.ScanState()
         sweep(fake, cursor=cursor)
 
-        self.assertIn(("runs", "pr-checks.yml", "in_progress", 2), fake.calls)
+        self.assertIn(("runs", None, "in_progress", 2), fake.calls)
         self.assertEqual(mutations(fake), [("cancel", overflow["id"]), ("rerun", overflow["id"])])
         self.assertIsNotNone(cursor.cursor)
 
@@ -621,7 +628,46 @@ class Quota(unittest.TestCase):
         fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("build", status="in_progress", runner_id=7)]})
         sweep(fake, dry_run=True, cursor=rescue.ScanState())
         listings = [call for call in fake.calls if call[0] == "runs"]
-        self.assertEqual(listings, [("runs", "pr-checks.yml", "queued", 1), ("runs", "pr-checks.yml", "in_progress", 1)])
+        self.assertEqual(listings, [("runs", None, "queued", 1), ("runs", None, "in_progress", 1)])
+
+    def test_one_repository_listing_per_status_covers_every_declared_workflow(self):
+        """Two listings a pass however many workflows are declared; an undeclared workflow's run is never read."""
+        declared = ["ci.yml", "pr-checks.yml", "web-validation.yml", "cmux-next.yml"]
+        fake = Fake({"ci.yml": [run(1, workflow="ci.yml")], "web-validation.yml": [run(2, workflow="web-validation.yml")],
+                     "other.yml": [run(3, workflow="other.yml")]},
+                    {1: [job("PR size")], 2: [job("PR size")], 3: [job("PR size")]})
+        sweep(fake, dry_run=True, workflows=declared, cursor=rescue.ScanState())
+        listings = [call for call in fake.calls if call[0] == "runs"]
+        self.assertEqual(listings, [("runs", None, "queued", 1), ("runs", None, "in_progress", 1)])
+        self.assertEqual(set(fake.job_reads), {1, 2})
+
+    def test_a_declared_run_behind_two_pages_of_undeclared_runs_is_found_by_the_rotation(self):
+        """Pages 1 and 2 are read every pass; the third page onward rotates, so a buried declared run is reached."""
+        noise = [run(1000 + index, workflow="other.yml") for index in range(200)]
+        buried = run(7)
+        buried["created_at"] = ago(1200)
+        fake = Fake({"other.yml": noise, "pr-checks.yml": [buried]}, {7: [job("PR size")]})
+        cursor = rescue.ScanState()
+        sweep(fake, dry_run=True, cursor=cursor)
+        listings = [call for call in fake.calls if call[0] == "runs"]
+        self.assertIn(("runs", None, "in_progress", 1), listings)
+        self.assertIn(("runs", None, "in_progress", 2), listings)
+        self.assertIn(("runs", None, "in_progress", 3), listings)
+        self.assertEqual(set(fake.job_reads), {7})
+
+    def test_the_repository_listing_reads_the_runs_endpoint(self):
+        client = rescue.GitHub("workflow-token", "o/r")
+        with mock.patch.object(client, "request", return_value={"workflow_runs": []}) as request:
+            client.runs(None, "queued", NOW - rescue.WINDOW, NOW, page=1)
+            client.runs("ci.yml", "queued", NOW - rescue.WINDOW, NOW, page=1)
+        self.assertTrue(request.call_args_list[0].args[1].startswith("/actions/runs?"))
+        self.assertTrue(request.call_args_list[1].args[1].startswith("/actions/workflows/ci.yml/runs?"))
+
+    def test_workflow_file_names_a_listed_run(self):
+        self.assertEqual(rescue.workflow_file({"path": ".github/workflows/ci.yml"}), "ci.yml")
+        self.assertEqual(rescue.workflow_file({"path": ".github/workflows/ci.yml@refs/heads/main"}), "ci.yml")
+        self.assertIsNone(rescue.workflow_file({"path": "dynamic/copilot"}))
+        self.assertIsNone(rescue.workflow_file("not a run"))
 
     def test_a_pool_at_its_reserve_makes_no_listing_or_job_read(self):
         fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
@@ -689,6 +735,69 @@ class Quota(unittest.TestCase):
                 callback()
                 self.assertEqual(journal.call_count, 2)
 
+
+
+class BotTokenFirst(unittest.TestCase):
+    """Reads go out as cmux-bot; the shared workflow token answers only while cmux-bot is low or refused."""
+
+    def answer(self, remaining: int, body: bytes = b'{"workflow_runs": []}'):
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = body
+        response.headers = {"X-RateLimit-Remaining": str(remaining), "X-RateLimit-Reset": str(NOW.timestamp() + 900)}
+        return response
+
+    def sent(self, opened) -> list[str]:
+        return [call.args[0].get_header("Authorization") for call in opened.call_args_list]
+
+    def client(self, **kwargs):
+        return rescue.GitHub("bot-token", "o/r", fallback="workflow-token", clock=lambda: NOW.timestamp(), **kwargs)
+
+    def test_reads_use_the_bot_and_writes_the_workflow_token(self):
+        client = self.client()
+        with mock.patch.object(rescue.urllib.request, "urlopen",
+                               side_effect=[self.answer(4000), self.answer(4000, b"")]) as opened:
+            client.runs(None, "queued", NOW - rescue.WINDOW, NOW)
+            client.cancel(7)
+        self.assertEqual(self.sent(opened), ["Bearer bot-token", "Bearer workflow-token"])
+
+    def test_a_low_bot_pool_moves_reads_to_the_workflow_token_until_its_reset(self):
+        client = self.client()
+        with mock.patch.object(rescue.urllib.request, "urlopen",
+                               side_effect=[self.answer(rescue.POOL_RESERVE), self.answer(900)]) as opened:
+            client.runs(None, "queued", NOW - rescue.WINDOW, NOW)
+            client.runs(None, "in_progress", NOW - rescue.WINDOW, NOW)
+        self.assertEqual(self.sent(opened), ["Bearer bot-token", "Bearer workflow-token"])
+        self.assertTrue(client.spare(NOW))
+        self.assertEqual(client.remaining, 900)
+
+    def test_a_refused_bot_read_is_asked_again_with_the_workflow_token(self):
+        client = self.client()
+        refused = urllib.error.HTTPError("url", 403, "rate limited", {"X-RateLimit-Remaining": "0"}, None)
+        with mock.patch.object(rescue.urllib.request, "urlopen", side_effect=[refused, self.answer(900)]) as opened:
+            client.runs(None, "queued", NOW - rescue.WINDOW, NOW)
+        self.assertEqual(self.sent(opened), ["Bearer bot-token", "Bearer workflow-token"])
+        self.assertEqual(client.read_pool(), "fallback")
+
+    def test_both_pools_low_stop_the_pass(self):
+        client = self.client()
+        client.pools["primary"].remaining = client.pools["fallback"].remaining = rescue.POOL_RESERVE
+        client.pools["primary"].reset = client.pools["fallback"].reset = NOW.timestamp() + 600
+        self.assertFalse(client.spare(NOW))
+
+    def test_the_bot_token_is_minted_again_before_its_hour_is_up(self):
+        clock = [NOW.timestamp()]
+        client = rescue.GitHub("bot-token", "o/r", fallback="workflow-token", mint=lambda: "bot-token-2",
+                               clock=lambda: clock[0])
+        clock[0] += rescue.APP_TOKEN_SECONDS
+        with mock.patch.object(rescue.urllib.request, "urlopen", side_effect=[self.answer(4000)]) as opened:
+            client.runs(None, "queued", NOW - rescue.WINDOW, NOW)
+        self.assertEqual(self.sent(opened), ["Bearer bot-token-2"])
+
+    def test_the_workflow_mints_the_bot_token_for_the_pass(self):
+        text = (ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text()
+        self.assertIn("HOSTED_LIGHT_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}", text)
+        self.assertIn("HOSTED_LIGHT_FALLBACK_TOKEN: ${{ github.token }}", text)
 
 if __name__ == "__main__":
     unittest.main()
