@@ -102,6 +102,8 @@ import Testing
             $0.firstItem === root.titlebar && $0.firstAttribute == .leading && $0.relation == .greaterThanOrEqual
         })
         let before = reserve.constant
+        // NSLayoutConstraint exposes its update through KVO; the stream waits for that real
+        // change and the deferred cleanup ends both the stream and its observation.
         let changes = AsyncStream<CGFloat>.makeStream()
         let observation = reserve.observe(\.constant, options: [.new]) { constraint, _ in
             changes.continuation.yield(constraint.constant)
@@ -131,6 +133,7 @@ import Testing
         let saved = design.densityTokens
         defer { design.densityTokens = saved }
         design.densityTokens = density.tokens
+        _ = NSApplication.shared
         let window = ChromeGeometryWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 700),
                                          styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                          backing: .buffered, defer: false)

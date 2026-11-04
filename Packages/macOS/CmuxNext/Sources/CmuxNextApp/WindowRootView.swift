@@ -178,7 +178,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         setUpCollapsedBandReveal()
         tokenObservation = Task { [weak self] in
             for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, Metrics.trafficLightInset,
-                                           TitlebarBandButton.side, TitlebarToolbarBand.width, Metrics.space2,
+                                           TitlebarBandButton.side, TitlebarToolbarBand.width, Metrics.space2, Metrics.space3,
                                            DesignSettings.shared.titlebar == .minimal ? 1 : 0,
                                            DesignSettings.shared.titlebarButtons == .hover ? 1 : 0,
                                            DesignSettings.shared.sidebarSections.controlsOnHover ? 1 : 0,
@@ -309,12 +309,13 @@ final class WindowRootView: NSView, WindowSurfacePainting {
                               width: TitlebarToolbarBand.width, height: bandHeight)
         let presenceChanged = toolbarBand.presence != presence
         toolbarBand.presence = presence
-        toolbarBand.frame = alignedTitlebarFrame(CGRect(x: lightsMaxX + Metrics.space3 * presence, y: fullBand.minY,
-                                                       width: fullBand.width * presence, height: bandHeight))
+        toolbarBand.frame = WindowTitlebar.alignedFrame(CGRect(x: lightsMaxX + Metrics.space3 * presence, y: fullBand.minY,
+                                                              width: fullBand.width * presence, height: bandHeight),
+                                                       scale: window?.backingScaleFactor ?? 1)
         // A right sidebar's header is clear of the traffic lights and the band.
         // The reserve is the full band, so the header does not reflow while
         // the sidebar slides out.
-        let fullBandMaxX = alignedTitlebarFrame(fullBand).maxX
+        let fullBandMaxX = WindowTitlebar.alignedFrame(fullBand, scale: window?.backingScaleFactor ?? 1).maxX
         sidebar.sidebarView.headerHasWindowControls = sidebarSide == .left
         sidebar.sidebarView.titlebarLeadingReserve = sidebarSide == .left ? fullBandMaxX + Metrics.space2 : Metrics.space3
         if presenceChanged { onToolbarBandPresenceChange?() }
