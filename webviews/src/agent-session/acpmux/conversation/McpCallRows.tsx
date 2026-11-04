@@ -81,7 +81,7 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
         onClick={fold.toggle}
       >
         <span className="cv-tool__icon">
-          <ToolGroup size={16} strokeWidth={1.2} />
+          <ToolGroup size={16} />
         </span>
         <span className="cv-tool__text" data-find-skip>
           <ToolLabel text={label} />
@@ -89,7 +89,6 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
         </span>
         <ChevronRight
           size={14}
-          strokeWidth={1.2}
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
       </button>
@@ -203,7 +202,6 @@ export const McpCallRow = memo(function McpCallRow({ item }: { item: AcpmuxActiv
         {expandable && (
           <ChevronRight
             size={14}
-            strokeWidth={1.2}
             className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
           />
         )}
@@ -522,7 +520,7 @@ export function CmuxExecDetails({
           onOpenChange={setRawOpen}
           icon={
             <span className="cv-tool__icon">
-              <CodeBrackets size={16} strokeWidth={1.2} />
+              <CodeBrackets size={16} />
             </span>
           }
         >
