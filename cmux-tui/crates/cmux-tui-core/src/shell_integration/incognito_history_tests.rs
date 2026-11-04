@@ -490,6 +490,34 @@ fn an_incognito_shell_without_integration_reads_no_startup_files() {
     assert_eq!(args(&["bash", "-c", "true"], Shell::Bash), ["bash", "-c", "true"]);
 }
 
+/// An incognito shell whose integration scripts cannot be written in a trusted place (an
+/// ancestor another user could replace: group- or world-writable, not a root-owned sticky
+/// directory) starts with no startup files, fail closed, instead of with its user's history.
+#[test]
+fn an_incognito_shell_whose_scripts_root_is_untrusted_reads_no_startup_files() {
+    use std::os::unix::fs::PermissionsExt;
+    let base = temp_base("untrusted-root");
+    let shared = base.join("shared");
+    fs::create_dir_all(&shared).unwrap();
+    fs::set_permissions(&shared, fs::Permissions::from_mode(0o777)).unwrap();
+    let root = shared.join("shell-integration").join(content_digest());
+    let refused = materialize(&root).expect_err("a world-writable non-sticky ancestor is refused");
+    assert_eq!(refused.kind(), io::ErrorKind::PermissionDenied, "{refused}");
+    let mut env = vec![("HOME".to_string(), base.to_string_lossy().into_owned())];
+    keep_no_history(&mut env);
+    let untrusted = || Some(root.clone());
+    for (shell, expected) in [
+        ("/bin/zsh", vec!["/bin/zsh", "-f"]),
+        ("/bin/bash", vec!["/bin/bash", "--noprofile", "--norc"]),
+    ] {
+        // (On macOS /bin/bash is Apple's bash 3.2, which fails closed the same way before
+        // the scripts root is read: `unintegrable_incognito`.)
+        let launched = integrate_in(vec![shell.to_string()], env.clone(), &|_| None, &untrusted);
+        assert_eq!(launched.command, expected, "{shell}: {:?}", launched.command);
+    }
+    let _ = fs::remove_dir_all(&base);
+}
+
 /// `zsh -il` is as interactive as `zsh -i -l`: it is integrated too.
 #[test]
 fn an_incognito_shell_with_combined_flags_is_integrated() {
