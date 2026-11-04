@@ -289,8 +289,16 @@ mod tests {
             "{}",
             l[1]
         );
-        assert!(l[1].ends_with("`acpmux machine doctor big-red` checks it step by step"), "{}", l[1]);
-        assert!(l[2].contains("41 ms") && l[2].contains("acpmux machine update cmux16"), "{}", l[2]);
+        assert!(
+            l[1].ends_with("`acpmux machine doctor big-red` checks it step by step"),
+            "{}",
+            l[1]
+        );
+        assert!(
+            l[2].contains("41 ms") && l[2].contains("acpmux machine update cmux16"),
+            "{}",
+            l[2]
+        );
         assert_eq!(l.len(), 3, "no problems, no extra lines: {l:?}");
     }
 
