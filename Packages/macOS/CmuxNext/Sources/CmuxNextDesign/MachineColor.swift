@@ -22,6 +22,16 @@ public nonisolated struct MachineColor: Sendable {
         overrides.rgb(forKey: key, tokens: tokens) ?? AgentPresenceColor(key: key).rgb(tokens: tokens)
     }
 
+    /// The color as text drawn on `grounds` (the surfaces the name can show on).
+    /// - Parameters:
+    ///   - tokens: the theme's tokens.
+    ///   - overrides: the person's picks.
+    ///   - grounds: the opaque surfaces under the text.
+    /// - Returns: the text color.
+    public func textRGB(tokens: ThemeTokens, overrides: MachineColorOverrides, on grounds: [ThemeRGB]) -> ThemeRGB {
+        rgb(tokens: tokens, overrides: overrides)
+    }
+
     /// The color in the active theme scope, with the person's picks (`ThemeStore.machineColors`).
     @MainActor public var color: NSColor {
         rgb(tokens: ThemeContext.active ?? ThemeScope.app.tokens, overrides: (ThemeContext.activeScope ?? ThemeScope.app).store.machineColors).nsColor
