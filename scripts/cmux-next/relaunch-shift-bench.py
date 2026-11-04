@@ -70,7 +70,10 @@ def main():
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
     # No test window frame: the relaunch must restore each window's own saved frame, not move it to a fixed one.
-    app = BenchApp(args.app, out=out, window=None)
+    # The journey seeds agent chats on the tag's own acpmux with its fake agent (configure_fake): BenchApp's mock agent
+    # pane (no acpmux at all) and its agent-launch kill switch (no agent process, the fake one included) are off here.
+    # Every harness the journey configures runs the fake agent, as on a capture slot.
+    app = BenchApp(args.app, out=out, window=None, env={"CMUX_NEXT_AGENT_PANE_MOCK": None, "ACPMUX_AGENT_LAUNCH": None})
     app.launch()
     # The journey quits and relaunches this app: reap the first process when it ends, so it is not left a zombie that
     # still answers kill(pid, 0) and looks alive to the journey.

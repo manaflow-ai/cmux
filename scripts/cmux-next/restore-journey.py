@@ -282,12 +282,9 @@ class App:
         """The app's own launch variables (`ps eww`, same user): the CMUX_* ones plus HOME and
         TMPDIR, which is what a capture slot or a test launch sets."""
         out = subprocess.run(["ps", "eww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout
-        env = {}
-        for word in out.split():
-            key, sep, value = word.partition("=")
-            if sep and (key.startswith("CMUX_") or key in ("HOME", "TMPDIR")):
-                env[key] = value
-        return env
+        # A value runs to the next ` NAME=`, not the next space: a fleet step's HOME is under "Application Support".
+        return {key: value for key, value in re.findall(r"(?:^|\s)([A-Za-z_][A-Za-z0-9_]*)=(.*?)(?=\s[A-Za-z_][A-Za-z0-9_]*=|\s*$)", out.strip())
+                if key.startswith(("CMUX_", "ACPMUX_")) or key in ("HOME", "TMPDIR")}
 
     def alive(self):
         try:
