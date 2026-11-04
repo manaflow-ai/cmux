@@ -327,6 +327,13 @@ public final class CmuxSidebarView: NSView {
         set { controller.onShowAll = newValue }
     }
 
+    /// Points added to the empty list's text (No Results, No Unread Chats and Show All): the host's
+    /// sidebar Text Size step. 0, the default, keeps MessagesLab's sizes.
+    public var emptyTextStep: CGFloat {
+        get { controller.emptyTextStep }
+        set { controller.emptyTextStep = newValue }
+    }
+
     /// Ends a search: the field empties and the list shows every conversation again.
     public func clearSearch() {
         guard !controller.searchField.stringValue.isEmpty else { return }
