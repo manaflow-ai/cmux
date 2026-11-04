@@ -175,8 +175,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-d3d3f420820ff448d4f0b85e75fedc39369a56e5/CCmuxAppFFI.xcframework.zip",
-    checksum: "267fc1ede0e107fcc57be43e33cf1308b25803da1512ab32ea27486188f54742"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-1f0abddf9f2ffad7dc2e996b68a9f7a5c5417bdd/CCmuxAppFFI.xcframework.zip",
+    checksum: "1d59defc46dfc67070450c474b4a33aeb71fe49edf258ebc4495e81829ab5784"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
