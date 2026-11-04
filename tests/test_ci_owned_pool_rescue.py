@@ -5175,7 +5175,7 @@ class Sweeper(unittest.TestCase):
         self.assertIn("swept: 1 done, 4 stopped", text)
 
 class Tokens(unittest.TestCase):
-    """Reads may use the App's token; writes always use GITHUB_TOKEN."""
+    """The workflow keeps Actions reads on its existing token."""
 
     def open_with(self, fail_first_read=False, code=401):
         seen = []
