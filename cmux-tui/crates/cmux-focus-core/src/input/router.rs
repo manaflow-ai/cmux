@@ -14,8 +14,9 @@ use super::sink::{FieldKind, Sink, TerminalKey};
 use super::{
     ConsumeReason, DropReason, GoneReason, InputEffect, InputEvent, InputId, Via, WaitReason,
 };
+use crate::close_aim::Press as ClosePress;
 use crate::event::{FocusEffect, FocusEvent, Source};
-use crate::state::{Expectation, ExpectationKey, FocusState, Resolved, Target};
+use crate::state::{CloseFocusPolicy, Expectation, ExpectationKey, FocusState, Resolved, Target};
 use crate::topology::Kind;
 use crate::window::WindowFocus;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -237,6 +238,66 @@ impl InputRouter {
     /// The keys waiting in each lane.
     pub fn waiting(&self) -> impl Iterator<Item = (&Sink, usize)> {
         self.lanes.iter().map(|(sink, lane)| (sink, lane.len()))
+    }
+
+    // MARK: The app's focus handle (stage S2)
+    //
+    // The operations of the app's per-window focus handle that are not focus
+    // events: they touch neither the topology nor the focus target, so the
+    // router's tab index stays as it is. A journal import replaces both, so it
+    // reindexes the window.
+
+    /// The focused pane of `window` moved from `from`; the move's serial for
+    /// [`InputRouter::frame_presented`] (0 for a window that is not open).
+    pub fn pane_moved(&mut self, window: &str, from: Option<&str>) -> u64 {
+        self.windows.get_mut(window).map_or(0, |input| input.window.pane_moved(from))
+    }
+
+    /// The frame that shows `window`'s move `serial` was presented at `time`.
+    pub fn frame_presented(&mut self, window: &str, serial: u64, time: f64) {
+        if let Some(input) = self.windows.get_mut(window) {
+            input.window.frame_presented(serial, time);
+        }
+    }
+
+    /// `press` closed the last tab of `pane` in `window`.
+    pub fn pane_emptied(&mut self, window: &str, pane: &str, press: ClosePress) {
+        if let Some(input) = self.windows.get_mut(window) {
+            input.window.pane_emptied(pane, press);
+        }
+    }
+
+    /// Whether `press` in `window` is aimed at a pane a close emptied.
+    pub fn aims_at_emptied_pane(&mut self, window: &str, press: ClosePress) -> bool {
+        self.windows.get_mut(window).is_some_and(|input| input.window.aims_at_emptied_pane(press))
+    }
+
+    /// `layout.closeFocus` for `window`.
+    pub fn set_close_focus(&mut self, window: &str, policy: CloseFocusPolicy) {
+        if let Some(input) = self.windows.get_mut(window) {
+            input.window.set_close_focus(policy);
+        }
+    }
+
+    /// Replaces `window`'s focus with a journal checkpoint
+    /// (`FocusState::import`) and reindexes its tabs. False when the window is
+    /// not open or the JSON does not decode (the focus is kept).
+    pub fn import_focus(&mut self, window: &str, json: &[u8]) -> bool {
+        let Some(input) = self.windows.get_mut(window) else { return false };
+        if !input.window.import(json) {
+            return false;
+        }
+        input.reindex();
+        self.track_gone();
+        true
+    }
+
+    /// Re-derives `window`'s focus after a reduction that panicked part way.
+    pub fn rederive_focus(&mut self, window: &str) {
+        if let Some(input) = self.windows.get_mut(window) {
+            input.window.rederive();
+            input.reindex();
+        }
     }
 
     // MARK: Events
