@@ -300,6 +300,8 @@ export type IPhoneHostState = {
   allowed: boolean;
   status_title: string;
   status: string;
+  /** The Sign In button's title while the status says to sign in; null (or absent from an older host) otherwise. */
+  sign_in?: string | null;
   /** `off`, `unavailable`, `connecting`, `online` or `waiting`. */
   phase: string;
   account_title: string;
@@ -1251,6 +1253,8 @@ export const settingsPageActions = [
   "palette.computerUse.screenRecording",
   "import.card",
   "importFromBrowser",
+  // Settings > Mobile's Sign In, where the iPhone card says to sign in (msg 3790).
+  "palette.auth.signIn",
 ] as const;
 
 export type SettingsPageAction = (typeof settingsPageActions)[number];
