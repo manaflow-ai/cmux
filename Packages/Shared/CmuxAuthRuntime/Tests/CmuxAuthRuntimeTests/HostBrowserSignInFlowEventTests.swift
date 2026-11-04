@@ -180,6 +180,30 @@ import Testing
         ])
     }
 
+    @Test func hostQueryItemsJoinEachAttemptsSignInURLsAndKeepAccountSelection() async {
+        let harness = HostBrowserSignInFlowHarness(user: Self.user)
+        harness.flow.signInURLQueryItems = { attempt in
+            [URLQueryItem(name: "cmux_attempt", value: "attempt-\(attempt == Self.first ? 1 : 2)")]
+        }
+        func items(_ url: URL?) -> [String: String] {
+            let query = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems } ?? []
+            return Dictionary(query.map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { $1 })
+        }
+
+        harness.flow.beginSignIn()
+        await harness.waitForSession()
+        #expect(items(harness.factory.sessions[0].signInURL)["cmux_attempt"] == "attempt-1")
+        #expect(items(harness.flow.activeAttemptSignInURL)["cmux_attempt"] == "attempt-1")
+
+        harness.flow.beginSignIn(selectAccount: true)
+        await harness.waitForSession(count: 2)
+        let switchItems = items(harness.factory.sessions[1].signInURL)
+        #expect(switchItems["cmux_attempt"] == "attempt-2")
+        #expect(switchItems["prompt"] == "select_account")
+        #expect(switchItems["cmux_auth_state"] == harness.callbackState(harness.factory.sessions[1]))
+        await harness.flow.signOut()
+    }
+
     @Test func passedDeadlineAndBrowserFailureEachNameTheirAttempt() async {
         let clock = ManualTestClock()
         let harness = HostBrowserSignInFlowHarness(browserAttemptTimeout: 1, clock: clock)

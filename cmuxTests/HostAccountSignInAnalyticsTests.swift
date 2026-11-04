@@ -41,6 +41,9 @@ struct HostAccountSignInAnalyticsTests {
         #expect(events[1].string("attempt_link") == "state")
         #expect(events[2].string("attempt_link") == "state")
         #expect(Set(events.compactMap { $0.string("attempt_id") }).count == 1)
+        // The hosted page gets the opt-in flag and this attempt's id, nothing else.
+        #expect(harness.query(of: session, "cmux_analytics") == "1")
+        #expect(harness.query(of: session, "cmux_attempt") == events[0].string("attempt_id"))
         harness.tearDown()
     }
 
@@ -347,6 +350,9 @@ struct HostAccountSignInAnalyticsTests {
 
         await harness.analytics.drain()
         #expect(harness.sink.events.isEmpty)
+        // Nor does the hosted page get an opt-in or an attempt id.
+        #expect(harness.query(of: session, "cmux_analytics") == nil)
+        #expect(harness.query(of: session, "cmux_attempt") == nil)
         harness.tearDown()
     }
 }
@@ -386,8 +392,12 @@ private struct SignInAnalyticsHarness {
     }
 
     func state(of session: ScriptedSignInWindow) -> String {
+        query(of: session, "cmux_auth_state") ?? ""
+    }
+
+    func query(of session: ScriptedSignInWindow, _ name: String) -> String? {
         URLComponents(url: session.signInURL, resolvingAgainstBaseURL: false)?
-            .queryItems?.first { $0.name == "cmux_auth_state" }?.value ?? ""
+            .queryItems?.first { $0.name == name }?.value
     }
 
     func callback(for session: ScriptedSignInWindow, state: String? = nil) -> URL {
