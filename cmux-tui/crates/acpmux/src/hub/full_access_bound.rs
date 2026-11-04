@@ -860,14 +860,12 @@ impl Hub {
         session.floor.asked_options.lock().unwrap_or_else(|e| e.into_inner()).clear();
         let scrubbed = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            let mut scrubbed = false;
-            for o in m.config_options.as_deref_mut().and_then(Value::as_array_mut).into_iter().flatten() {
-                if o["currentValue"].as_str().is_some_and(super::start_mode::is_full_access) {
-                    o["currentValue"] = Value::Null;
-                    scrubbed = true;
-                }
-            }
-            scrubbed
+            m.config_options.as_mut().is_some_and(|options| {
+                options.update_matching(
+                    |o| o["currentValue"].as_str().is_some_and(super::start_mode::is_full_access),
+                    |o| o["currentValue"] = Value::Null,
+                )
+            })
         };
         if scrubbed {
             self.save_meta(session);

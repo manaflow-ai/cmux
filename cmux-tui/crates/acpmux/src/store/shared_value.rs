@@ -42,6 +42,25 @@ impl Interner {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SharedValue(Arc<Value>);
 
+impl SharedValue {
+    /// Detach an array only when an element actually needs an edit.
+    pub(crate) fn update_matching(
+        &mut self,
+        matches: impl Fn(&Value) -> bool,
+        edit: impl Fn(&mut Value),
+    ) -> bool {
+        if !self.as_array().is_some_and(|items| items.iter().any(&matches)) {
+            return false;
+        }
+        if let Some(items) = self.as_array_mut() {
+            for item in items.iter_mut().filter(|item| matches(item)) {
+                edit(item);
+            }
+        }
+        true
+    }
+}
+
 impl From<Value> for SharedValue {
     fn from(value: Value) -> Self {
         let mut hash = DefaultHasher::new();
@@ -107,6 +126,28 @@ mod tests {
         assert!(!Arc::ptr_eq(&first, &second));
         assert_eq!(*first, json!({"a":1}));
         assert_eq!(*second, json!({"a":2}));
+    }
+
+    #[test]
+    fn no_op_updates_keep_sharing_and_real_edits_detach() {
+        let original = SharedValue::from(json!([
+            {"id":"model", "currentValue":"a"},
+            {"id":"mode", "currentValue":"default"}
+        ]));
+        let mut edited = original.clone();
+        assert!(!edited.update_matching(
+            |item| item["currentValue"] == "bypassPermissions",
+            |item| item["currentValue"] = Value::Null,
+        ));
+        assert!(Arc::ptr_eq(&original.0, &edited.0));
+        assert!(edited.update_matching(
+            |item| item["id"] == "mode",
+            |item| item["currentValue"] = Value::Null,
+        ));
+        assert!(!Arc::ptr_eq(&original.0, &edited.0));
+        assert_eq!(original[1]["currentValue"], "default");
+        assert!(edited[1]["currentValue"].is_null());
+        assert_eq!(edited[0], original[0]);
     }
 
     #[test]
