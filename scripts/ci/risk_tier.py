@@ -805,8 +805,17 @@ def rust_sources(repo: str, ref: str, paths: dict[str, str]) -> dict[str, str]:
     return sources
 
 
-def merge_base_of(repo: str, pr: dict) -> str:
-    """The commit the pull request's patches are relative to; the base tip if it can't be read."""
+def merge_base_of(repo: str, pr: dict, repo_dir: str | None = None) -> str:
+    """The commit the pull request's patches are relative to; the base tip if it can't be read.
+    From git when `repo_dir` has both ends (risk-tier.yml fetches the head there), else `compare`."""
+    if repo_dir:
+        try:
+            sha = subprocess.run(["git", "-C", repo_dir, "merge-base", pr["base"]["sha"], pr["head"]["sha"]],
+                                 check=True, capture_output=True, text=True, timeout=30).stdout.strip()
+            if re.fullmatch(r"[0-9a-f]{40}", sha):
+                return sha
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+            pass
     try:
         return gh_json("api", f"repos/{repo}/compare/{pr['base']['sha']}...{pr['head']['sha']}",
                        "--jq", "{sha: .merge_base_commit.sha}")["sha"] or pr["base"]["sha"]
@@ -851,7 +860,7 @@ def pr_mode(args: argparse.Namespace) -> int:
     removes = {path: e.get("previous_filename") or path for path, e in rust.items()
                if e.get("status") != "added" and delete_lines(patches[path], "-")}
     # The patches' line numbers are relative to the merge base, not the base branch's tip.
-    merge_base = merge_base_of(args.repo, pr) if removes or args.repo_dir else pr["base"]["sha"]
+    merge_base = merge_base_of(args.repo, pr, args.repo_dir) if removes or args.repo_dir else pr["base"]["sha"]
     grade = classify(files, patches, rust_sources(args.repo, pr["head"]["sha"], adds),
                      rust_sources(args.repo, merge_base, removes))
     undone: dict[int, list[str]] = {}

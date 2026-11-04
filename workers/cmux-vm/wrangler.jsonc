@@ -107,7 +107,10 @@
         // Mesh ACL scopes added to those service keys (their entries are write-only secrets minted with mesh read/write
         // only): cmux-platform writes each team Cloud mesh's first ACL, devices to VMs on ssh and the daemon. Only
         // acl:read and acl:write may be granted here (src/auth/service-keys.ts).
-        "CMUX_VM_SERVICE_KEY_SCOPE_GRANTS": "{\"cloud-platform-dev\":[\"acl:read\",\"acl:write\"],\"cloud-platform-staging\":[\"acl:read\",\"acl:write\"]}"
+        "CMUX_VM_SERVICE_KEY_SCOPE_GRANTS": "{\"cloud-platform-dev\":[\"acl:read\",\"acl:write\"],\"cloud-platform-staging\":[\"acl:read\",\"acl:write\"]}",
+        // A 120 s receiving-policy lease (default 30 s): every image in VM_BOOT_IMAGES above that dev and staging boot runs a
+        // receiver that renews ahead and accepts it (cmux#35467). Production keeps 30 s until its image has that receiver.
+        "CMUX_VM_RECEIVER_POLICY_LEASE_MS": "120000"
       }
     },
     // Workers custom domain in the cmux.dev zone; attached by the first
