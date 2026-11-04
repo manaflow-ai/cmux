@@ -1158,6 +1158,7 @@ CANCEL_SENT = "owned-pool rescue: cancel sent, re-run to follow:"
 CANCEL_SETTLED = "owned-pool rescue: cancel settled:"
 CANCEL_MARK = re.compile(r"owned-pool rescue: (cancel sent, re-run to follow|cancel settled): run (\d+) attempt (\d+)"
                          r"(?=\s|$)( of every job| of job (\d+))?")
+LIGHT_CANCEL_MARK = re.compile(r"hosted-light rescue: (cancel sent, re-run to follow|cancel settled): run (\d+) attempt (\d+)(?=\s|$)")
 # CANCEL_SENT's tail when the re-run to follow is of every job (rescue()'s failed_only off), not its failed ones.
 EVERY_JOB = " of every job"
 # CANCEL_SENT's tail when the re-run to follow is of one job and its dependents (a settled-sibling failover).
@@ -1177,6 +1178,9 @@ def cancel_marks(lines: Any) -> dict[tuple[int, int], str]:
     to be re-run), "sent all" (every job), "sent job N" (job N and its dependents) or "settled"."""
     found: dict[tuple[int, int], str] = {}
     for line in lines:
+        for mark in LIGHT_CANCEL_MARK.finditer(line):
+            found[(int(mark.group(2)), int(mark.group(3)))] = (
+                "sent hosted-light" if mark.group(1).startswith("cancel sent") else "settled hosted-light")
         if "owned-pool rescue: cancel" not in line:
             continue
         for mark in CANCEL_MARK.finditer(line):
