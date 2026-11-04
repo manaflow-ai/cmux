@@ -41,7 +41,7 @@ jobs:
       matrix:
         include:
           - workflow: machine-vault-e2e.yml
-            ref: feat-cmux-next
+            ref: refs/heads/feat-cmux-next
             inputs: '{"model":"real"}'
     steps:
       - name: Dispatch ${{ matrix.workflow }} with its real login
