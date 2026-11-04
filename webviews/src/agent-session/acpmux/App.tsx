@@ -13361,12 +13361,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const onNewTabPromptTyped = useCallback(
     (text: string, target?: { harness?: string; cwd?: string }) => {
       newTabFieldEdited(text);
+      const machineID = cloudDraftMachineID.current ?? cloudChatIdentity?.id;
+      if (machineID && handshaken && !reconnectingRef.current)
+        cloudTypingPrewarm.typed(text, { machineID });
       newChatPrewarm.typed(
         text,
         target?.cwd ? { ...(target.harness ? { harness: target.harness } : {}), cwd: target.cwd } : undefined,
       );
     },
-    [newChatPrewarm, newTabFieldEdited],
+    [cloudChatIdentity, cloudTypingPrewarm, handshaken, newChatPrewarm, newTabFieldEdited],
   );
   const onCloudTyping = useCallback(
     (text: string, sessionId?: string) => {
@@ -14933,6 +14936,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
                   {...(startFolder ? { startCwd: startFolder } : {})}
                   onPromptTyped={onNewTabPromptTyped}
+                  onCloudMachinePicked={quick ? undefined : onCloudMachinePicked}
                   // Leo, 2026-10-31: "JUST PASSING THE SELECTED FOLDER/'PROJECT' WHEN YOU PICK CLOUD THAT'S
                   // THE BEST WAY. IT JUST GOES IT JUST WORKS". A project picked here goes to the host on its
                   // click (workspace.useFolder, as the chat composer's chip does in chooseProject), so a Cloud
