@@ -1441,7 +1441,9 @@ export default agentPaneEntry({
     },
     "try-another-approach-cloud": {
       note: "Cloud's latest completed turn offers Try another approach. It snapshots the machine now, copies the transcript through that turn, and opens one sibling labelled with its parent; the parent stays selected.",
-      ready: { transport: "mock", cloudMachineID: "vm_gallery_cloud" },
+      // This action is host-owned; keep the preview transport so the fixture's transcript remains
+      // the selected parent's latest turn while the native call is recorded by the gallery bridge.
+      ready: { cloudMachineID: "vm_gallery_cloud" },
       native: { "chat.tryAnotherApproach": { childId: "child-gallery", parentLabel: "Try another approach · Add retries to the fetch helper" } },
       snapshot: forkTurns(undefined),
       play: async (ctx) => {
@@ -1456,8 +1458,11 @@ export default agentPaneEntry({
     },
     "try-another-approach-child": {
       note: "Sibling chat opened by Try another approach, with the parent label visible in its title.",
-      ready: { transport: "mock", cloudMachineID: "vm_gallery_cloud" },
+      ready: { cloudMachineID: "vm_gallery_cloud" },
       snapshot: forkTurns(undefined, "Try another approach · Add retries to the fetch helper"),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('[aria-label="Try another approach · Add retries to the fetch helper"]'));
+      },
     },
     "mark-unread-menu": {
       note: "Play: the chat menu's Mark as Unread (cx-ncc.78, Codex parity) asks acpmux on the pane's own connection (cx-jlzsf), never the host.",
