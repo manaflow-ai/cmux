@@ -59,6 +59,9 @@ final class HomeAgentPane {
 
     /// The person sent `text` to agent `peer` from its tab's composer.
     func send(_ text: String, to peer: String) {
+        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard tabs.contains(peer), !words.isEmpty else { return }
+        threads.sendToAgent(words, peer: peer, in: conversation)
     }
 
     /// What agent `peer`'s tab shows now; nil when no run has a message with it.
