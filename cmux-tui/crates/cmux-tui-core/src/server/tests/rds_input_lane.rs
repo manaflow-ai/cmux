@@ -67,6 +67,9 @@ impl TypingConnection {
         let (writer, outbound) = captured_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         attach_test_view(&mux, client, terminal.id, &writer);
+        // The view reports its size, as the app's view does: its grid is then decided and applied, so a key's sizing
+        // note is skipped through the settled-grid check, not only while no view counts.
+        mux.resize_surface_for_client(terminal.id, client, 100, 30).unwrap();
         let scheduler =
             Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
         Self { mux, client, writer, outbound, scheduler, surface: terminal.id, input }
@@ -354,6 +357,39 @@ fn a_key_waits_for_neither_the_sizing_nor_the_activity_lock() {
         (sizing, hold_client_sizing as Holder),
         (activity, hold_activity as Holder),
     ]);
+}
+
+/// A respawn under the same placement and runtime id builds a new terminal runtime: its keys must get the sizing
+/// fast path back (the sizing entry outlives the respawn, and must follow it to the new runtime), so after one key
+/// that takes the slow path, keys again wait for no sizing lock.
+#[test]
+fn after_a_respawn_keys_wait_for_no_sizing_lock_again() {
+    let connection = warmed(TypingConnection::open());
+    let removed = connection
+        .mux
+        .remove_surface_runtime_for_test(connection.surface)
+        .expect("the placement had a runtime");
+    let respawned =
+        crate::Surface::spawn_for_test(connection.surface, SurfaceOptions::default(), Weak::new())
+            .unwrap();
+    let (sent, input) = mpsc::channel();
+    respawned.replace_input_writer_for_test(Box::new(TimedInput(sent)));
+    connection.mux.insert_surface_runtime_for_test(respawned);
+    let connection = TypingConnection { input, ..connection };
+    // One key on the slow path: it finds the sizing entry and, with the fix, points it at the new runtime.
+    connection.submit("after-respawn", b'r');
+    assert!(connection.arrival(b'r').is_some(), "the key after the respawn never arrived");
+    connection.settle(&["after-respawn"]);
+    let waited = key_wait_while_held(&connection, 0, hold_client_sizing);
+    eprintln!(
+        "SHARED-LOCKS after a respawn, key wait while client sizing is held {HOLD:?}: {waited:?}"
+    );
+    drop(removed);
+    connection.close();
+    assert!(
+        waited < BUDGET,
+        "after a respawn the keys waited {waited:?} for the sizing lock held {HOLD:?}"
+    );
 }
 
 /// The skipped note must never keep the grid from a view: under the default policy (the newest view sets the grid),
