@@ -1790,7 +1790,7 @@ async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<St
     // until it writes readiness. The pipe itself is the liveness signal, so a
     // busy machine never turns a slow but live daemon into a startup failure.
     match tokio::time::timeout(START_BUDGET, wait).await {
-        Ok(read) => read,
+        Ok(read) => Ok(read?),
         Err(_) => Err(anyhow!(
             "daemon did not come up at {} within {START_BUDGET:?}; see {}",
             path.display(),
