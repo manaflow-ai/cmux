@@ -21,6 +21,12 @@ public final class TitlebarBandButton: ClickableButton {
             needsLayout = true
         }
     }
+    /// The glyph's ink when it is not the chrome's secondary text (a lit or warning glyph); nil
+    /// draws `Palette.textSecondary`. An owner sets it again in its own theme hook, which a theme
+    /// repaint runs before this button's (`ThemeRepaint` paints a view before its subviews).
+    public var tintOverride: NSColor? {
+        didSet { applyThemeColors() }
+    }
     /// Optional compact count/status text supplied by a content-owned tool.
     public var badge: String? {
         didSet { badgeLabel.stringValue = badge ?? ""; badgeLabel.isHidden = badge == nil; needsLayout = true }
@@ -47,10 +53,9 @@ public final class TitlebarBandButton: ClickableButton {
         imageScaling = .scaleProportionallyDown
         applyText()
         renderSymbol()
-        contentTintColor = performWithTheme { Palette.textSecondary }
         badgeLabel.font = Typography.caption
         badgeLabel.alignment = .center
-        badgeLabel.textColor = performWithTheme { Palette.textSecondary }
+        applyThemeColors()
         badgeLabel.isBezeled = false
         badgeLabel.drawsBackground = false
         badgeLabel.isEditable = false
@@ -67,6 +72,27 @@ public final class TitlebarBandButton: ClickableButton {
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override public var mouseDownCanMoveWindow: Bool { false }
+
+    /// The glyph and badge inks follow the button's theme scope: a theme or appearance change
+    /// (`ThemeRepaint` runs this hook) and a move into a window re-read them. Read once at init,
+    /// outside any window, they kept the app theme of that moment: a window that turned dark
+    /// kept the light theme's grey glyphs on its dark titlebar.
+    override public func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyThemeColors()
+    }
+
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyThemeColors()
+    }
+
+    private func applyThemeColors() {
+        performWithTheme {
+            contentTintColor = tintOverride ?? Palette.textSecondary
+            badgeLabel.textColor = Palette.textSecondary
+        }
+    }
 
     /// Disabled under a still pointer (Back with no history left): hover
     /// follows at once (cx-3wu5).

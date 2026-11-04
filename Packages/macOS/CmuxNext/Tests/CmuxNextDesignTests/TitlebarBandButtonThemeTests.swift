@@ -44,6 +44,19 @@ import CmuxNextDesignTokens
         #expect(drawn.composited(over: ground).contrast(with: ground) >= 3, "a toolbar glyph reads at 3:1 on its titlebar")
     }
 
+    /// An owner's ink (a lit pane tool, the host pressure warning) stays across the repaint: the
+    /// owner's hook runs first and sets it again, and the button's own hook must not drop it.
+    @Test func anOwnersInkSurvivesTheRepaint() throws {
+        let (button, host, scope) = try lightBand()
+        let lit = NSColor(srgbRed: 0.9, green: 0.3, blue: 0.1, alpha: 1)
+        button.tintOverride = lit
+        scope.setOverride(try #require(ThemeSpec("Band Dark")), input: Self.dark, animated: false)
+        #expect(button.superview === host)
+        #expect(Self.same(try #require(button.contentTintColor), lit))
+        button.tintOverride = nil
+        #expect(Self.same(try #require(button.contentTintColor), scope.perform { Palette.textSecondary }))
+    }
+
     private static func same(_ lhs: NSColor, _ rhs: NSColor) -> Bool {
         guard let lhs = lhs.usingColorSpace(.sRGB), let rhs = rhs.usingColorSpace(.sRGB) else { return false }
         return abs(lhs.redComponent - rhs.redComponent) < 0.01 && abs(lhs.greenComponent - rhs.greenComponent) < 0.01

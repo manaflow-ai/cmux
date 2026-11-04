@@ -252,7 +252,7 @@ final class HostPressureIndicatorView: NSView {
     }
 
     private func applyTint() {
-        button.contentTintColor = performWithTheme { Palette.attention }
+        button.tintOverride = performWithTheme { Palette.attention }
     }
 
     @objc private func togglePopover() {

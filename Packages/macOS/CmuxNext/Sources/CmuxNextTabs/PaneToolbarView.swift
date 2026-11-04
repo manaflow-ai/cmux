@@ -419,9 +419,9 @@ public final class PaneToolbarView: NSView {
     /// Runs again on a theme change.
     private func applyTint() {
         moreButton.tintOverride = lit ? performWithTheme { Palette.litGlyph } : nil
-        for (button, item) in zip(buttons, items) { button.contentTintColor = performWithTheme { item.lit ? Palette.litGlyph : Palette.textSecondary } }
+        for (button, item) in zip(buttons, items) { button.tintOverride = item.lit ? performWithTheme { Palette.litGlyph } : nil }
         for (button, item) in zip(nativeButtons, nativeItems) {
-            button.contentTintColor = performWithTheme { item.toggled ? Palette.litGlyph : Palette.textSecondary }
+            button.tintOverride = item.toggled ? performWithTheme { Palette.litGlyph } : nil
         }
     }
 
