@@ -207,23 +207,32 @@ const readTreeMarker = async (sha) => {
   if (marker === 'throw') throw new Error('getaddrinfo ENOTFOUND files.cmux.com');
   return marker || { status: 200, body: { commit: sha, key: 'f'.repeat(40), publishedBy: 'e'.repeat(40), markedBy: 'https://github.com/manaflow-ai/cmux/actions/runs/1' } };
 };
+// G5's exception: each commit's nightly.yml (scenario.workflows: text per
+// commit, or 'throw' for a failed read); an absent entry has no line.
+calls.workflowReads = [];
+const readWorkflow = async (sha) => {
+  calls.workflowReads.push(sha);
+  const text = (scenario.workflows || {})[sha];
+  if (text === 'throw') throw Object.assign(new Error('Bad Gateway'), { status: 502 });
+  return text ?? 'name: Nightly macOS build\n';
+};
 let newest = null;
 const decision = scenario.request !== undefined
   ? (newest = await guard.decideRequest({
       requested: scenario.request, actor: scenario.requestActor,
       github, core, owner: 'manaflow-ai', repo: 'cmux', runId: 1,
-      surfaceText: scenario.surface, sleep: async () => {}, readTreeMarker,
+      surfaceText: scenario.surface, sleep: async () => {}, readTreeMarker, readWorkflow,
     })).decision
   : scenario.newest
   ? (newest = await guard.decideNewest({
       github, core, owner: 'manaflow-ai', repo: 'cmux', sha: scenario.sha, runId: 1,
-      surfaceText: scenario.surface, sleep: async () => {}, readTreeMarker,
+      surfaceText: scenario.surface, sleep: async () => {}, readTreeMarker, readWorkflow,
       ...(scenario.requireReleaseCompile === undefined ? {} : { requireReleaseCompile: scenario.requireReleaseCompile }),
       ...(scenario.requireApproval === undefined ? {} : { requireApproval: scenario.requireApproval }),
     })).decision
   : await guard.decide({
       github, core, owner: 'manaflow-ai', repo: 'cmux', sha: scenario.sha,
-      surfaceText: scenario.surface, sleep: async () => {}, readTreeMarker,
+      surfaceText: scenario.surface, sleep: async () => {}, readTreeMarker, readWorkflow,
       ...(scenario.requireReleaseCompile === undefined ? {} : { requireReleaseCompile: scenario.requireReleaseCompile }),
       ...(scenario.requireApproval === undefined ? {} : { requireApproval: scenario.requireApproval }),
       // G1' tree check: scenario.trainVerify is its answer, 'throw' a crash.
@@ -1266,6 +1275,80 @@ def test_g5_runs_after_g1() -> None:
     assert out["calls"]["markerReads"] == [], out["calls"]
 
 
+TREE_AT_INSTALL = "env:\n  NIGHTLY_NEXT_TREE_AT_INSTALL: v1\n"
+
+
+def test_g5_a_commit_whose_nightly_waits_for_its_tree_is_promoted_without_a_marker() -> None:
+    # The landing's build starts while its tree compiles; its nightly.yml
+    # waits for the tree at install and gates publication on the marker.
+    case = scenario(treeMarkers={SHA: {"status": 404}}, workflows={SHA: TREE_AT_INSTALL})
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out["decision"]
+    assert out["calls"]["workflowReads"] == [SHA], out["calls"]
+    assert any("waits for its own tree at install" in n for n in out["notices"]), out["notices"]
+
+
+def test_g5_the_tree_at_install_exception_needs_the_exact_line() -> None:
+    for text in ("name: Nightly macOS build\n",
+                 "# NIGHTLY_NEXT_TREE_AT_INSTALL: v1 is not set here\n",
+                 "env:\n  NIGHTLY_NEXT_TREE_AT_INSTALL: v2\n"):
+        case = scenario(treeMarkers={SHA: {"status": 404}}, workflows={SHA: text})
+        del case["requireApproval"]
+        out = run(case)
+        assert out["decision"]["action"] == "refuse", (text, out["decision"])
+        assert "has no cmux-tui tree-commit marker" in out["decision"]["reason"], out["decision"]
+
+
+def test_g5_an_unreadable_nightly_yml_refuses() -> None:
+    case = scenario(treeMarkers={SHA: {"status": 404}}, workflows={SHA: "throw"})
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out["decision"]
+    reason = out["decision"]["reason"]
+    assert "has no cmux-tui tree-commit marker" in reason and "could not be read (502)" in reason, reason
+
+
+def test_g5_a_marker_read_failure_never_takes_the_tree_at_install_exception() -> None:
+    # A malformed marker whose fields carry the 404 reason's words is still a read failure.
+    for marker in ({"status": 503}, "throw", {"status": 200, "body": {"commit": SHA}},
+                   {"status": 200, "body": {"commit": "has no cmux-tui tree-commit marker"}},
+                   {"status": 200, "error": f"{SHA} has no cmux-tui tree-commit marker"}):
+        case = scenario(treeMarkers={SHA: marker}, workflows={SHA: TREE_AT_INSTALL})
+        del case["requireApproval"]
+        out = run(case)
+        assert out["decision"]["action"] == "refuse", (marker, out["decision"])
+        assert out["decision"]["reason"].startswith("tree marker read failed"), (marker, out["decision"])
+        assert out["calls"]["workflowReads"] == [], (marker, out["calls"])
+
+
+def test_g5_a_published_tree_reads_no_workflow() -> None:
+    case = scenario(workflows={SHA: TREE_AT_INSTALL})
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out["decision"]
+    assert out["calls"]["workflowReads"] == [], out["calls"]
+
+
+def test_g5_workflow_reader_reads_the_raw_file_at_the_sha() -> None:
+    script = r"""
+const guard = await import(process.env.GUARD);
+const seen = [];
+const github = { rest: { repos: { getContent: async (params) => { seen.push(params); return { data: 'env:\n  NIGHTLY_NEXT_TREE_AT_INSTALL: v1\n' }; } } } };
+const yes = await guard.waitsForTreeAtInstall(guard.workflowReader(github, 'manaflow-ai', 'cmux'), 'a'.repeat(40));
+const dir = { rest: { repos: { getContent: async () => ({ data: [{ name: 'nightly.yml' }] }) } } };
+const notFile = await guard.waitsForTreeAtInstall(guard.workflowReader(dir, 'manaflow-ai', 'cmux'), 'a'.repeat(40));
+console.log(JSON.stringify({ seen, yes, notFile }));
+"""
+    result = subprocess.run(["node", "--input-type=module", "-e", script], cwd=ROOT,
+                            env={**os.environ, "GUARD": str(GUARD)}, capture_output=True, text=True, check=True)
+    out = json.loads(result.stdout)
+    assert out["seen"] == [{"owner": "manaflow-ai", "repo": "cmux", "path": ".github/workflows/nightly.yml",
+                            "ref": "a" * 40, "mediaType": {"format": "raw"}}], out
+    assert out["yes"] is True, out
+    assert "is not a file" in out["notFile"]["error"], out
+
+
 def test_g5_fetch_reads_the_contract_url_with_a_cache_buster() -> None:
     script = r"""
 const guard = await import(process.env.GUARD);
@@ -1292,6 +1375,62 @@ console.log(JSON.stringify({ seen, ok, missing, down, garbled, cut, moved, redir
     assert out["cut"]["status"] == 0 and "cut off" in out["cut"]["error"], out
     assert out["moved"] == {"url": f"https://files.cmux.com/cmux-tui/tree-commits/{'a' * 40}.json", "status": 302}, out
     assert out["redirect"] == "manual", out
+
+
+def test_quota_reset_retry_waits_once_without_polling_or_retrying_writes() -> None:
+    script = r"""
+const guard = await import(process.env.GUARD);
+const run = async ({status = 403, remaining = '0', reset = '1100', method = 'GET', alwaysFails = false} = {}) => {
+  const waits = [], warnings = [];
+  let calls = 0;
+  const error = Object.assign(new Error('API rate limit exceeded for installation'), {
+    status, response: {headers: {'x-ratelimit-remaining': remaining, 'x-ratelimit-reset': reset}},
+  });
+  const retry = guard.quotaResetRetry({now: () => 1000000, sleep: async ms => waits.push(ms),
+    core: {warning: message => warnings.push(message)}});
+  const request = async options => {
+    calls++;
+    if (calls === 1 || alwaysFails) throw error;
+    return {data: options.url};
+  };
+  let result, failed = false;
+  try { result = await retry(request, {method, url: '/repos/manaflow-ai/cmux/git/ref/heads/feat-cmux-next'}); }
+  catch (caught) { if (caught !== error) throw caught; failed = true; }
+  // The same decision may make many reads: none gets another quota wait.
+  try { if (calls === 2) await retry(async () => {throw error}, {method: 'GET'}); }
+  catch (caught) { if (caught !== error) throw caught; }
+  return {calls, waits, warnings, result, failed};
+};
+const recovered = await run();
+const refused = [];
+for (const options of [{status: 401}, {remaining: '1'}, {remaining: undefined, reset: 'bad'},
+  {reset: ''}, {reset: 'NaN'}, {reset: 'Infinity'}, {reset: '5000'}, {method: 'POST'}, {method: 'PATCH'}]) {
+  refused.push(await run(options));
+}
+  console.log(JSON.stringify({recovered, refused, exhausted: await run({alwaysFails: true}),
+  clockSkew: await run({reset: '999'}), capped: await run({reset: '1300'})}));
+"""
+    result = subprocess.run(["node", "--input-type=module", "-e", script], cwd=ROOT,
+                            env={**os.environ, "GUARD": str(GUARD)}, capture_output=True, text=True, check=True)
+    out = json.loads(result.stdout)
+    assert out["recovered"]["calls"] == 2 and not out["recovered"]["failed"], out
+    assert out["recovered"]["waits"] == [101000], out
+    assert len(out["recovered"]["warnings"]) == 1, out
+    assert all(case["calls"] == 1 and case["failed"] and not case["waits"] for case in out["refused"]), out
+    assert out["exhausted"]["calls"] == 2 and out["exhausted"]["failed"], out
+    assert out["exhausted"]["waits"] == [101000], out
+    assert out["clockSkew"]["waits"] == [1000], out
+    # A reset beyond the three-minute bound returns to the caller without
+    # sleeping until the hourly reset; the workflow's read-token fallback
+    # keeps the decision on a separate bucket when it is available.
+    assert out["capped"]["calls"] == 1 and out["capped"]["failed"] and not out["capped"]["waits"], out
+
+
+def test_promotion_decision_uses_the_quota_isolated_read_token_when_available() -> None:
+    assert "Mint the quota-isolated read token" in WORKFLOW
+    assert "github-token: ${{ steps.read-token.outputs.token || github.token }}" in WORKFLOW
+    assert "permission-actions: read" in WORKFLOW
+    assert "permission-contents: read" in WORKFLOW
 
 
 def main() -> None:

@@ -16,7 +16,7 @@ import SwiftUI
 
 @Suite(.serialized)
 final class WorkspaceContentViewVisibilityTests {
-    private final class MinimalModeBodyProbeCounts {
+    final class MinimalModeBodyProbeCounts {
         var isMeasuringInvalidations = false
         var contentViewBody = 0
         var workspaceContentBody = 0
@@ -642,7 +642,7 @@ final class WorkspaceContentViewVisibilityTests {
     /// Drains until three consecutive drains re-evaluate no chrome body, so a
     /// measurement only counts what the change under test invalidates.
     @MainActor
-    private static func waitForQuietChromeBodies(
+    static func waitForQuietChromeBodies(
         counts: MinimalModeBodyProbeCounts,
         window: NSWindow
     ) async -> Bool {
@@ -659,7 +659,7 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @MainActor
-    private static func drainMainRunLoop(for window: NSWindow, iterations: Int = 20) async {
+    static func drainMainRunLoop(for window: NSWindow, iterations: Int = 20) async {
         for _ in 0..<iterations {
             window.contentView?.layoutSubtreeIfNeeded()
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))

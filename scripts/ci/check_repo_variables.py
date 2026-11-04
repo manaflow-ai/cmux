@@ -127,7 +127,15 @@ def problems(env: dict[str, str]) -> list[str]:
                              "that gate the nightly-next promotion queue behind pull request side lanes. "
                              "Fix: point it at a pool pull requests do not fill, or clear it for the promote pool")
             found.extend(pin_pool_findings(env.get(PIN_POOL_VARIABLE, "").strip(), daemon_pool, variables)[0])
-            for name, value, reason in drifted_runner_variables(variables):
+            drifted = list(drifted_runner_variables(variables))
+            reported = {name for name, _, _ in drifted}
+            for name, value in sorted(variables.items()):
+                # Checked on their own: the drift policy accepts some labels (an older provider's,
+                # say) that no signing job may run on.
+                if name not in reported and not allowed_value(name, value):
+                    found.append(f"{name}={value!r}: signing jobs run on it, so it may only name blacksmith-* "
+                                 "or ubuntu-* (scripts/ci/signing_runner_variables.py)")
+            for name, value, reason in drifted:
                 if (switched.get(name) == value and not HOSTED_MACOS_LABEL.search(value.strip().lower())
                         and allowed_value(name, value)):
                     # The overflow switch's failover while Blacksmith is down; never a hosted Mac, and a
