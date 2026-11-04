@@ -82,7 +82,8 @@ export function SessionRefCode({
         title={title}
         aria-label={title}
         data-session-ref=""
-        {...openSessionAttributes(target.sessionId)}
+        // The click opens it as a sender (`openSender`) where the page has one; the menu asks the same way.
+        {...openSessionAttributes(target.sessionId, subsessions?.openSender !== undefined)}
         onClick={() => open(target.sessionId)}
       >
         <code className="cv-code">
