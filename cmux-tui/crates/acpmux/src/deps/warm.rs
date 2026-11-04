@@ -378,9 +378,14 @@ fn lock(file: &std::fs::File, wait: bool) -> std::io::Result<()> {
     }
 }
 
+/// Without `flock` an upload holds no lock and `machine deps wait` waits for none.
+#[cfg(not(unix))]
+fn lock(_file: &std::fs::File, _wait: bool) -> std::io::Result<()> {
+    Ok(())
+}
+
 /// `machine deps upload`: pack `include` under `root` and store it as `key`,
 /// holding `~/.acpmux/deps-uploads/<key>.lock` while it runs.
-#[cfg(unix)]
 pub async fn upload(
     key: &str,
     root: &Path,
@@ -428,7 +433,6 @@ pub async fn upload(
 }
 
 /// `machine deps wait`: returns when no background upload is running.
-#[cfg(unix)]
 pub fn wait_uploads() -> anyhow::Result<usize> {
     let Ok(entries) = std::fs::read_dir(uploads_dir()) else { return Ok(0) };
     let mut waited = 0;
