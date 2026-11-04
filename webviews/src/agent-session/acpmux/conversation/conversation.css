@@ -4417,12 +4417,17 @@ a.cv-sha:focus-visible {
   color: var(--cv-text-dim);
   font-variant-numeric: tabular-nums;
 }
-/* Hidden, its space kept, but for a failed turn, the turn the reader points at (data-turn-revealed,
-   VirtualTranscript), keyboard focus, or the turn that ends the chat (App.tsx `acpmux-row--final-footer`):
-   once the agent is done its Copy shows without a hover, as Claude's and ChatGPT's (Leo, 2026-11-02). */
+/* A finished turn's row with something to act on (Copy, Read aloud, ⋯, Retry) shows at rest under
+   every finished turn, the turns the person came in on too (turns.ts supersededFooters), as ChatGPT's
+   does (Leo, 2026-11-04: "we don't have the time worked for nor the thing always showing at hte bottom
+   (excl. thumb up/down)"). Only an empty footer (turns.ts isEmptyFooter: Pin and Fork alone, laid over
+   the gap) stays hidden, its space kept, but for the turn the reader points at (data-turn-revealed,
+   VirtualTranscript), keyboard focus, or the turn that ends the chat (App.tsx `acpmux-row--final-footer`).
+   Replaces 2026-11-02's rule that only the chat's last footer showed at rest. */
 .acpmux-turnSummary .cv-turn-actions {
   opacity: 0;
 }
+.acpmux-turnSummary .cv-turn-actions:not(.cv-turn-actions--empty),
 .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
 .acpmux-turnSummary:focus-visible .cv-turn-actions,
 .acpmux-turnSummary:hover .cv-turn-actions,
