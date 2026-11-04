@@ -739,9 +739,17 @@ impl Hub {
         // A lane's report to a parent whose close began since `queue_slot` checked is refused
         // (`lane_reports.rs`). Checked once the turn is set: `kill` marks the close before it
         // clears the turn, so a close that began any time before this check is seen.
-        if super::queue::refuses_closing_run(session, run.provenance.as_ref()) {
+        // Nor does any parent take one once a shutdown began: no agent may start from then on
+        // (`shutdown.rs`), and the shutdown sets that before it ends the lane turns it cuts.
+        let refused = if super::queue::refuses_closing_run(session, run.provenance.as_ref()) {
+            Some(super::queue::closing_error())
+        } else if super::queue::is_lane_report(run.provenance.as_ref()) && self.shutting_down() {
+            Some(super::shutdown::shutting_down_error())
+        } else {
+            None
+        };
+        if let Some(e) = refused {
             *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = None;
-            let e = super::queue::closing_error();
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
