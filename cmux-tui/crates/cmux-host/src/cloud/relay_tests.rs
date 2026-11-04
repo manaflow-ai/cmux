@@ -120,8 +120,11 @@ fn ends_with_done_or_a_named_error() {
         json!({"kind": "done", "stop_reason": "end_turn", "reply": "Hello"})
     );
     assert_eq!(final_event(Some(0), "", "")["stop_reason"], "end_turn");
-    assert_eq!(final_event(Some(2), "", "")["code"], "chat.permission_waiting");
+    // acpmux: 2 usage, 3 timeout, 4 no session, 5 permission denied.
+    assert_eq!(final_event(Some(2), "", "")["code"], "chat.failed");
     assert_eq!(final_event(Some(3), "", "")["code"], "chat.timeout");
+    assert_eq!(final_event(Some(4), "", "")["code"], "chat.no_session");
+    assert_eq!(final_event(Some(5), "", "")["code"], "chat.permission_denied");
     let e = final_event(Some(1), "", "warn\nacpmux: no such harness\n\n");
     assert_eq!(
         e,

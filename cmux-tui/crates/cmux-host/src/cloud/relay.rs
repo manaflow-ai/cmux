@@ -228,9 +228,11 @@ pub fn final_event(exit: Option<i32>, stdout: &str, stderr: &str) -> Value {
         }
         return done;
     }
+    // acpmux's exit codes (cli/errors.rs `Code`).
     let code = match exit {
-        Some(2) | Some(5) => "chat.permission_waiting",
         Some(3) => "chat.timeout",
+        Some(4) => "chat.no_session",
+        Some(5) => "chat.permission_denied",
         _ => "chat.failed",
     };
     let line = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
@@ -342,6 +344,18 @@ fn run<H: Http>(
 }
 
 /// One connection, until it drops. `Ok` once it was up.
+/// The running chats of one socket; dropping it aborts them, which kills their acpmux children (kill_on_drop).
+#[derive(Default)]
+struct Chats(HashMap<String, tokio::task::AbortHandle>);
+
+impl Drop for Chats {
+    fn drop(&mut self) {
+        for h in self.0.values() {
+            h.abort();
+        }
+    }
+}
+
 async fn serve(url: &str, token: &str, runner: &Runner, stop: &AtomicBool) -> Result<(), String> {
     let mut request = url.into_client_request().map_err(|e| format!("request: {e}"))?;
     let bearer =
@@ -358,7 +372,9 @@ async fn serve(url: &str, token: &str, runner: &Runner, stop: &AtomicBool) -> Re
         })?;
     let (mut sink, mut stream) = ws.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
-    let mut chats: HashMap<String, tokio::task::AbortHandle> = HashMap::new();
+    // Every return ends the chats of this socket: the platform ended their streams with it (host_gone), and a
+    // cancel for them can only come down this socket.
+    let mut chats = Chats::default();
     let mut ping = tokio::time::interval(PING_EVERY);
     let mut heard = tokio::time::Instant::now();
     loop {
@@ -369,18 +385,18 @@ async fn serve(url: &str, token: &str, runner: &Runner, stop: &AtomicBool) -> Re
                 let Message::Text(text) = msg else { continue };
                 match parse_down(text.as_str()) {
                     Down::Chat(chat) => {
-                        chats.retain(|_, h| !h.is_finished());
-                        if chats.len() >= MAX_CHATS {
+                        chats.0.retain(|_, h| !h.is_finished());
+                        if chats.0.len() >= MAX_CHATS {
                             let _ = tx.send(up(&chat.id, json!({"kind": "error", "code": "cloud.relay.busy", "message": "too many chats at once"})));
                             continue;
                         }
                         let id = chat.id.clone();
                         let task = tokio::spawn(run_chat(chat, runner.clone(), tx.clone()));
-                        chats.insert(id, task.abort_handle());
+                        chats.0.insert(id, task.abort_handle());
                     }
                     Down::Cancel(id) => {
                         // Aborting drops the child, which kills it (kill_on_drop).
-                        if let Some(h) = chats.remove(&id) { h.abort(); }
+                        if let Some(h) = chats.0.remove(&id) { h.abort(); }
                     }
                     Down::Other => {}
                 }
@@ -390,7 +406,6 @@ async fn serve(url: &str, token: &str, runner: &Runner, stop: &AtomicBool) -> Re
             }
             _ = ping.tick() => {
                 if stop.load(Ordering::SeqCst) || heard.elapsed() > DEAD_AFTER {
-                    for h in chats.values() { h.abort(); }
                     let _ = sink.close().await;
                     return Ok(());
                 }
