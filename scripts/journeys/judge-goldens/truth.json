@@ -203,6 +203,74 @@
      "absent_finding": "gap"
     }
    ]
+  },
+  {
+   "id": "3b-reduce-row-drag-divider-p1p2-col1916",
+   "film": "px-77e9a45-120x2/px-row-drag-3r-s1r-reduce",
+   "why": "FRAME OWNER REFACTOR (agent pixel-perfect, 2026-11-03, judge_pixel item 3b): a FALSE POSITIVE of v7 (c22403233dd7), which reports 'divider off' for divider p1|p2 on col@1916, frames 507-511 and 513-520 (+10/+20 px). judge_pixel derives the shown divider from the middle of the two content edges beside it, so a content edge that lags or is off its pane moves the 'divider' while the cmux divider layer (drawn in the same transaction as the pane layout) is on time. R-HARNESS checked the stored film: every one of those frames has p1 hi or p2 lo content edge off or late in the same frame, which carries the defect.",
+   "expect": [
+    {
+     "judge": "judge_pixel",
+     "pixel_row": {
+      "label": "divider p1|p2",
+      "side": "mid",
+      "line": "col@1916",
+      "what": "divider"
+     },
+     "absent_finding": "divider off"
+    }
+   ]
+  },
+  {
+   "id": "3b-reduce-row-drag-divider-p1p2-col2376",
+   "film": "px-77e9a45-120x2/px-row-drag-3r-s1r-reduce",
+   "why": "FRAME OWNER REFACTOR (agent pixel-perfect, 2026-11-03, judge_pixel item 3b): a FALSE POSITIVE of v7 (c22403233dd7), which reports 'divider off' for divider p1|p2 on col@2376, frames 507-511 and 513-520 (+10/+20 px). judge_pixel derives the shown divider from the middle of the two content edges beside it, so a content edge that lags or is off its pane moves the 'divider' while the cmux divider layer (drawn in the same transaction as the pane layout) is on time. R-HARNESS checked the stored film: every one of those frames has p1 hi or p2 lo content edge off or late in the same frame, which carries the defect.",
+   "expect": [
+    {
+     "judge": "judge_pixel",
+     "pixel_row": {
+      "label": "divider p1|p2",
+      "side": "mid",
+      "line": "col@2376",
+      "what": "divider"
+     },
+     "absent_finding": "divider off"
+    }
+   ]
+  },
+  {
+   "id": "3b-col-drag-2-divider-p0p1-row514",
+   "film": "px-77e9a45-120x2/px-col-drag-2-s1r-s1",
+   "why": "FRAME OWNER REFACTOR (agent pixel-perfect, 2026-11-03, judge_pixel item 3b): a FALSE POSITIVE of v7 (c22403233dd7), which reports 'divider off' for divider p0|p1 on row@514, frames 513-515 (+18.5/+23/+48 px). judge_pixel derives the shown divider from the middle of the two content edges beside it, so a content edge that lags or is off its pane moves the 'divider' while the cmux divider layer (drawn in the same transaction as the pane layout) is on time. R-HARNESS checked the stored film: every one of those frames has p0 hi or p1 lo content edge off or late in the same frame, which carries the defect.",
+   "expect": [
+    {
+     "judge": "judge_pixel",
+     "pixel_row": {
+      "label": "divider p0|p1",
+      "side": "mid",
+      "line": "row@514",
+      "what": "divider"
+     },
+     "absent_finding": "divider off"
+    }
+   ]
+  },
+  {
+   "id": "3b-col-drag-2-divider-p0p1-row1126",
+   "film": "px-77e9a45-120x2/px-col-drag-2-s1r-s1",
+   "why": "FRAME OWNER REFACTOR (agent pixel-perfect, 2026-11-03, judge_pixel item 3b): a FALSE POSITIVE of v7 (c22403233dd7), which reports 'divider off' for divider p0|p1 on row@1126, frames 513-515 (+18.5/+23/+48 px). judge_pixel derives the shown divider from the middle of the two content edges beside it, so a content edge that lags or is off its pane moves the 'divider' while the cmux divider layer (drawn in the same transaction as the pane layout) is on time. R-HARNESS checked the stored film: every one of those frames has p0 hi or p1 lo content edge off or late in the same frame, which carries the defect.",
+   "expect": [
+    {
+     "judge": "judge_pixel",
+     "pixel_row": {
+      "label": "divider p0|p1",
+      "side": "mid",
+      "line": "row@1126",
+      "what": "divider"
+     },
+     "absent_finding": "divider off"
+    }
+   ]
   }
  ]
 }

@@ -19,7 +19,8 @@ sides are not found, never A's rings), cue (the divider's drag cue, a 6 px band 
 and 2 while the divider moves: a cue, not a gap or a hidden ring), held (A's pane grows while its content keeps its
 rest width and B shows nothing: the shell inside A's pane, A's gap capped at A's own rect, B not found),
 reduce-drag (a drag under Reduce Motion: input-driven, no finding) and reduce-keys (a key press whose motion takes 20
-samples under Reduce Motion: a finding).
+samples under Reduce Motion: a finding). blip: B's page 4 px right of its pane edge in frames 35-36 and 1 px in frame 40,
+after the divider has landed (B's own defect; the divider is not read there and does not settle late).
 """
 import json
 import math
@@ -167,6 +168,8 @@ def frame(k, variant):
         # B's page covers A's view from the inner edge of A's ring 1 on (the cyan strip, the gap and ring 1).
         cols = (int(round(aw)) - 2 * PAD) // CW
         b_x = PAD + (cols - 1) * CW
+    if variant == "blip" and k in (35, 36, 40):
+        b_x += 1 if k == 40 else 4  # B's page right of its pane edge after the divider has landed (1 px: just off)
     if variant == "d4-cover" and s >= 30:
         draw_page(img, b_x - 1, W - b_x + 1, y0=y0)  # the page window 0.5 pt left of its host (and as much wider)
     elif variant == "samefill":
@@ -301,7 +304,7 @@ class JudgePixelTests(unittest.TestCase):
                                                                     "backdrop", "strip", "strip-lag", "pill-lag", "d4-cover", "glyph",
                                                                     "samefill", "cue", "held", "reduce-drag", "reduce-keys",
                                                                     "strip-touch", "strip-scrolled", "wide-ground",
-                                                                    "neighbour-gap")}
+                                                                    "neighbour-gap", "blip")}
 
     @classmethod
     def tearDownClass(cls):
@@ -387,9 +390,15 @@ class JudgePixelTests(unittest.TestCase):
         self.assertEqual(clean["max_edge_dev_px"], 0.0)
         self.assertEqual(clean["max_lag_frames"], 0)
         self.assertEqual([m["travel_px"] for m in clean["motions"]], [40.0])
-        # B over A's ring 1: A's edge shows at B's ring 1 (-26 px), B's 32 px left of its pane edge: the middle, -29 px.
-        self.assertEqual(divider(self.reports["hidden"], "row@110")["max_edge_dev_px"], -29.0)
-        self.assertIn("divider off", [f["check"] for f in self.reports["hidden"]["findings"]])
+        # B over A's ring 1 (frames 30-32): A's and B's content edges are off there, and they carry it (content edge
+        # off, hidden ring). The divider is read only from two content edges that are on their panes (FRAME OWNER's 3b:
+        # a derived divider moves with a content edge while the cmux divider is on time), so it is not read in 30-32.
+        hidden = self.reports["hidden"]
+        self.assertNotIn("divider off", [f["check"] for f in hidden["findings"]])
+        self.assertIn(("content edge off", "p1 (page) lo on row@110"), [(f["check"], f["where"]) for f in hidden["findings"]])
+        self.assertEqual(divider(hidden, "row@110")["max_edge_dev_px"], 0.0)
+        # Nor does the divider settle late on those frames: its settle counts from the first frame that reads it.
+        self.assertNotIn("settle", [f["check"] for f in hidden["findings"] if f["where"].startswith("divider")])
         good = divider(self.reports["spring"], "row@110")["motions"][0]
         self.assertLessEqual(good["spring_trace"]["max_px"], 0.05)
         self.assertLessEqual(good["spring_film"]["max_px"], 0.75)
@@ -545,6 +554,11 @@ class JudgePixelTests(unittest.TestCase):
             self.assertLessEqual(abs(b["max_edge_dev_px"]), 1.0, which)
         self.assertEqual(side(r, "p1", "row@110", "lo")["rest"]["rings"], [16.0, 16.0, 16.0])
         self.assertLessEqual(side(r, "p0", "row@110", "hi")["max_gap_px"], 18.0)
+        # B shows nothing in 30-32, the first frames that show the landed sample. B's own content has not landed there
+        # (its settle counts them: 3 frames); the divider (the middle of A's and B's content edges) is not read there,
+        # so they do not count against its settle (3b: B's row carries them).
+        self.assertEqual([mv["settle_frames"] for mv in side(r, "p1", "row@110", "lo")["motions"]], [3])
+        self.assertEqual([mv["settle_frames"] for mv in divider(r, "row@110")["motions"]], [0])
 
     def test_the_divider_cue_is_a_cue(self):
         r = self.reports["cue"]
@@ -558,6 +572,35 @@ class JudgePixelTests(unittest.TestCase):
         self.assertNotIn("gap", [f["check"] for f in r["findings"]])
         self.assertNotIn("hidden ring", [f["check"] for f in r["findings"]])
         self.assertIn("divider cue", [f["check"] for f in r["info"]])
+
+    def test_a_late_content_edge_is_its_own_finding_not_the_dividers(self):
+        # 3b (FRAME OWNER): B's page one frame late (lag1) moves the middle of the two content edges, the derived
+        # divider, while the trace divider is on time. B's own row carries it (content edge off, lag); the divider is
+        # not read in those frames, so it reports no divider off.
+        r = self.reports["lag1"]
+        found = [(f["check"], f["where"]) for f in r["findings"]]
+        self.assertNotIn(("divider off", "divider p0|p1 (divider) mid on row@110"), found)
+        self.assertIn(("lag", "p1 (page) lo on row@110"), found)
+        self.assertEqual(divider(r, "row@110")["off_frames"], 0)
+        # The late edge also shows the landed sample one frame late; that is B's, not a divider settle.
+        self.assertNotIn("settle", [c for c, w in found if w.startswith("divider")])
+        # A's content 2 px short of its edge (gap2, frames 20-25): the left side's edge is off; the divider is not read.
+        gap2 = divider(self.reports["gap2"], "row@180")
+        self.assertEqual((gap2["off_frames"], gap2.get("not_read_ranges")), (0, "20-25"))
+
+    def test_a_divider_settle_counts_only_the_frames_it_reads(self):
+        # blip: the divider lands at frame 30 and rests; B's page is 4 px off its pane edge in frames 35-36 and 1 px (just
+        # off) in frame 40 (B's own content edge off). The divider is not read in those frames, so they neither show it
+        # off nor restart its settle; the information names them.
+        r = self.reports["blip"]
+        found = [(f["check"], f["where"]) for f in r["findings"]]
+        self.assertIn(("content edge off", "p1 (page) lo on row@110"), found)
+        d = divider(r, "row@110")
+        self.assertEqual((d["off_frames"], d.get("not_read_ranges")), (0, "35-36,40"))
+        info = {(f["check"], f["where"]): f["detail"] for f in r["info"]}
+        self.assertIn("3 frame(s)", info[("divider not read", "divider p0|p1 (divider) mid on row@110")])
+        self.assertEqual([mv["settle_frames"] for mv in d["motions"]], [0])
+        self.assertNotIn("settle", [c for c, w in found if w.startswith("divider")])
 
     def test_the_shell_past_the_divider_is_the_neighbours_not_a_gap(self):
         # 3a (FRAME OWNER): a pane's gap is measured to its pane edge and the divider band to the next pane, never
