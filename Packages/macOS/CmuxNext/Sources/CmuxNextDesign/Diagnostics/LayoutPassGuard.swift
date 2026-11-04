@@ -134,14 +134,29 @@ public final class LayoutPassGuard {
             view.subviews.forEach(walk)
         }
         if let root = window?.contentView?.superview ?? window?.contentView { walk(root) }
-        let classes: [[String: Any]] = passesByClass.prefix(60).map { entry in
-            ["c": entry.viewClass, "layouts": entry.passes, "views": views[entry.viewClass]?.all ?? 0, "hidden": views[entry.viewClass]?.hidden ?? 0,
-             "incl_us": Int((classTime[entry.viewClass]?.incl ?? 0) / 1000), "self_us": Int((classTime[entry.viewClass]?.own ?? 0) / 1000)]
+        var classes: [[String: Any]] = []
+        for entry in passesByClass.prefix(60) {
+            let shown: (all: Int, hidden: Int) = views[entry.viewClass] ?? (0, 0)
+            let time: (incl: UInt64, own: UInt64) = classTime[entry.viewClass] ?? (0, 0)
+            var row: [String: Any] = [:]
+            row["c"] = entry.viewClass
+            row["layouts"] = entry.passes
+            row["views"] = shown.all
+            row["hidden"] = shown.hidden
+            row["incl_us"] = Int(time.incl / 1000)
+            row["self_us"] = Int(time.own / 1000)
+            classes.append(row)
         }
-        let object: [String: Any] = ["view_layout_calls": viewLayoutCalls, "window_layout_passes": windowLayoutPasses, "classes": classes,
-                                     "window_pass_us": Int(windowNs / 1000), "top_view_layout_in_window_us": Int(topViewNsInWindow / 1000),
-                                     "top_view_layout_outside_window_us": Int(topViewNsOutside / 1000),
-                                     "tree_views": views.values.reduce(0) { $0 + $1.all }]
+        var treeViews = 0
+        for value in views.values { treeViews += value.all }
+        var object: [String: Any] = [:]
+        object["view_layout_calls"] = viewLayoutCalls
+        object["window_layout_passes"] = windowLayoutPasses
+        object["classes"] = classes
+        object["window_pass_us"] = Int(windowNs / 1000)
+        object["top_view_layout_in_window_us"] = Int(topViewNsInWindow / 1000)
+        object["top_view_layout_outside_window_us"] = Int(topViewNsOutside / 1000)
+        object["tree_views"] = treeViews
         firstFrame = (try? JSONSerialization.data(withJSONObject: object)).flatMap { String(data: $0, encoding: .utf8) }
     }
 
