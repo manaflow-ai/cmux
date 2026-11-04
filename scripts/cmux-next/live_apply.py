@@ -24,7 +24,11 @@ import re
 import subprocess
 import sys
 
-NOAPP = re.compile(r"(^|/)(docs?|plans|research|\.github|tests?|Tests|UITests|scripts|skills|release-notes|schemas|fixtures|bench|benchmarks|tools|build-fleet)(/|$)|\.(md|txt|yml|yaml|toml|lock|sh|py|mjs)$|^(web|backend|workers|services|cmux-tui/relays)/|(^|/)CHANGELOG|LICENSE|\.gitignore$|\.test\.(ts|tsx)$|\.gallery\.(ts|tsx|css)$|/gallery/")
+# Folders and files that never ship in the app, checked before everything else.
+NOAPP_PATH = re.compile(r"(^|/)(docs?|plans|research|\.github|tests?|Tests|UITests|scripts|skills|release-notes|schemas|fixtures|bench|benchmarks|tools|build-fleet)(/|$)|^(web|backend|workers|services|cmux-tui/relays)/|(^|/)CHANGELOG|LICENSE|\.gitignore$|\.test\.(ts|tsx)$|\.gallery\.(ts|tsx|css)$|/gallery/")
+# Extensions that change nothing in the app, checked after the web, resource and Rust rules, so a
+# Cargo.lock, a bundled Resources/x.sh or webviews' vite.config.mjs still counts.
+NOAPP_EXT = re.compile(r"\.(md|txt|yml|yaml|toml|lock|sh|py|mjs)$")
 WEB = re.compile(r"^(webviews|cmux-tui/frontends/web)/")
 RUST = re.compile(r"\.rs$|(^|/)Cargo\.toml$|^cmux-tui/|^acpmux/")
 IOS = re.compile(r"^(ios|cmux-next-ios|Packages/iOS)/")
@@ -79,7 +83,7 @@ def classify(files, diffs):
     for status, path in files:
         if IOS.search(path):
             note("ios-only", path)
-        elif NOAPP.search(path):
+        elif NOAPP_PATH.search(path):
             note("no-app", path)
         elif WEB.search(path):
             note("web-live", path)
@@ -87,6 +91,8 @@ def classify(files, diffs):
             note("rebuild", path, "resource or manifest")
         elif RUST.search(path):
             note("daemon", path)
+        elif NOAPP_EXT.search(path):
+            note("no-app", path)
         elif path.endswith(".swift"):
             # A deleted file's code stays in the running binary, and nothing calls it any more.
             why = [] if status == "D" else swift_reasons(diffs.get(path, []), status == "A")

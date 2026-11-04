@@ -31,6 +31,13 @@ class ClassifyTests(unittest.TestCase):
     def test_rust_is_a_daemon_restart_and_outweighs_web(self):
         self.assertEqual(self.verdict([("M", "cmux-tui/src/main.rs"), ("M", "webviews/src/a.tsx")]), "daemon")
 
+    def test_lockfiles_bundled_scripts_and_web_config_are_not_no_app(self):
+        self.assertEqual(self.verdict([("M", "cmux-tui/Cargo.lock")]), "daemon")
+        self.assertEqual(self.verdict([("M", "acpmux/Cargo.toml")]), "daemon")
+        self.assertEqual(self.verdict([("M", "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/upgrade.sh")]), "rebuild")
+        self.assertEqual(self.verdict([("M", "webviews/vite.config.mjs"), ("M", "webviews/bun.lock")]), "web-live")
+        self.assertEqual(self.verdict([("M", "scripts/cmux-next/x.sh"), ("M", "README.txt")]), "no-app")
+
     def test_a_body_only_swift_edit_is_swift_live(self):
         diffs = {VIEW: [("-", "        Text(\"old\")"), ("+", "        Text(\"new\")")]}
         self.assertEqual(self.verdict([("M", VIEW)], diffs), "swift-live")

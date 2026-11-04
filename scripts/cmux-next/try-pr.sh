@@ -26,7 +26,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) dry=1; shift ;;
     --build) build=1; shift ;;
-    --port) follow+=(--port "$2"); shift 2 ;;
+    --port) [[ $# -ge 2 ]] || usage 1; follow+=(--port "$2"); shift 2 ;;
     --fork) follow+=(--fork); shift ;;
     -h|--help) usage ;;
     *) usage 1 ;;
