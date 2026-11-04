@@ -9,7 +9,7 @@ import {
 import { mixedToolRunFixture } from "./mixedToolRunFixture";
 
 test("only successful builtin discovery is hidden, never a similarly named operation or an error", () => {
-  const discovery = mixedToolRunFixture()[2]!.tool!;
+  const discovery = mixedToolRunFixture()[2]!.tool! as NonNullable<Parameters<typeof isToolDiscoveryNoise>[0]>;
   expect(isToolDiscoveryNoise(discovery)).toBe(true);
   expect(isToolDiscoveryNoise({ ...discovery, output: '{"isError": false,"message":"Loaded tools"}' })).toBe(true);
   for (const extra of [
@@ -24,7 +24,9 @@ test("only successful builtin discovery is hidden, never a similarly named opera
     { command: "load_tools" },
     { approved: true },
   ])
-    expect(isToolDiscoveryNoise({ ...discovery, ...extra })).toBe(false);
+    expect(
+      isToolDiscoveryNoise({ ...discovery, ...extra } as NonNullable<Parameters<typeof isToolDiscoveryNoise>[0]>),
+    ).toBe(false);
 });
 
 test("detail uses values and meaningful results instead of raw argument keys or lifecycle placeholders", () => {
