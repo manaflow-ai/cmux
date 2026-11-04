@@ -2529,11 +2529,16 @@ class GitHub:
                 return "ephemeral"
         return None
 
-    def runners(self, *, use_state: bool = True) -> list[Mapping[str, Any]]:
+    def runners(self, *, use_state: bool = True, include_repository: bool = True) -> list[Mapping[str, Any]]:
         """The repository runners plus explicitly approved organization groups.
 
         Capacity rechecks after a wait use use_state=False: the workflow's
         document retains the same observation throughout that run.
+
+        Organization-only fallback tokens use include_repository=False: they
+        cannot list repository registrations, but can still read the approved
+        organization groups visible to this repository. A trusted shared census
+        remains usable with either token.
 
         The glaeda minis and GCP Linux pool are organization runners, which
         the repository endpoint does not list. Listing those groups needs the
@@ -2549,7 +2554,8 @@ class GitHub:
             print("Runner state: trusted repository document (no runner API requests)", file=sys.stderr)
             return [*document["repository_runners"],
                     *(runner for runners in document["runner_groups"].values() for runner in runners)]
-        found = {runner.get("id"): runner for runner in self._runner_pages(f"/repos/{self.repo}/actions/runners")}
+        found = ({runner.get("id"): runner for runner in self._runner_pages(f"/repos/{self.repo}/actions/runners")}
+                 if include_repository else {})
         owner, _, name = self.repo.partition("/")
         try:
             groups = self.get_api(f"/orgs/{owner}/actions/runner-groups?per_page={PAGE_SIZE}"

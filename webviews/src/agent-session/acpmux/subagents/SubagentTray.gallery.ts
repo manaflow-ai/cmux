@@ -128,6 +128,67 @@ const described = activity(
   1.4,
 );
 
+/** A running turn with a five-step todo list and three background commands (the tray's hat). */
+function planChat() {
+  return chat(
+    [
+      user("Land the tray change: compile, test and update the spec", 3),
+      row("plan", 2.9, {
+        plan: [
+          { content: "Read the tray and its tests", status: "completed" },
+          { content: "Move the plan into the hat", status: "completed" },
+          { content: "Run the tray tests", status: "in_progress" },
+          { content: "Compile the app on the fleet", status: "pending" },
+          { content: "Update the design spec", status: "pending" },
+        ],
+      }),
+      devServer,
+      described,
+      assistant("The plan is in the hat now. The tests and the compile are running.", 0.5),
+    ],
+    { isWorking: true },
+  );
+}
+
+/** Background shell lines anyone runs, with no description, so each reads by a built-in rule
+ * (session-info/commandRules.ts; Leo, 2026-11-03: "we should be able to parse these more... like
+ * instead of raw things, we should be able to deterministically/heuristically have stuff"). */
+const RAW_COMMANDS = [
+  'python3 -c "import time; time.sleep(560)"; GH_QUOTA_TIMEOUT=1 gh pr view 34769',
+  "gh pr merge 34769 -R manaflow-ai/cmux --squash --match-head-commit 0123abcd",
+  "cd ~/Projects/cmux && git push -q origin HEAD:lane/hat-command-labels 2>&1 | tail -3",
+  "cd webviews && bun test test/command-rules.test.ts 2>&1 | tail -20",
+  "ssh build-host 'cd ~/app && cargo test -p acpmux'",
+  "docker compose up -d 2>&1 | tail -5",
+];
+/** Leo's own fleet tools from his screenshot, which read in words only with the `cmux-fleet` preset
+ * on (session-info/commandRulePresets.ts: Leo asked that our own tools not be built in), and a rule
+ * of one's own. */
+const FLEET_COMMANDS = [
+  "glaeda-gh wait run manaflow-ai/cmux/41762593154 --until done --timeout 3000 2>&1 | tail -5",
+  'cmux-ci test --setup playwright --timeout 2400 --workflow-ref feat-cmux-next -- "$(cat check.sh)"',
+  "cmux-ci run --key sr2c-ctx-34769-$(date +%s) --class light --script check.sh --ref HEAD",
+  "deploy staging --wait",
+];
+const fleetCommands = activity(
+  FLEET_COMMANDS.map((command, index) =>
+    tool(command, "execute", "completed", {
+      inputSummary: JSON.stringify({ command, run_in_background: true }),
+      startedAt: minutesAgo(4 - index),
+    }),
+  ),
+  4,
+);
+const rawCommands = activity(
+  RAW_COMMANDS.map((command, index) =>
+    tool(command, "execute", "completed", {
+      inputSummary: JSON.stringify({ command, run_in_background: true }),
+      startedAt: minutesAgo(6 - index),
+    }),
+  ),
+  6,
+);
+
 /** A chat this chat's agent started with its `start_session` tool, its turn running or ended. */
 const child = (id: string, title: string, minutes: number, running: boolean, doing?: string, doingTool?: string) =>
   session({
@@ -596,8 +657,57 @@ export default agentPaneEntry({
       },
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
     },
+    "command-words": {
+      note: 'Background commands read in words, not shell (Leo, 2026-11-03: "instead of raw things, we should be able to deterministically/heuristically have stuff"): built-in rules know only shapes anyone runs. A sleep reads Waiting 9m 20s, a merge Merging cmux#34769, a push Pushing its branch, bun test Testing its file, ssh On its host: what it runs there, docker compose Starting containers. The shell line is the tooltip; a line about a pull request links to it from its tail.',
+      height: 560,
+      play: async (ctx) => {
+        await trayLines(RAW_COMMANDS.length)(ctx);
+        const names = [...ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-summary-agent__name")].map(
+          (name) => name.textContent,
+        );
+        for (const want of [
+          "Waiting 9m 20s",
+          "Merging cmux#34769",
+          "Pushing lane/hat-command-labels",
+          "Testing command-rules",
+          "On build-host: Testing acpmux",
+          "Starting containers",
+        ])
+          if (!names.includes(want)) throw new Error(`a command reads "${want}", got ${names.join(" | ")}`);
+        if (names.some((name) => name?.includes("--"))) throw new Error("no line shows a raw shell line");
+      },
+      snapshot: chat([user("Wait, land it, push and run the tests", 7), rawCommands], {
+        isWorking: true,
+      }),
+    },
+    "command-words-preset": {
+      note: "With cmux-next.json's agentPane.display.commandLabels set to [\"cmux-fleet\", a deploy rule], the fleet preset names the CI wait and cmux-ci lines (Waiting on cmux checks, Fleet tests · Playwright, Fleet run for #34769) and the person's own rule names deploy (Deploying staging). Without it they read by program and main argument, as cmux-ci test.",
+      height: 480,
+      display: {
+        "agentPane.display.commandLabels": [
+          "cmux-fleet",
+          { program: "deploy", match: "^deploy (\\S+)", label: "Deploying {1}", icon: "cloud" },
+        ],
+      },
+      play: async (ctx) => {
+        await trayLines(FLEET_COMMANDS.length)(ctx);
+        const names = [...ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-summary-agent__name")].map(
+          (name) => name.textContent,
+        );
+        for (const want of [
+          "Waiting on cmux checks",
+          "Fleet tests · Playwright",
+          "Fleet run for #34769",
+          "Deploying staging",
+        ])
+          if (!names.includes(want)) throw new Error(`a command reads "${want}", got ${names.join(" | ")}`);
+      },
+      snapshot: chat([user("Wait on the checks, run the fleet tests and deploy", 5), fleetCommands], {
+        isWorking: true,
+      }),
+    },
     "command-substitution": {
-      note: "Leo's raw rev-parse HEAD); strip, repaired: git rev-parse HEAD · cmux-ci run. Both executed operations stay named; shell flags and interpolation remain in the full-command tooltip.",
+      note: "Leo's raw rev-parse HEAD); strip, repaired: git rev-parse HEAD · cmux-ci run: the setup's substitution stays named, then the program that does the work (session-info/commandWorkLabel.ts; the cmux-fleet preset would read it as Fleet run). Shell flags and interpolation remain in the full-command tooltip.",
       snapshot: glyphCheckScene(),
       play: async (ctx) => {
         await trayLines(1)(ctx);
@@ -655,6 +765,45 @@ export default agentPaneEntry({
         });
       },
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
+    },
+    "plan-and-commands": {
+      note: 'Leo\'s composer hat with the turn\'s todo list (2026-11-03: "we said earlier the composer hat is kinda ok?"): folded, it reads "2 of 5 · <the step at work>" before the newest command, "+2 more" and the time; the transcript holds no list while the turn runs.',
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent ?? "";
+        if (!title.startsWith("2 of 5 · Run the tray tests")) throw new Error(`unexpected hat: ${title}`);
+        if (ctx.document.querySelector(".cv-plan:not(.acpmux-running-tray .cv-plan)"))
+          throw new Error("the running list is in the hat, not the transcript");
+      },
+      snapshot: planChat(),
+    },
+    "plan-and-commands-open": {
+      note: "The same hat opened: the checklist first, then a line per background command.",
+      play: async (ctx) => {
+        await openTray(ctx);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .cv-plan__item").length === 5);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length === 3);
+      },
+      snapshot: planChat(),
+    },
+    "plan-short-dock": {
+      note: "The opened hat in a dock with room for the header and about three rows: the checklist and the command lines share that height, each scrolling in place, so a command's Stop stays reachable.",
+      play: async (ctx) => {
+        await openTray(ctx);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length === 3);
+        const dock = ctx.document.querySelector<HTMLElement>(".acpmux-dock")!;
+        const composer = dock.querySelector<HTMLElement>(".acpmux-composer")!;
+        const header = dock.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
+        const rows = 3 * header.getBoundingClientRect().height;
+        dock.style.maxHeight = `${composer.getBoundingClientRect().height + header.getBoundingClientRect().height + rows}px`;
+        const shown = (selector: string) => {
+          const tray = ctx.document.querySelector(".acpmux-running-tray")!.getBoundingClientRect();
+          const box = ctx.document.querySelector(selector)!.getBoundingClientRect();
+          return Math.min(box.bottom, tray.bottom) - Math.max(box.top, tray.top);
+        };
+        await ctx.waitFor(() => shown(".acpmux-running-tray__plan") > 0 && shown(".acpmux-running-tray__list") > 0);
+      },
+      snapshot: planChat(),
     },
     "several-running": {
       note: "Two subagents and a background command: a header with the counts and the time since the first started, a line each once its header is opened (it starts folded to the header). The ended task remains a compact status card.",

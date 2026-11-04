@@ -10,7 +10,9 @@ GitHub cache entry is readable only from its own ref and the base.
 Any run can upload an artifact, a fork pull request's run included, so a pass
 counts only when its run came from this repository: the run's repository and
 head repository are both GITHUB_REPOSITORY_ID. The workflow uploads a pass only
-from same-repository runs, and a fork's own upload is never taken here.
+from same-repository runs, and a fork's own upload is never taken here. The
+planner's enforcement path can additionally require a named branch and event;
+that path accepts only green producers from the trusted feat-cmux-next push.
 
 `lookup --key K` prints `hit=true`, `run_url=` and `sha=` for $GITHUB_OUTPUT,
 or `hit=false`. Every failure (no token, no repository id, an API error, a key
@@ -36,15 +38,56 @@ class Miss(Exception):
     """No pass can be trusted."""
 
 
-def pick(artifacts: list[dict], key: str, repository_id: str) -> dict | None:
-    """The newest unexpired artifact named `key` whose run came from this repository."""
+def pick(artifacts: list[dict], key: str, repository_id: str,
+         trusted_branch: str | None = None, trusted_event: str | None = None,
+         run_reader=None, trusted_workflow: str | None = None) -> dict | None:
+    """The newest unexpired artifact from a trusted producer run."""
     trusted = []
     for item in artifacts:
         run = item.get("workflow_run") or {}
         if item.get("name") != key or item.get("expired"):
             continue
-        if str(run.get("repository_id")) != repository_id or str(run.get("head_repository_id")) != repository_id:
+        repository = run.get("repository_id")
+        head_repository = run.get("head_repository_id")
+        if (repository is not None and str(repository) != repository_id) or \
+                (head_repository is not None and str(head_repository) != repository_id):
             continue
+        if trusted_event is None and (repository is None or head_repository is None):
+            # Preserve the legacy lookup's fail-closed repository boundary;
+            # only the narrowed planner path may fill omitted fields from the
+            # authoritative run endpoint below.
+            continue
+        if trusted_branch is not None and run.get("head_branch") not in (None, trusted_branch):
+            continue
+        # The artifact-list response commonly omits ``event`` (and can omit
+        # other producer identity fields).  A narrowed planner lookup must
+        # resolve the authoritative workflow-run record instead of treating a
+        # missing field as a trusted push.  Tests and offline callers provide a
+        # run_reader; production uses the Actions API below.
+        if trusted_event is not None:
+            event = run.get("event")
+            details = run_reader(run.get("id")) if run_reader is not None else None
+            if details is not None:
+                event = details.get("event")
+                if details.get("head_branch") != trusted_branch:
+                    continue
+                repo = details.get("repository") or {}
+                head_repo = details.get("head_repository") or {}
+                if str(repo.get("id", details.get("repository_id"))) != repository_id:
+                    continue
+                if str(head_repo.get("id", details.get("head_repository_id"))) != repository_id:
+                    continue
+                if details.get("status") != "completed" or details.get("conclusion") != "success":
+                    continue
+                if trusted_workflow is not None and details.get("path") != trusted_workflow:
+                    continue
+            else:
+                # A trusted planner lookup never falls back to artifact-list
+                # metadata.  The list can be stale or incomplete, and an API
+                # miss must remain a miss.
+                continue
+            if event != trusted_event:
+                continue
         trusted.append(item)
     return max(trusted, key=lambda item: item.get("created_at") or "", default=None)
 
@@ -99,13 +142,61 @@ def listing(key: str, path: str | None) -> list[dict]:
     return artifacts
 
 
-def lookup(key: str, path: str | None) -> dict[str, str]:
+def run_listing(path: str | None) -> dict[int, dict] | None:
+    """Read an optional fixture of authoritative workflow-run records."""
+    if not path:
+        return None
+    try:
+        data = json.loads(open(path, encoding="utf-8").read())
+    except (OSError, ValueError) as error:
+        raise Miss(f"the workflow-run listing does not parse: {error}") from error
+    rows = data.get("workflow_runs", data) if isinstance(data, dict) else data
+    if not isinstance(rows, list):
+        raise Miss("the workflow-run listing has no list")
+    result = {}
+    for row in rows:
+        if isinstance(row, dict) and row.get("id") is not None:
+            result[int(row["id"])] = row
+    return result
+
+
+def producer_run(run_id: object, fixture: dict[int, dict] | None) -> dict | None:
+    if run_id is None:
+        return None
+    if fixture is not None:
+        return fixture.get(int(run_id))
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    if not token or not repo:
+        return None
+    api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+    path = f"/repos/{repo}/actions/runs/{int(run_id)}"
+    request = urllib.request.Request(f"{api}{path}", headers={
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28"})
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            note_call(response.headers, "GET", path)
+            value = json.loads(response.read().decode())
+    except OSError as error:
+        if isinstance(error, urllib.error.HTTPError):
+            note_call(error.headers, "GET", path)
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def lookup(key: str, path: str | None, trusted_branch: str | None = None,
+           trusted_event: str | None = None, runs_path: str | None = None,
+           trusted_workflow: str | None = None) -> dict[str, str]:
     if not KEY.match(key):
         raise Miss(f"{key!r} is not a pass key")
     repository_id = os.environ.get("GITHUB_REPOSITORY_ID", "").strip()
     if not repository_id:
         raise Miss("GITHUB_REPOSITORY_ID is not set, so no pass can be checked")
-    found = pick(listing(key, path), key, repository_id)
+    fixture = run_listing(runs_path)
+    reader = (lambda run_id: producer_run(run_id, fixture)) if trusted_event is not None else None
+    found = pick(listing(key, path), key, repository_id, trusted_branch, trusted_event, reader, trusted_workflow)
     if found is None:
         return {"hit": "false"}
     run = found["workflow_run"]
@@ -120,9 +211,14 @@ def main(argv: list[str] | None = None) -> int:
     find = sub.add_parser("lookup", help="print hit=true|false and the run that passed")
     find.add_argument("--key", required=True)
     find.add_argument("--artifacts-json", help="read the artifact listing from this file")
+    find.add_argument("--trusted-branch", help="require the producer run's head branch")
+    find.add_argument("--trusted-event", help="require the producer run's event")
+    find.add_argument("--runs-json", help="authoritative workflow-run records for offline tests")
+    find.add_argument("--trusted-workflow", help="require the producer workflow path")
     args = parser.parse_args(argv)
     try:
-        outputs = lookup(args.key, args.artifacts_json)
+        outputs = lookup(args.key, args.artifacts_json, args.trusted_branch, args.trusted_event,
+                         args.runs_json, args.trusted_workflow)
     except Miss as why:
         print(f"::notice title=No reused pass::{why}", file=sys.stderr)
         outputs = {"hit": "false"}

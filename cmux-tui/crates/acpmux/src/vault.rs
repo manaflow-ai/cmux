@@ -3,8 +3,9 @@
 //! `acpmux machine join` stored (`cli/cloud_join.rs`), and given to every
 //! agent this machine's daemon spawns.
 //!
-//! - `GET {hub}/v1/vault/machine` (bearer: the machine credential) answers
-//!   `{ env: [{ name, revision, state, valueBase64? }] }`; 403
+//! - `GET {hub}/v1/vault/machine?delivery=proxy.v1` (bearer: the machine
+//!   credential) answers `{ env: [{ name, revision, state, valueBase64?,
+//!   delivery, allowedHosts }] }`; 403
 //!   `vault.not_granted` is a machine the person has not shared the vault
 //!   with (not an error), 401 a revoked credential (`wire.rs`).
 //! - Each value goes into the OS secret store (Keychain service `cmux-vault`,
@@ -27,6 +28,7 @@
 //! `machine vault status` only says whether each harness is signed in here,
 //! so the person runs that harness's own sign-in on this machine.
 
+pub mod egress;
 pub mod plan;
 pub mod pull;
 pub mod store;
@@ -46,6 +48,8 @@ use self::store::SecretStore;
 
 /// Advertised by `acpmux capabilities`: `machine vault pull|status|forget`.
 pub const CAPABILITY: &str = "machine.vault.pull.v1";
+/// Advertised too: proxy delivery (placeholders and the egress proxy, `vault::egress`).
+pub const EGRESS_CAPABILITY: &str = "machine.vault.egress.v1";
 /// How often the daemon pulls.
 pub const EVERY: Duration = Duration::from_secs(15 * 60);
 /// The first retry after a failed pull; doubled up to [`EVERY`].
@@ -231,8 +235,16 @@ fn loaded_names() -> Vec<String> {
 
 /// The vault env every local agent of this daemon gets (`login_env`). Empty
 /// outside a daemon. Values are read from the store only when the state
-/// changed; otherwise this is a `stat`.
+/// changed; otherwise this is a `stat`. A proxy entry is its placeholder
+/// (`cmux-secret://NAME`) plus the egress proxy's settings (`egress.rs`);
+/// only an entry the person opted out (`delivery: env`) is its value.
 pub fn env_for_children() -> Vec<(String, String)> {
+    egress::child_env(entries_now())
+}
+
+/// The entries a spawn may get now, with their delivery. Empty outside a
+/// daemon. The egress proxy reads the same (`egress::policy_now`).
+pub(crate) fn entries_now() -> Vec<Given> {
     if !ACTIVE.load(Ordering::SeqCst) {
         return Vec::new();
     }
@@ -251,6 +263,21 @@ pub fn env_for_children() -> Vec<(String, String)> {
     }
 }
 
+/// One entry a spawn gets: its value, and `Some(allowed hosts)` when agents
+/// get a placeholder the egress proxy fills (`plan::EnvRecord::proxy`).
+pub(crate) struct Given {
+    pub name: String,
+    pub value: Zeroizing<String>,
+    pub proxy: Option<Vec<String>>,
+}
+
+impl std::fmt::Debug for Given {
+    /// Never the value.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Given({} {:?})", self.name, self.proxy)
+    }
+}
+
 /// What a spawn gets, checked against a withdrawal racing the load: nothing
 /// while a removal is held, and nothing when the state file changed or a
 /// hold was placed while the values were read (a pull or `forget` that ran
@@ -263,7 +290,7 @@ fn deliver_at(
     store: &dyn SecretStore,
     current: pull::CurrentCredential,
     at: Instant,
-) -> Vec<(String, String)> {
+) -> Vec<Given> {
     if pull::held(home) {
         return Vec::new();
     }
@@ -292,16 +319,23 @@ fn delivered(current: Option<(String, bool)>, held: bool) -> Vec<(String, String
         return Vec::new();
     }
     given(&LOADED.read().unwrap_or_else(|e| e.into_inner()), current)
+        .into_iter()
+        .map(|g| (g.name, g.value.as_str().to_owned()))
+        .collect()
 }
 
-fn given(loaded: &Loaded, current: Option<(String, bool)>) -> Vec<(String, String)> {
+fn given(loaded: &Loaded, current: Option<(String, bool)>) -> Vec<Given> {
     let Some(state) = loaded.state.as_ref() else { return Vec::new() };
     let names = state.delivered_names(current.as_ref().map(|(c, revoked)| (c.as_str(), *revoked)));
     loaded
         .vars
         .iter()
         .filter(|(k, _)| names.contains(k))
-        .map(|(k, v)| (k.clone(), v.as_str().to_owned()))
+        .map(|(k, v)| Given {
+            name: k.clone(),
+            value: v.clone(),
+            proxy: state.env.get(k).and_then(|r| r.proxy.clone()),
+        })
         .collect()
 }
 
@@ -339,7 +373,7 @@ pub(crate) fn stamp_in(home: &std::path::Path, credential: Option<(String, bool)
             format!("{}:{at}:{ino}", s.len)
         }
     };
-    format!("{file};held={};cred={credential}", pull::held(home))
+    format!("{file};held={};cred={credential};egress={}", pull::held(home), egress::stamp())
 }
 
 /// The longest the first agent spawn waits for the first pull of a joined

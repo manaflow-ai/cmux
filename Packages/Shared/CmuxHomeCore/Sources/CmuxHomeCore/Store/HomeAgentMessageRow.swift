@@ -22,12 +22,14 @@ public struct HomeAgentMessageRow: Hashable, Sendable {
 
     /// The row's role in its fold.
     public enum Kind: Hashable, Sendable {
-        /// The fold: `count` messages with `peers` (agent ids, first-seen order), shown in full when `expanded`.
+        /// The agents row (one pill per agent): `count` messages and status notes, one or more, with `peers`
+        /// (agent ids, first-seen order), shown in full after it when `expanded`.
         case fold(count: Int, peers: [String], expanded: Bool)
         /// One message from `from` to `to`; `outgoing` is the Chief's message to the agent, else the agent's report.
         case message(from: String, to: String, outgoing: Bool, text: String)
         /// The fold of `count` status notes (agents that stopped with no report) from `peers`, shown in
-        /// full when `expanded`; `reason` is their one shared reason, nil when they differ.
+        /// full when `expanded`; `reason` is their one shared reason, nil when they differ. `HomeAgentMessages`
+        /// no longer makes it (status notes join the agents row since 2026-11-03); renderers still draw it.
         case notes(count: Int, peers: [String], reason: StatusNote?, expanded: Bool)
         /// One status note from `peer`: why it stopped, and the note's own words (no parentheses).
         case note(peer: String, reason: StatusNote, text: String)
