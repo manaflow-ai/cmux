@@ -64,6 +64,21 @@ impl Hub {
             }
         }
     }
+
+    /// Restore the highest transfer fencing epoch before a session can accept a resumed move.
+    /// Epochs live in transfer events rather than session metadata so old stores remain readable.
+    pub(super) fn restore_ownership_epoch(&self, session: &Session) {
+        let mut epoch = 0;
+        let _ = self.store.scan_kinds(
+            &session.id,
+            &["transfer_out", "transferred", "transferred_in", "transfer_aborted"],
+            &mut |record| {
+                epoch = epoch.max(record.msg.get("epoch").and_then(Value::as_u64).unwrap_or(0));
+                true
+            },
+        );
+        session.restore_ownership_epoch(epoch);
+    }
 }
 
 #[cfg(test)]

@@ -18,7 +18,8 @@
 
 use super::transfer_guard::{Guard, bundle_path_kind};
 use super::transfer_out::{
-    DURABLE_TRANSFER_SCHEMA, MAX_FILES, MAX_PAGE, TRANSFER_SCHEMA, inside, transfers_dir,
+    DURABLE_TRANSFER_SCHEMA, MAX_FILES, MAX_PAGE, TRANSFER_SCHEMA, inside, require_epoch,
+    transfers_dir,
 };
 use super::*;
 use base64::Engine;
@@ -93,6 +94,10 @@ fn receive_manifest(dir: &Path) -> Result<(Value, Vec<(String, u64)>), RpcError>
         })
         .unwrap_or_default();
     Ok((manifest, files))
+}
+
+fn manifest_epoch(manifest: &Value) -> u64 {
+    manifest.get("epoch").and_then(Value::as_u64).unwrap_or(0)
 }
 
 impl Hub {
@@ -365,6 +370,10 @@ impl Hub {
         }
         // A chat that moved away from here may come back (`finish` replaces its closed copy).
         let here = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        if let Some(existing) = here.as_ref() {
+            // A delayed bundle for an older owner must not replace a newer moved copy.
+            require_epoch(existing.ownership_epoch(), Some(manifest_epoch(&manifest)))?;
+        }
         if here.is_some_and(|s| !self.moved_away(&s)) {
             return Err(transfer_error("exists", format!("chat {id} is here already")));
         }
@@ -411,6 +420,7 @@ impl Hub {
             std::fs::write(dir.join("manifest.json"), serde_json::to_vec(&manifest)?)
         });
         made.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
+        super::transfer_watch::note_activity(&dir, None);
         let mut answer = json!({"receiveId": receive_id, "sessionId": id});
         if guard.is_some() {
             answer.set("guarded", json!(true));
@@ -422,7 +432,8 @@ impl Hub {
     pub(super) fn transfer_write(&self, params: &Value) -> Result<Value, RpcError> {
         let text = |k: &str| params.get(k).and_then(Value::as_str).unwrap_or("");
         let dir = receive_dir(text("receiveId"))?;
-        let (_, files) = receive_manifest(&dir)?;
+        let (manifest, files) = receive_manifest(&dir)?;
+        require_epoch(manifest_epoch(&manifest), params.get("epoch").and_then(Value::as_u64))?;
         let path = text("path");
         let Some(&(_, size)) = files.iter().find(|(p, _)| p == path) else {
             return Err(transfer_error("path", format!("{path:?} is not in the manifest")));
@@ -465,6 +476,7 @@ impl Hub {
         let _receives = RECEIVES.lock().await;
         let dir = receive_dir(text("receiveId").unwrap_or(""))?;
         let (manifest, files) = receive_manifest(&dir)?;
+        require_epoch(manifest_epoch(&manifest), params.get("epoch").and_then(Value::as_u64))?;
         let guard = Guard::stored(&dir)?;
         let bundle = dir.join("bundle");
         for (path, size) in &files {
@@ -495,6 +507,9 @@ impl Hub {
         }
         let old = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         let old = old.filter(|s| self.moved_away(s));
+        if let Some(existing) = old.as_ref() {
+            require_epoch(existing.ownership_epoch(), Some(manifest_epoch(&manifest)))?;
+        }
         let replacing_durable = old.as_ref().is_some_and(|existing| {
             let existing_meta = existing.meta();
             existing_meta.harness == bundle_meta.harness
@@ -581,11 +596,12 @@ impl Hub {
             .await
         {
             Ok(session) => {
+                session.restore_ownership_epoch(manifest_epoch(&manifest));
                 let (_, appended) = self.append_at(
                     &session,
                     "mux",
                     "transferred_in",
-                    json!({"transferId": transfer_id, "from": from}),
+                    json!({"transferId": transfer_id, "from": from, "epoch": manifest_epoch(&manifest)}),
                     None,
                     None,
                 );
