@@ -65,6 +65,29 @@ impl MachineLogin {
     }
 }
 
+/// The person's login choice for a Cloud machine's harness: `cmux cloud start-session --login`,
+/// or the one they made before, kept per user (Leo, 2026-11-01: sign in at most once per user).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Choice {
+    /// Give the machine the person's own login (cmux's cached one, or a one-time `setup-token`).
+    Pass,
+    /// Use the machine's own login; refuse when it has none.
+    Machine,
+    /// Pass nothing: the machine stays as it is.
+    None,
+}
+
+impl Choice {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pass => "pass",
+            Self::Machine => "machine",
+            Self::None => "none",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Step {
     #[serde(rename = "skip")]
@@ -73,6 +96,10 @@ pub enum Step {
     Install,
     #[serde(rename = "confirm-then-install")]
     ConfirmThenInstall,
+    /// A start that may show no confirm (a CLI or agent run) and has no login to use and no
+    /// choice: it stops at once with how to choose, never waiting on a prompt.
+    #[serde(rename = "refuse")]
+    Refuse,
 }
 
 impl Step {
@@ -81,6 +108,7 @@ impl Step {
             Self::Skip => "skip",
             Self::Install => "install",
             Self::ConfirmThenInstall => "confirm-then-install",
+            Self::Refuse => "refuse",
         }
     }
 }
@@ -111,6 +139,18 @@ pub enum Reason {
     InstallCached,
     #[serde(rename = "confirm-first")]
     ConfirmFirst,
+    /// The choice is `none`: nothing is passed.
+    #[serde(rename = "chose-none")]
+    ChoseNone,
+    /// The choice is `machine` and the machine has no working login.
+    #[serde(rename = "machine-login-missing")]
+    MachineLoginMissing,
+    /// The person's own `--login pass` is their confirm.
+    #[serde(rename = "install-chosen")]
+    InstallChosen,
+    /// No login on the machine, none cached, no choice, and no confirm may be shown.
+    #[serde(rename = "needs-login-choice")]
+    NeedsLoginChoice,
 }
 
 impl Reason {
@@ -125,6 +165,10 @@ impl Reason {
             Self::MachineLoginKept => "machine-login-kept",
             Self::InstallCached => "install-cached",
             Self::ConfirmFirst => "confirm-first",
+            Self::ChoseNone => "chose-none",
+            Self::MachineLoginMissing => "machine-login-missing",
+            Self::InstallChosen => "install-chosen",
+            Self::NeedsLoginChoice => "needs-login-choice",
         }
     }
 }
@@ -159,6 +203,16 @@ pub struct Inputs {
     pub cached: bool,
     /// What came of it once decided: "installed", "declined" (the confirm), or the transfer's fixed failure text.
     pub outcome: Option<String>,
+    /// The run's `--login`; absent when not given.
+    pub requested: Option<Choice>,
+    /// Whether `requested` is the person's own (their terminal or the palette), not an agent's:
+    /// only the person's `pass` stands in for the first-login confirm.
+    pub requested_by_person: bool,
+    /// The choice the person made before, kept per user; absent when none.
+    pub stored: Option<Choice>,
+    /// A run that may show no confirm (`cmux cloud start-session` from a CLI or an agent): where a
+    /// confirm would be shown it refuses at once instead.
+    pub headless: bool,
 }
 
 /// The decision and everything the app reads off it.
@@ -207,6 +261,11 @@ fn step_and_reason(d: &Inputs) -> (Step, Reason) {
     if !d.signed_in {
         return (Step::Skip, Reason::SignedOut);
     }
+    let choice = choice(d);
+    // `none` passes nothing, so it reads neither the owner nor the machine.
+    if choice == Some(Choice::None) {
+        return (Step::Skip, Reason::ChoseNone);
+    }
     if d.caller_owns != Some(true) {
         return (Step::Skip, Reason::CallerNotOwner);
     }
@@ -218,14 +277,31 @@ fn step_and_reason(d: &Inputs) -> (Step, Reason) {
     if !guest_takes_login(Some(kind)) {
         return (Step::Skip, Reason::GuestNotOwner);
     }
+    // A machine that already has a working login keeps it, whatever the choice.
     if !d.machine_login.is_none_or(MachineLogin::needs_login) {
         return (Step::Skip, Reason::MachineLoginKept);
     }
+    if choice == Some(Choice::Machine) {
+        return (Step::Refuse, Reason::MachineLoginMissing);
+    }
     if d.cached {
         (Step::Install, Reason::InstallCached)
+    } else if choice == Some(Choice::Pass)
+        && (d.requested_by_person || d.stored == Some(Choice::Pass))
+    {
+        // The person's own --login pass, or the pass they chose before (kept per user): their consent.
+        // An agent's --login pass alone is not.
+        (Step::Install, Reason::InstallChosen)
+    } else if d.headless {
+        (Step::Refuse, Reason::NeedsLoginChoice)
     } else {
         (Step::ConfirmThenInstall, Reason::ConfirmFirst)
     }
+}
+
+/// The choice in force: the run's `--login`, else the person's stored one.
+fn choice(d: &Inputs) -> Option<Choice> {
+    d.requested.or(d.stored)
 }
 
 fn summary(d: &Inputs, step: Step, reason: Reason) -> String {
@@ -253,6 +329,13 @@ fn summary(d: &Inputs, step: Step, reason: Reason) -> String {
         d.machine_login.map_or("-", MachineLogin::as_str),
         word(Some(d.cached)),
     );
+    if let Some(choice) = choice(d) {
+        line.push_str(", login ");
+        line.push_str(choice.as_str());
+    }
+    if d.headless {
+        line.push_str(", headless");
+    }
     if let Some(outcome) = &d.outcome {
         line.push_str(" -> ");
         line.push_str(outcome);
@@ -260,10 +343,12 @@ fn summary(d: &Inputs, step: Step, reason: Reason) -> String {
     line
 }
 
-/// Whether this build passes the harness login: the setting when set, else only DEV and dogfood
-/// builds (`defaults write ... cmux.cloud.passHarnessLogin -bool NO` makes a DEV build behave as production).
+/// Whether this build passes the harness login: only DEV and dogfood builds, never Release, and
+/// in them the setting may turn it off (`defaults write ... cmux.cloud.passHarnessLogin -bool NO`
+/// makes a DEV build behave as production). The setting never turns it on in Release: a Release
+/// build never copies a subscription login off the Mac.
 pub fn passes_harness_login(dogfood: bool, setting: Option<bool>) -> bool {
-    setting.unwrap_or(dogfood)
+    dogfood && setting.unwrap_or(true)
 }
 
 /// `d` with its raw facts resolved into the fields the rules read.
@@ -300,7 +385,8 @@ pub fn decide(d: &Inputs) -> Decision {
         reads_machine: d.gate
             && d.provider == Some(Provider::Claude)
             && d.signed_in
-            && d.caller_owns == Some(true),
+            && d.caller_owns == Some(true)
+            && choice(d) != Some(Choice::None),
         guest_takes_login: guest_takes_login(kind),
         skipped_team_machine: reason == Reason::GuestNotOwner && kind == Some("team"),
         summary: summary(d, step, reason),

@@ -176,9 +176,14 @@ export function EnvironmentPicker({
     if (next && closeOnTrustAsk) return;
     setPopoverOpen(next);
   };
+  // Whether the row Base UI highlights is its own pick (on open): with no search typed, that row draws no
+  // highlight, so the open menu shows the current machine by its check alone and the highlight
+  // means hover or the arrow keys (Austin 2026-11-02: "This highlighting needs some fix").
+  const [highlightAuto, setHighlightAuto] = useState(true);
   const reset = () => {
     setQuery("");
     setList("main");
+    setHighlightAuto(true);
   };
   const press = usePopoverTrigger(open, (next) => {
     setOpen(next);
@@ -584,7 +589,8 @@ export function EnvironmentPicker({
         className={
           "acpmux-menu acpmux-location-menu acpmux-folder-popover acpmux-env-popover" +
           (searchable ? "" : " acpmux-env-searchless") +
-          (machineList ? " acpmux-env-machines" : "")
+          (machineList ? " acpmux-env-machines" : "") +
+          (highlightAuto && query.trim() === "" ? " acpmux-env-highlight-auto" : "")
         }
         side={side}
         flip={flip}
@@ -609,6 +615,7 @@ export function EnvironmentPicker({
           }}
           onHighlight={(highlighted, by) => {
             autoHighlighted.current = by === "none" ? highlighted : undefined;
+            setHighlightAuto(by === "none");
           }}
           label={searchable ? t("composer.environmentSearch") : label}
           {...(searchable ? { placeholder: t("composer.environmentSearch") } : {})}

@@ -212,13 +212,14 @@ fn the_wire_is_the_apps_shape() {
     assert_eq!(reply["reason"], "caller-not-owner");
 }
 
-/// The setting wins, else only DEV and dogfood builds pass a login (moved from the app's
-/// `CloudStartChatLoginTests.theSettingWinsElseOnlyDogfoodBuildsPassALogin`).
+/// Only DEV and dogfood builds pass a login; the setting can turn it off there and never turns it
+/// on in Release (moved from the app's `CloudStartChatLoginTests.theSettingWinsElseOnlyDogfoodBuildsPassALogin`).
 #[test]
 fn the_setting_wins_else_only_dogfood_builds_pass_a_login() {
     assert!(passes_harness_login(true, None));
     assert!(!passes_harness_login(false, None));
-    assert!(passes_harness_login(false, Some(true)));
+    // `defaults write ... cmux.cloud.passHarnessLogin -bool YES` in Release passes nothing.
+    assert!(!passes_harness_login(false, Some(true)));
     assert!(passes_harness_login(true, Some(true)));
     // `defaults write ... cmux.cloud.passHarnessLogin -bool NO`: a DEV build behaves as production.
     assert!(!passes_harness_login(true, Some(false)));
@@ -234,7 +235,7 @@ fn the_setting_wins_else_only_dogfood_builds_pass_a_login() {
     assert!(decide(&d(true, None)).gate);
     assert_eq!(decide(&d(true, Some(false))).reason, Reason::BuildGateOff);
     assert_eq!(decide(&d(false, None)).reason, Reason::BuildGateOff);
-    assert_eq!(decide(&d(false, Some(true))).step, Step::Install);
+    assert_eq!(decide(&d(false, Some(true))).reason, Reason::BuildGateOff);
 }
 
 /// The chat's harness, the guest probe's output and the machine probe's output go into the one
@@ -314,4 +315,94 @@ fn the_decision_carries_the_guest_probe() {
     assert_eq!(reply["step"], "install");
     assert_eq!(reply["guestKind"], "team");
     assert_eq!(reply["machineLogin"], "rejected");
+}
+
+/// A machine that already has a working login is used as it is, whatever the choice (Leo,
+/// 2026-11-02: "didn't we have like the daemon or whatever on your machine is able to have the token").
+#[test]
+fn a_working_machine_login_is_used_whatever_the_choice() {
+    for login in [MachineLogin::Session, MachineLogin::Cached, MachineLogin::Working] {
+        for requested in [None, Some(Choice::Pass), Some(Choice::Machine)] {
+            let d = Inputs { machine_login: Some(login), requested, headless: true, ..owner() };
+            assert_eq!(
+                (decide(&d).step, decide(&d).reason),
+                (Step::Skip, Reason::MachineLoginKept),
+                "{login:?} {requested:?}"
+            );
+        }
+    }
+}
+
+/// A CLI or agent run with no login, nothing cached and no choice stops at once, never on a prompt.
+#[test]
+fn a_headless_start_with_no_login_and_no_choice_refuses_at_once() {
+    let d = decide(&Inputs { headless: true, ..owner() });
+    assert_eq!((d.step, d.reason), (Step::Refuse, Reason::NeedsLoginChoice));
+    // The app's own composer start still asks once.
+    assert_eq!(decide(&owner()).step, Step::ConfirmThenInstall);
+    // A cached login is the choice made once: every later machine takes it with no prompt.
+    assert_eq!(decide(&Inputs { headless: true, ..cached(owner()) }).reason, Reason::InstallCached);
+}
+
+#[test]
+fn the_flag_then_the_stored_choice_decide() {
+    let headless = Inputs { headless: true, ..owner() };
+    let none = Inputs { requested: Some(Choice::None), ..headless.clone() };
+    let d = decide(&none);
+    assert_eq!((d.step, d.reason, d.reads_machine), (Step::Skip, Reason::ChoseNone, false));
+    let machine = Inputs { requested: Some(Choice::Machine), ..headless.clone() };
+    assert_eq!(decide(&machine).reason, Reason::MachineLoginMissing);
+    assert_eq!(decide(&machine).step, Step::Refuse);
+    // The person's own --login pass is their confirm; an agent's is not.
+    let person =
+        Inputs { requested: Some(Choice::Pass), requested_by_person: true, ..headless.clone() };
+    assert_eq!(decide(&person).reason, Reason::InstallChosen);
+    let agent = Inputs { requested: Some(Choice::Pass), ..headless.clone() };
+    assert_eq!(decide(&agent).reason, Reason::NeedsLoginChoice);
+    // The stored choice stands in for a missing flag; the flag wins over it.
+    let stored = Inputs { stored: Some(Choice::None), ..headless.clone() };
+    assert_eq!(decide(&stored).reason, Reason::ChoseNone);
+    let flag_wins =
+        Inputs { requested: Some(Choice::Machine), stored: Some(Choice::None), ..headless };
+    assert_eq!(decide(&flag_wins).reason, Reason::MachineLoginMissing);
+    assert!(decide(&flag_wins).summary.contains(", login machine, headless"));
+}
+
+#[test]
+fn a_kept_pass_is_the_persons_consent_and_none_reads_nothing() {
+    let headless = Inputs { headless: true, ..owner() };
+    // Sign in at most once per user: the pass they chose before installs on a later headless start.
+    let kept = Inputs { stored: Some(Choice::Pass), ..headless.clone() };
+    assert_eq!((decide(&kept).step, decide(&kept).reason), (Step::Install, Reason::InstallChosen));
+    let agent_with_kept = Inputs { requested: Some(Choice::Pass), ..kept };
+    assert_eq!(decide(&agent_with_kept).step, Step::Install);
+    let agent_over_machine =
+        Inputs { requested: Some(Choice::Pass), stored: Some(Choice::Machine), ..headless };
+    assert_eq!(decide(&agent_over_machine).reason, Reason::NeedsLoginChoice);
+    // A fresh `--login none` decides before the owner or the guest is read.
+    let fresh = Inputs {
+        gate: true,
+        provider: Some(Provider::Claude),
+        signed_in: true,
+        requested: Some(Choice::None),
+        headless: true,
+        ..Inputs::default()
+    };
+    let d = decide(&fresh);
+    assert_eq!((d.step, d.reason, d.reads_machine), (Step::Skip, Reason::ChoseNone, false));
+}
+
+#[test]
+fn the_choice_is_on_the_wire() {
+    let request: Inputs = serde_json::from_str(
+        r#"{"gate":true,"provider":"claude","signedIn":true,"callerOwns":true,"guestKind":"owner","machineLogin":"none","requested":"pass","requestedByPerson":true,"headless":true}"#,
+    )
+    .unwrap();
+    let reply = serde_json::to_value(decide(&request)).unwrap();
+    assert_eq!(reply["step"], "install");
+    assert_eq!(reply["reason"], "install-chosen");
+    let refused = Inputs { requested: None, requested_by_person: false, ..request };
+    let reply = serde_json::to_value(decide(&refused)).unwrap();
+    assert_eq!(reply["step"], "refuse");
+    assert_eq!(reply["reason"], "needs-login-choice");
 }

@@ -150,7 +150,8 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
             {!waiting && before}
             <AgentTag name={name} />
             {!waiting && after}
-            {parts.length > 1 && ` · ${parts.slice(1).join(" · ")}`}
+            {/* Its own box, cut before the chip (subagents.css): the reason and failure go first. */}
+            {parts.length > 1 && <span className="cv-subagent-done__suffix">{` · ${parts.slice(1).join(" · ")}`}</span>}
           </span>
         </button>
         {inline}

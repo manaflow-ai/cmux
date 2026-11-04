@@ -315,6 +315,57 @@ fn workspace_unread_count(
         .count()
 }
 
+/// `selection-changed` (`tree-selection-deltas-v1`): the whole selection of workspace `workspace`
+/// (its active screen, each screen's active pane, each pane's active tab and focus stamp) and the
+/// focused workspace, in O(that workspace). Nil when the workspace is gone.
+pub(crate) fn selection_changed_json(state: &State, workspace: u64) -> Option<Value> {
+    let index = state.workspace_index(workspace)?;
+    let entry = state.workspaces.get(index)?;
+    let screens = entry
+        .screens
+        .iter()
+        .enumerate()
+        .map(|(screen_index, screen)| {
+            let panes = screen
+                .root
+                .pane_ids_vec()
+                .into_iter()
+                .filter_map(|id| state.panes.get(&id).map(|pane| (id, pane)))
+                .map(|(id, pane)| {
+                    json!({"id": id, "active_tab": pane.active_tab, "focused_at": pane.focused_at})
+                })
+                .collect::<Vec<_>>();
+            json!({
+                "id": screen.id,
+                "active": screen_index == entry.active_screen,
+                "active_pane": screen.active_pane,
+                "panes": panes,
+            })
+        })
+        .collect::<Vec<_>>();
+    Some(json!({
+        "event": "selection-changed",
+        "workspace": workspace,
+        "active": index == state.active_workspace,
+        "active_workspace": state.workspaces.get(state.active_workspace).map(|active| active.id),
+        "screens": screens,
+    }))
+}
+
+/// `workspace-presentation-changed` (`tree-selection-deltas-v1`): workspace `workspace`'s entity as
+/// `list-workspaces` has it, after a `workspace.update` of its title, color or icon. Nil when it is gone.
+pub(crate) fn workspace_presentation_changed_json(
+    state: &State,
+    notifications: &TreeDecorations,
+    workspace: u64,
+) -> Option<Value> {
+    let entity =
+        tree_entity_json(state, notifications, TreeDeltaKind::WorkspaceChanged, workspace)?;
+    Some(
+        json!({"event": "workspace-presentation-changed", "workspace": workspace, "entity": entity}),
+    )
+}
+
 pub(crate) fn tree_entity_json(
     state: &State,
     notifications: &TreeDecorations,

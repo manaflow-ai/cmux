@@ -27,6 +27,7 @@
 #include "CmuxNextTestExitTrace.h"
 
 #include <CoreFoundation/CoreFoundation.h>
+#include <crt_externs.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -146,12 +147,28 @@ static void probe_fire(CFRunLoopTimerRef timer, void *info) {
 /// Defined beside this file: a run that lists its tests rather than running any.
 int cmux_next_test_lists_tests(void);
 
+/// The XCTest leg of `swift test` (`xctest -XCTest <filter> <bundle>`). Its main thread is XCTest's own
+/// synchronous runner, not `swift_task_asyncMainDrainQueue`, so there is no drain-queue run for a stray
+/// stop to end, and this package has no XCTest cases. Holding its loop can only hang it: on some fleet
+/// Macs the leg turns the main run loop once while it loads (a Contacts store XPC wait, the
+/// "Error obtaining permanent ID" line), the queued block below takes the main thread for good, and
+/// the leg dies on signal 6 about 650 s later with no test started (cmux#32898's suite runs; the same
+/// leg passed on Macs where nothing turned the loop).
+static int runs_xctest_leg(void) {
+    int count = *_NSGetArgc();
+    char **arguments = *_NSGetArgv();
+    for (int index = 1; index < count; index++) {
+        if (strcmp(arguments[index], "-XCTest") == 0) return 1;
+    }
+    return 0;
+}
+
 __attribute__((constructor)) static void cmux_next_test_runloop_guard_install(void) {
     // A listing run reports its tests and ends; holding its run loop open could only hang it, and
     // nothing in a listing run needs the depth count either.
     if (cmux_next_test_lists_tests()) return;
     const char *setting = getenv("CMUX_NEXT_TEST_RUNLOOP_GUARD");
-    int hold = !(setting && strcmp(setting, "0") == 0);
+    int hold = !(setting && strcmp(setting, "0") == 0) && !runs_xctest_leg();
     CFRunLoopRef main_loop = CFRunLoopGetMain();
     if (!main_loop) return;
     CFRunLoopObserverRef observer = CFRunLoopObserverCreate(

@@ -32,7 +32,6 @@ use super::client::{
 use super::github;
 use super::github_minter::{Ask, Minter, Stop};
 use super::handoff::{self, HandoffReport};
-use super::harness_login_thread::{self, HarnessLogins, Method, Platform, Setup as LoginSetup};
 use super::sender::{Answer, Backoff, OpRequest};
 use super::session::Session;
 use super::trajectory::Layout;
@@ -485,8 +484,6 @@ struct Worker {
     github: Minter<PosterHttp>,
     /// ACP chats kept in cmux Cloud and restored on a replacement (`trajectory_thread.rs`).
     trajectories: Option<Trajectories<PosterHttp>>,
-    /// The person's harness logins, kept for their machines (`harness_login_thread.rs`).
-    harness_logins: Option<HarnessLogins<PosterHttp, PlatformHttp>>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
     rng: SystemRandom,
@@ -509,8 +506,7 @@ impl Worker {
         control.set_nonblocking(true)?;
         let trajectories =
             spawn_trajectories(&paths).map_err(|e| log(&format!("trajectory mirror: {e}"))).ok();
-        let harness_logins =
-            spawn_harness_logins(&paths).map_err(|e| log(&format!("harness login: {e}"))).ok();
+        forget_harness_login_state(&paths);
         Ok(Worker {
             bootstrap: None,
             bootstrap_retry_at: None,
@@ -535,7 +531,6 @@ impl Worker {
             live: None,
             github: Minter::spawn(wall_ms, log, github_stop)?,
             trajectories,
-            harness_logins,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
             rng: SystemRandom::new(),
@@ -936,7 +931,6 @@ impl Worker {
                 Err(e) => log(&format!("trajectory mirror: {e}")),
             }
         }
-        self.harness_logins_bound(&bound, &key);
         let mut session = Session::new(&bound.machine, daemon, heartbeat);
         let reqs = session.start(self.now());
         self.live = Some(Live { client: CloudClient::new(http, bound, key), session });
@@ -946,31 +940,6 @@ impl Worker {
         self.activity = self.activity_reset();
         self.connect_activity();
         self.drive(reqs);
-    }
-
-    /// Hands the harness-login thread its client when the environment keeps
-    /// logins, and holds the first report until its boot pass (one list and
-    /// the writes it allows) is over or [`harness_login_thread::BOOT_WAIT`]
-    /// passed, so the first chat finds the person's login.
-    fn harness_logins_bound(&self, bound: &Bound, key: &InstallKey) {
-        let (Some(logins), Some(origin)) =
-            (self.harness_logins.as_ref(), bound.env.harness_login_origin())
-        else {
-            return;
-        };
-        let client = match github_client(bound, key) {
-            Ok(client) => client,
-            Err(e) => return log(&format!("harness login: {e}")),
-        };
-        let platform = match JsonPoster::new() {
-            Ok(poster) => PlatformHttp(poster),
-            Err(e) => return log(&format!("harness login: {e}")),
-        };
-        let booted = logins.bound(client, platform, origin);
-        if let Err(RecvTimeoutError::Timeout) = booted.recv_timeout(harness_login_thread::BOOT_WAIT)
-        {
-            log("harness login: boot pass still running; reporting anyway");
-        }
     }
 
     fn activity_reset(&self) -> Activity {
@@ -1152,40 +1121,18 @@ fn spawn_trajectories(paths: &Paths) -> io::Result<Trajectories<PosterHttp>> {
     Trajectories::spawn(layout, Box::new(importer), identity, wall_ms, random_unit, log)
 }
 
-/// The harness-login thread: the login files under the work user's home
-/// (read and written as that user), its state under the agent's root.
-fn spawn_harness_logins(paths: &Paths) -> io::Result<HarnessLogins<PosterHttp, PlatformHttp>> {
-    use crate::team_ssh::enroll::{TEAM_BOUND_FILE, TEAM_ENROLL_FILE};
-    let user = lookup_user(WORK_USER)
-        .or_else(|| lookup_user("root"))
-        .ok_or_else(|| io::Error::other("no work user and no root user"))?;
-    let home = if user.uid == 0 { PathBuf::from(ROOT_HOME) } else { PathBuf::from(WORK_HOME) };
-    let setup = LoginSetup {
-        home,
-        state_file: paths.at(super::harness_login::STATE_FILE),
-        vm_kind_file: paths.at(super::wire::VM_KIND_FILE),
-        team_files: vec![paths.at(TEAM_ENROLL_FILE), paths.at(TEAM_BOUND_FILE)],
-        fs_identity: Some((user.uid, user.gid)),
-    };
-    HarnessLogins::spawn(setup, wall_ms, random_unit, log)
-}
+/// The harness-login sync (removed) kept its state here on machines that ran
+/// it. The state held fingerprints and revisions only, never a login; it is
+/// removed so nothing reads it again. A person's login stays in Claude Code's
+/// and Codex's own files on the machine's disk, and a new machine of theirs
+/// gets it from their own machine's snapshot, never from a cmux store.
+const OLD_HARNESS_LOGIN_STATE: &str = "/var/lib/cmux/harness-login-sync.json";
 
-/// [`Platform`] over cmux-server's HTTPS client.
-pub struct PlatformHttp(pub JsonPoster);
-
-impl Platform for PlatformHttp {
-    fn send(
-        &self,
-        method: Method,
-        url: &str,
-        body: Option<&Value>,
-        bearer: &str,
-    ) -> Result<(u16, Value), String> {
-        let verb = match method {
-            Method::Get => "GET",
-            Method::Put => "PUT",
-        };
-        self.0.send(verb, url, body, Some(bearer))
+fn forget_harness_login_state(paths: &Paths) {
+    match fs::remove_file(paths.at(OLD_HARNESS_LOGIN_STATE)) {
+        Ok(()) => log("harness login: removed the old sync state"),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => log(&format!("harness login: old sync state: {e}")),
     }
 }
 
