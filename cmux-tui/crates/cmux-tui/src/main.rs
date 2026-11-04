@@ -1720,20 +1720,21 @@ fn warm_seeded_deps(folder: &Path) {
         .to_str()
         .and_then(|path| path.strip_suffix(" (deleted)"))
         .map_or(exe.clone(), PathBuf::from);
-    // The installer's stderr can hold private output: an owner-only log in the
-    // user's own ~/.acpmux, never a shared temp folder, never through a link.
-    let out = std::env::var_os("HOME").filter(|h| !h.is_empty()).and_then(|home| {
+    // The warm's stderr can hold private output: an owner-only log in this
+    // build's acpmux state folder, never a shared temp folder, never through a link.
+    let out = {
         use std::os::unix::fs::OpenOptionsExt;
-        let dir = PathBuf::from(home).join(".acpmux");
-        std::fs::create_dir_all(&dir).ok()?;
-        std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(dir.join("deps-warm.log"))
-            .ok()
-    });
+        let dir = acpmux::config::home();
+        std::fs::create_dir_all(&dir).ok().and_then(|()| {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW)
+                .open(dir.join("deps-warm.log"))
+                .ok()
+        })
+    };
     let err = out.as_ref().and_then(|f| f.try_clone().ok());
     // A binary named `acpmux` (a symlink or a copy) runs acpmux directly; the
     // `cmux` binary takes it under `acp`.
