@@ -154,7 +154,9 @@ export const McpCallRow = memo(function McpCallRow({ item }: { item: AcpmuxActiv
       ? Object.keys(call.args).some((key) => key !== "description")
       : String(call.args).trim().length > 0);
   const hasOutput = !isMcpLifecycleOutput(tool.output);
-  const hasDetails = Boolean(exec || hasArgs || hasOutput || images.length || video || failure || tool.diffs?.length);
+  const hasDetails = Boolean(
+    reveal > 0 || exec || hasArgs || hasOutput || images.length || video || failure || tool.diffs?.length,
+  );
   const labelRef = useRef<HTMLSpanElement>(null);
   const [clipped, setClipped] = useState(false);
   const expandable = hasDetails || clipped;
@@ -309,11 +311,17 @@ function UsefulMcpCallDetails({
           <EditDiff key={file.path} file={file} />
         ))}
         {primary.command ? (
-          <ShellBlock command={primary.command} output={useful} exitCode={tool?.exitCode} reveal={reveal} />
+          <ShellBlock
+            command={primary.command}
+            output={useful}
+            copyOutput={original?.text}
+            exitCode={tool?.exitCode}
+            reveal={reveal}
+          />
         ) : (
           <>
             {primary.context && <pre className="cv-mcp-call__body selectable">{primary.context}</pre>}
-            {response && <ToolOutput result={response} reveal={reveal} />}
+            {response && <ToolOutput result={response} copyOutput={original?.text} reveal={reveal} />}
           </>
         )}
       </div>
