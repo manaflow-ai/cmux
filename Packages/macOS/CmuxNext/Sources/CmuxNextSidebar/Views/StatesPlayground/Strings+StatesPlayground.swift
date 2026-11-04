@@ -14,9 +14,10 @@ extension Strings {
                defaultValue: "Pink line: trailing mark column. Teal line: leading inset. Under each row, each trailing mark from left to right: frame / ink, in points.",
                bundle: .module)
     }
-    /// The favicon styles sheet's title: "Favicon styles · Dark" (`sidebar.faviconStyle`, Lawrence msg 19869).
-    static func statesPlaygroundFaviconStyles(_ appearance: String) -> String {
-        String(format: String(localized: "sidebar.statesPlayground.faviconStyles", defaultValue: "Favicon styles · %@", bundle: .module), appearance)
+    /// A favicon styles sheet's title: "Favicon style: Adaptive tint (default) · Dark" (`sidebar.faviconStyle`, Lawrence msg 19869).
+    static func statesPlaygroundFaviconStyle(_ style: String, appearance: String) -> String {
+        String(format: String(localized: "sidebar.statesPlayground.faviconStyleSheet", defaultValue: "Favicon style: %1$@ · %2$@", bundle: .module),
+               style, appearance)
     }
     /// A cell whose row the sidebar did not draw.
     static var statesPlaygroundNotDrawn: String {

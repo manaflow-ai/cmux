@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -236,4 +237,24 @@ test("every swap look moves paint only and comes from the side it is told", () =
   const first = (direction: "forward" | "back") => (swapFrames("slide", direction).content![0] as Keyframe).transform;
   expect(first("forward")).toBe("translateX(8px)");
   expect(first("back")).toBe("translateX(-8px)");
+});
+
+test("a control that is both revealed and hover-filled keeps both fades", () => {
+  const sheet = readFileSync(new URL("./motion.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const body = (selector: string) => {
+    const at = sheet.search(new RegExp(`(^|\\})\\s*${selector.replace(/[.[\]]/g, "\\$&")}\\s*\\{`));
+    expect(at).toBeGreaterThanOrEqual(0);
+    return sheet.slice(sheet.indexOf("{", at + 1) + 1, sheet.indexOf("}", sheet.indexOf("{", at + 1)));
+  };
+  // The fill names its fade; the reveal's in and out durations ride one property the shown state sets.
+  expect(body(".ui-hover-fill")).toContain("--ui-fill-transition:");
+  expect(body(".ui-reveal")).toMatch(/transition: opacity var\(--ui-reveal-ms\)/);
+  const both = body(".ui-reveal.ui-hover-fill");
+  expect(both).toMatch(/opacity var\(--ui-reveal-ms\)/);
+  expect(both).toContain("var(--ui-fill-transition)");
+  // No shown-state rule resets the whole transition list (which would drop the fill's fade).
+  const shown = sheet.slice(sheet.indexOf(".ui-reveal-host:hover .ui-reveal"));
+  const shownBody = shown.slice(shown.indexOf("{") + 1, shown.indexOf("}"));
+  expect(shownBody).not.toMatch(/transition(-duration)?:/);
+  expect(shownBody).toContain("--ui-reveal-ms:");
 });
