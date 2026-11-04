@@ -50,12 +50,13 @@ public import Foundation
 
     /// Exits 0 only while the guest has no kind record: its cmux-host writes /etc/cmux/vm-kind once it
     /// binds (`record_owner_kind`), which can land after the machine reads running and takes its first exec.
-    static let kindMissing = "[ ! -s /etc/cmux/vm-kind ]"
-    /// How many times the first guest check runs while the kind record is missing, ``Effects/pause`` apart
-    /// (3 s: about 90 s, the journey's `waitPreflight` budget).
-    static let guestCheckTries = 30
+    nonisolated static let kindMissing = "[ ! -s /etc/cmux/vm-kind ]"
+    /// How many times a guest check runs while the kind record is missing, ``guestCheckPause`` apart (3 s), and
+    /// for how long at most, slow execs included: about 90 s, the journey's `waitPreflight` budget.
+    public nonisolated static let guestCheckTries = 30
+    public nonisolated static let guestCheckBudget: Duration = .seconds(90)
     /// No event says the guest has bound, so the checks are spaced as retries after a failure.
-    @Sendable nonisolated static func guestCheckPause() async throws {
+    @Sendable public nonisolated static func guestCheckPause() async throws {
         var backoff = Backoff(initial: .seconds(3), maximum: .seconds(3), multiplier: 1)
         // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
         try await backoff.wait(owner: "cloud-credential-transfer.guest-bind")
@@ -194,10 +195,11 @@ public import Foundation
     /// record that fails the check is the guest's answer (a team guest, an image without the launchers):
     /// refused at once. A record that never comes is ``Failure/machineNotReady``.
     private func waitForGuest(effects: Effects, checkScope: () throws -> Void) async throws {
+        let deadline = ContinuousClock.now + Self.guestCheckBudget
         for attempt in 1...Self.guestCheckTries {
             if try await effects.exec(preflight) == 0 { return }
             guard try await effects.exec(Self.kindMissing) == 0 else { throw Failure.sharedMachine }
-            guard attempt < Self.guestCheckTries else { break }
+            guard attempt < Self.guestCheckTries, ContinuousClock.now < deadline else { break }
             try await effects.pause()
             try checkScope()
         }
