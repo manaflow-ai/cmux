@@ -1,13 +1,13 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
-// Claude Code's ToolSearch only loads deferred tools' schemas; the transcript draws no row for it
-// (hiddenTools.ts). A turn of ToolSearch, Read and Bash shows Read and Bash and counts two calls;
-// a turn of only ToolSearch draws no tool row, so no empty "Worked for" fold. The parent
-// transcript (direct.ts), a subagent's own view (subagents/childRows.ts) and its group row's
-// current action (subagents/subagentFold.ts) all hide it.
+// Claude Code's completed ToolSearch only loads deferred tools' schemas; the transcript hides its
+// row and excludes it from counts. Pending or failed discovery remains visible so an error is
+// actionable. The parent transcript (direct.ts), a subagent's own view (subagents/childRows.ts)
+// and its group row's current action (subagents/subagentFold.ts) all apply the same rule.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { childRows } from "./subagents/childRows";
 import { SubagentFold } from "./subagents/subagentFold";
+import { visibleToolItems } from "./conversation/mcpPresentation";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -176,18 +176,21 @@ async function turnRows(): Promise<{ mixed: Row[]; only: Row[]; split: Row[]; ot
 }
 
 const titles = (rows: Row[]) =>
-  rows.flatMap((row) => (row.kind === "activity" ? (row.items ?? []).flatMap((item) => item.tool?.title ?? []) : []));
+  rows.flatMap((row) =>
+    row.kind === "activity" ? (visibleToolItems(row.items as never) ?? []).flatMap((item) => item.tool?.title ?? []) : [],
+  );
 
 test("a turn of ToolSearch, Read and Bash draws Read and Bash, and counts two calls", async () => {
   const { mixed, only } = await turnRows();
   expect(titles(mixed)).toEqual(["Read retry.ts", "bun test src/net"]);
   expect(mixed.find((row) => row.kind === "turnSummary")?.toolCount).toBe(2);
 
-  // Only ToolSearch, done or failed: no activity row at all, so nothing folds into "Worked for".
-  expect(only.filter((row) => row.kind === "activity")).toEqual([]);
-  expect(only.find((row) => row.kind === "turnSummary")?.toolCount).toBe(0);
-  // The reply a hidden call sits in reads on as one message.
-  expect(only.filter((row) => row.kind === "assistant").map((row) => row.text)).toEqual(["Loading the tools. Loaded."]);
+  // Completed discovery is hidden, but a failed discovery remains visible so its error is usable.
+  expect(titles(only)).toEqual(["ToolSearch"]);
+  expect(only.filter((row) => row.kind === "activity")).toHaveLength(1);
+  expect(only.find((row) => row.kind === "turnSummary")?.toolCount).toBe(1);
+  // Both reply chunks remain visible around the failed discovery row.
+  expect(only.filter((row) => row.kind === "assistant").map((row) => row.text)).toEqual(["Loading the tools. ", "Loaded."]);
 });
 
 test("a hidden call's result on a page without its call draws no row named by its id", async () => {
@@ -217,7 +220,9 @@ test("a subagent's own view draws no ToolSearch row either", () => {
     event: { seq: index + 1, at: 1_000 + index },
     update: step.update,
   }));
-  expect(childRows("child", searchOnly, new Map(), 1)).toEqual([]);
+  const failedRows = childRows("child", searchOnly, new Map(), 1) as Row[];
+  expect(titles(failedRows)).toEqual(["ToolSearch"]);
+  expect(failedRows.find((row) => row.kind === "activity")?.toolCount).toBe(1);
 });
 
 test("a subagent calling ToolSearch never shows it as what the subagent is doing", () => {

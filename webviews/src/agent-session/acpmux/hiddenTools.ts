@@ -15,6 +15,13 @@ export function isPlumbingCall(update: any): boolean {
   return typeof tool === "string" && PLUMBING_TOOLS.has(tool);
 }
 
+/// A completed plumbing call stays in the source row for Find/copy/export, but does not count as
+/// work in the turn summary. Presentation filters the same call from the visible step list.
+export function isCompletedPlumbingTool(tool: any): boolean {
+  const name = tool?.provenance?.claudeTool ?? tool?.provenance?.claudeCodeToolName;
+  return tool?.status === "completed" && typeof name === "string" && PLUMBING_TOOLS.has(name) && tool.title === name;
+}
+
 /// Whether an ACP tool call or update is Muse Code's own todo tool, whose list the cmux-muse-acp
 /// adapter also sends as an ACP `plan` (`session/todoListChanged`, its src/acp.rs `send_plan`), so
 /// the checklist stands for the call. Only the adapter's top-level `name` counts, which carries

@@ -1,6 +1,8 @@
 // l10n-allow-file: public-safe child transcript fixtures, not shipped copy.
 import { expect, test } from "bun:test";
 import { SubagentFold } from "./subagentFold";
+import { visibleToolItems } from "../conversation/mcpPresentation";
+import { isCompletedPlumbingTool } from "../hiddenTools";
 
 type Step = { update: Record<string, unknown>; acpmux: Record<string, unknown> };
 const own = (update: Record<string, unknown>, id = "parent"): Step => ({ update, acpmux: { subagent: id } });
@@ -80,7 +82,9 @@ test("child views preserve call generations, match cold replay and keep old snap
     ["echo first", "late first"],
     ["echo reused", undefined],
   ]);
-  expect(activity.items?.some((item) => item.tool?.id === "hidden")).toBe(false);
+  expect(activity.items?.filter((item) => item.tool?.id === "hidden").every((item) => isCompletedPlumbingTool(item.tool))).toBe(
+    true,
+  );
   expect(activity.items?.find((item) => item.tool?.id === "second")?.tool?.output).toBe("done");
   feed(
     fold,

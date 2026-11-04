@@ -30,7 +30,7 @@ export function isToolDiscoveryNoise(tool: Tool | undefined): boolean {
     return false;
   if (
     (tool.exitCode ?? 0) !== 0 ||
-    /(?:"(?:isError|error)"\s*:\s*(?!(?:false|null|0)\s*[,}])\S|"(?:status|state)"\s*:\s*"(?:error|failed)"|^(?:error|failed|unable|unavailable)\b)/im.test(
+    /(?:"(?:isError|error)"\s*:\s*(?!(?:false|null|0)\s*[,}])\S|"(?:success|ok)"\s*:\s*(?:false|0)\b|"(?:status|state)"\s*:\s*"(?:error|failed|cancelled|canceled)"|^\s*(?:error|failed|unable|unavailable|cancelled|canceled)(?:\s+by\s+user)?\b)/im.test(
       tool.output ?? "",
     )
   )
