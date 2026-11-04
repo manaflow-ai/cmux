@@ -421,6 +421,71 @@ mod owner_keepers {
     }
 
     #[test]
+    fn a_supervised_chief_brain_keeps_the_chief_owner_until_it_ends() {
+        // The Chief owner runs the brains of the Chiefs that are not the
+        // default (chief_brains.rs). Its stop SIGTERMs them, which cuts a
+        // turn and drops a waiting start. A brain is connected only while its
+        // link is up; in a reconnect gap, a start window or a restart backoff
+        // it is not, so a running or pending brain itself keeps the owner
+        // (review of #35218).
+        use std::os::unix::fs::PermissionsExt;
+        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() % 1_000_000;
+        // Short: a brain's socket lives under its home (103-byte limit).
+        let files = PathBuf::from(format!("/tmp/okb-{}-{stamp}", std::process::id()));
+        fs::create_dir_all(files.join("h")).unwrap();
+        // A brain that never connects (its link is down) and exits 0 when
+        // the test writes `quit` in its home: a brain that ends cleanly
+        // waits for the next message and keeps nothing.
+        let brain = files.join("brain.sh");
+        fs::write(
+            &brain,
+            "#!/bin/sh\n[ \"$1\" = end-sessions ] && exit 0\necho $$ > \"$MUX_HOME/pid\"\n\
+             while [ ! -e \"$MUX_HOME/quit\" ]; do sleep 0.1; done\nexit 0\n",
+        )
+        .unwrap();
+        let acpmux = files.join("acpmux.sh");
+        fs::write(&acpmux, "#!/bin/sh\nexit 1\n").unwrap();
+        for script in [&brain, &acpmux] {
+            fs::set_permissions(script, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let brains = serde_json::json!({
+            "executable": brain, "home": files.join("h"),
+            "app": {"bin_dir": "/usr/bin", "user_name": "Test Person", "chief_title": "Chief",
+                    "acpmux_bin": acpmux},
+        })
+        .to_string();
+        let brains: &'static str = Box::leak(brains.into_boxed_str());
+        let owner = Owner::ensure_session(
+            "cmux-chief-0b7a1e55",
+            "brains",
+            vec![("CMUX_TUI_CHIEF_BRAINS", brains)],
+            None,
+        );
+        let app = Client::app(&owner.socket);
+        let mut cli = Client::connect(&owner.socket);
+        let created = cli.request_v2(
+            "chief.profile.create",
+            serde_json::json!({"machine": "current", "session": "current",
+                               "display_name": "Scout", "role": "Researcher"}),
+            Some("okp-brain-create"),
+        );
+        let chief = created["value"]["id"].as_str().unwrap().to_string();
+        let tail = chief[chief.len() - 8..].to_ascii_lowercase();
+        let brain_home = files.join("h/c").join(tail);
+        let deadline = Instant::now() + STOP_BOUND;
+        while !brain_home.join("pid").exists() {
+            assert!(Instant::now() < deadline, "the Chief's brain never started");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        drop(cli);
+        drop(app);
+        owner.assert_kept("a running supervised Chief brain whose link is down");
+        fs::write(brain_home.join("quit"), b"").unwrap();
+        owner.assert_stops("its only brain ended cleanly with nothing else to keep the owner");
+        let _ = fs::remove_dir_all(&files);
+    }
+
+    #[test]
     fn a_signal_exit_within_the_shutdown_lead_keeps_the_owner_until_it_settles() {
         // A shell ended by a signal shortly before the owner begins a session
         // shutdown counts as lost with the session (session_shutdown.rs), so
