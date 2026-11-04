@@ -549,6 +549,9 @@ public final class DaemonService {
     /// Receives every command task `send` starts, so an action run from the
     /// control socket can await it (`ActionRegistry.track`).
     @ObservationIgnored public var workTracker: ((ActionWork) -> Void)?
+    /// How many times the connection was shut down (`detachConnection`): a write sent again while unanswered stops
+    /// at the next one (`performUntilAnswered`).
+    @ObservationIgnored var shutdowns = 0
     /// Shows a request refused because it names a pane still opening (``PaneNotReady``) when no open action scope
     /// answers it; the app sets it (the refusal path: log + HUD). Gets the localized reason.
     @ObservationIgnored public var onPaneNotReady: ((_ reason: String) -> Void)?
@@ -602,6 +605,7 @@ public final class DaemonService {
     }
 
     private func detachConnection() -> DaemonConnection? {
+        shutdowns += 1
         // Nothing may start an owner again behind the shutdown (the unresponsive owner's restart).
         recovery.detach()
         startupDeadlineTimer?.cancel()
