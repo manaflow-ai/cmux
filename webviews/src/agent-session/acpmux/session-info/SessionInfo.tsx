@@ -136,6 +136,8 @@ export const PUSH_MIN_CHAT = 440;
 export const FLOAT_MARGIN = 8;
 /// How long after an output click a narrowing counts as that diff's split.
 const SPLIT_SETTLE_MS = 2000;
+/// A chat with no folders beside its own (one shared empty list, so the section's props keep their identity).
+const NO_FOLDERS: readonly string[] = [];
 
 /// Whether Settings Push always is on: Session Info then always takes a column.
 export const pushes = (placement: SessionInfoPlacement) => placement === "push";
@@ -1759,6 +1761,7 @@ export function SessionInfo({
   const scheduled = made?.scheduled ?? [];
   const pullRequests = visibleChanges(made?.pullRequests ?? [], statuses);
   const sources = made?.sources ?? [];
+  const folders = summary?.additionalDirectories ?? NO_FOLDERS;
   const outputs = (made?.outputs ?? []) as readonly TurnFile[];
   const mcp = summary?.mcpServers ?? [];
   const reconnect = mcp.filter((server) => server.status === "failed").length;
@@ -1886,16 +1889,17 @@ export function SessionInfo({
       )}
     </SessionInfoSection>
   );
-  const sourcesSection = sources.length > 0 && (
+  const sourcesSection = sources.length + folders.length > 0 && (
     <SessionInfoSection
       id="sources"
       title={t("summary.sources")}
       open={state.sources}
       onOpenChange={fold("sources")}
-      meta={value(String(sources.length))}
+      meta={value(String(sources.length + folders.length))}
     >
       <SourcesSection
         sources={sources}
+        folders={folders}
         cwd={summary?.cwd}
         onOpenFile={onOpenSourceFile}
         onOpenBeside={onOpenUrl}

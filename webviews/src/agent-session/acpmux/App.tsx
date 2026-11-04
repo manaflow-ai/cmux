@@ -677,6 +677,7 @@ import { SwitchNotice } from "./SwitchNotice";
 import { BACKGROUND_NOTICE_TEXT, useBackgroundNotice } from "./conversation/backgroundNotice";
 import { InstructionsNotice, type InstructionsFailure } from "./header/InstructionsNotice";
 import { FolderChoice, showsFolderChoice } from "./FolderChoice";
+import { ownMachineFolders, type ExtraFolderDraft } from "./extraFolders";
 import { type FolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
 import { NewTabFolderAsk } from "./NewTabFolderAsk";
 import { MissingFolder, chooseChatFolder } from "./missingFolder";
@@ -6257,6 +6258,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   });
   // An unsent chat can choose its folder even before an agent is available.
   const [projectDraft, setProjectDraft] = useState<string | undefined>();
+  /// The folders an unsent chat sees beside its own (the folder menu's Add folder…, extraFolders.ts),
+  /// on the machine they were added for; its `session/new` carries them (direct.ts `setNewChatFolders`).
+  const [extraFolderDraft, setExtraFolderDraft] = useState<ExtraFolderDraft>();
   /// The host offers Choose Folder… (a new chat in a workspace without a folder).
   const [chooseFolder, setChooseFolder] = useState(false);
   /// A chat that opened without its folder (cx-nn3e.1): acpmux's reason, until a pick works.
@@ -7791,6 +7795,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // client. A reconnect makes a new client, so the source changes with it and they list again.
   const [clientEpoch, setClientEpoch] = useState(0);
   const [folderContinuation] = useState(() => new FolderContinuation());
+  // The next new chat's extra folders reach the client that starts it (a reconnect makes a new one).
+  // The composer names the pane's own Cloud or peer machine by its name; a start there names no peer,
+  // so the client knows it as `local` (ownMachineFolders).
+  const paneMachine =
+    snapshot.summary?.peer || (snapshot.summary?.hostKind === "cloud" && snapshot.summary.host) || "local";
+  useEffect(() => {
+    directClient.current?.setNewChatFolders(ownMachineFolders(extraFolderDraft, paneMachine));
+  }, [extraFolderDraft, paneMachine, clientEpoch]);
   const continuationProject = useRef(projectDraft);
   const continuationProjectGeneration = useRef(0);
   useLayoutEffect(() => {
@@ -10219,7 +10231,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     keptStopping,
   ]);
   useEffect(() => {
-    if (snapshot.sessionId) setProjectDraft(undefined);
+    if (!snapshot.sessionId) return;
+    setProjectDraft(undefined);
+    setExtraFolderDraft(undefined);
   }, [snapshot.sessionId]);
   /// Where a new chat runs by default (runLocationDefault.ts): Cloud when its folder's newest chat
   /// went to a Cloud machine, else this Mac. Only while Cloud is offered, and only until the person
@@ -14284,6 +14298,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // panel lists them before its first prompt (cx-hkat).
             projectChoices={freshChat || (!quick && canMove) ? newTabProjects : undefined}
             {...(machineFolders ? { machineFolders } : {})}
+            // An unsent chat's Add folder…: folders it sees beside its project, or beside its private
+            // folder with none (Leo, 2026-11-03: "and you can also just start with nothing").
+            {...(freshChat && !quick && !snapshot.sessionId
+              ? {
+                  extraFolders: {
+                    draft: extraFolderDraft,
+                    onChange: setExtraFolderDraft,
+                    ...(remoteChat
+                      ? {}
+                      : {
+                          onBrowse: () => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd),
+                        }),
+                  },
+                }
+              : {})}
             {...(folderChoiceOffered ? { folderNote: t("agentHome.notice") } : {})}
             onBrowseProject={
               folderChoiceOffered
@@ -14787,6 +14816,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}
                   projects={newTabProjects}
                   onBrowseProject={() => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd)}
+                  // Add folder…: folders the new chat sees beside its project (extraFolders.ts).
+                  extraFolders={{
+                    draft: extraFolderDraft,
+                    onChange: setExtraFolderDraft,
+                    onBrowse: () => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd),
+                  }}
                   chips={registryChips ?? NewTabComposerChips}
                   focusField={newTab.focusesField !== false}
                   onPlusCommand={runNewTabPlusSearch}
