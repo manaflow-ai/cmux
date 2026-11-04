@@ -38,6 +38,15 @@ extension LayoutRootView {
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
+    /// DEBUG (`debug.mouse` `divider`): the center of the divider hit area named `name` (its id or an id prefix;
+    /// "first": the top-left one), in window coordinates.
+    public func debugDividerCenter(named name: String) -> NSPoint? {
+        let areas = dividerMouseAreas.sorted { ($0.rect.minY, $0.rect.minX) < ($1.rect.minY, $1.rect.minX) }
+        guard let area = name == "first" ? areas.first : areas.first(where: { $0.id == name }) ?? areas.first(where: { $0.id.hasPrefix(name) })
+        else { return nil }
+        return convert(NSPoint(x: area.rect.midX, y: area.rect.midY), to: nil)
+    }
+
     /// DEBUG (`debug.mouse`): the synthesized pointer of `window` (window
     /// coordinates; nil: outside the window), shared with every chrome hover
     /// (`PointerHover`, which recomputes them), then every layout in the
