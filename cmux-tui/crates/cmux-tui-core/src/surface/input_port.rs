@@ -314,8 +314,9 @@ impl Drop for InputPort {
 }
 
 impl InputPort {
-    /// Takes `bytes` for `terminal`'s current host connection and returns at once ([`InputReply::Accepted`]); the
-    /// terminal's writer thread writes them after every earlier write of the port.
+    /// Takes `bytes` for `terminal`'s current host connection and returns at once ([`InputReply::Accepted`]): written
+    /// on this turn when the port is idle and the connection takes them now (`try_write_now`), else by the terminal's
+    /// writer thread after every earlier write of the port.
     pub(crate) fn enqueue(
         &self,
         terminal: &Arc<PtyTerminalRuntime>,
@@ -552,6 +553,13 @@ impl InputPort {
     #[cfg(test)]
     pub(crate) fn queued_frames_for_test(&self) -> usize {
         self.shared.state.lock().unwrap_or_else(PoisonError::into_inner).frames.len()
+    }
+
+    /// Tests: the port holds no frame and is writing none (the next key may go inline).
+    #[cfg(test)]
+    pub(crate) fn idle_for_test(&self) -> bool {
+        let state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.frames.is_empty() && state.finished >= state.accepted
     }
 }
 
