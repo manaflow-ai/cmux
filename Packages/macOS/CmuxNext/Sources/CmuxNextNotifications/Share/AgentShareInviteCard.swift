@@ -27,6 +27,11 @@ package final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
     let status = ThemedLabel(wrappingLabelWithString: "")
     let empty = ThemedLabel(wrappingLabelWithString: "")
     let rowStack = NSStackView()
+    /// The invite link, and Copy Invite Link (reads Copied a moment after a press). Always laid out, so the
+    /// card keeps its size; clear and off until the chat has a link.
+    let linkLabel = ThemedLabel(labelWithString: "")
+    let copyButton: CmuxDialogButtonView
+    let linkRow = NSStackView()
     private var shownRows: [AgentShareInviteSheetModel.Row] = []
     private var shownRemoving: Set<String> = []
     /// Bumped each time the card joins or leaves a window: a change callback from an older chain
@@ -38,8 +43,11 @@ package final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
         self.closeImage = closeImage
         inviteButton = CmuxDialogButtonView(standalone: CmuxDialogButton(id: "invite", title: model.inviteTitle, role: .default),
                                             target: nil, action: #selector(invitePressed))
+        copyButton = CmuxDialogButtonView(CmuxDialogButton(id: "copyLink", title: model.copyLinkTitle, role: .default), hint: nil, quiet: true,
+                                          target: nil, action: #selector(copyPressed))
         super.init(frame: .zero)
         inviteButton.target = self
+        copyButton.target = self
         inviteButton.identifier = NSUserInterfaceItemIdentifier("cmux.agentShare.invites.invite")
         let content = build()
         let size = content.fittingSize
@@ -109,6 +117,12 @@ package final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
         inviteButton.isEnabled = model.canInvite
         status.stringValue = model.status ?? model.roleDetail
         status.ink = model.status == nil ? .secondary : .danger
+        let link = model.inviteLink
+        if linkLabel.stringValue != (link ?? "") { linkLabel.stringValue = link ?? "" }
+        linkRow.alphaValue = link == nil ? 0 : 1
+        copyButton.isEnabled = link != nil
+        let copyTitle = model.copied ? model.copiedTitle : model.copyLinkTitle
+        if copyButton.button.title != copyTitle { copyButton.retitle(copyTitle) }
         let rows = model.rows
         let removing = model.removing
         guard rows != shownRows || removing != shownRemoving || rowStack.arrangedSubviews.isEmpty != rows.isEmpty else { return }
@@ -139,6 +153,8 @@ package final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
         // task-owner: one Invite; the model refuses another while it runs
         Task { await sheet.invite() }
     }
+
+    @objc func copyPressed() { model.copyLink() }
 
     @objc private func closePressed() { onClose?() }
 
@@ -222,11 +238,37 @@ package final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
         // Two lines of room always, so a refusal never pushes the list down.
         status.heightAnchor.constraint(equalToConstant: ceil(NSLayoutManager().defaultLineHeight(for: Typography.caption)) * 2).isActive = true
 
+        stack.addArrangedSubview(linkView(width: inner))
+
         let list = listView(width: inner)
         stack.addArrangedSubview(list)
 
         stack.addArrangedSubview(Self.label(model.removeNote, font: Typography.caption, ink: .tertiary, width: inner))
         return stack
+    }
+
+    /// The invite link (middle-truncated) and Copy Invite Link, whose width fits Copied too, so its
+    /// confirmation moves nothing.
+    private func linkView(width: CGFloat) -> NSView {
+        linkLabel.font = Typography.caption
+        linkLabel.ink = .secondary
+        linkLabel.lineBreakMode = .byTruncatingMiddle
+        linkLabel.identifier = NSUserInterfaceItemIdentifier("cmux.agentShare.invites.link")
+        linkLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        copyButton.identifier = NSUserInterfaceItemIdentifier("cmux.agentShare.invites.copyLink")
+        copyButton.retitle(model.copiedTitle)
+        let copiedWidth = copyButton.intrinsicContentSize.width
+        copyButton.retitle(model.copyLinkTitle)
+        copyButton.widthAnchor.constraint(equalToConstant: ceil(max(copiedWidth, copyButton.intrinsicContentSize.width))).isActive = true
+        copyButton.setContentHuggingPriority(.required, for: .horizontal)
+        copyButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        for view in [linkLabel, NSView(), copyButton] { linkRow.addArrangedSubview(view) }
+        linkRow.orientation = .horizontal
+        linkRow.alignment = .centerY
+        linkRow.spacing = Metrics.space2
+        linkRow.translatesAutoresizingMaskIntoConstraints = false
+        linkRow.widthAnchor.constraint(equalToConstant: width).isActive = true
+        return linkRow
     }
 
     /// The invitees in a fixed band that scrolls past four rows, with the empty line in the same place.

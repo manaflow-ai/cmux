@@ -20,6 +20,14 @@ const digest = (text: string) => Effect.promise(async () => {
 const CUSTOMER_ID = /^[A-Za-z0-9_.:@-]{1,128}$/u;
 
 /** 4xx answers that prove the provider made nothing; 408 (timeout), 409 (slug may exist), 5xx and transport errors do not. */
+/**
+ * The provider takes -1 (or no value) as "never pause" on a create but reports such a VM's timeout as null: its Vm
+ * schema has a minimum of 0. Comparing the raw values failed every production create with the product default of
+ * -1 (2026-11-04: 503 on each create, the VM made upstream and left unrecorded).
+ */
+const sameIdleTimeout = (reported: number | null | undefined, requested: number) =>
+  reported === requested || (requested < 0 && (reported === null || reported === undefined || reported < 0));
+
 const definitelyRejected = (status: number | null) => status !== null && status >= 400 && status < 500 && status !== 408 && status !== 409;
 
 export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: SizeRequest | undefined) => string | null): UpstreamClientService["createVm"] => {
@@ -59,7 +67,7 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
     });
     const checked = (vm: typeof Receipt.Type) => {
       if (!vm.id || vm.slug !== slug || !Object.entries(metadata).every(([k, v]) => vm.metadata[k] === v) ||
-        ((sourceId ?? imageId) !== null && vm.snapshotId !== (sourceId ?? imageId)) || vm.idleTimeoutSeconds !== spec.idleTimeoutSeconds) return Effect.fail(new UpstreamError({ operation: "createVmReceipt", status: null }));
+        ((sourceId ?? imageId) !== null && vm.snapshotId !== (sourceId ?? imageId)) || !sameIdleTimeout(vm.idleTimeoutSeconds, spec.idleTimeoutSeconds)) return Effect.fail(new UpstreamError({ operation: "createVmReceipt", status: null }));
       return Effect.succeed(vm);
     };
     const recover = http.json("recoverCreateVm", "GET", `/v5/vms/${encodeURIComponent(slug)}`).pipe(
@@ -122,7 +130,7 @@ const inspectCreation = (config: UpstreamConfig, tenantId: string, vmId: string,
     || (tenantId.length <= 63 && machine.metadata["cmux_tenant"] !== tenantId)
     || (retained.createdBy.length <= 63 && machine.metadata["cmux_actor"] !== retained.createdBy)
     || machine.metadata["cmux_create"] !== probe.request
-    || (ready && machine.idleTimeoutSeconds !== receipt.idleTimeoutSeconds)
+    || (ready && !sameIdleTimeout(machine.idleTimeoutSeconds, receipt.idleTimeoutSeconds))
     || (probe.source !== undefined && (machine.snapshotId === undefined || machine.snapshotId === null || (yield* digest(JSON.stringify(["source", machine.snapshotId]))) !== probe.source))) {
     return yield* Effect.fail(new UpstreamError({ operation: "recoverCreateReceipt", status: null }));
   }

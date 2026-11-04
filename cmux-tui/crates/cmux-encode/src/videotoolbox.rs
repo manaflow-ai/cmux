@@ -292,7 +292,10 @@ fn create_session(
     let status = unsafe {
         let spec = dict(&[
             (kVTVideoEncoderSpecification_EnableLowLatencyRateControl(), kCFBooleanTrue()),
-            (kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder(), kCFBooleanTrue()),
+            (
+                kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder(),
+                kCFBooleanTrue(),
+            ),
         ]);
         let s = VTCompressionSessionCreate(
             null(),
@@ -414,7 +417,11 @@ impl VideoToolbox {
                 ColorTag::Srgb => kCVImageBufferColorPrimaries_ITU_R_709_2(),
                 ColorTag::DisplayP3 => kCVImageBufferColorPrimaries_P3_D65(),
             };
-            VTSessionSetProperty(self.session, kVTCompressionPropertyKey_ColorPrimaries(), primaries);
+            VTSessionSetProperty(
+                self.session,
+                kVTCompressionPropertyKey_ColorPrimaries(),
+                primaries,
+            );
             VTSessionSetProperty(
                 self.session,
                 kVTCompressionPropertyKey_TransferFunction(),

@@ -1195,6 +1195,7 @@
             "key" : "agents.3",
             "rows" : [
               "agentPane.showContextUsage",
+              "agentPane.composerRing",
               "agentPane.showDictation",
               "agentPane.spellChecking",
               "agentPane.attachmentView",
@@ -12564,7 +12565,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.cloudWorkspaces",
@@ -91807,6 +91808,162 @@
       "title" : {
         "key" : "settings.agentPane.showContextUsage",
         "text" : "Show Context Usage"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "context",
+        "planUsage"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.composerRingContext",
+            "text" : "Context"
+          },
+          "value" : "context"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.composerRingPlanUsage",
+            "text" : "Plan Usage"
+          },
+          "value" : "planUsage"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "context",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.composerRing.help",
+        "text" : "What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.composerRing",
+      "keywords" : [
+        "context",
+        "usage",
+        "plan",
+        "limit",
+        "limits",
+        "5-hour",
+        "weekly",
+        "rate",
+        "quota",
+        "ring",
+        "composer",
+        "agent"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "composerRing"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.composerRing"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.composerRing",
+        "text" : "Composer Ring"
       },
       "validation" : "portable"
     },

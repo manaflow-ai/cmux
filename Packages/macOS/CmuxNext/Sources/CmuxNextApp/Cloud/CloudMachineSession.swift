@@ -436,8 +436,10 @@ final class CloudMachineSession {
     /// pace until it runs or stops being live, so the connect after it dials a machine that is up.
     func untilRunning(pause: @MainActor (_ attempt: Int) async throws -> Void) async {
         guard appLink != nil, machine.status != .running, let refresher else { return }
-        for attempt in 1...60 {
+        for attempt in 1...80 {
             do { try await pause(attempt) } catch { return }
+            // A read elsewhere (the change tracker's, the list's) may have seen it run during the pause.
+            if machine.status == .running { return }
             await refresher(true)
             guard machine.status != .running, machine.status.isLive || machine.shownStatus.isChanging, !Task.isCancelled else { return }
         }

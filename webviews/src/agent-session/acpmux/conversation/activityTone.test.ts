@@ -10,12 +10,15 @@ test("background activity has one secondary tone and lifts on hover or focus; a 
   // The lift skips a row whose session link chip has the focus: the chip lights alone (AgentTag.css).
   // A tool run's or group's summary line (`is-run`) is left out: it lights on hover only. A sent
   // message's row keeps one steady tone, as a received one's does.
-  expect(css).toContain(".cv-tool:not(.is-run, .cv-sent):focus-within:not(:has(.cv-agent-tag.is-open:focus)),");
+  expect(css).toContain(
+    ".cv-tool:not(.is-run, .cv-sent, .cv-agent-activity__control):focus-within:not(:has(.cv-agent-tag.is-open:focus)),",
+  );
   expect(css).not.toContain(".cv-tool:focus-within");
   expect(css).toMatch(/\.cv-tool\.is-run:hover > \.cv-tool__text \{\s*color: var\(--cv-text\);/);
   // A step row draws nothing more on hover (agent-pane-step-rows.test.ts).
   expect(css).not.toMatch(/\.cv-tool:hover(,| \.cv-tool__(chevron|detail))/);
-  expect(css).toContain(".cv-worked:hover,");
+  // Only the "Worked for" button lifts; the live line has nothing behind it (transcript-row-hover-scope.test.ts).
+  expect(css).toContain("button.cv-worked:hover,");
   // A received message keeps one tone under the pointer and focus (Leo, 2026-11-03).
   expect(css).not.toMatch(/\.cv-received:is\(:hover/);
   expect(css).toContain(".cv-received__text :is(.cv-md, .cv-h),");

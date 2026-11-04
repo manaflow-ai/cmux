@@ -6003,7 +6003,7 @@
           "title": "Let Agents Start Cloud Sessions Without Asking",
           "help": "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Cloud Workspaces"
         },
         {
