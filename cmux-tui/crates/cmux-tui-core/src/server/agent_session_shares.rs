@@ -1403,3 +1403,6 @@ pub(super) fn check_guest(
 #[cfg(test)]
 #[path = "agent_session_shares_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "agent_session_share_invite_chat_tests.rs"]
+mod invite_chat_tests;
