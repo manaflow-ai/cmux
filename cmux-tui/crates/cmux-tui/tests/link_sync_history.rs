@@ -422,6 +422,45 @@ fn a_file_by_the_merge_files_name_is_never_overwritten() {
     assert_eq!(std::fs::read_to_string(setup.folder.join("a.txt")).unwrap(), "1\ntwo here\n3\n");
 }
 
+/// A conflict merge is readable by its owner only, whatever the umask.
+#[test]
+fn a_conflict_merge_is_owner_only() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let setup = setup("clash-private");
+    std::fs::write(setup.folder.join("a.txt"), "1\n2\n3\n").unwrap();
+    synced(&setup, "push");
+    std::fs::write(setup.folder.join("a.txt"), "1\ntwo here\n3\n").unwrap();
+    std::fs::write(setup.remote.join("a.txt"), "1\ntwo there\n3\n").unwrap();
+    let socket = setup.socket.to_str().unwrap();
+    let (folder, remote) = (setup.folder.to_str().unwrap(), setup.remote.to_str().unwrap());
+    let (ok, answer) = cmux(&setup, &["pull", "--socket", socket, folder, remote]);
+    assert!(!ok, "{answer}");
+    let mode = std::fs::metadata(setup.folder.join("a.txt.cmux-sync-conflict"))
+        .unwrap()
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o777, 0o600, "{mode:o}");
+}
+
+/// A folder whose name ends like a conflict merge is an ordinary folder:
+/// pushed, and kept by the next pull.
+#[test]
+fn a_folder_by_a_conflict_name_round_trips() {
+    let setup = setup("clash-dir");
+    std::fs::create_dir(setup.folder.join("archive.cmux-sync-conflict")).unwrap();
+    std::fs::write(setup.folder.join("archive.cmux-sync-conflict/keep.txt"), "keep\n").unwrap();
+    synced(&setup, "push");
+    assert_eq!(
+        std::fs::read_to_string(setup.remote.join("archive.cmux-sync-conflict/keep.txt")).unwrap(),
+        "keep\n"
+    );
+    synced(&setup, "pull");
+    assert_eq!(
+        std::fs::read_to_string(setup.folder.join("archive.cmux-sync-conflict/keep.txt")).unwrap(),
+        "keep\n"
+    );
+}
+
 /// A binary file both sides changed stays a whole-file conflict, with no
 /// merge file.
 #[test]

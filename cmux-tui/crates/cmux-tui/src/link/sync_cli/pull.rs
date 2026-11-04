@@ -724,7 +724,7 @@ fn machine_files(
                 let lower = name.to_ascii_lowercase();
                 if lower.starts_with(".cmux-sync")
                     || lower.ends_with(".cmux-sync-part")
-                    || merge::is_conflict_file(&lower)
+                    || (merge::is_conflict_file(&lower) && entry.kind != "dir")
                 {
                     continue;
                 }

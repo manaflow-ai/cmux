@@ -132,7 +132,8 @@ pub(super) fn write_conflict(root: &Dir, relative: &str, bytes: &[u8]) -> anyhow
         } else {
             format!("{name}.{n}{CONFLICT_SUFFIX}")
         };
-        let placed = match dir.new_file(&side, bytes, 0o644) {
+        // Owner-only: it holds this Mac's, the machine's and the base's text.
+        let placed = match dir.new_file(&side, bytes, 0o600) {
             Ok(()) => true,
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                 matches!(dir.entry(&side)?, Entry::File { .. })
