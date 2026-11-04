@@ -2065,7 +2065,7 @@ impl Hub {
         let has_model_option = session
             .meta()
             .config_options
-            .as_ref()
+            .as_deref()
             .and_then(Value::as_array)
             .map(|opts| opts.iter().any(|o| o.get("id").and_then(Value::as_str) == Some("model")))
             .unwrap_or(false);
@@ -2073,7 +2073,7 @@ impl Hub {
             let meta = session.meta();
             let option = meta
                 .config_options
-                .as_ref()
+                .as_deref()
                 .and_then(Value::as_array)
                 .and_then(|opts| opts.iter().find(|o| o["id"] == "model"))
                 .unwrap();

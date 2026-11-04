@@ -191,7 +191,7 @@ pub(crate) fn runs_full_access(view: &FullAccessView) -> Option<FullAccessForm> 
 
 /// Session `meta`'s config options, the `mode` one included.
 fn config_options(meta: &crate::store::SessionMeta) -> impl Iterator<Item = &Value> {
-    meta.config_options.as_ref().and_then(Value::as_array).into_iter().flatten()
+    meta.config_options.as_deref().and_then(Value::as_array).into_iter().flatten()
 }
 
 /// The effective `sessions.allowFullAccess`: off when MDM or the team policy forces it off
@@ -861,7 +861,7 @@ impl Hub {
         let scrubbed = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             let mut scrubbed = false;
-            for o in m.config_options.as_mut().and_then(Value::as_array_mut).into_iter().flatten() {
+            for o in m.config_options.as_deref_mut().and_then(Value::as_array_mut).into_iter().flatten() {
                 if o["currentValue"].as_str().is_some_and(super::start_mode::is_full_access) {
                     o["currentValue"] = Value::Null;
                     scrubbed = true;
