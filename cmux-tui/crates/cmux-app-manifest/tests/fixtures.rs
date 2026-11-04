@@ -154,3 +154,14 @@ fn a_web_pane_policy_may_only_narrow_what_the_page_loads() {
         assert_eq!(codes(&pane(csp)), vec!["csp.directive"], "{csp}");
     }
 }
+
+#[test]
+fn sidebar_sections_accept_all_three_regions_including_bottom() {
+    for region in ["top", "middle", "bottom"] {
+        let value =
+            manifest(json!({"runtime": {"main": "main.js"}, "implements": {"cmux.section/1": {
+                "export": "render", "options": {"defaultRegion": region}
+            }}}));
+        assert!(codes(&value).is_empty(), "{region}: {:?}", codes(&value));
+    }
+}

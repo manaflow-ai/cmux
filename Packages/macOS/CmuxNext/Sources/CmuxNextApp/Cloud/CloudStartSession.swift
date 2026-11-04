@@ -1,7 +1,9 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextSettings
 import Foundation
 
 /// `cmux cloud start-session` (Lawrence: "start new VMs from acp chat"): one call takes a Cloud
@@ -15,7 +17,10 @@ import Foundation
 ///
 /// An agent's run (the cmux MCP server, or a shell naming its chat) never starts anything itself:
 /// like an agent's Move to Cloud (``CloudMoveAsks``), it asks the person with a card in its own chat
-/// (Start, Not now), and only a click on Start starts the machine and the session.
+/// (Start, Not now), and only the person's Start (on the card, or `cmux agents dialog answer` from
+/// their own terminal, ``CloudAskDialogs``) starts the machine and the session. The run answers
+/// `pending` with the dialog's id as soon as the card shows; the same command again waits for the
+/// answer. The person may delegate it (`cloud.agentsStartWithoutAsking`): then nothing is asked.
 @MainActor
 struct CloudStartSession {
     static let action: ActionID = "cloudStartSession"
@@ -79,6 +84,18 @@ struct CloudStartSession {
         if let id = request.machineID, shown == nil { throw ActionFailure(message: CloudStartSessionStrings.noSuchMachine(id: id, agent: request.agent)) }
         let named = shown ?? request.name ?? ""
         let asked = request.asked(machine: named)
+        // As the person's Start would: the person delegated agents' starts (only they set it).
+        var asPerson = ActionInvocation(target: invocation.target, arguments: invocation.arguments, origin: .user)
+        asPerson.callerAgentSession = nil
+        let delegated = CloudAgentStartSetting().delegated(in: services.settings?.snapshot.root ?? .object([:]))
+        guard CloudStartCore().agentAsksFirst(delegated: delegated) else {
+            let key = CloudStartSessionRuns.Key(request, caller: invocation.callerAgentSession, account: services.cloud.account)
+            return CloudHandlers.result("start cloud session", context) {
+                try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services), forgotten: ActionFailure(message: CloudStartSessionStrings.accountChanged(asked))) {
+                    try await start.run(request, asPerson, context, account: key.account, byPerson: true, askedBy: invocation.callerAgentSession, revealing: false)
+                }
+            }
+        }
         guard let caller = invocation.callerAgentSession, let tab = Self.chat(caller, services: services) else {
             throw ActionFailure(message: CloudStartSessionStrings.notInChat(asked))
         }
@@ -86,14 +103,16 @@ struct CloudStartSession {
         let asks = services.cloud.startSessionAsks
         let text = exists ? CloudStartSessionStrings.ask(agent: request.agent, machine: named) : CloudStartSessionStrings.askNew(agent: request.agent, machine: named)
         // The person's Start is the gesture: the machine is created as theirs, at the agent's ask.
-        var asPerson = ActionInvocation(target: invocation.target, arguments: invocation.arguments, origin: .user)
-        asPerson.callerAgentSession = nil
-        // The same ask again (the agent's run answered pending) joins the one that runs.
+        // The same ask again (the agent's run answered pending) joins the one that runs, and waits.
         let key = CloudStartSessionRuns.Key(request, caller: caller, account: services.cloud.account)
         CloudHandlers.result("start cloud session", context) {
-            try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services), forgotten: ActionFailure(message: CloudStartSessionStrings.accountChanged(asked))) {
+            try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services), forgotten: ActionFailure(message: CloudStartSessionStrings.accountChanged(asked)),
+                                  early: true) {
                     let cloud = services.cloud
-                    let token = try await asks.ask(tab: tab.id, text: text, asked: asked, account: key.account, now: { cloud.account })
+                    // The card shows: the agent's run answers now, never waiting in silence.
+                    let token = try await asks.ask(tab: tab.id, text: text, asked: asked, account: key.account, now: { cloud.account }, caller: caller) { dialog in
+                        runs.asking(key, Self.askPending(request, machine: named, dialog: dialog))
+                    }
                     asks.show(tab: tab.id, token: token, .working, CloudStartSessionStrings.starting(agent: request.agent, machine: named))
                     do {
                         // The account the agent asked in: a switch while the card was open refuses.
@@ -138,6 +157,11 @@ struct CloudStartSession {
         if let id = request.machineID { fields["machine_id"] = .string(id) }
         if let name = request.name { fields["machine_name"] = .string(name) }
         return fields
+    }
+
+    static func askPending(_ request: Request, machine: String, dialog: String) -> [String: ActionResultValue] {
+        CloudAskDialog(id: dialog).pending(agent: request.agent, text: CloudStartSessionStrings.askPending(request.asked(machine: machine), dialog: dialog),
+                                           machineID: request.machineID, machineName: request.name)
     }
 
     /// The chat tab of agent session `session` on any machine: a chat on this Mac, or one on a
@@ -365,26 +389,28 @@ struct CloudStartSession {
             let origin: CloudLinkOrigin = byPerson ? .user : .script
             if session.machine.status == .paused { session.attach(origin: origin) } else { session.connect(origin: origin) }
         }
+        session.beginLegacyAttempt()
         let daemon = session.daemon
         let up = await CloudWait.holds(within: Self.connectWait, until: {
-            session.resumeFailure != nil || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
+            session.resumeFailure != nil || session.legacyLinkFailure?.definitive == true
+                || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
         })
         // A sign-out, team switch or cancellation during the wait is that, not a machine that didn't connect.
         try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
-        guard up, session.resumeFailure == nil else { throw failure() }
+        guard up, session.resumeFailure == nil, daemon.connection != nil else { throw failure() }
     }
 
     /// The machine takes the person's harness login before the session starts, as a composer start's does (+Login).
     /// The login may wait on a confirm: `still` checks the asking account after it, as after every wait.
     func passHarnessLogin(_ session: CloudMachineSession, agent: String, still: () throws -> Void) async throws {
-        _ = await CloudStartChat(services: services).passHarnessLogin(harness: agent, machine: session)
+        _ = await CloudStartChat(services: services).passHarnessLogin(harness: agent, machine: session, codexPrompt: false) // a scripted run never waits on a device code
         try still()
     }
     /// How long a machine has to come up (Move to Cloud's own wait).
     static let connectWait: Duration = .seconds(180)
 }
 
-extension CloudStartSessionRuns.Key {
+extension CloudStartRunKey {
     /// The run of `request` asked by chat `caller` (nil: a person's or a script's) in `account`.
     init(_ request: CloudStartSession.Request, caller: String?, account: [String?]) {
         self.init(machine: request.machineID.map { "id:" + $0 } ?? "name:" + (request.name ?? ""), agent: request.agent, cwd: request.cwd,

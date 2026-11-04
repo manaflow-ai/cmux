@@ -477,6 +477,7 @@ macro_rules! home_rule {
   leave out --target cloud (also --every 30m, --at, --in, --command, --folder)
   and check that `cmux automation runner status` says it runs, else run
   `cmux automation runner install`. Say in one line what runs when, where.
+  `cmux automation teleport NAME --to cloud|home|ssh:HOST` moves one there.
   `cmux automation list --target cloud` (and without it) lists them; pause,
   resume, run, history and logs manage them. If it answers
   `automation.plan.required`, send its checkout link to the user in one line,
@@ -597,6 +598,11 @@ cmux Home, and your final reply of each turn is posted there.
   bundle id and path, pid), whether the CLI is not the app's own, the update
   state (phase, ready on quit, last check), the bundled acpmux and Chief
   host stamps and macOS. Run it before you say which build the user runs.
+- The user's sign-ins from another browser: only when the user asks, run
+  `cmux browser import-cookies --from chrome[:PROFILE] --domain SITE
+  --reason \"why\"` (the fewest sites) from your shell with a 4-minute
+  timeout: it waits up to 3 minutes for the user's Allow in cmux. On a
+  denial nothing is imported: say so.
 - Your engine: `chief engine show` prints your harness, model and effort
   and the last turn's stats; `chief engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
@@ -818,6 +824,11 @@ cmux Home, and your final reply of each turn is posted there.
   bundle id and path, pid), whether the CLI is not the app's own, the update
   state (phase, ready on quit, last check), the bundled acpmux and Chief
   host stamps and macOS. Run it before you say which build the user runs.
+- The user's sign-ins from another browser: only when the user asks, run
+  `cmux browser import-cookies --from chrome[:PROFILE] --domain SITE
+  --reason \"why\"` (the fewest sites) from your shell with a 4-minute
+  timeout: it waits up to 3 minutes for the user's Allow in cmux. On a
+  denial nothing is imported: say so.
 - Your engine: `{chief} engine show` prints your harness, model and effort
   and the last turn's stats; `{chief} engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
@@ -905,7 +916,7 @@ report.
 - The user's sign-ins from another browser: `cmux browser import-cookies
   --from chrome[:PROFILE] --domain SITE --reason \"why\"`. Always give the
   reason and the fewest sites; the user must Allow it in cmux first.
-  To offer it without asking now, raise a card on Home and New Tab:
+  To offer it without asking now, raise a card on Settings' Import page:
   `cmux import suggest --browser chrome --site SITE --reason \"why\"`.
 - Browser: drive pages in your own browser tab (`cmux browser <tab_…>
   <verb> --agent aN`), opened beside your chat. Never drive a tab another
@@ -1005,7 +1016,7 @@ fn without_stop_lines(view: &str) -> String {
 }
 
 /// Tool descriptions of section 9's `spawn` and `tell`.
-pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat and where it is, or that it runs hidden (the default; control show adds its workspace) or has none and why. Start each task with a line `Title: <2-5 words>` (its workspace name; without it, the name comes from the task). The workspace joins no sidebar group, and none is made; only a `Group: Chief agents` line puts it in the user's existing \"Chief agents\" group, and any other `Group:` value is ignored. Tell the user only that. Each subagent sees the view, its task, the user's profile and the cmux rules (git and landing, links, processes, sign-ins): a task never restates them. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them. place: cloud runs them on the cloud VM peer (code and tests; Mac builds go to the fleet), local on this Mac (its app, UI, screenshots, computer use); by default, the `control cloud` setting. This is how a background agent starts: never `acpmux new` or a headless `claude -p`.";
+pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat and where it is, or that it runs hidden (the default; control show adds its workspace) or has none and why. Start each task with a line `Title: <2-5 words>` (its workspace name; without it, the name comes from the task). The workspace joins no sidebar group, and none is made; only a `Group: Chief agents` line puts it in the user's existing \"Chief agents\" group, and any other `Group:` value is ignored. Tell the user only that. Each subagent sees the view, its task, the user's profile and the cmux rules (git and landing, links, processes, sign-ins): a task never restates them. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them. The Chief picks the machine automatically; place overrides it with here/local/mac, cloud (also cloud:small|medium|large), or a paired machine name. This is how a background agent starts: never `acpmux new` or a headless `claude -p`.";
 /// `spawn(harness)`: route each task to the agent best at it (Leo,
 /// 2026-11-01: "maybe toggle off-able but if you look into grokbot they auto
 /// route stuff all the time"); off until the person turns it on with
@@ -1050,7 +1061,7 @@ pub const REMEMBER_DESCRIPTION: &str = "Keep a lasting preference or correction 
 pub const SLEEP_DESCRIPTION: &str = "End your turn and wake later: after `seconds` (30 to 86400) a message \"[wake] <note>\" starts a new turn with the whole view. Use it to look at a run, deploy or subagent again instead of waiting or polling. until: event lets a user message or subagent report that comes first replace the wake. seconds 0 clears every pending wake. Never call it to wait for a subagent's report alone: reports always wake you.";
 
 /// The `watch` tool's description (optchat-chief brain/watches.rs).
-pub const WATCH_DESCRIPTION: &str = "Wait for something outside your turn: the host runs `command` (sh -c) on this machine in the background and wakes you once with a message \"[watch w<N>] <note>: <what happened>\" and its last output lines, when an output line matches the regex `until`, when the command exits (no `until`), or at `timeout_seconds` (default 1800). A short check that exits without a match runs again every 15 s, so `aws sts get-caller-identity && echo SIGNED_IN` with until SIGNED_IN waits for a sign-in, and `gh run watch ID --exit-status` with no until waits for a run. Your turn goes on: tell the user what you wait for, then end it. Use it whenever you would say you are watching or will continue when something finishes. cancel: a watch id or all. No arguments: lists the pending watches. At most 8 at once.";
+pub const WATCH_DESCRIPTION: &str = "Wait for something outside your turn: the host runs `command` (sh -c) on this machine in the background and wakes you once with a message \"[watch w<N>] <note>: <what happened>\" and its last output lines, when an output line matches the regex `until`, when the command exits (no `until`), or at `timeout_seconds` (default 1800). A short check that exits without a match runs again every 15 s, so `aws sts get-caller-identity && echo SIGNED_IN` with until SIGNED_IN waits for a sign-in, and `glaeda-gh wait run OWNER/REPO/ID` with no until waits for a run (never poll gh: a merge wait on `gh pr view N -R OWNER/REPO` with until MERGED runs as one `glaeda-gh wait pr` when glaeda is on the host). Your turn goes on: tell the user what you wait for, then end it. Use it whenever you would say you are watching or will continue when something finishes. cancel: a watch id or all. No arguments: lists the pending watches. At most 8 at once.";
 
 /// The `control` tool's description.
 pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. show id / hide id: open or close its sidebar workspace (subagents run hidden unless the setting subagents.showWorkspaces is on; show one when the user asks to watch it or must allow its prompt). cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.";

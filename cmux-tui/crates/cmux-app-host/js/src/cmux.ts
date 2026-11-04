@@ -68,6 +68,8 @@ export const state = {
   subscriptions: new Map<number, (payload: unknown) => void>(),
   timers: new Map<number, { fn: () => void; repeat: boolean }>(),
   app: { id: "", version: "" },
+  /** The active mount's context while its render or event handler runs. */
+  context: null as Record<string, unknown> | null,
   apiVersion: "0.0.0",
   allowedOps: null as Set<string> | null,
   knownOps: null as Set<string> | null,
@@ -324,7 +326,8 @@ export function createCmux(gesture: () => string | undefined): Record<string, un
       },
       settings: Object.assign(() => state.settings[0](), {
         set: (values: Record<string, unknown>) => c("app.settings.set", { values })
-      })
+      }),
+      context: () => state.context ?? {}
     },
     /** The current user-gesture token: on a command's `ctx.cmux`, the invocation's token while the command runs; otherwise the event token of a user event handler running synchronously; else null. */
     gesture: () => gesture() ?? state.gesture,

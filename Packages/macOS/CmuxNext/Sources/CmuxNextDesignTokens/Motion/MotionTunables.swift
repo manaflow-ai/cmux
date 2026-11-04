@@ -66,14 +66,6 @@ public nonisolated enum MotionTunables {
         help: "Bounce of tab, row, pane and divider springs when Animations Bounce is Subtle (0 is critically damped).",
         default: 0.15, range: 0...0.5, step: 0.01, unit: .multiplier, code: "MotionTunables.subtleBounce")
 
-    /// How far ahead a released divider's velocity is projected to find a
-    /// snap (halves, thirds) it is flung onto; it then springs there from
-    /// that velocity.
-    public static let dividerReleaseProjection = Tunable<Double>.number(
-        "motion.divider.releaseProjection", .springs, "Divider fling projection",
-        help: "Seconds of release velocity a divider looks ahead for a snap point.",
-        default: 0.05, range: 0...0.3, step: 0.01, unit: .seconds, code: "MotionTunables.dividerReleaseProjection")
-
     // MARK: Fades and loops
 
     /// Every timed fade is a `MotionScale` step (or 0, instant), so nothing reads slow (Leo
@@ -109,7 +101,7 @@ public nonisolated enum MotionTunables {
     })
 
     package static let loopDefaults: [MotionLoop: (TimeInterval, String)] = [
-        .spinner: (1.4, "One turn of the busy spinner (ChatGPT turns slower than our old 0.9 s)."),
+        .spinner: (0.9, "One turn of the busy spinner."),
         .pulse: (1.8, "One cycle of the agent-waiting pulse."),
         .flash: (1, "Pane attention flash (two blinks; at least 1 s, the 2 Hz cap)."),
         .sweep: (1.3, "One pass of an unmeasured progress bar's segment (the update card while checking)."),
@@ -205,7 +197,7 @@ public nonisolated enum MotionTunables {
 
     /// Every Motion tunable, for the catalog.
     public static var all: [TunableDescriptor] {
-        MotionSpring.allCases.compactMap { springs[$0]?.descriptor } + [subtleBounce.descriptor, dividerReleaseProjection.descriptor]
+        MotionSpring.allCases.compactMap { springs[$0]?.descriptor } + [subtleBounce.descriptor]
             + MotionFade.allCases.compactMap { fades[$0]?.descriptor }
             + MotionLoop.allCases.compactMap { loops[$0]?.descriptor }
             + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel,

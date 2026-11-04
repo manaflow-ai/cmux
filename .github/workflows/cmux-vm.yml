@@ -188,6 +188,9 @@ jobs:
       - name: Pending history discovers slots from the previous writer
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun scripts/test-pending-history-compat.ts
+      - name: Service key scope grants merge only declared, known scopes
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun scripts/test-key-grants.ts
       - name: Store tests on PGlite against the migration
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test:pg

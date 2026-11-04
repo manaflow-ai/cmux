@@ -179,6 +179,8 @@ export interface Env {
   readonly PLATFORM_AGENT_GATEWAY?: string
   /** Service binding to cmux-platform-<env> (platform-forward.ts); absent in every environment until its cutover deploy. */
   readonly PLATFORM?: Fetcher
+  /** Binding-internal Slack bridge token shared with cmux-platform; never a public client credential. */
+  readonly INTERNAL_TOKEN?: string
   /** Var: comma-separated surfaces the platform serves ("cloud"); unset or empty = every request stays in this Worker. */
   readonly PLATFORM_SURFACES?: string
   /**
@@ -434,6 +436,12 @@ export interface Env {
   readonly SENDBLUE_WEBHOOK_SECRET?: string
   /** Header that carries the SendBlue webhook secret (default sb-signing-secret; UNVERIFIED until the first staging webhook). */
   readonly SENDBLUE_WEBHOOK_HEADER?: string
+  /** Texting Chief switch, fail-closed: only "on" routes inbound texts to Chiefs and texts their replies (text-chief.ts). */
+  readonly TEXT_CHIEF?: string
+  /** Secret, JSON `{"+1555…": "user_…" | "email"}`: senders allowed to text Chief before an in-app phone link exists. */
+  readonly TEXT_CHIEF_PEOPLE?: string
+  /** JSON `{"+1555…": {"owner"?: "user_…|email", "chief"?: "agent_…"}}`: more SendBlue lines; the shared SENDBLUE_FROM_NUMBER is always one. */
+  readonly TEXT_CHIEF_LINES?: string
   /** Staging, development and previews only: comma-separated recipients invites may reach; missing = none. */
   readonly HOME_INVITE_ALLOWLIST_EMAILS?: string
   readonly HOME_INVITE_ALLOWLIST_PHONES?: string

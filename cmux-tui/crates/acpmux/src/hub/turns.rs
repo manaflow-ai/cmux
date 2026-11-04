@@ -502,6 +502,14 @@ impl Hub {
             && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref());
         let trigger = crate::prompt_provenance::is_trigger(opts.provenance.as_ref());
         let trigger_held = trigger || running.as_ref().is_some_and(|t| t.trigger);
+        if steer
+            && opts.steer_only
+            && opts.interrupt_turn.as_deref().is_some_and(|expected| {
+                running.as_ref().is_none_or(|turn| turn.turn_id != expected)
+            })
+        {
+            return Err(super::turn_cap::steer_unavailable(capped));
+        }
         let steer_now = steer
             && !trigger_held
             && session.steering.load(Ordering::SeqCst)
@@ -2260,6 +2268,7 @@ impl Hub {
                     host_seq: None,
                 }),
                 remote: None,
+                update_line: Default::default(),
             });
             drop(sessions);
         }

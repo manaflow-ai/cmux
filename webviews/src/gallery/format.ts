@@ -29,6 +29,8 @@ import { armIds, validateExperiments, type Experiment } from "../experiments/exp
 import { validateTunables, type Tunable } from "../experiments/tunable";
 import { optionAccepts, validateOptions, type GalleryOption } from "./options";
 import type { MockOptions } from "../pages/settings/mockProvider";
+import type { BranchPickerGroup } from "../diff/generated/protocol";
+import type { SourceOption } from "../toolbar-model";
 import type {
   AccountsState,
   AgentsState,
@@ -256,6 +258,9 @@ export type DiffPageVariant = VariantBase & {
   files?: DiffFixtureFile[];
   repoRoot?: string;
   baseRef?: string;
+  /** Branch and commit lists served by the in-page diff host. */
+  branchGroups?: BranchPickerGroup[];
+  sourceOptions?: SourceOption[];
   /** A machine error while the loaded diff remains visible. */
   fingerprintError?: { code: string; message: string };
 };

@@ -217,7 +217,16 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
 /// A running subagent's stop button. It stays off while Claude has the request (and after Claude
 /// takes it, until the subagent ends); when acpmux or Claude refuses, it says so and can be tried
 /// again.
-export function StopButton({ agent, stop }: { agent: Subagent; stop: (id: string) => Promise<unknown> }) {
+export function StopButton({
+  agent,
+  stop,
+  solid = false,
+}: {
+  agent: Subagent;
+  stop: (id: string) => Promise<unknown>;
+  /// A filled square, as Claude Desktop's running rows draw it (the running tray's lines).
+  solid?: boolean;
+}) {
   const t = useT();
   const [state, setState] = useState<"idle" | "stopping" | "failed">("idle");
   const label = t(state === "failed" ? "subagents.stopFailed" : "subagents.stop", {
@@ -236,7 +245,7 @@ export function StopButton({ agent, stop }: { agent: Subagent; stop: (id: string
         stop(agent.id).catch(() => setState("failed"));
       }}
     >
-      <Icon name="action.stop" size={12} />
+      <Icon name="action.stop" size={12} selected={solid} />
     </button>
   );
 }
@@ -249,21 +258,35 @@ export function SubagentOfRow({ row }: { row: AcpmuxRow }) {
   const open = useContext(SubagentNavContext);
   const agent = row.subagents?.[0];
   if (!agent) return null;
+  // The pill's text goes back to the parent (its parent subagent's view, else the chat's); its ×
+  // closes the subagent's view to the chat's, as Escape does (subagentEscape.ts). Leo, 2026-11-03:
+  // "this opened subagent has no close button".
   return (
     <div className="cv-subagent-of">
-      <button type="button" className="cv-subagent-of__pill" onClick={() => open?.(agent.parent ?? undefined)}>
-        <Icon name="agent.session" size={12} />
-        <span className="cv-subagent-of__label">{t("subagents.of")}</span>
-        <span className="cv-subagent-of__parent">{row.text}</span>
-        {agent.task ? (
-          <>
-            <span className="cv-subagent-of__dot" aria-hidden="true">
-              ·
-            </span>
-            <span className="cv-subagent-of__task">{agent.task}</span>
-          </>
-        ) : null}
-      </button>
+      <span className="cv-subagent-of__frame">
+        <button type="button" className="cv-subagent-of__pill" onClick={() => open?.(agent.parent ?? undefined)}>
+          <Icon name="agent.session" size={12} />
+          <span className="cv-subagent-of__label">{t("subagents.of")}</span>
+          <span className="cv-subagent-of__parent">{row.text}</span>
+          {agent.task ? (
+            <>
+              <span className="cv-subagent-of__dot" aria-hidden="true">
+                ·
+              </span>
+              <span className="cv-subagent-of__task">{agent.task}</span>
+            </>
+          ) : null}
+        </button>
+        <button
+          type="button"
+          className="cv-subagent-of__close"
+          aria-label={t("subagents.close")}
+          title={t("subagents.close")}
+          onClick={() => open?.(undefined)}
+        >
+          <Icon name="action.close" size={12} />
+        </button>
+      </span>
     </div>
   );
 }

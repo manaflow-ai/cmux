@@ -67,6 +67,13 @@ const shownPanel = ".acpmux-session-info[data-presence='shown']";
 async function parent(ctx: PlayContext) {
   const { setSessionInfoOpen } = await import("../session-info/sessionInfoState");
   setSessionInfoOpen(true);
+  // A pane too narrow for a readable chat beside the panel (the left half of the pair,
+  // subagentSplitPair.gallery.tsx) keeps a saved open state closed until the toggle opens it
+  // (session-info/SessionInfoNarrowPane.gallery.tsx); a wide one has it open already.
+  const closed = 'button.acpmux-session-info-toggle[aria-pressed="false"]';
+  await ctx.waitFor(() => ctx.document.querySelector("button.acpmux-session-info-toggle"));
+  if (!ctx.document.querySelector(shownPanel) && ctx.document.querySelector(closed))
+    await ctx.click({ selector: closed });
   await ctx.waitFor(() => ctx.document.querySelector(shownPanel));
   // The running tray (the default) lists the running subagent; the done one is a line in the transcript.
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray"));
@@ -87,7 +94,9 @@ async function child(ctx: PlayContext) {
 }
 
 export default agentPaneEntry({
-  id: SPLIT_ENTRY,
+  // A literal, as every entry's id: test/support/galleryFrame.ts finds an entry's file by its
+  // `id: "<id>"` line, and an id read from a constant matched no file (gallery-control-surfaces).
+  id: "agent-pane.subagent-split",
   title: "Subagent opened in the right split",
   area: "Agent pane",
   height: 640,

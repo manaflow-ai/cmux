@@ -59,6 +59,10 @@ mod servers;
 #[cfg(unix)]
 mod serves;
 #[cfg(unix)]
+mod sidebar;
+#[cfg(all(test, unix))]
+mod sidebar_integration_tests;
+#[cfg(unix)]
 mod storage;
 #[cfg(unix)]
 mod store;
@@ -81,7 +85,9 @@ pub(crate) mod timer;
 #[cfg(unix)]
 mod web_calls;
 
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
+
+use crate::panic_free::RecoverPoison;
 
 #[cfg(unix)]
 pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
@@ -109,6 +115,10 @@ pub const CANCEL_REQUEST_CAPABILITY: &str = "cancel-request-v1";
 #[cfg(unix)]
 const MUX_EVENTS_SINK: u64 = u64::MAX;
 
+/// Called after an app server starts or stops (the owner's keepers watch,
+/// server/owner_keepers.rs).
+type ServerObservers = Arc<Mutex<Vec<Box<dyn Fn() + Send + Sync>>>>;
+
 /// The supervisor of one daemon, created on the first `apps-*` command.
 #[derive(Default)]
 pub(crate) struct AppsSlot {
@@ -116,6 +126,9 @@ pub(crate) struct AppsSlot {
     supervisor: OnceLock<Arc<Supervisor>>,
     #[cfg(not(unix))]
     supervisor: OnceLock<Arc<()>>,
+    /// Told of each `apps-server` start and stop the supervisor broadcasts,
+    /// from its event sink (outside the supervisor's lock).
+    server_observers: ServerObservers,
 }
 
 impl AppsSlot {
@@ -147,6 +160,7 @@ impl AppsSlot {
                 // from `subscribe` (page-router.json `events`), so the open
                 // App Store page re-reads after an install made elsewhere.
                 let events = Arc::downgrade(mux);
+                let server_observers = self.server_observers.clone();
                 supervisor.register_client(
                     MUX_EVENTS_SINK,
                     Arc::new(move |event: &serde_json::Value| {
@@ -154,6 +168,13 @@ impl AppsSlot {
                             && let Some(mux) = events.upgrade()
                         {
                             mux.emit(crate::MuxEvent::AppsChanged(Arc::new(event.clone())));
+                        }
+                        if event.get("event").and_then(serde_json::Value::as_str)
+                            == Some("apps-server")
+                        {
+                            for observer in server_observers.lock().recover_poison().iter() {
+                                observer();
+                            }
                         }
                         true
                     }),
@@ -193,6 +214,28 @@ impl AppsSlot {
         }
         #[cfg(not(unix))]
         let _ = (client, &self.supervisor);
+    }
+
+    /// App server processes running now (none before the supervisor exists,
+    /// and none off Unix, where apps never run).
+    pub(crate) fn running_servers(&self) -> usize {
+        #[cfg(unix)]
+        {
+            self.supervisor
+                .get()
+                .map_or(0, |supervisor| supervisor.inner.lock().recover_poison().servers.len())
+        }
+        #[cfg(not(unix))]
+        {
+            0
+        }
+    }
+
+    /// Calls `observer` after each app server start and stop. It runs from
+    /// the supervisor's event delivery, outside the supervisor's lock, and
+    /// must not call back into the supervisor.
+    pub(crate) fn add_server_observer(&self, observer: impl Fn() + Send + Sync + 'static) {
+        self.server_observers.lock().recover_poison().push(Box::new(observer));
     }
 }
 

@@ -970,6 +970,12 @@ permission requests, errors, PR events.
   Errors (4.1 `Chip`). Chips mirror the filter menu.
 - `List(.plain)` with 0.5 pt separators from the text column (4.2.1), `bg`. New events above the
   viewport: glass capsule "↑ 3 new" centered under the toolbar; tap scrolls to top with `smooth`.
+- Needs you pinned: open questions and permission requests (and terminal agents waiting for input)
+  lead the list, newest first among them, then every other event newest first, as the Mac's Feed
+  pins its open requests. An ask that closes drops to its place in time, and its push leaves
+  Notification Center (`NeedsYouNotices`). The open count is the Feed tab's badge; no app icon
+  badge (HIG Notifications: a badge counts unread notifications, and a badge set to zero clears
+  the app's notifications from Notification Center).
 - Tab bar stays fully visible while the list scrolls (3.2).
 
 ### 8.2 Cell

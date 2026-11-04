@@ -369,7 +369,7 @@ use resource_content::ensure_screen_split_public_ids;
 pub(crate) use resource_topology::AgentCLIJobBusy;
 pub(crate) use resource_topology::{
     BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD,
-    PANE_SPLIT_FOCUS_FIELD, RoomClose, WORKSPACE_CREATE_FOCUS_FIELD,
+    PANE_SPLIT_FOCUS_FIELD, RoomClose, TabSplit, WORKSPACE_CREATE_FOCUS_FIELD,
 };
 pub use rows::{RowHeightsOutcome, RowsError};
 pub(crate) use screen_groups::workspace_screen_groups;
@@ -929,6 +929,11 @@ impl Mux {
 
     #[track_caller]
     pub fn surface(&self, id: SurfaceId) -> Option<Arc<Surface>> {
+        if self.control_clients.input_lane.on() {
+            // The routing tables of the last finished change, with no lock (R-DAEMON-STATE stage S1): the same
+            // lookup, never a wait behind a list, a snapshot or a durable mutation that holds the session lock.
+            return self.state.routes().surface(id);
+        }
         let state = self.state.lock().unwrap();
         state.surfaces.get(&id).or_else(|| state.terminal_runtime_by_id(id)).cloned()
     }
@@ -944,6 +949,13 @@ impl Mux {
     #[cfg(test)]
     pub(crate) fn remove_surface_runtime_for_test(&self, id: SurfaceId) -> Option<Arc<Surface>> {
         self.state.lock().unwrap().surfaces.remove(&id)
+    }
+
+    /// Turns R-DAEMON-STATE stage S1 (the input lane) on or off for this mux (tests).
+    #[cfg(test)]
+    pub(crate) fn set_input_lane_for_test(&self, on: bool) {
+        self.state.set_route_publishing_for_test(on);
+        self.control_clients.set_input_lane_for_test(on);
     }
 
     #[cfg(test)]
