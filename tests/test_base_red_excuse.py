@@ -664,7 +664,7 @@ class Excusing(unittest.TestCase):
                 self.assertNotIn(f"repos/{REPO}/actions/runs/3000/jobs?filter=latest&per_page=100", self.gh.routes)
 
     def coalesced_setup(self, newest_green: bool, yielded: bool = False):
-        # cmux-next-web.yml runs its web checks at most once every 15 minutes (web_coalesce.py): a push whose
+        # cmux-next-web.yml runs its web checks at most once every 30 minutes (web_coalesce.py): a push whose
         # pending coalesce job a newer push replaced ends cancelled, its coalesce job cancelled and its web job
         # skipped. Such runs sit ahead of the run that covered them.
         name = "web / Web tests (1/4)"
@@ -1501,6 +1501,44 @@ class CrashIsNeverABaseRed(unittest.TestCase):
         self.gh.logs[2] = log(SWIFT, TEST_STEP, ISSUE)
         with self.assertRaisesRegex(excuse.Refused, "palettePagesReleaseTheRegistry"):
             self.judge()
+
+
+class VolatileErrorTokens(unittest.TestCase):
+    """An error line naming each run's own temp dir is the same error (2026-11-04, cmux#34660's release-notary red)."""
+
+    NOTARY = "nightly-guards / workflow-guard-tests / release-notary"
+    STEP = "Validate nightly builds and signers never cancel or replace a waiting run"
+
+    def judge(self, head_line, base_line, *extra):
+        github = FakeGitHub()
+        github.jobs = {1: failed_job(1, 10, HEAD, name=self.NOTARY, step=self.STEP),
+                       2: failed_job(2, 20, BASE_SHA, name=self.NOTARY, step=self.STEP)}
+        github.logs = {1: log(self.NOTARY, self.STEP, head_line, *extra, "##[error]Process completed with exit code 1."),
+                       2: log(self.NOTARY, self.STEP, base_line, "##[error]Process completed with exit code 1.")}
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def test_the_same_error_in_another_temp_dir_is_excused(self):
+        text = self.judge("##[error]publish-nightly: lease file /tmp/tmp.Pw5bL0wmeb/lease.json was never released",
+                          "##[error]publish-nightly: lease file /tmp/tmp.Zq81xKcd0A/lease.json was never released")
+        self.assertIn(f"excused '{self.NOTARY}'", text)
+        self.assertIn("<tmp>/lease.json", text)
+
+    def test_the_same_error_under_another_runner_temp_and_checkout_is_excused(self):
+        self.assertIn("excused", self.judge(
+            "error: /home/runner/work/_temp/4b1c0e2a-9f7d-4d3e-8a55-0c1f2e3d4b5a.sh: publish-nightly holds no lease",
+            "error: /Users/ci/actions-runner/_work/_temp/8e2f1a3b-1c2d-4e5f-9a8b-7c6d5e4f3a2b.sh: publish-nightly "
+            "holds no lease"))
+
+    def test_another_error_in_another_temp_dir_is_still_refused(self):
+        with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next"):
+            self.judge("##[error]publish-nightly: lease file /tmp/tmp.Pw5bL0wmeb/lease.json is corrupt",
+                       "##[error]publish-nightly: lease file /tmp/tmp.Zq81xKcd0A/lease.json was never released")
+
+    def test_a_crash_that_names_a_temp_dir_is_never_excused(self):
+        crash = "error: Process '/tmp/tmp.Pw5bL0wmeb/swiftpm-testing-helper' exited with unexpected signal code 6"
+        with self.assertRaisesRegex(excuse.Refused, "signal"):
+            self.judge("##[error]publish-nightly: lease file /tmp/tmp.Pw5bL0wmeb/lease.json was never released",
+                       "##[error]publish-nightly: lease file /tmp/tmp.Zq81xKcd0A/lease.json was never released", crash)
 
 
 class EchoedStepScriptIsNoEvidence(unittest.TestCase):
