@@ -7,7 +7,7 @@ import Foundation
 /// cmux: an agents row as one pill per agent (``HomeAgentPills``, user 2026-11-03, msg 19960), and a status
 /// note or Feed row as a small muted caption line. Before the pills, every row was that line (user
 /// 2026-10-31, msg 19414: the "▸ Agent messages (3) · a957" header, a blue underlined link in a gray
-/// pill, "is bad"), and each status note of an opened notes row. A drawn custom row (CustomRows.swift, `.fullWidth`) like the table cards
+/// pill, "is bad"), and each status note of an opened agents row. A drawn custom row (CustomRows.swift, `.fullWidth`) like the table cards
 /// (``HomeTableRowProvider``): a chevron, the label ("Agent messages (3)", "Disconnected (5)") and
 /// the agents as plain chips, at the bubbles' left edge. A click anywhere on the line opens or closes
 /// the fold (`ChatIntents.agentRowClicked`); the provider takes no click itself.
@@ -30,11 +30,11 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
         var chevron = true
         /// The header style that draws it (`HomeAgentFoldStyle` raw value in DEBUG); 0, the shipped look, elsewhere.
         var style = 0
-        /// What the row is: `fold`, `notes`, `note` or `feed` (a Feed row always draws the shipped look).
+        /// What the row is: `fold` (an agents row), `note` or `feed` (a Feed row always draws the shipped look).
         var role = "fold"
-        /// A fold or notes row's message count.
+        /// An agents row's message count.
         var count = 0
-        /// A fold or notes row's agents (all of them; `chips` is what the shipped look names).
+        /// An agents row's agents (all of them; `chips` is what the shipped look names).
         var peers: [String] = []
         /// Each agent's state, in `peers` order: `told`, `reported` or `stopped`.
         var states: [String] = []
@@ -66,10 +66,10 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
         if installed == nil { CustomRows.register(HomeAgentFoldRowProvider()) }
     }
 
-    /// The caption part for a fold or notes row; nil for a message or note row, or when not installed.
+    /// The part for an agents row or a status note; nil for a message row, or when not installed.
     static func part(_ row: HomeAgentMessageRow) -> Part? { installed?.part(row) }
 
-    /// The caption part for a fold, notes or note row, drawn in this provider's style; nil for a message row.
+    /// The part for an agents row or a status note, drawn in this provider's style; nil for a message row.
     func part(_ row: HomeAgentMessageRow) -> Part? {
         var payload: Payload
         switch row.kind {
@@ -77,9 +77,6 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
             payload = Payload(open: expanded, label: expanded ? CmuxStrings.hideAgentMessages(count) : CmuxStrings.showAgentMessages(count),
                               chips: expanded ? [] : peers)
             (payload.role, payload.count, payload.peers) = ("fold", count, peers)
-        case let .notes(count, peers, reason, expanded):
-            payload = Payload(open: expanded, label: CmuxStrings.agentNotes(reason, count), chips: expanded ? [] : peers)
-            (payload.role, payload.count, payload.peers) = ("notes", count, peers)
         case let .note(peer, _, text):
             payload = Payload(open: false, label: "\(peer) · \(text)", chips: [], chevron: false)
             (payload.role, payload.count, payload.peers, payload.states) = ("note", 1, [peer], ["stopped"])
@@ -130,8 +127,8 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
         return drawsPills(payload) ? HomeAgentPills(payload, shape: .pill, width: .greatestFiniteMagnitude).height : height
     }
 
-    /// True for an agents row (a fold or notes row): the shipped look draws it as one pill per agent.
-    static func drawsPills(_ payload: Payload) -> Bool { payload.role == "fold" || payload.role == "notes" }
+    /// True for an agents row: the shipped look draws it as one pill per agent.
+    static func drawsPills(_ payload: Payload) -> Bool { payload.role == "fold" }
 
     func plainText(_ part: CustomPart) -> String? {
         guard let payload = Self.payload(part) else { return nil }

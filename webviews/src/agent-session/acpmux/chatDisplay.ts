@@ -81,6 +81,9 @@ export const MINIMAP_KEY = "agentPane.display.minimap";
 /// Settings > Updates > Show Feature Tips (featureTips.tsx), on unless set false. The host sends it
 /// with the chat's keys (Swift AgentPaneDisplaySetting.followedAppPaths). Not part of ChatDisplay.
 export const FEATURE_TIPS_KEY = "updates.showFeatureTips";
+/// cmux-next.json only: the command rules and presets the running tray names background commands
+/// with (session-info/commandLabelSettings.ts; Swift CommandLabelsSetting). Not part of ChatDisplay.
+export const COMMAND_LABELS_KEY = "agentPane.display.commandLabels";
 
 /// Settings > Agent Chat > Transcript View (conversation/transcriptView.ts): how much of each turn a
 /// chat without a view of its own shows. Not part of ChatDisplay: a switch measures no row again by
@@ -268,6 +271,7 @@ let threadMinimapArm: ThreadMinimapArm | null = null;
 let transcriptView: TranscriptView = "normal";
 let presentation: Presentation = "transcript";
 let featureTipsOn = true;
+let commandLabels = "null";
 const listeners = new Set<() => void>();
 
 /// Sets the variables on `root` (the document's root in the page).
@@ -290,6 +294,7 @@ export function setChatDisplay(value: unknown): void {
   const storedPresentation = raw[PRESENTATION_KEY];
   const nextPresentation = isPresentation(storedPresentation) ? storedPresentation : "transcript";
   const tips = raw[FEATURE_TIPS_KEY] !== false;
+  const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
   const same = JSON.stringify(next) === JSON.stringify(current);
   if (
     same &&
@@ -298,9 +303,11 @@ export function setChatDisplay(value: unknown): void {
     threadMinimap === threadMinimapArm &&
     view === transcriptView &&
     nextPresentation === presentation &&
-    tips === featureTipsOn
+    tips === featureTipsOn &&
+    labels === commandLabels
   )
     return;
+  commandLabels = labels;
   minimapOn = minimap;
   pinnedPlanOn = pinnedPlan;
   threadMinimapArm = threadMinimap;

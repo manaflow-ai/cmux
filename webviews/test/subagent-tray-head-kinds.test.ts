@@ -19,10 +19,11 @@ const agent = (id: string, state: string, harness?: string): TrayItem => ({
   depth: 0,
   agent: { id, parent: null, name: id, task: id, state, startedAt: 1_000, ...(harness && { harness }) } as Subagent,
 });
-const command = (id: string): TrayItem => ({
+// A plain command (trayCommandKinds.ts counts tests, builds and waits apart).
+const command = (id: string, line = `ls ${id}`): TrayItem => ({
   kind: "command",
   id,
-  command: { id, command: `bun test ${id}`, state: "running", startedAt: 1_000 },
+  command: { id, command: line, state: "running", startedAt: 1_000 },
 });
 const chat = (id: string, state: StartedSession["state"], harness = "claude"): TrayItem => ({
   kind: "session",
@@ -33,8 +34,14 @@ const chat = (id: string, state: StartedSession["state"], harness = "claude"): T
 const head = (
   items: TrayItem[],
   finished: TrayItem[],
-  { arm = "kinds" as TrayHeadKindsArm, working = true, chatHarness = "claude", waiting = new Set<string>() } = {},
-) => trayHead(t, { items, finished, waiting, working, chatHarness, arm });
+  {
+    arm = "kinds" as TrayHeadKindsArm,
+    working = true,
+    chatHarness = "claude",
+    waiting = new Set<string>(),
+    separator = undefined as string | undefined,
+  } = {},
+) => trayHead(t, { items, finished, waiting, working, chatHarness, arm, separator });
 
 describe("the running tray header counts each kind", () => {
   test("Leo's tray: four commands and a finished subagent", () => {
@@ -92,5 +99,39 @@ describe("the running tray header counts each kind", () => {
 
   test("only failures ended and nothing runs: no empty words before the count", () => {
     expect(head([], [agent("f", "failed")])).toEqual({ text: "", failed: 1, marks: [] });
+  });
+});
+
+// Leo, 2026-11-03: "you can split up commands/waits/bg tasks/subagents/maybe agent sessions you
+// expect something from ... so you can fit that all in counts of stuff and maybe times all in one
+// line like a \ b \ c or a | b| c or a / b / c".
+describe("the header counts the commands by what they do", () => {
+  const coordinator = [
+    agent("a", "running"),
+    command("send", 'acpmux send review-lane "check it"'),
+    command("review", "router-review manaflow-ai/app 12"),
+    command("test", "cmux-ci test -- bun test test/x.test.ts"),
+    command("build", "cmux-ci compile-check --ref abc --app"),
+    command("ci", "glaeda-gh wait pr 12 --sha abc"),
+    command("log", "tail -f /tmp/build.log"),
+    command("server", "cd app && bun run dev"),
+    command("plain", "rg -n TODO src"),
+  ];
+
+  test("each kind apart, in a fixed order, after the agents", () => {
+    expect(head(coordinator, []).text).toBe(
+      "1 subagent running · 1 message · 1 review · 1 test run · 1 build · 2 waits · 1 server · 1 command",
+    );
+  });
+
+  test("the separator arms", () => {
+    for (const separator of [" / ", " | ", " \\ "])
+      expect(head(coordinator.slice(0, 3), [], { separator }).text).toBe(
+        `1 subagent running${separator}1 message${separator}1 review`,
+      );
+  });
+
+  test("only what runs keeps the one count of commands", () => {
+    expect(head(coordinator, [], { arm: "running" }).text).toBe("1 subagent running · 8 commands");
   });
 });
