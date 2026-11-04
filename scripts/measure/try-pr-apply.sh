@@ -80,9 +80,10 @@
 # isolated also the launch), usable (USABLE_SECONDS cap, default 60). The PR head's fetch is the
 # step's checkout, timed in the step's controller record, not here. `total_s` is the whole run,
 # setup and controls included; a full-build run reports `launch_to_probe_s` instead.
-# Swift, daemon and rebuild verdicts: neither experience exists for them in the app today; a fallback
-# row says so (the view shell prototype does not count), and its time is a full build's: the DEV
-# build job's seconds plus a full-build run of this script.
+# Daemon verdicts are their own N/A stratum: no path ships a PR's daemon into an installed app, so they
+# are recorded and never counted as covered. Swift and rebuild verdicts: neither experience exists for
+# them in the app today; a fallback row says so (the view shell prototype does not count), and its
+# time is a full build's: the DEV build job's seconds plus a full-build run of this script.
 set -euo pipefail
 experience="" pr="" kind="" mode="" app_zip="" base="" artifact_ref="" artifact_sha="" region="" why="" probe="" state_probe=""
 control_seconds="${CONTROL_SECONDS:-30}" usable_seconds="${USABLE_SECONDS:-60}"
@@ -233,7 +234,9 @@ verdict="$(python3 "$root/scripts/cmux-next/live_apply.py" --repo "$root" --json
 note verdict "$verdict"
 [[ "$experience" == full-build ]] || case "$verdict" in
   web-live) ;;
-  no-app|ios-only) result n/a not_run "no app effect: N/A stratum"; exit 0 ;;
+  no-app|ios-only) note stratum no-app-effect; result n/a not_run "no app effect: N/A stratum"; exit 0 ;;
+  daemon) note stratum daemon
+     result n/a not_run "daemon: its own N/A stratum (no path ships a PR's daemon into an installed app); recorded, never counted as covered"; exit 0 ;;
   *) note fallback_time "a full build: the DEV build job's seconds plus a full-build run of this script"
      result fallback not_run "$verdict: neither experience exists for it in the app today (needs a new binary; the view shell prototype does not count)"; exit 0 ;;
 esac
