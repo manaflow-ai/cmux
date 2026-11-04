@@ -1,0 +1,269 @@
+{
+  "version": 1,
+  "build": "4175186455101",
+  "notes": "notes/4175186455101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 34464,
+      "title": "Agent chat: message rows on one line, names whole, in the text tone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34123,
+      "title": "cmux-next: resize keys move the divider in the arrow's direction in a strip of columns and at a side dock; one press is one undo step",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34397,
+      "title": "base red: the Subagent of pill's close is an icon control (design tokens)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33956,
+      "title": "Frame owner S4: terminals ready-or-keep, bounds and pixels in one commit (behind motion.frameOwner.terminals, off)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33671,
+      "title": "Composer strip: Where and Machine chips keep their names until the strip runs out of room",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34458,
+      "title": "Failed-line grid: Retry and the time grow, the refusal note gets its own track",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34173,
+      "title": "measure: why busy hidden terminals wake the main thread through the Chromium pump",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34405,
+      "title": "cmux NEXT sidebar: a slow group collapse save retries quietly, never a toast",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34338,
+      "title": "Chief pages on the design system: Usage and Views spacing, radii and weights on the tokens; buttons, switch, fields and tabs are ui/ components",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34191,
+      "title": "fix(browser): every hidden page keeps its leave picture (kept compressed per tab, as Chrome's ThumbnailImage)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34131,
+      "title": "bench(cef): split cef.tab_add into Chromium's part and cmux's attach inside it; time a tab move between windows",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34346,
+      "title": "CI: action export areas fetches only the merge commit's history; the changes job checks out blobless and lean",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25768,
+      "title": "Read settings list directly from the daemon",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33256,
+      "title": "perf-hidden-chat-pages: cap untouched hidden New Tab pages",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34317,
+      "title": "Settings: adopt shared controls and 4px spacing tokens",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34330,
+      "title": "ui/motion: SlidingIndicator re-places a resize that lands during a slide",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34430,
+      "title": "base red: web lint hook fixture pins stand-in lint tools; bounded stream in the Chromium page fake",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34427,
+      "title": "Cloud start: a send waits for the Cloud pick's folder grant",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34372,
+      "title": "base red: chief_engine_and_stop_cli_take_a_chief follows a0b83a33a53's -p --chief rule (test only)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33987,
+      "title": "gallery health: incoming-message-disclosure plays open each fold as a clicked step (carries #32820)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34275,
+      "title": "Prompt rail: the hover zips tick by tick, the hovered tick always longest, and shrinks back on leave",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34390,
+      "title": "cmux machine vault: per-entry delivery policy (--host, --no-hosts, --env)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34273,
+      "title": "Prompt rail: unloaded prompts' cards load their words, and a click jumps to them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34415,
+      "title": "Cloud start: picking Cloud grants the chip's folder; refusals here agree",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34361,
+      "title": "acpmux: a prompt acked before its turn started runs once after a daemon restart",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34283,
+      "title": "cmux NEXT chat: Stop and the sidebar spinner follow acpmux's real turn state",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34406,
+      "title": "Cloud start: a start refused on this Mac says why, and marks no step failed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33967,
+      "title": "cmux NEXT: Invite People sheet for a shared chat (invite by account, role, remove)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34395,
+      "title": "Agent pane: the next-step card's filled answer draws its label in the opaque page colour",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34393,
+      "title": "Subagent failed lines: quiet, on one fixed column grid",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34267,
+      "title": "webviews: transcript-thought warms its own gallery entry, not all 2,300 modules",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34349,
+      "title": "design-surfaces: map the Chief pages (Usage, Views, inspector) to design/chief-pages.md",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34297,
+      "title": "ci: map remaining NEXT webview design surfaces",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34257,
+      "title": "Chief tools design: drop the old 50 MB media cap",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34306,
+      "title": "Agent pane: a turn whose model can't be reached says so, not Thinking (acpmux turn_retrying)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34248,
+      "title": "fix(cmux-wg-tun): a socketpair is never read as a utun (the name query is LOCAL_PEERPID on a local socket)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34237,
+      "title": "cmux-next gate: a stale hook install refuses; never fall back to the pushed checks",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34342,
+      "title": "Background tasks opens as a tab in the chat's right column",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34339,
+      "title": "Agent pane: subagent Escape leaves Session Info's Escape alone; hook sits above the tab-title comment",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34327,
+      "title": "cmux NEXT: a pane's tab strip shows with one tab too; its empty space drags the window again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34125,
+      "title": "fix(cloud-seed): exclude skipped secret blobs before Git hashes them (#30488)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34329,
+      "title": "Agent pane: an opened subagent's \"Subagent of\" pill gets a close button; Escape closes it too",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34265,
+      "title": "Prompt rail: ends above the composer, and its preview card centers on its tick",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
