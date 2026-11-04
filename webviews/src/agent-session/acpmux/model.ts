@@ -1733,7 +1733,10 @@ export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
 export function finalFooterId(rows: readonly AcpmuxRow[]): string | undefined {
   for (let index = rows.length - 1; index >= 0; index -= 1) {
     const row = rows[index]!;
-    if (row.kind === "turnSummary") return row.id;
+    // An empty footer (turns.ts isEmptyFooter: a turn of bookkeeping with no answer) draws nothing
+    // at rest, so the answer above it keeps its row in sight.
+    if (row.kind === "turnSummary" && !isBlankFooter(row)) return row.id;
+    if (row.kind === "turnSummary") continue;
     // A later turn's own work (one another agent's message started, or one with no summary yet)
     // or the person's own prompt: that turn's footer, not this one, is the chat's last.
     if (row.lastTurn || isTurnWork(row)) return undefined;
@@ -1741,6 +1744,13 @@ export function finalFooterId(rows: readonly AcpmuxRow[]): string | undefined {
   }
   return undefined;
 }
+/// turns.ts isEmptyFooter, which this module cannot import.
+const isBlankFooter = (row: AcpmuxRow) =>
+  row.status !== "failed" &&
+  row.status !== "error" &&
+  !row.text &&
+  !row.resumable &&
+  !(row.retryable === true && (row.turnCopy?.length ?? 0) > 0);
 const isTurnWork = (row: AcpmuxRow) =>
   row.kind === "assistant" ||
   row.kind === "activity" ||
