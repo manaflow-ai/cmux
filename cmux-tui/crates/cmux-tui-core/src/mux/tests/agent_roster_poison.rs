@@ -79,18 +79,15 @@ fn a_persistent_session_with_a_poisoned_state_still_shuts_down() {
 
     // The output store's writer holds a handle during its pass: take the last handle, so the drop (and any panic in
     // it) runs here, inside catch_unwind, not on the writer's thread (#35279 review).
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(5);
     let mut handle = mux;
     let mux = loop {
         match Arc::try_unwrap(handle) {
             Ok(mux) => break mux,
             Err(shared) => {
-                assert!(
-                    std::time::Instant::now() < deadline,
-                    "another handle to the mux stayed for 5 s"
-                );
+                assert!(Instant::now() < deadline, "another handle to the mux stayed for 5 s");
                 handle = shared;
-                std::thread::sleep(std::time::Duration::from_millis(10));
+                std::thread::sleep(Duration::from_millis(10));
             }
         }
     };
@@ -111,7 +108,7 @@ fn a_terminal_credential_is_refused_on_a_poisoned_state() {
     assert!(
         matches!(
             mux.check_launch_credential(&credential),
-            crate::mux::launch_identity::CredentialCheck::Verified(_)
+            launch_identity::CredentialCheck::Verified(_)
         ),
         "the credential of a live terminal verifies"
     );
@@ -123,7 +120,7 @@ fn a_terminal_credential_is_refused_on_a_poisoned_state() {
     assert!(
         matches!(
             mux.check_launch_credential(&credential),
-            crate::mux::launch_identity::CredentialCheck::Refused("credential_closed")
+            launch_identity::CredentialCheck::Refused("credential_closed")
         ),
         "a poisoned session state verified a terminal credential"
     );
