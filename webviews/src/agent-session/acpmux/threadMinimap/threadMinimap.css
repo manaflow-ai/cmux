@@ -419,6 +419,7 @@
   overflow: hidden;
   margin-top: var(--ds-space-1);
   color: var(--agent-muted);
+  line-height: var(--text-title--line-height);
 }
 .acpmux-minimap__card[data-prompt] .acpmux-minimap__reply {
   height: auto;

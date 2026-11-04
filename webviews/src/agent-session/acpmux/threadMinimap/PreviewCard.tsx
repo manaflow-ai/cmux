@@ -221,6 +221,8 @@ export const PreviewCard = React.forwardRef<
         replyNode?.style.removeProperty("--acpmux-minimap-reply-line-height");
       } else {
         const lineHeight = Number.parseFloat(style.lineHeight) || 20;
+        const replyStyle = replyNode.ownerDocument.defaultView?.getComputedStyle(replyNode);
+        const replyLineHeight = Number.parseFloat(replyStyle?.lineHeight ?? "") || lineHeight;
         const promptLines = Math.max(1, Math.min(3, Math.ceil(promptNode.getBoundingClientRect().height / lineHeight)));
         // The reply's natural height, read from the reply itself with its clamp lifted for the read
         // (an inline style, put back before anything paints). A measuring copy appended to the card
@@ -233,7 +235,7 @@ export const PreviewCard = React.forwardRef<
         replyNode.style.setProperty("-webkit-line-clamp", "unset");
         const naturalReplyLines = Math.max(
           1,
-          Math.min(4, Math.ceil(replyNode.getBoundingClientRect().height / lineHeight)),
+          Math.min(4, Math.ceil(replyNode.getBoundingClientRect().height / replyLineHeight)),
         );
         if (clamp === null) replyNode.removeAttribute("style");
         else replyNode.setAttribute("style", clamp);
@@ -242,9 +244,9 @@ export const PreviewCard = React.forwardRef<
         const oldTextLines = Math.min(2, promptLines) + naturalReplyLines;
         const lines = Math.max(1, Math.min(4, oldTextLines - promptLines));
         replyNode.style.setProperty("--acpmux-minimap-reply-lines", String(lines));
-        // The reply clamp must use the same measured row height as the prompt. Keeping the budget
-        // on the measured value prevents a partial next row when body copy uses the 18px token.
-        replyNode.style.setProperty("--acpmux-minimap-reply-line-height", `${lineHeight}px`);
+        // The reply clamp uses the reply's own settled 20px row. Measuring and budgeting with the
+        // same value prevents a partial next row while prompt body copy stays on the denser 18px token.
+        replyNode.style.setProperty("--acpmux-minimap-reply-line-height", `${replyLineHeight}px`);
       }
       // The budget sets the card's height, and with it where the card centers.
       place();
