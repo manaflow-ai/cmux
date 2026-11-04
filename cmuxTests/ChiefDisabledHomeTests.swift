@@ -252,6 +252,66 @@ struct ChiefDisabledHomeTests {
         #expect(history.menuSnapshot().totalItemCount == 0)
     }
 
+    @Test func reopeningAClosedChiefTabIsRefusedWhileChiefIsOff() throws {
+        let setting = ChiefEnabledOverride(true)
+        defer { setting.restore() }
+        let history = ClosedItemHistoryStore.shared
+        history.removeAll()
+        defer { history.removeAll() }
+        let manager = TabManager()
+        let workspace = try #require(manager.addWorkspaceIfActive(select: false))
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let chief = try #require(workspace.newChiefSurface(inPane: pane, focus: false))
+        workspace.markCloseHistoryEligible(panelId: chief.id)
+        #expect(workspace.closePanel(chief.id, force: true))
+        let item = try #require(history.menuSnapshot().items.first)
+        let record = try #require(history.removeRecord(id: item.id)?.record)
+        guard case .panel(let entry) = record.entry else {
+            Issue.record("Expected closed-panel history for the Chief tab")
+            return
+        }
+
+        ChiefSettings.setEnabled(false)
+        #expect(workspace.restoreClosedPanel(entry) == nil)
+        #expect(!workspace.holdsChiefPane)
+
+        ChiefSettings.setEnabled(true)
+        #expect(workspace.restoreClosedPanel(entry) != nil)
+        #expect(workspace.holdsChiefPane)
+    }
+
+    @Test func reopeningAClosedWorkspaceDropsItsChiefPanesWhileChiefIsOff() throws {
+        let setting = ChiefEnabledOverride(true)
+        defer { setting.restore() }
+        let source = TabManager()
+        let mixed = try #require(source.addWorkspaceIfActive(select: false))
+        let pane = try #require(mixed.bonsplitController.allPaneIds.first)
+        _ = try #require(mixed.newChiefSurface(inPane: pane, focus: false))
+        #expect(mixed.panels.values.contains { !($0 is ChiefPanel) })
+        let home = try #require(ChiefHomeNavigation.ensureHome(in: source))
+        let mixedEntry = ClosedWorkspaceHistoryEntry(
+            workspaceId: mixed.id,
+            windowId: nil,
+            workspaceIndex: 0,
+            snapshot: mixed.sessionSnapshot(includeScrollback: false)
+        )
+        let homeEntry = ClosedWorkspaceHistoryEntry(
+            workspaceId: home.id,
+            windowId: nil,
+            workspaceIndex: 0,
+            snapshot: home.sessionSnapshot(includeScrollback: false)
+        )
+
+        ChiefSettings.setEnabled(false)
+        let manager = TabManager()
+        let countBefore = manager.tabs.count
+        #expect(manager.restoreClosedWorkspace(mixedEntry))
+        #expect(manager.tabs.count == countBefore + 1)
+        #expect(!manager.restoreClosedWorkspace(homeEntry))
+        #expect(manager.tabs.count == countBefore + 1)
+        #expect(!manager.tabs.contains(where: \.holdsChiefPane))
+    }
+
     @Test func removeHomeKeepsPanesTheUserAddedToHome() throws {
         let setting = ChiefEnabledOverride(true)
         defer { setting.restore() }

@@ -5336,6 +5336,12 @@ class TabManager: ObservableObject {
             closeWorkspace(workspace, recordHistory: false)
             return false
         }
+        // A workspace closed while Chief was on can carry Chief panes. With
+        // Chief off, drop them; a workspace that held only Chief stays closed.
+        if !ChiefSettings.isEnabled, workspace.holdsChiefPane {
+            ChiefHomeNavigation.removeHome(in: self)
+            guard tabs.contains(where: { $0.id == workspace.id }) else { return false }
+        }
         reconcileWorkspaceCustomization(afterRestoring: entry.snapshot, to: workspace)
         // The snapshot may carry a groupId for a group that no longer exists
         // in this TabManager (e.g. the group was dissolved between close and

@@ -989,6 +989,8 @@ extension Workspace {
     @discardableResult
     func restoreClosedPanel(_ entry: ClosedPanelHistoryEntry) -> UUID? {
         guard acceptsRestoredPanel(entry.snapshot, projection: entry.projection) else { return nil }
+        // A Chief tab closed while Chief was on stays closed while it's off.
+        guard entry.snapshot.type != .chief || ChiefSettings.isEnabled else { return nil }
         // Inert nested scaffolds must not enter the user-split terminal repair path.
         let wasProgrammaticSplit = isProgrammaticSplit
         isProgrammaticSplit = true
