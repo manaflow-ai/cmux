@@ -21,6 +21,11 @@ extension Motion {
         return window.inLiveResize || LiveResizeWindows.shared.isTransitioning(window)
     }
 
+    /// Whether a person drags `window`'s edge or corner now (AppKit's `inLiveResize`): AppKit applies each drag with a
+    /// `setFrame` that lays the window's tree out inside it. Unlike ``isLiveResizing(_:)``, a full screen transition does
+    /// not count.
+    public static func isInLiveResize(_ window: NSWindow?) -> Bool { liveResizeOverride ?? (window?.inLiveResize ?? false) }
+
     /// Some window is between `willEnterFullScreen` and `didEnterFullScreen`
     /// (or the exit pair): terminals hold their grid for the daemon until it
     /// ends (`ResizeCoordinator`), so the PTY reflows once, at the final size.

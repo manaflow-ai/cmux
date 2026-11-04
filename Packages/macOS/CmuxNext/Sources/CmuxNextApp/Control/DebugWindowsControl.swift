@@ -71,7 +71,7 @@ enum DebugWindowsControl {
             "restores_full_screen": .bool(state?.restoresFullScreen == true),
             "sidebar_width": width.map(JSONValue.number) ?? .null,
             "sidebar_hidden": .bool(hidden),
-            "display": controller?.window?.screen.flatMap(WindowPlacementFallback.displayID(of:)).map(JSONValue.string) ?? .null,
+            "display": controller?.window?.screen.flatMap(\.stableDisplayID).map(JSONValue.string) ?? .null,
             "saved_display": windows.registry.value.window(id)?.display.map(JSONValue.string) ?? .null,
             "profile": state.map { JSONValue.string($0.profileID.rawValue) } ?? .null,
         ]

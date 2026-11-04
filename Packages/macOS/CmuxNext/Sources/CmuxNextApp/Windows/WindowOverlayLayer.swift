@@ -70,6 +70,8 @@ final class WindowOverlayLayer {
     private var evaluateAfterLayout = false
     /// A parent move or resize reported during the layout pass.
     private var geometryAfterLayout = false
+    /// In a live resize: one page update per applied drag, catcher panels still until the end (FRAME OWNER S7).
+    private let liveResize = LiveResizePageUpdates()
     /// Reorders done (for `debug.layers`).
     var reorderCount: Int { WindowOverlayHost.existingHost(for: window)?.reorderCount ?? 0 }
 
@@ -103,8 +105,9 @@ final class WindowOverlayLayer {
                      NSWindow.didChangeBackingPropertiesNotification, NSWindow.didChangeScreenNotification,
                      NSWindow.didChangeOcclusionStateNotification, NSWindow.didDeminiaturizeNotification,
                      NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
+            let ends = name == NSWindow.didEndLiveResizeNotification
             observers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.parentGeometryDidChange() } // main-proof: observer on queue: .main
+                MainActor.assumeIsolated { ends ? self?.liveResizeDidEnd() : self?.parentGeometryDidChange() } // main-proof: observer on queue: .main
             })
         }
         // A page window appears (the fork shows it inactive and adds it as a
@@ -173,6 +176,7 @@ final class WindowOverlayLayer {
         layoutDepth = max(0, layoutDepth - 1)
         guard layoutDepth == 0, !isTornDown else { return }
         windowDidLayoutWork()
+        windowFrameDidApply() // a live resize's request made in this pass goes now, not with the next drag
     }
 
     private func windowDidLayoutWork() {
@@ -269,7 +273,7 @@ final class WindowOverlayLayer {
         // (one window move each) follow once, at the landing or release, which the root reports even when no rect
         // changes then (`isInLayoutMotion`). The pressed panel keeps the drag's events and cursor where it is.
         let springing = planes.contains { ($0.home as? LayoutRootView)?.isInLayoutMotion == true }
-        if areas != catcherAreas, !springing {
+        if areas != catcherAreas, !springing, !liveResize.isActive(in: window) {
             catcherAreas = areas
             syncCatchers()
         }
@@ -312,7 +316,7 @@ final class WindowOverlayLayer {
             syncCatchers()
         }
         if placement == .overlayWindow { enforceOrder() }
-        if catchers.pagesMoved, !planes.contains(where: { ($0.home as? LayoutRootView)?.isInLayoutMotion == true }) { syncCatchers() }
+        if catchers.pagesMoved, !liveResize.isActive(in: window), !planes.contains(where: { ($0.home as? LayoutRootView)?.isInLayoutMotion == true }) { syncCatchers() }
     }
 
     private func showPanel() {
@@ -331,7 +335,7 @@ final class WindowOverlayLayer {
         WindowOverlayHost.existingHost(for: window)?.reassertOrder()
     }
 
-    private func parentGeometryDidChange() { // perf-hot: 1ms cef-geometry (every window move or resize; posts to every changed page)
+    private func parentGeometryDidChange(forcing: Bool = false) { // perf-hot: 1ms cef-geometry (every window move or resize; posts to every changed page)
         guard layoutDepth == 0 else {
             geometryAfterLayout = true
             return
@@ -342,10 +346,17 @@ final class WindowOverlayLayer {
         }
         for plane in planes { plane.syncFrame() }
         updateInteractiveRects()
+        if liveResize.holds(force: false, geometryOnly: false, in: window) { return } // sent when `setFrame` returns
         syncCatchers()
-        requestPageUpdate()
+        requestPageUpdate(force: forcing)
         pageUpdateAfterLayout = true
     }
+
+    /// The live resize ended (`didEndLiveResize`): the catchers move and the pages hear it, as after any resize.
+    func liveResizeDidEnd() { liveResize.end { parentGeometryDidChange(forcing: $0) } }
+
+    /// A `setFrame` returned (`ShellWindow.setFrame`): a live resize's held page update goes now, once.
+    func windowFrameDidApply() { if layoutDepth == 0, let held = liveResize.take() { postPageUpdate(force: held.force, geometryOnly: held.geometryOnly) } }
 
     /// Something other than the fork moved or resized a page window (an
     /// Accessibility client that addressed the page window directly): the
@@ -396,6 +407,10 @@ final class WindowOverlayLayer {
             forcedPageUpdateAfterLayout = forcedPageUpdateAfterLayout || force
             return
         }
+        if !liveResize.holds(force: force, geometryOnly: geometryOnly, in: window) { postPageUpdate(force: force, geometryOnly: geometryOnly) }
+    }
+
+    private func postPageUpdate(force: Bool, geometryOnly: Bool) {
         NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window,
                                         userInfo: force ? [browserPagesForceUpdateKey: true] : geometryOnly ? [browserPagesGeometryOnlyKey: true] : nil)
     }

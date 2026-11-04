@@ -30,7 +30,7 @@ enum LaunchWarmup {
             _ = NSImage(systemSymbolName: "command", accessibilityDescription: nil)
             // The display UUID lookup loads ColorSync's display services on
             // first use: 60-90 ms on the main thread while the first window
-            // was placed (`WindowPlacementFallback.displayID`).
+            // was placed (`NSScreen.stableDisplayID`).
             prewarmDisplayUUIDs()
         }
         thread.name = "cmux-next launch warm-up"

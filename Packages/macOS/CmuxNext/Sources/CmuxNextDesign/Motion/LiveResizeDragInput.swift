@@ -48,7 +48,7 @@ public final class LiveResizeDragInput {
     /// Whether `event` (sent to this input's window) waits for the frame tick. False: the caller sends it now; a
     /// waiting drag has gone to AppKit first.
     public func takes(_ event: NSEvent) -> Bool { // perf-hot: 0.5ms drag-frame
-        guard event.type == .leftMouseDragged, let window, Motion.isLiveResizing(window) else {
+        guard event.type == .leftMouseDragged, let window, Motion.isInLiveResize(window) else {
             flush()
             switch event.type {
             case .leftMouseDown, .leftMouseUp: latched = nil

@@ -357,7 +357,7 @@ final class WindowManager {
         states[front] = launch.state
         launch.sidebar.restore(width: record.sidebarWidth, hidden: record.sidebarHidden)
         if services.environment.testWindow == nil, let frame = restored.window(front)?.frame {
-            launch.window?.setFrame(WindowPlacementFallback.visible(frame, display: restored.window(front)?.display), display: true)
+            launch.window?.setFrame(NSScreen.visibleRestoredFrame(frame, display: restored.window(front)?.display), display: true)
         }
         return launch
     }
@@ -367,7 +367,7 @@ final class WindowManager {
     private func placeLaunchWindow(_ document: WindowStateDocument) {
         guard services.environment.testWindow == nil, let launch = launchWindowID.flatMap(controller(for:)),
               let frame = document.lastFrame?.rect else { return }
-        launch.window?.setFrame(WindowPlacementFallback.visible(frame, display: document.lastDisplay), display: true)
+        launch.window?.setFrame(NSScreen.visibleRestoredFrame(frame, display: document.lastDisplay), display: true)
     }
 
     /// The frontmost saved window that can show a workspace now; one whose
@@ -383,7 +383,7 @@ final class WindowManager {
     @discardableResult
     func makeController(for window: WindowRegistry.Window) -> WindowController {
         let state = state(for: window.id)
-        var frame = (window.frame ?? pendingFrames.removeValue(forKey: window.id)).map { WindowPlacementFallback.visible($0, display: window.display) }
+        var frame = (window.frame ?? pendingFrames.removeValue(forKey: window.id)).map { NSScreen.visibleRestoredFrame($0, display: window.display) }
         let placement = services.environment.testWindow
         if let placement, let placed = placement.windowFrame(ordinal: placedWindows, visibleFrames: NSScreen.screens.map(\.visibleFrame)) {
             frame = placed
@@ -516,7 +516,7 @@ final class WindowManager {
     func captureGeometry() {
         for controller in controllers {
             guard let window = controller.window, !window.styleMask.contains(.fullScreen) else { continue }
-            let display = window.screen.flatMap(WindowPlacementFallback.displayID(of:))
+            let display = window.screen.flatMap(\.stableDisplayID)
             registry.apply { registry in
                 registry.setGeometry(controller.state.id, frame: window.frame, display: display)
                 return WindowRegistry.Changes()
