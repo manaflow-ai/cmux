@@ -40,8 +40,10 @@ public protocol PaneMotionHolding: NSView {
 
 /// A container in a pane's content area that follows the area in every frame of a hold (FRAME OWNER REFACTOR S3: a
 /// terminal's host, a browser's chrome). The area gives it its own bounds in each frame, so its background, padding,
-/// toolbar and scroller cover the pane; only its producer (the terminal surface, the page: pixels drawn on another
-/// thread or in another process) keeps its size, on the hold's edges, and lays out once when the hold ends.
+/// toolbar and scroller cover the pane. Its producer (the terminal surface, the page: pixels drawn on another thread or
+/// in another process) keeps its size on the hold's edges and lays out once when the hold ends; with
+/// `motion.frameOwner.terminals` on, a terminal's surface follows the area too (cmux-ad m6, S4: each size shows with
+/// its frame, or the last frame stays, top-left).
 @MainActor
 public protocol PaneMotionHoldFollowing: NSView {
     /// Whether it follows now (a page kind that cannot hold its pixels yet is held whole, as in S1).

@@ -12,7 +12,7 @@ import QuartzCore
 ///
 /// A container in it (``PaneMotionHoldFollowing``: a terminal's host, a browser's chrome; FRAME OWNER S3) takes the
 /// area's bounds in every frame instead and hears the hold once, so its own ground covers the pane; only its producer
-/// keeps its size.
+/// keeps its size (a terminal's surface follows too with `motion.frameOwner.terminals` on, cmux-ad m6).
 public final class PaneContentAreaView: NSView {
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)

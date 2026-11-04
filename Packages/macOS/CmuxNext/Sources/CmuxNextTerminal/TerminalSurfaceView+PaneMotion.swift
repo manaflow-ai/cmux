@@ -65,6 +65,11 @@ extension TerminalSurfaceView: PaneMotionTargeting {
         let anchor = motionAnchor(growing: growing)
         if anchor == .top, let host = superview as? TerminalHostView, host.followedHold != nil,
            TerminalDragTunables.framesOwnedByCommit.value {
+            // The newest press's anchor wins: a hold an earlier press or a join set (a low prompt's bottom hold, or the
+            // final size a terminal took before its area handed it the follow) goes now, not at the landing (review of
+            // #35470 at 447f784c3cf, G1: a stale bottom hold through a reverse press, and grid1, grid2, grid1, grid2 for
+            // two presses after a join).
+            host.releaseSurfaceHold()
             return .top
         }
         (superview as? TerminalHostView)?.holdSurface(size: size, anchor: anchor)
