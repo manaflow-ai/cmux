@@ -13,7 +13,6 @@ import Foundation
 import Observation
 import os
 import CmuxNextWakeups
-
 /// Cloud orchestration: sign-in state, the configured machine list, and
 /// one `CloudMachineSession` per live machine in `MachineRegistry`. The
 /// list is fetched when the session restores or signs in, after every
@@ -87,12 +86,7 @@ final class CloudService {
     @ObservationIgnored private let refreshGate = CloudRefreshGate()
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     /// The local side event subscription for `cloud.link.changed` (app link).
-    @ObservationIgnored private var linkEvents: UInt64?
-    /// Delivers listening port changes to the agent tabs that run on that machine.
-    @ObservationIgnored var portChanged: @MainActor (CloudPortChange) -> Void = { _ in }
-    /// The authenticated Cloud machine event stream. It is independent of the app-server
-    /// daemon connection so ephemeral `cloud.machine.event` frames are not lost there.
-    @ObservationIgnored private var machineWire: CloudMachineWire?
+    @ObservationIgnored private var linkEvents: UInt64?; @ObservationIgnored var portChanged: @MainActor (CloudPortChange) -> Void = { _ in }; @ObservationIgnored private var machineWire: CloudMachineWire?
     /// The `credential` provider family on the local daemon (cx-wb5.63):
     /// app servers' Cloud API calls, sent with the install token.
     @ObservationIgnored private var credentialProvider: CloudCredentialProvider?
@@ -162,12 +156,10 @@ final class CloudService {
     /// Staged uploads into ssh-peer chats, beside the Cloud ones (``AgentPeerUploads``).
     @ObservationIgnored let peerUploads = AgentPaneStagedUploads<AgentPeerUploads.Target>(owner: "AgentPeerUploads.stageExpiry")
 
-    /// The app's main-thread scheduler, passed by the composition root: every Cloud machine's event
     /// batches run on it (one main thread, one budget).
     @ObservationIgnored private let mainWork: MainWorkScheduler
 
     /// - Parameters:
-    ///   - mainWork: The app's ``MainWorkScheduler`` (AppServices passes the one it was built with).
     ///   - work: The app's blocking-work lanes: the install id is read on its files lane (``CloudDeviceID``).
     init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler, work: BackgroundWork, loginKeychain: LoginKeychain, authCaptureFixture: Bool = false) {
         self.machines = machines
@@ -326,13 +318,9 @@ final class CloudService {
         if configuration.linkSource == .appServer, linkEvents == nil {
             // `cloud.link.changed` arrives on the local daemon as an app server event.
             let machines = machines
-            linkEvents = machines.local.store.sideEvents.subscribe { [weak self] event in
-                if let change = CloudAppLinks.change(in: event) {
-                    machines.session(change.key.machine)?.linkChanged(change)
-                }
-                if let change = CloudAppLinks.portChange(in: event) {
-                    self?.portChanged(change)
-                }
+            linkEvents = machines.local.store.sideEvents.subscribe { event in
+                guard let change = CloudAppLinks.change(in: event) else { return }
+                machines.session(change.key.machine)?.linkChanged(change)
             }
             // task-owner: observers; cancelled in stop()
             observers.append(Task {
@@ -346,33 +334,18 @@ final class CloudService {
         observers.append(Task { [weak self] in
             guard let self else { return }
             await auth.awaitRestored()
-            // The account and selected team: a team switch stays signed in but
-            // must fence the old Native mesh and link before reconnecting.
             for await accountScope in ObservationStream({ self.auth.isSignedIn ? "\(self.auth.user?.id ?? "")\u{0}\(self.auth.teamID ?? "")" : nil }) {
-                if accountScope != nil {
-                    if self.machineWire == nil {
-                        let auth = self.auth
-                        self.machineWire = CloudMachineWire(apiBaseURL: self.configuration.apiBaseURL,
-                                                            token: { [auth] in try await auth.tokens().access },
-                                                            team: { [auth] in await auth.teamID })
-                    }
-                    self.machineWire?.start { [weak self] change in self?.portChanged(change) }
-                    AgentPaneTailCache.shared.resume()
+                if accountScope != nil { if self.machineWire == nil { let auth = self.auth; self.machineWire = CloudMachineWire(apiBaseURL: self.configuration.ownerAPIBaseURL(), token: { [auth] in try await auth.tokens().access }, team: { [auth] in await auth.teamID }) }; self.machineWire?.start { [weak self] change in self?.portChanged(change) }; AgentPaneTailCache.shared.resume()
                     await self.hub?.resume() // sign-out revoked the WireGuard peer and parked the hub
-                    // Another account's machines, connections and share installs end first (its next share binds this one).
                     let switched = await self.link.sessionBegan(user: self.auth.user?.id, team: self.auth.teamID)
                     if switched { self.dropAllMachines() }
                     await self.shareInstalls.began(switched: switched, except: self.installIdentity)
-                    // The install first: the app server path's first list sends its token through the credential relay.
                     await self.installSignedIn()
                     self.hands.start()
                     await self.ensureLink()
                     await self.refresh()
                 } else {
-                    self.machineWire?.stop()
-                    self.dropAllMachines()
-                    // The session ended (signed out here or elsewhere, or
-                    // expired): no link keeps running for it.
+                    self.machineWire?.stop(); self.dropAllMachines()
                     await self.link.endLink(final: true)
                     await self.installIdentity.unbind()
                     for share in await self.shareInstalls.ended(except: self.installIdentity) { await share.unbind() }
@@ -419,34 +392,19 @@ final class CloudService {
         policyDisabled = disabled
         // Fence Codex broker requests synchronously with the policy flip. The
         // adapter tears down holders asynchronously and retains their private
-        // homes for a later confirmed run after policy is restored.
         codexBroker.setAvailable(!disabled)
         if disabled {
-            machineWire?.stop()
-            changes.stop()
+            machineWire?.stop(); changes.stop()
             signedOutCreation.cancel()
             for session in machines.cloud {
                 session.daemon.policyBlock.set(true)
                 session.disconnect()
             }
-            // The local tunnel hub stops too; nothing is revoked remotely.
-            // task-owner: one teardown hop; hub.stop() is idempotent
             if let hub { Task { await hub.stop() } }
-            // So does this Mac's link (the session stays).
             link.policyTurnedOff()
         } else {
-            changes.start()
-            if auth.isSignedIn {
-                if machineWire == nil {
-                    let auth = auth
-                    machineWire = CloudMachineWire(apiBaseURL: configuration.apiBaseURL,
-                                                   token: { [auth] in try await auth.tokens().access },
-                                                   team: { [auth] in await auth.teamID })
-                }
-                machineWire?.start { [weak self] change in self?.portChanged(change) }
-            }
+            changes.start(); if auth.isSignedIn { if machineWire == nil { let auth = auth; machineWire = CloudMachineWire(apiBaseURL: configuration.ownerAPIBaseURL(), token: { [auth] in try await auth.tokens().access }, team: { [auth] in await auth.teamID }) }; machineWire?.start { [weak self] change in self?.portChanged(change) } }
             dropAllMachines()
-            // task-owner: one list fetch after the policy lifted
             Task { [weak self] in
                 guard let self, auth.isSignedIn else { return }
                 await hub?.resume()
@@ -457,8 +415,7 @@ final class CloudService {
     }
 
     func stop() {
-        refreshGate.cancel()
-        machineWire?.stop()
+        refreshGate.cancel(); machineWire?.stop()
         signedOutCreation.cancel()
         for observer in observers { observer.cancel() }
         observers.removeAll(); changes.stop()

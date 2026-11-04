@@ -89,10 +89,12 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
     }
 
     /// A newly listening port on the Cloud machine running this chat.
-    public static func cloudPreviewPort(port: Int, process: String?, machineID: String? = nil) -> AgentPageEvent {
+    public static func cloudPreviewPort(port: Int, process: String?, machineID: String? = nil,
+                                        state: String = "up") -> AgentPageEvent {
         var value: [String: Any] = ["port": port]
         if let process, !process.isEmpty { value["process"] = process }
         if let machineID, !machineID.isEmpty { value["machineID"] = machineID }
+        value["state"] = state
         return AgentPageEvent(kind: "cloudPreviewPort", value: JSONValue(foundation: value) ?? .null)
     }
 

@@ -624,7 +624,8 @@ public final class AgentPaneView: NSView {
     }
 
     /// Publishes a Cloud preview port event to the shared page host.
-    public func cloudPreviewPortOpened(port: Int, process: String?, machineID: String? = nil) {
-        deliver([.cloudPreviewPort(port: port, process: process, machineID: machineID)], scripts: [])
+    public func cloudPreviewPortOpened(port: Int, process: String?, machineID: String? = nil,
+                                       state: String = "up") {
+        deliver([.cloudPreviewPort(port: port, process: process, machineID: machineID, state: state)], scripts: [])
     }
 }
