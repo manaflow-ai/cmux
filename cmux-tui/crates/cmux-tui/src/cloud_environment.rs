@@ -19,10 +19,6 @@ pub(crate) fn current() -> Result<Option<Selection>, String> {
         return Ok(None);
     }
     let home = std::env::var_os("HOME").ok_or("HOME is unavailable.")?;
-    let resolver = Resolver::new(&bundle, std::path::Path::new(&home))?;
-    let backend = std::env::var("CMUX_NEXT_CLOUD_BACKEND")
-        .ok()
-        .or_else(|| std::env::var("CMUX_NEXT_CLOUD_ENV").ok());
-    let selection = resolver.resolve(backend.as_deref())?;
-    Ok(Some(resolver.cached_client_config(selection.clone())?.unwrap_or(selection)))
+    let resolver = Resolver::new(bundle, std::path::Path::new(&home))?;
+    resolver.resolve(std::env::var("CMUX_NEXT_CLOUD_ENV").ok().as_deref()).map(Some)
 }
