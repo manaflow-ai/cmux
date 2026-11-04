@@ -374,7 +374,7 @@ final class CloudMachineSession {
         linkEnded = message
         linkDropped = CloudLinkError.isDrop(error)
         linkPhase = .failed(message)
-        if !disconnected, machine.status == .running { dropRedial.ended(error) { [weak self] in self?.redialIfEnded() } }
+        dropRedial.ended(error, live: !disconnected && machine.status == .running) { [weak self] in self?.redialIfEnded() }
         guard let refresher else { return }
         linkEndRead.ended(dropped: appLink != nil && linkDropped, paused: machine.status == .paused, connects: connects,
                           connectsNow: { [weak self] in self?.connects }, read: refresher)
@@ -487,8 +487,8 @@ final class CloudMachineSession {
         retryNow()
     }
 
-    /// A start's or a move's wait: true once the daemon answers, a resume failed or a legacy link start was refused; an
-    /// ended link is dialed again with a capped backoff until `limit` (a new machine's receiver may answer 30 s after it runs).
+    /// A start's or a move's wait: true once the daemon answers, a resume failed or a legacy link start was refused; a dropped
+    /// or not-yet-up link is dialed again with a capped backoff until `limit` (a new machine's receiver may answer 30 s after it runs).
     func linkUp(within limit: Duration) async -> Bool {
         // A legacy link failure from an earlier attempt is not this one's answer: cleared, and the link dialed again now.
         if link != nil, legacyLinkFailure != nil {
@@ -501,7 +501,8 @@ final class CloudMachineSession {
     }
 
     private func redialIfEnded() {
-        if (appLink != nil && linkEnded != nil && machine.status == .running) || (link != nil && legacyLinkFailure != nil && machine.status.isLive) { retryNow() }
+        let appEnd = appLink != nil && linkEnded != nil && dropRedial.lastEndRedialable && machine.status == .running
+        if appEnd || (link != nil && legacyLinkFailure != nil && machine.status.isLive) { retryNow() }
     }
 
     /// Retry on the record as it stands (the caller just read it): resume a paused legacy machine,

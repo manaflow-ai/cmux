@@ -24,6 +24,9 @@ public final class CloudAppLinkRedial {
         self.healthy = healthy
     }
 
+    /// The last end was one a redial can help (``CloudLinkError/isRedialable(_:)``): a start's wait redials only such an end.
+    public private(set) var lastEndRedialable = false
+
     /// A redial is waiting out its delay.
     public var isPending: Bool { pending != nil }
 
@@ -31,16 +34,17 @@ public final class CloudAppLinkRedial {
     public func up() { upSince = clock.now }
 
     /// The link ended with `error`: schedules `redial` after the next delay and returns true, or returns false when no
-    /// redial follows. A drop (``CloudLinkError/disconnected(reason:)``) starts the redials; once they started, any end
-    /// but a revoke goes on with them (a redial's connect can fail while the machine still comes up). A revoke is the
-    /// server's answer, never redialed. Past `tries` ends in a row none follows until a click or a healthy connection.
+    /// redial follows. Only a `live` machine's link (running, not removed) redials. An end a redial can help
+    /// (``CloudLinkError/isRedialable(_:)``) starts the redials; once they started, any end but a revoke goes on with
+    /// them (a redial's connect can fail while the machine still comes up). A revoke is the server's answer, never
+    /// redialed. Past `tries` ends in a row none follows until a click or a healthy connection.
     @discardableResult
-    public func ended(_ error: any Error, redial: @escaping @MainActor () -> Void) -> Bool {
+    public func ended(_ error: any Error, live: Bool = true, redial: @escaping @MainActor () -> Void) -> Bool {
         if let upSince, upSince.duration(to: clock.now) >= healthy { startOver() }
         upSince = nil
-        let drop = if case CloudLinkError.disconnected = error { true } else { false }
+        lastEndRedialable = CloudLinkError.isRedialable(error)
         let revoked = if case CloudLinkError.revoked = error { true } else { false }
-        guard drop || (ends > 0 && !revoked) else {
+        guard live, lastEndRedialable || (ends > 0 && !revoked) else {
             cancel()
             return false
         }

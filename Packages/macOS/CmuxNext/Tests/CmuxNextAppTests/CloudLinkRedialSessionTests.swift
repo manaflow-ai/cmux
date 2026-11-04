@@ -47,6 +47,17 @@ struct CloudLinkRedialSessionTests {
         #expect(await CloudWait.holds(within: .seconds(20)) { dials.answered >= 2 }, "the dropped link was never dialed again")
     }
 
+    /// A start's wait (`linkUp`) redials a link that dropped, never one the server revoked: that ends with the
+    /// revoke's reason instead of asking again every few seconds until the deadline.
+    @Test func aStartsWaitNeverRedialsARevokedLink() async {
+        let dials = Dials()
+        let session = Self.session(LateReceiverResolver(refusing: .max, dials: dials, refusal: .revoked(reason: "policy")))
+        defer { session.disconnect() }
+        session.connect()
+        #expect(!(await session.linkUp(within: .seconds(4))))
+        #expect(dials.refused == 1, "a revoked link was dialed \(dials.refused) times")
+    }
+
     /// A paused machine's ended link is never dialed again on its own: only a click starts a paused machine.
     @Test func aPausedMachineIsNotDialedAgain() async {
         let dials = Dials()
@@ -65,10 +76,12 @@ struct CloudLinkRedialSessionTests {
 actor LateReceiverResolver: CloudLinkResolver {
     private var refusing: Int
     private let dials: CloudLinkRedialSessionTests.Dials
+    private let refusal: CloudLinkError
 
-    init(refusing: Int, dials: CloudLinkRedialSessionTests.Dials) {
+    init(refusing: Int, dials: CloudLinkRedialSessionTests.Dials, refusal: CloudLinkError = .disconnected(reason: "receiver not up")) {
         self.refusing = refusing
         self.dials = dials
+        self.refusal = refusal
     }
 
     func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket {
@@ -76,7 +89,7 @@ actor LateReceiverResolver: CloudLinkResolver {
         if refusing > 0 {
             refusing -= 1
             await MainActor.run { dials.refused += 1 }
-            throw CloudLinkError.disconnected(reason: "receiver not up")
+            throw refusal
         }
         await MainActor.run { dials.answered += 1 }
         return CloudLinkSocket(key: key, path: "/tmp/cn-redial-\(key.machine).sock", generation: 1)

@@ -48,6 +48,15 @@ struct CloudAppLinkRedialTests {
         #expect(!redial.isPending)
     }
 
+    @Test func aCarrierNotUpYetRedialsAndOnlyALiveMachineRedials() {
+        let redial = CloudAppLinkRedial(backoff: Self.fast)
+        #expect(!redial.ended(Self.drop, live: false) {}, "a paused or removed machine's link is never redialed")
+        #expect(redial.lastEndRedialable)
+        #expect(redial.ended(CloudLinkError.notUp(state: "starting")) {})
+        #expect(!redial.ended(CloudLinkError.revoked(reason: "x")) {})
+        #expect(!redial.lastEndRedialable, "a start's wait does not redial a revoke either")
+    }
+
     @Test func aRedialsFailedConnectGoesOnButARevokeEndsIt() {
         let redial = CloudAppLinkRedial(backoff: Self.fast)
         #expect(redial.ended(Self.drop) {})
