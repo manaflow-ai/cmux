@@ -88,6 +88,9 @@ def clean(text: str, limit: int = 2000) -> str:
 
 
 evidence["tag"] = clean(args.tag, 256)
+# The link log reads from before the app's launch (the step before this one), not from the chat's
+# start: the app starts its link at sign-in, so a Native route that failed then logged before the chat.
+LINK_LOG_SINCE = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 600))
 
 
 def cmux(*words: str, timeout: int = 120) -> tuple[int, str, str]:
@@ -179,7 +182,7 @@ EVIDENCE_SCAN = re.compile(  # the "Check the evidence" step's grep in cloud-cha
 
 
 def app_link_log(since: str, keep: int = 300) -> dict:
-    """The link lines logged from `since` (local "YYYY-MM-DD HH:MM:SS", the chat's start) on, read
+    """The link lines logged from `since` (local "YYYY-MM-DD HH:MM:SS", before the app launched) on, read
     as they stream so only the last `keep` are held, and stopped after 180 s."""
     try:
         proc = subprocess.Popen([LOG_TOOL, "show", "--style", "compact", "--info", "--start", since,
@@ -338,7 +341,6 @@ if code != 0:
 # name, and the machine can be found for cleanup by that name when no answer named its id.
 # The whole step has 30 minutes: sign-in (at most ~5), pending retries (10) and the last wait (10).
 chat_started = time.monotonic()
-chat_started_at = time.strftime("%Y-%m-%d %H:%M:%S")
 chat_deadline = chat_started + 600
 while True:  # bounded: the same start-chat again while its machine is still being made
     code, out, err = cmux("cloud", "start-chat", "--prompt", BROWSER_PROOF_PROMPT, "--agent", args.agent,
@@ -362,7 +364,7 @@ record("cloud start-chat", code, "", failure_text(err, out) if code != 0 else ""
        browser_proof={"url": BROWSER_PROOF_URL, "marker": BROWSER_PROOF_MARKER,
                       "reply_observed": bool(reply_text), "reply_matches": browser_marker, "tool_calls": tool_calls,
                       "tool_call_observed": browser_tools},
-       **({"app_link_log": app_link_log(chat_started_at), "app_link_state": app_link_state(args.tag)} if code != 0 else {}))
+       **({"app_link_log": app_link_log(LINK_LOG_SINCE), "app_link_state": app_link_state(args.tag)} if code != 0 else {}))
 # A failed chat answers on stderr: the machine it made is at details.machine_id (chat.turn_failed)
 # or details.answer.machine_id (the other failures).
 failure = error_object(err, out).get("details") or {}
