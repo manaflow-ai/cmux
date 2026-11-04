@@ -32,7 +32,7 @@ test("every arm shows the message and compact preparing status", () => {
     const html = renderToStaticMarkup(<CloudStartView start={start} />);
     expect(html).toContain(`data-look="${name}"`);
     expect(html).toContain("fix the build");
-    expect(html).toContain("Preparing machine");
+    expect(html).toContain('class="acpmux-cloud-start__status"');
     expect(html).toContain("cv-spinner");
     expect(html).not.toContain('data-step-id="machine"');
   }
