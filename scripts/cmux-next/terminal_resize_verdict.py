@@ -7,9 +7,9 @@ records it in the layout's result and exits non-zero after writing its report.
 
 A build that holds terminals through a divider drag (`terminalDrag.holdSurface`, on by default since #32006) resizes
 and draws no terminal in a drag that ends where it began, in either S4 arm (cmux24, 2026-11-04: OFF job b945a41d and
-ON job a88aa2f9). Its layout reports `drag_holds_terminals`; its probe (one drag that ends 40 pt away, then one back)
-already proved that the drag moves the divider and that a terminal's full_resize counts the new grid, so each round
-needs only a counted frame and laid-out views.
+ON job a88aa2f9). Each drag round reports `holds_terminals` (the layout `drag_holds_terminals`, for reports without it);
+its probe (one drag that ends 40 pt away, then one back) already proved that the drag moves the divider and that the
+render counters count the new grid, so a held round needs only a counted frame and laid-out views.
 """
 
 # A terminal's full rebuilds for a new grid (GhosttyNextKit render counters): `full_resize` when the drawn grid changes
@@ -53,7 +53,6 @@ def problems(result):
         # Each entry is one split action (a round runs several).
         return [f"{layout} action {index} ({entry.get('action', '?')}): the split resized no terminal"
                 for index, entry in enumerate(rounds, 1) if not entry.get("resized_terminals")]
-    held = layout in DRAG_LAYOUTS and result.get("drag_holds_terminals") is True
     motion = "key resize" if layout in KEY_LAYOUTS else "drag"
     found = []
     for index, entry in enumerate(rounds, 1):
@@ -66,8 +65,10 @@ def problems(result):
         frames = entry.get("frames") or {}
         if not frames.get("frames"):
             found.append(f"{name}: no display frame was counted")
-        if held:
-            if frames.get("view_layouts") == 0:
+        # The hold as the round ran (an --ab of the hold itself changes it per round), else the layout's.
+        holds = entry["holds_terminals"] if "holds_terminals" in entry else result.get("drag_holds_terminals")
+        if layout in DRAG_LAYOUTS and holds is True:
+            if not frames.get("view_layouts"):
                 found.append(f"{name}: the drag laid out no view")
             continue
         if not entry.get("resized_terminals"):
