@@ -301,10 +301,7 @@ fn trust_peer_selector_requires_a_nonempty_string() {
                 "jsonrpc": "2.0", "id": 1, "method": method,
                 "params": {"cwd": "/x", "peer": peer}
             });
-            assert!(
-                breaks_params_rule(&object(&frame), None),
-                "{method} must refuse peer {peer}"
-            );
+            assert!(breaks_params_rule(&object(&frame), None), "{method} must refuse peer {peer}");
         }
     }
 }

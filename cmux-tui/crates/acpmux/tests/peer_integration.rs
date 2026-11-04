@@ -1428,10 +1428,8 @@ async fn explicit_peer_trust_is_sessionless_and_keeps_each_machines_record_separ
             .contains(&json!("acp.trust.peer-v1")),
         "the app must negotiate sessionless peer trust before sending its selector: {initialized}"
     );
-    let read = app
-        .call(method::ACP_TRUST_GET, json!({"peer": "b", "cwd": peer_folder}))
-        .await
-        .unwrap();
+    let read =
+        app.call(method::ACP_TRUST_GET, json!({"peer": "b", "cwd": peer_folder})).await.unwrap();
     assert_eq!(read["peer"], "b", "{read}");
     assert_eq!(read["level"], "unknown", "{read}");
     // A missing destination path reaches B, and is rejected there without recording anything.
@@ -1479,10 +1477,8 @@ async fn explicit_peer_trust_is_sessionless_and_keeps_each_machines_record_separ
     assert_eq!(set["peer"], "b", "{set}");
     assert_eq!(set["cwd"], json!(peer_folder), "{set}");
     assert_eq!(set["level"], "trusted", "{set}");
-    let remote = app
-        .call(method::ACP_TRUST_GET, json!({"peer": "b", "cwd": peer_folder}))
-        .await
-        .unwrap();
+    let remote =
+        app.call(method::ACP_TRUST_GET, json!({"peer": "b", "cwd": peer_folder})).await.unwrap();
     assert_eq!(remote["level"], "trusted", "{remote}");
     let local = app.call(method::ACP_TRUST_GET, json!({"cwd": peer_folder})).await.unwrap();
     assert_eq!(local["level"], "unknown", "peer trust leaked onto this machine: {local}");
@@ -1494,17 +1490,16 @@ async fn explicit_peer_trust_is_sessionless_and_keeps_each_machines_record_separ
         .unwrap();
     let local = app.call(method::ACP_TRUST_GET, json!({"cwd": local_folder})).await.unwrap();
     assert_eq!(local["level"], "trusted", "{local}");
-    let remote = app
-        .call(method::ACP_TRUST_GET, json!({"peer": "b", "cwd": local_folder}))
-        .await
-        .unwrap();
+    let remote =
+        app.call(method::ACP_TRUST_GET, json!({"peer": "b", "cwd": local_folder})).await.unwrap();
     assert_eq!(remote["level"], "unknown", "local trust leaked onto the peer: {remote}");
     assert!(a.sessions().is_empty(), "trust must not manufacture a routing session");
     assert!(b.sessions().is_empty());
 }
 
 #[tokio::test]
-async fn explicit_peer_trust_rejects_unknown_invalid_or_ambiguous_selectors_without_local_fallback() {
+async fn explicit_peer_trust_rejects_unknown_invalid_or_ambiguous_selectors_without_local_fallback()
+{
     let temp = tempfile::tempdir().unwrap();
     let folder = std::fs::canonicalize(temp.path()).unwrap();
     let record = folder.join("trust.json");
@@ -1560,9 +1555,15 @@ async fn explicit_peer_trust_and_session_start_cannot_select_a_third_daemon() {
     b.set_trust_gate(Some(paths("b")));
     c.set_trust_gate(Some(paths("c")));
     let (c_port, c_token) = listen_with_peer_token(c.clone(), "trust-third-c").await;
-    b.add_peer("private-c", &format!("ws://127.0.0.1:{c_port}"), Some("tok".into()), Some(c_token), true)
-        .await
-        .unwrap();
+    b.add_peer(
+        "private-c",
+        &format!("ws://127.0.0.1:{c_port}"),
+        Some("tok".into()),
+        Some(c_token),
+        true,
+    )
+    .await
+    .unwrap();
     let (b_port, b_token) = listen_with_peer_token(b.clone(), "trust-third-b").await;
     a.add_peer("b", &format!("ws://127.0.0.1:{b_port}"), Some("tok".into()), Some(b_token), true)
         .await
@@ -1578,13 +1579,22 @@ async fn explicit_peer_trust_and_session_start_cannot_select_a_third_daemon() {
             };
             let error = ab.request(method, params).await.unwrap_err();
             assert_eq!(error.data.as_ref().unwrap()["reason"], "peer.forward_refused", "{error:?}");
-            assert!(!error.message.contains(peer), "the refusal revealed B's peer alias: {error:?}");
+            assert!(
+                !error.message.contains(peer),
+                "the refusal revealed B's peer alias: {error:?}"
+            );
         }
     }
-    let web_start = ab.request(method::SESSION_NEW, json!({
-        "cwd": folder, "mcpServers": [],
-        "_meta": {"acpmux": {"peer": "private-c", "via": "web"}}
-    })).await.unwrap_err();
+    let web_start = ab
+        .request(
+            method::SESSION_NEW,
+            json!({
+                "cwd": folder, "mcpServers": [],
+                "_meta": {"acpmux": {"peer": "private-c", "via": "web"}}
+            }),
+        )
+        .await
+        .unwrap_err();
     assert_eq!(web_start.data.as_ref().unwrap()["reason"], "peer.forward_refused");
     assert!(!paths("b").record.exists());
     assert!(!paths("c").record.exists(), "A wrote trust on B's private peer");
@@ -1595,7 +1605,10 @@ async fn explicit_peer_trust_and_session_start_cannot_select_a_third_daemon() {
     // reaches C over the very same peer-origin connection that must reject another selector.
     let mut local_b = client(b.clone()).await;
     let trusted = local_b
-        .call(method::ACP_TRUST_SET, json!({"peer": "private-c", "cwd": folder, "level": "trusted"}))
+        .call(
+            method::ACP_TRUST_SET,
+            json!({"peer": "private-c", "cwd": folder, "level": "trusted"}),
+        )
         .await
         .unwrap();
     assert_eq!(trusted["peer"], "private-c");
@@ -1624,15 +1637,21 @@ async fn explicit_peer_trust_rejects_a_known_disconnected_peer_without_local_wri
     a.add_peer("offline", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
         .await
         .unwrap();
-    assert!(!a.peer_by_name("offline").unwrap().connected.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(
+        !a.peer_by_name("offline").unwrap().connected.load(std::sync::atomic::Ordering::SeqCst)
+    );
     let (tx, input) = mpsc::channel(64);
     let (output, rx) = mpsc::channel(4096);
     tokio::spawn(acpmux::server::serve_connection_with(
-        a.clone(), input, output, acpmux::server::Origin::LocalApp,
+        a.clone(),
+        input,
+        output,
+        acpmux::server::Origin::LocalApp,
     ));
     let mut app = C { tx, rx, next: 0 };
     for method in [method::ACP_TRUST_GET, method::ACP_TRUST_SET] {
-        let reply = app.raw(method, json!({"peer": "offline", "cwd": folder, "level": "trusted"})).await;
+        let reply =
+            app.raw(method, json!({"peer": "offline", "cwd": folder, "level": "trusted"})).await;
         assert_eq!(reply["error"]["data"]["reason"], "peer_unreachable", "{reply}");
     }
     assert!(!record.exists(), "offline peer trust fell back to this machine");
@@ -1642,10 +1661,7 @@ async fn explicit_peer_trust_rejects_a_known_disconnected_peer_without_local_wri
 #[tokio::test]
 async fn explicit_peer_trust_refuses_a_connected_peer_without_the_trust_protocol() {
     let a = hub(config(PermissionPolicy::Ask)).await;
-    let port = lying_peer(Lying {
-        answers: json!({"level": "trusted"}),
-        ..Lying::default()
-    }).await;
+    let port = lying_peer(Lying { answers: json!({"level": "trusted"}), ..Lying::default() }).await;
     a.add_peer("old", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
         .await
         .unwrap();
@@ -1654,13 +1670,19 @@ async fn explicit_peer_trust_refuses_a_connected_peer_without_the_trust_protocol
     let (tx, input) = mpsc::channel(64);
     let (output, rx) = mpsc::channel(4096);
     tokio::spawn(acpmux::server::serve_connection_with(
-        a.clone(), input, output, acpmux::server::Origin::LocalApp,
+        a.clone(),
+        input,
+        output,
+        acpmux::server::Origin::LocalApp,
     ));
     let mut app = C { tx, rx, next: 0 };
     for caller in [&mut local, &mut app] {
         for method in [method::ACP_TRUST_GET, method::ACP_TRUST_SET] {
             let reply = caller
-                .raw(method, json!({"peer": "old", "cwd": std::env::temp_dir(), "level": "trusted"}))
+                .raw(
+                    method,
+                    json!({"peer": "old", "cwd": std::env::temp_dir(), "level": "trusted"}),
+                )
                 .await;
             assert_eq!(reply["error"]["data"]["reason"], "trust.peer_unsupported", "{reply}");
         }
