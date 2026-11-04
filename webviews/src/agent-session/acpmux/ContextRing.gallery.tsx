@@ -13,6 +13,8 @@ type Props = {
   setup?: number;
   breakdown?: unknown;
   details?: boolean;
+  /// The card's Agent setup part opens the Agent setup viewer (App.tsx `openAgentSetup`).
+  setupLink?: boolean;
   wheel?: "compact" | "standard" | "minimal";
   /// The prompt cache's time left (ms; 0 or less: expired), on a pinned clock.
   cacheLeftMs?: number;
@@ -39,6 +41,7 @@ function GalleryContextRing(props: Props) {
         now={galleryNow}
         // The chat's Session Info reveal (App.tsx); the gallery has no Session Info to open.
         onOpenDetails={props.details ? () => {} : undefined}
+        onOpenSetup={props.setupLink ? () => {} : undefined}
       />
       <button
         type="button"
@@ -158,6 +161,25 @@ export default componentEntry<Props>({
             { name: "System tools", kind: "used", tokens: 8_000 },
             { name: "System prompt", kind: "used", tokens: 10_000 },
             { name: "Free space", kind: "free", tokens: 868_600 },
+          ],
+        },
+      },
+      play: hoverCard,
+    },
+    "popover-breakdown-setup-link": {
+      note: "Leo (2026-11-04: \"as a viewer ... I guess you would open up a new tab\"): the System part's Agent setup name is a button that opens the chat's Agent setup viewer in a tab; only its label underlines on hover.",
+      props: {
+        used: 131_400,
+        size: 1_000_000,
+        details: true,
+        setupLink: true,
+        breakdown: {
+          maxTokens: 1_000_000,
+          categories: [
+            { name: "Messages", kind: "used", tokens: 92_000 },
+            { name: "MCP tools", kind: "used", tokens: 21_400 },
+            { name: "System prompt", kind: "used", tokens: 10_000 },
+            { name: "Free space", kind: "free", tokens: 876_600 },
           ],
         },
       },

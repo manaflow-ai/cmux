@@ -3858,6 +3858,20 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/process/list", { sessionId });
   }
 
+  /// What chat `sessionId`'s agent is told beside the person's messages, for the Agent setup viewer
+  /// (agent-setup/AgentSetupScreen.tsx): the harness's own prompt (named, never its text), each cmux
+  /// MCP server's instructions and tools, and the chat's preset's system prompt
+  /// (cmux-tui/crates/acpmux/src/server/requests/agent_setup.rs).
+  agentSetup(sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/agent_setup", { sessionId }, 15_000);
+  }
+
+  /// Sets (a string) or removes (null) the system prompt of the preset chat `sessionId` started
+  /// from; acpmux answers like `agentSetup`. New sessions of the preset take it, the chat keeps its own.
+  saveAgentSetup(sessionId: string, systemPrompt: string | null): Promise<unknown> {
+    return this.request("_acpmux/agent_setup/save", { sessionId, systemPrompt }, 15_000);
+  }
+
   /// Each `_acpmux/process_update` for the attached chat; returns the listener's removal.
   watchProcesses(listener: (process: unknown) => void): () => void {
     this.processListeners.add(listener);

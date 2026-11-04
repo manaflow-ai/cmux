@@ -186,6 +186,7 @@ export function ContextSection({
   percent,
   breakdown: reported,
   onCompact,
+  onOpenSetup,
 }: {
   usage: { used: number; size: number };
   percent: number;
@@ -194,6 +195,8 @@ export function ContextSection({
   /// Sends the chat's agent its `/compact` (App.tsx `compactChat`); unset where the agent lists no
   /// compact command or the chat cannot be sent to, so no Compact shows.
   onCompact?: () => void;
+  /// Opens the chat's Agent setup viewer (agent-setup/AgentSetupScreen.tsx); no Agent setup without it.
+  onOpenSetup?: () => void;
 }) {
   const t = useT();
   const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
@@ -239,16 +242,28 @@ export function ContextSection({
           </ul>
         </>
       )}
-      {onCompact && (
+      {(onCompact || onOpenSetup) && (
         <div className="acpmux-session-info-context__actions">
-          {free && (
+          {onCompact && free && (
             <span className="acpmux-session-info-context__until">
               {t("sessionInfo.context.untilAutoCompact", { tokens: tokens.format(free.tokens) })}
             </span>
           )}
-          <button type="button" className="acpmux-session-info-context__compact" onClick={onCompact}>
-            {t("sessionInfo.context.compactSession")}
-          </button>
+          {onOpenSetup && (
+            <button
+              type="button"
+              className="acpmux-session-info-context__compact"
+              data-context-setup
+              onClick={onOpenSetup}
+            >
+              {t("context.setup")}
+            </button>
+          )}
+          {onCompact && (
+            <button type="button" className="acpmux-session-info-context__compact" onClick={onCompact}>
+              {t("sessionInfo.context.compactSession")}
+            </button>
+          )}
         </div>
       )}
     </div>

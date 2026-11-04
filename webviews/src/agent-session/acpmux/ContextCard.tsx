@@ -114,6 +114,7 @@ export function ContextCardBody({
   used,
   size,
   onOpenDetails,
+  onOpenSetup,
   breakdown: reported,
   cacheExpiresAt,
   now,
@@ -122,6 +123,8 @@ export function ContextCardBody({
   size: number;
   setup?: number;
   onOpenDetails?(): void;
+  /// Opens the chat's Agent setup viewer (agent-setup/AgentSetupScreen.tsx): its row is a button.
+  onOpenSetup?(): void;
   breakdown?: unknown;
   /// When the chat's prompt cache lapses (unix ms, from acpmux); no line without it.
   cacheExpiresAt?: number;
@@ -159,15 +162,21 @@ export function ContextCardBody({
             {compactRows.map((row) => (
               <li className="acpmux-context-card-part" key={row.name}>
                 <span className="acpmux-context-card-swatch" data-tone={row.tone} aria-hidden="true" />
-                <span>
-                  {row.group === "messages"
-                    ? t("context.messages")
-                    : row.group === "tools"
-                      ? t("sessionInfo.context.mcpTools")
-                      : row.group === "system"
-                        ? t("context.setup")
-                        : row.name}
-                </span>
+                {row.group === "system" && onOpenSetup ? (
+                  <button type="button" className="acpmux-context-card-setup" data-context-setup onClick={onOpenSetup}>
+                    {t("context.setup")}
+                  </button>
+                ) : (
+                  <span>
+                    {row.group === "messages"
+                      ? t("context.messages")
+                      : row.group === "tools"
+                        ? t("sessionInfo.context.mcpTools")
+                        : row.group === "system"
+                          ? t("context.setup")
+                          : row.name}
+                  </span>
+                )}
                 <span className="acpmux-context-card-part-tokens">{tokens.format(row.tokens)}</span>
               </li>
             ))}

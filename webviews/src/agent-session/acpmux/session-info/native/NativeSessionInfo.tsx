@@ -73,6 +73,8 @@ export type NativeSessionInfoProps = {
   cloudRepositoryAvailable?: boolean;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   onCompact?: () => void;
+  /// Opens the chat's Agent setup viewer (Context's Agent setup button).
+  onOpenSetup?: () => void;
   allSessions?: readonly AcpmuxSessionEntry[];
   onOpenChat?: (id: string) => void;
   onShowUsage?: () => void;
@@ -329,6 +331,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           language,
           open: state.sections.context,
           onCompact: props.onCompact,
+          onOpenSetup: props.onOpenSetup,
           openLists,
           onToggleList: (id) =>
             setOpenLists((was) => {

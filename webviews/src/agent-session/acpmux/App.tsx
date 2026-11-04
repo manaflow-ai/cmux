@@ -718,6 +718,8 @@ import { DeliveryFailure, FailedSendsContext, type FailedSends } from "./convers
 import { failedRuns, failedSendText, type FailedRun } from "./sendFailure";
 import { clientWaiter, lostPrompt, resentAfterLoss } from "./lostPrompt";
 import { ReplayScreen } from "./replay/ReplayScreen";
+import { AgentSetupScreen } from "./agent-setup/AgentSetupScreen";
+import { AGENT_SETUP_REVEAL, openAgentSetupPane } from "./agent-setup/agentSetup";
 import { sessionReplay } from "./replay/replay.experiment";
 import { useSideSessions } from "./aside/sideSessions";
 import { BtwNotes, type BtwRow as InlineBtwRow } from "./aside/btwNotes";
@@ -6217,6 +6219,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [newSession, setNewSession] = useState(false);
   /// The chat whose recorded history plays back read-only in place of it (chat menu Replay, cx-osmw).
   const [replaying, setReplaying] = useState<string | undefined>();
+  /// The chat whose Agent setup viewer shows in place of it: a host that opened no tab for it
+  /// (agent-setup/agentSetup.ts). `ownSetupPane`: this pane is a chat's Agent setup tab (an
+  /// `agent-setup` reveal), which shows the viewer alone.
+  const [setupHere, setSetupHere] = useState<string | undefined>();
+  const [ownSetupPane, setOwnSetupPane] = useState(false);
   /// The focused pane's rail visibility. The experiment still chooses compact/full when visible;
   /// this local switch is only the command-palette toggle and does not write shared experiment state.
   const [minimapVisible, setMinimapVisible] = useState(true);
@@ -6449,6 +6456,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const queueIds = useMemo(() => ownQueue(snapshot.queue).map((entry) => entry.id), [snapshot.queue]);
   // Another chat ends the replay: coming back to this one opens it live.
   if (replaying && snapshot.sessionId !== replaying) setReplaying(undefined);
+  if (setupHere && snapshot.sessionId !== setupHere) setSetupHere(undefined);
+  const showingSetup = snapshot.sessionId !== undefined && (ownSetupPane || setupHere === snapshot.sessionId);
   // A /btw failure belongs to its chat: another chat drops it.
   if (btwFailure && snapshot.sessionId !== btwFailure.sessionId) setBtwFailure(undefined);
   // A preview follows its source chat. A deliberate Pin keeps an immutable snapshot visible when
@@ -6627,6 +6636,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// where the chat's rows are.
   const showMessage = useRef<(messageId: string) => string | undefined>(() => undefined);
   const reveal = (value: string) => {
+    if (value === AGENT_SETUP_REVEAL) return setOwnSetupPane(true);
     // A `message=<id>` link (schemas/deeplinks/agent-link.json): bring that message's row in
     // once the transcript has it, and leave the view alone when this session never saw it.
     const message = revealedMessage(value);
@@ -9075,6 +9085,28 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         : undefined,
     [restartChat, compactOffered],
   );
+  // Agent setup (Context's row in Session Info and the ring's card): the chat's viewer in its own
+  // tab right of the chat, or in this pane where the host opens none (agent-setup/agentSetup.ts).
+  const setupSession = quick ? undefined : snapshot.sessionId;
+  const openAgentSetup = useMemo(
+    () =>
+      setupSession && !ownSetupPane
+        ? () =>
+            void openAgentSetupPane(callNative, setupSession).then((opened) => {
+              if (!opened) setSetupHere(setupSession);
+            })
+        : undefined,
+    [setupSession, ownSetupPane],
+  );
+  const loadSetup = useCallback(
+    () => (setupSession && directClient.current?.agentSetup(setupSession)) || Promise.reject(new Error()),
+    [setupSession],
+  );
+  const saveSetup = useCallback(
+    (systemPrompt: string | null) =>
+      (setupSession && directClient.current?.saveAgentSetup(setupSession, systemPrompt)) || Promise.reject(new Error()),
+    [setupSession],
+  );
   const sessionInfo = useSessionInfo({
     snapshot: sessionInfoSnapshot,
     split: sessionInfoSplit,
@@ -9113,6 +9145,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // A Usage row opens that chat, this Mac's or a peer's, beside this one or in the tab showing it.
     onOpenChat: openSenderChat,
     onCompact: compactChat,
+    onOpenSetup: openAgentSetup,
     onShowUsage: refreshUsage,
     // Quick Chat's panel has no room beside it for the side panel.
     onOpenDocument: quick ? undefined : openArtifact,
@@ -13992,6 +14025,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             chatKnown={paneKnowsNewChat({ handshaken, newSession }, composerSnapshot)}
             chips={ComposerChips}
             onOpenContext={sessionInfo.reveal ? () => sessionInfo.reveal?.("context") : undefined}
+            onOpenSetup={openAgentSetup}
             draft={draft}
             onUnsentDraft={quick ? undefined : onNewChatDraft}
             onTyping={quick ? undefined : postTyping}
@@ -14867,6 +14901,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               takeDraft={takeNewTabDraft}
               onFieldEdit={newTabFieldEdited}
             />
+          ) : showingSetup ? (
+            <AgentSetupScreen
+              key={snapshot.sessionId}
+              load={loadSetup}
+              save={saveSetup}
+              openUrl={(url) => void callNative("tab.open", { kind: "browser", text: url, keep: true }).catch(() => {})}
+              onClose={ownSetupPane ? undefined : () => setSetupHere(undefined)}
+            />
           ) : replaying && replaying === snapshot.sessionId ? (
             <ReplayScreen
               sessionId={replaying}
@@ -15180,12 +15222,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         {!harnessesOpen &&
           !showNewTab &&
           !(replaying && replaying === snapshot.sessionId) &&
+          !showingSetup &&
           !inspectorOpen &&
           !sessionInfo.on &&
           summaryCard.column &&
           summaryPanel}
         {/* Beside the chat view only: New Tab, Harnesses and a replay have no session header. */}
-        {!harnessesOpen && !showNewTab && !(replaying && replaying === snapshot.sessionId) && sessionInfo.panel}
+        {!harnessesOpen &&
+          !showNewTab &&
+          !(replaying && replaying === snapshot.sessionId) &&
+          !showingSetup &&
+          sessionInfo.panel}
         {artifact && liveArtifact && (
           <ArtifactPanel
             key={artifact.opened}

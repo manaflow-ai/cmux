@@ -1417,6 +1417,7 @@ export function ContextRing({
   now,
   breakdown: reported,
   onOpenDetails,
+  onOpenSetup,
 }: {
   used?: number;
   size?: number;
@@ -1430,6 +1431,8 @@ export function ContextRing({
   breakdown?: unknown;
   /// Opens Session Info at its Context section; the card shows Details › only with it.
   onOpenDetails?(): void;
+  /// Opens the chat's Agent setup viewer; the card's Agent setup part is a button only with it.
+  onOpenSetup?(): void;
 }) {
   const t = useT();
   const hover = useHoverCard(HOVER_INTENT.tooltipDelay);
@@ -1609,6 +1612,13 @@ export function ContextRing({
                 (() => {
                   closeCard();
                   onOpenDetails();
+                })
+              }
+              onOpenSetup={
+                onOpenSetup &&
+                (() => {
+                  closeCard();
+                  onOpenSetup();
                 })
               }
             />

@@ -155,6 +155,27 @@
   text-align: end;
 }
 
+/* The Agent setup part's name opens the Agent setup viewer: the same text as the other parts' names,
+   underlined on hover, so only the label lights and never the row (agent-setup/AgentSetupScreen.tsx). */
+.acpmux-context-card-setup {
+  justify-self: start;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+.acpmux-context-card-setup:hover {
+  text-decoration: underline;
+}
+.acpmux-context-card-setup:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
+
 /* Details › is the card's last row and runs edge to edge (full bleed): no inset at the sides or
    the bottom, a hairline over it, and its lower corners on the card's radius, so its hover fill
    meets the rim. The label keeps the summary's text inset; the chevron ends on its right edge,

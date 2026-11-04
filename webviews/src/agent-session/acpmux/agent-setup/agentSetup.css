@@ -1,0 +1,327 @@
+/* The Agent setup viewer (AgentSetupScreen.tsx): a full-pane page on the Harnesses page's column
+   (harnesses/harnesses.css), its heading, its parts under small headings, each part's content in a
+   card on the composer's fill and hairline edge. Instructions read as code text, wrapped. */
+.acpmux-agent-setup {
+  --agent-setup-column: 680px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-4, 16px);
+  box-sizing: border-box;
+  padding: calc(var(--grid-base) * 5)
+    max(calc(var(--grid-base) * 4), round(down, calc((100% - var(--agent-setup-column)) / 2), var(--grid-base)));
+  color: var(--agent-text);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+.acpmux-agent-setup-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.acpmux-agent-setup-heading {
+  flex: 1;
+  min-width: 0;
+}
+.acpmux-agent-setup-heading h2 {
+  margin: 0;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: 600;
+  letter-spacing: var(--text-body--letter-spacing);
+}
+.acpmux-agent-setup-heading p,
+.acpmux-agent-setup-note {
+  margin: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-agent-setup-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--agent-soft);
+}
+.acpmux-agent-setup-close:hover {
+  background: var(--agent-control-hover);
+  color: var(--agent-text);
+}
+.acpmux-agent-setup-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-agent-setup-part {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.acpmux-agent-setup-part h3 {
+  margin: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-weight: 600;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-agent-setup-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--acpmux-composer-bg);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
+}
+.acpmux-agent-setup-source {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.acpmux-agent-setup-name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-agent-setup-badge,
+.acpmux-agent-setup-count {
+  flex: none;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  white-space: nowrap;
+}
+.acpmux-agent-setup-link {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--agent-accent);
+  font: inherit;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-agent-setup-link:hover {
+  text-decoration: underline;
+}
+.acpmux-agent-setup-editor {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--agent-input-bg);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
+  color: var(--agent-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  resize: vertical;
+}
+.acpmux-agent-setup-editor:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 1.5px var(--agent-accent);
+}
+.acpmux-agent-setup-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.acpmux-agent-setup-status {
+  min-width: 0;
+  margin-right: auto;
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-agent-setup-status[data-status="failed"] {
+  color: var(--agent-danger);
+}
+.acpmux-agent-setup-button {
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--acpmux-composer-bg);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
+  color: var(--agent-text);
+  font: inherit;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  white-space: nowrap;
+}
+.acpmux-agent-setup-button:hover:not(:disabled) {
+  background: var(--acpmux-composer-hover);
+}
+.acpmux-agent-setup-button.is-primary {
+  background: var(--agent-accent);
+  box-shadow: none;
+  color: var(--agent-accent-text, #fff);
+}
+.acpmux-agent-setup-button:disabled {
+  opacity: 0.5;
+}
+.acpmux-agent-setup-servers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.acpmux-agent-setup-server {
+  min-width: 0;
+  border-radius: 8px;
+  background: var(--acpmux-composer-bg);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
+}
+.acpmux-agent-setup-server-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--ui-row-height, var(--ds-control-row));
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--agent-text);
+  font: inherit;
+  text-align: left;
+}
+.acpmux-agent-setup-server-title .acpmux-agent-setup-count {
+  margin-left: auto;
+}
+.acpmux-agent-setup-server[data-empty] .acpmux-agent-setup-server-title {
+  padding-left: 32px;
+}
+.acpmux-agent-setup-server-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 12px 12px;
+}
+.acpmux-agent-setup-text {
+  margin: 0;
+  color: var(--agent-soft);
+  font-family: var(--font-mono);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.acpmux-agent-setup-fold {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-agent-setup-fold:hover {
+  color: var(--agent-text);
+}
+.acpmux-agent-setup-tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0 0 0 16px;
+  list-style: none;
+}
+.acpmux-agent-setup-tool-list li {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.acpmux-agent-setup-tool-name {
+  font-family: var(--font-mono);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.acpmux-agent-setup-tool-detail {
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+  white-space: pre-wrap;
+}
+/* `split`: the servers in a list on the left, the chosen one's detail on the right. */
+.acpmux-agent-setup-split {
+  display: grid;
+  grid-template-columns: minmax(140px, 200px) minmax(0, 1fr);
+  border-radius: 8px;
+  background: var(--acpmux-composer-bg);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
+  overflow: hidden;
+}
+.acpmux-agent-setup-split-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 4px;
+  border-right: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge);
+  list-style: none;
+}
+.acpmux-agent-setup-split-list button {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--agent-text);
+  font: inherit;
+  text-align: start;
+}
+.acpmux-agent-setup-split-list button:hover {
+  background: var(--agent-control-hover);
+}
+.acpmux-agent-setup-split-list button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--agent-accent) 18%, transparent);
+}
+.acpmux-agent-setup-split-detail {
+  min-width: 0;
+  padding-top: 12px;
+}
+.acpmux-agent-setup button:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 2px;
+}

@@ -420,6 +420,8 @@ type Props = {
   authChecking?: boolean;
   /// Opens Session Info at its Context section: the context ring's card links to it (Details ›).
   onOpenContext?(): void;
+  /// Opens the chat's Agent setup viewer: the context ring's card links to it (its Agent setup part).
+  onOpenSetup?(): void;
 };
 
 /// The prompt box with the agent's `/` command menu:
@@ -496,6 +498,7 @@ export function Composer({
   authChecking = false,
   placeholder,
   onOpenContext,
+  onOpenSetup,
 }: Props) {
   acpmuxPerf.render("composer");
   const t = useT();
@@ -2531,6 +2534,7 @@ export function Composer({
               cacheExpiresAt={usage?.cacheExpiresAt}
               breakdown={snapshot.summary?.contextBreakdown}
               onOpenDetails={onOpenContext}
+              onOpenSetup={onOpenSetup}
             />
           )
         }

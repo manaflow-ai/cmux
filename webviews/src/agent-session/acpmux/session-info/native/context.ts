@@ -31,6 +31,8 @@ export type ContextInput = {
   /// Opens or closes one of the breakdown's folds; without it the folds show their counts only.
   onToggleList?: (id: "mcpTools" | "memoryFiles" | "skills") => void;
   onCompact?: () => void;
+  /// Opens the chat's Agent setup viewer (agent-setup/AgentSetupScreen.tsx): an Agent setup button.
+  onOpenSetup?: () => void;
 };
 
 export function contextSection(
@@ -72,13 +74,20 @@ export function contextSection(
       id: "total",
       title: t("context.percent", { percent }),
       trailing: `${tokens.format(usage.used)} / ${tokens.format(usage.size)}`,
-      ...(input.onCompact
+      ...(input.onCompact || input.onOpenSetup
         ? {
             buttons: [
-              {
-                label: t("sessionInfo.context.compactSession"),
-                action: actions.add("context.compact", input.onCompact),
-              },
+              ...(input.onOpenSetup
+                ? [{ label: t("context.setup"), action: actions.add("context.setup", input.onOpenSetup) }]
+                : []),
+              ...(input.onCompact
+                ? [
+                    {
+                      label: t("sessionInfo.context.compactSession"),
+                      action: actions.add("context.compact", input.onCompact),
+                    },
+                  ]
+                : []),
             ],
           }
         : {}),
