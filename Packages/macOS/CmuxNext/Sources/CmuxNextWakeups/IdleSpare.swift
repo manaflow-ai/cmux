@@ -26,6 +26,9 @@ public final class IdleSpare<Value> {
         self.make = make
     }
 
+    // Generic main-actor class: no isolated deinit (swift-frontend 6.3.3 crashes on one in -O; check-concurrency).
+    nonisolated deinit {}
+
     /// The value made ahead, or nil when none is ready. Makes nothing: the owner calls ``fill()`` once it is still.
     public func take() -> Value? {
         defer { ready = nil }
