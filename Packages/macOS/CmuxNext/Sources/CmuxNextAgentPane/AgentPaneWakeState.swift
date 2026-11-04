@@ -23,6 +23,10 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     /// The page holds edits, attachments or sends that its wake state cannot restore, or has an
     /// input method or popup open. Only a hidden-page release asks to retain that state.
     public var holdsPageState: Bool?
+    /// Each subagent's unsent prompt in this chat's pane (webviews subagents/subagentDrafts.ts), by
+    /// its draft key, as text with its pasted chips in their places: a subagent has no acpmux session
+    /// to keep it, so the page's wake state does.
+    public var subagentDrafts: [String: String]?
 
     public nonisolated struct Attachment: Codable, Sendable, Equatable {
         public var id: String
@@ -53,7 +57,7 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
 
     public init(attachments: [Attachment]? = nil, shell: Bool? = nil, shellText: String? = nil,
                 scrollAnchor: AgentPaneScrollAnchor? = nil, atLatest: Bool? = nil, holdsPrompts: Bool? = nil,
-                holdsPageState: Bool? = nil) {
+                holdsPageState: Bool? = nil, subagentDrafts: [String: String]? = nil) {
         self.attachments = attachments
         self.shell = shell
         self.shellText = shellText
@@ -61,12 +65,13 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
         self.atLatest = atLatest
         self.holdsPrompts = holdsPrompts
         self.holdsPageState = holdsPageState
+        self.subagentDrafts = subagentDrafts
     }
 
     /// Nothing to hand back.
     public var isEmpty: Bool {
         (attachments ?? []).isEmpty && shell != true && scrollAnchor == nil && atLatest != true
-            && holdsPrompts != true && holdsPageState != true
+            && holdsPrompts != true && holdsPageState != true && (subagentDrafts ?? [:]).isEmpty
     }
 
     /// The page's `pane.wakeState` answer; empty when the page has no such action (an older page)

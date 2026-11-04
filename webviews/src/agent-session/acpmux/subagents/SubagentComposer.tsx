@@ -6,11 +6,12 @@
 // box (ComposerBox.tsx) with the prompt and Send only: the chat's queue, pull request bar, model and
 // mode chips are the chat's, and drawing them here sent edits to the chat (Leo 2026-10-20).
 import { useEffect, useRef, useState } from "react";
-import { inlineToken, type ComposerAttachment } from "../attachments";
+import type { ComposerAttachment } from "../attachments";
 import { useT } from "../i18n";
 import { ComposerBox } from "../ComposerBox";
 import { ArrowUpIcon } from "../ComposerPickers";
 import {
+  draftMessage,
   keepSubagentDraft,
   restoreSubagentDraft,
   subagentDraft,
@@ -90,20 +91,7 @@ export function SubagentComposer({
       keep({ text: textRef.current, attachments: next });
       return next;
     });
-  const draft = () => {
-    let message = text;
-    const loose: string[] = [];
-    for (const chip of attachmentsRef.current) {
-      const pasted = chip.kind === "pasted" ? (chip.text ?? "") : "";
-      const token = inlineToken(chip.id);
-      if (message.includes(token)) message = message.split(token).join(pasted);
-      else if (pasted) loose.push(pasted);
-    }
-    return [message, ...loose]
-      .filter((part) => part.trim())
-      .join("\n\n")
-      .trim();
-  };
+  const draft = () => draftMessage({ text, attachments: attachmentsRef.current });
   const ready = Boolean(onSend) && (text.trim().length > 0 || attachments.length > 0);
   const submit = () => {
     const message = draft();

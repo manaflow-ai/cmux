@@ -5,13 +5,15 @@
 // #33280: "Preserve drafts across page release" and "Deliver late failures to an already reopened
 // composer".
 //
-// Every draft is kept in memory and written through to localStorage, which survives the page. One
+// Every draft is kept in memory and written through to localStorage, which survives the page while
+// the app runs (its pages' storage is not kept on disk), and rides in the chat page's wake state
+// (`pane.wakeState` subagentDrafts, AgentPaneWakeState.swift), which the host keeps through a quit. One
 // the storage refuses (its quota, a big image chip) stays in memory only and holds the page: a
 // hidden page is not let go (`pane.wakeState` holdsPageState) and a web update does not reload it
 // (webSwap.ts) while it is held. A composer subscribes to its key, so a send that fails after the
 // composer it came from is gone reaches the one showing that subagent now.
 import { holdWebSwap } from "../../../pages/shared/webSwap";
-import type { ComposerAttachment } from "../attachments";
+import { inlineToken, type ComposerAttachment } from "../attachments";
 
 export type Draft = { text: string; attachments: ComposerAttachment[] };
 
@@ -126,6 +128,52 @@ export function subagentDraftUnsaved(): boolean {
 
 // A web update waits while a draft is kept only in memory: reloading would lose it.
 holdWebSwap(() => (unsaved.size > 0 ? "subagent draft" : null));
+
+/// What `draft` says as one message: its pasted chips' text in their places (one not placed goes
+/// after), since the relay to the subagent is text only.
+export function draftMessage(draft: Draft): string {
+  let message = draft.text;
+  const loose: string[] = [];
+  for (const chip of draft.attachments) {
+    const pasted = chip.kind === "pasted" ? (chip.text ?? "") : "";
+    const token = inlineToken(chip.id);
+    if (message.includes(token)) message = message.split(token).join(pasted);
+    else if (pasted) loose.push(pasted);
+  }
+  return [message, ...loose]
+    .filter((part) => part.trim())
+    .join("\n\n")
+    .trim();
+}
+
+/// The most a page's wake state carries of its subagents' drafts: the host keeps a tab's wake state
+/// only under its cap (AgentPaneRelaunchWake.maximumTabBytes, 4 MiB), which the chat's own chips
+/// share, so drafts past this stay out of it rather than costing the chat its chips.
+const WAKE_DRAFT_CHARS = 1_000_000;
+
+/// The drafts a page about to let go (or quit) hands the host, as text (`draftMessage`), newest kept
+/// first within WAKE_DRAFT_CHARS; undefined for none.
+export function wakeSubagentDrafts(now = Date.now()): Record<string, string> | undefined {
+  load(now);
+  const out: Record<string, string> = {};
+  let total = 0;
+  for (const [key, draft] of [...drafts].reverse()) {
+    const message = draftMessage(draft);
+    if (!message || total + message.length > WAKE_DRAFT_CHARS) continue;
+    out[key] = message;
+    total += message.length;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+/// Takes back the drafts a woken page's wake state carries (`wakeSubagentDrafts`); a draft this page
+/// already keeps for the same subagent (storage outlived the page) is the same or newer and stays.
+export function wakeIntoSubagentDrafts(value: unknown, now = Date.now()) {
+  if (!value || typeof value !== "object") return;
+  load(now);
+  for (const [key, text] of Object.entries(value as Record<string, unknown>))
+    if (typeof text === "string" && text && !drafts.has(key)) keepSubagentDraft(key, { text, attachments: [] }, now);
+}
 
 /// Forgets every draft in memory (the stored ones are read again), for tests.
 export function resetSubagentDraftsForTests() {

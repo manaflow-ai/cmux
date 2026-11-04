@@ -4,13 +4,17 @@
 // the draft in storage, and one the storage refuses holds the page.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { afterFailedSend } from "./SubagentComposer";
+import { inlineToken, type ComposerAttachment } from "../attachments";
 import {
+  draftMessage,
   keepSubagentDraft,
   resetSubagentDraftsForTests,
   restoreSubagentDraft,
   subagentDraft,
   subagentDraftUnsaved,
   subscribeSubagentDraft,
+  wakeIntoSubagentDrafts,
+  wakeSubagentDrafts,
   type Draft,
 } from "./subagentDrafts";
 
@@ -127,5 +131,49 @@ describe("subagent drafts", () => {
     expect(subagentDraft(KEY, now)).toEqual(draft(""));
     expect(subagentDraft("chat-2\u0000agent-1", now)).toEqual(draft("recent"));
     expect(storage.items.size).toBe(1);
+  });
+
+  test("a quit hands the host each draft as text, and the next page takes them back", () => {
+    keepSubagentDraft(KEY, {
+      text: `see ${inlineToken("p1")} and fix`,
+      attachments: [{ id: "p1", kind: "pasted", text: "the stack trace" } as unknown as ComposerAttachment],
+    });
+    keepSubagentDraft("chat-1\u0000agent-2", draft("second"));
+    const wake = wakeSubagentDrafts();
+    // The pasted chip's text goes in its place: the relay is text only.
+    expect(wake).toEqual({ [KEY]: "see the stack trace and fix", "chat-1\u0000agent-2": "second" });
+    // The app quits: its pages' storage is gone with it.
+    storage.items.clear();
+    resetSubagentDraftsForTests();
+    wakeIntoSubagentDrafts(wake);
+    expect(subagentDraft("chat-1\u0000agent-2")).toEqual(draft("second"));
+    expect(subagentDraft(KEY)).toEqual(draft("see the stack trace and fix"));
+  });
+
+  test("a draft the page still keeps wins over the woken copy", () => {
+    keepSubagentDraft(KEY, draft("typed after the release"));
+    wakeIntoSubagentDrafts({ [KEY]: "older" });
+    expect(subagentDraft(KEY)).toEqual(draft("typed after the release"));
+  });
+
+  test("the wake state carries no more than about a megabyte of drafts", () => {
+    keepSubagentDraft(KEY, draft("x".repeat(900_000)));
+    keepSubagentDraft("chat-1\u0000agent-2", draft("y".repeat(900_000)));
+    const wake = wakeSubagentDrafts() ?? {};
+    // The newest draft goes; the older one stays out rather than push the tab past the host's cap.
+    expect(Object.keys(wake)).toEqual(["chat-1\u0000agent-2"]);
+  });
+
+  test("an empty store hands the host nothing", () => {
+    expect(wakeSubagentDrafts()).toBeUndefined();
+  });
+
+  test("a draft's message puts each pasted chip in its place, and a loose one after", () => {
+    const chips = [
+      { id: "p1", kind: "pasted", text: "A" },
+      { id: "p2", kind: "pasted", text: "B" },
+      { id: "i1", kind: "image", data: "iVBO" },
+    ] as unknown as ComposerAttachment[];
+    expect(draftMessage({ text: `x ${inlineToken("p1")} y`, attachments: chips })).toBe("x A y\n\nB");
   });
 });

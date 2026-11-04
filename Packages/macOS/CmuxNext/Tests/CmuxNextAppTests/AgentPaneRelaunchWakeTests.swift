@@ -88,6 +88,34 @@ struct AgentPaneRelaunchWakeTests {
         #expect(third.wakeStates.isEmpty)
     }
 
+    /// A subagent's unsent prompt (its pane's composer, webviews subagentDrafts.ts) has no acpmux
+    /// session to keep it: it rides in its chat's wake state, which alone is not empty, so a tab
+    /// holding only that keeps it through a relaunch (review of cmux#33280: "Drafts disappear after
+    /// quitting").
+    @Test func aSubagentsDraftComesBackAfterARelaunch() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentPaneRelaunchWake.fileName)
+        let records = [
+            "tab_chat": AgentSessionRef(host: Self.thisMac, hostName: "This Mac", session: "s-chat", harness: "claude"),
+        ]
+        let held = AgentPaneWakeState(subagentDrafts: ["s-chat\u{0}agent-1": "check the flaky test first"])
+        #expect(!held.isEmpty, "a wake state holding only a subagent's draft counted as empty")
+
+        let before = Self.run(file: file, records: records)
+        before.wakeStates["tab_chat"] = held
+        before.relaunchWake.read = { _, _ in nil }
+        await before.relaunchWake.save(before.relaunchWakeStates())
+
+        let after = Self.run(file: file, records: records)
+        after.wakeStates = await after.relaunchWake.take(on: Self.work)
+        let page = try #require(after.view(for: "tab_chat"))
+        let handshake = try await Self.ready(page)
+        let wake = try #require(handshake["wake"] as? [String: Any], "the chat came back without its subagent's draft")
+        #expect((wake["subagentDrafts"] as? [String: String])?["s-chat\u{0}agent-1"] == "check the flaky test first")
+    }
+
     /// A restored New Tab page with chips from the last quit never adopts the prewarmed spare (its
     /// handshake is long past): it gets a page of its own whose handshake carries them, and the
     /// state is gone from the store, so no later page brings it back.
