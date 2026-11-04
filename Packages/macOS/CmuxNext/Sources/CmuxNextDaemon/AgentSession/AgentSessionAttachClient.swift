@@ -422,9 +422,10 @@ public actor AgentSessionAttachClient {
 
     /// Saves or resets a cmux-added context override on that machine. A project scope uses
     /// the attached session's directory; nil resets the saved override.
-    public func setContextOverride(scope: String, text: String?) async throws -> Data {
+    public func setContextOverride(scope: String, text: String?, partId: String? = nil) async throws -> Data {
         var params: [String: any Sendable] = ["op": "set", "scope": scope]
         if let text { params["text"] = text }
+        if let partId { params["partId"] = partId }
         return try await context(params)
     }
 

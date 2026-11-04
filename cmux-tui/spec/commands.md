@@ -9720,9 +9720,12 @@ its agent in. The code and key are never logged.
 owner's context viewer for an attached session. `{id,
 cmd:"agent-session-context", surface, op:"get"}` sends acpmux's
 `_acpmux/context {sessionId}`. `{id, cmd:"agent-session-context", surface,
-op:"set", scope:"user"|"project", text?:string|null}` sends
-`_acpmux/context_override {sessionId, scope, text}`; null or omitted text
+op:"set", scope:"user"|"project", text?:string|null,
+partId?:"cmux-system-prompt"}` sends
+`_acpmux/context_override {sessionId, scope, text, partId?}`; null or omitted text
 resets the override, while an empty string is an explicit empty override.
+Omitting `partId` edits first-turn guidance. `cmux-system-prompt` selects the
+cmux-owned preset system prompt, only when acpmux verifies it is locally editable.
 The daemon pins `sessionId` to the attachment, and acpmux derives a project
 override's directory from that session. A caller cannot name a session or
 directory; extra fields and unknown operations or scopes are

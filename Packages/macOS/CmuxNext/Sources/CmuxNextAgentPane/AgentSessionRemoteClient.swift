@@ -43,7 +43,7 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     /// The attached session's context inventory and saved cmux-added overrides.
     func context() async throws -> Data
     /// Saves or resets a cmux-added user/project override on the attached session's machine.
-    func setContextOverride(scope: String, text: String?) async throws -> Data
+    func setContextOverride(scope: String, text: String?, partId: String?) async throws -> Data
     /// Whether that machine's daemon relays a Cloud chat's own sign-in (`agent-session-login-v1`).
     func servesLogin() async -> Bool
     /// One step of the chat's agent's own sign-in on that machine (`agent-session-login-v1`):
@@ -71,7 +71,10 @@ extension AgentSessionRemoteClient {
     public func setMode(_ modeId: String) async throws -> Data { throw Self.settingsUnsupported }
     public func setConfig(id configId: String, value: String) async throws -> Data { throw Self.settingsUnsupported }
     public func context() async throws -> Data { throw Self.contextUnsupported }
-    public func setContextOverride(scope: String, text: String?) async throws -> Data { throw Self.contextUnsupported }
+    public func setContextOverride(scope: String, text: String?, partId: String?) async throws -> Data { throw Self.contextUnsupported }
+    public func setContextOverride(scope: String, text: String?) async throws -> Data {
+        try await setContextOverride(scope: scope, text: text, partId: nil)
+    }
     nonisolated static var contextUnsupported: AgentSessionRemoteError {
         AgentSessionRemoteError(code: "agent_session.context_unsupported",
                                 message: "Update cmux on that machine to view or edit this chat's context.")

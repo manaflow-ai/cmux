@@ -64,8 +64,8 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
 
     public func context() async throws -> Data { try await mapped { try await client.context() } }
 
-    public func setContextOverride(scope: String, text: String?) async throws -> Data {
-        try await mapped { try await client.setContextOverride(scope: scope, text: text) }
+    public func setContextOverride(scope: String, text: String?, partId: String?) async throws -> Data {
+        try await mapped { try await client.setContextOverride(scope: scope, text: text, partId: partId) }
     }
 
     /// An observation never signs the chat's agent in.

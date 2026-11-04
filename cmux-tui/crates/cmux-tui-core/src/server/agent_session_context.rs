@@ -14,6 +14,8 @@ pub(super) enum Params {
         scope: Scope,
         #[serde(default)]
         text: Option<String>,
+        #[serde(default, rename = "partId")]
+        part_id: Option<Part>,
     },
 }
 
@@ -22,6 +24,12 @@ pub(super) enum Params {
 pub(super) enum Scope {
     User,
     Project,
+}
+
+#[derive(Deserialize)]
+pub(super) enum Part {
+    #[serde(rename = "cmux-system-prompt")]
+    SystemPrompt,
 }
 
 impl Params {
@@ -36,16 +44,17 @@ pub(super) fn call(attachment: &Attachment, params: Params) -> Result<Value, Ref
     let session = &attachment.session;
     let (method, params) = match params {
         Params::Get { .. } => ("_acpmux/context", json!({"sessionId": session})),
-        Params::Set { scope, text, .. } => {
+        Params::Set { scope, text, part_id, .. } => {
             let scope = match scope {
                 Scope::User => "user",
                 Scope::Project => "project",
             };
             // acpmux derives the project directory from this session's metadata.
-            (
-                "_acpmux/context_override",
-                json!({"sessionId": session, "scope": scope, "text": text}),
-            )
+            let mut params = json!({"sessionId": session, "scope": scope, "text": text});
+            if let Some(Part::SystemPrompt) = part_id {
+                params["partId"] = json!("cmux-system-prompt");
+            }
+            ("_acpmux/context_override", params)
         }
     };
     attachment.link.call(method, params, CALL_TIMEOUT).map_err(Refusal::of)

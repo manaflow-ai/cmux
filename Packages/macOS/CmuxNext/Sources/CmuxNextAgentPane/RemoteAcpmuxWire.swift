@@ -268,10 +268,12 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         case "_acpmux/context_override":
             guard !isReadOnly else { return refuseReadOnly(id, method) }
             guard names(params["sessionId"]), let scope = params["scope"] as? String,
-                  params["text"] == nil || params["text"] is NSNull || params["text"] is String else { return refuse(id, method) }
+                  params["text"] == nil || params["text"] is NSNull || params["text"] is String,
+                  params["partId"] == nil || params["partId"] is NSNull || params["partId"] is String else { return refuse(id, method) }
             // The daemon pins the project directory from the attached session, never the page.
             let text = params["text"] as? String
-            run(id, afterEarlierPicks: true) { client in try await client.setContextOverride(scope: scope, text: text) }
+            let partId = params["partId"] as? String
+            run(id, afterEarlierPicks: true) { client in try await client.setContextOverride(scope: scope, text: text, partId: partId) }
         case "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key",
              "_acpmux/agent_login/cancel":
             // A Cloud chat's own sign-in on its machine (the failed turn's card): the host already

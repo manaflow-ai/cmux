@@ -80,7 +80,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/draft_set": (["sessionId", "text"], []),
         // The project is derived from the attached session. Never accept a caller's cwd or metadata.
         "_acpmux/context": (["sessionId"], []),
-        "_acpmux/context_override": (["sessionId", "scope", "text"], []),
+        "_acpmux/context_override": (["sessionId", "scope", "text", "partId"], []),
         "_acpmux/inbox_thread": (["sessionId", "threadId"], []),
         "_acpmux/bookmark_get": (["sessionId"], []),
         "_acpmux/bookmark_set": (["sessionId", "seq", "bookmarked"], []),
