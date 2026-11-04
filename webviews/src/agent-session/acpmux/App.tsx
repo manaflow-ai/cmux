@@ -13681,9 +13681,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                         onColdOpenShown={coldOpenShown}
                                                         afterLatest={
                                                           !childRows &&
-                                                          (trayPlacement === "after-latest-message" || showOpenAppCard) ? (
+                                                          (trayPlacement === "after-latest-message" ||
+                                                            showOpenAppCard) ? (
                                                             <>
-                                                              {showOpenAppCard && <OpenAppCard ports={cloudPreviewPortList} />}
+                                                              {showOpenAppCard && (
+                                                                <OpenAppCard ports={cloudPreviewPortList} />
+                                                              )}
                                                               {trayPlacement === "after-latest-message" && trayNode}
                                                             </>
                                                           ) : undefined
