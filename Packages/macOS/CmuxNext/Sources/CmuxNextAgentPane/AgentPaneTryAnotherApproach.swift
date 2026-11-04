@@ -7,7 +7,7 @@ public nonisolated struct AgentPaneTryAnotherApproach: Equatable, Sendable {
 
     public init?(params: [String: Any]?) {
         guard let params, Set(params.keys) == ["throughSeq"] else { return nil }
-        guard let value = (params?["throughSeq"] as? NSNumber)?.intValue, value > 0 else { return nil }
+        guard let value = (params["throughSeq"] as? NSNumber)?.intValue, value > 0 else { return nil }
         throughSeq = value
     }
 

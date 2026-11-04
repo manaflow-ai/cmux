@@ -449,7 +449,8 @@ public final class AgentPaneModel {
             do {
                 return AgentPaneReply.success(try await onTryAnotherApproach(request.throughSeq))
             } catch {
-                return AgentPaneReply.failure(code: "try_another_approach_failed", message: error.localizedDescription, retryable: true)
+                return AgentPaneReply.failure(code: "try_another_approach_failed", message: error.localizedDescription,
+                                              details: nil, retryable: true, origin: "native")
             }
         case .btwInline(let question, let sessionId):
             // Handshake-attached panes keep the daemon path in `acpmuxSocket`; direct
