@@ -83,14 +83,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--mini", default="", help="one of " + ", ".join(MINIS) + " (default: any of them)")
     ap.add_argument("--minutes", type=float, default=10.0)
     ap.add_argument("--chats", type=int, default=0)
+    ap.add_argument("--history", type=int, default=0, help="Claude and Codex chats seeded in the fresh home")
     ap.add_argument("--windows", type=int, default=3)
     ap.add_argument("--window", type=float, default=60.0)
+    ap.add_argument("--sample-each-window", action="store_true", help="`sample` the busiest process after each window")
     ap.add_argument("--ref", default="")
     ap.add_argument("--agent-id", default=os.environ.get("CMUX_AGENT_ID", ""))
     ap.add_argument("--label", default="")
     ap.add_argument("--wait", action="store_true")
+    ap.add_argument("--json", action="store_true",
+                    help="with --wait: the last stdout line is the step's IDLE-CPU-JSON object (or a one-line reason)")
     a = ap.parse_args(argv)
-    if a.windows < 1 or a.window <= 0 or a.minutes < 0 or a.chats < 0:
+    if a.windows < 1 or a.window <= 0 or a.minutes < 0 or a.chats < 0 or a.history < 0:
         print("idle-cpu-run: --windows >= 1, --window > 0, --minutes and --chats >= 0", file=sys.stderr)
         return 2
     if a.mini and a.mini not in MINIS:
@@ -111,7 +115,7 @@ def main(argv: list[str] | None = None) -> int:
         "minis": [a.mini] if a.mini else list(MINIS),
         "cmux_ci_args": ["--measurement", "--label", "measure", "--label", "gui-session-v1",
                          "--script", SCRIPT, f"--arg=artifact={build['artifact']}", f"--arg=minutes={a.minutes:g}",
-                         f"--arg=chats={a.chats}", f"--arg=windows={a.windows}", f"--arg=window={a.window:g}",
+                         f"--arg=chats={a.chats}", f"--arg=history={a.history}", f"--arg=windows={a.windows}", f"--arg=window={a.window:g}", f"--arg=sample={'each' if a.sample_each_window else 1}",
                          "--artifact", ".build/idle-cpu/report.tgz", "--timeout", str(minutes_total * 60)],
         "verdict": str(VERDICT),
         "note": f"build {build['id']} commit {build['ref']}; scripts/cmux-next/idle-cpu-run.py",
@@ -144,12 +148,24 @@ def main(argv: list[str] | None = None) -> int:
                 if sid in json.dumps(rec):
                     print(json.dumps(rec))
                     job = rec.get("job") or rec.get("job_id") or ""
+                    verdict = str(rec.get("verdict") or "")
+                    payload = None
                     if job:
                         log = subprocess.run([CI, "log", job], capture_output=True, text=True, timeout=300).stdout
-                        print("\n".join(l for l in log.splitlines() if l.startswith("IDLE-CPU")))
-                    verdict = str(rec.get("verdict") or "")
+                        print("\n".join(l for l in log.splitlines() if "IDLE-CPU" in l and "IDLE-CPU-JSON" not in l))
+                        found = re.findall(r"IDLE-CPU-JSON (\{.*\})\s*$", log, re.M)
+                        payload = found[-1] if found else None
+                    if a.json:
+                        if payload:
+                            obj = json.loads(payload)
+                            obj.update(verdict=verdict.split(" ", 1)[0], build=build["id"], job=job, mini=rec.get("mini"))
+                            print(json.dumps(obj, sort_keys=True))
+                        else:
+                            print(f"idle CPU not measured: {verdict or 'no verdict'} (job {job or 'none'})")
                     return 0 if verdict.startswith("PASS") else 1 if verdict.startswith("FAIL") else 3
             seen = handle.tell()
+    if a.json:
+        print(f"idle CPU not measured: spec {sid} gave no result in 6 h")
     return 3
 
 
