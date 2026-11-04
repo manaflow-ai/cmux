@@ -2039,6 +2039,9 @@ pre.cv-math-source {
   gap: 4px;
   margin-left: calc(4px - var(--grid-gap));
   white-space: nowrap;
+  /* Squeezed below its words, it clips them in its own box: unclipped, "· 5m 26s", "· 3.9K tokens"
+     and the ⌃B hint drew over each other on a narrow pane (#35021). */
+  overflow: hidden;
 }
 /* The turn's tokens ("· 679.9K tokens") are secondary to its label and time, as on Claude
    desktop's line: the tool rows' quieter color, in tabular numerals so the count ticks in place. */
@@ -2085,7 +2088,8 @@ pre.cv-math-source {
 }
 /* A running turn's line (WorkingFor.tsx): the call in flight gives way first, its time stays. */
 .cv-worked__doing {
-  flex: 0 1 auto;
+  /* Gives way before the counts after it (#35021), as the live line's words do (.cv-shimmer__row). */
+  flex: 0 1000 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2219,7 +2223,9 @@ pre.cv-math-source {
 .cv-shimmer__row {
   position: relative;
   display: inline-flex;
-  flex: 0 1 auto;
+  /* The line's words give way first, behind their ellipsis, so its time, tokens and ⌃B hint keep
+     their room (#35021); the counts shrink only once the words are gone. */
+  flex: 0 1000 auto;
   min-width: 0;
   max-width: 100%;
 }
