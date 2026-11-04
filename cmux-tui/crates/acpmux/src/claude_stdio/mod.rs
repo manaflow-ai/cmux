@@ -440,6 +440,13 @@ pub fn spawn_plan(
         args.push("--effort".into());
         args.push(e.into());
     }
+    // In -p, Claude Code 2.1.310 streams thinking blocks empty (display
+    // omitted) unless asked for summaries, so the chat showed no thinking
+    // (Leo: "why is no thinking appearing for you?"). A profile may pin its own.
+    if !profile.argv.iter().any(|a| a == "--thinking-display") {
+        args.push("--thinking-display".into());
+        args.push("summarized".into());
+    }
     // A later --model wins over one the profile pins in its argv.
     if let Some(m) = model.filter(|m| !m.is_empty() && *m != "default") {
         args.push("--model".into());
