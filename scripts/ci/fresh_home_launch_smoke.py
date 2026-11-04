@@ -15,7 +15,10 @@ passes when
      HomeDock.page: the Chief conversation, whose empty state is the first-run
      panel) selected, and the launch marks the app streams to
      CMUX_NEXT_LAUNCH_MARKS_FD (LaunchMarkSink) include
-     first_window_frame_committed.
+     first_window_frame_committed. While the first-run Bring your history page
+     covers Home, the tab has no selection: the mark
+     first_run.history_import_shown stands in, so this path proves the frame
+     and that the page opened, not Home's first-run view behind it.
 
 The app keeps its defaults in the account's preferences whatever HOME says
 (cfprefsd), so the run holds a per-bundle lock, sets the domain aside
