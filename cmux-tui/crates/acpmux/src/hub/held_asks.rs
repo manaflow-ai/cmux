@@ -4,7 +4,7 @@
 //! the Mac with no record of a live ask, so a person's Allow once went out unsigned
 //! and the peer refused it ("That answer didn't go through", 2026-11-03). Each is
 //! held here and applied again once the peer lists that session; the rule it must
-//! pass is unchanged. Bounded: at most `MAX_HELD` notices, each for `HOLD_FOR`.
+//! pass is unchanged. Bounded: at most `MAX_HELD` notices per peer, each for `HOLD_FOR`.
 
 use std::time::{Duration, Instant};
 
@@ -12,8 +12,9 @@ use crate::peer::PeerNotice;
 
 /// How long a held ask waits for its session to be listed.
 const HOLD_FOR: Duration = Duration::from_secs(120);
-/// How many held asks the daemon keeps across every peer; the oldest go first.
-const MAX_HELD: usize = 256;
+/// How many held asks the daemon keeps per peer; that peer's oldest go first, so one peer
+/// never pushes out another's.
+const MAX_HELD: usize = 64;
 
 struct Held {
     peer: String,
@@ -34,8 +35,10 @@ impl HeldAsks {
         let mut held = self.held.lock().unwrap_or_else(|e| e.into_inner());
         let now = Instant::now();
         held.retain(|h| now.duration_since(h.at) < HOLD_FOR);
-        if held.len() >= MAX_HELD {
-            held.remove(0);
+        if held.iter().filter(|h| h.peer == peer).count() >= MAX_HELD
+            && let Some(oldest) = held.iter().position(|h| h.peer == peer)
+        {
+            held.remove(oldest);
         }
         held.push(Held {
             peer: peer.to_owned(),
@@ -107,9 +110,15 @@ mod tests {
     #[test]
     fn held_asks_are_bounded() {
         let held = HeldAsks::default();
+        held.hold("q", 1, "s", ask("s"));
         for i in 0..MAX_HELD + 10 {
             held.hold("p", 1, &format!("s{i}"), ask("s"));
         }
         assert_eq!(held.take_listed("p", 1, |_| true).len(), MAX_HELD);
+        assert_eq!(
+            held.take_listed("q", 1, |_| true).len(),
+            1,
+            "one peer's asks pushed out another's"
+        );
     }
 }
