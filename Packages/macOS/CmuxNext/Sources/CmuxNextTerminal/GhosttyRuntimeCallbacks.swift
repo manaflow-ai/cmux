@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextWakeups
 import GhosttyNextKit
-import IOSurface
 
 /// Carries a Ghostty C handle across threads: the module's one reviewed
 /// pointer hand-off. Swift never reads through it; Ghostty's contract keeps
@@ -208,42 +207,3 @@ nonisolated func ghosttySurfaceVSyncWanted(_ userdata: UnsafeMutableRawPointer?,
     // SAFETY: a surface's `vsync_userdata`, its bridge (above).
     unsafe SurfaceBridge.from(userdata)?.vsync.wantedChanged(wanted)
 }
-
-#if GHOSTTY_EXTERNAL_CURSOR
-/// `ghostty_surface_cursor_cb` (ghostty-next p03-rendering-090), set in a surface's config while its view shows
-/// the cursor itself (``TerminalCursorLayer``): once per move or change of the cursor cell, never per blink, inside
-/// the Core Animation transaction that presents the cell's frame, on the thread that presents it (main, or the GPU
-/// completion thread for a content-only frame). `userdata` is the surface's ``SurfaceBridge`` (`cursor_userdata`),
-/// which outlives the surface. The cell goes on its layer in that transaction (``TerminalCursorPresenter``), so it
-/// moves with its text; the blink follows in one coalesced main turn. It never blocks or calls into Ghostty, as
-/// ghostty.h requires.
-// perf-hot: 5us terminal-key (one published cell: three layer property sets, two atomics, at most one main wake)
-nonisolated func ghosttySurfaceCursor(_ userdata: UnsafeMutableRawPointer?, _ cell: UnsafePointer<ghostty_cursor_cell_s>?) {
-    // SAFETY: a surface's `cursor_userdata`, its SurfaceBridge (above); Ghostty passes one cell, valid for this
-    // callback, which is copied before it returns.
-    guard let bridge = unsafe SurfaceBridge.from(userdata), let presenter = bridge.cursor,
-          let cell = unsafe cell?.pointee else { return }
-    guard presenter.present(TerminalCursorState(cell)) else { return }
-    MainRunLoopBlock.perform { bridge.view?.cursorCellsDidChange() }
-}
-
-extension TerminalCursorState {
-    /// Copies Ghostty's cell; the cell's IOSurface is retained here (Ghostty passes it +0, valid for the call).
-    nonisolated init(_ cell: ghostty_cursor_cell_s) {
-        let style: Style = switch cell.style {
-        case GHOSTTY_CURSOR_CELL_BLOCK_HOLLOW: .blockHollow
-        case GHOSTTY_CURSOR_CELL_BAR: .bar
-        case GHOSTTY_CURSOR_CELL_UNDERLINE: .underline
-        case GHOSTTY_CURSOR_CELL_LOCK: .lock
-        default: .block
-        }
-        // SAFETY: Ghostty's `surface` is an IOSurfaceRef (toll-free bridged to IOSurface) valid for this callback;
-        // taking it unretained and storing it retains it, so it outlives the callback.
-        let image = unsafe cell.surface.map { unsafe Image(surface: Unmanaged<IOSurface>.fromOpaque($0).takeUnretainedValue()) }
-        self.init(serial: cell.serial,
-                  cell: CGRect(x: Double(cell.x), y: Double(cell.y), width: Double(cell.width), height: Double(cell.height)),
-                  style: style, visible: cell.visible, blinking: cell.blinking, blinkIntervalMS: cell.blink_interval_ms,
-                  image: image)
-    }
-}
-#endif

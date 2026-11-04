@@ -58,8 +58,6 @@ final class TabContentCache {
     var warmBudget = WarmSetBudget.standard, warmSetRelease: WarmSetRelease?
     /// Lets paused away terminals' GPU memory go (`terminalGPURelease`, `ghostty_surface_set_gpu_resident`); nil: none.
     let gpuResidency: (any TerminalGPUResidency)?
-    /// Every terminal session it makes shows its cursor on the render server (feature `terminalCursorLayer`).
-    let terminalExternalCursor: Bool
     /// The warm set's capacity at normal pressure (`SubsystemBudget.warmTerminalSurfaces`: larger with
     /// ``gpuResidency``); `WarmSetRelease` scales it under pressure.
     let normalWarmCapacity: Int
@@ -221,14 +219,13 @@ final class TabContentCache {
     ///   - gpuResidency: The app's GPU memory release (``gpuResidency``); tests get none.
     ///   - webKitProcessReuse: Same-site WebKit tab processes above the renderer limit (`webKitSameSiteProcesses`);
     ///     nil, the default, gives every WebKit tab its own process.
-    ///   - terminalExternalCursor: `terminalCursorLayer` is on (``terminalExternalCursor``); tests get Ghostty's cursor.
     ///   - streamFocus: The terminals' stream ranking while `terminalStreamPriority` is on; nil, the default, ranks none.
     init(daemon: DaemonService, chromium: ChromiumEngineSlot, fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
          resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil,
          terminalPointerFrames: FrameInputCoalescers? = nil, mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler,
          appEvents: AppEvents, imageCaches: ImageCacheShares = .legacy, gpuResidency: (any TerminalGPUResidency)? = nil,
-         webKitProcessReuse: WebKitProcessReuse? = nil, terminalExternalCursor: Bool = false,
+         webKitProcessReuse: WebKitProcessReuse? = nil,
          streamFocus: TerminalStreamFocus? = nil) {
         self.imageCaches = imageCaches
         previews = PreviewImageCache(fullCapacityBytes: imageCaches.previewBytes, contents: .rebuildable, allocator: imageCaches.pictureAllocator)
@@ -238,7 +235,6 @@ final class TabContentCache {
         self.terminalPointerFrames = terminalPointerFrames
         self.streamFocus = streamFocus
         self.gpuResidency = gpuResidency
-        self.terminalExternalCursor = terminalExternalCursor
         normalWarmCapacity = SubsystemBudget.forThisMac(gpuResidentAvailable: gpuResidency != nil).warmTerminalSurfaces
         goneTabs = GoneTabWatch(mainWork: mainWork)
         webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, energy: mainWork.energy, waitDeadlines: chromium.waitDeadlines,
