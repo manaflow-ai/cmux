@@ -6,7 +6,10 @@ import CmuxNextDesign
 /// A workspace may be created by another client without its first terminal,
 /// or may be waiting for the user after a prior terminal was closed. When its
 /// first terminal failed to start, it says why under the title (cx-tzlqb).
-final class EmptyWorkspaceView: NSView {
+/// With no pane there is no tab strip, so its top row is titlebar space: a
+/// press there moves the window (Leo, 2026-11-03: "i also can't drag from
+/// this top area at all").
+final class EmptyWorkspaceView: NSView, TitlebarPressDeciding {
     var onNew: (() -> Void)?
     /// Why the workspace's first terminal did not start; nil hides the line.
     var failure: String? {
@@ -107,6 +110,9 @@ final class EmptyWorkspaceView: NSView {
         }
         return super.performKeyEquivalent(with: event)
     }
+
+    /// `TitlebarDragPolicy` asks only for points in the top row.
+    func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress { .movesWindow }
 
     private static func isPlainReturn(_ event: NSEvent) -> Bool {
         (event.keyCode == 36 || event.keyCode == 76)
