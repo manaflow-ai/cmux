@@ -1035,7 +1035,11 @@ impl Hub {
             None,
             || {
                 if delivers_context {
-                    session.meta.lock().unwrap().cmux_context_delivered = true;
+                    session
+                        .meta
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .cmux_context_delivered = true;
                     self.save_meta(session);
                 }
                 self.mark_team_messages(session, &team_messages);
