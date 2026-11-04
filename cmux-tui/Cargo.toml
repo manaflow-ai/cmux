@@ -49,6 +49,7 @@ members = [
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
     "crates/cmux-cloud-start-core",
+    "crates/cmux-cloud-config",
     "crates/cmux-unix-socket",
     "crates/cmux-panic-log",
     "crates/cmux-pty",
@@ -132,6 +133,7 @@ default-members = [
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
     "crates/cmux-cloud-start-core",
+    "crates/cmux-cloud-config",
     "crates/cmux-pty",
     "crates/cmux-process",
     "crates/cmux-remote-protocol",
@@ -220,6 +222,7 @@ cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-bookmarks-core = { path = "crates/cmux-bookmarks-core" }
 cmux-cloud-start-core = { path = "crates/cmux-cloud-start-core" }
+cmux-cloud-config = { path = "crates/cmux-cloud-config" }
 cmux-unix-socket = { path = "crates/cmux-unix-socket" }
 cmux-panic-log = { path = "crates/cmux-panic-log" }
 cmux-agent-pane-policy = { path = "crates/cmux-agent-pane-policy" }
