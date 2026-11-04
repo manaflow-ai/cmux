@@ -137,9 +137,11 @@ test("a folder harness keeps its card with its own hint and action", async () =>
       />,
     );
   });
-  expect(container.querySelector(".acpmux-host-error-card")).not.toBeNull();
+  const card = container.querySelector(".acpmux-host-error .ui-notice");
+  expect(card?.getAttribute("data-kind")).toBe("warning");
   expect(buttons(container)).toEqual(["Enable Claude Code"]);
-  expect(container.querySelectorAll("p")).toHaveLength(1);
+  expect(container.querySelectorAll(".ui-notice-message")).toHaveLength(1);
+  expect(container.querySelector(".ui-notice-title")).toBeNull();
 });
 
 // Leo, 2026-10-30, on a red card while a chat's machine was only reconnecting: "it was literally
