@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1288,
+    "entries": 1286,
     "shortcuts": 189
   },
   "sections": [
@@ -7294,12 +7294,6 @@
           "command": "cmux settings keyboard-shortcuts"
         },
         {
-          "id": "agentPane.display.railOnRight",
-          "title": "Prompt Rail on Right Edge",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "reloadConfiguration",
           "title": "Reload Configuration",
           "shortcut": "⇧⌘,",
@@ -7418,12 +7412,6 @@
           "title": "Show Announcements",
           "shortcut": null,
           "command": "cmux settings show-announcements"
-        },
-        {
-          "id": "agentPane.display.showMinimap",
-          "title": "Show Chat Minimap",
-          "shortcut": null,
-          "command": null
         },
         {
           "id": "help.showCrashLogs",

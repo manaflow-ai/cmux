@@ -167,9 +167,9 @@ final class SidebarRows {
         }
     }
 
-    /// Sends one personal-state command to `home` for `edit`; `until`: sent again while unanswered, never undone.
-    func send(_ label: String, edit: SidebarPendingEdits.Token?, on home: DaemonService, until claim: PersonalWriteLedger.Claim? = nil,
+    /// Sends one personal-state command to `home` for `edit`.
+    func send(_ label: String, edit: SidebarPendingEdits.Token?, on home: DaemonService,
               failed: @escaping @MainActor (ActionWorkFailure) -> Void, _ body: @escaping DaemonCommandBody) {
-        if let claim { home.sendUntilAnswered(label, until: claim, edits.outcome(edit, failed: failed), body) } else { send(edit, [(label, home, body)], failed: failed) }
+        send(edit, [(label, home, body)], failed: failed)
     }
 }

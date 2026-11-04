@@ -3,8 +3,7 @@
 //! machine daemon's `fs-v1` ops (Move to Cloud, cmuxterm-hq#1874 slice 2).
 //! `--socket` is the machine daemon's socket as this Mac reaches it (the
 //! machine link's local socket); `REMOTE` is an absolute folder under the
-//! machine's home. What goes is in [`local`]; git's loose objects go as
-//! packs ([`packs`]). `cmux link sync pull` brings
+//! machine's home. What goes is in [`local`]. `cmux link sync pull` brings
 //! it back by a three-way merge against the push ([`pull`]).
 //!
 //! A manifest on the machine (`REMOTE/.git/cmux-sync.json` in a git
@@ -46,7 +45,6 @@ mod git_back;
 mod links;
 mod local;
 mod names;
-mod packs;
 mod place;
 mod pull;
 mod remote;
@@ -504,11 +502,6 @@ fn push_inner(
     // The manifest's own name is never pushed over it, as a file or a symlink.
     if set.files.remove(manifest_name).is_some() | set.links.remove(manifest_name).is_some() {
         set.skips.note(manifest_name, skips::Why::Reserved);
-    }
-    // Loose objects go as packs ([`packs`]).
-    if git_record {
-        let dirs = local::GitDirs::of(&local)?.context("the folder is no longer in git")?;
-        packs::pack_loose(&mut set.files, &dirs.common, &base::packs_dir(&local, remote_root)?)?;
     }
     set.skips.unnamed(set.skipped);
     let (skipped_files, skipped_counts) = set.skips.json();

@@ -84,7 +84,9 @@
      button, the buttons touching, the first glyph's box on the prose's left edge (Leo, 2026-11-02,
      of the 20 glyphs in 32 buttons: "WHY ARE THESE SO BIG"). */
   --cv-footer-row: var(--grid-transcript-footer-control);
-  --cv-footer-button: var(--grid-transcript-action-control);
+  /* Claude Code desktop's 24 buttons, touching, pitch 24 (Leo, 2026-11-04, beside Claude's: "spaing
+     bad"): the row action box's 28 spread Copy, Read aloud and More a sixth wider than Claude's. */
+  --cv-footer-button: calc(24px * var(--cmux-interface-scale, 1));
   --cv-footer-glyph: var(--grid-transcript-icon-box);
   /* Their ink at rest, a step under the muted text, full ink under the pointer (Leo, 2026-11-02:
      "AND THEY'RE REDUCED OPACITY A BIT TOO"). */
@@ -3194,9 +3196,7 @@ button.cv-video-frames__frame:focus-visible {
 }
 /* Inner calls in an opened group keep their disclosure slot, but the quiet chevron only appears
    when that row is under the pointer (Leo, 2026-11-01). The group header keeps its own disclosure.
-   A focused or opened row stays revealed and lifted while its menu or body is open. Hover only
-   reveals the chevron: a step's words and glyph keep their tone under the pointer, as a lone tool
-   row's do (#20330: tool rows "no longer change on hover"; agent-pane-step-rows.test.ts). */
+   A focused or opened row stays revealed while its menu or body is open. */
 .cv-steps > .cv-step > .cv-tool > .cv-tool__chevron {
   opacity: 0;
   transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
@@ -3207,6 +3207,7 @@ button.cv-video-frames__frame:focus-visible {
   opacity: 1;
 }
 .cv-steps > .cv-step > .cv-tool:is(
+  :hover,
   :focus-within,
   [aria-expanded="true"],
   [data-popup-open],
@@ -3216,6 +3217,7 @@ button.cv-video-frames__frame:focus-visible {
   color: var(--cv-text);
 }
 .cv-steps > .cv-step > .cv-tool:is(
+  :hover,
   :focus-within,
   [aria-expanded="true"],
   [data-popup-open],
@@ -3233,7 +3235,7 @@ button.cv-video-frames__frame:focus-visible {
   transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
 }
 /* A thought step has no glyph: its words start at the rows' text column. */
-.cv-step-thought,
+.cv-step-thought:not(.is-open),
 .cv-step-thought__body,
 .cv-step > .cv-tool-error {
   padding-left: var(--cv-step-text);
@@ -3279,31 +3281,30 @@ button.cv-video-frames__frame:focus-visible {
 }
 /* A failed step's tag (CommandRow.tsx) has no column between the words and the chevron in these
    gallery looks: it keeps their old place, at the end of the spacer before the trailing column. */
-:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step > .cv-tool > :is(.cv-command__failed, .cv-tool__failed:not(.cv-tool__icon)) {
+:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step > .cv-command > .cv-command__failed {
   grid-column: 3;
   justify-self: end;
   margin-inline-start: 0;
 }
-/* A thought step: muted words, one line closed; open, "Thought for 6s" with its chevron right after
-   the words (design/chat-transcript.md, the chevron after its label) and its whole text under them.
-   Gallery-only looks for the opened lead thought (`data-lead-thought-look`, ClaudeDesktopOrganization
-   .gallery.ts): `edge`, the disclosure alone at the top of the row's end (cmux#27896, replaced), and
-   `bare`, the disclosure alone at the text column. */
+/* A thought step: muted words, one line closed; open, its whole text with the disclosure at the
+   top of the row's end. */
 .cv-step-thought {
   color: var(--cv-text-muted);
 }
-:root:is([data-lead-thought-look="edge"], [data-lead-thought-look="bare"]) .cv-step-thought.is-open > .cv-tool__text {
-  display: none;
-}
-:root[data-lead-thought-look="edge"] .cv-step-thought.is-open {
+.cv-step-thought.is-open {
   float: right;
   width: var(--cv-disclosure-slot);
   min-height: 20px;
   margin-left: 8px;
-  padding-left: 0;
 }
-:root[data-lead-thought-look="edge"] .cv-step-thought.is-open > .cv-tool__chevron {
+.cv-step-thought.is-open > .cv-tool__chevron {
   margin-inline-start: 0;
+}
+:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step-thought.is-open {
+  grid-template-columns: var(--cv-disclosure-slot);
+}
+:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step-thought.is-open > .cv-tool__chevron {
+  grid-column: 1;
 }
 .cv-step-thought__body {
   display: block;
@@ -3340,8 +3341,11 @@ button.cv-video-frames__frame:focus-visible {
 :root[data-tool-steps-look="tree"] .cv-step > .cv-tool > .cv-command__meta {
   grid-column: 5;
 }
-:root[data-tool-steps-look="tree"] .cv-step > .cv-tool > :is(.cv-command__failed, .cv-tool__failed:not(.cv-tool__icon)) {
+:root[data-tool-steps-look="tree"] .cv-step > .cv-command > .cv-command__failed {
   grid-column: 4;
+}
+:root[data-tool-steps-look="tree"] .cv-step-thought.is-open {
+  grid-template-columns: var(--cv-disclosure-slot);
 }
 /* "zebra": no ring and no hairlines; every other step on the cards' fill, inset and rounded. */
 :root[data-tool-steps-look="zebra"] .cv-steps {
@@ -3410,19 +3414,16 @@ button.cv-video-frames__frame:focus-visible {
 .cv-command__failed {
   color: var(--agent-status-failure);
 }
-/* "Failed" right after a failed call's title, before its chevron (CommandRow.tsx, ToolRow.tsx):
-   never cut, so a long label takes the ellipsis and the failure still shows, one space from the
-   words rather than the row's gap. */
-.cv-command > .cv-command__failed,
-.cv-tool > .cv-tool__failed:not(.cv-tool__icon) {
+/* "Failed" right after a failed call's title, before its chevron (CommandRow.tsx): never cut, one
+   space from the words rather than the row's gap. */
+.cv-command > .cv-command__failed {
   display: inline-block;
   flex: none;
   margin-inline-start: calc(0.3em - var(--cv-tool-gap));
   white-space: nowrap;
 }
 /* A tag reads as one, "Failed", while its text stays the row's word ("failed") for Find and copy. */
-.cv-command > .cv-command__failed::first-letter,
-.cv-tool > .cv-tool__failed:not(.cv-tool__icon)::first-letter {
+.cv-command > .cv-command__failed::first-letter {
   text-transform: uppercase;
 }
 /* "Background command completed" muted, then what the command did in the transcript's ink, as
@@ -4356,7 +4357,7 @@ a.cv-sha:focus-visible {
 .cv-turn-actions .cv-iconbtn:not(.cv-turn-retry-menu) {
   width: var(--cv-meta-row);
 }
-/* A reply's footer buttons: Claude's 28 squares (their 7 radius on the grid's 6), each around a 16 glyph, in the
+/* A reply's footer buttons: Claude's 24 squares (their radius on the grid's 6), each around a 16 glyph, in the
    muted footer ink until pointed at (--cv-footer-ink). */
 .cv-turn-actions:not(.cv-turn-actions--empty) .cv-iconbtn {
   height: var(--cv-footer-button);
@@ -4402,7 +4403,7 @@ a.cv-sha:focus-visible {
 .acpmux-row.acpmux-turnSummary {
   contain: layout;
 }
-/* The buttons touch, 28px squares side by side, then the time 8px on (.cv-turn-actions' gap). */
+/* The buttons touch, squares side by side (a reply's 24, --cv-footer-button), then the time 8px on (.cv-turn-actions' gap). */
 .cv-turn-action-group {
   display: inline-flex;
   align-items: center;
