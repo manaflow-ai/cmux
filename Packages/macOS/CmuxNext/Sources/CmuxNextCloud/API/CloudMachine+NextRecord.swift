@@ -18,13 +18,18 @@ extension CloudMachine {
         case "failed": .failed
         default: .unknown
         }
-        // The record's `capabilities` are machine capability names
-        // (`agent_session`, …), not provider operations, so the machine
-        // declares none and every Cloud action stays available.
+        // Capabilities are authoritative backend data. Keep the response's
+        // provider-operation map (or name list); unsupported requests then
+        // receive the backend's declared refusal instead of a client guess.
+        let capabilities: CloudMachine.Capabilities? = value["capabilities"].flatMap { raw in
+            guard let data = try? JSONEncoder().encode(raw) else { return nil }
+            return try? JSONDecoder().decode(CloudMachine.Capabilities.self, from: data)
+        }
         // The idle auto-pause fields, when the backend sends them (`/api/vm` names).
         let minutes = (value["idlePauseMinutes"]?.doubleValue).flatMap { Int(exactly: $0) }
         let idlePause = Self.idlePauseDiagnostics(value["idlePause"])
         self.init(id: id, provider: "cmux-next", status: status, displayName: value["name"]?.stringValue,
+                  capabilities: capabilities,
                   pauseReason: Self.nextPauseReason(value["pause_reason"] ?? value["pauseReason"]), idlePauseMinutes: minutes,
                   idlePause: idlePause, lastChangeFailure: Self.changeFailure(value["error"]))
         serverRevision = value["revision"]?.stringValue

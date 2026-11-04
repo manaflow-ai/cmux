@@ -16,7 +16,9 @@ public struct CloudEnvironmentBootstrap {
         var environment = ProcessInfo.processInfo.environment
         // A source CLI override still resolves the actual app's namespace.
         if let bundleID = Bundle.main.bundleIdentifier { environment["CMUX_BUNDLE_ID"] = bundleID }
-        let result = try await ProcessRunner.run(executable: cli, arguments: ["--json", "cloud", "env", "get"],
+        let launchArguments = try JSONSerialization.data(withJSONObject: ProcessInfo.processInfo.arguments)
+        let result = try await ProcessRunner.run(executable: cli,
+            arguments: ["--json", "cloud", "env", "get", "--launch-args", String(decoding: launchArguments, as: UTF8.self)],
             environment: environment, timeout: nil, clock: ContinuousClock())
         guard result.status == 0 else {
             throw DaemonError.launchFailed("Could not resolve this app's Cloud environment: " + String(decoding: result.stderr, as: UTF8.self))

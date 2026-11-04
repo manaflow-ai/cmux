@@ -168,7 +168,7 @@ final class CloudService {
         self.machines = machines
         self.mainWork = mainWork
         self.work = work
-        configuration = selectedConfiguration ?? CloudConfiguration.current(isDebugBuild: isDebugBuild) // a capture build's bench hooks: CloudConfiguration.benchHooksCompiled
+        configuration = selectedConfiguration ?? .unavailable
         auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture)
         let basePaths = CloudPaths.standard(bundleID: configuration.bundleID)
         paths = configuration.runtimeSelection?.storageNamespace.map { CloudPaths(root: basePaths.root.appendingPathComponent($0, isDirectory: true)) } ?? basePaths
@@ -738,11 +738,9 @@ final class CloudService {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         guard auth.isSignedIn else { throw ActionFailure(message: CloudStrings.signInFirst) }
         var name = name ?? request.name
-        // The app server's create takes none of them yet, and its machines have no `/api/vm` file
-        // or exec route for a bootstrap: refuse rather than make a machine without what was asked.
-        if configuration.linkSource == .appServer, !request.isDefault {
-            throw ActionFailure(message: CloudStrings.machineOptionsUnavailable)
-        }
+        // App-server create receives every requested option through the typed op boundary. The
+        // backend owns capability validation and returns its declared refusal; never drop an option
+        // or replace it with a silent default in the client.
         // Environments live in the cmux-next backend's CloudDO: the classic `/api/vm` path has none.
         if configuration.linkSource != .appServer, request.environment != nil {
             throw ActionFailure(message: CloudEnvironmentStrings().unavailable)

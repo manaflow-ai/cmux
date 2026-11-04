@@ -16,6 +16,7 @@ const USAGE: &str = super::cloud_help::ENV_USAGE;
 enum Command {
     Help,
     Get,
+    GetBackend(String),
     Set(Environment),
     Relaunch { pid: i32, bundle: PathBuf },
 }
@@ -25,6 +26,18 @@ fn parse(words: &[String]) -> Result<Command, UsageError> {
         [] => Ok(Command::Help),
         [word] if matches!(word.as_str(), "help" | "--help" | "-h") => Ok(Command::Help),
         [word] if word == "get" => Ok(Command::Get),
+        [word, flag, backend]
+            if word == "get" && matches!(flag.as_str(), "--backend" | "--cloud-backend") =>
+        {
+            Environment::parse(backend).map_err(UsageError::new)?;
+            Ok(Command::GetBackend(backend.clone()))
+        }
+        [word, flag, value] if word == "get" && flag == "--launch-args" => {
+            let args: Vec<String> = serde_json::from_str(value)
+                .map_err(|error| UsageError::new(format!("invalid --launch-args JSON: {error}")))?;
+            let backend = launch_backend(&args).map_err(UsageError::new)?;
+            Ok(Command::GetBackend(backend))
+        }
         [word, name] if word == "set" => {
             Environment::parse(name).map(Command::Set).map_err(UsageError::new)
         }
@@ -46,6 +59,31 @@ fn parse(words: &[String]) -> Result<Command, UsageError> {
         }
         _ => Err(UsageError::new(USAGE)),
     }
+}
+
+fn launch_backend(args: &[String]) -> Result<String, String> {
+    let mut found = None;
+    let mut index = 0;
+    while index < args.len() {
+        let arg = &args[index];
+        if let Some(value) = arg.strip_prefix("--cloud-backend=") {
+            if value.is_empty() || found.is_some() {
+                return Err("duplicate or empty --cloud-backend".into());
+            }
+            found = Some(value.to_owned());
+        } else if arg == "--cloud-backend" {
+            let value = args.get(index + 1).ok_or("--cloud-backend requires a value")?;
+            if value.is_empty() || value.starts_with('-') || found.is_some() {
+                return Err("duplicate or empty --cloud-backend".into());
+            }
+            found = Some(value.clone());
+            index += 1;
+        }
+        index += 1;
+    }
+    let value = found.ok_or("launch arguments do not name --cloud-backend")?;
+    Environment::parse(&value).map_err(|error| error.to_string())?;
+    Ok(value)
 }
 
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -115,10 +153,21 @@ fn run(command: Command, global: &GlobalArgs) -> Result<Value, String> {
     // state. set() independently enforces permissions and I/O failures.
     let previous = switching.then(|| resolver.resolve(None).ok()).flatten();
     let selection = match command {
-        Command::Get => resolver.resolve(std::env::var("CMUX_NEXT_CLOUD_ENV").ok().as_deref())?,
+        Command::Get => resolver.resolve(
+            std::env::var("CMUX_NEXT_CLOUD_BACKEND")
+                .ok()
+                .or_else(|| std::env::var("CMUX_NEXT_CLOUD_ENV").ok())
+                .as_deref(),
+        )?,
+        Command::GetBackend(backend) => resolver.resolve(Some(&backend))?,
         Command::Set(environment) => resolver.set(environment)?,
         Command::Help | Command::Relaunch { .. } => return Err("expected get or set".into()),
     };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| format!("create client-config runtime: {error}"))?;
+    let selection = runtime.block_on(resolver.client_config(selection))?;
     let scheduled = if switching { apply(global, &selection)? } else { false };
     let changed = switching
         && previous.is_none_or(|previous| previous.auth_namespace != selection.auth_namespace);
@@ -213,6 +262,27 @@ mod tests {
             &["set", "preview-../../prod"],
         ] {
             assert!(parse(&words(args)).is_err(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn launch_args_accept_one_backend_and_reject_duplicates_or_missing_values() {
+        assert_eq!(
+            launch_backend(&["--foo".into(), "--cloud-backend=staging".into()]).unwrap(),
+            "staging"
+        );
+        assert_eq!(
+            launch_backend(&["--cloud-backend".into(), "preview-7".into()]).unwrap(),
+            "preview-7"
+        );
+        for args in [
+            vec!["--cloud-backend".into()],
+            vec!["--cloud-backend".into(), "--other".into()],
+            vec!["--cloud-backend=staging".into(), "--cloud-backend=prod".into()],
+            vec!["--cloud-backend".into(), "staging".into(), "--cloud-backend=prod".into()],
+            vec!["--cloud-backend=untrusted".into()],
+        ] {
+            assert!(launch_backend(&args).is_err(), "{args:?}");
         }
     }
 

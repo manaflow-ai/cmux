@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """A Cloud chat end to end from a tagged DEV app, signed in as the agent test account.
 
-Run by .github/workflows/cloud-chat-proof.yml after `scripts/reload.sh --tag TAG --launch
---auth-profile agent --credentials-file FILE`. Through the tagged app's own CLI and socket:
+Run by .github/workflows/cloud-chat-proof.yml after one `scripts/reload.sh --tag TAG --build-only
+--auth-profile agent --credentials-file FILE`. Launches that same bundle with --cloud-backend.
+Through the tagged app's own CLI and socket:
 
-1. switches Cloud environment, verifies the restarted app's actual backend and waits for sign-in,
+1. verifies the launched app's actual backend and waits for sign-in,
 2. `vm token create --ttl 30m` (the key goes to the login Keychain; it is never printed),
 3. `cloud start-chat --prompt ... --wait`: a new machine, a chat on it, the prompt, the reply,
 4. kills the machine the chat made.
@@ -25,7 +26,8 @@ parser.add_argument("--app", required=True, help="the tagged app bundle")
 parser.add_argument("--tag", required=True)
 parser.add_argument("--prompt", required=True)
 parser.add_argument("--agent", default="claude")
-parser.add_argument("--cloud-environment", default="staging")
+parser.add_argument("--cloud-backend", required=True)
+parser.add_argument("--expected-api-origin", required=True)
 parser.add_argument("--evidence", required=True)
 args = parser.parse_args()
 
@@ -34,7 +36,10 @@ ENV = {**os.environ, "CMUX_SOCKET_PATH": f"/tmp/cmux-debug-{args.tag}.sock"}
 # Strings that may never reach the evidence or the log, whatever a CLI answer holds.
 SECRET_MARKERS = ("cmvm_", "cmk_", "eyJ", "Bearer ", "apiKey", '"key"')
 evidence = {"tag": args.tag, "agent": args.agent, "prompt": args.prompt,
-            "cloud_environment": args.cloud_environment, "steps": []}
+            "cloud_environment": args.cloud_backend, "expected_api_origin": args.expected_api_origin,
+            "app": str(Path(args.app).resolve()), "steps": []}
+app_launcher = None
+owned_app = False
 
 
 def clean(text: str, limit: int = 2000) -> str:
@@ -63,6 +68,21 @@ def record(name: str, code: int, out: str, err: str, **extra) -> dict:
 
 
 def finish(result: str) -> None:
+    if app_launcher is not None:
+        # Quit only the bundle this proof identified, then wait on the open -W helper we started.
+        # Its exit is the launch service's completion event, not a fixed sleep between backends.
+        if owned_app:
+            code, out, err = cmux("app", "quit", "--json", timeout=30)
+            record("app quit", code, out, err)
+        try:
+            code = app_launcher.wait(timeout=60)
+            record("app exited", code, "", "")
+            if code != 0 and result == "pass":
+                result = "fail: app launch helper exited unsuccessfully"
+        except subprocess.TimeoutExpired:
+            record("app exited", 124, "", "the launched app did not exit within 60s")
+            if result == "pass":
+                result = "fail: the launched app did not exit"
     evidence["result"] = result
     Path(args.evidence).parent.mkdir(parents=True, exist_ok=True)
     Path(args.evidence).write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
@@ -84,7 +104,7 @@ def listed() -> tuple[int, str, str, dict]:
 
 
 def wait_for(name: str, words: tuple[str, ...], ready, timeout: int = 240) -> dict:
-    """Bounded wait for app launch, restart or authentication; record only safe status fields."""
+    """Bounded wait for app launch or authentication; record only safe status fields."""
     started = time.monotonic()
     deadline = started + timeout
     while True:
@@ -103,30 +123,29 @@ def wait_for(name: str, words: tuple[str, ...], ready, timeout: int = 240) -> di
     return value
 
 
-# 1. A persisted CLI selection alone does not prove the running app uses it. Read the app's
-# actual configuration after the switch, and require a new process if a restart was scheduled.
-identity = wait_for("initial app ready", ("app", "identify", "--json"), lambda value: bool(value.get("pid")))
-started = time.monotonic()
-code, out, err = cmux("cloud", "env", "set", args.cloud_environment, "--json", timeout=150)
-selection = parsed(out) if code == 0 else {}
-record("cloud env set", code, "", err, selected_environment=selection.get("name"),
-       api_origin=selection.get("api_origin"), restart_scheduled=selection.get("restart_scheduled"),
-       sign_in_required=selection.get("sign_in_required"),
-       elapsed_ms=round((time.monotonic() - started) * 1000))
-if code != 0 or selection.get("name") != args.cloud_environment or not selection.get("api_origin"):
-    finish("fail: cloud env set did not select the requested environment")
-if selection.get("restart_scheduled") is True:
-    wait_for("app restarted", ("app", "identify", "--json"),
-             lambda value: bool(value.get("pid")) and value["pid"] != identity["pid"])
+# 1. The launch flag must change the actual running app, rather than only a CLI selection.
+try:
+    app_launcher = subprocess.Popen(["/usr/bin/open", "-W", "-g", "-n", str(Path(args.app).resolve()),
+                                     "--args", "--cloud-backend", args.cloud_backend],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+except OSError as error:
+    record("launch app", 1, "", str(error))
+    finish("fail: launch app")
+record("launch app", 0, "", "", launch_flag=args.cloud_backend)
+identity = wait_for("launched app ready", ("app", "identify", "--json"),
+                    lambda value: bool(value.get("pid"))
+                    and value.get("app_bundle_path") == str(Path(args.app).resolve()))
+owned_app = True
 actual = wait_for("selected backend active and signed in", ("app", "call", "auth.status", "--json"),
-                  lambda value: value.get("cloud_environment") == selection["name"]
-                  and value.get("backend", "").rstrip("/") == selection["api_origin"].rstrip("/")
+                  lambda value: value.get("cloud_environment") == args.cloud_backend
+                  and value.get("backend", "").rstrip("/") == args.expected_api_origin.rstrip("/")
                   and value.get("signed_in") is True)
 evidence["api_origin"] = actual["backend"]
 
 # 2. A VM agent key at the selected environment's issuer.
+started = time.monotonic()
 code, out, err = cmux("vm", "token", "create", "--ttl", "30m", "--json", timeout=60)
-record("vm token create", code, out, err)
+record("vm token create", code, out, err, elapsed_ms=round((time.monotonic() - started) * 1000))
 if code != 0:
     finish("fail: vm token create")
 
@@ -134,7 +153,8 @@ if code != 0:
 # run, so a start still pending (exit 75: creation goes on in the app) is asked again with the same
 # name, and the machine can be found for cleanup by that name when no answer named its id.
 # The whole step has 30 minutes: sign-in (at most ~5), pending retries (10) and the last wait (10).
-chat_deadline = time.monotonic() + 600
+chat_started = time.monotonic()
+chat_deadline = chat_started + 600
 while True:  # bounded: the same start-chat again while its machine is still being made
     code, out, err = cmux("cloud", "start-chat", "--prompt", args.prompt, "--agent", args.agent,
                           "--name", args.tag, "--wait", "--timeout", "600", "--json", timeout=660)
@@ -144,7 +164,11 @@ while True:  # bounded: the same start-chat again while its machine is still bei
     time.sleep(10)
 answer = parsed(out) if code == 0 else {}
 reply = answer.get("reply")
-record("cloud start-chat", code, out, err, reply=clean(reply or "", 8000) or None)
+record("cloud start-chat", code, out, err, reply=clean(reply or "", 8000) or None,
+       machine_id=clean(answer.get("machine_id") or "") or None,
+       session_id=clean(answer.get("session_id") or "") or None,
+       guest_host=clean(answer.get("host") or "") or None,
+       elapsed_ms=round((time.monotonic() - chat_started) * 1000))
 # A failed chat answers on stderr: the machine it made is at details.machine_id (chat.turn_failed)
 # or details.answer.machine_id (the other failures).
 failure = parsed(err).get("details") or {}
@@ -157,9 +181,11 @@ if not machine:
 # 4. The machine the chat made goes, pass or fail (a destructive verb needs --confirm from a script).
 killed = True
 if machine:
+    started = time.monotonic()
     code_k, out_k, err_k = cmux("cloud", "kill-machine", "--target", f"machine:{machine}", "--confirm", "--json",
                                 timeout=120)
-    record("cloud kill-machine", code_k, out_k, err_k)
+    record("cloud kill-machine", code_k, out_k, err_k,
+           elapsed_ms=round((time.monotonic() - started) * 1000))
     killed = code_k == 0
 
 if not (code == 0 and reply):
