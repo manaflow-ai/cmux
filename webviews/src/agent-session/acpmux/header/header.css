@@ -7,15 +7,15 @@
    open (or a button whose menu is open) shows the filled rounded square, as in his reference; the 24px square is the
    hit target. test/chat-header-tab-row-surface.test.ts keeps it so. The "..." menu (src/ui Menu) sits on the menu
    surface. */
-.acpmux-header-tools{flex:none;display:flex;align-items:center;gap:var(--acpmux-header-tool-gap,var(--grid-half-step))}
-.acpmux-header-tool-group{display:flex;align-items:center;gap:var(--acpmux-header-tool-gap,var(--grid-half-step));min-width:0}
+.acpmux-header-tools{flex:none;display:flex;align-items:center;gap:var(--acpmux-header-tool-gap,var(--grid-half-step,2px))}
+.acpmux-header-tool-group{display:flex;align-items:center;gap:var(--acpmux-header-tool-gap,var(--grid-half-step,2px));min-width:0}
 .acpmux-header-symbol{display:inline-block;flex:none;background:currentColor;pointer-events:none}
 /* Every tool is one square from the layout grid (Leo 2026-11-04: "at least give our button square padding. so all those
    things are proportional"): the compact highlight's side (--grid-pill, 24px at the default interface size), its
    HEADER_GLYPH icon centred with equal padding on every side, the hover pill that same square with the controls'
    radius, and one even gap between tools. A density sets --acpmux-header-tool-size and --acpmux-header-tool-gap
    (gallery agent-pane.header-tools/density-*); test/chat-header-more-spacing.test.ts keeps it so. */
-.acpmux-header-tool{flex:none;display:inline-flex;align-items:center;justify-content:center;width:var(--acpmux-header-tool-size,var(--grid-pill));height:var(--acpmux-header-tool-size,var(--grid-pill));padding:0;border:0;border-radius:var(--ds-radius-md);background:none;color:inherit;font:inherit;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-header-tool{flex:none;display:inline-flex;align-items:center;justify-content:center;width:var(--acpmux-header-tool-size,var(--grid-pill,24px));height:var(--acpmux-header-tool-size,var(--grid-pill,24px));padding:0;border:0;border-radius:var(--ds-radius-md,6px);background:none;color:inherit;font:inherit;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-header-tool:disabled{color:var(--agent-muted)}
 /* The chat menu's trigger is the app's horizontal ellipsis (the pack's action.more, SF Symbol ellipsis), as the
    transcript's and the queue's more buttons are (Leo 2026-11-04: "i guess we ought to just make this a horizontal

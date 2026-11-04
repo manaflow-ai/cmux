@@ -37,16 +37,16 @@ test("the chat menu's trigger draws the horizontal ellipsis, the app's other mor
 
 test("every tool is one square from the grid tokens, the ⋯ included, with a token radius and gap", () => {
   const tool = declarations(".acpmux-header-tool");
-  const size = "var(--acpmux-header-tool-size,var(--grid-pill))";
+  const size = "var(--acpmux-header-tool-size,var(--grid-pill,24px))";
   expect(tool.get("width")).toBe(size);
   expect(tool.get("height")).toBe(size);
   expect(tool.get("padding")).toBe("0");
   expect(tool.get("justify-content")).toBe("center");
   expect(tool.get("align-items")).toBe("center");
-  expect(tool.get("border-radius")).toBe("var(--ds-radius-md)");
+  expect(tool.get("border-radius")).toBe("var(--ds-radius-md,6px)");
   // No rule gives the ⋯ its own box or margin.
   expect(css).not.toMatch(/\.acpmux-header-more\s*\{/);
-  const gap = "var(--acpmux-header-tool-gap,var(--grid-half-step))";
+  const gap = "var(--acpmux-header-tool-gap,var(--grid-half-step,2px))";
   expect(declarations(".acpmux-header-tools").get("gap")).toBe(gap);
   expect(declarations(".acpmux-header-tool-group").get("gap")).toBe(gap);
 });
