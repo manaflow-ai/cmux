@@ -1,7 +1,7 @@
 //! The backend owns client configuration. Build-time values are an origin
 //! allowlist and a temporary fallback for deployments predating this endpoint.
 
-use crate::{Configuration, Environment, Resolver, Selection, namespace};
+use crate::{namespace, Configuration, Environment, Resolver, Selection};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs::{self, OpenOptions};
@@ -227,13 +227,28 @@ fn allowed_origin(value: &str, selected: &str) -> Result<(), String> {
             Err(format!("remote client-config cannot name a loopback origin: {value}"))
         };
     }
-    // The selected, allowlisted backend is authoritative for its service hosts.
-    // Requiring another build-time host table would prevent backend-only deploys.
-    if url::Url::parse(&origin).is_ok_and(|url| url.scheme() == "https") {
+    if approved_remote_host(&origin) {
         Ok(())
     } else {
-        Err(format!("remote client-config service origin must use HTTPS: {value}"))
+        Err(format!("client-config service origin is outside the approved host policy: {value}"))
     }
+}
+
+/// Client-config is backend-owned, but it is also allowed to name credential
+/// destinations. Keep that data constrained to domains operated by cmux (and
+/// Stack's documented API) so a compromised response cannot exfiltrate tokens.
+fn approved_remote_host(origin: &str) -> bool {
+    let Ok(url) = url::Url::parse(origin) else { return false };
+    if url.scheme() != "https" || url.host_str().is_none() {
+        return false;
+    }
+    let host = url.host_str().unwrap_or_default();
+    host == "api.stack-auth.com"
+        || host == "cmux.com"
+        || host.ends_with(".cmux.com")
+        || host == "cmux.dev"
+        || host.ends_with(".cmux.dev")
+        || host.ends_with(".debussy.workers.dev")
 }
 
 fn validate(config: &ClientConfig, selected: &str) -> Result<(), String> {
@@ -387,10 +402,12 @@ mod tests {
             assert!(validate(&invalid, crate::DEVELOPMENT_API).is_err(), "{origin}");
         }
         let mut dynamic = valid.clone();
-        dynamic.configuration.share_room_origin = "https://new-link-service.example".into();
+        dynamic.configuration.share_room_origin = "https://links.cmux.dev".into();
+        validate(&dynamic, crate::DEVELOPMENT_API).unwrap();
+        dynamic.configuration.stack_origin = "https://api.stack-auth.com".into();
         validate(&dynamic, crate::DEVELOPMENT_API).unwrap();
         dynamic.configuration.stack_origin = "https://auth-service.example".into();
-        validate(&dynamic, crate::DEVELOPMENT_API).unwrap();
+        assert!(validate(&dynamic, crate::DEVELOPMENT_API).is_err());
         let mut invalid = valid;
         invalid.configuration.api_origin = crate::PRODUCTION_API.into();
         assert!(validate(&invalid, crate::DEVELOPMENT_API).is_err());

@@ -46,7 +46,15 @@ if args.cleanup_machine and not re.fullmatch(r"vm_[0-9a-f]{1,64}", args.cleanup_
     parser.error("--cleanup-machine must look like vm_<lowercase hex>")
 
 CLI = str(Path(args.app) / "Contents/Resources/bin/cmux")
-ENV = {**os.environ, "CMUX_SOCKET_PATH": f"/tmp/cmux-debug-{args.tag}.sock"}
+SOCKET_PATH = f"/tmp/cmux-debug-{args.tag}.sock"
+ENV = {
+    **os.environ,
+    # The published app and the tagged app use different names for the same
+    # per-proof socket. Set both so a second `open -n` cannot attach to a
+    # pre-existing default daemon.
+    "CMUX_SOCKET_PATH": SOCKET_PATH,
+    "CMUX_NEXT_SOCKET_PATH": SOCKET_PATH,
+}
 BROWSER_PROOF_NONCE = secrets.token_hex(8)
 BROWSER_PROOF_URL = f"https://example.com/?cmux_browser_proof={BROWSER_PROOF_NONCE}"
 BROWSER_PROOF_MARKER = "CLOUD_BROWSER_PROOF_OK"

@@ -260,7 +260,9 @@ jobs:
           xattr -cr "$app"
           cp "$RUNNER_TEMP/cloud-chat-proof/staging.env" "$CMUX_PROOF_CREDENTIALS"
           python3 -I scripts/cmux-next/dev-signin-token.py --seed
-          open -n --env "CMUX_NEXT_SOCKET_PATH=/tmp/cmux-debug-$CMUX_PROOF_TAG.sock" "$app"
+          # The proof script owns the app launch and supplies the tagged socket
+          # to both the published bundle and its CLI. Do not pre-launch a
+          # default-socket instance here; it could steal the CLI's connection.
           echo "CMUX_PROOF_APP=$app" >> "$GITHUB_ENV"
 
       - name: Build the tagged app once
