@@ -411,7 +411,8 @@ export function stubCodexAuth(seed = randomBytes(16).toString("hex"), now = new 
  *   additional_tools input item the stub cannot answer; a model Codex does not know gets the plain exec_command tool;
  * - chatgpt_base_url on the stub, the apps, plugins and remote_plugin features off and analytics off, so the made-up
  *   sign-in never reaches chatgpt.com (whose 401s would also send Codex to refresh it at auth.openai.com).
- * The image's other settings stay. TOML refuses a table defined twice, so the keys go into the [features] and
+ * An active profile's model and provider would win over these, so the root profile key goes (the [profiles.*] tables
+ * stay). The image's other settings stay. TOML refuses a table defined twice, so the keys go into the [features] and
  * [analytics] tables the file already has, and a second run replaces its own provider table.
  */
 export const CODEX_STUB_CONFIG = String.raw`import pathlib, re, sys
@@ -436,7 +437,7 @@ for line in lines:
             seen.add(table)
             out += [k + ' = ' + v for k, v in tables[table].items()]
         continue
-    if table == 'model_providers.journeystub' or assigns(line, root if table is None else tables.get(table, {})):
+    if table == 'model_providers.journeystub' or assigns(line, {**root, 'profile': ''} if table is None else tables.get(table, {})):
         continue
     out.append(line)
 out = [k + ' = ' + v for k, v in root.items()] + out
