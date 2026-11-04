@@ -1,14 +1,15 @@
-import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextWakeups
 import Foundation
 
 /// Thin process adapter: Rust resolves and validates the selected environment before app services start.
-struct CloudEnvironmentBootstrap {
+public struct CloudEnvironmentBootstrap {
     let work: BackgroundWork
 
-    func resolve() async throws -> CloudRuntimeSelection {
+    public init(work: BackgroundWork) { self.work = work }
+
+    public func resolve() async throws -> CloudRuntimeSelection {
         guard let cli = await BundledExecutable.cli(resources: Bundle.main.resourceURL, work: work).resolve() else {
             throw DaemonError.launchFailed("The bundled cmux CLI is unavailable.")
         }
@@ -26,7 +27,7 @@ struct CloudEnvironmentBootstrap {
         }
         return selection
     }
-    func startRelaunch() async throws -> Int32 {
+    public func startRelaunch() async throws -> Int32 {
         guard let cli = await BundledExecutable.cli(resources: Bundle.main.resourceURL, work: work).resolve() else {
             throw DaemonError.launchFailed("The bundled cmux CLI is unavailable.")
         }
