@@ -1,0 +1,95 @@
+{
+ "id": "rinput-menu-mouse-a",
+ "priority": "P1",
+ "title": "R-INPUT: the focus source of a main-menu item chosen with a real mouse (View > Focus Right Sidebar) (scratch, never merge)",
+ "why": "Lead order after #35275 landed: on the next dogfood build, record which source a mouse-chosen menu item gives its focus event (FocusEvent.Source.current), before any code change. A responder report counts as the person's move only with the mouse source.",
+ "source": "REWRITE R-INPUT agent a80216a78adfb7d0f",
+ "budget_seconds": 150,
+ "options": {
+  "key_path": "real"
+ },
+ "continue_not_judged": true,
+ "finally": [
+  {
+   "do": "smoke_close_all"
+  }
+ ],
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "smoke_key",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "ws"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: Cmd-N makes the workspace",
+   "since": "ws",
+   "timeout": 20,
+   "all": [
+    {
+     "smoke_workspaces": {
+      "new": 1
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  },
+  {
+   "do": "smoke_key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "term"
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "smoke_type",
+   "text": "echo menu-mouse-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the terminal runs its line",
+   "since": "term",
+   "timeout": 30,
+   "all": [
+    {
+     "smoke_daemon_lines": {
+      "lines": [
+       "menu-mouse-${nonce}"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the person picks the menu item after the line ran"
+  },
+  {
+   "do": "rinput_menu_mouse",
+   "menu": "View",
+   "item": "Focus Right Sidebar",
+   "name": "menu"
+  }
+ ]
+}
