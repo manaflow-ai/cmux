@@ -6,9 +6,6 @@
 # Run alone on an idle worker:
 #   cmux-ci run --class exclusive --measurement --script scripts/measure/perf-10x-daemon.sh --ref SHA
 #     [--arg=n=300] [--arg=cli_n=40] [--arg=scenarios=small,scale]
-# The request latency DOGFOOD BENCH runs per build (cmux-ad m11 2: light, a maintenance journal
-# step under agent hooks, and head-of-line on one connection):
-#   ... --arg=scenarios=small,journal-step,head-of-line
 # Output: PERF-DAEMON lines; JSON at .build/perf-daemon/result.json.
 set -euo pipefail
 n=300
