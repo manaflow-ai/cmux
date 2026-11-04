@@ -272,9 +272,11 @@ button.cv-agentmsg__name:focus-visible {
   flex: 0 0.0001 auto;
   max-width: 100%;
 }
-/* A received line's toggle holds the first line and the chevron: it gives way down to the chevron's
-   own room, never under it, so a long sender cuts its name and keeps the chevron in view. */
+/* A received line's toggle holds the first line and the chevron: it gives way first (the sender's
+   0.0001 against its 1000, as a send's name against its preview), down to the chevron's own room and
+   never under it, so a long sender cuts its name and keeps the chevron in view. */
 .acpmux-row .cv-received .cv-disclosure__toggle {
+  flex-shrink: 1000;
   min-width: calc(var(--cv-chevron-glyph) + var(--cv-chevron-gap));
 }
 /* A send whose words came from a file names it after the line: it is cut as the preview is. */
