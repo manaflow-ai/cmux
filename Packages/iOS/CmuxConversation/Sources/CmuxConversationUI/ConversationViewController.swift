@@ -41,12 +41,31 @@ public final class ConversationViewController: UIViewController {
     /// Runs only in the normal header state. Reply/edit/select still dismiss
     /// through their own close action. The view anchors a host's popover.
     public var onHeaderAction: ((UIView) -> Void)?
+    /// A page menu on the header's trailing control: set, a tap there opens
+    /// it (in the normal state; reply, edit and select still close through
+    /// their X) and `onHeaderAction` is not called. For items that change
+    /// (a disabled Zoom In), give it a `UIDeferredMenuElement.uncached`.
+    public var headerActionMenu: UIMenu? {
+        didSet { header.actionMenu = headerActionMenu }
+    }
     /// Select mode's Forward button. The host presents New Message prefilled
     /// with the draft; when unset, a minimal placeholder sheet stands in.
     public var onForward: ((ConversationForwardDraft) -> Void)?
     /// A tapped link in a message: return true when the host handled it (a
     /// file preview); false, or unset, opens it with the system.
     public var onOpenLink: ((URL) -> Bool)?
+    /// Reply with Selection. When set, the edit menu of a bubble's selected
+    /// text offers "Reply with Selection", which ends the selection and hands
+    /// the host the message and the selected words; the host usually answers
+    /// with `beginReply(toMessageID:prefix:)` and a quote of them. When
+    /// unset the menu is the system's alone, as before.
+    public var onReplyWithSelection: (@MainActor (ConversationSelectionReply) -> Void)?
+    /// The transcript and composer's text size, in place of the person's own
+    /// Dynamic Type size (the host's zoom). nil, the default, follows the
+    /// system. A change lays every row out again at the new size.
+    public var textSize: ConversationTextSize? {
+        didSet { if textSize != oldValue { applyTextSize() } }
+    }
     let options: ConversationPresentationOptions
 
     let layout = ConversationTranscriptLayout()
@@ -239,6 +258,7 @@ public final class ConversationViewController: UIViewController {
         super.viewDidLoad()
         ConversationFirstUseWarmUp.start()
         if traitCollection.displayScale > 0 { ConversationTheme.displayScale = traitCollection.displayScale }
+        if textSize != nil { applyTextSize() }
         view.backgroundColor = ConversationTheme.background
 
         layout.dataSource = self
@@ -276,6 +296,7 @@ public final class ConversationViewController: UIViewController {
         header.translatesAutoresizingMaskIntoConstraints = false
         header.trailingSymbol = options.trailingSymbol
         header.presentation = options.header
+        header.actionMenu = headerActionMenu
         header.setTrailingMode(.action, animated: false)
         header.onBack = { [weak self] in self?.handleBack() }
         header.onInfo = { [weak self] in self?.openInfo() }
@@ -376,6 +397,8 @@ public final class ConversationViewController: UIViewController {
     public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
+        // In front: the theme takes this conversation's text size.
+        ConversationTextSizeOwners.appeared(self)
     }
 
     public override func viewDidAppear(_ animated: Bool) {
@@ -424,6 +447,7 @@ public final class ConversationViewController: UIViewController {
 
     public override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        ConversationTextSizeOwners.disappeared(self)
         // A send still in the air when the conversation goes lands now:
         // other people's changes wait for it (`ConversationLiveChangeGate`).
         landAllFlights()
@@ -476,24 +500,34 @@ public final class ConversationViewController: UIViewController {
             forgetAllMessageReuseIDs()
             collectionView.reloadData()
         }
+        // Bold Text with a host size: the theme takes the new weight first
+        // (and re-measures); otherwise rows re-measure here as before.
+        if textSize != nil, previousTraitCollection?.legibilityWeight != traitCollection.legibilityWeight {
+            ConversationTextSizeOwners.changed(self)
+        }
         if traitCollection.changesTextMetrics(from: previousTraitCollection) {
-            // Dynamic Type or Bold Text: every row re-measures at the new size.
-            let followsNewest = isPinnedToBottom && hasPositionedInitially
-            layoutCache.invalidateAll()
-            invalidateRowMetrics()
-            layout.invalidateLayout()
-            forgetAllMessageReuseIDs()
-            collectionView.reloadData()
-            view.setNeedsLayout()
-            // Messages keeps the newest message on the composer through a
-            // text size change (iOS 27 sim, XS -> L -> AX3 -> AX5); the rows
-            // above it grow or shrink. Without this the old offset stayed,
-            // landing days back in the history.
-            if followsNewest {
-                view.layoutIfNeeded()
-                collectionView.layoutIfNeeded()
-                collectionView.setContentOffset(bottomOffset, animated: false)
-            }
+            relayoutForTextMetrics()
+        }
+    }
+
+    /// Dynamic Type, Bold Text or the host's text size changed: every row
+    /// re-measures at the new size.
+    func relayoutForTextMetrics() {
+        let followsNewest = isPinnedToBottom && hasPositionedInitially
+        layoutCache.invalidateAll()
+        invalidateRowMetrics()
+        layout.invalidateLayout()
+        forgetAllMessageReuseIDs()
+        collectionView.reloadData()
+        view.setNeedsLayout()
+        // Messages keeps the newest message on the composer through a
+        // text size change (iOS 27 sim, XS -> L -> AX3 -> AX5); the rows
+        // above it grow or shrink. Without this the old offset stayed,
+        // landing days back in the history.
+        if followsNewest {
+            view.layoutIfNeeded()
+            collectionView.layoutIfNeeded()
+            collectionView.setContentOffset(bottomOffset, animated: false)
         }
     }
 
@@ -918,6 +952,7 @@ public final class ConversationViewController: UIViewController {
         // the measuring ends, these rows are still the store's rows.
         let serial = rebuildSerial
         let traits = collectionView.traitCollection
+        let themeEpoch = ConversationTheme.textSizeEpoch
         let work = MeasureWork(models: pending)
         liveGate.beginMeasuring()
         Task { [weak self] in
@@ -933,7 +968,10 @@ public final class ConversationViewController: UIViewController {
             }.value
             guard let self else { return }
             let probeStart = self.probeClock()
-            self.layoutCache.adopt(measured.items, width: width, margin: margin)
+            // Measured under a text size that has changed since: measured again in place.
+            if themeEpoch == ConversationTheme.textSizeEpoch {
+                self.layoutCache.adopt(measured.items, width: width, margin: margin)
+            }
             self.probeSection(.measured, since: probeStart)
             guard generation == self.measureGeneration else { return }
             let current = serial == self.rebuildSerial
@@ -1643,7 +1681,7 @@ public final class ConversationViewController: UIViewController {
             setSelecting(false)
         } else if replyTarget != nil {
             exitReplyMode()
-        } else {
+        } else if headerActionMenu == nil {
             onHeaderAction?(header.trailingButton)
         }
     }
