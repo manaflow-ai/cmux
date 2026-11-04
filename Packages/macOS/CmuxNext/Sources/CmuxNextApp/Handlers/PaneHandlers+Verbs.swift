@@ -56,18 +56,31 @@ extension PaneHandlers {
             // The pane's own daemon decides: a remote pane's close waits for no local connection.
             let shown = ctx.services.daemon(for: pane).connection == nil ? nil : controller?.showPaneClose()
             let store = ctx.services.daemon(for: pane).store
+            // A stand-in pane still opening (a dock's, Cmd-N's first pane) closes too, never refused ("This pane is
+            // still opening", Leo 2026-11-03: "i should be able to just close immedeiately"): it leaves the records in
+            // this turn (and the daemon's pane that takes it over stays out), and its close waits, off the key's turn,
+            // for that daemon pane, as a create on it does (`DaemonStore.daemonTarget`). One never made has nothing to close.
+            let closing = store.intendStandInPaneClose(handle)
             ctx.send("close-pane") { connection in
                 do {
-                    // A stand-in pane still opening (a dock's, Cmd-N's first pane) closes too, never refused ("This pane
-                    // is still opening", Leo 2026-11-03: "i should be able to just close immedeiately"): it left the
-                    // window above, and its close waits here, off the key's turn, for the daemon's pane that takes it
-                    // over, as a create on it does (`DaemonStore.daemonTarget`). One never made has nothing to close.
                     try await connection.closePane(store.daemonTarget(handle))
+                    if let closing {
+                        let sequence = await connection.eventSequence()
+                        await MainActor.run {
+                            if let sequence { store.noteSettled(closing, at: sequence) } else { store.noteSettledAtNextSnapshot(closing) }
+                        }
+                    }
                     await MainActor.run { controller?.finishPaneClose(shown, failed: false) }
                 } catch is PendingPaneNotCreated {
-                    await MainActor.run { controller?.finishPaneClose(shown, failed: false) }
+                    await MainActor.run {
+                        if let closing { store.rejectIntent(closing) }
+                        controller?.finishPaneClose(shown, failed: false)
+                    }
                 } catch {
-                    await MainActor.run { controller?.finishPaneClose(shown, failed: true) }
+                    await MainActor.run {
+                        if let closing { store.rejectIntent(closing) }
+                        controller?.finishPaneClose(shown, failed: true)
+                    }
                     throw error
                 }
             }

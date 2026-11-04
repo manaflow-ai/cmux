@@ -78,7 +78,27 @@ import Foundation
     }
 }
 
-extension DaemonStore { public var creations: DaemonCreations { DaemonCreations(store: self) } }
+extension DaemonStore {
+    public var creations: DaemonCreations { DaemonCreations(store: self) }
+
+    /// A close of pane `handle` while it is still opening (a stand-in no cancel took, e.g. a dock's pane): it leaves
+    /// the visible records now, and the daemon's pane that takes it over stays out until the close commits. The
+    /// caller sends `close-pane` for ``daemonTarget(_:)``, then settles (`noteSettled`) or rejects the transaction.
+    /// Nil for a daemon pane (its close needs no intent).
+    public func intendStandInPaneClose(_ handle: PaneID) -> ClientTransactionID? {
+        guard handle.rawValue >= ProvisionalPane.firstHandle else { return nil }
+        let origin = standInTargets[handle] ?? ProvisionalSplit.standInOrigin(of: handle, in: self)
+        var paneID = panesByHandle[handle]?.resourceID?.rawValue, workspace: WorkspaceKey?
+        switch origin {
+        case .pane(let id)?: paneID = id
+        case .workspace(let key)?: workspace = key
+        case nil: break
+        }
+        let transaction = ClientTransactionID.generate()
+        intend(.closeStandInPane(pane: handle, paneID: paneID, workspace: workspace), transaction: transaction)
+        return transaction
+    }
+}
 
 extension CancelledCreation {
     /// Marks `transaction`'s creation cancelled (once): the lift undoes its provisional tab or

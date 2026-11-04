@@ -60,6 +60,9 @@ import Foundation
             return !daemonPlaces(provisional, in: store) && !paneGone(intent, in: store)
         case .closeTabs(let surfaces):
             return TabCloseOverlay(store: store).daemonHolds(surfaces)
+        case .closeStandInPane:
+            // Stays until the records drop the daemon's pane (its close committed).
+            return CancelledCreation.closingPane(intent.kind, in: store).map { $0.handle.rawValue < ProvisionalPane.firstHandle } ?? false
         case .createWorkspace(let provisional, _):
             // Cmd-N's workspace settles only once the daemon's workspace holds a tab: before
             // that, undoing the overlay would show the window an empty workspace for a turn.

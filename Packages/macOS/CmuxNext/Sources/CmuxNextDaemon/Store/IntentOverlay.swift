@@ -102,6 +102,9 @@ import Foundation
             return TabCloseOverlay(store: store).apply(surfaces)
         case .dockTab(let surface, let pane, let provisional, let dock, let standIn):
             return ProvisionalDock.apply(surface: surface, from: pane, provisional: provisional, dock: dock, standIn: standIn, to: store)
+        case .closeStandInPane:
+            guard let pane = CancelledCreation.closingPane(intent, in: store), let hidden = CancelledCreation.hidePane(pane, in: store) else { return nil }
+            return .hiddenPane(hidden)
         case .splitPane(let target, let direction, let ratio, let provisional):
             return ProvisionalSplit.apply(target: target, direction: direction, ratio: ratio,
                                           provisional: provisional, to: store)

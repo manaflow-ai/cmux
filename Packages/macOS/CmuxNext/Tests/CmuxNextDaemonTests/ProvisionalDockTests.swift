@@ -154,6 +154,53 @@ struct ProvisionalDockTests {
         #expect(store.mirrorViolations.isEmpty, "\(store.mirrorViolations)")
     }
 
+    /// Close Pane on the dock's stand-in pane before the daemon confirms: the pane (and the chat in it) leaves the
+    /// records in the close's turn, the daemon's dock pane that takes it over never shows, and the close's intent
+    /// leaves once the daemon's records drop that pane. Before, the close named the stand-in and was refused with
+    /// "This pane is still opening; try again in a moment." (Leo 2026-11-03: "i should be able to just close immedeiately").
+    @Test func closingTheDocksStandInPaneTakesItOutAtOnceAndItsDaemonPaneNeverShows() throws {
+        let store = Self.store()
+        let provisional = ProvisionalPane(columnWidth: 0.5, left: true)
+        let terminal = TerminalID.generate()
+        let standIn = ProvisionalTab().terminal(terminal, cwd: nil)
+        let dockTransaction = ClientTransactionID.generate()
+        store.intend(.dockTab(surface: Self.chat, pane: Self.pane, provisional: provisional, dock: Self.dock, standIn: standIn),
+                     transaction: dockTransaction)
+        #expect(store.panesByHandle[provisional.handle] != nil)
+
+        let closing = try #require(store.intendStandInPaneClose(provisional.handle), "no close intent for a stand-in pane")
+        let screen = try #require(store.workspace(id: Self.key.rawValue)?.screens.first)
+        #expect(store.panesByHandle[provisional.handle] == nil, "the stand-in pane still shows after its close")
+        #expect(screen.panes.map(\.handle) == [Self.pane])
+        #expect(screen.layout == .leaf(Self.pane))
+        #expect(screen.columns.map(\.layout.paneIDs).allSatisfy { !$0.contains(provisional.handle) }, "the dock column stayed")
+        #expect(store.tabsBySurface[Self.chat] == nil, "the closed pane's chat still shows")
+        #expect(store.intendStandInPaneClose(Self.pane) == nil, "a daemon pane got a stand-in close intent")
+
+        // The daemon's dock lands under the stand-in's public pane id: it stays out.
+        let fresh = SurfaceID(rawValue: 8), docked = PaneID(rawValue: 9)
+        store.apply(snapshot: DaemonTree(workspaceRevision: 2, workspaces: [Self.docked(docked, provisional, fresh: fresh, terminal: terminal)]))
+        #expect(store.panesByHandle[docked] == nil, "the daemon's dock pane showed after its stand-in was closed")
+        #expect(store.workspace(id: Self.key.rawValue)?.screens.first?.panes.map(\.handle) == [Self.pane])
+        #expect(store.tabsBySurface[Self.chat] == nil)
+
+        // Both replies come; the close still waits for the records to drop the daemon's pane.
+        store.noteSettled(dockTransaction, at: 0)
+        store.noteSettled(closing, at: 0)
+        #expect(store.panesByHandle[docked] == nil, "the daemon's dock pane came back when the replies settled")
+
+        // The close commits: the pane is gone for good and the log is empty.
+        let after = WorkspaceSnapshot(
+            id: WorkspaceHandle(rawValue: 1), key: Self.key, name: "1",
+            screens: [ScreenSnapshot(id: ScreenID(rawValue: 2), active: true, activePane: Self.pane, layout: .leaf(Self.pane),
+                                     panes: [PaneSnapshot(id: Self.pane, tabs: [TabSnapshot(surface: fresh, terminalID: terminal, kind: .pty)])])])
+        store.apply(snapshot: DaemonTree(workspaceRevision: 3, workspaces: [after]))
+        #expect(store.pendingIntents.isEmpty, "\(store.pendingIntents)")
+        #expect(store.panesByHandle[docked] == nil && store.panesByHandle[provisional.handle] == nil)
+        #expect(store.panesByHandle[Self.pane]?.tabs.map(\.surface) == [fresh])
+        #expect(store.mirrorViolations.isEmpty, "\(store.mirrorViolations)")
+    }
+
     /// The daemon's tree after the dock: the chat in dock pane `docked`, and the source pane with the fresh tab
     /// (`fresh`, running `terminal`) or none once its close committed.
     private static func docked(_ docked: PaneID, _ provisional: ProvisionalPane, fresh: SurfaceID?, terminal: TerminalID) -> WorkspaceSnapshot {
