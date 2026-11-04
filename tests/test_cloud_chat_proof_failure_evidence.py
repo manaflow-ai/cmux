@@ -127,8 +127,15 @@ elif verb == "cloud machine-status":
         "idle_pause": {"minutes": 30, "last_api_activity_at": 1793800000,
                        "last_decision": {"at": 1, "outcome": "kept", "reason": "token=abcdef123456", "run": {}}}}}))
 elif verb == "cloud kill-machine":
+    # --confirm last: before --json it took --json as its value and the CLI answered in human text.
+    assert words == ["cloud", "kill-machine", "--target", "machine:vm_abc123", "--json", "--confirm"], words
     calls = int(state.read_text()) if state.exists() else 0
     state.write_text(str(calls + 1))
+    if os.environ.get("FAKE_KILL") == "human":
+        print("progress: asking the app")
+        sys.stderr.write("Couldn't delete machine vm_abc123: paused machines can't be deleted\n"
+                         "token=abcdef123456\n" + "x" * 3000 + "\n")
+        sys.exit(1)
     if calls == 0:
         sys.stderr.write(json.dumps({"code": "cloud.kill_failed", "message": "busy"}) + "\n")
         sys.exit(1)
@@ -139,13 +146,13 @@ else:
 
 
 class CloudChatProofCleanupTests(unittest.TestCase):
-    def run_proof(self, tmp_path: Path, *extra: str) -> subprocess.CompletedProcess:
+    def run_proof(self, tmp_path: Path, *extra: str, kill: str = "") -> subprocess.CompletedProcess:
         app = tmp_path / "cmux NEXT DEV.app"
         cli = app / "Contents/Resources/bin/cmux"
         cli.parent.mkdir(parents=True, exist_ok=True)
         cli.write_text(FAKE_CLEANUP_CMUX)
         cli.chmod(0o755)
-        env = {**os.environ, "FAKE_STATE": str(tmp_path / "calls")}
+        env = {**os.environ, "FAKE_STATE": str(tmp_path / "calls"), "FAKE_KILL": kill}
         return subprocess.run(
             [sys.executable, "-I", str(PROOF), "--app", str(app), "--tag", "ccp-test",
              "--evidence", str(tmp_path / "evidence.json"), *extra],
@@ -173,6 +180,31 @@ class CloudChatProofCleanupTests(unittest.TestCase):
             self.assertEqual(steps["cloud kill-machine"]["stderr"], "cloud.kill_failed: busy")
             self.assertEqual(steps["cloud kill-machine retry"]["exit"], 0)
             self.assertIn("cloud machine-status after kill", steps)
+
+    def test_failed_kill_keeps_its_raw_output_without_secrets(self) -> None:
+        # Run 41867887577: the kill exited 1 twice with no JSON error, and the evidence kept nothing.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            done = self.run_proof(tmp_path, "--cleanup-machine", "vm_abc123", kill="human")
+            self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+            text = (tmp_path / "evidence.json").read_text()
+            self.assertNotIn("token=", text)
+            self.assertNotIn("abcdef123456", text)
+            self.assertNotIn("paused machines", done.stdout)
+            evidence = json.loads(text)
+            self.assertEqual(evidence["result"], "fail: kill-machine failed twice")
+            steps = {step["step"]: step for step in evidence["steps"]}
+            for name in ("cloud kill-machine", "cloud kill-machine retry"):
+                step = steps[name]
+                self.assertEqual(step["stderr"], "kill-machine returned no JSON error")
+                raw = step["raw"]
+                self.assertEqual(raw["exit"], 1)
+                self.assertEqual(raw["stdout"]["text"], "progress: asking the app")
+                self.assertTrue(raw["stderr"]["text"].startswith(
+                    "Couldn't delete machine vm_abc123: paused machines can't be deleted\n"))
+                self.assertEqual(raw["stderr"]["left_out"], 1)
+                self.assertTrue(raw["stderr"]["truncated"])
+                self.assertLessEqual(len(raw["stderr"]["text"]), 2048)
 
     def test_cleanup_refuses_a_malformed_machine_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
