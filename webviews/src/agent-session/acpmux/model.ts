@@ -3,6 +3,7 @@ import {
   footerAfter,
   gridLength,
   MARK_FOOTER,
+  MARK_INDICATOR,
   MARK_STATUS,
   MARK_STEP,
   rowMark,
@@ -1302,7 +1303,7 @@ const isStepRow = (row: AcpmuxRow) =>
 export const isLiveLine = (row: AcpmuxRow) =>
   row.below === true && (row.kind === WORKING || row.kind === THINKING || row.kind === ACTIVITY_LINE);
 /// The running turn's line as its last row (`below`) right under a step row or a status row ("Subagent
-/// finished", "Scheduled check", a compaction): one more line of the run, 22 under it and 22 tall
+/// finished", "Scheduled check", a compaction): 22 tall, with the run gap above it
 /// (`.acpmux-row--below.acpmux-row--after-step`), not the footer's 32 slot (#29965); the waiting
 /// messages' head draws over it (pendingMessages.ts `withWaitingRows`). Under a status row it took the footer's
 /// slot a block gap away, 55 and 70 from its neighbours (Leo, 2026-11-03: "this is pretty bad
@@ -2458,9 +2459,15 @@ export function layoutConversation(
   let prevDrawn = prevDrawnRow(rows, start);
   for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
-    // A step row (a tool run or a one-line row) joins the step row before it flush (transcriptGap).
-    marks[index] =
-      isStepRow(row) || isLiveStep(row, prevDrawn) ? MARK_STEP : isStatusRow(row) ? MARK_STATUS : rowMark(row);
+    // A compact live line keeps its 22px height and composer gap, but is a live indicator for
+    // spacing: classifying it as another step would swallow the run gap before Thinking.
+    marks[index] = isStepRow(row)
+      ? MARK_STEP
+      : isLiveStep(row, prevDrawn)
+        ? MARK_INDICATOR
+        : isStatusRow(row)
+          ? MARK_STATUS
+          : rowMark(row);
     messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
