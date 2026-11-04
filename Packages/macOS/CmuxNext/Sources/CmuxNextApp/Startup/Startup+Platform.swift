@@ -62,7 +62,7 @@ extension AppDelegate {
         GhosttyRuntime.shared.traceHook.connect(on: services.mainWork, presents: FrameScheduler.appDisplays.presents)
         // Renderer-presented terminal frames pass through no `setContents:` hook: they count in the app's RenderStats.
         GhosttyRuntime.shared.traceHook.countPresentedFrames(in: control.renderStats.presentedFrames)
-        GhosttyRuntime.shared.attach(to: services.mainWork, holdsHiddenActions: services.features.isEnabled(.terminalHiddenActionHold))
+        GhosttyRuntime.shared.attach(to: services.mainWork)
     }
 
     /// Bookmarks, history, the first-party page schemes and the page host's statics.

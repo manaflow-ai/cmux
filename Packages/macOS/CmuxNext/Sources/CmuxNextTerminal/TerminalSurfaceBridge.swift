@@ -112,8 +112,6 @@ nonisolated final class SurfaceBridge: Sendable {
         if let mailbox { return mailbox }
         let made = GhosttyActionMailbox(owner: "terminal.actions", scheduler: { [weak self] in
             self?.target?.actionFrameScheduler ?? .app
-        }, node: { [weak self] in
-            self?.target?.actionNode
         }, apply: { [weak self] action in
             _ = self?.target?.applyAction(action)
         })

@@ -89,12 +89,10 @@ public final class GhosttyRuntime {
     nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "terminal")
 
     let context = RuntimeCallbackContext()
-    /// The tick on the app's board and its scheduler (``attach(to:holdsHiddenActions:)``); nil before that, and in tests.
+    /// The tick on the app's board and its scheduler (``attach(to:)``); nil before that, and in tests.
     var ticks: GhosttyTickClass?
-    /// Paces the ticks to the display frame while output streams (``attach(to:holdsHiddenActions:)``); nil before that.
+    /// Paces the ticks to the display frame while output streams (``attach(to:)``); nil before that.
     var tickPacer: GhosttyTickPacer?
-    /// A hidden terminal's state actions wait for it to show (``attach(to:holdsHiddenActions:)``).
-    var holdsHiddenActions = false
     let hostKeybindCache = HostKeybindCache()
     /// The input sources as the terminal key path reads them (switch keys, source kind, copy mode's
     /// ASCII map); the app starts it with its runner, this runtime's observers keep it current.
@@ -421,7 +419,7 @@ public final class GhosttyRuntime {
     /// Sends the Energy Saver state of `mainWork`'s policy (``MainWorkScheduler/energy``, the app's one
     /// source) to libghostty on each edge (`ghostty_app_set_energy_saver`, ghostty-next p14-energy-114):
     /// shader and Kitty animations wake at most every 33 ms and scrollback compression runs at utility
-    /// QoS while it is on. ``attach(to:holdsHiddenActions:)`` calls it once. It makes no call at all when the pinned
+    /// QoS while it is on. ``attach(to:)`` calls it once. It makes no call at all when the pinned
     /// GhosttyNextKit lacks the export (`GHOSTTY_ENERGY_SAVER`, Package.swift).
     public func followEnergySaver(on mainWork: MainWorkScheduler) {
         #if GHOSTTY_ENERGY_SAVER

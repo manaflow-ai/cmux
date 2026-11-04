@@ -6,8 +6,8 @@ import Testing
 
 /// Ghostty's tick and actions on the board: the app tick is the board task
 /// `ghostty.tick`, input class while a key a terminal took waits for its frame and frame class
-/// otherwise; a surface's state actions apply once per frame, latest wins, and a hidden surface's wait
-/// for it to show, where they apply once; discrete actions keep their order after them.
+/// otherwise; a surface's state actions apply once per frame, latest wins; discrete actions keep their
+/// order after them.
 @MainActor @Suite(.timeLimit(.minutes(1)))
 struct GhosttyTickClassTests {
     // MARK: The tick
@@ -93,7 +93,7 @@ struct GhosttyTickClassTests {
     // MARK: The actions
 
     @Test func aHundredTitlesInAFrameApplyOnce() {
-        let rig = ActionRig(node: VisibilityNode(root: "tab", own: .visible))
+        let rig = ActionRig()
         for index in 1...100 { #expect(rig.deliver(.setTitle("t\(index)"))) }
         #expect(rig.recorder.applied.isEmpty, "a title waits for the frame")
 
@@ -102,107 +102,6 @@ struct GhosttyTickClassTests {
         #expect(rig.recorder.applied == ["title t100"])
         #expect(rig.mailbox.applies == 1)
         #expect(rig.mailbox.replaced == 99)
-    }
-
-    @Test func aHiddenSurfacesStateAppliesOnceWhenItShows() {
-        let node = VisibilityNode(root: "tab", own: .hidden)
-        let rig = ActionRig(node: node)
-        for index in 1...100 { rig.deliver(.pwd("/d\(index)")) }
-
-        rig.frame()
-        rig.frame()
-        #expect(rig.recorder.applied.isEmpty, "nobody sees the terminal: nothing applies")
-        #expect(rig.mailbox.applies == 0)
-        #expect(rig.mailbox.isHeld)
-        #expect(!rig.hasClient, "a held mailbox keeps no frame client on its window's link")
-
-        node.set(.visible)
-        #expect(rig.recorder.applied.isEmpty, "it applies in the frame after the show, not inside the flip")
-        rig.frame()
-
-        #expect(rig.recorder.applied == ["pwd /d100"])
-        #expect(rig.mailbox.applies == 1)
-        #expect(!rig.mailbox.isScheduled)
-        rig.frame()
-        #expect(rig.mailbox.applies == 1)
-    }
-
-    /// The title shows outside the terminal (its tab, the sidebar, a remote tab's record): a hidden
-    /// terminal's title applies at the next frame, after the held state Ghostty sent before it.
-    @Test func aHiddenSurfacesTitleAppliesAtTheNextFrameAfterWhatWaitsBeforeIt() {
-        let node = VisibilityNode(root: "tab", own: .hidden)
-        let rig = ActionRig(node: node)
-        rig.deliver(.pwd("/tmp"))
-        rig.frame()
-        #expect(rig.recorder.applied.isEmpty)
-        #expect(rig.mailbox.isHeld)
-
-        for index in 1...100 { rig.deliver(.setTitle("t\(index)")) }
-        #expect(!rig.mailbox.isHeld, "a waiting title takes the pass off the hold")
-        rig.frame()
-
-        #expect(rig.recorder.applied == ["pwd /tmp", "title t100"])
-        #expect(rig.mailbox.applies == 1)
-        #expect(!rig.mailbox.isScheduled)
-
-        rig.deliver(.pwd("/var"))
-        rig.frame()
-        #expect(rig.recorder.applied == ["pwd /tmp", "title t100"], "with no title waiting, the hold is back")
-        #expect(rig.mailbox.isHeld)
-    }
-
-    @Test func aCapturedHiddenSurfaceAppliesAtItsFrame() {
-        let node = VisibilityNode(root: "tab", own: .hidden)
-        let rig = ActionRig(node: node)
-        rig.deliver(.pwd("/seen"))
-        let vote = node.captureVote(reason: "screenshot", stayHidden: true)
-        rig.frame()
-
-        #expect(rig.recorder.applied == ["pwd /seen"], "a capture sees the hidden terminal")
-        withExtendedLifetime(vote) {}
-    }
-
-    @Test func aHiddenSurfacesDiscreteActionRunsAtOnceAfterTheStateSentBeforeIt() {
-        let rig = ActionRig(node: VisibilityNode(root: "tab", own: .hidden))
-        rig.deliver(.pwd("/before"))
-        rig.deliver(.ringBell)
-        rig.deliver(.pwd("/after"))
-        rig.deliver(.commandFinished(TerminalCommandResult(exitCode: 0, duration: .seconds(1))))
-
-        #expect(rig.recorder.applied == ["pwd /before", "bell", "pwd /after", "command"],
-                "discrete actions keep their order, hidden or not")
-        #expect(rig.mailbox.pendingCount == 0)
-        #expect(!rig.mailbox.isScheduled)
-    }
-
-    @Test func aSurfaceMovedUnderAnotherNodeFollowsTheNewOne() {
-        let hidden = VisibilityNode(root: "old tab", own: .hidden)
-        let rig = ActionRig(node: hidden)
-        rig.deliver(.pwd("/one"))
-        rig.frame()
-        #expect(rig.recorder.applied.isEmpty)
-
-        rig.recorder.actionNode = VisibilityNode(root: "new tab", own: .visible)
-        rig.deliver(.pwd("/two"))
-        rig.frame()
-
-        #expect(rig.recorder.applied == ["pwd /two"])
-        hidden.set(.visible)
-        rig.frame()
-        #expect(rig.recorder.applied == ["pwd /two"], "the old node's client went with the move")
-    }
-
-    /// A held state applies when the bridge's waiting actions are flushed (a save at quit, a surface swap).
-    @Test func aFlushAppliesWhatAHiddenSurfaceHolds() {
-        let rig = ActionRig(node: VisibilityNode(root: "tab", own: .hidden))
-        rig.deliver(.pwd("/held"))
-        rig.frame()
-        #expect(rig.mailbox.isHeld)
-
-        rig.bridge.flushActions()
-
-        #expect(rig.recorder.applied == ["pwd /held"])
-        #expect(!rig.mailbox.isScheduled)
     }
 }
 
@@ -240,17 +139,15 @@ private final class TickRig {
     }
 }
 
-/// A surface bridge whose target records what reaches it and stands in a tab node of the test's.
+/// A surface bridge whose target records what reaches it.
 @MainActor
 private final class ActionRig {
     @MainActor final class Recorder: GhosttySurfaceTarget {
         let actionFrameScheduler: FrameScheduler
-        var actionNode: VisibilityNode?
         private(set) var applied: [String] = []
 
-        init(scheduler: FrameScheduler, node: VisibilityNode?) {
+        init(scheduler: FrameScheduler) {
             actionFrameScheduler = scheduler
-            actionNode = node
         }
 
         func applyAction(_ action: GhosttyAction) -> Bool {
@@ -275,9 +172,9 @@ private final class ActionRig {
     let bridge: SurfaceBridge
     private var frames = 0
 
-    init(node: VisibilityNode?) {
+    init() {
         scheduler = FrameScheduler.testing(clock: ManualClock(), ledger: WakeupLedger(), mediaTime: { 1000 }) { _ in TickTestLink() }
-        recorder = Recorder(scheduler: scheduler, node: node)
+        recorder = Recorder(scheduler: scheduler)
         // The surface's input goes nowhere: these tests read only its actions.
         let lane = TerminalInputLane(drain: TerminalInputDrain(queue: DispatchQueue(label: "GhosttyTickClassTests.input", qos: .utility)) { _, _ in .next })
         bridge = SurfaceBridge(input: TerminalInputSink(lane: lane, typingSurface: TypingLatencyProbe(path: nil).makeSurfaceKey()))
@@ -285,7 +182,6 @@ private final class ActionRig {
     }
 
     var mailbox: GhosttyActionMailbox { bridge.actionMailbox }
-    var hasClient: Bool { scheduler.activeClients.contains("terminal.actions") }
 
     /// `action` through the bridge, as Ghostty's `action_cb` hands it over.
     @discardableResult

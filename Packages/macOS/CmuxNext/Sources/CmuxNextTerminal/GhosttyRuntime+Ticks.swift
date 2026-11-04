@@ -10,11 +10,8 @@ extension GhosttyRuntime {
     /// (``followEnergySaver(on:)``). The composition root calls it once, before the first terminal;
     /// until then a tick runs off the board.
     ///
-    /// - Parameters:
-    ///   - mainWork: The app's main-thread scheduler.
-    ///   - holdsHiddenActions: A hidden terminal's state actions wait for it to show (feature
-    ///     `terminalHiddenActionHold`); false: they apply at its window's frame, seen or not.
-    public func attach(to mainWork: MainWorkScheduler, holdsHiddenActions: Bool = false) {
+    /// - Parameter mainWork: The app's main-thread scheduler.
+    public func attach(to mainWork: MainWorkScheduler) {
         let ticks = GhosttyTickClass(work: mainWork)
         self.ticks = ticks
         let context = context
@@ -22,11 +19,10 @@ extension GhosttyRuntime {
                                      hop: { post in context.hopToMain(posted: post) },
                                      isInputTick: { ticks.classForTick() == .input },
                                      tick: { [weak self] post in self?.tick(posted: post) })
-        self.holdsHiddenActions = holdsHiddenActions
         followEnergySaver(on: mainWork)
     }
 
-    /// The app's main-thread scheduler (``attach(to:holdsHiddenActions:)``); nil before that, and in tests.
+    /// The app's main-thread scheduler (``attach(to:)``); nil before that, and in tests.
     var mainWork: MainWorkScheduler? { ticks?.work }
 
     /// A terminal took a key (`TerminalSurfaceView.keyDown`): ticks run as input until its frame.
@@ -36,7 +32,7 @@ extension GhosttyRuntime {
     }
 
     /// A wakeup's hop reached main (``ghosttyWakeup(_:)``): the pacer ticks now or at the frame;
-    /// before ``attach(to:holdsHiddenActions:)``, it ticks now.
+    /// before ``attach(to:)``, it ticks now.
     ///
     /// - Parameter post: When the wakeup came.
     func wakeupArrived(posted post: MainTaskPost) {
@@ -44,7 +40,7 @@ extension GhosttyRuntime {
         tickPacer.wakeupArrived(posted: post)
     }
 
-    /// Runs one libghostty app tick on the main actor, as one board task once ``attach(to:holdsHiddenActions:)`` wired the board.
+    /// Runs one libghostty app tick on the main actor, as one board task once ``attach(to:)`` wired the board.
     ///
     /// - Parameter post: When the wakeup that queued it came (nil: run time only).
     func tick(posted post: MainTaskPost? = nil) {
