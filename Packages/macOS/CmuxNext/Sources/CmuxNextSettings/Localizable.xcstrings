@@ -156748,6 +156748,270 @@
         }
       }
     },
+    "settings.agentPane.display.trayTucked": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tuck Away Running Tray"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء شريط العمل الجاري"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skloni traku rada u toku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul bjælken med igangværende arbejde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leiste mit laufender Arbeit wegklappen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar la barra de trabajo en curso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replier la barre du travail en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nascondi la barra del lavoro in corso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中の作業バーをしまう"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លាក់របារការងារកំពុងដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 작업 막대 접어 두기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul linjen med pågående arbeid"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schowaj pasek trwającej pracy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recolher a barra de trabalho em andamento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убрать панель текущей работы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เก็บซ่อนแถบงานที่กำลังทำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Süren iş çubuğunu gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сховати панель поточної роботи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thu gọn thanh công việc đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收起正在运行的工作栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收起進行中的工作列"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.trayTucked.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides the bar of running work over the composer. Hover the top middle of the composer and click its chevron to bring it back."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يخفي شريط العمل الجاري فوق مربع الكتابة. مرّر المؤشر فوق منتصف أعلى مربع الكتابة وانقر على السهم لإظهاره مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriva traku rada u toku iznad polja za pisanje. Pređite mišem preko sredine vrha polja i kliknite strelicu da je vratite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjuler bjælken med igangværende arbejde over skrivefeltet. Hold markøren over midten af skrivefeltets top, og klik på pilen for at vise den igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blendet die Leiste mit laufender Arbeit über dem Eingabefeld aus. Zeige oben in der Mitte des Eingabefelds und klicke auf den Pfeil, um sie zurückzuholen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oculta la barra de trabajo en curso sobre el campo de redacción. Pasa el puntero por el centro superior del campo y haz clic en su flecha para mostrarla de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masque la barre du travail en cours au-dessus de la zone de saisie. Survolez le haut de la zone, au milieu, puis cliquez sur sa flèche pour la rétablir."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nasconde la barra del lavoro in corso sopra il campo di scrittura. Passa il puntatore al centro in alto del campo e fai clic sulla freccia per mostrarla di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力欄の上にある実行中の作業バーを隠します。入力欄の上端中央にポインタを置き、山形のボタンをクリックすると元に戻ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លាក់របារការងារកំពុងដំណើរការនៅលើប្រអប់សរសេរ។ ដាក់ទស្សន៍ទ្រនិចលើកណ្ដាលផ្នែកខាងលើនៃប្រអប់ ហើយចុចព្រួញដើម្បីបង្ហាញវាវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력창 위의 실행 중인 작업 막대를 숨깁니다. 입력창 위쪽 가운데에 포인터를 올리고 화살표를 클릭하면 다시 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjuler linjen med pågående arbeid over skrivefeltet. Hold pekeren over midten av toppen av skrivefeltet og klikk pilen for å hente den tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukrywa pasek trwającej pracy nad polem tekstowym. Najedź na środek górnej krawędzi pola i kliknij strzałkę, aby go przywrócić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oculta a barra de trabalho em andamento acima do campo de texto. Passe o cursor no centro do topo do campo e clique na seta para trazê-la de volta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрывает панель текущей работы над полем ввода. Наведите указатель на середину верхнего края поля и нажмите на стрелку, чтобы вернуть её."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ่อนแถบงานที่กำลังทำเหนือช่องพิมพ์ วางเมาส์ที่กึ่งกลางด้านบนของช่องพิมพ์แล้วคลิกลูกศรเพื่อแสดงกลับมา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yazma alanının üstündeki süren iş çubuğunu gizler. Geri getirmek için alanın üst ortasının üzerine gelip okuna tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ховає панель поточної роботи над полем введення. Наведіть вказівник на середину верхнього краю поля й натисніть стрілку, щоб повернути її."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ẩn thanh công việc đang chạy phía trên ô soạn thảo. Di chuột vào giữa cạnh trên của ô và bấm mũi tên để hiện lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏输入框上方正在运行的工作栏。将指针移到输入框顶部中间，点按箭头即可重新显示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏輸入框上方進行中的工作列。將指標移到輸入框頂部中間，按一下箭頭即可重新顯示。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.fullWidth": {
       "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",
