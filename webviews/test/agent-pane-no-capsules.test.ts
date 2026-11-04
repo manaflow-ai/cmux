@@ -52,6 +52,10 @@ const SHAPES = new Set([
   ".acpmux-access .acpmux-picker-button",
   '.nt-screen[data-template="cards"][data-pill] .nt-box',
   '.nt-screen[data-template="cards"] .nt-chats-tab.is-selected',
+  // The header tools' glass in a one-tab pane (header.css): not a control but the frosted backing behind the whole tool
+  // group, the pill ChatGPT iOS floats its buttons in (Leo, 2026-11-03: "a nice and unobtrusive apple glass type thing").
+  // The buttons on it keep their small-radius hover and pressed plates.
+  ".acpmux-stage[data-solo-tab]>.acpmux-header[data-tab-row] .acpmux-header-tools::before",
 ]);
 
 const px = (value: string | undefined) => (value && /^-?[\d.]+px$/.test(value) ? parseFloat(value) : undefined);
