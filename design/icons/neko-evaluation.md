@@ -107,21 +107,25 @@ The first-party fill-ins are recorded in `scripts/icons/build_pack.py` and gener
 `nekoCandidate.json`, imported only by the gallery. They are not derived from the surveyed third-party
 sets. `neko-candidates/NOTICE.md` records the representative artwork and modifications.
 
-### Round 2 provisional score (before device capture)
+### Round 2 capture score
 
-The round 2 gallery is wired for the same default comparison, but its fleet capture was interrupted by
-GitHub's shared quota after the catalog repair. To keep the hill-climb honest, these are provisional
-source-and-gallery scores, explicitly not release scores; the final 1x/2x capture can only lower them.
+The final capture used the same harness at real 1x and 2x device scales, light and dark themes,
+compact and comfortable density, and UI scales 1 and 1.25: 112 images from
+[run 41892338660](https://github.com/manaflow-ai/cmux/actions/runs/41892338660), tested against
+`318ffcaa5b6037ad037209941d291e6a4421897f`. The scores below are the reviewed 1x/2x comparison;
+they are not release scores unless the complete action family clears the quality bar.
 Each direction covers 3/6 semantic actions (copy, retry, speak); More, bookmark, pin and status remain
 shared. Visual fit uses the same stroke/size, contrast and restrained-cue tuple as round 1; recognition
 is scored separately.
 
-| Direction | Coverage | Visual fit (provisional /6) | Action recognition (provisional /2) | Release decision |
+| Direction | Coverage | Visual fit (/6) | Action recognition (/2) | Release decision |
 | --- | ---: | --- | ---: | --- |
-| Ear folds | 3/6 | 4/6 (2, 1, 1) | 1/2 | Gallery only; capture required |
-| Tail terminals | 3/6 | 4/6 (2, 2, 0) | 2/2 | Gallery only; capture required |
-| Whisker edges | 3/6 | 3/6 (1, 1, 1) | 1/2 | Gallery only; capture required |
+| Ear folds | 3/6 | 4/6 (2, 1, 1) | 1/2 | Gallery only; rejected for release |
+| Tail terminals | 3/6 | 4/6 (2, 2, 0) | 2/2 | Gallery only; rejected for release |
+| Whisker edges | 3/6 | 3/6 (1, 1, 1) | 1/2 | Gallery only; rejected for release |
 
-The provisional read is that tail terminals preserve the utility silhouette best, but none has earned
-production status. No round 2 drawing is in a shipped resource, and no Neko DEV action row or spinner
-exists until a later captured round passes at both device scales in both themes.
+Tail terminals preserve the utility silhouette best, but the capture confirms the same blocker as the
+source review: only half the required action row has Neko-specific art. None has earned production
+status. No round 2 drawing is in a shipped resource, and no Neko DEV action row or spinner exists;
+the setting remains hidden and resolves to the default family until a complete captured round passes
+at both device scales in both themes.
