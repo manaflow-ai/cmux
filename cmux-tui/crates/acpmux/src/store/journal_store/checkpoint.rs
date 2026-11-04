@@ -30,6 +30,29 @@ pub(super) fn read_checkpoint(home: &Path) -> Result<Lsn> {
     }
 }
 
+/// Writes the freeze marker `<home>/journal-frozen` durably: the next open writes every replayed
+/// chat's lines again (a failed sync may have left pages that read back but never reach the
+/// disk). Removed by the first checkpoint after such an open.
+fn write_frozen_marker(home: &Path, why: &str) -> Result<()> {
+    crate::config::write_atomic(&home.join(FROZEN_NAME), why.as_bytes())
+}
+
+/// Whether the freeze marker is there.
+pub(super) fn frozen_marker(home: &Path) -> bool {
+    std::fs::symlink_metadata(home.join(FROZEN_NAME)).is_ok()
+}
+
+/// Removes the freeze marker (the open that wrote the lines again has checkpointed them).
+fn clear_frozen_marker(home: &Path) -> Result<()> {
+    let path = home.join(FROZEN_NAME);
+    crate::config::refuse_lost_home(&path)?;
+    match std::fs::remove_file(&path) {
+        Ok(()) => sync_directory(home),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(anyhow::Error::from(error).context(format!("remove {}", path.display()))),
+    }
+}
+
 /// Removes the temporary files of checkpoints a crash interrupted (`write_checkpoint`).
 pub(super) fn remove_checkpoint_temporaries(home: &Path) {
     let Ok(entries) = std::fs::read_dir(home) else { return };
@@ -95,7 +118,7 @@ impl Inner {
     }
 
     fn checkpoint_once(&self) -> Result<()> {
-        let (lsn, dirty, metas) = {
+        let (lsn, dirty, metas, read) = {
             let mut order = self.order.lock_or_recover();
             anyhow::ensure!(
                 !order.frozen,
@@ -121,7 +144,12 @@ impl Inner {
             }
             // A failed checkpoint waits for the timer or another `CHECKPOINT_BYTES`.
             order.bytes = 0;
-            (order.target(), std::mem::take(&mut order.dirty), order.metas.clone())
+            (
+                order.target(),
+                std::mem::take(&mut order.dirty),
+                order.metas.clone(),
+                std::mem::take(&mut order.read_segments),
+            )
         };
         // Every record up to `lsn` durable first (one group commit, on this background thread):
         // the checkpoint is never past the journal's durable end, and a metadata image written
@@ -138,6 +166,15 @@ impl Inner {
             self.order.lock_or_recover().dirty.extend(dirty);
             return Err(error);
         }
+        // The segments the open's repair read without rewriting them: a killed daemon's writes may
+        // be in the page cache only (review 3 of #34901, finding 1a), so they are synced before
+        // their records are retired.
+        if let Err(error) = self.sync_read_segments(&read) {
+            let mut order = self.order.lock_or_recover();
+            order.dirty.extend(dirty);
+            order.read_segments.extend(read);
+            return Err(error);
+        }
         if let Err(error) = self.sync_logs(&dirty) {
             self.order.lock_or_recover().dirty.extend(dirty);
             return Err(error);
@@ -149,13 +186,20 @@ impl Inner {
             );
         }
         write_checkpoint(&self.home, lsn)?;
-        let damage = {
+        let (damage, held) = {
             let mut order = self.order.lock_or_recover();
             order.checkpointed = order.checkpointed.max(lsn);
-            std::mem::take(&mut order.damage)
+            (std::mem::take(&mut order.damage), order.held)
         };
         if damage && let Err(error) = self.journal.clear_damage() {
             tracing::warn!("clear the event journal's damage report: {error}");
+        }
+        // The lines a frozen run's restart wrote again are durable now; a chat whose repair
+        // failed (`held`) keeps the marker, so the next start writes its lines again too.
+        if held == 0
+            && let Err(error) = clear_frozen_marker(&self.home)
+        {
+            tracing::warn!("remove the event journal's freeze marker: {error:#}");
         }
         self.retire(lsn);
         Ok(())
@@ -171,6 +215,25 @@ impl Inner {
     /// delete's removal, a new chat's folder). A chat deleted meanwhile is passed. A failed sync
     /// call freezes the checkpoint; another error (a folder that does not open) fails only this
     /// checkpoint, and the next one tries again.
+    /// Syncs, in write order, each segment the open's repair read without rewriting it; one
+    /// that is gone (its chat was deleted, or a retention rewrite replaced it) is passed: what
+    /// replaced it was synced when it was written.
+    fn sync_read_segments(&self, read: &BTreeSet<PathBuf>) -> Result<()> {
+        for path in read {
+            let file = match crate::config::private_state_file(path) {
+                Ok(file) => file,
+                Err(error) if is_not_found(&error) => continue,
+                Err(error) => return Err(error.context(format!("open {}", path.display()))),
+            };
+            if let Err(error) = log_sync::sync_segment_ordered(&file) {
+                self.freeze(format!("an event log failed to sync: {error}"));
+                return Err(anyhow::Error::from(SyncFailed(error))
+                    .context(format!("sync {}", path.display())));
+            }
+        }
+        Ok(())
+    }
+
     fn sync_logs(&self, dirty: &BTreeSet<String>) -> Result<()> {
         let failed = |error: anyhow::Error| {
             if error.chain().any(|cause| cause.is::<SyncFailed>()) {
@@ -190,9 +253,14 @@ impl Inner {
         log_sync::sync_directory_ordered(&self.local.root).map_err(failed)
     }
 
-    /// A log sync failed: no checkpoint until a restart, and the daemon is asked to stop.
+    /// A log sync failed: no checkpoint until a restart, and the daemon is asked to stop. A
+    /// durable marker (`journal-frozen`) tells the next open to write every replayed chat's lines
+    /// again, because the kernel may have dropped pages it still shows.
     pub(super) fn freeze(&self, why: String) {
         self.order.lock_or_recover().frozen = true;
+        if let Err(error) = write_frozen_marker(&self.home, &why) {
+            tracing::error!("write the event journal's freeze marker: {error:#}");
+        }
         self.ask_to_stop(why);
     }
 

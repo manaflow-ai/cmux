@@ -314,10 +314,11 @@ impl Inner {
         Ok(())
     }
 
-    /// The replay's part: each chat's newest image to its `session.json` when its folder is the
-    /// one the image was saved for and the file holds an older image. A missing folder is made
-    /// again only for a chat a replayed record made; else the chat was deleted or removed outside
-    /// the daemon, and its image goes aside, as does the image of a folder replaced since.
+    /// The replay's part: each chat's newest image into the overlay (the checkpoint writes it to
+    /// `session.json`) when its folder is the one the image was saved for and the file holds an
+    /// older image. A missing folder is made again only for a chat a replayed record made; else
+    /// the chat was deleted or removed outside the daemon, and its image goes aside, as does the
+    /// image of a folder replaced since.
     pub(super) fn apply_metas(&self, metas: BTreeMap<String, Replayed>) -> Result<()> {
         for (chat, replayed) in metas {
             let dir = self.local.dir(&chat);
@@ -346,12 +347,26 @@ impl Inner {
                 tracing::error!(session = %chat, kept = %kept.display(), "journaled metadata of a chat not written again: {why}");
                 continue;
             }
-            let written = crate::config::private_state_dir(&dir)
-                .and_then(|()| write_session_json(&dir, &meta, replayed.lsn));
-            if let Err(error) = written {
+            // A folder a crash lost is made again here (the log repair after this writes its lines
+            // into it); the image goes to the overlay, and the checkpoint on its own thread writes
+            // `session.json` (no sync per replayed chat before the daemon serves).
+            if let Err(error) = crate::config::private_state_dir(&dir) {
                 let kept = self.keep_aside_meta(&chat, replayed.lsn, &replayed.image)?;
-                tracing::error!(session = %chat, kept = %kept.display(), "the chat's metadata could not be written: {error:#}");
+                tracing::error!(session = %chat, kept = %kept.display(), "the chat's folder could not be made: {error:#}");
+                continue;
             }
+            let folder = match folder_id(&dir) {
+                Ok(Some(folder)) => folder,
+                _ => {
+                    let kept = self.keep_aside_meta(&chat, replayed.lsn, &replayed.image)?;
+                    tracing::error!(session = %chat, kept = %kept.display(), "the chat's folder does not read after it was made");
+                    continue;
+                }
+            };
+            self.order
+                .lock_or_recover()
+                .metas
+                .insert(chat, Pending { lsn: replayed.lsn, meta, folder });
         }
         Ok(())
     }

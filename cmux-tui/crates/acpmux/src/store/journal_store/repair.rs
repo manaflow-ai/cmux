@@ -118,16 +118,17 @@ impl Inner {
     /// whole line or a folder.
     ///
     /// The log is read from just after its last line with a `seq` below the first journaled one
-    /// (the repair start). Its lines and the journal's merge by `seq`: a line in both must be the
+    /// (the repair start). A log that already holds every merged line in order, with nothing
+    /// torn, is left as it is; its segments are synced by the next checkpoint (below). Its lines and the journal's merge by `seq`: a line in both must be the
     /// same bytes; a line only the log has stays; a line only the journal has goes in its place.
     /// A line is a whole JSON line: bytes that do not parse (a torn tail, a hole of zeros, a line
     /// a hole ran into a later one) are not a line and go.
     ///
-    /// Every merged line is written again from the repair start, even when the log has them all:
-    /// a killed daemon's log writes may be in the page cache only, and after a failed sync the
-    /// kernel may have dropped pages it still shows and that a later sync reports as written. So
-    /// the first checkpoint after this open syncs bytes this process wrote before it retires their
-    /// records (review 2 of #34901, finding 1). The lines that only the log has from the repair
+    /// Otherwise every merged line is written again from the repair start; also when the
+    /// previous run froze (a failed sync: the kernel may have dropped pages it still shows and
+    /// that a later sync reports as written), which the freeze marker says. Either way the first
+    /// checkpoint after this open syncs the bytes before it retires their records (review 2 of
+    /// #34901, finding 1). The lines that only the log has from the repair
     /// start are journaled and made durable first; then the log is cut there and the merged lines
     /// written, so a crash at any step loses no line: the next open repairs the same way.
     fn repair(
@@ -169,6 +170,31 @@ impl Inner {
         }
         let merged: Vec<(u64, &[u8])> = merged.into_iter().collect();
         let keep_merged = || merged.iter().map(|(_, line)| line.to_vec()).collect::<Vec<_>>();
+        // The log already holds every merged line, in order, with nothing torn among them: it
+        // stays as it is, and the next checkpoint syncs the segments read here before it retires
+        // their records (a killed daemon's writes may be in the page cache only). After a frozen
+        // run (`rewrite_all`), the kernel may have dropped pages that still read back, so every
+        // replayed chat's lines are written again.
+        let rewrite_all = self.order.lock_or_recover().rewrite_all;
+        let whole = pieces.len() == merged.len()
+            && pieces.iter().zip(&merged).all(|(piece, (seq, line))| {
+                piece
+                    .line
+                    .as_ref()
+                    .is_some_and(|(at, bytes)| at == seq && bytes.as_slice() == *line)
+            });
+        if whole && !rewrite_all {
+            let read: BTreeSet<PathBuf> = self
+                .local
+                .segments(id)
+                .map_err(chat_error)?
+                .into_iter()
+                .filter(|(index, _)| pieces.iter().any(|piece| piece.segment == *index))
+                .map(|(_, path)| path)
+                .collect();
+            self.order.lock_or_recover().read_segments.extend(read);
+            return Ok(Repaired::Done);
+        }
         if let Some(start) = pieces.first() {
             // The lines only the log holds from the repair start: into the journal first.
             let only_logged: Vec<&[u8]> = merged

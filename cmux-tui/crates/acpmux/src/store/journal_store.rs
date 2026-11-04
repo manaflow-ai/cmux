@@ -71,6 +71,9 @@ const KIND_FORGET: u16 = 2;
 
 const JOURNAL_DIR: &str = "journal";
 const CHECKPOINT_NAME: &str = "journal-projected.json";
+/// A durable marker that a log sync failed (the checkpoint froze): the next open writes every
+/// replayed chat's lines again (`journal_store/checkpoint.rs`).
+const FROZEN_NAME: &str = "journal-frozen";
 const CHECKPOINT_SCHEMA: &str = "acpmux.journal-projected.v1";
 /// Where the journaled lines of a log that recovery leaves as it is go.
 const UNAPPLIED_DIR: &str = "journal-unapplied";
@@ -181,6 +184,12 @@ struct Order {
     /// Each chat's newest metadata image that its `session.json` does not hold yet (S3a,
     /// `journal_store/meta.rs`): reads see it first, the checkpoint writes it.
     metas: BTreeMap<String, meta::Pending>,
+    /// The log segments the open's repair read and kept as they were: the next checkpoint syncs
+    /// them before it retires their records (a killed daemon's writes may be in the page cache
+    /// only).
+    read_segments: BTreeSet<PathBuf>,
+    /// The open found the freeze marker: its repair writes every replayed chat's lines again.
+    rewrite_all: bool,
 }
 
 impl Order {
@@ -195,7 +204,10 @@ impl Order {
 
     /// Whether a checkpoint has anything to do.
     fn has_work(&self) -> bool {
-        self.target() > self.checkpointed || !self.dirty.is_empty() || !self.metas.is_empty()
+        self.target() > self.checkpointed
+            || !self.dirty.is_empty()
+            || !self.metas.is_empty()
+            || !self.read_segments.is_empty()
     }
 }
 
@@ -249,6 +261,7 @@ impl JournalStore {
             order: Mutex::new(Order {
                 checkpointed: from,
                 damage: !report.damage.is_empty(),
+                rewrite_all: checkpoint::frozen_marker(home),
                 ..Order::default()
             }),
             checkpointing: Mutex::new(()),
@@ -262,8 +275,11 @@ impl JournalStore {
             idle: AtomicBool::new(false),
         });
         inner.apply(replay)?;
-        if let Err(error) = inner.checkpoint() {
-            tracing::warn!("event journal checkpoint after the replay: {error:#}");
+        // The checkpoint after the replay runs on the checkpointer's thread at once, not here: the
+        // daemon binds its socket after this open returns, and the checkpoint's syncs are the
+        // open's cost per replayed chat (6.1 s for 300 chats on a loaded Mac, fleet 59175d6b).
+        if inner.order.lock_or_recover().has_work() {
+            inner.timer.lock_or_recover().wanted = true;
         }
         let worker = Arc::clone(&inner);
         let checkpointer = std::thread::Builder::new()

@@ -807,8 +807,10 @@ fn an_os_crash_after_a_restart_from_a_kill_keeps_every_acked_line() {
     assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
     let killed = journal.restart(Crash::Process);
     drop(store);
-    // The restart replays 2..5 and its first checkpoint runs.
+    // The restart replays 2..5 and its first checkpoint runs (on the checkpointer's thread after
+    // the open returns; `flush` waits for one here, so the crash comes after it).
     let store = open(home.path(), &killed);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
     let crashed = killed.restart(Crash::Os);
     drop(store);
     sync_model::os_crash(&home.path().join("sessions"));
@@ -839,9 +841,11 @@ fn an_os_crash_after_a_restart_from_a_failed_sync_keeps_every_acked_line() {
     let failed = store.flush();
     FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
     assert!(failed.is_err(), "the checkpoint went on past a failed log sync");
-    // The daemon stops for a restart (no crash), and the restart's first checkpoint runs.
+    // The daemon stops for a restart (no crash), and the restart's first checkpoint runs (on the
+    // checkpointer's thread after the open returns; `flush` waits for one here).
     drop(store);
     let store = open(home.path(), &journal);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
     let crashed = journal.restart(Crash::Os);
     drop(store);
     sync_model::os_crash(&home.path().join("sessions"));
@@ -1012,4 +1016,42 @@ fn an_idle_store_does_not_wake_its_checkpointer() {
         checkpointed.is_some_and(|lsn| lsn >= 2),
         "no checkpoint after a change ({checkpointed:?})"
     );
+}
+
+/// A freeze leaves a durable marker (`journal-frozen`): the next open writes every replayed
+/// chat's lines again even when its log reads whole (the kernel may have dropped pages that still
+/// read back), and the first checkpoint after it removes the marker.
+#[test]
+fn a_freeze_marker_makes_the_next_open_write_the_lines_again_then_goes() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(48);
+    let store = open(home.path(), &journal);
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.append(CHAT, &record(2, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
+    let failed = store.flush();
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
+    assert!(failed.is_err(), "the checkpoint went on past a failed log sync");
+    let marker = home.path().join("journal-frozen");
+    assert!(marker.exists(), "a freeze left no marker");
+    drop(store);
+    let log = home.path().join("sessions").join(CHAT).join("events").join("000001.ndjson");
+    let inode = || {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata(&log).map(|meta| (meta.ino(), meta.len())).unwrap_or((0, 0))
+    };
+    let before = std::fs::read(&log).unwrap_or_default();
+    let store = open(home.path(), &journal);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    assert_eq!(seqs(store.as_ref(), CHAT), vec![1, 2]);
+    assert_eq!(
+        std::fs::read(&log).unwrap_or_default(),
+        before,
+        "the rewrite changed the log's bytes"
+    );
+    assert!(inode().1 > 0, "the log is gone");
+    assert!(!marker.exists(), "the checkpoint after the rewrite left the marker");
 }
