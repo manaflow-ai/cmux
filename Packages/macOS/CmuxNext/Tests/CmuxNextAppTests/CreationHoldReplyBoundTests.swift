@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextFocus
 @testable import CmuxNextFocusUI
 import CmuxNextTerminal
 import Foundation
@@ -18,10 +19,40 @@ struct CreationHoldReplyBoundTests {
     /// after it wait at most the hold's bound, then go on in order to the terminal the person typed into at the press, even
     /// when a script moved the focus to another terminal meanwhile (the person before automation: review of #35275). Base:
     /// they waited for the reply that never comes.
-    /// The hold is opened as Cmd-N opens it for a person (`beginWorkspace(in:)`; a test window is never key, so `newTab`
-    /// performed here has no source window and opens no person hold: PersonTerminalKeyboardClaimTests does the same), and
-    /// its reply never comes: nothing resolves the ticket, as when the daemon never answers.
     @Test func keysTypedAfterCmdNWhoseDaemonNeverAnswersReachThePressTimeTerminalAtTheBound() async throws {
+        try await Self.cmdNNeverAnswered(thenFocusMovesBy: .cli) { end, read in
+            #expect(end == "replyBoundReached", "the hold ended \(end), not at its reply bound")
+            let pressed = try await read(.pressed, true)
+            #expect(pressed.ran, "the press-time terminal did not get the typed line in order; its screen: \(pressed.screen.debugDescription)")
+            let other = try await read(.other, false)
+            #expect(!other.ran, "the line ran in the terminal a script focused: \(other.screen.debugDescription)")
+        }
+    }
+
+    /// The same Cmd-N, but the person moves on themselves (a click on another pane, as a click on a tab in the tab strip
+    /// selects it on mouse down): at the bound the typed command runs nowhere, not in the press-time terminal they left
+    /// (review of #35275 at b9d639ed46e7: the click ended the keyboard claim during its dispatch, so ``personMovedOn`` was
+    /// never called, and the press lane typed `rm -rf build` into a hidden shell).
+    @Test func keysTypedAfterCmdNRunNowhereAtTheBoundWhenThePersonMovedOn() async throws {
+        try await Self.cmdNNeverAnswered(thenFocusMovesBy: .mouse) { end, read in
+            #expect(end == "replyBoundReached", "the hold ended \(end), not at its reply bound")
+            for terminal in [Which.pressed, .other] {
+                let screen = try await read(terminal, false)
+                #expect(!screen.ran, "the line ran in the \(terminal) terminal after the person moved on: \(screen.screen.debugDescription)")
+            }
+        }
+    }
+
+    enum Which { case pressed, other }
+
+    /// Two terminal panes; the person's Cmd-N hold over the first (`beginWorkspace(in:)`, as Cmd-N opens it for a person: a
+    /// test window is never key, so `newTab` performed here has no source window and opens no person hold;
+    /// PersonTerminalKeyboardClaimTests does the same), "echo held" Return typed, then a focus move to the second terminal
+    /// by `source`. The reply never comes: nothing resolves the ticket, as when the daemon never answers. `check` gets the
+    /// hold's end reason (by name: the red build has no such case) and reads a terminal's screen: whether it ran the line,
+    /// waiting up to 15 s for it to show (`expected` true) or 3 s for it not to (false).
+    private static func cmdNNeverAnswered(thenFocusMovesBy source: FocusEvent.Source,
+                                          check: (String, (Which, Bool) async throws -> (ran: Bool, screen: String)) async throws -> Void) async throws {
         try await PasswordManagerRouteTests.withApp(heldKeyReplay: { event, window, router in
             if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
         }) { services, connection in
@@ -58,8 +89,6 @@ struct CreationHoldReplyBoundTests {
             let other = try #require(terminals().first { $0.pane !== pressed.pane })
             try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: window) }, report: { "the splits' creation hold did not end" })
             try await focus(pressed)
-            // The person's Cmd-N for a terminal workspace, over the first terminal: its key hold and keyboard claim, and a
-            // reply that never comes. Then a script's focus move to the other terminal (a new generation).
             let ticket = try #require(coordinator.beginWorkspace(in: controller), "a person's new workspace opened no key hold")
             for character in "echo held\r" {
                 let text = String(character)
@@ -69,26 +98,27 @@ struct CreationHoldReplyBoundTests {
                                                           isARepeat: false, keyCode: text == "\r" ? 36 : 0))
                 #expect(router.interceptKeyDown(event, in: window), "the hold did not take \(text.debugDescription)")
             }
-            controller.focus.send(.focusPane(other.pane.paneKey, source: .cli))
-            // Within the bound and a margin, the hold ends at its reply bound.
+            controller.focus.send(.focusPane(other.pane.paneKey, source: source))
+            // Within the bound and a margin, the hold ends.
             try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: window) }, within: .seconds(4),
                                                       report: { "the hold did not end at its reply bound" })
-            let end = coordinator.lastHoldEnd(in: window).map { "\($0)" } ?? "none" // by name: the red build has no such case
-            #expect(end == "replyBoundReached", "the hold ended \(end), not at its reply bound")
+            let end = coordinator.lastHoldEnd(in: window).map { "\($0)" } ?? "none"
             coordinator.resolve(ticket, landed: false, in: window) // a reply after the bound belongs to no hold
-            // What the person sees: the terminal they typed into shows the line and the shell's answer; the other none of it.
+            // What the person sees: whether a terminal shows the line and the shell's answer.
             func ran(_ text: String) -> Bool {
                 text.contains("echo held") && text.components(separatedBy: "\n").contains { $0.trimmingCharacters(in: .whitespaces) == "held" }
             }
-            var screen = ""
-            let deadline = ContinuousClock.now + .seconds(15)
-            while !ran(screen), ContinuousClock.now < deadline {
-                screen = (try? await connection.request(ReadScreenRequest(surface: pressed.surface), timeout: .seconds(2)).text) ?? screen
-                if !ran(screen) { try await Task.sleep(for: .milliseconds(100)) }
+            try await check(end) { terminal, expected in
+                let surface = terminal == .pressed ? pressed.surface : other.surface
+                var screen = ""
+                let deadline = ContinuousClock.now + (expected ? .seconds(15) : .seconds(3))
+                while ContinuousClock.now < deadline { // until it ran (a red when it must not) or the deadline
+                    screen = (try? await connection.request(ReadScreenRequest(surface: surface), timeout: .seconds(2)).text) ?? screen
+                    if ran(screen) { break }
+                    try await Task.sleep(for: .milliseconds(100))
+                }
+                return (ran(screen), screen)
             }
-            #expect(ran(screen), "the press-time terminal did not get the typed line in order; its screen: \(screen.debugDescription)")
-            let otherScreen = (try? await connection.request(ReadScreenRequest(surface: other.surface), timeout: .seconds(2)).text) ?? ""
-            #expect(!otherScreen.contains("echo held"), "the line ran in the terminal a script focused: \(otherScreen.debugDescription)")
         }
     }
 
