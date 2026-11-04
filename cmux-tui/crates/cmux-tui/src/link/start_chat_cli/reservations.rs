@@ -143,8 +143,9 @@ pub(super) fn unbound(error: &PlatformCallError) -> bool {
 /// Only CloudDO carriers can attach through the NEXT machine routes.
 pub(super) fn machine(body: &Value) -> Option<&str> {
     body.get("machine").and_then(Value::as_str).filter(|id| {
-        id.strip_prefix("vm_").is_some_and(|hex| {
-            hex.len() == 20 && hex.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+        id.strip_prefix("vm_").is_some_and(|suffix| {
+            suffix.len() == 20
+                && suffix.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
         })
     })
 }

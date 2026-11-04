@@ -2044,6 +2044,12 @@ fn project_ensure_carries_the_reservation_and_its_send_key_without_enabling_new_
 }
 
 #[test]
+fn reservation_accepts_cloud_machine_ids_with_letters() {
+    let id = "vm_m0123456789abcdef012";
+    assert_eq!(super::reservations::machine(&json!({"machine": id})), Some(id));
+}
+
+#[test]
 fn reservation_bind_preserves_the_environment_authorization_input() {
     let call = super::reservations::Call {
         action: super::reservations::Action::Bind,
