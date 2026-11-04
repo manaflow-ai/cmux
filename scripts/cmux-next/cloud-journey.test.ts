@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
-import { cliExecWithFallback, machineIds, newMachineId, nativeProofSkip, waitPreflight, PREFLIGHT_PROBE } from "./cloud-journey";
+import { cliExecWithFallback, machineIds, newMachineIds, nativeProofSkip, waitPreflight, PREFLIGHT_PROBE } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("backend names map to the cmux API Worker of each environment", () => {
@@ -123,10 +123,9 @@ describe("cloud journey: exec on a VM API machine", () => {
     const exec = cliExecWithFallback(async () => ({ code: 2, stdout: "", stderr: "boom" }), async () => { throw new Error("not used"); }, { meta: {} });
     expect((await exec("a")).code).toBe(2);
   });
-  test("app cli: a pending create's machine is the one new id, never a guess", () => {
+  test("app cli: machines new since a create are listed, never picked", () => {
     expect(machineIds([{ id: "vm_a" }, { machine_id: "vm_b" }, { id: "vm_c", status: "deleted" }, {}])).toEqual(["vm_a", "vm_b"]);
-    expect(newMachineId(["vm_a"], ["vm_a", "vm_b"])).toBe("vm_b");
-    expect(newMachineId(["vm_a"], ["vm_a"])).toBeNull();
-    expect(newMachineId(["vm_a"], ["vm_a", "vm_b", "vm_c"])).toBeNull();
+    expect(newMachineIds(["vm_a"], ["vm_a", "vm_b", "vm_b"])).toEqual(["vm_b"]);
+    expect(newMachineIds(["vm_a"], ["vm_a"])).toEqual([]);
   });
 });

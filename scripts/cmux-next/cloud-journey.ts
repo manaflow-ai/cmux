@@ -440,11 +440,10 @@ export function machineIds(rows: any[]): string[] {
   return rows.filter((m) => m && m.status !== "deleted").map((m) => String(m.id ?? m.machine_id ?? "")).filter(Boolean);
 }
 
-/** The one id in `after` that `before` lacks; null when there is none or more than one (never guess a machine to delete). */
-export function newMachineId(before: string[], after: string[]): string | null {
+/** The ids in `after` that `before` lacks. */
+export function newMachineIds(before: string[], after: string[]): string[] {
   const seen = new Set(before);
-  const fresh = [...new Set(after.filter((id) => !seen.has(id)))];
-  return fresh.length === 1 ? fresh[0] : null;
+  return [...new Set(after.filter((id) => !seen.has(id)))];
 }
 
 async function appCliJourney(cli: string, socket: string | undefined, J: Journey, agent: string, prompt: string): Promise<void> {
@@ -467,14 +466,15 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
   };
   const where = (j: any) => j?.api_base_url ?? j?.backend ?? j?.api ?? j?.origin ?? j?.host ?? "app";
   // The backend refuses a create with a name ("can't create a machine with a size, idle pause, name or
-  // bootstrap yet"), so the create takes no flags. A create that answered `pending` without an id is found
-  // by the one id the account did not have before it; with two or more new ids, none is taken.
+  // bootstrap yet"), so the create takes no flags, and a `pending` answer (no id) names nothing this run
+  // could match. Only the id the create answered is ever deleted; after a `pending` answer the machines
+  // that appeared since the create are named for a person to check, never deleted (another create in the
+  // same account may be one of them).
   const listIds = (): string[] => {
     const r = run(["cloud", "list-machines", "--json"], 60_000);
     return machineIds(r.json?.machines ?? r.json?.items ?? (Array.isArray(r.json) ? r.json : []));
   };
   let before: string[] | null = null;
-  const findNew = async (): Promise<string | null> => (before ? newMachineId(before, listIds()) : null);
   let machine: string | null = null;
   try {
     await J.step("app cli: signed in (cloud list-machines)", async () => {
@@ -489,8 +489,8 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
     machine = await J.step("app cli: cloud new-machine", async () => {
       before = listIds();
       const r = must("cloud new-machine", run(["cloud", "new-machine", "--json"], 600_000));
-      const id = r.json?.machine_id ?? r.json?.machine?.id ?? r.json?.id ?? (await findNew());
-      if (!id) throw new Error(`no machine id in ${short(r.json)}`);
+      const id = r.json?.machine_id ?? r.json?.machine?.id ?? r.json?.id;
+      if (!id) throw new Error(`no machine id in ${short(r.json)}${r.json?.status === "creating" ? " (pending: the create goes on; this run deletes nothing it did not get an id for)" : ""}`);
       return { value: String(id), detail: `${id} via ${where(r.json)}` };
     });
     const target = `machine:${machine}`;
@@ -516,8 +516,15 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
       return { value: null, detail: reply.slice(0, 280) };
     });
   } finally {
-    // Creation continues after a `pending` answer: look for the new machine for a bounded while.
-    for (let t0 = Date.now(); before && !machine && Date.now() - t0 < 180_000; await sleep(5000)) machine = await findNew();
+    if (!machine && before) {
+      const prior = before;
+      await J.step("app cli: no machine id to delete", async () => {
+        const fresh = newMachineIds(prior, listIds());
+        throw new Error(fresh.length
+          ? `machines new since the create, not deleted (another create may own one): ${fresh.join(", ")}`
+          : "no machine is new since the create");
+      }).catch(() => undefined);
+    }
     if (machine) {
       const id = machine;
       await J.step("app cli: cloud kill-machine", async () => {
