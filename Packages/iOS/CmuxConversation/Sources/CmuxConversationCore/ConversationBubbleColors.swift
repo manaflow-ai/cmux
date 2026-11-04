@@ -6,11 +6,13 @@ public struct ConversationColor: Hashable, Sendable, Codable {
     public var green: Double
     public var blue: Double
 
-    /// Components from 0 to 1 (clamped).
+    /// Components from 0 to 1, clamped and kept to 8 bits each (what `#RRGGBB`
+    /// holds), so a colour equals itself after it is saved and read back.
     public init(red: Double, green: Double, blue: Double) {
-        self.red = min(max(red, 0), 1)
-        self.green = min(max(green, 0), 1)
-        self.blue = min(max(blue, 0), 1)
+        func channel(_ value: Double) -> Double { (min(max(value, 0), 1) * 255).rounded() / 255 }
+        self.red = channel(red)
+        self.green = channel(green)
+        self.blue = channel(blue)
     }
 
     /// `#RRGGBB` (or `RRGGBB`); nil for anything else.
@@ -42,7 +44,8 @@ public struct ConversationColor: Hashable, Sendable, Codable {
         return (max(a, b) + 0.05) / (min(a, b) + 0.05)
     }
 
-    /// White or black, whichever reads better on this colour.
+    /// White or black, whichever has the higher contrast on this colour: the
+    /// Mac's automatic text for a chosen bubble colour (`HomeColor.strongestText`).
     public var readableText: ConversationColor {
         contrast(with: .white) >= contrast(with: .black) ? .white : .black
     }
