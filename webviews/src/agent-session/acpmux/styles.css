@@ -155,14 +155,14 @@
 }
 .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade::before{
   inset-block-start:0;
-  height:14px;
-  margin-block-end:-14px;
+  height:var(--ui-scroll-fade-top);
+  margin-block-end:calc(-1 * var(--ui-scroll-fade-top));
   background:linear-gradient(to bottom,var(--glass-tint),transparent);
 }
 .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade::after{
   inset-block-end:0;
-  height:22px;
-  margin-block-start:-22px;
+  height:var(--ui-scroll-fade-bottom);
+  margin-block-start:calc(-1 * var(--ui-scroll-fade-bottom));
   background:linear-gradient(to bottom,transparent,var(--glass-tint));
 }
 .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade[data-fade-top]::before,
