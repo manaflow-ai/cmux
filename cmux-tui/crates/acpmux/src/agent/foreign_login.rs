@@ -14,10 +14,13 @@
 //! `OPENAI_API_KEY` no longer reaches Claude Code's Bash); put it in the
 //! profile's env to give it on purpose.
 //!
-//! Only a harness that is one model agent is scrubbed ([`LEAF_FAMILIES`]).
-//! A profile that runs acpmux or cmux itself and starts harnesses under it
-//! (the Chief brain, `chief acp`) passes every login on to them on purpose
-//! (`cli/chief/launch.rs` `brain_env_allowed`), so it keeps them.
+//! Which agent a profile runs comes from its kind and its command line by
+//! exact program names ([`classify`]). A host that starts harnesses under it
+//! (the Chief brain `<cli> chief acp`, `uniichat-agent`) passes every login on
+//! to them on purpose (`cli/chief/launch.rs` `brain_env_allowed`), so it keeps
+//! them. A command line that names no known agent, or more than one, loses
+//! every harness's own sign-in and keeps only the provider API keys: the safe
+//! side; its profile's env can still give it a login on purpose.
 //!
 //! Every path that starts a harness's own program goes through here: an
 //! agent (`agent/command.rs`), a fork of a terminal's chat (`chat_fork.rs`),
@@ -75,24 +78,61 @@ pub(crate) fn foreign_login_keys(family: &str) -> impl Iterator<Item = &'static 
         .map(|login| login.key)
 }
 
-/// The agent `profile` runs, from its kind and command line first, never
-/// its `family` label alone: `{"argv": ["codex-acp"], "family": "mine"}` is
-/// Codex, and a Claude Code kind is Claude. A launcher whose program does not
-/// name its agent (Cursor's `agent`, `sr`) counts by its profile name
-/// (`claude-sr` is Claude). `None` for a host that starts harnesses itself (the
-/// Chief brain `chief acp`, `uniichat-agent`), whatever it is called, and for
-/// a profile that is not one agent.
-pub(crate) fn leaf_family(name: &str, profile: &HarnessProfile) -> Option<String> {
+/// What a harness's command line runs, for the scrub.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Runs {
+    /// One agent of this leaf family: every other family's login goes.
+    Agent(String),
+    /// A host that starts harnesses itself: it keeps every login.
+    Host,
+    /// No known agent, or more than one: every family's own sign-in goes.
+    Unknown,
+}
+
+impl Runs {
+    /// The family whose login is kept, for [`foreign_login_keys`]: none for
+    /// an unknown command (`""` keeps only the provider API keys).
+    fn kept(&self) -> Option<&str> {
+        match self {
+            Self::Agent(family) => Some(family),
+            Self::Host => None,
+            Self::Unknown => Some(""),
+        }
+    }
+}
+
+/// What `profile` (named `name`) runs: a Claude Code kind is Claude; a host's
+/// exact shape is a host; else the agents its command line names exactly
+/// ([`argv_families`]), and only when that names none, its profile name's
+/// first word (`claude-sr` running `sr` is Claude, `cursor` running `agent`
+/// is Cursor). The `family` label never decides.
+pub(crate) fn classify(name: &str, profile: &HarnessProfile) -> Runs {
     if profile.kind == HarnessKind::ClaudeStdio {
-        return Some("claude".into());
+        return Runs::Agent("claude".into());
     }
-    if is_host(&profile.argv) {
-        return None;
+    classify_command(&profile.argv, name)
+}
+
+/// [`classify`] for a bare command (a sign-in check such as `claude auth
+/// status`) and the name or label it belongs to.
+pub(crate) fn classify_command(argv: &[String], label: &str) -> Runs {
+    if is_host(argv) {
+        return Runs::Host;
     }
-    if let Some(family) = argv_family(&profile.argv) {
-        return Some(family);
+    let found = argv_families(argv);
+    match found.as_slice() {
+        [one] => Runs::Agent(one.clone()),
+        [] => canonical(label).map_or(Runs::Unknown, Runs::Agent),
+        _ => Runs::Unknown,
     }
-    canonical(name)
+}
+
+/// The leaf family `profile` runs, when it runs exactly one known agent.
+pub(crate) fn leaf_family(name: &str, profile: &HarnessProfile) -> Option<String> {
+    match classify(name, profile) {
+        Runs::Agent(family) => Some(family),
+        Runs::Host | Runs::Unknown => None,
+    }
 }
 
 /// The leaf family a profile name or family label names: itself, or its
@@ -103,19 +143,6 @@ fn canonical(label: &str) -> Option<String> {
     [lower.as_str(), head].into_iter().find(|f| LEAF_FAMILIES.contains(f)).map(str::to_owned)
 }
 
-/// The agent a command runs (an `auth.check` such as `claude auth status`),
-/// else the canonical family of its `label` (`opencode-v2` is OpenCode).
-/// `None` for a host's command or a label that names no agent.
-pub(crate) fn command_family(argv: &[String], label: &str) -> Option<String> {
-    if is_host(argv) {
-        return None;
-    }
-    if let Some(family) = argv_family(argv) {
-        return Some(family);
-    }
-    canonical(label)
-}
-
 /// A command line that starts acpmux harnesses under itself, in the exact
 /// shape acpmux gives it: the Chief brain (`<cli> chief acp`,
 /// `config/discover.rs`) or uniichat (`<acpmux argv> uniichat-agent`).
@@ -124,32 +151,37 @@ fn is_host(argv: &[String]) -> bool {
         || argv.len() > 1 && argv.last().is_some_and(|a| a == "uniichat-agent")
 }
 
-/// The leaf agent a command line runs, by exact program name: its executable
-/// (`/usr/bin/claude`), or what a package runner or interpreter starts
-/// (`npx -y @agentclientprotocol/claude-agent-acp@0.99`, `node
-/// .../claude-agent-acp/dist/index.js`). No substring of an argument counts.
-fn argv_family(argv: &[String]) -> Option<String> {
-    let (program, rest) = argv.split_first()?;
+/// The distinct leaf families a command line names by exact program name:
+/// its executable (`/usr/bin/claude`), and when that is a runner (`npx`,
+/// `node`, `env`, `bun`, ...), any later word that is an agent's executable,
+/// package (`@agentclientprotocol/claude-agent-acp@0.99`) or a folder of a
+/// script path (`.../claude-agent-acp/dist/index.js`). No substring counts.
+fn argv_families(argv: &[String]) -> Vec<String> {
     let by_name = |name: &str| {
         EXECUTABLES.iter().find(|(exe, _)| *exe == name).map(|(_, family)| family.to_string())
     };
+    let Some((program, rest)) = argv.split_first() else { return Vec::new() };
     if let Some(family) = by_name(&program_name(program)) {
-        return Some(family);
+        return vec![family];
     }
     if !RUNNERS.contains(&program_name(program).as_str()) {
-        return None;
+        return Vec::new();
     }
-    // The first non-option argument is what the runner starts: a package
-    // (`@scope/name@version`) or a script path, one of whose folders names it.
-    let target = rest.iter().find(|a| !a.starts_with('-'))?;
-    let package = target.rsplit('/').next().unwrap_or(target);
-    let package = package.split('@').find(|p| !p.is_empty()).unwrap_or(package);
-    by_name(&package.to_lowercase()).or_else(|| {
-        std::path::Path::new(target)
-            .components()
-            .filter_map(|c| c.as_os_str().to_str().map(str::to_lowercase))
-            .find_map(|c| by_name(&c))
-    })
+    let mut found: Vec<String> = Vec::new();
+    for word in rest {
+        let package = word.rsplit('/').next().unwrap_or(word);
+        let package = package.split('@').find(|p| !p.is_empty()).unwrap_or(package);
+        let hit = by_name(&program_name(package)).or_else(|| {
+            std::path::Path::new(word)
+                .components()
+                .filter_map(|c| c.as_os_str().to_str().map(str::to_lowercase))
+                .find_map(|c| by_name(&c))
+        });
+        if let Some(family) = hit.filter(|f| !found.contains(f)) {
+            found.push(family);
+        }
+    }
+    found
 }
 
 /// A program's own name: its file name, lower case, without a Windows or
@@ -192,21 +224,20 @@ const EXECUTABLES: [(&str, &str); 19] = [
     ("deepseek", "deepseek"),
 ];
 
-/// Every other family's login removed through `remove`, for an agent of
-/// `family` started outside [`scrub`]'s profile path (a sign-in probe, a
-/// model list). Nothing for a family that is not one agent.
-pub(crate) fn remove_foreign_for(family: &str, mut remove: impl FnMut(&str)) {
-    if LEAF_FAMILIES.contains(&family) {
-        foreign_login_keys(family).for_each(&mut remove);
+/// Every login `runs` must not inherit, removed through `remove`, for an
+/// agent started outside [`scrub`]'s profile path (a sign-in check, a model
+/// list).
+pub(crate) fn remove_foreign(runs: &Runs, mut remove: impl FnMut(&str)) {
+    if let Some(kept) = runs.kept() {
+        foreign_login_keys(kept).for_each(&mut remove);
     }
 }
 
-/// Remove every other family's login from `cmd`, whatever set it so far
-/// (the daemon's own env, the login shell, machine env), for the agent
-/// `profile` runs. Call before the profile's own env is applied.
+/// Remove every login the agent `profile` runs must not inherit from `cmd`,
+/// whatever set it so far (the daemon's own env, the login shell, machine
+/// env). Call before the profile's own env is applied.
 pub(crate) fn scrub(cmd: &mut Command, name: &str, profile: &HarnessProfile) {
-    let Some(family) = leaf_family(name, profile) else { return };
-    remove_foreign_for(&family, |key| {
+    remove_foreign(&classify(name, profile), |key| {
         cmd.env_remove(key);
     });
 }
@@ -238,30 +269,50 @@ mod tests {
     }
 
     #[test]
-    fn a_probe_or_model_list_of_one_agent_loses_the_other_logins_and_a_host_keeps_them() {
-        let removed = |family: &str| {
+    fn an_agent_loses_the_other_logins_an_unknown_command_every_sign_in_and_a_host_none() {
+        let removed = |runs: Runs| {
             let mut keys = Vec::new();
-            remove_foreign_for(family, |key| keys.push(key.to_owned()));
+            remove_foreign(&runs, |key| keys.push(key.to_owned()));
             keys
         };
-        assert!(removed("codex").contains(&"CLAUDE_CODE_OAUTH_TOKEN".to_owned()));
-        assert!(removed("claude").contains(&"CODEX_HOME".to_owned()));
-        assert!(removed("chief").is_empty());
+        let codex = removed(Runs::Agent("codex".into()));
+        assert!(codex.contains(&"CLAUDE_CODE_OAUTH_TOKEN".to_owned()));
+        assert!(removed(Runs::Agent("claude".into())).contains(&"CODEX_HOME".to_owned()));
+        assert!(removed(Runs::Host).is_empty());
+        let unknown = removed(Runs::Unknown);
+        for key in ["CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "OPENCODE_CONFIG"]
+        {
+            assert!(unknown.contains(&key.to_owned()), "{key} reaches an unknown agent");
+        }
+        assert!(!unknown.contains(&"OPENAI_API_KEY".to_owned()));
     }
 
     #[test]
-    fn a_sign_in_check_counts_by_the_agent_it_runs_or_its_canonical_label() {
+    fn a_command_counts_by_the_one_agent_it_names_exactly() {
         let argv = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
+        let agent = |f: &str| Runs::Agent(f.into());
+        assert_eq!(classify_command(&argv(&["claude", "auth", "status"]), "mine"), agent("claude"));
+        assert_eq!(classify_command(&argv(&["/opt/x", "auth"]), "opencode-v2"), agent("opencode"));
+        assert_eq!(classify_command(&argv(&["cmux", "chief", "acp"]), "codex"), Runs::Host);
+        assert_eq!(classify_command(&argv(&["/opt/x"]), "custom"), Runs::Unknown);
+        // A runner's agent, wherever it stands among the runner's arguments.
+        for words in [
+            &["env", "CLAUDE_CONFIG_DIR=/tmp", "codex-acp"][..],
+            &["node", "--require", "loader.js", "codex-acp"],
+            &["bun", "x", "codex-acp"],
+        ] {
+            assert_eq!(classify_command(&argv(words), "custom"), agent("codex"), "{words:?}");
+        }
+        // Two agents named: neither is trusted, every sign-in goes.
         assert_eq!(
-            command_family(&argv(&["claude", "auth", "status"]), "mine").as_deref(),
-            Some("claude")
+            classify_command(&argv(&["npx", "codex-acp", "--then", "claude"]), "mine"),
+            Runs::Unknown
         );
+        // `chief` as an ordinary argument is no host.
         assert_eq!(
-            command_family(&argv(&["/opt/x", "auth"]), "opencode-v2").as_deref(),
-            Some("opencode")
+            classify_command(&argv(&["/usr/bin/codex", "exec", "chief"]), "x"),
+            agent("codex")
         );
-        assert_eq!(command_family(&argv(&["cmux", "chief", "status"]), "codex"), None);
-        assert_eq!(command_family(&argv(&["/opt/x"]), "custom"), None);
     }
 
     #[test]
