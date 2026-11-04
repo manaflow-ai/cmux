@@ -994,6 +994,7 @@ nobody serves.
 | --- | --- |
 | `linux` | Blacksmith 32 vCPU, Blacksmith 16 vCPU |
 | `linux_arm64` | Blacksmith 4 vCPU ARM64 |
+| `promotion` | Blacksmith Linux 2 vCPU, then 4 vCPU (only after a 180-second owned-fleet no-start) |
 | `windows` | Blacksmith 4 vCPU Windows |
 | `macos_15` | Blacksmith macOS 15 |
 | `macos_26` | Blacksmith macOS 26 (6, then 12 vCPU) |

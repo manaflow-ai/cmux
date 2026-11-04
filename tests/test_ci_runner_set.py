@@ -87,7 +87,7 @@ PINNED: dict[str, tuple[str, set[str]]] = {
     'nightly-tag-permission-probe.yml': ('not yet on a pool; moves in its own PR',
      {'probe'}),
     'nightly.yml': ('NEXT nightly: never moved mid-train here; its runner change is its own PR',
-     {'promote-nightly-next', 'await-release-surface-ack', 'promote-nightly-next-acked', 'refresh-compilation-cache', 'build-nightly-ghostty-cli-helper', 'pick-nightly-app-runner', 'resolve-nightly-cmux-tui-client', 'pick-classic-sign-runner', 'pick-classic-prepare-runner', 'publish-nightly', 'republish-nightly-deltas', 'report-nightly-failure', 'close-nightly-failure-issue'}),
+     {'await-release-surface-ack', 'promote-nightly-next-acked', 'refresh-compilation-cache', 'build-nightly-ghostty-cli-helper', 'pick-nightly-app-runner', 'resolve-nightly-cmux-tui-client', 'pick-classic-sign-runner', 'pick-classic-prepare-runner', 'publish-nightly', 'republish-nightly-deltas', 'report-nightly-failure', 'close-nightly-failure-issue'}),
     'pr-media-privacy.yml': ('not yet on a pool; moves in its own PR',
      {'scan'}),
     'rcodesign-parity-proof.yml': ('signing parity proof: an ephemeral label the signing rule checks literally',
