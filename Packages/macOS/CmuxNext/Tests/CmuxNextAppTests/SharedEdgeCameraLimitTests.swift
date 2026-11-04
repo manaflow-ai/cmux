@@ -5,8 +5,9 @@ import CmuxNextTestSupport
 import Testing
 
 /// FRAME OWNER REFACTOR S2B, a limit of rule D (#35775): a grab holds the line still in the strip, where the layout puts
-/// it. The strip's camera is a view offset, not the line's spring: when it starts to move after the press (a focus
-/// reveals another column during the drag), the held line goes with the strip. On screen it moves by the camera's
+/// it. The strip's camera is a view offset, not the line's spring: when it starts to move after the press, the held line
+/// goes with the strip. A focus change waits for the drag's end to scroll (`reveals: !gestureActive`); a reveal or a
+/// center request does not (a tab opened beside a chat, an automation's reveal, Center Column). On screen it moves by the camera's
 /// travel, not with the still pointer, until the next pointer event puts it where the pointer says again (the press's
 /// drawn place plus the pointer's travel), within the split's limits as for any drag: past a limit the line stays at
 /// it. The shared edges stay together all the way (the camera moves every strip frame alike). A press while the camera
@@ -43,8 +44,8 @@ struct SharedEdgeCameraLimitTests {
         let start = try rig.edge("b1", \.maxX), cameraAtPress = screen.stripShift
         let pixel = 1 / max(screen.scale, 1) + 0.01
 
-        // A focus on C during the drag reveals it: the camera moves, the pointer stays still (no event).
-        rig.model.focus("c", notify: false)
+        // A reveal of C during the drag (a tab opened beside a chat): the camera moves, the pointer stays still (no event).
+        rig.model.revealColumn(containing: "c")
         rig.root.syncWithModel()
         var frames = 0
         repeat {
@@ -55,7 +56,7 @@ struct SharedEdgeCameraLimitTests {
             if abs(drift) > pixel { rig.misses.append("camera frame \(frames): the held line moved \(Rig.pt(drift)) pt in the strip") }
         } while SharedEdgeMotion.viewOffsetMoves(of: .split("x"), axis: .horizontal, on: screen) && frames < 240
         let travel = screen.stripShift - cameraAtPress
-        try #require(abs(travel) > 20, "the focus did not move the camera: \(Rig.pt(travel)) pt")
+        try #require(abs(travel) > 20, "the reveal did not move the camera: \(Rig.pt(travel)) pt")
         // The limit: on screen the line went with the camera, away from the still pointer.
         let carried = try rig.edge("b1", \.maxX) - start
         #expect(abs(carried - travel) <= pixel, "the held line moved \(Rig.pt(carried)) pt on screen, the camera \(Rig.pt(travel)) pt")
