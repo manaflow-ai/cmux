@@ -29,6 +29,42 @@ use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
 
+/// One value of `set-layout-sizes`: what `set-split-ratio` or `set-viewport-pane-width` sets. Each shape takes only
+/// its own two fields: a value with both pairs, or with any other field, is refused, not half applied (#34928 review).
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+#[serde(untagged)]
+pub(super) enum LayoutSizeWire {
+    SplitRatio(SplitRatioWire),
+    PaneWidth(PaneWidthWire),
+}
+
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct SplitRatioWire {
+    split: SplitId,
+    ratio: f32,
+}
+
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct PaneWidthWire {
+    pane: PaneId,
+    width: f32,
+}
+
+impl From<LayoutSizeWire> for crate::mux::LayoutSizeValue {
+    fn from(value: LayoutSizeWire) -> Self {
+        match value {
+            LayoutSizeWire::SplitRatio(SplitRatioWire { split, ratio }) => {
+                Self::SplitRatio { split, ratio }
+            }
+            LayoutSizeWire::PaneWidth(PaneWidthWire { pane, width }) => {
+                Self::PaneWidth { pane, width }
+            }
+        }
+    }
+}
+
 pub(super) fn export_layout(mux: &Arc<Mux>, screen: Option<ScreenId>) -> anyhow::Result<Value> {
     mux.with_state(|state| export_layout_json(state, screen))
 }
@@ -139,7 +175,7 @@ pub(super) fn set_layout_sizes(
     mux: &Arc<Mux>,
     client: u64,
     actor: Actor,
-    values: Vec<super::LayoutSizeWire>,
+    values: Vec<LayoutSizeWire>,
     transaction: u64,
 ) -> anyhow::Result<Value> {
     let values: Vec<crate::mux::LayoutSizeValue> = values.into_iter().map(Into::into).collect();

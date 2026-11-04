@@ -436,6 +436,10 @@ fn apply_layout_size_value(
     match value {
         LayoutSizeValue::SplitRatio { split, ratio } => {
             let refused = |error| LayoutSizesError::Ratio { index, error };
+            // As the single command refuses it (`resource_set_split_ratio`): the clamp keeps a NaN.
+            if !ratio.is_finite() {
+                return Err(LayoutSizesError::NonFiniteRatio { index });
+            }
             let ratio = clamp_split_ratio(ratio);
             let Some((split_workspace, split_screen, owner)) =
                 state.split_screens.get(&split).copied()
