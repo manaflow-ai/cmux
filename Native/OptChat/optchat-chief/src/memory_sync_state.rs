@@ -23,11 +23,11 @@ pub struct Detected {
 }
 
 /// Finds what this Mac holds, fast (no transcript is converted): Claude Code
-/// transcripts, memory notes, Codex sessions and memory notes, and the local
-/// data folders used by the assistants without an export API. Export zips are
-/// added by `detect_with_exports`, which is used by the first-run page after it
-/// is visible to the person. Only metadata is read; transcript contents stay
-/// behind the explicit import action.
+/// transcripts and memory notes and Codex memory notes, all in the agents' own
+/// folders. Never a privacy-protected folder (LAUNCH-NO-TCC-PROMPTS): Home's
+/// first-run offer runs this at launch with no action of the person, and a read
+/// in `~/Downloads` or `~/Desktop` raises a macOS prompt for cmux. Export zips
+/// are `detect_with_exports`, for when the person asks.
 pub fn detect(user_home: &Path, claude_config_dir: Option<String>) -> Vec<Detected> {
     let mut found = Vec::new();
     let projects = crate::claude_import::default_projects_dir(user_home, claude_config_dir);
@@ -70,7 +70,6 @@ pub fn detect(user_home: &Path, claude_config_dir: Option<String>) -> Vec<Detect
             });
         }
     }
-    found.extend(detect_app_data(user_home));
     found
 }
 
@@ -80,13 +79,14 @@ pub fn detect(user_home: &Path, claude_config_dir: Option<String>) -> Vec<Detect
 pub fn detect_with_exports(user_home: &Path, claude_config_dir: Option<String>) -> Vec<Detected> {
     let mut found = detect(user_home, claude_config_dir);
     found.extend(detect_zips(user_home));
+    found.extend(detect_app_data(user_home));
     found
 }
 
 /// Local app data is only a presence hint for the paste-summary rows. These
 /// products do not provide a portable memory export, so cmux never parses the
 /// files and never sends them to the Chief. The paths include the documented
-/// CLI roots and the common macOS Application Support/container roots.
+/// CLI roots and the common macOS Application Support roots.
 fn detect_app_data(user_home: &Path) -> Vec<Detected> {
     const CANDIDATES: [(&str, &str, &[&str]); 4] = [
         (
@@ -107,18 +107,14 @@ fn detect_app_data(user_home: &Path) -> Vec<Detected> {
                 ".local/share/muse",
                 "Library/Application Support/muse",
                 "Library/Application Support/Muse",
-                "Library/Containers/com.meta.muse/Data/Library/Application Support/muse",
             ],
         ),
         (
             "dots",
             "dots",
             &[
-                "Library/Application Support/ChatGPT",
-                "Library/Application Support/com.openai.chat",
                 "Library/Application Support/Dot",
                 "Library/Application Support/New Computer/Dot",
-                "Library/Containers/com.openai.chat/Data/Library/Application Support",
             ],
         ),
         (
@@ -128,7 +124,6 @@ fn detect_app_data(user_home: &Path) -> Vec<Detected> {
                 ".instinct",
                 "Library/Application Support/Instinct",
                 "Library/Application Support/instinct",
-                "Library/Containers/com.instinct.app/Data/Library/Application Support/instinct",
             ],
         ),
     ];
@@ -584,7 +579,7 @@ mod tests {
             "sqlite fixture",
         );
         write(
-            &home.join("Library/Application Support/ChatGPT/threads.json"),
+            &home.join("Library/Application Support/Dot/threads.json"),
             "{}\n",
         );
         write(
@@ -639,6 +634,8 @@ mod tests {
 
     /// The unasked CLI detector remains safe for scripts: export folders are
     /// only read with `--exports` after the person opens the import surface.
+    /// It never reads privacy-protected folders (LAUNCH-NO-TCC-PROMPTS): the
+    /// first-run offer calls `detect` at launch with no action from the person.
     #[test]
     fn unasked_detect_never_lists_downloads_or_desktop() {
         let home = temp("unasked");
@@ -655,6 +652,10 @@ mod tests {
             &["conversations.json"],
         );
         write(&home.join(".codex/memories/MEMORY.md"), "codex note");
+        write(
+            &home.join("Library/Application Support/Instinct/memory.json"),
+            "{}\n",
+        );
         let found = detect(&home, None);
         assert!(
             found.iter().all(|d| !d.source.starts_with("zip:")),
@@ -664,6 +665,7 @@ mod tests {
             found.iter().map(|d| d.kind.as_str()).collect::<Vec<_>>(),
             ["codex"]
         );
+        assert!(found.iter().all(|d| d.kind != "instinct"));
     }
 
     #[test]
