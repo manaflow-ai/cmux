@@ -478,7 +478,7 @@ pin does not have it. cmux-next does not use that flag.
 ### Display link starts and stops only on the main thread
 
 - Branch: `cmux-displaylink-main-thread` ([manaflow-ai/ghostty#276](https://github.com/manaflow-ai/ghostty/pull/276))
-- Commit: `6b6d011c5`
+- Commits: `6b6d011c5`, `43118b22d` (close on any thread, no lost running request)
 - Summary: port of upstream `ffaaf5d7` (ghostty-org/ghostty#14691, fix for
   ghostty-org/ghostty#14150). `CVDisplayLinkStop` waits once, without a
   predicate, for the link's IO thread to exit. CoreVideo also starts and
