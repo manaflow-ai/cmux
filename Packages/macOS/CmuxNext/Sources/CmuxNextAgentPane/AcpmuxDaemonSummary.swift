@@ -78,7 +78,8 @@ public nonisolated struct AcpmuxDaemonSummary: Sendable, Equatable {
     static let versionBound: Duration = .seconds(2)
 
     /// The daemon of `environment` now: one `--version` call (bounded, ``versionBound``) and one
-    /// `_acpmux/status` call (2 s), so the card waits at most about 4 s. A nil `environment` (no
+    /// `_acpmux/status` call (``AcpmuxEnvironment/answerDeadline``): a loaded daemon's late answer still
+    /// fills the card. A nil `environment` (no
     /// acpmux) is not running. `daemons` is the app's (``AcpmuxLocalDaemons``): its handoff marks.
     @concurrent public static func current(_ environment: AcpmuxEnvironment?, daemons: AcpmuxLocalDaemons) async -> Self {
         await current(environment, daemons: daemons, versionClock: ContinuousClock())

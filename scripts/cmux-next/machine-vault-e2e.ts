@@ -156,7 +156,7 @@ export interface Evidence {
   /** How the subscription login was used: on ssh's stdin into the restarted daemon's env. */
   claudeLogin: { delivery: "ssh-stdin"; daemonRestarted: boolean | null }
   /** Hits, counts only. `login` is the Claude login's value; null where the scan did not run. */
-  secretScan: { home: { held: number | null; cmj: number | null; login: number | null }; log: { held: number; cmj: number; login: number | null } }
+  secretScan: { home: { held: number | null; cmj: number | null; login: number | null; files?: string[] }; log: { held: number; cmj: number; login: number | null } }
   cleanup: {
     /** True when no acpmux or claude process of the user is left (they held the login); null when unchecked. */
     loginHoldersStopped: boolean | null
@@ -752,15 +752,19 @@ export async function runE2E(
     let held = 0
     let cmj = 0
     let loginHits = 0
+    // Where a hit is, as a path in the home (never the value), so a failure names the file to fix.
+    const files = new Set<string>()
     for (const entry of tarEntries(archive.stdout)) {
       const text = `${entry.name}\n${entry.link}\n${entry.body}`
       // A join token's shape, outside program files: an installed binary (acpmux, Claude Code, Codex)
       // carries the bare prefix as a constant, never a token. Held values are matched everywhere.
       if (!isProgram(entry.body)) cmj += tokenCount(text)
-      for (const v of scanned) if (text.includes(v)) held += 1
-      if (login && text.includes(login)) loginHits += 1
+      let hit = false
+      for (const v of scanned) if (text.includes(v)) { held += 1; hit = true }
+      if (login && text.includes(login)) { loginHits += 1; hit = true }
+      if (hit) files.add(plainLine(redact(entry.name, secrets)).slice(0, 200))
     }
-    evidence.secretScan.home = { held, cmj, login: login ? loginHits : null }
+    evidence.secretScan.home = { held, cmj, login: login ? loginHits : null, files: [...files].sort().slice(0, 20) }
   } catch {
     if (!cancelled) problems.push("could not scan the whole disposable home")
   }
