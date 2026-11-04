@@ -56,4 +56,22 @@ mod tests {
             "CMUX_TUI_RDS_INPUT=0 did not turn the input lane off"
         );
     }
+
+    /// The fallback must not depend on spelling (#35413 review): an operator who writes `false`, `off` or `no` (any
+    /// case, with spaces) means off, and a lane left on by such a value would be silent.
+    #[test]
+    fn false_off_and_no_turn_the_input_lane_off_too() {
+        for value in ["false", "OFF", " no ", "False"] {
+            assert!(
+                !InputLaneSwitch::from_value(Some(value)).on(),
+                "CMUX_TUI_RDS_INPUT={value:?} did not turn the input lane off"
+            );
+        }
+        for value in ["1", "true", "on", ""] {
+            assert!(
+                InputLaneSwitch::from_value(Some(value)).on(),
+                "CMUX_TUI_RDS_INPUT={value:?} turned the input lane off"
+            );
+        }
+    }
 }
