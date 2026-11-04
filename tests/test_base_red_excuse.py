@@ -310,6 +310,12 @@ mode = os.environ.get("FAKE_GH", "")
 if mode == "old" and "--allow-escape-sequences" in args:
     sys.stderr.write("unknown flag: --allow-escape-sequences\\n\\nUsage: gh api <endpoint> [flags]\\n")
     sys.exit(1)
+if mode == "shim-old" and "--allow-escape-sequences" in args:
+    # An agent host's gh wrappers note a wait before the real gh answers.
+    sys.stderr.write("glaeda-gh: this caller read the same thing moments ago and the cache cannot answer it; "
+                     "waiting 23 s before spending a request on it again (CMUX_GH_MIN_REPEAT_SECONDS)\\n"
+                     "unknown flag: --allow-escape-sequences\\n\\nUsage: gh api <endpoint> [flags]\\n")
+    sys.exit(1)
 if mode == "http":
     sys.stderr.write("gh: Not Found (HTTP 404)\\n")
     sys.exit(1)
@@ -355,6 +361,11 @@ class PortableGhLog(unittest.TestCase):
 
     def test_old_gh_falls_back_without_the_flag(self):
         self.assertIn("red", self.read("old"))
+        route = f"repos/{REPO}/actions/jobs/7/logs"
+        self.assertEqual(self.asked(), [f"api --allow-escape-sequences {route}", f"api {route}"])
+
+    def test_old_gh_behind_a_wrapper_notice_falls_back_without_the_flag(self):
+        self.assertIn("red", self.read("shim-old"))
         route = f"repos/{REPO}/actions/jobs/7/logs"
         self.assertEqual(self.asked(), [f"api --allow-escape-sequences {route}", f"api {route}"])
 

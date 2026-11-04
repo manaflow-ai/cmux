@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { claudeLoginPrograms, cliExecNeedsDirectFallback, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { cliExecWithFallback, nativeProofSkip, oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { machineIds, newMachineIds } from "./cloud-journey";
 
@@ -44,6 +44,12 @@ describe("cloud journey", () => {
     expect(out).not.toContain("cmuxvm_sk_0123456789");
     expect(out).not.toContain("hunter22");
     expect(out).not.toMatch(/Bearer abc/);
+  });
+  test("CLI exec falls back only for the structured unsupported provider response", () => {
+    expect(cliExecNeedsDirectFallback(1, "", JSON.stringify({ code: "cloud_client_session.failed", message: "cmux: the cmux API refused the client session: 501 Not Implemented cloud.provider.unsupported" }))).toBe(true);
+    expect(cliExecNeedsDirectFallback(1, "", JSON.stringify({ code: "cloud_client_session.failed", message: "cmux: the cmux API refused the client session: 502 Bad Gateway cloud.provider.unsupported" }))).toBe(false);
+    expect(cliExecNeedsDirectFallback(1, "HTTP 501 cloud.provider.unsupported", "")).toBe(false);
+    expect(cliExecNeedsDirectFallback(0, "", "501 Not Implemented cloud.provider.unsupported")).toBe(false);
   });
   test("env files and the summary table", () => {
     expect(readEnvFile("export A='1'\nB=\"two\"\n# c\n")).toEqual({ A: "1", B: "two" });
