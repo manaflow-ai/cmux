@@ -71,6 +71,8 @@ env:
   # A pull request into feat-cmux-next tests its own head; every other run (and a
   # pull request into main, whose tree has none of this tooling) takes feat-cmux-next's.
   TOOLING_REF: ${{ github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && github.sha || 'feat-cmux-next' }}
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 jobs:
   pick:

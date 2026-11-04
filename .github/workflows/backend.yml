@@ -93,6 +93,8 @@ env:
   VERCEL_ORG_ID: team_KndpHsJ15gO2OoAP2SO0thYn
   DASHBOARD_PROJECT_STAGING: prj_gAWWNokzcoomx3IvIVGl29iZM6JC
   DASHBOARD_PROJECT_PRODUCTION: prj_O6kHxZ4Etl6QWUVEoiJyGCPoS2Fh
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 jobs:
   test:
