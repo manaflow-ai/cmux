@@ -369,6 +369,7 @@
     },
     "cmux-next.yml#app-compile-fleet": "apple-app-build",
     "cmux-next.yml#checks": "portable-checks",
+    "cmux-next.yml#path_route": "portable-checks",
     "cmux-next.yml#cmux-scheme-compile": "apple-app-build",
     "cmux-next.yml#daemon-test": "apple-swift-tests",
     "cmux-next.yml#dev-landing-compile": "apple-app-build",
@@ -601,7 +602,8 @@
     "ci-guards.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap after guard completion"},
     "pr-checks.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
     "cmux-next-fast-gates.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
-    "web-validation.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"}
+    "web-validation.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
+    "ci.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"}
   },
   "linux_sizes": {
     "$comment": [
