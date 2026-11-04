@@ -47,7 +47,7 @@ export function agentTones(agents: Iterable<TonedAgent>): Map<string, number> {
   // Agents this page already colored go first, so one found later (older history) never takes
   // their tone; the rest follow in start order.
   const ordered = [...byStart.filter(({ id }) => assigned.has(id)), ...byStart.filter(({ id }) => !assigned.has(id))];
-  const uses = new Array<number>(AGENT_TONES).fill(0);
+  const uses = Array.from({ length: AGENT_TONES }, () => 0);
   const tones = new Map<string, number>();
   for (const { id } of ordered) {
     if (tones.has(id)) continue;

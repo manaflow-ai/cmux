@@ -69,13 +69,13 @@ describe("agent tones", () => {
     const before = agentTones(agents);
     resetAgentTones();
     const reloaded = agentTones([...agents].reverse());
-    expect([...reloaded.entries()].sort()).toEqual([...before.entries()].sort());
+    expect(Object.fromEntries(reloaded)).toEqual(Object.fromEntries(before));
     expect(new Set(before.values()).size).toBe(AGENT_TONES);
   });
 
   test("past the tone count, tones spread evenly", () => {
     const tones = agentTones(Array.from({ length: 12 }, (_, index) => agent(`toolu_${index}`, index)));
-    const counts = new Array<number>(AGENT_TONES).fill(0);
+    const counts = Array.from({ length: AGENT_TONES }, () => 0);
     for (const tone of tones.values()) counts[tone]++;
     expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(1);
   });
