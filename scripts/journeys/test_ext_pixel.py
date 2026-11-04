@@ -24,6 +24,7 @@ take_videos reads as before; px_film records each film's movie and scan bytes in
 import gzip
 import io
 import json
+import math
 import os
 import re
 import subprocess
@@ -1504,6 +1505,302 @@ class TabCloseCaseTests(unittest.TestCase):
             self.assertEqual([st["do"] for st in spec["finally"]][:2], ["px_tunable", "px_tunable"])
             self.assertEqual([spec["finally"][0]["key"], spec["finally"][1]["key"]], [SWITCH, TAB_OUTLINE])
         self.assertEqual(labels, ["off-s1", "on-s1", "off-reduce", "on-reduce"])
+
+
+
+# -- px-keys-then-drag-3 and px-keys-then-split-drag-2s (stage S2b, frame-owner-s2) ----------------------------------------
+SHARED = "motion.frameOwner.sharedEdges"
+HIT_WIDTH = "metrics.dividerHitWidth"
+
+
+def spring_fraction(t, response):
+    """The share of its travel a critically damped spring has made t s after it starts (omega0 = 2 pi / response)."""
+    if t <= 0:
+        return 0.0
+    w = 2 * math.pi / response
+    return 1 - (1 + w * t) * math.exp(-w * t)
+
+
+class SpringApp(FakeApp):
+    """Three strip columns at rest (vertical dividers at x 641.5 and 1075.5, a split divider in column 2 at y 428.5), the
+    trace (debug.motion trace_read with path, the host clock) and the input journal of one key spring and one drag. The
+    key-down reaches the app `key_ms` after the key is sent and starts the move spring (`response`) of every edge right of
+    p0 by S = 5% of the 1304 pt viewport. The drag's mouse-down reaches it `latency_s` after its call starts; it grabs the
+    vertical divider within half of `hit_pt` of the press (or the split divider), which then follows the pointer."""
+
+    S = round(0.05 * 1304, 2)
+
+    def __init__(self, clock, offset, response=0.6, key_ms=25, latency_s=0.33, hit_pt=24.0, drag_ms=400):
+        super().__init__()
+        self.clock, self.offset, self.response, self.key_ms, self.latency_s = clock, offset, response, key_ms, latency_s
+        self.hit_pt, self.drag_ms = hit_pt, drag_ms
+        self.key_down = self.mouse_down = None
+        self.grabbed = None  # "column" | "split" | None
+        self.by = (0.0, 0.0)
+        self.journal = []
+
+    def host(self):
+        return self.clock.t + self.offset
+
+    def edge(self, rest, t):
+        k = 0.0 if self.key_down is None else self.S * spring_fraction(t - self.key_down, self.response)
+        return rest + k
+
+    def dividers(self, t):
+        d0 = self.edge(641.5, t)
+        d1 = self.edge(1075.5, t)
+        split_y = 428.5
+        if self.mouse_down is not None and t >= self.mouse_down:
+            share = min(1.0, (t - self.mouse_down) / (self.drag_ms / 1000.0))
+            if self.grabbed == "column":
+                d1 += self.by[0] * share
+            elif self.grabbed == "split":
+                split_y += self.by[1] * share
+        w = 24.0 if self.hit_pt >= 24 else 7.0
+        return [["column:c0", d0 - w / 2, 0, w, 857, 1, 2], ["column:c1", d1 - w / 2, 0, w, 857, 1, 3],
+                ["split:s1", d0 + 4, split_y - 3.5, 430, 7, 1, 4]]
+
+    def samples(self, until):
+        t0 = 9000.0
+        out, t = [], t0
+        while t <= until:
+            out.append({"t": round((t - t0) * 1000, 3), "window": [1512, 857], "dividers": self.dividers(t)})
+            t += 1 / 120
+        return {"t0_s": t0, "refresh_ms": 8.333, "samples": out}
+
+    def rpc(self, method, params=None, timeout=None):
+        params = params or {}
+        if method == "debug.motion" and params.get("action") == "trace_read":
+            self.calls.append((method, params))
+            Path(params["path"]).write_text(json.dumps(self.samples(self.host())))
+            return {"path": params["path"], "writing": True}
+        if method == "debug.journal":
+            return {"entries": list(self.journal[-int(params.get("last", 40)):])}
+        if method == "debug.pane_chrome":
+            return {"windows": [{"id": "w1", "scale": 2.0, "main_pane": [208, 0, 1304, 857], "panes": []}]}
+        return super().rpc(method, params, timeout)
+
+    # what the journey's real-input steps do to this app
+    def press_key(self):
+        self.key_down = self.host() + self.key_ms / 1000.0
+        self.journal.append({"seq": len(self.journal) + 1, "uptimeNanos": int(self.key_down * 1e9),
+                             "kind": {"key": {"_0": {"phase": "down", "key": "l", "keyClass": "character"}}}})
+
+    def drag(self, point, by):
+        self.mouse_down = self.host() + self.latency_s
+        self.by = (float(by[0]), float(by[1]))
+        d = {k[0]: k for k in self.dividers(self.mouse_down)}
+        c1 = d["column:c1"]
+        sp = d["split:s1"]
+        if abs(point[0] - (c1[1] + c1[3] / 2)) <= c1[3] / 2 and abs(by[1]) < 1e-9:
+            self.grabbed = "column"
+        elif sp[1] <= point[0] <= sp[1] + sp[3] and abs(point[1] - (sp[2] + sp[4] / 2)) <= sp[4] / 2:
+            self.grabbed = "split"
+        self.journal.append({"seq": len(self.journal) + 1, "uptimeNanos": int(self.mouse_down * 1e9),
+                             "kind": {"mouse": {"_0": {"phase": "down", "x": point[0], "y": point[1]}}}})
+
+
+class SpringJourney(FakeJourney):
+    """rk_press and hid_drag as CuaDriver plays them on one session: a key call takes `key_call_s`, a drag call returns
+    when its drag ends (latency + duration)."""
+
+    def __init__(self, app, config_dir, clock, key_call_s=0.075):
+        super().__init__(app, config_dir)
+        self.clock, self.key_call_s = clock, key_call_s
+        self.video = {"notes": {"pixel": {}}, "hid": []}
+        self.log = []
+        self.out.mkdir(parents=True, exist_ok=True)
+
+    def step_rk_press(self, step):
+        self.log.append(("key", self.clock.t, dict(step)))
+        self.app.press_key()
+        self.clock.t += self.key_call_s
+        return {"count": 1}
+
+    def step_hid_drag(self, step):
+        self.log.append(("drag", self.clock.t, dict(step)))
+        self.app.drag(step["target"]["window_point"], step["by"])
+        self.clock.t += self.app.latency_s + float(step["duration_ms"]) / 1000.0
+        return {"mode": "desktop"}
+
+
+class KeyThenDragTests(unittest.TestCase):
+    """px_key_then_drag: one real HID key, then a real HID drag on the journey's one CuaDriver session, its call 60 ms after
+    the key-down. A HID drag's mouse-down reaches the app 260-400 ms after its call starts (12 drags, cmux22 sweeps), so
+    at x0.25 (the move spring's response 0.6 s) the key's spring is still running then. The press goes where the edge will
+    be: its rest place plus the key's step (5% of the viewport) times the spring's progress at the expected mouse-down;
+    a split divider spans its column, so its middle is pressed. After the drag the step reads the journal (the key-down,
+    the drag's mouse-down) and the trace: the springing column edge (vertical divider 0) still moving at the mouse-down,
+    and the dragged edge following the pointer. Else the film is "not run" (no overlap; the press missed the edge)."""
+
+    def setUp(self):
+        self.clock = FakeClock()
+        self.saved = (X.D.now, X.time, X.V._host_offset_s)
+        X.D.now, X.time = self.clock.monotonic, self.clock
+        X.V._host_offset_s = lambda: 8000.0
+
+    def tearDown(self):
+        X.D.now, X.time, X.V._host_offset_s = self.saved
+
+    def run_step(self, app, target, by, response=0.6):
+        j = SpringJourney(app, tempfile.mkdtemp(), self.clock)
+        j.px = {"speed": 0.25, "reduce": False, "springs": {"move": {"response": response, "damping": 1.0}},
+                "springs_source": "overrides", "tunables": {}, "films": []}
+        out = X.step_px_key_then_drag(j, {"key": "l", "modifiers": ["control", "shift"], "after_ms": 60,
+                                          "drag": {"target": target, "by": by, "duration_ms": 400},
+                                          "spring_default": {"response": 0.15, "damping": 1.0}, "mark": "kd"})
+        return j, out
+
+    def test_the_column_edge_is_pressed_where_the_spring_has_it(self):
+        app = SpringApp(self.clock, 8000.0)
+        j, out = self.run_step(app, {"divider": 1}, [150, 0])
+        (_, k_at, key), (_, d_at, drag) = j.log
+        self.assertEqual((key["key"], key["modifiers"], key["count"]), ("l", ["control", "shift"], 1))
+        # The drag call 60 ms after the key-down (the key-down 25 ms after its send).
+        self.assertAlmostEqual(d_at - k_at, 0.085, delta=0.003)
+        self.assertEqual((drag["by"], drag["duration_ms"], drag["hold_ms"]), ([150, 0], 400, 0))
+        note = j.video["notes"]["pixel"]["key_then_drag"]
+        self.assertEqual(note["verdict"], "overlap")
+        self.assertTrue(note["edge_moving_at_down"])
+        self.assertTrue(note["grabbed"])
+        self.assertEqual(app.grabbed, "column")
+        # The press is near where divider 1 shows at the mouse-down (within a few points), not at its rest place.
+        shown = 1075.5 + app.S * spring_fraction(app.mouse_down - app.key_down, 0.6)
+        self.assertLess(abs(drag["target"]["window_point"][0] - shown), 4.0)
+        self.assertGreater(drag["target"]["window_point"][0] - 1075.5, 30)
+        self.assertAlmostEqual(note["key_down_host"], app.key_down, places=6)
+        self.assertAlmostEqual(note["mouse_down_host"], app.mouse_down, places=6)
+        self.assertAlmostEqual(note["mouse_down_after_key_ms"], (app.mouse_down - app.key_down) * 1000, delta=0.5)
+        self.assertGreater(note["spring_left_pt"], 1.0)
+        self.assertIn("CLOCK_UPTIME_RAW", note["clock"])
+        self.assertNotIn("film_not_run", j.px)
+        self.assertEqual(out["key_then_drag"], note)
+
+    def test_the_split_divider_is_pressed_in_its_middle(self):
+        app = SpringApp(self.clock, 8000.0)
+        j, out = self.run_step(app, {"row_divider": 0}, [0, 120])
+        point = j.log[1][2]["target"]["window_point"]
+        self.assertEqual(app.grabbed, "split")
+        self.assertAlmostEqual(point[1], 428.5, places=3)
+        self.assertEqual(j.video["notes"]["pixel"]["key_then_drag"]["verdict"], "overlap")
+
+    def test_a_spring_that_landed_before_the_mouse_down_is_no_overlap(self):
+        app = SpringApp(self.clock, 8000.0, response=0.15)  # x1: the key's spring lands in about 0.18 s
+        j, _ = self.run_step(app, {"divider": 1}, [150, 0], response=0.15)
+        note = j.video["notes"]["pixel"]["key_then_drag"]
+        self.assertFalse(note["edge_moving_at_down"])
+        self.assertEqual(note["verdict"], "no overlap")
+        self.assertIn("no overlap", j.px["film_not_run"])
+
+    def test_a_press_off_the_edge_is_a_miss(self):
+        app = SpringApp(self.clock, 8000.0, latency_s=0.9, hit_pt=7.0)  # a far later mouse-down: the press is off the edge
+        j, _ = self.run_step(app, {"divider": 1}, [150, 0])
+        note = j.video["notes"]["pixel"]["key_then_drag"]
+        self.assertFalse(note["grabbed"])
+        self.assertIsNone(app.grabbed)
+        self.assertIn("missed the edge", j.px["film_not_run"])
+
+
+class FilmNotRunTests(unittest.TestCase):
+    """px_film: a film step that judged the film not run (px_key_then_drag's verdict) makes the film's line "not run" with
+    its reason; the rest of the film and its rebuild still play (the layout changed), and the next film starts clean."""
+
+    def test_the_verdict_makes_the_film_not_run_and_the_rebuild_plays(self):
+        class J(FakeJourney):
+            def step_kd(self, step):
+                self.px["film_not_run"] = "not run: no overlap: the key's spring had landed at the mouse-down"
+                return {}
+
+        j = J(FakeApp(), tempfile.mkdtemp())
+        f = film("f-s1", 1.0)
+        f["steps"] = [{"do": "kd"}] + f["steps"]
+        line = X.step_px_film(j, f)
+        self.assertEqual(line["status"], "not run")
+        self.assertIn("no overlap", line["reason"])
+        self.assertEqual(j.played, ["f-s1 play", "f-s1 rebuild"])
+        self.assertEqual(j.px["films"][-1]["status"], "not run")
+        self.assertNotIn("film_not_run", j.px)
+        self.assertEqual(X.step_px_film(j, film("f-s2", 1.0))["status"], "recorded")
+
+
+class SharedEdgeCaseTests(unittest.TestCase):
+    """gen_pixel.py, the two S2b cases, both at x0.25 only (a HID drag's mouse-down comes 260-400 ms after its call: at x1
+    and under Reduce Motion the key's spring has landed by then, so there is no overlap to film). px-keys-then-drag-3: 3
+    strip columns p0 T | p1 P | p2 T (newColumn, each a third of the viewport, a full-width window), the divider hit width
+    24 pt (required); Ctrl-Shift-L on p0, then the p1|p2 column edge (divider 1) 150 pt right in 400 ms.
+    px-keys-then-split-drag-2s: 2 strip columns p0 T | (p1 T / p2 P), p1 over p2 (splitDown); Ctrl-Shift-L on p0, then the
+    p1/p2 divider (row_divider 0) 120 pt down in 400 ms. After each film but the last: the edge dragged back, then
+    Ctrl-Shift-H on p0. Journeys: <case> (one film at x0.25) and <case>-sw-<short> (OFF and ON at x0.25)."""
+
+    def specs(self, cid, *extra):
+        out = tempfile.mkdtemp(prefix="gen-s2b-")
+        gen("--out", out, "--only", cid, *extra)
+        return {p.stem: json.loads(p.read_text()) for p in sorted(Path(out).glob("*.json"))}
+
+    def check(self, spec, drag, hit_width):
+        films = [st for st in spec["steps"] if st["do"] == "px_film"]
+        for n, f in enumerate(films):
+            self.assertEqual(f.get("speed"), 0.25, f["name"])
+            dos = [st["do"] for st in f["steps"]]
+            want = ["rk_focus"] + (["px_tunable"] if hit_width else []) + ["wait", "px_record_start", "px_key_then_drag", "wait",
+                                                                           "video_stop"]
+            self.assertEqual(dos, want, f["name"])
+            if hit_width:
+                tun = f["steps"][1]
+                self.assertEqual((tun["key"], tun["value"], tun["required"]), (HIT_WIDTH, 24, True))
+            kd = next(st for st in f["steps"] if st["do"] == "px_key_then_drag")
+            self.assertEqual((kd["key"], kd["modifiers"], kd["after_ms"]), ("l", ["control", "shift"], 60))
+            self.assertEqual(kd["drag"], drag)
+            self.assertEqual(kd["spring_default"], {"response": 0.15, "damping": 1.0})
+            start = next(st for st in f["steps"] if st["do"] == "px_record_start")
+            self.assertEqual((start["input"], start["spring"]), ("key then drag", "move"))
+            if n == len(films) - 1:
+                self.assertEqual(f["after"], [])
+            else:
+                self.assertEqual([st["do"] for st in f["after"]], ["hid_drag", "wait", "rk_focus", "rk_press", "wait"], f["name"])
+                self.assertEqual((f["after"][0]["target"], f["after"][0]["by"]), (drag["target"], [-v for v in drag["by"]]))
+                self.assertEqual((f["after"][3]["key"], f["after"][3]["modifiers"]), ("h", ["control", "shift"]))
+        return films
+
+    def check_case(self, cid, drag, columns, splits, hit_width):
+        import run as R
+        specs = self.specs(cid)
+        self.assertEqual(sorted(specs), [cid], "one journey: x0.25 only")
+        spec = specs[cid]
+        self.assertEqual(R.validate(spec), [])
+        self.assertLessEqual(spec["budget_seconds"], 250)
+        films = self.check(spec, drag, hit_width)
+        self.assertEqual([f["name"] for f in films], [f"{cid}-s025"])
+        acts = [st.get("action") for st in spec["steps"] if st["do"] == "action"]
+        self.assertEqual((acts.count("newColumn"), acts.count("splitDown")), (columns, splits))
+        self.assertIn("column.widthOneThird", [st.get("action") for st in spec["steps"] if st["do"] == "try_action"])
+        place = next(st for st in spec["steps"] if st["do"] == "window_place")
+        self.assertEqual(place["fraction"], [0.0, 0.05, 1.0, 0.9])
+        fixture = [st for st in spec["steps"] if st["do"] == "px_tunable" and st["key"] == HIT_WIDTH]
+        self.assertEqual(len(fixture), 1 + len(films) if hit_width else 0)
+        self.assertEqual(HIT_WIDTH in [st.get("key") for st in spec["finally"]], hit_width)
+        return spec
+
+    def test_keys_then_column_edge_drag(self):
+        spec = self.check_case("px-keys-then-drag-3", {"target": {"divider": 1}, "by": [150, 0], "duration_ms": 400}, 2, 0, True)
+        self.assertEqual([st["do"] for st in spec["steps"]].count("px_page"), 1)
+
+    def test_keys_then_split_drag(self):
+        self.check_case("px-keys-then-split-drag-2s", {"target": {"row_divider": 0}, "by": [0, 120], "duration_ms": 400}, 1, 1,
+                        False)
+
+    def test_shared_edge_switch_variants(self):
+        for cid, drag, hit in (("px-keys-then-drag-3", {"target": {"divider": 1}, "by": [150, 0], "duration_ms": 400}, True),
+                               ("px-keys-then-split-drag-2s", {"target": {"row_divider": 0}, "by": [0, 120], "duration_ms": 400},
+                                False)):
+            specs = self.specs(cid, "--switch", SHARED)
+            self.assertEqual(sorted(specs), [f"{cid}-sw-sharededges"])
+            spec = specs[f"{cid}-sw-sharededges"]
+            films = self.check(spec, drag, hit)
+            self.assertEqual([f["name"] for f in films], [f"{cid}-sw-sharededges-off-s025", f"{cid}-sw-sharededges-on-s025"])
+            self.assertEqual([f["switch"] for f in films], [{"key": SHARED, "value": False}, {"key": SHARED, "value": True}])
+            self.assertEqual(spec["finally"][0], {"do": "px_tunable", "key": SHARED, "value": None,
+                                                  "title": f"clean-up: {SHARED} back to its default"})
 
 
 if __name__ == "__main__":
