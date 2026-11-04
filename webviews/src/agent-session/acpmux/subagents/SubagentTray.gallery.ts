@@ -644,7 +644,8 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await trayLines(1)(ctx);
         const name = ctx.document.querySelector(".acpmux-running-tray .acpmux-summary-agent__name");
-        if (name?.textContent !== "git rev-parse HEAD · Fleet run") throw new Error("the command needs a readable title");
+        if (name?.textContent !== "git rev-parse HEAD · Fleet run")
+          throw new Error("the command needs a readable title");
         const line = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray .acpmux-agent-line__button");
         if (line?.title !== glyphCheck) throw new Error("the full command stays available in the tooltip");
       },
