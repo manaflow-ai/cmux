@@ -180,7 +180,10 @@ import { usePickerCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
 import { applySwitch, browserSwitchClock, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { NewChatPrewarm, type PrewarmTarget } from "./newChatPrewarm";
+<<<<<<< ours
 import { harnessModeName, highestMode } from "./harnessModes";
+import { CloudTypingPrewarm } from "./cloudTypingPrewarm";
+>>>>>>> theirs
 import { harnessProfiles } from "./harnessProfiles";
 import { setStartModeSource } from "./startMode";
 import { setPromptSurfaces } from "./surfaces/promptSurface";
@@ -6362,6 +6365,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         },
         browserSwitchClock,
       ),
+  );
+  // A Cloud chat's first keystroke is a best-effort wake hint for its machine. The native route
+  // may be unavailable in an older host; Cloud typing and send must continue either way.
+  const [cloudTypingPrewarm] = useState(
+    () =>
+      new CloudTypingPrewarm({
+        prewarm: (machineID) => void callNative("cloudMachine.prewarm", { id: machineID }).catch(() => undefined),
+      }),
   );
   // The page going away (its tab closed) with an unsent prompt gives the warm agent back now.
   useEffect(() => {
@@ -13283,6 +13294,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     },
     [newChatPrewarm, newTabFieldEdited],
   );
+  const onCloudTyping = useCallback(
+    (text: string, sessionId?: string) => {
+      postTyping(text, sessionId);
+      if (cloudChatIdentity && sessionId) {
+        cloudTypingPrewarm.typed(text, { machineID: cloudChatIdentity.id, sessionID: sessionId });
+      }
+    },
+    [cloudChatIdentity, cloudTypingPrewarm],
+  );
   const newTabSnapshot = useMemo(
     () =>
       newTabSessions === composerSnapshot.sessions
@@ -14028,7 +14048,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             onOpenContext={sessionInfo.reveal ? () => sessionInfo.reveal?.("context") : undefined}
             draft={draft}
             onUnsentDraft={quick ? undefined : onNewChatDraft}
-            onTyping={quick ? undefined : postTyping}
+            onTyping={quick ? undefined : onCloudTyping}
             onSuggestionTaken={() => directClient.current?.takeSuggestion()}
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={handleCmuxCommand}
