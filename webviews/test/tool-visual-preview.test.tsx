@@ -7,6 +7,7 @@ import { McpCallRows } from "../src/agent-session/acpmux/conversation/McpCallRow
 import gallery from "../src/agent-session/acpmux/conversation/ToolRow.gallery";
 import { toolImages } from "../src/agent-session/acpmux/toolImages";
 import { ToolVisualRow } from "../src/agent-session/acpmux/conversation/ToolVisualPreview";
+import { ImageViewerContext } from "../src/agent-session/acpmux/conversation/imageViewerContext";
 import { JSDOM } from "jsdom";
 
 const image = "data:image/png;base64,iVBORw0KGgo=";
@@ -84,9 +85,11 @@ test("a new capture keeps the focused preview open and updates both images", asy
   const render = (source: string) =>
     act(async () =>
       root.render(
-        <ToolVisualRow sources={[source]} label="Capture">
-          <span>Capture</span>
-        </ToolVisualRow>,
+        <ImageViewerContext.Provider value={() => {}}>
+          <ToolVisualRow sources={[source]} label="Capture">
+            <span>Capture</span>
+          </ToolVisualRow>
+        </ImageViewerContext.Provider>,
       ),
     );
   try {
