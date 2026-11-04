@@ -95,8 +95,13 @@ class WindowZoomMotion(unittest.TestCase):
         self.assertIn("geometry step", result["error"] or "")
 
     def test_short_but_evenly_spaced_motion_is_rejected(self):
-        result = measured([900 + 45 * i for i in range(13)])
-        self.assertIn("at least 20", result["error"] or "")
+        for name, values in (
+            ("window-zoom", [900 + 45 * i for i in range(13)]),
+            ("window-unzoom", list(reversed([900 + 45 * i for i in range(13)]))),
+        ):
+            with self.subTest(name=name):
+                result = measured(values, name=name)
+                self.assertIn("at least 20", result["error"] or "")
 
     def test_shared_max_step_boundary(self):
         smooth = [900 + 540 * i / 21 for i in range(22)]
