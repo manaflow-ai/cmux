@@ -1,0 +1,64 @@
+name: classic API guard
+
+# Classic cmux (cmux.com and its API, the relays) deploys on its own when a commit lands on
+# main. A pull request into main that changes one of the guarded paths in
+# .github/classic-auto-deploy.json fails until its description has a line
+# `Classic API change: <reason>`; into feat-cmux-next it is a warning only, since that branch
+# deploys nothing classic. scripts/ci/classic_api_guard.py decides, run from the base commit,
+# never the pull request's code; the head is read only as a list of changed paths. Editing the
+# description re-runs it. New NEXT Cloud backend code goes to manaflow-ai/cmux-platform.
+# Leo, 2026-11-04: "apparently the api if we change it it'll auto deploy so we wanna make extra
+# sure we dont change it for clasisc".
+on:
+  pull_request:
+    branches: [main, feat-cmux-next]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: classic-api-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  classic-api:
+    name: classic-api-guard
+    # A description edit that leaves the body unchanged (a title edit) needs no new answer.
+    if: ${{ github.event.action != 'edited' || github.event.changes.body != null }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check out the guard from the base commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/classic_api_guard.py
+            .github/classic-auto-deploy.json
+          sparse-checkout-cone-mode: false
+
+      - name: Check the changed paths against classic's auto-deploys
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          if [ ! -f scripts/ci/classic_api_guard.py ]; then
+            # The pull request that adds the guard: its base has no guard to run yet.
+            echo "::notice::The base has no scripts/ci/classic_api_guard.py yet; nothing to check."
+            exit 0
+          fi
+          printf '%s' "$BODY" > "$RUNNER_TEMP/body.md"
+          # A rename counts as both its old and its new path.
+          gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
+            --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/paths.txt"
+          python3 scripts/ci/classic_api_guard.py --base "$BASE" \
+            --body-file "$RUNNER_TEMP/body.md" --paths-file "$RUNNER_TEMP/paths.txt"
