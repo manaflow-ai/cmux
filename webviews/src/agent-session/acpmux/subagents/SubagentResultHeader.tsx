@@ -14,8 +14,11 @@ export function SubagentResultHeader({ agent }: { agent: Subagent }) {
   const now = useNow(live);
   const report = agent.result?.trim() || agent.lastMessage?.trim();
   const state = t(STATE_LABEL[agent.state as keyof typeof STATE_LABEL] ?? STATE_LABEL.completed);
-  const duration = formatDuration(elapsed(agent, live ? now : agent.endedAt ?? agent.startedAt));
-  const copy = useMemo(() => agent.result?.trim() || agent.lastMessage?.trim() || "", [agent.result, agent.lastMessage]);
+  const duration = formatDuration(elapsed(agent, live ? now : (agent.endedAt ?? agent.startedAt)));
+  const copy = useMemo(
+    () => agent.result?.trim() || agent.lastMessage?.trim() || "",
+    [agent.result, agent.lastMessage],
+  );
   return (
     <section className="cv-subagent-result" data-state={agent.state}>
       <div className="cv-subagent-result__meta">

@@ -14075,100 +14075,100 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                             return agent ? <SubagentResultHeader agent={agent} /> : null;
                                                           })()}
                                                         <VirtualTranscript
-                                                        key={chatPresentation}
-                                                        topInset={soloUnder ? tabRow.height : 0}
-                                                        rows={transcriptRows}
-                                                        streams={!childRows}
-                                                        earlier={!childRows ? snapshot.earlierPrompts : undefined}
-                                                        promptCount={!childRows ? snapshot.promptCount : undefined}
-                                                        loadThrough={
-                                                          !childRows
-                                                            ? (seq) =>
-                                                                directClient.current?.loadThrough(seq) ??
-                                                                Promise.resolve(false)
-                                                            : undefined
-                                                        }
-                                                        loadPromptIndex={
-                                                          !childRows
-                                                            ? () =>
-                                                                directClient.current?.loadPromptIndex() ??
-                                                                Promise.resolve(false)
-                                                            : undefined
-                                                        }
-                                                        sourceRows={childRows ? undefined : sourceRows}
-                                                        endReserve={previewBeside ? COMPUTER_USE_PREVIEW_RESERVE : 0}
-                                                        working={snapshot.isWorking}
-                                                        // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                                                        jumpButton={!quick}
-                                                        needsYou={needsYou.pill}
-                                                        focusComposer={() => composerHandle.current?.focus()}
-                                                        // Quick Chat's panel stacks its composer below the transcript.
-                                                        dock={quick ? undefined : dock}
-                                                        queueWithdrawn={snapshot.queueWithdrawn}
-                                                        queueIds={quick ? undefined : queueIds}
-                                                        queuedTail={queuedRows}
-                                                        find={quick ? undefined : find}
-                                                        sessionId={
-                                                          childRows
-                                                            ? `${shownSessionId}:subagent:${subagentView}`
-                                                            : shownSessionId
-                                                        }
-                                                        canLoadOlder={
-                                                          workflowTranscript.rows
-                                                            ? workflowTranscript.canLoadOlder
-                                                            : !childRows && snapshot.canLoadOlder
-                                                        }
-                                                        historyFrom={
-                                                          workflowTranscript.rows
-                                                            ? workflowTranscript.historyFrom
-                                                            : childRows
-                                                              ? undefined
-                                                              : snapshot.historyFrom
-                                                        }
-                                                        onLoadOlder={
-                                                          workflowTranscript.rows
-                                                            ? workflowTranscript.loadOlder
-                                                            : !childRows
-                                                              ? () =>
-                                                                  directClient.current?.loadOlder() ?? Promise.resolve()
+                                                          key={chatPresentation}
+                                                          topInset={soloUnder ? tabRow.height : 0}
+                                                          rows={transcriptRows}
+                                                          streams={!childRows}
+                                                          earlier={!childRows ? snapshot.earlierPrompts : undefined}
+                                                          promptCount={!childRows ? snapshot.promptCount : undefined}
+                                                          loadThrough={
+                                                            !childRows
+                                                              ? (seq) =>
+                                                                  directClient.current?.loadThrough(seq) ??
+                                                                  Promise.resolve(false)
                                                               : undefined
-                                                        }
-                                                        openAt={
-                                                          !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
-                                                            ? scrollAnchor
-                                                            : undefined
-                                                        }
-                                                        anchorNow={quick || childRows ? undefined : transcriptAnchor}
-                                                        inViewNow={quick || childRows ? undefined : transcriptInView}
-                                                        // A prompt goes to the chat, not to the subagent shown in its place.
-                                                        sends={childRows ? undefined : sends}
-                                                        onFollowingChange={
-                                                          childRows ? undefined : onTranscriptFollowingChange
-                                                        }
-                                                        onAnchor={
-                                                          quick || childRows || !shownSessionId
-                                                            ? undefined
-                                                            : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                                                        }
-                                                        expanded={folds}
-                                                        showMinimap={minimapVisible}
-                                                        reveal={childRows ? undefined : revealRow}
-                                                        coldOpen={!childRows && opened.cold ? opened.open : undefined}
-                                                        onColdOpenShown={coldOpenShown}
-                                                        afterLatest={
-                                                          !childRows && trayPlacement === "after-latest-message"
-                                                            ? trayNode
-                                                            : undefined
-                                                        }
-                                                        registry={registry}
-                                                        githubRepository={githubRepository}
-                                                        fallbackRepository={
-                                                          pullRequestRef(headerPullRequest?.url ?? "")?.repo
-                                                        }
-                                                        // The Quick Composer has no room for the changes view; its file rows stay plain.
-                                                        onOpenDiff={quick ? undefined : openDiff}
-                                                        onToggleActivity={toggleActivity}
-                                                      />
+                                                          }
+                                                          loadPromptIndex={
+                                                            !childRows
+                                                              ? () =>
+                                                                  directClient.current?.loadPromptIndex() ??
+                                                                  Promise.resolve(false)
+                                                              : undefined
+                                                          }
+                                                          sourceRows={childRows ? undefined : sourceRows}
+                                                          endReserve={previewBeside ? COMPUTER_USE_PREVIEW_RESERVE : 0}
+                                                          working={snapshot.isWorking}
+                                                          // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                                                          jumpButton={!quick}
+                                                          needsYou={needsYou.pill}
+                                                          focusComposer={() => composerHandle.current?.focus()}
+                                                          // Quick Chat's panel stacks its composer below the transcript.
+                                                          dock={quick ? undefined : dock}
+                                                          queueWithdrawn={snapshot.queueWithdrawn}
+                                                          queueIds={quick ? undefined : queueIds}
+                                                          queuedTail={queuedRows}
+                                                          find={quick ? undefined : find}
+                                                          sessionId={
+                                                            childRows
+                                                              ? `${shownSessionId}:subagent:${subagentView}`
+                                                              : shownSessionId
+                                                          }
+                                                          canLoadOlder={
+                                                            workflowTranscript.rows
+                                                              ? workflowTranscript.canLoadOlder
+                                                              : !childRows && snapshot.canLoadOlder
+                                                          }
+                                                          historyFrom={
+                                                            workflowTranscript.rows
+                                                              ? workflowTranscript.historyFrom
+                                                              : childRows
+                                                                ? undefined
+                                                                : snapshot.historyFrom
+                                                          }
+                                                          onLoadOlder={
+                                                            workflowTranscript.rows
+                                                              ? workflowTranscript.loadOlder
+                                                              : !childRows
+                                                                ? () =>
+                                                                    directClient.current?.loadOlder() ?? Promise.resolve()
+                                                                : undefined
+                                                          }
+                                                          openAt={
+                                                            !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
+                                                              ? scrollAnchor
+                                                              : undefined
+                                                          }
+                                                          anchorNow={quick || childRows ? undefined : transcriptAnchor}
+                                                          inViewNow={quick || childRows ? undefined : transcriptInView}
+                                                          // A prompt goes to the chat, not to the subagent shown in its place.
+                                                          sends={childRows ? undefined : sends}
+                                                          onFollowingChange={
+                                                            childRows ? undefined : onTranscriptFollowingChange
+                                                          }
+                                                          onAnchor={
+                                                            quick || childRows || !shownSessionId
+                                                              ? undefined
+                                                              : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                                                          }
+                                                          expanded={folds}
+                                                          showMinimap={minimapVisible}
+                                                          reveal={childRows ? undefined : revealRow}
+                                                          coldOpen={!childRows && opened.cold ? opened.open : undefined}
+                                                          onColdOpenShown={coldOpenShown}
+                                                          afterLatest={
+                                                            !childRows && trayPlacement === "after-latest-message"
+                                                              ? trayNode
+                                                              : undefined
+                                                          }
+                                                          registry={registry}
+                                                          githubRepository={githubRepository}
+                                                          fallbackRepository={
+                                                            pullRequestRef(headerPullRequest?.url ?? "")?.repo
+                                                          }
+                                                          // The Quick Composer has no room for the changes view; its file rows stay plain.
+                                                          onOpenDiff={quick ? undefined : openDiff}
+                                                          onToggleActivity={toggleActivity}
+                                                        />
                                                       </>
                                                     )}
                                                   </ChatFindScope>

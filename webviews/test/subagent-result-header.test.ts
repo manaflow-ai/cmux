@@ -43,7 +43,9 @@ await requireBrowserLane("subagent-result-header.test.ts", async () => {
       const page = await browser!.newPage({
         viewport: { width: variant.startsWith("dock") ? 440 : 780, height: variant.startsWith("dock") ? 260 : 660 },
       });
-      await page.goto(`http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant })}`);
+      await page.goto(
+        `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant })}`,
+      );
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
       const geometry = await page.evaluate(() => {
         const scene = document.querySelector<HTMLElement>("[data-result-scene]")!;

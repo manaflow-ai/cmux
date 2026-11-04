@@ -223,24 +223,24 @@ export function SubagentTranscript({
     <>
       {agent && <SubagentResultHeader agent={agent} />}
       <div
-      ref={scroller}
-      className="acpmux-bg__transcript"
-      onScroll={(event) => {
-        const view = event.currentTarget;
-        atBottom.current = view.scrollHeight - view.scrollTop - view.clientHeight <= BOTTOM_SLACK;
-      }}
-    >
-      {notice && <p className="acpmux-bg__notice">{notice}</p>}
-      {(first > 0 || loadOlder) && <div ref={top} className="acpmux-bg__sentinel" aria-hidden="true" />}
-      {shown.map((row) => (
-        <TranscriptRow key={row.id} row={row} version={row.version} />
-      ))}
-      {last !== undefined && <div ref={bottom} className="acpmux-bg__sentinel" aria-hidden="true" />}
-      {running && last === undefined && (
-        <div className="acpmux-bg__working">
-          <Spinner size={14} loading />
-        </div>
-      )}
+        ref={scroller}
+        className="acpmux-bg__transcript"
+        onScroll={(event) => {
+          const view = event.currentTarget;
+          atBottom.current = view.scrollHeight - view.scrollTop - view.clientHeight <= BOTTOM_SLACK;
+        }}
+      >
+        {notice && <p className="acpmux-bg__notice">{notice}</p>}
+        {(first > 0 || loadOlder) && <div ref={top} className="acpmux-bg__sentinel" aria-hidden="true" />}
+        {shown.map((row) => (
+          <TranscriptRow key={row.id} row={row} version={row.version} />
+        ))}
+        {last !== undefined && <div ref={bottom} className="acpmux-bg__sentinel" aria-hidden="true" />}
+        {running && last === undefined && (
+          <div className="acpmux-bg__working">
+            <Spinner size={14} loading />
+          </div>
+        )}
       </div>
     </>
   );

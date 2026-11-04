@@ -50,7 +50,11 @@ function ResultHeadScene({ report, viewport, stream }: Props) {
     height: viewport === "split" ? 620 : 240,
   };
   return (
-    <div className={viewport === "dock" ? "acpmux-bg" : "acpmux-result-scene"} style={style} data-result-scene={viewport}>
+    <div
+      className={viewport === "dock" ? "acpmux-bg" : "acpmux-result-scene"}
+      style={style}
+      data-result-scene={viewport}
+    >
       <SubagentResultHeader agent={agent} />
       <div className="acpmux-bg__transcript" data-result-transcript>
         {rows(viewport === "split" ? 18 : 8).map((row) => (
@@ -64,7 +68,9 @@ function ResultHeadScene({ report, viewport, stream }: Props) {
           type="button"
           data-stream-result
           style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
-          onClick={() => setExtra(`\n\n${LONG_RESULT}\n\nA final streamed sentence settles without changing the transcript's box.`)}
+          onClick={() =>
+            setExtra(`\n\n${LONG_RESULT}\n\nA final streamed sentence settles without changing the transcript's box.`)
+          }
         >
           stream
         </button>
@@ -79,15 +85,22 @@ async function play(ctx: PlayContext) {
   if (!head || !transcript) throw new Error("result head scene did not mount");
   const report = ctx.document.querySelector<HTMLElement>(".cv-subagent-result__report");
   if (!report) throw new Error("result report did not mount");
-  if (ctx.document.querySelector<HTMLElement>("[data-result-scene='dock']") && report.scrollHeight <= report.clientHeight)
+  if (
+    ctx.document.querySelector<HTMLElement>("[data-result-scene='dock']") &&
+    report.scrollHeight <= report.clientHeight
+  )
     throw new Error("dock result did not retain a scrollable report");
   const stream = ctx.document.querySelector<HTMLButtonElement>("[data-stream-result]");
   if (stream) {
     const before = transcript.getBoundingClientRect().top;
     stream.click();
-    await ctx.waitFor(() => ctx.document.querySelector<HTMLElement>(".cv-subagent-result__report")?.textContent?.includes("final streamed"), {
-      capMs: 2_000,
-    });
+    await ctx.waitFor(
+      () =>
+        ctx.document.querySelector<HTMLElement>(".cv-subagent-result__report")?.textContent?.includes("final streamed"),
+      {
+        capMs: 2_000,
+      },
+    );
     const after = transcript.getBoundingClientRect().top;
     if (Math.abs(after - before) > 0.5) throw new Error(`streaming moved transcript by ${after - before}px`);
     if (report.scrollHeight <= report.clientHeight) throw new Error("streaming did not exercise report overflow");
@@ -119,7 +132,8 @@ export default componentEntry<Props>({
       props: { report: "short", viewport: "dock", stream: false },
       play: async (ctx) => {
         const transcript = ctx.document.querySelector<HTMLElement>("[data-result-transcript]");
-        if (!transcript || transcript.getBoundingClientRect().height <= 0) throw new Error("short dock transcript did not mount");
+        if (!transcript || transcript.getBoundingClientRect().height <= 0)
+          throw new Error("short dock transcript did not mount");
       },
     },
     "stream-stable": {
