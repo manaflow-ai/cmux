@@ -92,6 +92,9 @@ test("the fold count covers the overflow by whole buttons and does not depend on
   expect(headerFoldCount(200 - HEADER_TOOL_PITCH, 1, 199, 4)).toBe(1);
   expect(headerFoldCount(200, 0, 0, 4)).toBe(4);
   expect(headerFoldCount(200, 0, 0, 0)).toBe(0);
+  // A larger interface or the comfortable density widens the pitch: 32px buttons fold by 32s.
+  expect(headerFoldCount(200, 0, 200 - 33, 4, 32)).toBe(2);
+  expect(headerFoldCount(200 - 32, 1, 199, 4, 32)).toBe(1);
 });
 
 test("a narrow pane folds the trailing header buttons into the chat menu and a wide one shows them again", async () => {
