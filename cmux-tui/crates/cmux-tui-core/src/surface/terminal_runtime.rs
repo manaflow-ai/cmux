@@ -52,6 +52,30 @@ impl Drop for ReaderCompletionGuard {
 }
 
 impl PtyTerminalRuntime {
+    /// The input route of `runtime`, for the input port (R-DAEMON-STATE stage S1 step 6).
+    #[cfg(any(unix, windows))]
+    pub(super) fn input_route_of(
+        runtime: &PtyRuntime,
+    ) -> Option<Arc<super::input_port::InputRoute>> {
+        match runtime {
+            PtyRuntime::Hosted(host) => {
+                Some(Arc::new(super::input_port::InputRoute::Hosted(host.input_route())))
+            }
+            PtyRuntime::ExitedHosted => Some(Arc::new(super::input_port::InputRoute::Exited)),
+            PtyRuntime::Local { .. } => None,
+        }
+    }
+
+    /// Replaces the terminal's runtime and republishes its input route, under the runtime lock the caller holds.
+    /// Every replacement goes through here, so the port always writes to the connection the runtime has.
+    #[cfg(any(unix, windows))]
+    pub(super) fn replace_runtime(&self, runtime: &mut PtyRuntime, next: PtyRuntime) {
+        *runtime = next;
+        self.input_route.store(Self::input_route_of(runtime));
+    }
+}
+
+impl PtyTerminalRuntime {
     /// Feed raw child output to the generic terminal metadata parser. The
     /// parser has no knowledge of agents or plugins and keeps only bounded
     /// terminal protocol state. Returns the desktop notifications (OSC 9,
@@ -310,6 +334,14 @@ pub struct PtyTerminalRuntime {
     /// The view a key may skip its sizing note for, published by the terminal's sizing entry (R-DAEMON-STATE stage
     /// S1, `mux::sizing_fast_path`); shared by every view of the terminal.
     pub(super) sizing_fast_path: crate::mux::sizing_fast_path::SizingFastPathSlot,
+    /// The terminal's input port: on the input lane, interactive input to a hosted terminal goes through it
+    /// (R-DAEMON-STATE stage S1 step 6, `surface::input_port`).
+    #[cfg(any(unix, windows))]
+    pub(super) input_port: super::input_port::InputPort,
+    /// Where the port writes: the current host connection, the exited final screen, or `None` (not hosted).
+    /// Published by [`Self::replace_runtime`] and the constructors, so the port never takes the runtime lock.
+    #[cfg(any(unix, windows))]
+    pub(super) input_route: arc_swap::ArcSwapOption<super::input_port::InputRoute>,
     #[cfg(test)]
     pub(super) frame_producer_before_upgrade: FrameProducerTestHook,
 }

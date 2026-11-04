@@ -130,7 +130,7 @@ impl HostedReader {
                     {
                         replacement.keep_pty_custody(custody);
                     }
-                    *runtime = PtyRuntime::Hosted(Box::new(replacement));
+                    pty.replace_runtime(&mut runtime, PtyRuntime::Hosted(Box::new(replacement)));
                     pty.supports_clear_history_key_fallback
                         .store(supports_clear_history, Ordering::Release);
                     true
