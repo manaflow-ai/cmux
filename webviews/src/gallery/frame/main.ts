@@ -99,7 +99,9 @@ const pair =
     : { dark: themeNamed(DEFAULT_DARK_THEME, DEFAULT_DARK_THEME), light: theme };
 const tokens = themeTokens(theme, env.accent);
 // The background axis: over a picture the page is see-through, as over the user's in the app.
-const seeThrough = overPicture(env);
+// `backdrop=host`: a native host draws the user's own picture or glass behind the page.
+const hostBackdrop = params.get("backdrop") === "host";
+const seeThrough = overPicture(env) || hostBackdrop;
 
 emulateMedia({
   "prefers-color-scheme": scheme,
@@ -116,7 +118,10 @@ installUiFont();
 (window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(
   webThemePayload(tokens, deriveAppTheme(theme, env.accent), seeThrough),
 );
-if (seeThrough) {
+if (hostBackdrop) {
+  const { applyHostBackdrop } = await import("./background");
+  applyHostBackdrop(tokens, params.has("tint") ? Number(params.get("tint")) : undefined);
+} else if (seeThrough) {
   const [{ applyGalleryBackground }, { default: metrics }] = await Promise.all([
     import("./background"),
     import("virtual:cmux-gallery/metrics"),

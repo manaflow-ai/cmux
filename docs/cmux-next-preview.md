@@ -44,6 +44,19 @@ revision, a native AppKit surface, or a production bundle. An agent may read the
 index and gallery state, but automation should not steal the developer's focus.
 Open a browser tab only with an explicit `--open` or a user action.
 
+### In a native window that looks like your app
+
+To see a stage as a real desktop window instead of a browser tab, with your own
+theme, accent, density, scale and background picture, at several sizes at once and
+replaying its play steps:
+
+```sh
+scripts/cmux-next/gallery-window.py --entry agent-pane.composer
+```
+
+It reads `~/.config/cmux/cmux-next.json` and opens one light AppKit window per size
+(`Prototypes/GalleryWindow`, no app build). See its README for the options.
+
 ## Branch gallery and before/after review
 
 Once the branch has a pushed commit, use the repository's compare helper:

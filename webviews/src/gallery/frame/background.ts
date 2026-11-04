@@ -86,3 +86,16 @@ export function applyGalleryBackground(
   paint();
   if (!options.windowed) window.addEventListener("resize", paint);
 }
+
+/**
+ * `backdrop=host`: a native host (Prototypes/GalleryWindow) draws the user's own picture or glass
+ * behind a clear web view, as WindowBackdrop does in the app. The page paints only the theme tint
+ * over it, at `tint` (the user's Opacity) or the theme's wallpaper tint, and feeds the glass lens
+ * no still (the host's picture is not the page's to read).
+ */
+export function applyHostBackdrop(tokens: ThemeTokens, tint: number | undefined): void {
+  const alpha = tint !== undefined && tint >= 0 && tint <= 1 ? tint : wallpaperTintOpacity(tokens);
+  const root = document.documentElement;
+  root.dataset.galleryBackground = "host";
+  root.style.setProperty("background", css(withAlpha(tokens.windowBackground, alpha)), "important");
+}
