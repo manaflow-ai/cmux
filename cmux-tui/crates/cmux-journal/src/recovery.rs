@@ -25,10 +25,12 @@
 //!    opens, and every open reports it again until `Journal::clear_damage`.
 //! 6. The journal goes on in a segment this open makes (the copy of step 4, or an empty one), never
 //!    in a segment an earlier process wrote: that one may hold a page its cache had and its disk
-//!    never got.
+//!    never got. When the next LSN is above everything the kept and new segments say (damaged or
+//!    torn records behind the copy), an empty file `FLOOR.<lsn>` names the floor first, and every
+//!    open takes the highest one from the listing.
 //!
-//! Recovery writes nothing but syncs, new segments, the renames into `quarantine/` and the damage
-//! record `DAMAGE`. It never shortens or deletes a segment.
+//! Recovery writes nothing but syncs, new segments, the renames into `quarantine/`, the damage
+//! record `DAMAGE` and `FLOOR.<lsn>` files. It never shortens or deletes a segment.
 
 use std::path::Path;
 
@@ -50,6 +52,8 @@ pub(crate) const LOCK_NAME: &str = "LOCK";
 pub(crate) const QUARANTINE_DIR: &str = "quarantine";
 /// The damage earlier opens found ([`Damage::Corrupt`]), kept until `Journal::clear_damage`.
 pub(crate) const DAMAGE_NAME: &str = "DAMAGE";
+/// The prefix of an empty file that names an LSN floor (`FLOOR.<lsn>`, step 6).
+const FLOOR_PREFIX: &str = "FLOOR.";
 /// The name `Journal::clear_damage` gives a cleared damage record in `quarantine/`.
 pub(crate) const CLEARED_DAMAGE: &str = "damage-report";
 /// A segment recovery writes is first written whole under its name plus this, then renamed.
@@ -228,7 +232,7 @@ pub(crate) fn recover(
     let lock =
         storage.try_lock(&dir.join(LOCK_NAME)).map_err(io("lock"))?.ok_or(OpenError::Locked)?;
     let earlier = read_damage(storage, dir)?;
-    let listed = list_segments(storage, dir)?;
+    let (listed, named_floor) = list_segments(storage, dir)?;
     let quarantined = list_quarantined(storage, dir)?;
     let live_max_seq = listed.last().map_or(0, |(seq, _)| *seq);
     let q_max_seq = quarantined.iter().map(|entry| entry.seq).max().unwrap_or(0);
@@ -312,6 +316,8 @@ pub(crate) fn recover(
 
     // 5: every LSN a quarantined segment holds counts, from earlier opens (`q_floor`, their
     // names) and from this one's moves (planned below, from this floor).
+    // The floors earlier opens named (`FLOOR.<lsn>`, below): from the listing, no file read.
+    floor = floor.max(named_floor);
     let before_quarantine = floor;
     floor = floor.max(q_floor);
     // Reported only when the quarantine holds LSNs that nothing else counted: an old quarantine
@@ -400,6 +406,18 @@ pub(crate) fn recover(
     if let Some(plan) = &plan {
         move_quarantined(storage, dir, plan)?;
     }
+    // An open that gives out LSNs above everything its segments will say (damaged or torn
+    // records, behind a copy that hides them from later opens) names that floor in a file of its
+    // own, durable before any new segment: a header can be damaged later, and `DAMAGE` is cleared
+    // (review G9). The caller's compaction point and the quarantine's names say theirs already.
+    let said = journal_end
+        .max(from)
+        .max(named_floor)
+        .max(q_floor)
+        .max(plan.as_ref().map_or(0, |plan| plan.highest));
+    if floor > said {
+        name_floor(storage, dir, floor).map_err(io("name the LSN floor"))?;
+    }
     // The writer always starts in a segment this open makes: an earlier process's segment may
     // hold a page that its cache had and its disk never got (a failed sync), so nothing is
     // appended to it again. It is read only through the next segment's "previous last LSN".
@@ -453,16 +471,30 @@ pub(crate) fn recover(
     Ok(Recovered { lock, next_lsn, report, writer: WriterStart { journal_id, tail } })
 }
 
-/// The live segment files, by number.
-fn list_segments(storage: &dyn Storage, dir: &Path) -> Result<Vec<(u64, String)>, OpenError> {
-    let mut listed: Vec<(u64, String)> = storage
-        .list(dir)
-        .map_err(io("list the folder"))?
+/// The live segment files, by number, and the highest floor a `FLOOR.<lsn>` file names.
+fn list_segments(
+    storage: &dyn Storage,
+    dir: &Path,
+) -> Result<(Vec<(u64, String)>, Lsn), OpenError> {
+    let names = storage.list(dir).map_err(io("list the folder"))?;
+    let floor = names
+        .iter()
+        .filter_map(|name| name.strip_prefix(FLOOR_PREFIX)?.parse::<Lsn>().ok())
+        .max()
+        .unwrap_or(0);
+    let mut listed: Vec<(u64, String)> = names
         .into_iter()
         .filter_map(|name| Some((format::parse_segment_name(&name)?, name)))
         .collect();
     listed.sort();
-    Ok(listed)
+    Ok((listed, floor))
+}
+
+/// Makes the empty file `FLOOR.<lsn>` and its folder entry durable: no LSN at or below `lsn` is
+/// given out again.
+fn name_floor(storage: &dyn Storage, dir: &Path, lsn: Lsn) -> std::io::Result<()> {
+    let _made = storage.open(&dir.join(format!("{FLOOR_PREFIX}{lsn}")), OpenMode::Create)?;
+    storage.sync_dir(dir)
 }
 
 /// The segment files in `quarantine/` ([`Quarantined`]), by segment number and attempt.
