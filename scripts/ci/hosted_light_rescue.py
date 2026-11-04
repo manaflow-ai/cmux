@@ -141,12 +141,18 @@ def _trigger_scope(text: str) -> set[str] | None:
              "deployment", "deployment_status", "branch_protection_rule", "check_run", "check_suite",
              "create", "delete", "discussion", "discussion_comment", "fork", "gollum", "label", "merge_group",
              "page_build", "project", "project_card", "project_column", "public", "status", "watch"}
+    child_indent: int | None = None
     for candidate in lines[start + 1:]:
         if not candidate.strip() or candidate.lstrip().startswith("#"):
             continue
         candidate_indent = len(candidate) - len(candidate.lstrip())
         if candidate_indent <= indent:
             break
+        if child_indent is None:
+            child_indent = candidate_indent
+        if candidate_indent != child_indent:
+            # Nested inputs/outputs/configuration belong to the trigger above and are not trigger names.
+            continue
         match = re.match(r"^\s*([A-Za-z0-9_-]+)\s*:", candidate)
         if not match:
             return None
@@ -516,6 +522,15 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
     started = clock()
     deadline = started + SETTLE_BUDGET_S
     recovery_deadline = started + SETTLE_BUDGET_S / 2
+    # Keep bounded process-local caches from retaining completed/expired candidates forever.
+    state.discovery_pages = {
+        key: value for key, value in state.discovery_pages.items()
+        if clock() - value[0] < DISCOVERY_CACHE_SECONDS
+    }
+    state.jobs_cache = {
+        run_id: value for run_id, value in state.jobs_cache.items()
+        if clock() - value[0] < DISCOVERY_CACHE_SECONDS and now < value[1]
+    }
     # A broken receipt must not consume every slot every minute. Rotate owned recovery IDs and reserve
     # half the mutation and settle budgets for fresh stalled work, even while old reads keep failing.
     ordered = sorted(recovering)
@@ -610,6 +625,8 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
             else:
                 state.pages[key] = 2
     runs = sorted(listed.values(), key=run_key)
+    live_ids = set(listed) | set(state.fresh_candidates)
+    state.jobs_cache = {run_id: value for run_id, value in state.jobs_cache.items() if run_id in live_ids}
     candidate_count = len(runs)
     runs, state.cursor = scan_slice(runs, state.cursor)
     if candidate_count > MAX_RUNS:
@@ -639,7 +656,11 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
                                 if job.get("status") == "queued" and parse_time(job.get("created_at")) is not None]
                 expires_at = min((created + dt.timedelta(seconds=STALL_SECONDS) for created in queued_times),
                                  default=now + dt.timedelta(seconds=DISCOVERY_CACHE_SECONDS))
-                if verdict(jobs, now)[0] == "none":
+                complete = bool(jobs) and all(
+                    str(job.get("name") or "") != "(jobs past the first page)"
+                    and job.get("status") in {"queued", "in_progress", "completed"}
+                    for job in jobs)
+                if complete and verdict(jobs, now)[0] == "none":
                     state.jobs_cache[run["id"]] = (clock(), expires_at, list(jobs))
         except Exception as error:  # noqa: BLE001
             lines.append(f"run {run['id']}: could not read jobs ({error})")

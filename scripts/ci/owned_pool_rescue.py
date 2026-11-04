@@ -2125,6 +2125,13 @@ class GitHub:
             key = (int(run.get("id") or 0), int(run.get("run_attempt") or 1))
             unique.setdefault(key, run)
         runs = list(unique.values())
+        if event_filter or title_filter:
+            # Filtered event streams are merged here. Keep the newest completed rescue job first so a later
+            # CANCEL_SETTLED mark wins over an older CANCEL_SENT when callers use setdefault while reading logs.
+            runs.sort(key=lambda run: (
+                parse_time(run.get("created_at")) or parse_time(run.get("run_started_at"))
+                or dt.datetime.min.replace(tzinfo=dt.timezone.utc),
+                int(run.get("id") or 0), int(run.get("run_attempt") or 1)), reverse=True)
         found: list[int] = []
         for run in runs:
             attempts = int(run.get("run_attempt") or 1)

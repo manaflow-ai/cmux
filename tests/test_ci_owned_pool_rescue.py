@@ -1679,6 +1679,50 @@ class StrandedCancel(unittest.TestCase):
                                          titles=("owned-pool-sweeper",)), [32, 31])
         self.assertTrue(all("&event=" in path for path in asked if path.startswith("/actions/workflows/")))
 
+    def test_filtered_rescue_history_merges_event_streams_newest_first(self):
+        api = rescue.GitHub("t", "manaflow-ai/cmux")
+        asked = []
+        rows = {
+            "schedule": [{"id": 10, "event": "schedule", "display_title": "owned-pool-sweeper",
+                           "status": "completed", "conclusion": "failure", "run_attempt": 1,
+                           "created_at": stamp(-120), "run_started_at": stamp(-120), "updated_at": stamp(-60)}],
+            "workflow_dispatch": [{"id": 20, "event": "workflow_dispatch", "display_title": "owned-pool-sweeper",
+                                    "status": "completed", "conclusion": "failure", "run_attempt": 1,
+                                    "created_at": stamp(-30), "run_started_at": stamp(-30), "updated_at": stamp(-10)}],
+        }
+        def request(method, path, **_):
+            asked.append(path)
+            if path.startswith("/actions/workflows/"):
+                event = path.split("&event=", 1)[1]
+                return {"workflow_runs": rows[event]} if "&page=1&" in path else {}
+            run_id = int(path.split("/runs/")[1].split("/")[0])
+            return {"jobs": [{"id": run_id, "status": "completed", "conclusion": "failure"}]}
+        api.request = request
+        self.assertEqual(api.rescue_jobs(START - dt.timedelta(seconds=600),
+                                         events=("schedule", "workflow_dispatch"),
+                                         titles=("owned-pool-sweeper",)), [20, 10])
+
+    def test_filtered_history_avoids_unrelated_workflow_run_page_cap(self):
+        api = rescue.GitHub("t", "manaflow-ai/cmux")
+        reads = []
+        def request(method, path, **_):
+            if path.startswith("/actions/workflows/"):
+                reads.append(path)
+                if "&event=" in path:
+                    return {"total_count": 1, "workflow_runs": [{
+                        "id": 9, "event": "schedule", "display_title": "owned-pool-sweeper",
+                        "status": "completed", "conclusion": "failure", "run_attempt": 1,
+                        "run_started_at": stamp(-60), "updated_at": stamp(0)}]} if "&page=1&" in path else {}
+                return {"total_count": 2501, "workflow_runs": []}
+            return {"jobs": [{"id": 90, "status": "completed", "conclusion": "failure"}]}
+        api.request = request
+        self.assertEqual(api.rescue_jobs(START - dt.timedelta(seconds=600),
+                                         events=("schedule",), titles=("owned-pool-sweeper",)), [90])
+        self.assertEqual(len(reads), 2)
+        with self.assertRaises(rescue.RescueHistoryCapped):
+            api.rescue_jobs(START - dt.timedelta(seconds=600))
+        self.assertEqual(len(reads), 3)
+
     def test_a_cancel_after_the_watch_looked_is_never_re_run(self):
         # The watch found a refusal; before rescue() read the run, someone cancelled it. No cancel was this rescue's.
         clock = Clock()

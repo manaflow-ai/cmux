@@ -126,6 +126,18 @@ class Scope(unittest.TestCase):
                 "on:\n  workflow_call:\n  pull_request:\n\njobs:\n  call:\n    uses: ./.github/workflows/reusable.yml\n")
             self.assertEqual(rescue.with_callers(["reusable.yml"], directory), ["caller.yml"])
 
+    def test_reusable_only_callers_with_nested_inputs_are_filtered_but_dual_trigger_is_kept(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            (directory / "reusable.yml").write_text(
+                "on:\n  workflow_call:\n    inputs:\n      mode:\n        required: false\n    outputs:\n      result:\n        value: x\n")
+            (directory / "dual.yml").write_text(
+                "on:\n  workflow_call:\n    inputs:\n      mode:\n        required: false\n  pull_request:\n")
+            (directory / "caller.yml").write_text(
+                "on: [pull_request]\njobs:\n  call:\n    uses: ./.github/workflows/reusable.yml\n")
+            self.assertEqual(rescue.with_callers(["reusable.yml", "dual.yml"], directory),
+                             ["caller.yml", "dual.yml"])
+
     def test_callers_without_a_directory_are_just_the_declaration(self):
         self.assertEqual(rescue.with_callers(["b.yml", "a.yml"], None), ["a.yml", "b.yml"])
 
@@ -277,6 +289,16 @@ class Sweep(unittest.TestCase):
                      clock=lambda: 60, sleep=lambda _: None)
         self.assertEqual(first, 4)
         self.assertEqual(sum(call[0] == "runs" for call in fake.calls), 0)
+
+    def test_non_stalled_job_verdict_is_cached_but_stalled_verdict_is_read_again(self):
+        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("build", status="in_progress", runner_id=7)]})
+        cursor = rescue.ScanState()
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW, dry_run=True, scan_state=cursor,
+                     clock=lambda: 0, sleep=lambda _: None)
+        first_reads = fake.job_reads[7]
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW + dt.timedelta(seconds=30), dry_run=True, scan_state=cursor,
+                     clock=lambda: 30, sleep=lambda _: None)
+        self.assertEqual(fake.job_reads[7], first_reads)
 
     def test_an_overflow_listing_page_finds_a_candidate_past_the_first_100_runs(self):
         gated = [run(100 + index) for index in range(101)]
