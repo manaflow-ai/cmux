@@ -37871,43 +37871,43 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "فرز"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Sortiraj"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Sortér"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Sortieren"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ordenar"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Trier"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ordina"
           }
         },
@@ -37919,73 +37919,73 @@
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "តម្រៀប"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "정렬"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Sorter"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Sortuj"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ordenar"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Сортировка"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "เรียงลำดับ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Sırala"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Сортування"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Sắp xếp"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "排序"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "排序"
           }
         }
@@ -38002,43 +38002,43 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "يدوي"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ručno"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Manuelt"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Manuell"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Manual"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Manuel"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Manuale"
           }
         },
@@ -38050,73 +38050,73 @@
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "ដោយដៃ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "수동"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Manuelt"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ręcznie"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Manual"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Вручную"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "กำหนดเอง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Elle"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Вручну"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Thủ công"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "手动"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "手動"
           }
         }
@@ -38133,43 +38133,43 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "الاسم"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Naziv"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Navn"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Name"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Nombre"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Nom"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Nome"
           }
         },
@@ -38181,73 +38181,73 @@
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "ឈ្មោះ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "이름"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Navn"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Nazwa"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Nome"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Имя"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "ชื่อ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ad"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Назва"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Tên"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "名称"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "名稱"
           }
         }
@@ -38264,43 +38264,43 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "الأحدث"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Nedavno"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Seneste"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Zuletzt aktiv"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Recientes"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Récents"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Recenti"
           }
         },
@@ -38312,73 +38312,73 @@
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "ថ្មីៗ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "최근"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Nylig"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ostatnie"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Recentes"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Недавние"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "ล่าสุด"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Son"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Нещодавні"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Gần đây"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "最近"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "最近"
           }
         }
@@ -38395,43 +38395,43 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "فرز المجموعة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Sortiraj grupu"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Sortér gruppe"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Gruppe sortieren"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ordenar grupo"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Trier le groupe"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ordina gruppo"
           }
         },
@@ -38443,73 +38443,73 @@
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "តម្រៀបក្រុម"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "그룹 정렬"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Sorter gruppe"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Sortuj grupę"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ordenar grupo"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Сортировка группы"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "เรียงลำดับกลุ่ม"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Grubu sırala"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Сортування групи"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Sắp xếp nhóm"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "排序群组"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "排序群組"
           }
         }
