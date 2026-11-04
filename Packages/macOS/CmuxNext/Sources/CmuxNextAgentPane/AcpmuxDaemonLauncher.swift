@@ -30,7 +30,24 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// Names the app that started the daemon; the daemon follows its exit.
     static let ownerAppPidKey = "ACPMUX_OWNER_APP_PID"
 
-    static let script = #"set -m; "$@" 3>&1 1>>"$ACPMUX_LAUNCH_LOG" 2>&1 </dev/null &"#
+    /// Probe (hq#6338): the daemon runs as a launchd job of its own in the person's GUI domain, so
+    /// it leaves the app's coalition. Its ready descriptor (3) and person key (4) cross through FIFOs.
+    static let script = #"""
+d=$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/acpmux-job.XXXXXX") || exit 1
+/usr/bin/mkfifo "$d/ready" || exit 1
+key=; if { true <&4; } 2>/dev/null; then key=1; /usr/bin/mkfifo "$d/key" || exit 1; fi
+export -p > "$d/env"
+{ printf '. "%s/env"\nexec 3>"%s/ready"\n' "$d" "$d"
+  if [ -n "$key" ]; then printf 'exec 4<"%s/key"\n' "$d"; fi
+  printf 'exec'
+  for a; do printf " '%s'" "$(printf '%s' "$a" | /usr/bin/sed "s/'/'\\\\''/g")"; done
+  printf ' 1>>"$ACPMUX_LAUNCH_LOG" 2>&1 </dev/null\n'; } > "$d/run"
+label="com.cmuxterm.acpmux.job.${d##*.}"
+printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>Label</key><string>%s</string><key>ProgramArguments</key><array><string>/bin/sh</string><string>%s/run</string></array><key>RunAtLoad</key><true/><key>KeepAlive</key><false/><key>AbandonProcessGroup</key><true/><key>ProcessType</key><string>Interactive</string></dict></plist>\n' "$label" "$d" > "$d/job.plist"
+"${ACPMUX_LAUNCHCTL:-/bin/launchctl}" bootstrap "gui/$(/usr/bin/id -u)" "$d/job.plist" || exit 1
+if [ -n "$key" ]; then /bin/cat <&4 > "$d/key" & fi
+/bin/cat "$d/ready" >&3 &
+"""#
     /// The daemon reads its person key (``AcpmuxPersonKey``) from this descriptor and
     /// closes it before it starts any agent; the key never goes into argv or the environment.
     static let personKeyDescriptor: Int32 = 4
