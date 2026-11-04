@@ -210,10 +210,18 @@ struct MainActorTaskStoreTests {
         weak var weakStore: MainActorTaskStore<Int>?
         weakStore = store
 
-        store?.replace(-1) {
-            finished.continuation.yield()
+        // Main-actor slot: its completion bookkeeping runs in the same job as
+        // the yield, so the store has dropped it before the test continues.
+        let finishedSlotCancelled = CancellationFlag()
+        store?.replaceOnMainActor(-1) {
+            await withTaskCancellationHandler {
+                finished.continuation.yield()
+            } onCancel: {
+                finishedSlotCancelled.mark()
+            }
         }
         _ = try #require(await finishedIterator.next())
+        #expect(store?.contains(-1) == false)
 
         for slot in 0..<slotCount {
             let handlerSlot = slot
@@ -239,5 +247,6 @@ struct MainActorTaskStoreTests {
             cancelledSlots.insert(try #require(await cancelledIterator.next()))
         }
         #expect(cancelledSlots == Set(0..<slotCount))
+        #expect(!finishedSlotCancelled.isMarked)
     }
 }
