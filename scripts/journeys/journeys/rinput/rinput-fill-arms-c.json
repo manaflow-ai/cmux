@@ -1,0 +1,1047 @@
+{
+ "id": "rinput-fill-arms-c",
+ "priority": "P1",
+ "title": "R-INPUT first-key menu stall arms (c): O/U/K/W before the first Control-C, 12 fresh launches (scratch, never merge)",
+ "why": "Choose the fix from the root cost (lead 2026-11-04): does -[NSMenu update], an idle key walk or a warm page cache take the Windows menu fill off the first chord's turn, and what does the moved fill cost?",
+ "source": "REWRITE R-INPUT agent a80216a78adfb7d0f",
+ "budget_seconds": 130,
+ "options": {
+  "key_path": "real"
+ },
+ "continue_not_judged": true,
+ "finally": [
+  {
+   "do": "smoke_close_all"
+  }
+ ],
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "smoke_key",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "ws"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: Cmd-N makes the workspace",
+   "since": "ws",
+   "timeout": 20,
+   "all": [
+    {
+     "smoke_workspaces": {
+      "new": 1
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  },
+  {
+   "do": "smoke_key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "term"
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "smoke_type",
+   "text": "echo arms-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the terminal runs its line",
+   "since": "term",
+   "timeout": 30,
+   "all": [
+    {
+     "smoke_daemon_lines": {
+      "lines": [
+       "arms-${nonce}"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l01",
+   "file": "probe-01octrl.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the launch settles"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "clear": true
+   },
+   "title": "launch 1 (O): clear the watchdog"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "first01",
+   "title": "launch 1 (O): the FIRST HID chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "launch 1: the other chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 1: a closing Control-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 8
+   },
+   "title": "launch 1 (O): the watchdog's stalls (over 4 ms) with stacks"
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l02",
+   "file": "probe-02uctrl.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the launch settles"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "clear": true
+   },
+   "title": "launch 2 (U): clear the watchdog"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.menu_item",
+   "params": {
+    "title": "R-INPUT probe: no item has this title"
+   },
+   "title": "launch 2: arm U, every menu validated (update)"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "first02",
+   "title": "launch 2 (U): the FIRST HID chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "launch 2: the other chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 2: a closing Control-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 8
+   },
+   "title": "launch 2 (U): the watchdog's stalls (over 4 ms) with stacks"
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l03",
+   "file": "probe-03kctrl.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the launch settles"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "clear": true
+   },
+   "title": "launch 3 (K): clear the watchdog"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.key",
+   "params": {
+    "key": "c",
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   "title": "launch 3: arm K, a key walk of the main menu (Cmd-C through the terminal, nothing selected)"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "first03",
+   "title": "launch 3 (K): the FIRST HID chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "launch 3: the other chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 3: a closing Control-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 8
+   },
+   "title": "launch 3 (K): the watchdog's stalls (over 4 ms) with stacks"
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l04",
+   "file": "probe-04wctrl.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the launch settles"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "clear": true
+   },
+   "title": "launch 4 (W): clear the watchdog"
+  },
+  {
+   "do": "smoke_type",
+   "text": "for f in /System/Library/CoreServices/CoreGlyphs*.bundle/Contents/Resources/*.car /System/Library/Frameworks/AppKit.framework/Versions/C/Resources/*.car /System/Library/PrivateFrameworks/SFSymbols.framework/Versions/A/Resources/*.car; do cat \"$f\" >/dev/null 2>&1; done; echo warm-${nonce}",
+   "enter": true,
+   "title": "launch 4: arm W, the symbol catalogs read into the page cache"
+  },
+  {
+   "do": "wait",
+   "seconds": 5.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "first04",
+   "title": "launch 4 (W): the FIRST HID chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "launch 4: the other chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 4: a closing Control-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 8
+   },
+   "title": "launch 4 (W): the watchdog's stalls (over 4 ms) with stacks"
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l05",
+   "file": "probe-05octrl.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the launch settles"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "clear": true
+   },
+   "title": "launch 5 (O): clear the watchdog"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "first05",
+   "title": "launch 5 (O): the FIRST HID chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "launch 5: the other chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 5: a closing Control-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 8
+   },
+   "title": "launch 5 (O): the watchdog's stalls (over 4 ms) with stacks"
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l06",
+   "file": "probe-06uctrl.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the launch settles"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "clear": true
+   },
+   "title": "launch 6 (U): clear the watchdog"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.menu_item",
+   "params": {
+    "title": "R-INPUT probe: no item has this title"
+   },
+   "title": "launch 6: arm U, every menu validated (update)"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "first06",
+   "title": "launch 6 (U): the FIRST HID chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "launch 6: the other chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 6: a closing Control-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 8
+   },
+   "title": "launch 6 (U): the watchdog's stalls (over 4 ms) with stacks"
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l07",
+   "file": "probe-07kctrl.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the launch settles"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "clear": true
+   },
+   "title": "launch 7 (K): clear the watchdog"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.key",
+   "params": {
+    "key": "c",
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   "title": "launch 7: arm K, a key walk of the main menu (Cmd-C through the terminal, nothing selected)"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "first07",
+   "title": "launch 7 (K): the FIRST HID chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "launch 7: the other chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 7: a closing Control-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 8
+   },
+   "title": "launch 7 (K): the watchdog's stalls (over 4 ms) with stacks"
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l08",
+   "file": "probe-08wctrl.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the launch settles"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "clear": true
+   },
+   "title": "launch 8 (W): clear the watchdog"
+  },
+  {
+   "do": "smoke_type",
+   "text": "for f in /System/Library/CoreServices/CoreGlyphs*.bundle/Contents/Resources/*.car /System/Library/Frameworks/AppKit.framework/Versions/C/Resources/*.car /System/Library/PrivateFrameworks/SFSymbols.framework/Versions/A/Resources/*.car; do cat \"$f\" >/dev/null 2>&1; done; echo warm-${nonce}",
+   "enter": true,
+   "title": "launch 8: arm W, the symbol catalogs read into the page cache"
+  },
+  {
+   "do": "wait",
+   "seconds": 5.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "first08",
+   "title": "launch 8 (W): the FIRST HID chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "launch 8: the other chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 8: a closing Control-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 8
+   },
+   "title": "launch 8 (W): the watchdog's stalls (over 4 ms) with stacks"
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l09",
+   "file": "probe-09octrl.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the launch settles"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "clear": true
+   },
+   "title": "launch 9 (O): clear the watchdog"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "first09",
+   "title": "launch 9 (O): the FIRST HID chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "launch 9: the other chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 9: a closing Control-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 8
+   },
+   "title": "launch 9 (O): the watchdog's stalls (over 4 ms) with stacks"
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l10",
+   "file": "probe-10uctrl.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the launch settles"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "clear": true
+   },
+   "title": "launch 10 (U): clear the watchdog"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.menu_item",
+   "params": {
+    "title": "R-INPUT probe: no item has this title"
+   },
+   "title": "launch 10: arm U, every menu validated (update)"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "first10",
+   "title": "launch 10 (U): the FIRST HID chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "launch 10: the other chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 10: a closing Control-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 8
+   },
+   "title": "launch 10 (U): the watchdog's stalls (over 4 ms) with stacks"
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l11",
+   "file": "probe-11kctrl.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the launch settles"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "clear": true
+   },
+   "title": "launch 11 (K): clear the watchdog"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.key",
+   "params": {
+    "key": "c",
+    "modifiers": [
+     "cmd"
+    ]
+   },
+   "title": "launch 11: arm K, a key walk of the main menu (Cmd-C through the terminal, nothing selected)"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "first11",
+   "title": "launch 11 (K): the FIRST HID chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "launch 11: the other chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 11: a closing Control-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 8
+   },
+   "title": "launch 11 (K): the watchdog's stalls (over 4 ms) with stacks"
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l12",
+   "file": "probe-12wctrl.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the launch settles"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "clear": true
+   },
+   "title": "launch 12 (W): clear the watchdog"
+  },
+  {
+   "do": "smoke_type",
+   "text": "for f in /System/Library/CoreServices/CoreGlyphs*.bundle/Contents/Resources/*.car /System/Library/Frameworks/AppKit.framework/Versions/C/Resources/*.car /System/Library/PrivateFrameworks/SFSymbols.framework/Versions/A/Resources/*.car; do cat \"$f\" >/dev/null 2>&1; done; echo warm-${nonce}",
+   "enter": true,
+   "title": "launch 12: arm W, the symbol catalogs read into the page cache"
+  },
+  {
+   "do": "wait",
+   "seconds": 5.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "first12",
+   "title": "launch 12 (W): the FIRST HID chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "launch 12: the other chord"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 12: a closing Control-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 8
+   },
+   "title": "launch 12 (W): the watchdog's stalls (over 4 ms) with stacks"
+  }
+ ]
+}
