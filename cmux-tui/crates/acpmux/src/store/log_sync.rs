@@ -36,6 +36,16 @@ impl LocalStore {
         if FAIL_NEXT_LOG_SYNC.with(|fail| fail.replace(false)) {
             return Err(SyncFailed(std::io::Error::other("a failed sync (a test)")).into());
         }
+        // Debug builds only: `ACPMUX_TEST_FAIL_LOG_SYNC` fails every log sync, as a disk whose
+        // fsync fails would, so the daemon-level test (`tests/daemon_restart_close.rs`) can see
+        // the stop for a restart. Release builds have no seam.
+        #[cfg(debug_assertions)]
+        if std::env::var_os("ACPMUX_TEST_FAIL_LOG_SYNC").is_some() {
+            return Err(SyncFailed(std::io::Error::other(
+                "a failed sync (ACPMUX_TEST_FAIL_LOG_SYNC)",
+            ))
+            .into());
+        }
         let open = {
             let writers = self.writers.lock_or_recover();
             match writers.open.get(id) {

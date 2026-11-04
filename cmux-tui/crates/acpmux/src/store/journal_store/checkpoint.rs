@@ -189,7 +189,7 @@ impl Inner {
             if !timer.wanted {
                 timer = self
                     .wake
-                    .wait_timeout(timer, CHECKPOINT_EVERY)
+                    .wait_timeout(timer, checkpoint_every())
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .0;
                 if timer.stop {
@@ -213,6 +213,19 @@ impl Inner {
             self.wake.notify_all();
         }
     }
+}
+
+/// How long the checkpointer waits between two checkpoints. Debug builds only:
+/// `ACPMUX_TEST_JOURNAL_CHECKPOINT_MS` (10 ms to 60 s) shortens it for the daemon-level tests.
+fn checkpoint_every() -> Duration {
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var("ACPMUX_TEST_JOURNAL_CHECKPOINT_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        return Duration::from_millis(ms.clamp(10, 60_000));
+    }
+    CHECKPOINT_EVERY
 }
 
 /// Whether `error` comes from a file or folder that is not there.
