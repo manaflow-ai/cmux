@@ -129,3 +129,15 @@ fn an_app_refusal_reads_as_the_clis_outcome() {
     assert_eq!(outcome("unavailable", Some(404)), Outcome::Status(404));
     assert_eq!(outcome("anything", None), Outcome::Unexpected);
 }
+
+#[test]
+fn a_refusal_never_carries_a_key_the_service_put_in_its_text() {
+    let read = |status: u16, body: &str| {
+        answer(status, body.as_bytes(), "https://vm.cmux.dev", "t").expect_err("refused")
+    };
+    let echoed = read(500, r#"{"key":"vmk_secret","message":"could not store vmk_secret"}"#);
+    assert_eq!(echoed.message, "could not store <redacted>");
+    let shaped = read(400, r#"{"message":"bad cmuxvm_sk_abcDEF012_-xyz, and cmuxvm_sk_second."}"#);
+    assert_eq!(shaped.message, "bad cmuxvm_sk_<redacted>, and cmuxvm_sk_<redacted>.");
+    assert_eq!(read(403, r#"{"message":"cmuxvm_sk_"}"#).message, "cmuxvm_sk_<redacted>");
+}

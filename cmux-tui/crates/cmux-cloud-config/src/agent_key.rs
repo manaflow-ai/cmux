@@ -142,11 +142,12 @@ pub fn answer(status: u16, body: &[u8], base_url: &str, team_id: &str) -> Result
         fields.insert("teamId".into(), json!(team_id));
         return Ok(Value::Object(fields));
     }
+    let key = parsed.as_ref().and_then(|answer| answer.get("key")).and_then(Value::as_str);
     let message = parsed
         .as_ref()
         .and_then(|answer| answer.get("message"))
         .and_then(Value::as_str)
-        .map(|message| message.chars().take(300).collect::<String>())
+        .map(|message| redacted(message, key).chars().take(300).collect::<String>())
         .unwrap_or_else(|| format!("HTTP {status}"));
     Err(match status {
         401 => Refusal::new("not_signed_in", "Sign in to cmux in the cmux app first.", None)
@@ -157,6 +158,28 @@ pub fn answer(status: u16, body: &[u8], base_url: &str, team_id: &str) -> Result
         429 => Refusal::new("rate_limited", message, None),
         _ => Refusal::new("unavailable", message, Some(status)),
     })
+}
+
+/// The VM API's key prefix (workers/cmux-vm src/auth/credentials.ts `API_KEY_PREFIX`).
+pub const KEY_PREFIX: &str = "cmuxvm_sk_";
+
+/// `message` with the answer's own key and anything shaped like a VM API key taken out, so a
+/// refusal never carries a secret whatever the service put in its text.
+fn redacted(message: &str, key: Option<&str>) -> String {
+    let mut text = match key.filter(|key| !key.is_empty()) {
+        Some(key) => message.replace(key, "<redacted>"),
+        None => message.to_owned(),
+    };
+    let mut from = 0;
+    while let Some(at) = text[from..].find(KEY_PREFIX).map(|at| from + at) {
+        let secret_start = at + KEY_PREFIX.len();
+        let secret_end = text[secret_start..]
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+            .map_or(text.len(), |end| secret_start + end);
+        text.replace_range(secret_start..secret_end, "<redacted>");
+        from = secret_start + "<redacted>".len();
+    }
+    text
 }
 
 /// What a mint refused by the app means for the CLI's exit status: the cmux-vm CLI maps each
