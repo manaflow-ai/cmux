@@ -1,6 +1,6 @@
 import CmuxNextCompat
 import CmuxNextDesign
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// A window's pending row edits and folds, held across live projections until their owner has them.
 /// The app supplies redraw and confirmed-fold callbacks; this state has no daemon or window dependency.

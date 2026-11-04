@@ -1,4 +1,4 @@
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// How a group fold's save goes on after its command failed. A fold is this window's look: it shows on the
 /// click and never waits for the daemon. A slow save (the reply missed its deadline, so it may still apply)
