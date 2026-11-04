@@ -24,7 +24,8 @@
 #               (-only-testing), e.g. only=CmuxMobileLiveTests/LinkRecoveryTests
 #               (a suite, or TARGET/SUITE/test for an XCTest method)
 #             ui=SUITE[,SUITE...]   also run those CmuxMobileAppUITests suites
-#               against a Debug app; with ui= and no only=, the kit run is skipped
+#               against a Debug app, screen-recorded to ui-tests.mp4; with ui=
+#               and no only=, the kit run is skipped
 #           The artifact keeps each run's log, its console output (a test's
 #           print lines, e.g. benchmark numbers) and its per-test results.
 #   bench   build, plus the in-app flood benchmark (TerminalFloodBench,
@@ -537,12 +538,24 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
   # A Debug build of the app and its UI test bundle, on a new iPhone in the
   # default device set (xcodebuild sees no other), deleted by its UDID after.
   ui_udid="$(xcrun simctl create "cmux-next-ios-sim-ui-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
+  # A screen recording of the whole UI run (ui-tests.mp4 in the artifact): booted
+  # first so recordVideo has a display; the test run takes the booted device as is.
+  ui_video_pid=""
+  if xcrun simctl boot "$ui_udid" >/dev/null 2>&1 && xcrun simctl bootstatus "$ui_udid" >/dev/null 2>&1; then
+    xcrun simctl io "$ui_udid" recordVideo --codec=h264 --force "$out/ui-tests.mp4" >"$work/ui-video.log" 2>&1 &
+    ui_video_pid=$!
+  fi
   set +e
   xcodebuild test -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug \
     -destination "id=$ui_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-ui" \
     -resultBundlePath "$work/ui.xcresult" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
     -quiet "${ui_suites[@]}" >"$work/ui-test.log" 2>&1
   ui_status=$?
+  if [[ -n "$ui_video_pid" ]]; then
+    # SIGINT makes recordVideo finish the file; wait reaps it (it exits once written).
+    kill -INT "$ui_video_pid" 2>/dev/null || true
+    wait "$ui_video_pid" 2>/dev/null || true
+  fi
   set -e
   xcrun simctl shutdown "$ui_udid" >/dev/null 2>&1 || true
   xcrun simctl delete "$ui_udid" >/dev/null 2>&1 || true
