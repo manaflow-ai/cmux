@@ -187,7 +187,9 @@ fn plan_of(project: &Project) -> Option<Plan> {
                 install: strings(&["pnpm", "install", "--frozen-lockfile", "--prefer-offline"]),
             }
         }
-        // Cargo's index and downloaded crates; never target/, never credentials.
+        // Cargo's index and downloaded crates; never target/, never credentials,
+        // and never git/db: a bare clone's FETCH_HEAD and config name the remote
+        // URL, which for a private repository can carry a token.
         Ecosystem::Cargo => {
             let root = std::env::var_os("CARGO_HOME")
                 .filter(|h| !h.is_empty())
@@ -195,7 +197,7 @@ fn plan_of(project: &Project) -> Option<Plan> {
                 .or_else(|| home().map(|h| h.join(".cargo")))?;
             Plan {
                 root,
-                include: vec!["registry/index".into(), "registry/cache".into(), "git/db".into()],
+                include: vec!["registry/index".into(), "registry/cache".into()],
                 replaces: false,
                 install: strings(&["cargo", "fetch", "--locked"]),
             }

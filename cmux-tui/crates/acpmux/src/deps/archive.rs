@@ -23,6 +23,8 @@ const DENIED: &[&str] = &[
     "auth.json",
     ".git-credentials",
     ".gitconfig",
+    // A git folder's config and FETCH_HEAD name the remote URL, which can carry a token.
+    ".git",
     ".env",
     "credentials",
     "credentials.toml",
@@ -38,6 +40,11 @@ const DENIED: &[&str] = &[
 /// Folders under a `node_modules` that are tool scratch, not installed
 /// dependencies. Elsewhere `.cache` is kept: Cargo's sparse index lives in one.
 const SKIPPED_DIRS: &[&str] = &[".cache"];
+
+/// Whether a folder is a bare git repository: `HEAD`, `objects/` and `refs/`.
+fn bare_repo(path: &Path) -> bool {
+    path.join("HEAD").is_file() && path.join("objects").is_dir() && path.join("refs").is_dir()
+}
 
 fn piped<T>(pipe: Option<&mut T>) -> io::Result<&mut T> {
     pipe.ok_or_else(|| io::Error::other("zstd pipe closed"))
@@ -183,6 +190,12 @@ fn walk(
     let meta = std::fs::symlink_metadata(&path)?;
     let kind = meta.file_type();
     if kind.is_dir() {
+        // A bare clone (a git dependency's database) names its remote URL in
+        // config and FETCH_HEAD, which can carry a token: never packed.
+        if bare_repo(&path) {
+            packed.denied.push(rel.to_string_lossy().into_owned());
+            return Ok(());
+        }
         builder.append_dir(rel, &path)?;
         let mut names: Vec<_> = std::fs::read_dir(&path)?.filter_map(Result::ok).collect();
         names.sort_by_key(|e| e.file_name());
@@ -376,6 +389,12 @@ mod tests {
         write(&nm.join("pkg/.env.local"), "TOKEN=secret");
         write(&nm.join(".cache/babel/x.json"), "{}");
         write(&nm.join(".bin/.keep"), "");
+        write(&nm.join("from-git/.git/config"), "url = https://user:token@example.com/r");
+        let bare = nm.join("bare-db");
+        write(&bare.join("HEAD"), "ref: refs/heads/main");
+        write(&bare.join("FETCH_HEAD"), "abc https://user:token@example.com/r");
+        write(&bare.join("objects/.keep"), "");
+        write(&bare.join("refs/.keep"), "");
         #[cfg(unix)]
         std::os::unix::fs::symlink("../left-pad/index.js", nm.join(".bin/left-pad")).unwrap();
         {
@@ -391,7 +410,15 @@ mod tests {
         assert_eq!(packed.files, 2, "{packed:?}");
         let mut denied = packed.denied.clone();
         denied.sort();
-        assert_eq!(denied, ["node_modules/left-pad/.npmrc", "node_modules/pkg/.env.local"]);
+        assert_eq!(
+            denied,
+            [
+                "node_modules/bare-db",
+                "node_modules/from-git/.git",
+                "node_modules/left-pad/.npmrc",
+                "node_modules/pkg/.env.local",
+            ]
+        );
 
         let dest = tempfile::tempdir().unwrap();
         let unpacked =
@@ -412,6 +439,8 @@ mod tests {
             assert_eq!(mode & 0o7777, 0o755, "{mode:o}");
         }
         assert!(!got.join("pkg/.env.local").exists());
+        assert!(!got.join("from-git/.git").exists());
+        assert!(!got.join("bare-db").exists());
         assert!(!got.join(".cache").exists());
         assert!(!dest.path().join(".npmrc").exists());
         #[cfg(unix)]
@@ -538,7 +567,8 @@ mod tests {
         ] {
             assert!(denied(name), "{name}");
         }
-        for name in ["index.js", "environment.js", "env", "credentials-helper.js"] {
+        assert!(denied(".git"));
+        for name in ["index.js", "environment.js", "env", "credentials-helper.js", ".gitignore"] {
             assert!(!denied(name), "{name}");
         }
     }
