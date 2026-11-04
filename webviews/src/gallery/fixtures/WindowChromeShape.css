@@ -4,19 +4,18 @@
   --chrome-inset: calc(var(--chrome-unit) * 2);
   --chrome-outer-radius: calc(var(--chrome-unit) * 8);
   --chrome-inner-radius: max(0px, calc(var(--chrome-outer-radius) - var(--chrome-inset)));
-  --chrome-row-height: calc(var(--chrome-unit) * 9);
   --chrome-gap: calc(var(--chrome-unit) * 2);
   --chrome-icon-size: calc(var(--chrome-unit) * 4);
   --chrome-font-size: calc(var(--chrome-unit) * 3.25);
   --chrome-small-size: calc(var(--chrome-unit) * 2.75);
-  --chrome-surface: var(--cmux-app-window, #17191e);
-  --chrome-sidebar: var(--cmux-sidebar-background, #121419);
-  --chrome-card: var(--cmux-surface-raised, #20242b);
-  --chrome-divider: color-mix(in srgb, currentColor 12%, transparent);
-  --chrome-ink: var(--cmux-text, #f2f3f7);
-  --chrome-muted: var(--cmux-text-secondary, #9da3b1);
-  --chrome-accent: var(--cmux-accent, #7da8ff);
-  --chrome-selection: color-mix(in srgb, var(--chrome-accent) 20%, transparent);
+  --chrome-surface: var(--agent-page-bg, var(--cmux-surface-background, var(--cmux-app-window, #17191e)));
+  --chrome-sidebar: var(--agent-surface, var(--cmux-app-sidebar, var(--cmux-surface-background, #121419)));
+  --chrome-card: var(--agent-surface-elevated, var(--cmux-elevated-background, var(--cmux-app-content, #20242b)));
+  --chrome-divider: var(--agent-border, var(--cmux-separator, var(--cmux-app-separator, color-mix(in srgb, currentColor 12%, transparent))));
+  --chrome-ink: var(--agent-text, var(--cmux-text, var(--cmux-app-text, #f2f3f7)));
+  --chrome-muted: var(--agent-muted, var(--cmux-text-secondary, var(--cmux-app-text-secondary, #9da3b1)));
+  --chrome-accent: var(--agent-accent, var(--cmux-accent, var(--cmux-app-accent, #7da8ff)));
+  --chrome-selection: var(--agent-accent-soft, var(--cmux-selection, var(--cmux-app-selection, color-mix(in srgb, var(--chrome-accent) 20%, transparent))));
   --chrome-action-slot: calc(var(--chrome-unit) * 7);
   --chrome-add-slot: var(--chrome-action-slot);
   display: flex;
@@ -32,17 +31,6 @@
   background-position: center;
 }
 
-.window-chrome-gallery[data-theme="light"] {
-  --chrome-surface: #e8eaf0;
-  --chrome-sidebar: #f5f6f8;
-  --chrome-card: #ffffff;
-  --chrome-divider: color-mix(in srgb, #0f172a 14%, transparent);
-  --chrome-ink: #1d2330;
-  --chrome-muted: #687184;
-  --chrome-accent: #4e72ca;
-  --chrome-selection: color-mix(in srgb, var(--chrome-accent) 13%, transparent);
-}
-
 .chrome-window-header { display: grid; grid-template-columns: calc(var(--chrome-unit) * 61) minmax(0, 1.15fr) minmax(0, 1fr); gap: var(--chrome-inset); align-items: center; min-height: calc(var(--chrome-unit) * 10); padding: 0 calc(var(--chrome-unit) * 2); }
 .chrome-window-sidebar-title,
 .chrome-window-agent-title,
@@ -54,67 +42,22 @@
 .chrome-traffic-lights i { width: var(--chrome-icon-size); height: var(--chrome-icon-size); border-radius: 50%; background: #ff5f57; }
 .chrome-traffic-lights i:nth-child(2) { background: #febc2e; }
 .chrome-traffic-lights i:nth-child(3) { background: #28c840; }
-.chrome-window-title { color: var(--chrome-muted); font-size: var(--chrome-small-size); letter-spacing: .02em; }
-.chrome-window-controls { display: flex; gap: var(--chrome-gap); margin-left: auto; }
-.chrome-window-controls button,
-.chrome-toolbar-icon,
-.chrome-add-tab { border: 0; background: transparent; color: var(--chrome-muted); font: inherit; cursor: pointer; }
-.chrome-window-controls button:hover,
-.chrome-toolbar-icon:hover,
-.chrome-add-tab:hover { color: var(--chrome-ink); }
 .chrome-window-body { display: flex; flex: 1; min-height: 0; gap: var(--chrome-inset); overflow: hidden; border-radius: var(--chrome-outer-radius); }
 .chrome-sidebar { width: calc(var(--chrome-unit) * 61); min-width: calc(var(--chrome-unit) * 61); padding: calc(var(--chrome-unit) * 4) calc(var(--chrome-unit) * 2); background: var(--chrome-sidebar); }
-.chrome-sidebar-content { display: flex; flex-direction: column; gap: var(--chrome-gap); }
-.chrome-group-header { display: flex; align-items: center; justify-content: space-between; min-height: calc(var(--chrome-unit) * 7); padding: 0 calc(var(--chrome-unit) * 3); color: var(--chrome-muted); font-size: var(--chrome-small-size); letter-spacing: .03em; }
-.chrome-group-header-secondary { margin-top: calc(var(--chrome-unit) * 3); }
-.chrome-chevron { opacity: 0; }
-.chrome-group-header:hover .chrome-chevron { opacity: 1; }
-.chrome-group-line .chrome-group-header { border-left: calc(var(--chrome-unit) / 2) solid var(--chrome-group-line); }
-.chrome-group-rows { display: flex; flex-direction: column; gap: var(--chrome-gap); }
-.chrome-sidebar-row { display: flex; align-items: center; gap: calc(var(--chrome-unit) * 2); min-height: var(--chrome-row-height); padding: 0 calc(var(--chrome-unit) * 3); border-radius: var(--chrome-inner-radius); color: var(--chrome-ink); }
-.chrome-sidebar-row.is-selected { background: var(--chrome-selection); }
-.chrome-sidebar-row-muted { color: var(--chrome-muted); }
-.chrome-leading-icon { width: var(--chrome-icon-size); text-align: center; color: var(--chrome-accent); }
-.chrome-row-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chrome-row-meta { margin-left: auto; color: var(--chrome-muted); font-size: var(--chrome-small-size); }
-.chrome-row-mark { color: var(--chrome-accent); }
 .chrome-main { min-width: 0; flex: 1; display: flex; flex-direction: column; padding-right: var(--chrome-inset); }
 .chrome-content-surface { min-width: 0; min-height: 0; flex: 1; overflow: hidden; background: color-mix(in srgb, var(--chrome-card) 74%, transparent); border-radius: var(--chrome-inner-radius); }
 .chrome-pane-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: var(--chrome-inset); min-height: 0; flex: 1; }
 .chrome-pane { min-width: 0; overflow: hidden; }
 .chrome-agent-pane { background: color-mix(in srgb, var(--chrome-card) 56%, transparent); }
-.chrome-tab-strip { display: flex; align-items: center; gap: var(--chrome-gap); min-height: calc(var(--chrome-unit) * 10); padding: 0 var(--chrome-inset); border-bottom: 1px solid var(--chrome-divider); }
-.chrome-tab-strip-flat { gap: calc(var(--chrome-unit) * 2); }
-.chrome-tab-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--chrome-ink); }
-.chrome-tab { display: inline-flex; align-items: center; gap: var(--chrome-gap); min-width: 0; min-height: calc(var(--chrome-unit) * 7); padding: 0 calc(var(--chrome-unit) * 2); border-radius: calc(var(--chrome-unit) * 2); color: var(--chrome-muted); white-space: nowrap; }
-.chrome-tab.is-active { background: var(--chrome-selection); color: var(--chrome-ink); }
-.chrome-tab-always { background: var(--chrome-selection); color: var(--chrome-ink); }
-.chrome-tab-glyph { color: var(--chrome-accent); }
-.chrome-toolbar-icon { margin-left: auto; opacity: .2; }
-.chrome-toolbar-icon:hover, .chrome-toolbar-icon:focus-visible { opacity: 1; }
-.chrome-add-tab { width: calc(var(--chrome-unit) * 7); margin-left: var(--chrome-gap); }
 .chrome-pane-content { position: relative; display: flex; flex-direction: column; gap: var(--chrome-gap); min-height: 100%; padding: calc(var(--chrome-unit) * 5); }
-.chrome-pane-heading { display: flex; align-items: baseline; gap: var(--chrome-gap); }
-.chrome-pane-subtitle { color: var(--chrome-muted); font-size: var(--chrome-small-size); }
 .chrome-chat-placeholder { color: var(--chrome-muted); font-size: var(--chrome-small-size); }
 .chrome-transcript-rail { position: absolute; inset-block: calc(var(--chrome-unit) * 5); inset-inline-start: calc(var(--chrome-unit) * 2); display: flex; flex-direction: column; justify-content: space-around; }
 .chrome-transcript-rail i { width: var(--chrome-unit); height: calc(var(--chrome-unit) * 2); border-radius: var(--chrome-unit); background: var(--chrome-accent); opacity: .45; }
 .chrome-browser-pane { background: var(--chrome-card); border-radius: var(--chrome-inner-radius); }
-.chrome-browser-toolbar { display: flex; align-items: center; gap: calc(var(--chrome-unit) * 2); min-height: calc(var(--chrome-unit) * 10); padding: 0 calc(var(--chrome-unit) * 3); border-bottom: 1px solid var(--chrome-divider); }
-.chrome-browser-address { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; padding: calc(var(--chrome-unit) * 1.5) calc(var(--chrome-unit) * 2); border-radius: calc(var(--chrome-unit) * 4); background: color-mix(in srgb, var(--chrome-ink) 8%, transparent); color: var(--chrome-muted); }
-.chrome-browser-nav { color: var(--chrome-muted); font-size: calc(var(--chrome-font-size) * 1.25); }
 .chrome-browser-content { display: flex; flex-direction: column; gap: calc(var(--chrome-unit) * 3); padding: calc(var(--chrome-unit) * 8) calc(var(--chrome-unit) * 5); }
 .chrome-browser-kicker { color: var(--chrome-accent); font-size: var(--chrome-small-size); letter-spacing: .04em; }
 .chrome-browser-content h3 { margin: 0; font-size: calc(var(--chrome-font-size) * 1.4); }
 .chrome-browser-content p { max-width: 38ch; margin: 0; color: var(--chrome-muted); font-size: var(--chrome-small-size); }
 .chrome-browser-line { width: 82%; height: var(--chrome-unit); border-radius: var(--chrome-unit); background: color-mix(in srgb, var(--chrome-ink) 13%, transparent); }
 .chrome-browser-line.short { width: 56%; }
-.chrome-seam-readback { display: flex; align-items: center; gap: calc(var(--chrome-unit) * 2); min-height: calc(var(--chrome-unit) * 7); padding: 0 calc(var(--chrome-unit) * 2); border-top: 1px solid var(--chrome-divider); color: var(--chrome-muted); font-size: var(--chrome-small-size); }
-.chrome-seam-label { margin-right: auto; }
-.chrome-seam-divider { width: calc(var(--chrome-unit) * 12); height: 1px; background: var(--chrome-divider); }
-.chrome-seam-ticks { display: inline-flex; align-items: center; gap: var(--chrome-gap); }
-.chrome-seam-ticks i { width: var(--chrome-unit); height: var(--chrome-unit); border-radius: 50%; background: var(--chrome-accent); opacity: .62; }
-.chrome-seam-plus { display: grid; place-items: center; width: var(--chrome-add-slot); height: var(--chrome-add-slot); border-radius: var(--chrome-menu-radius, var(--chrome-inner-radius)); color: var(--chrome-ink); }
 
-/* A lighter divider treatment remains available for the coloured group-line review arm. */
-.window-chrome-gallery[data-variant="group-line"] .chrome-group-header { border-left: calc(var(--chrome-unit) / 2) solid var(--chrome-group-line); }

@@ -42,7 +42,6 @@ function BrowserPane() {
 export function WindowChromeShape({ variant, density, theme, menuScene }: WindowChromeShapeProps) {
   const style = {
     "--chrome-density": density === "compact" ? 1 : 1.125,
-    "--chrome-group-line": variant === "group-line" ? "color-mix(in srgb, var(--chrome-accent) 62%, transparent)" : "transparent",
   } as CSSProperties;
   return (
     <div className="window-chrome-gallery" data-variant={variant} data-density={density} data-theme={theme} style={style}>
