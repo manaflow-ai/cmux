@@ -10,6 +10,7 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 
@@ -60,6 +61,26 @@ fn lock(file: &File, mode: i32) -> io::Result<bool> {
     if error.kind() == io::ErrorKind::WouldBlock { Ok(false) } else { Err(error) }
 }
 
+/// Serializes the first marker with readers that saw no marker yet. The
+/// location is shared by daemon processes even when their TMPDIR differs.
+/// Never unlink this inode, for the same reason as the repository markers.
+fn creation_lock() -> io::Result<File> {
+    // SAFETY: geteuid has no preconditions.
+    let uid = unsafe { libc::geteuid() };
+    open(&PathBuf::from(format!("/tmp/cmux-repo-sync-{uid}.lock")), true)
+}
+
+fn wait_lock(file: &File, mode: i32) -> io::Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !lock(file, mode)? {
+        if Instant::now() >= deadline {
+            return Err(io::Error::new(io::ErrorKind::TimedOut, "repository is in use"));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    Ok(())
+}
+
 impl Sync {
     /// `folder` must have its parent canonicalized by the producer's sandbox.
     pub fn begin(folder: &Path) -> io::Result<Self> {
@@ -67,6 +88,11 @@ impl Sync {
         if !lock(&file, libc::LOCK_EX)? {
             return Err(io::Error::new(io::ErrorKind::WouldBlock, "repository is in use"));
         }
+        // Take the repository lock first: a reader of an existing marker
+        // refuses this sync immediately. A reader that preceded the first
+        // marker instead holds the creation lease until its write completes.
+        let creating = creation_lock()?;
+        wait_lock(&creating, libc::LOCK_EX)?;
         file.write_all(b"0")?;
         file.set_len(1)?;
         file.sync_data()?;
@@ -109,11 +135,15 @@ fn resolved(path: &Path) -> io::Result<PathBuf> {
     }
 }
 
-/// One nonblocking observation; consumers wait cancellably between observations.
+/// One bounded observation; consumers wait cancellably between observations.
+/// The creation lease only covers marker publication. A busy repository lock
+/// returns immediately, so a running sync never blocks a reader thread.
 /// No marker means an ordinary local repository, which needs no sync wait.
 pub fn probe(path: &Path) -> io::Result<Probe> {
+    let creating = creation_lock()?;
+    wait_lock(&creating, libc::LOCK_SH)?;
     let path = resolved(path)?;
-    let mut held = Vec::new();
+    let mut held = vec![creating];
     for folder in path.ancestors().filter(|folder| folder.parent().is_some()) {
         let mut file = match open(&marker(folder)?, false) {
             Ok(file) => file,

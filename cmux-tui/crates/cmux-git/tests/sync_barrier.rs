@@ -72,6 +72,23 @@ fn ordinary_local_repositories_are_ready_without_a_marker() {
     assert_eq!(std::fs::read_dir(&scratch.0).unwrap().count(), 0);
 }
 
+#[test]
+fn the_first_sync_cannot_overtake_a_reader_that_saw_no_marker() {
+    let scratch = Scratch::new();
+    let repo = scratch.repo();
+    let Probe::Ready(ready) = probe(&repo).unwrap() else { panic!("not ready") };
+    let (started, receiver) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let sync = Sync::begin(&repo).unwrap();
+        started.send(()).unwrap();
+        sync.complete().unwrap();
+    });
+    assert!(receiver.recv_timeout(std::time::Duration::from_millis(50)).is_err());
+    drop(ready);
+    receiver.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+    worker.join().unwrap();
+}
+
 /// Same deterministic overlap schedule, with and without waiting. This measures
 /// edit retention, not end-to-end Cloud latency (which belongs to the probes).
 #[test]
