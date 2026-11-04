@@ -23,6 +23,9 @@ mod superseded;
 pub use superseded::{Superseded, starts_prompt};
 mod kind_index;
 pub use kind_index::INDEXED_KINDS;
+mod text_index;
+mod shared_value;
+pub use shared_value::SharedValue;
 
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -226,7 +229,7 @@ pub struct SessionMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode_set_by_cmux: Option<String>,
     #[serde(default)]
-    pub config_options: Option<Value>,
+    pub config_options: Option<SharedValue>,
     #[serde(default)]
     pub models: Option<Value>,
     #[serde(default)]
@@ -833,6 +836,21 @@ pub trait Store: Send + Sync {
     /// log four times, and parsing every line held big-red's daemon at a full core for minutes.
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         self.scan(id, 0, &mut |rec| visit(&RecordHead::parsed(&rec)))
+    }
+    /// The log's messages (`session_search.rs`), oldest first. A file store reads each segment's
+    /// text copy (`store/text_index.rs`) and only the bytes appended past it.
+    fn text_entries(
+        &self,
+        id: &str,
+        visit: &mut dyn FnMut(crate::session_search::Entry),
+    ) -> Result<()> {
+        let mut projector = crate::session_search::Projector::default();
+        self.scan_kinds(id, crate::session_search::KINDS, &mut |rec| {
+            projector.feed(&rec);
+            true
+        })?;
+        projector.entries.into_iter().for_each(visit);
+        Ok(())
     }
     /// Make every appended record durable (called on shutdown).
     fn flush(&self) -> Result<()> {
@@ -1652,6 +1670,14 @@ impl Store for LocalStore {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.scan_kinds_in(id, kinds, true, visit)
+    }
+
+    fn text_entries(
+        &self,
+        id: &str,
+        visit: &mut dyn FnMut(crate::session_search::Entry),
+    ) -> Result<()> {
+        self.text_entries_in(id, visit)
     }
 
     /// Segments newest first, so a page from the end reads only the segments it

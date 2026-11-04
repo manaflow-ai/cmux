@@ -4,7 +4,7 @@ name: cmux-next fast gates
 # (scripts/ci/cmux_next_fast_gates.py). On 2026-10-21 four base reds landed
 # through checks that only warn on a pull request or only run on push: webviews
 # lint/format and switch-fetches (ci-web's react-apps-check warns on a pull
-# request; `web lint (fast)` in cmux-next-web.yml fails only on push), a
+# request; `web lint (fast)` in cmux-next-web-lint.yml fails only on push), a
 # self-merge past its own red defaults-snapshot, and direct pushes that tripped
 # the crash ratchet. feat-cmux-next has no required checks.
 #

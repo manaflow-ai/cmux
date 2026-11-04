@@ -962,14 +962,15 @@ impl Brain {
         self.rewatch_permission(id);
     }
 
-    /// `id` lost its workspace (hidden, or its open failed): a prompt it
-    /// still waits on has no Allow button any more, so it is watched again
-    /// and denied once overdue, as for any subagent without a workspace.
+    /// `id` lost its workspace (hidden, or its open failed), or its Home card
+    /// was retired: a prompt it still waits on with no Allow button left is
+    /// watched again, and denied once overdue.
     pub(super) fn rewatch_permission(&mut self, id: &str) {
+        self.present_home_approval(id);
         let Some((_, sub)) = self.state.sub(id) else {
             return;
         };
-        if Self::approval_shown(sub) || sub.policy.as_deref() == Some(crate::approval::ASK) {
+        if self.approval_shown(sub) || sub.policy.as_deref() == Some(crate::approval::ASK) {
             return;
         }
         let (Some(session_id), Some(p)) = (sub.session_id.clone(), sub.permission.clone()) else {
@@ -983,7 +984,7 @@ impl Brain {
                 request: p.request,
                 child: Some(id.to_owned()),
             },
-            "the app shows no working approval button for this subagent",
+            "the subagent has no local workspace and its permission remains unanswered",
         );
     }
 
@@ -1051,11 +1052,18 @@ impl Brain {
         let Some(status) = self.state.sub(&id).map(|(_, s)| s.status) else {
             return true;
         };
+        if session.pending_permissions == 0 {
+            self.end_home_approval(&id, true);
+        }
         if let Some(sub) = self.state.sub_mut(&id) {
             sub.active_ms = now_ms();
             if session.pending_permissions == 0 {
                 sub.permission = None;
             }
+        }
+        if session.pending_permissions == 0 {
+            self.save();
+            self.flush_outbox();
         }
         if busy(session.status) {
             // Running again: a tell, or the user writing in its chat.
@@ -1125,6 +1133,10 @@ impl Brain {
         else {
             return;
         };
+        // A cancelled subagent's sign-ins wait on nobody now (every stop path ends here).
+        if self.state.sub(id).is_some_and(|(_, s)| s.cancelled) {
+            self.sign_ins.abandoned(id);
+        }
         // control interrupt|restart with a message: the cut run reports
         // nothing; the message is its next prompt, sent now that it stopped.
         let follow = self.state.sub_mut(id).and_then(|s| s.after_stop.take());
@@ -2284,6 +2296,10 @@ impl Brain {
             self.tell_mode(id, message, queue)
                 .map(|answer| format!("outcome: done. {answer}"))
         };
+        if answer.is_ok() {
+            // "Signed in to SITE ...; go on." (chief-auth-escalation): its Feed request closes.
+            self.sign_ins.told(id, message);
+        }
         if answer.is_ok()
             && !told_for.is_empty()
             && let Some(sub) = self.state.sub_mut(id)
@@ -3263,26 +3279,46 @@ impl Brain {
             Ok(s) => s,
             Err(_) => return true,
         };
-        if let Some(sub) = self.state.sub_mut(&id) {
-            sub.permission = Some(crate::state::PendingPermission {
-                id: permission_id.to_owned(),
-                request: request.clone(),
-            });
+        let previous = self.state.sub(&id).and_then(|(_, s)| s.permission.clone());
+        let unchanged = previous
+            .as_ref()
+            .is_some_and(|p| p.id == permission_id && p.request == *request);
+        if !unchanged {
+            if let Some(previous) = &previous {
+                self.forget_unanswered(session_id, &previous.id);
+            }
+            self.cancel_home_approval(&id);
+            if let Some(sub) = self.state.sub_mut(&id) {
+                sub.permission = Some(crate::state::PendingPermission {
+                    id: permission_id.to_owned(),
+                    request: request.clone(),
+                    home_message: None,
+                    home_closed: false,
+                });
+            }
         }
         self.save();
         if ask {
             self.child_permission(&summary, permission_id.to_owned(), request.clone());
             return true;
         }
+        self.present_home_approval(&id);
+        if !unchanged && !self.home_approval_queued(&id) {
+            // Home cannot draw this request as Allow once / Deny: open the
+            // subagent's workspace, whose tab can answer it, instead of
+            // letting it be denied where nobody sees it (Leo, 2026-11-03).
+            self.show_for_permission(&id);
+        }
         let shown = self
             .state
             .sub(&id)
-            .is_some_and(|(_, s)| Self::approval_shown(s));
+            .is_some_and(|(_, s)| self.approval_shown(s));
         let text = super::control::permission_note(&id, request, shown);
         self.queue(text, Source::Note);
         if !shown {
-            // Nobody can allow it: denied once overdue, unless the Chief
-            // denies or steers it first.
+            // No Allow button yet: denied once overdue, unless its Home card
+            // arrives (which forgets this watch), its workspace opens, or the
+            // Chief denies or steers it first.
             self.watch_unanswered(
                 crate::approval::Pending {
                     session_id: session_id.to_owned(),
@@ -3291,18 +3327,51 @@ impl Brain {
                     request: request.clone(),
                     child: Some(id.clone()),
                 },
-                "the app shows no working approval button for this subagent",
+                "the subagent has no local workspace and its permission remains unanswered",
             );
         }
         true
     }
 
+    /// Opens hidden local subagent `id`'s workspace so its tab shows a prompt
+    /// Home cannot. Nothing when this host makes no workspaces, or for a
+    /// peer, an `ask` subagent or one that has a workspace already.
+    fn show_for_permission(&mut self, id: &str) {
+        let Some((_, sub)) = self.state.sub(id) else {
+            return;
+        };
+        if self.workspaces.is_none()
+            || sub.peer.is_some()
+            || sub.workspace.is_some()
+            || sub.session_id.is_none()
+            || sub.policy.as_deref() == Some(crate::approval::ASK)
+        {
+            return;
+        }
+        let (reply, answer) = std::sync::mpsc::channel();
+        self.control_workspace(
+            &crate::tools::ControlCall {
+                action: "show".into(),
+                id: Some(id.to_owned()),
+                ..crate::tools::ControlCall::default()
+            },
+            reply,
+        );
+        // The open runs on its own thread; its outcome comes back as
+        // SubagentWorkspaceShown or SubagentWorkspaceFailed.
+        drop(answer);
+    }
+
     /// Whether the person's app shows `sub`'s prompt with an Allow button
-    /// that works: a local subagent with a workspace (its agent tab draws
-    /// the prompt). A cloud subagent's peer refuses an allow from this
-    /// Mac's app, and one with no workspace has no tab.
-    pub(super) fn approval_shown(sub: &crate::state::SubRecord) -> bool {
-        sub.workspace.is_some() && sub.peer.is_none()
+    /// that works: a local subagent with a workspace (its agent tab), or a
+    /// Home card the conversation owner acknowledged. Such a request waits
+    /// for the person; only one with neither is denied once overdue.
+    pub(super) fn approval_shown(&self, sub: &crate::state::SubRecord) -> bool {
+        sub.peer.is_none()
+            && (sub.workspace.is_some()
+                || sub.permission.as_ref().is_some_and(|p| {
+                    p.home_message.is_some() && !p.home_closed && self.home_approvals_available()
+                }))
     }
 }
 

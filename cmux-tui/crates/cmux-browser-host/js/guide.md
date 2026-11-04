@@ -51,6 +51,11 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
 - `screenshot(target?, options?)`: an image of the viewport, `{ fullPage }`, a
   locator or a ref. `{ annotate: true }` draws each ref's box and label.
   Printing an image saves it to a file and prints the path.
+- `previewProof(port, { path: "/", screenshot: { fullPage: false } })`: open
+  a local web preview, wait for load, and return its URL, a PNG attachment path,
+  `consoleErrors` and uncaught `pageErrors`. The transcript renders the image
+  beside the report. For UI changes, inspect this evidence before reporting
+  completion; page load alone does not prove the UI works.
 - `fetch(url, init)`: standard fetch with the current tab's cookies
   (`credentials: "same-origin"` or `"omit"` to send fewer); bodies over
   64 MiB fail, download those in a tab.

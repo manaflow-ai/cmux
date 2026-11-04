@@ -2,21 +2,24 @@ name: Machine vault E2E (development)
 
 # "Make this Mac a cmux machine", with the vault, end to end against the DEVELOPMENT platform
 # (https://cmux-platform-development.debussy.workers.dev) only, as a disposable macOS user made for
-# the run: put a nonce (and, when the secret is set, an Anthropic API key) in the dogfood account's
-# vault with `cmux machine vault set`, run the one command `cmux machine add --vault --yes
-# USER@localhost` (the join token rides ssh's stdin, the served join.sh installs acpmux, Claude Code
-# and Codex and pulls the vault into the user's login keychain), check `acpmux machine vault status`
-# as that user, and have a Claude Code session started through acpmux print the nonce from its env.
-# The evidence (no secret; the nonce is fine) is the run summary and the only artifact.
+# the run: put a nonce in the dogfood account's vault with `cmux machine vault set`, run the one command
+# `cmux machine add --vault --yes USER@localhost` (the join token rides ssh's stdin, the served join.sh
+# installs acpmux, Claude Code and Codex and pulls the vault into the user's login keychain), check
+# `acpmux machine vault status` as that user, then sign Claude Code in with the team's subscription and
+# have a session started through acpmux print the nonce from its env and reply with a real sentence.
+# The evidence (no secret; the nonce and the reply text are fine) is the run summary and the only
+# artifact.
 #
-# Secrets: the dev stack pair (CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD) and the optional
-# CMUX_E2E_ANTHROPIC_API_KEY reach the one run step, through env only.
+# Secrets: the dev stack pair (CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD) and the team's Claude
+# subscription login (CLAUDE_CODE_OAUTH_TOKEN) reach the one run step, through env only.
 # scripts/cmux-next/machine-vault-e2e.ts masks each value the moment it exists, gives the CLI the cmux
 # token in one 0600 file under the runner's private temp (removed in its `finally`), passes vault
 # values on stdin, and revokes the machine, removes the vault entries it set and revokes its install in
-# `finally` and on a cancel. The disposable user, its home, its ssh key and its keychain are removed in
-# an always() step. The vault never carries a Claude or ChatGPT subscription login. Manual dispatch on
-# feat-cmux-next only.
+# `finally` and on a cancel. The Claude login goes on one ssh session's stdin into the disposable
+# user's acpmux daemon env (never argv, never a file, never the vault, which refuses subscription
+# logins); cleanup kills the user's processes that held it and confirms none is left, and the secret
+# scan of the home and the output counts its hits (0 or the run fails). The disposable user, its home,
+# its ssh key and its keychain are removed in an always() step. Manual dispatch on feat-cmux-next only.
 on:
   workflow_dispatch:
     inputs:
@@ -122,7 +125,8 @@ jobs:
             *) echo "::error::unsupported machine $(uname -m)"; exit 1 ;;
           esac
           dir="$RUNNER_TEMP/cmux-cli"
-          mkdir -m 0700 -p "$dir"
+          mkdir -p "$dir"
+          chmod 0700 "$dir"
           found=""
           for commit in $(git rev-list --first-parent -n 30 HEAD); do
             if curl --proto '=https' --tlsv1.2 -fsSL "https://files.cmux.com/cmux-tui/$commit/manifest.json" -o "$dir/manifest.json" 2>/dev/null \
@@ -245,7 +249,7 @@ jobs:
         env:
           CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-          CMUX_E2E_ANTHROPIC_API_KEY: ${{ secrets.CMUX_E2E_ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           VAULT_USER: ${{ steps.user.outputs.user }}
           VAULT_HOME: ${{ steps.user.outputs.home }}
           VAULT_WORK: ${{ steps.user.outputs.work }}
@@ -255,8 +259,9 @@ jobs:
             --user "$VAULT_USER" --home "$VAULT_HOME" --ssh "$VAULT_WORK/bin/ssh" --name "ci-vault-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
             --work "$VAULT_WORK" --evidence "$RUNNER_TEMP/machine-vault-e2e-evidence/evidence.json" --run "$GITHUB_RUN_ID" --sha "$GITHUB_SHA"
 
-      # Fails on a token or credential prefix, a JWT, an API key shape or an auth header in the evidence
-      # (nothing is then uploaded or summarized), on missing evidence, and on a run that did not pass.
+      # Fails on a token or credential prefix, a JWT, an Anthropic key or Claude login shape (sk-ant-,
+      # which covers sk-ant-oat01-...) or an auth header in the evidence (nothing is then uploaded or
+      # summarized), on missing evidence, and on a run that did not pass.
       - name: Check the evidence
         id: evidence
         if: always() && steps.user.outcome == 'success'

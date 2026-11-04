@@ -82,7 +82,7 @@ const ERRORS_TIMEOUT: Duration = Duration::from_secs(15);
 /// A run that waits for a person's answer in the app (an agent's cookie
 /// import shows a consent panel, then macOS asks for a password; Invite to
 /// Team waits for Send in its dialog; an agent's or script's Share Chat with
-/// Guest waits for the owner's Make Link, #30263): the app
+/// Guest or Invite People waits for the owner's Make Link or Invite, #30263): the app
 /// bounds it at 200 s (`ActionDescriptor.personDeadline`).
 pub(super) const PERSON_RUN_TIMEOUT: Duration = Duration::from_secs(210);
 /// The CLI names and ids of the actions the app marks `waitsForPerson` (the
@@ -105,6 +105,8 @@ const PERSON_ACTIONS: &[&str] = &[
     "workspace.importClassic",
     "share chat",
     "agent.share",
+    "share invite",
+    "agent.share.invite",
 ];
 
 /// How long the CLI or `cmux mcp` waits for a waiting `action.run` of `action`.
@@ -162,7 +164,7 @@ pub(super) enum AppCommand {
     Renderers {
         params: Value,
     },
-    /// `settings list|schema|validate` (app/settings.rs).
+    /// Local settings completion/schema/validation (`app/settings.rs`).
     Settings(settings::Command),
     /// `browser right <verb>` (app/right.rs): `browser.page.right` names the
     /// tab right of the Home chat, then `then` runs on it.
@@ -308,6 +310,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             } else {
                 run_action(id, tail, ActionName::Any)?
             }
+        }
+        ("settings" | "config", Some("list")) => {
+            return settings::parse_list(rest.get(1..).unwrap_or_default());
         }
         ("settings" | "config", Some(verb)) if settings::VERBS.contains(&verb) => {
             settings::parse(rest)?
@@ -783,7 +788,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Renderers { params } => {
             return Ran::Done(renderers::run(global, stream, params));
         }
-        AppCommand::Settings(command) => return Ran::Done(command.run_on(global, stream)),
+        AppCommand::Settings(command) => return Ran::Done(command.run(global)),
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
         AppCommand::Version => return Ran::Done(version::run(global)),
         AppCommand::Nightly(command) => return Ran::Done(nightly::run(global, &command)),

@@ -366,7 +366,9 @@ import CmuxNextCompat
     }
 
     /// `transport.gesture`: reserves the current gesture for one pick sent later on this connection.
-    public func reserveGesture(_ intent: AgentPaneGestureIntent) -> String? {
+    /// `personOnly`: only the person's own gesture pays for it, never input another process posted under
+    /// "Computer use can act as me" (a credential transfer rides on a Send ticket, but the grant never covers it).
+    public func reserveGesture(_ intent: AgentPaneGestureIntent, personOnly: Bool = false) -> String? {
         guard socket != nil else { return nil }
         // A send ticket bound to a chat only for a chat of this pane.
         if let session = intent.sessionId, !sessions.contains(session) { return nil }
@@ -386,7 +388,7 @@ import CmuxNextCompat
            let fresh = startCredit.take(connection: current, now: gestures.uptime, lifetime: Self.startCreditLifetime) {
             return fresh ? gestures.reserve(connection: current, intent: intent, paid: true) : nil
         }
-        return gestures.reserve(connection: current, intent: intent)
+        return gestures.reserve(connection: current, intent: intent, paid: false, personOnly: personOnly)
     }
 
     /// `uploads.begin {sessionId, promptId, ticket}`: the upload `upload` of the person's send holds
@@ -454,6 +456,7 @@ import CmuxNextCompat
         for answer in decisions.takeAnswers() where !remoteWire {
             switch answer {
             case .refused(let peer): onPeerApprovalsOff?(.notEnrolled(peer: peer))
+            case .unproved: onPeerApprovalsOff?(.notRecorded)
             case .counted: onPeerApprovalsOff?(nil)
             }
         }

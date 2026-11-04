@@ -181,6 +181,9 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSButton call:viewDidMoveToSuperview/0": {
+   "27.0.1": true
+  },
   "NSButton call:viewDidMoveToWindow/0": {
    "26.5.2": true,
    "26.7": true,

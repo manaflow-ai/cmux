@@ -98,6 +98,19 @@ import PackageDescription
 // break reads a compressed history row only when the pair was joined, and
 // a clear of rows (ED, DECALN) breaks the wrap across the cleared rows' edges.
 //
+// Since 34e73ba8b..635c6c12a (release/cmux-9ce9b7d0-e2, fork PRs #69 and #70):
+// each link regex is compiled once per process (#69), and, opt-in on macOS
+// (ghostty_surface_set_host_present EMBEDDER), the embedder shows a new host
+// size's frame itself with ghostty_surface_host_frame in the transaction that
+// gives the view its bounds, and reports its commit with
+// ghostty_surface_host_frame_committed (#70; cmux FRAME OWNER REFACTOR S4,
+// behind motion.frameOwner.terminals).
+//
+// Since 635c6c12a..7d43bb68b (release/cmux-9ce9b7d0-e2, fork PR #71): an
+// off-main present never commits while it holds [CATransaction lock]. #70's
+// embedder mode committed under the lock and deadlocked against main's
+// commit (cmux S4 films with the switch on, STATUS 9732).
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -121,8 +134,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-34e73ba8ba7cb8da0115caeb780065e3a12f2f62-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "32cb09bbc69510a099df9206a460cc8e7f2aba41a1a5489de98f185da07154a4"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-7d43bb68b05e1bad433267fe28cd7205041fc4f5-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "12f7ac05eec4a0e0a47daef29545cdaba102e4b02ecafcc825d898ff71f4be2f"
         ),
     ]
 )

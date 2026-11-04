@@ -48,6 +48,11 @@ struct AgentTabContent {
             if url.scheme == "http" || url.scheme == "https" { return pane.services.linkOpener.openWeb(url, from: pane, background: false, reusesTab: true) }
             return pane.services.registry.openAgentPreview(url, pane: pane.paneKey, machineID: pane.daemon.machineID)
         }
+        // A Cloud chat's Claude sign-in page, in a tab whose localhost is the chat's machine.
+        view.model.onOpenSignInOnMachine = { [weak pane] url in
+            guard let pane else { return nil }
+            return ChatMachineSignInTab.opener(for: url, agentTab: key, from: pane)
+        }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
         if view.model.newTab != nil { AgentPaneNewTabFrame.shared.capture(view, in: pane.view.contentHost) }
         if view.model.newTab != nil { BenchSpans.mark(view.superview is PageOffscreenParking ? "newTab.show.parked" : "newTab.show") }
