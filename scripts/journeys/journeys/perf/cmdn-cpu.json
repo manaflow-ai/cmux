@@ -1,0 +1,56 @@
+{
+ "id": "cmdn-cpu",
+ "priority": "P2",
+ "title": "CMD-N LATENCY: per Cmd-N press, main-thread CPU (debug.main_cpu) and stalls (debug.hangs) with the app's spans, light",
+ "why": "Is the 90 ms no-frame block CPU work or a wait?",
+ "source": "cmdn-latency",
+ "budget_seconds": 200,
+ "steps": [
+  {
+   "do": "wait",
+   "seconds": 3
+  },
+  {
+   "do": "base_terminal"
+  },
+  {
+   "do": "latency_runs",
+   "bench": "create",
+   "command": "new_workspace",
+   "runs": 3,
+   "label": "warmup"
+  },
+  {
+   "do": "latency_runs",
+   "bench": "create",
+   "command": "new_workspace",
+   "runs": 20,
+   "label": "light",
+   "hangs": true,
+   "cpu": true,
+   "runs_option": "presses",
+   "counters": true
+  },
+  {
+   "do": "type",
+   "text": "echo cmdncpu-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "expect",
+   "title": "the app still types",
+   "timeout": 10,
+   "all": [
+    {
+     "pane_frame_text": "cmdncpu-${nonce}"
+    },
+    {
+     "daemon_contains": "cmdncpu-${nonce}"
+    },
+    {
+     "app_text_contains": "cmdncpu-${nonce}"
+    }
+   ]
+  }
+ ]
+}

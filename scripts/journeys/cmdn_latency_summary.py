@@ -30,8 +30,8 @@ def stats(values):
 
 def load(path):
     if os.path.isdir(path):
-        path = os.path.join(path, "cmdn-latency", "result.json") if os.path.isdir(os.path.join(path, "cmdn-latency")) \
-            else os.path.join(path, "result.json")
+        inner = [os.path.join(path, j, "result.json") for j in ("cmdn-latency", "cmdn-profile") if os.path.isdir(os.path.join(path, j))]
+        path = inner[0] if inner else os.path.join(path, "result.json")
     return path, json.load(open(path))
 
 

@@ -695,9 +695,25 @@ class Journey:
                 rows.append({"run": index, "wall_ms": round((now() - t) * 1000, 1), "reply": reply})
                 time.sleep(float(step.get("gap", 1.0)))
                 continue
+            if step.get("hangs"):
+                # debug.hangs: main-thread stalls over the watchdog threshold (50 ms in a launch without
+                # CMUX_NEXT_HANG_THRESHOLD_MS), each with its sampled stack, and the heartbeat's longest gap.
+                self.app.rpc("debug.hangs", {"clear": True})
+                t = now()
+            if step.get("counters"):
+                self.app.rpc("debug.layout_counters", {"reset": True})
+            if step.get("cpu"):
+                self.app.rpc("debug.main_cpu", {"action": "start"})
             reply = self.app.rpc("debug.new_tab", {"action": "bench_create", "command": command}, timeout=25) or {}
+            hangs = self.app.rpc("debug.hangs", {"limit": 8}) if step.get("hangs") else None
+            if step.get("cpu"):
+                reply["main_cpu"] = self.app.rpc("debug.main_cpu", {"action": "stop"})
+            if step.get("counters"):
+                time.sleep(0.25)
+                reply["layout_counters"] = self.app.rpc("debug.layout_counters", {})
             kind = self.focused_pane().get("kind")
-            rows.append({"run": index, "wall_ms": round((now() - t) * 1000, 1), "kind_after": kind, "reply": reply})
+            rows.append({"run": index, "wall_ms": round((now() - t) * 1000, 1), "kind_after": kind, "reply": reply,
+                         **({"hangs": hangs} if hangs is not None else {})})
             time.sleep(0.4)
             if command == "new_workspace":
                 self.app.rpc("action.run", {"action": "closeWorkspace", "args": {"confirm": True}})
@@ -708,6 +724,51 @@ class Journey:
                 time.sleep(0.1)
             time.sleep(float(step.get("gap", 1.0)))
         return {"bench": bench, "command": command, "label": step.get("label", ""), "rows": rows}
+
+    def step_sample_presses(self, step):
+        """Profile: per Cmd-N press, `/usr/bin/sample` of the app (1 ms interval, `seconds` long) starts 0.3 s
+        before the press; the press's main-thread call graph (lines with at least `min_count` samples) is kept
+        with the press's own timing. The close waits until the sample ended, so it is not in the profile."""
+        rows = []
+        for index in range(int(step.get("runs", 10))):
+            path = self.out / f"sample-{index:02d}.txt"
+            proc = subprocess.Popen(["/usr/bin/sample", str(self.app.pid), str(step.get("seconds", 1)), "1", "-mayDie",
+                                     "-file", str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            time.sleep(float(step.get("lead", 0.3)))
+            reply = self.app.rpc("debug.new_tab", {"action": "bench_create", "command": "new_workspace"}, timeout=25) or {}
+            try:
+                err = proc.communicate(timeout=30)[1].decode(errors="replace")[-300:]
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                err = "sample timed out"
+            main, keep = [], False
+            try:
+                # The call graph's first thread block is the main thread (sample lists it first); it ends at the
+                # next thread's header line ("    <count> Thread_<id> ...").
+                text = path.read_text(errors="replace")
+                graph = text.split("Call graph:", 1)[1] if "Call graph:" in text else ""
+                for line in graph.splitlines():
+                    if re.match(r"^\s{4}\d+ Thread_", line):
+                        if keep:
+                            break
+                        keep = True
+                    if keep:
+                        m = re.match(r"^[\s+!:|]*(\d+) ", line)
+                        if m and int(m.group(1)) >= int(step.get("min_count", 2)):
+                            main.append(line[:260])
+                if not main:
+                    err += " no main thread block; head: " + text[:600]
+                path.unlink()
+            except Exception as error:  # noqa: BLE001 (a profile read never ends the journey)
+                err += f" {error!r}"
+            rows.append({"run": index, "reply": {k: reply.get(k) for k in ("key_ms", "visible_ms", "confirmed_ms", "frames_to_visible", "frames", "spans")},
+                         "main": main[:int(step.get("max_lines", 400))], "sample_err": err})
+            self.app.rpc("action.run", {"action": "closeWorkspace", "args": {"confirm": True}})
+            end = now() + 10
+            while now() < end and self.focused_pane().get("kind") != "terminal":
+                time.sleep(0.1)
+            time.sleep(0.8)
+        return {"bench": "sample", "label": step.get("label", "sample"), "rows": rows}
 
     def step_grow_workspaces(self, step):
         """STRESS-lite set-up: script workspaces (unfocused, one terminal each) until the app holds `count`;

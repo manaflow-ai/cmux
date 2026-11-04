@@ -1,0 +1,129 @@
+{
+ "id": "cmdn-motion-ab",
+ "priority": "P2",
+ "title": "CMD-N LATENCY: Cmd-N with animations on against off (ui.animations.enabled), interleaved blocks, light",
+ "why": "Find whether the per-frame window layout of an AppKit animation makes the slow 6-8 frame mode.",
+ "source": "cmdn-latency",
+ "budget_seconds": 240,
+ "steps": [
+  {
+   "do": "wait",
+   "seconds": 3
+  },
+  {
+   "do": "base_terminal"
+  },
+  {
+   "do": "latency_runs",
+   "bench": "create",
+   "command": "new_workspace",
+   "runs": 3,
+   "label": "warmup"
+  },
+  {
+   "do": "rpc",
+   "method": "settings.set",
+   "params": {
+    "path": "ui.animations.enabled",
+    "value": true
+   },
+   "title": "block 1: animations on"
+  },
+  {
+   "do": "latency_runs",
+   "bench": "create",
+   "command": "new_workspace",
+   "runs": 12,
+   "label": "motion-on-1",
+   "hangs": true
+  },
+  {
+   "do": "rpc",
+   "method": "settings.set",
+   "params": {
+    "path": "ui.animations.enabled",
+    "value": false
+   },
+   "title": "block 1: animations off (ui.animations.enabled false)"
+  },
+  {
+   "do": "latency_runs",
+   "bench": "create",
+   "command": "new_workspace",
+   "runs": 12,
+   "label": "motion-off-1",
+   "hangs": true
+  },
+  {
+   "do": "rpc",
+   "method": "settings.set",
+   "params": {
+    "path": "ui.animations.enabled",
+    "value": true
+   },
+   "title": "block 2: animations on"
+  },
+  {
+   "do": "latency_runs",
+   "bench": "create",
+   "command": "new_workspace",
+   "runs": 12,
+   "label": "motion-on-2",
+   "hangs": true
+  },
+  {
+   "do": "rpc",
+   "method": "settings.set",
+   "params": {
+    "path": "ui.animations.enabled",
+    "value": false
+   },
+   "title": "block 2: animations off (ui.animations.enabled false)"
+  },
+  {
+   "do": "latency_runs",
+   "bench": "create",
+   "command": "new_workspace",
+   "runs": 12,
+   "label": "motion-off-2",
+   "hangs": true
+  },
+  {
+   "do": "sample_presses",
+   "runs": 5,
+   "seconds": 1,
+   "min_count": 4,
+   "max_lines": 400,
+   "label": "sample-off"
+  },
+  {
+   "do": "rpc",
+   "method": "settings.set",
+   "params": {
+    "path": "ui.animations.enabled",
+    "value": true
+   }
+  },
+  {
+   "do": "type",
+   "text": "echo cmdnmot-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "expect",
+   "title": "the app still types",
+   "timeout": 10,
+   "all": [
+    {
+     "pane_frame_text": "cmdnmot-${nonce}"
+    },
+    {
+     "daemon_contains": "cmdnmot-${nonce}"
+    },
+    {
+     "app_text_contains": "cmdnmot-${nonce}"
+    }
+   ]
+  }
+ ]
+}

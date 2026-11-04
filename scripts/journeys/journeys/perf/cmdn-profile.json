@@ -1,0 +1,78 @@
+{
+ "id": "cmdn-profile",
+ "priority": "P2",
+ "title": "CMD-N LATENCY profile: per Cmd-N press, the app's spans and frames plus debug.hangs (main-thread stalls with stacks, heartbeat gaps), light",
+ "why": "cmux-ad (2026-11-04): name what makes a Cmd-N press take 6-8 frames instead of 3-4.",
+ "source": "cmdn-latency with debug.hangs per press",
+ "budget_seconds": 220,
+ "steps": [
+  {
+   "do": "wait",
+   "seconds": 3
+  },
+  {
+   "do": "base_terminal"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.new_tab",
+   "params": {
+    "action": "state"
+   },
+   "title": "the spare New Tab pages before"
+  },
+  {
+   "do": "latency_runs",
+   "bench": "create",
+   "command": "new_workspace",
+   "runs": 3,
+   "label": "light-warmup",
+   "hangs": true
+  },
+  {
+   "do": "sample_presses",
+   "runs": 12,
+   "seconds": 1,
+   "min_count": 4,
+   "label": "sample",
+   "title": "16 Cmd-N presses, each under /usr/bin/sample (1 ms) of the app",
+   "max_lines": 400
+  },
+  {
+   "do": "rpc",
+   "method": "debug.new_tab",
+   "params": {
+    "action": "state"
+   },
+   "title": "the spare New Tab pages after"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 256
+   }
+  },
+  {
+   "do": "type",
+   "text": "echo cmdnprof-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "expect",
+   "title": "the app still types",
+   "timeout": 10,
+   "all": [
+    {
+     "pane_frame_text": "cmdnprof-${nonce}"
+    },
+    {
+     "daemon_contains": "cmdnprof-${nonce}"
+    },
+    {
+     "app_text_contains": "cmdnprof-${nonce}"
+    }
+   ]
+  }
+ ]
+}

@@ -13,6 +13,8 @@
 # (cmdn_latency_summary.py). Output: /work/wt/cmdn-latency/runs/<job8>-<mini>-<UTC time>/.
 set -u
 BUILD=${1:?BUILD_JOB}; HOST=${2:?MINI}; PRESSES=${3:-20}; AGENT=${4:-a5f17d71c95f83bee}
+# JOURNEY=cmdn-profile: the same presses with debug.hangs per press (main-thread stalls and their stacks).
+J=${JOURNEY:-cmdn-latency}
 case "$HOST" in cmux18|cmux19|cmux21|cmux22|cmux23|cmux24) ;; cmux17) grep -q "CMUX17 HANDED TO THE SCHEDULER" /Users/lawrence/fun/wt/handoff/cmux-lead-status-3.md || { echo "cmux17 is not handed over"; exit 2; } ;; *) echo "refused mini $HOST"; exit 2 ;; esac
 KIT=$(cd "$(dirname "$0")/../.." && pwd)
 Q=/work/wt/chrome-parity-design/mini-queue; R=$Q/rounds
@@ -23,7 +25,7 @@ until st=$(~/.local/bin/cmux-ci status "$BUILD" 2>/dev/null | python3 -c "import
   [ "$st" = done ] || [ "$st" = failed ] || [ "$st" = cancelled ]; do sleep 60; done
 [ "$st" = done ] || { echo "build $BUILD is $st, not done"; exit 3; }
 cat > "$Q/specs/$S.json.tmp" <<SPEC
-{"name": "CMD-N LATENCY: journey cmdn-latency on build $BUILD ($PRESSES presses per session)", "owner": "CMD-N LATENCY agent $AGENT", "agent_id": "$AGENT", "kind": "lease-round", "recur": "once", "p0": false, "priority": 6, "order": 0, "minutes": 8, "hold_minutes": 10, "rounds": 1, "minis": ["$HOST"], "cmux_ci_args": [], "verdict": "/work/wt/chrome-parity-design/mini-queue/verdicts/swift-suite.py", "note": "whole host, exclusive; driver $KIT/scripts/journeys/cmdn-latency.sh: run.py --build $BUILD --journey cmdn-latency"}
+{"name": "CMD-N LATENCY: journey $J on build $BUILD ($PRESSES presses per session)", "owner": "CMD-N LATENCY agent $AGENT", "agent_id": "$AGENT", "kind": "lease-round", "recur": "once", "p0": false, "priority": 6, "order": 0, "minutes": 8, "hold_minutes": 10, "rounds": 1, "minis": ["$HOST"], "cmux_ci_args": [], "verdict": "/work/wt/chrome-parity-design/mini-queue/verdicts/swift-suite.py", "note": "whole host, exclusive; driver $KIT/scripts/journeys/cmdn-latency.sh: run.py --build $BUILD --journey $J"}
 SPEC
 mv "$Q/specs/$S.json.tmp" "$Q/specs/$S.json"
 echo "queued round $S; waiting for its GO"
@@ -36,14 +38,14 @@ EXCL=""; for h in cmux16 cmux17 cmux18 cmux19 cmux20 cmux21 cmux22 cmux23 cmux24
 (cd "$KIT" && env CMUX_AGENT_ID=$AGENT CAPTURE_HOST_POOL=perf-lead CAPTURE_HOST_HOSTS=$HOST CAPTURE_HOST_SLOT_HOSTS=$HOST JOURNEYS_EXCLUDE_HOSTS="${EXCL# }" \
   JOURNEYS_P0_LEDGER=$OUT/kit-ledger PYTHONUNBUFFERED=1 CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS=$ACQ \
   CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS=$(( BUDGET - ACQ )) CAPTURE_HOST_DRAIN_SECONDS=$(( ACQ < 180 ? ACQ : 180 )) \
-  python3 scripts/journeys/run.py --build "$BUILD" --journey cmdn-latency --journey-option presses="$PRESSES" \
+  python3 scripts/journeys/run.py --build "$BUILD" --journey "$J" --journey-option presses="$PRESSES" \
     --exclusive --whole-host --hosts "$HOST" --frame-interval 60 --out "$OUT/run") > "$OUT/run.log" 2>&1
 CODE=$?
 # The round's status is the measurement's: pass when both sessions' Cmd-N runs were recorded (the journey's own
 # end checks are kept in result.json but do not decide whether the numbers exist).
 STATUS=$(python3 -c 'import json,sys
 r=json.load(open(sys.argv[1])); labels={(s.get("result") or {}).get("label") for s in r.get("steps") or [] if s.get("do")=="latency_runs" and s.get("ok")}
-print("pass" if {"light","stress"} <= labels else r.get("status","not run"))' "$OUT/run/cmdn-latency/result.json" 2>/dev/null || echo "not run")
+print("pass" if {"light","stress"} <= labels else r.get("status","not run"))' "$OUT/run/$J/result.json" 2>/dev/null || echo "not run")
 python3 -c 'import json,sys,datetime; json.dump({"at":datetime.datetime.now(datetime.timezone.utc).isoformat(),"go":json.loads(sys.argv[1]).get("go"),"status":sys.argv[2],"runner":"cmdn-latency"},open(sys.argv[3]+".tmp","w"))' "$GO" "$STATUS" "$R/$S.done"
 mv "$R/$S.done.tmp" "$R/$S.done"
 # One round only: the spec goes, so a "not run" never makes the scheduler hold the mini for a GO nobody takes.

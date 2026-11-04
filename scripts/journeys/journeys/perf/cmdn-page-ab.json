@@ -1,0 +1,137 @@
+{
+ "id": "cmdn-page-ab",
+ "priority": "P2",
+ "title": "CMD-N LATENCY: Cmd-N with the web (Chromium) New Tab page against the native one (tabs.nativeNewTabPage), interleaved blocks, light",
+ "why": "Is the Chromium page's adoption the 60-80 ms main-thread block after a Cmd-N?",
+ "source": "cmdn-latency",
+ "budget_seconds": 240,
+ "steps": [
+  {
+   "do": "wait",
+   "seconds": 3
+  },
+  {
+   "do": "base_terminal"
+  },
+  {
+   "do": "latency_runs",
+   "bench": "create",
+   "command": "new_workspace",
+   "runs": 3,
+   "label": "warmup"
+  },
+  {
+   "do": "rpc",
+   "method": "settings.set",
+   "params": {
+    "path": "tabs.nativeNewTabPage",
+    "value": false
+   },
+   "title": "block 1: tabs.nativeNewTabPage False"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "latency_runs",
+   "bench": "create",
+   "command": "new_workspace",
+   "runs": 12,
+   "label": "page-web-1",
+   "cpu": true
+  },
+  {
+   "do": "rpc",
+   "method": "settings.set",
+   "params": {
+    "path": "tabs.nativeNewTabPage",
+    "value": true
+   },
+   "title": "block 1: tabs.nativeNewTabPage True"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "latency_runs",
+   "bench": "create",
+   "command": "new_workspace",
+   "runs": 12,
+   "label": "page-native-1",
+   "cpu": true
+  },
+  {
+   "do": "rpc",
+   "method": "settings.set",
+   "params": {
+    "path": "tabs.nativeNewTabPage",
+    "value": false
+   },
+   "title": "block 2: tabs.nativeNewTabPage False"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "latency_runs",
+   "bench": "create",
+   "command": "new_workspace",
+   "runs": 12,
+   "label": "page-web-2",
+   "cpu": true
+  },
+  {
+   "do": "rpc",
+   "method": "settings.set",
+   "params": {
+    "path": "tabs.nativeNewTabPage",
+    "value": true
+   },
+   "title": "block 2: tabs.nativeNewTabPage True"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "latency_runs",
+   "bench": "create",
+   "command": "new_workspace",
+   "runs": 12,
+   "label": "page-native-2",
+   "cpu": true
+  },
+  {
+   "do": "rpc",
+   "method": "settings.set",
+   "params": {
+    "path": "tabs.nativeNewTabPage",
+    "value": false
+   }
+  },
+  {
+   "do": "type",
+   "text": "echo cmdnnat-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "expect",
+   "title": "the app still types",
+   "timeout": 10,
+   "all": [
+    {
+     "pane_frame_text": "cmdnnat-${nonce}"
+    },
+    {
+     "daemon_contains": "cmdnnat-${nonce}"
+    },
+    {
+     "app_text_contains": "cmdnnat-${nonce}"
+    }
+   ]
+  }
+ ]
+}
