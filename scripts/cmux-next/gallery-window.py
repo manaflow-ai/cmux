@@ -5,7 +5,7 @@
   scripts/cmux-next/gallery-window.py --entry pages.diff --variant unified --sizes narrow,1000x700
   scripts/cmux-next/gallery-window.py --entry agent-pane.composer --print-spec
 
-Each stage is a real draggable, resizable macOS window (Prototypes/GalleryWindow: AppKit and
+Each stage is a real draggable, resizable macOS window (Packages/macOS/CmuxGalleryWindow: AppKit and
 WebKit only, no app build), drawn the way your app draws its window: your theme, accent, density
 and scale from ~/.config/cmux/cmux-next.json (and Ghostty's config where cmux follows it), your
 background picture or desktop glass behind a clear page, and the theme tint over it. One window
@@ -29,7 +29,7 @@ import urllib.parse
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-HOST_PACKAGE = REPO / "Prototypes/GalleryWindow"
+HOST_PACKAGE = REPO / "Packages/macOS/CmuxGalleryWindow"
 # The full pictures: the ones the app bundles, then the rest it downloads on first pick (art/full).
 ART_DIRS = [REPO / "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt", REPO / "art/full"]
 ART_SOURCE = REPO / "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt.swift"
@@ -114,7 +114,9 @@ def ghostty_paths(home: Path) -> list[Path]:
     xdg = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config")
     return [
         xdg / "ghostty/config",
+        xdg / "ghostty/config.ghostty",
         home / "Library/Application Support/com.mitchellh.ghostty/config",
+        home / "Library/Application Support/com.mitchellh.ghostty/config.ghostty",
     ]
 
 
@@ -178,12 +180,15 @@ def resolve_appearance(settings: dict, ghostty: dict[str, str], dark: bool, toda
     theme = pick_theme(theme_value if isinstance(theme_value, str) else None, dark)
     if theme:
         query["theme"] = theme
-    query["colorScheme"] = "dark" if dark else "light"
+    # A light:A,dark:B pair follows the system; one theme shows its own side (the frame's `auto`).
+    if isinstance(theme_value, str) and ":" in theme_value:
+        query["colorScheme"] = "dark" if dark else "light"
     accent = setting(settings, "appearance.accent")
     if isinstance(accent, str) and accent != "neutral":
         query["accent"] = accent
     density = setting(settings, "appearance.density")
-    query["density"] = density if density in ("compact", "comfortable") else "compact"
+    # The gallery has two densities; the app's five map to the nearer one.
+    query["density"] = "comfortable" if density in ("comfortable", "spacious") else "compact"
     for key, name in (("app.uiScale", "scale"), ("appearance.interfaceScale", "interfaceScale")):
         value = setting(settings, key)
         if isinstance(value, (int, float)) and value != 1:

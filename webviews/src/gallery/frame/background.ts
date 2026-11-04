@@ -88,8 +88,8 @@ export function applyGalleryBackground(
 }
 
 /**
- * `backdrop=host`: a native host (Prototypes/GalleryWindow) draws the user's own picture or glass
- * behind a clear web view, as WindowBackdrop does in the app. The page paints only the theme tint
+ * `backdrop=host`: a native host (Packages/macOS/CmuxGalleryWindow) draws the user's own picture
+ * or glass behind a clear web view, as WindowBackdrop does in the app. The page paints only the theme tint
  * over it, at `tint` (the user's Opacity) or the theme's wallpaper tint, and feeds the glass lens
  * no still (the host's picture is not the page's to read).
  */

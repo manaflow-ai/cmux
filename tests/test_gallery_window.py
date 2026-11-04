@@ -39,6 +39,17 @@ class GalleryWindowTests(unittest.TestCase):
         follow = {"appearance": {"appTheme": "followTerminal"}}
         self.assertEqual(gw.resolve_appearance(follow, {"theme": "Builtin Dark"}, True, TODAY)["query"]["theme"], "Builtin Dark")
 
+    def test_one_theme_shows_its_own_side_and_a_pair_follows_the_system(self):
+        one = gw.resolve_appearance({"appearance": {"theme": "Alabaster"}}, {}, True, TODAY)["query"]
+        self.assertNotIn("colorScheme", one)
+        pair = gw.resolve_appearance({"appearance": {"theme": "light:A,dark:B"}}, {}, False, TODAY)["query"]
+        self.assertEqual((pair["theme"], pair["colorScheme"]), ("A", "light"))
+
+    def test_five_densities_map_to_the_galleries_two(self):
+        for value, expected in (("ultraCompact", "compact"), ("cozy", "compact"), ("spacious", "comfortable")):
+            query = gw.resolve_appearance({"appearance": {"density": value}}, {}, True, TODAY)["query"]
+            self.assertEqual(query["density"], expected)
+
     def test_opaque_window_needs_no_host_backdrop(self):
         resolved = gw.resolve_appearance({}, {}, True, TODAY)
         self.assertEqual(resolved["backdrop"], {"kind": "opaque"})

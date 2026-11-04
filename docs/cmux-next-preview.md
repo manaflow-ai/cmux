@@ -55,7 +55,7 @@ scripts/cmux-next/gallery-window.py --entry agent-pane.composer
 ```
 
 It reads `~/.config/cmux/cmux-next.json` and opens one light AppKit window per size
-(`Prototypes/GalleryWindow`, no app build). See its README for the options.
+(`Packages/macOS/CmuxGalleryWindow`, no app build). See its README for the options.
 
 ## Branch gallery and before/after review
 
