@@ -1,0 +1,227 @@
+{
+  "version": 1,
+  "build": "4178064067101",
+  "notes": "notes/4178064067101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 34678,
+      "title": "Agent pane: reply footer at Claude's 24 pitch; Copy and Read aloud glyphs in Claude's shapes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34839,
+      "title": "test(cmux-next): cmux agent open makes the session's own named workspace beside a focused chat, on a late daemon",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34171,
+      "title": "fix(cmux-tui-core): link peers and host proxy authors are published; S1.1 review follow-ups (R-DAEMON-STATE S1 step 2)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34847,
+      "title": "acpmux sim: lint the simulation, and stop counting the stale-epoch stub as a check",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34851,
+      "title": "base red: commandWorkLabel reverses with ES2022 arrays (webviews type check)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34684,
+      "title": "cmux NEXT iOS: workspace rows from the Mac (New Workspace Above/Below/Top/Bottom/in Group, Merge Into, New and Duplicate Group, every SF Symbol, Group by Folder, Resize Pane, dock column, Move Pane to New Workspace, Duplicate Screen)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34634,
+      "title": "cmux daemon: chat-share invites answer their invite link",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34668,
+      "title": "Browser proof: preserve current tabs and allow capture timing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34866,
+      "title": "Agent pane: the live line drops \"total\" and evens the gap around its dot",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34735,
+      "title": "base red: Rust panic ratchet: teleport, acpmux task plan/turn retry/suggestion gate, and link sync index reads (cmux-automations 1, cmux-tui, acpmux)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34767,
+      "title": "cmux NEXT iOS: chat polish rows from the Mac (copy, Session Info, turns and bookmarks, Text and Width, Read Aloud, permissions, Event Inspector, Replay, Teams, Message Chief, Cloud Chief photos)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34798,
+      "title": "cmux link sync: keep snapshots and add undo, history and restore",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34161,
+      "title": "journeys: run.py --vdisplay (the lease's own measured display) and a preflight: a journey that needs a display rate it will not get is not run before any lease",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34729,
+      "title": "ci(cmux-next web): coalesce push web checks to one run every 30 minutes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34629,
+      "title": "base red: the ten red cmux-next swift test suites, one commit per culprit",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34645,
+      "title": "ci(cmux-tui artifacts): every non-trunk branch publishes only a head an open PR has",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34444,
+      "title": "Agent pane: Muse Code's step-by-step plan shows only as its checklist, without write_todos rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34136,
+      "title": "Agent pane: tool-summary seed fixture; background status line keeps its spaces",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34844,
+      "title": "cloud image: the baked acpmux unit passes --take-over like acpmux's own unit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34768,
+      "title": "nightly: the hosted light jobs leave hosted Ubuntu when decide waited over 2 min",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34759,
+      "title": "acpmux: Codex chats suggest the next prompt from the wrap-up's first answer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34730,
+      "title": "agent pane: a no-project chat is trusted from its first frame, not after a settings read",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34804,
+      "title": "fix(chromium): agent chat videos stream in byte ranges from the page host",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34780,
+      "title": "Agent transcript: tool calls animate open and closed again; at the bottom the text above glides up as one stack",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34838,
+      "title": "Agent pane header: scale tool pitch and glyph with the interface; two-row Session Info on the native row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34479,
+      "title": "Agent pane: button text never takes a see-through backdrop as ink; CI checks text-on-fill contrast",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34833,
+      "title": "Supersede an unanswered sidebar write per workspace, not whole",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34537,
+      "title": "cmux link sync push: send git's loose objects as one pack",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34785,
+      "title": "fix(cmux NEXT sidebar): a move the daemon did not answer in time is sent again, never undone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34679,
+      "title": "fix(next): keep shell fragments out of running-command titles",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34795,
+      "title": "Agent chat header: horizontal ellipsis, square tool buttons, two-row Session Info glyph",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34732,
+      "title": "cmux NEXT settings: agentPane.composerRing chooses context or plan usage for the composer ring",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34288,
+      "title": "test(webviews): warm accent-glass scans through a scoped stage",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34746,
+      "title": "ci(web): the webview router and runner resolver take hosted Ubuntu first as declared light jobs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34439,
+      "title": "Agent pane: tool-call rows read one way (lead thought label, failure tag, step hover, task line)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34714,
+      "title": "acpmux: a Codex chat's plan usage limits (5-hour, weekly, credits) are its usageLimits, as a Claude chat's",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
