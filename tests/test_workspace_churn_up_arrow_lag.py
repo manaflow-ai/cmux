@@ -3,12 +3,12 @@
 Regression harness: compare typing latency before and after workspace churn.
 
 Scenario A (baseline):
-1) Keep only the first workspace.
+1) Keep the first terminal workspace and any persistent nonterminal workspace.
 2) Seed shell history.
 3) Measure per-key latency for repeated Up-arrow shortcuts.
 
 Scenario B (churn):
-1) Keep only the first workspace.
+1) Keep the first terminal workspace and any persistent nonterminal workspace.
 2) Create N workspaces.
 3) Visit every workspace (simulates clicking each tab), then return to the first.
 4) Seed shell history.
@@ -229,21 +229,26 @@ class CPUMonitor:
 
 def keep_only_first_workspace(client: cmux) -> str:
     workspaces = sorted(client.list_workspaces(), key=lambda row: row[0])
-    if not workspaces:
+    terminal_ids = [
+        wid for _index, wid, _title, _selected in workspaces
+        if any(surface["type"] == "terminal" for surface in client.surface_health(workspace=wid))
+    ]
+    # Chief Home is a persistent nonterminal workspace at index zero. Select
+    # the scenario's terminal explicitly instead of sending shell input to Home.
+    if not terminal_ids:
         first_id = client.new_workspace()
         client.select_workspace(first_id)
         return first_id
 
-    first_id = workspaces[0][1]
+    first_id = terminal_ids[0]
     client.select_workspace(first_id)
-    for _index, wid, _title, _selected in reversed(workspaces[1:]):
-        if wid == first_id:
-            continue
+    closed_ids = set(terminal_ids[1:])
+    for wid in reversed(terminal_ids[1:]):
         client.close_workspace(wid)
 
     def only_first() -> bool:
-        current = sorted(client.list_workspaces(), key=lambda row: row[0])
-        return len(current) == 1 and current[0][1] == first_id
+        current_ids = {wid for _index, wid, _title, _selected in client.list_workspaces()}
+        return first_id in current_ids and not closed_ids.intersection(current_ids)
 
     wait_for(only_first, timeout_s=6.0)
     return first_id
@@ -268,9 +273,14 @@ def cycle_all_workspaces(client: cmux, passes: int, delay_s: float) -> list[str]
 
 
 def focused_terminal_panel(client: cmux) -> str:
+    terminal_ids = {
+        surface["id"] for surface in client.surface_health()
+        if surface["type"] == "terminal"
+    }
     surfaces = client.list_surfaces()
+    surfaces = [surface for surface in surfaces if surface[1] in terminal_ids]
     if not surfaces:
-        raise cmuxError("No surfaces available in selected workspace")
+        raise cmuxError("No terminal surfaces available in selected workspace")
     focused = next(((idx, sid) for idx, sid, is_focused in surfaces if is_focused), None)
     if focused is None:
         idx, sid, _ = surfaces[0]

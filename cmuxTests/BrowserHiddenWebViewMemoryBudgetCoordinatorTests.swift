@@ -67,9 +67,9 @@ final class BrowserHiddenWebViewMemoryBudgetCoordinatorTests: XCTestCase {
         super.tearDown()
     }
 
-    func testOverBudgetDiscardsPaneHiddenLongestAndKeepsTheRest() throws {
-        let older = try loadPanel(named: "older")
-        let newer = try loadPanel(named: "newer")
+    func testOverBudgetDiscardsPaneHiddenLongestAndKeepsTheRest() async throws {
+        let older = try await loadPanel(named: "older")
+        let newer = try await loadPanel(named: "newer")
         defer {
             older.close()
             newer.close()
@@ -92,11 +92,11 @@ final class BrowserHiddenWebViewMemoryBudgetCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.enforceBudget(now: now), 0, "Hidden memory is back under the budget")
     }
 
-    func testTimerModeLeavesHiddenPanesToTheTimer() throws {
+    func testTimerModeLeavesHiddenPanesToTheTimer() async throws {
         UserDefaults.standard.set("timer", forKey: BrowserHiddenWebViewDiscardPolicy.modeKey)
         UserDefaults.standard.set(3600, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
-        let first = try loadPanel(named: "first")
-        let second = try loadPanel(named: "second")
+        let first = try await loadPanel(named: "first")
+        let second = try await loadPanel(named: "second")
         defer {
             first.close()
             second.close()
@@ -161,14 +161,14 @@ final class BrowserHiddenWebViewMemoryBudgetCoordinatorTests: XCTestCase {
         )
     }
 
-    private func loadPanel(named name: String) throws -> BrowserPanel {
+    private func loadPanel(named name: String) async throws -> BrowserPanel {
         let page = fixtureDirectory.appendingPathComponent("\(name).html")
         try "<html><head><title>\(name)</title></head><body>\(name)</body></html>"
             .write(to: page, atomically: true, encoding: .utf8)
         let panel = BrowserPanel(workspaceId: UUID(), initialURL: page, isRemoteWorkspace: false)
         panel.webView.frame = hostWindow.contentView?.bounds ?? .zero
         hostWindow.contentView?.addSubview(panel.webView)
-        waitUntil("load of \(name)") {
+        await waitUntil("load of \(name)") {
             panel.webView.url?.standardizedFileURL == page.standardizedFileURL
                 && !panel.webView.isLoading
                 && !panel.isLoading
@@ -182,12 +182,10 @@ final class BrowserHiddenWebViewMemoryBudgetCoordinatorTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line,
         predicate: () -> Bool
-    ) {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if predicate() { return }
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
-        }
+    ) async {
+        // Navigation policy and KVO mirrors run on the main actor. Yield it
+        // while waiting instead of holding it inside a nested run loop.
+        if await AppKitTestEventPump().waitUntil(timeout: .seconds(timeout), predicate) { return }
         continueAfterFailure = false
         XCTFail("Timed out waiting for \(description)", file: file, line: line)
     }

@@ -430,13 +430,32 @@ import Testing
         let windowId: UUID
         let manager: TabManager
         let workspace: Workspace
+        private let originalChiefEnabled: Any?
         var controller: RemoteTmuxController { appDelegate.remoteTmuxController }
 
         init() throws {
             appDelegate = try #require(AppDelegate.shared)
+            let defaults = UserDefaults.standard
+            let chiefEnabledKey = ChiefCatalogSection().enabled.userDefaultsKey
+            let previousChiefEnabled = defaults.object(forKey: chiefEnabledKey)
+            originalChiefEnabled = previousChiefEnabled
+            // Last-mirror close fixtures need their local terminal to be the
+            // only initial workspace. Home would intentionally keep it open.
+            ChiefSettings.setEnabled(false, in: defaults)
+            var initialized = false
+            defer {
+                if !initialized {
+                    if let previousChiefEnabled {
+                        defaults.set(previousChiefEnabled, forKey: chiefEnabledKey)
+                    } else {
+                        defaults.removeObject(forKey: chiefEnabledKey)
+                    }
+                }
+            }
             windowId = appDelegate.createMainWindow()
             manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             workspace = try #require(manager.selectedWorkspace)
+            initialized = true
         }
 
         func tearDown() {
@@ -444,6 +463,13 @@ import Testing
             // Clear any marker so it can't leak into another serialized test.
             controller.consumeKillSessionsOnWindowClose(windowId: windowId)
             closeWindow(windowId)
+            let defaults = UserDefaults.standard
+            let chiefEnabledKey = ChiefCatalogSection().enabled.userDefaultsKey
+            if let originalChiefEnabled {
+                defaults.set(originalChiefEnabled, forKey: chiefEnabledKey)
+            } else {
+                defaults.removeObject(forKey: chiefEnabledKey)
+            }
         }
 
         func cacheConnection(host: RemoteTmuxHost, session: String) {
