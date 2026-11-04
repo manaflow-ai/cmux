@@ -53,6 +53,39 @@ struct AgentTurnRingTests {
         #expect(service.attentionMarks(for: workspace).isEmpty, "turning agent chat rings off left the ring")
     }
 
+    /// https://github.com/manaflow-ai/cmux/issues/34447: a finished agent's chat whose turn
+    /// notification is unread shows the blue dot, so its pane rings too, whatever
+    /// `notifications.attention.agentChats` says; with that off the ring takes the terminal look.
+    /// Reading the tab clears the ring with the dot.
+    @Test func anUnreadAgentChatRingsLikeItsDotWithTheDefaultSettings() throws {
+        _ = NSApplication.shared
+        var chat = TabSnapshot(surface: SurfaceID(rawValue: 1), kind: .conversation, cwd: nil)
+        chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:unread", session: "s1", harness: "claude"))
+        chat.notification = TabNotification(notification: NotificationID(rawValue: 9), unread: true, level: .info, source: "agent")
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [chat])])
+        let store = DaemonStore()
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
+        let workspace = try #require(store.workspaces.first)
+        let tab = try #require(workspace.screens.first?.panes.first?.tabs.first)
+        let design = DesignSettings.shared
+        let before = design.attention
+        defer { design.attention = before }
+        design.attention = AttentionSettings()
+        #expect(tab.showsUnread, "the fixture's chat has no unread dot")
+        let service = NotificationCenterService()
+        let mark = try #require(service.attentionMarks(for: workspace).values.first, "an unread agent chat shows its dot but its pane has no ring")
+        #expect(mark.agentChat == false, "with agent chat rings off, an unread chat must draw the terminal look, which draws")
+        #expect(service.hasHighlight(workspace))
+        design.attention.agentChatRing = .ring
+        #expect(service.attentionMarks(for: workspace).values.first?.agentChat == true, "on, the chat's own look draws")
+        design.attention.terminalRing = .none
+        design.attention.agentChatRing = .none
+        #expect(service.attentionMarks(for: workspace).isEmpty, "every ring look off still rang")
+        design.attention = AttentionSettings()
+        service.acknowledge(tab)
+        #expect(service.attentionMarks(for: workspace).isEmpty, "reading the chat left its ring")
+    }
+
     private static func chatTab() throws -> (NotificationCenterService, WorkspaceModel, TabModel) {
         _ = NSApplication.shared
         let store = DaemonStore()
