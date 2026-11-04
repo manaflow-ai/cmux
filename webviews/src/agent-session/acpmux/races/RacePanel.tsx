@@ -9,12 +9,14 @@ export function RacePanel({
   parent,
   catalog,
   client,
+  initialRace,
   onClose,
   onOpenSession,
 }: {
   parent: string;
   catalog: AcpmuxSnapshot["catalog"];
   client: RaceClient;
+  initialRace?: RaceRecord;
   onClose(): void;
   onOpenSession?: (sessionId: string) => void;
 }) {
@@ -26,7 +28,10 @@ export function RacePanel({
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string>();
   const [races, setRaces] = useState<RaceRecord[]>([]);
-  const [opened, setOpened] = useState<RaceRecord>();
+  const [opened, setOpened] = useState<RaceRecord>(initialRace);
+  useEffect(() => {
+    if (initialRace) setOpened(initialRace);
+  }, [initialRace]);
   useEffect(() => {
     let active = true;
     const merge = (incoming: RaceRecord[], fromFetch = false) => {

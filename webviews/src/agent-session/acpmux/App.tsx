@@ -1,6 +1,7 @@
 import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP } from "./transcriptGrid";
 import { composerHealthHarness } from "./composerPickerEntries";
 import { RacePanel } from "./races/RacePanel";
+import type { RaceRecord } from "./races/model";
 import { raceToolsMenu } from "./races/menu";
 import { forkMenuRows } from "./header/forkMenu";
 import { openFork } from "./conversation/openFork";
@@ -6216,6 +6217,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The chat whose recorded history plays back read-only in place of it (chat menu Replay, cx-osmw).
   const [replaying, setReplaying] = useState<string | undefined>();
   const [raceParent, setRaceParent] = useState<string>();
+  const [raceInitial, setRaceInitial] = useState<RaceRecord>();
   const raceWake = useRef<ComposerWake | undefined>(undefined);
   /// The focused pane's rail visibility. The experiment still chooses compact/full when visible;
   /// this local switch is only the command-palette toggle and does not write shared experiment state.
@@ -8677,6 +8679,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setCloudStart(undefined);
     raceWake.current = undefined;
     setRaceParent(undefined);
+    setRaceInitial(undefined);
   }, [snapshot.sessionId, newTabGeneration]);
   /// The person picked another place to run after a Cloud start failed: its card goes.
   useEffect(() => {
@@ -10716,6 +10719,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       sessionId: () => directClient.current?.selectedSession,
       automation: {
         snapshot: () => automationView.current!.snapshot,
+        raceClient: () => directClient.current ?? undefined,
+        openRace: (race) => {
+          if (!raceWake.current) raceWake.current = composerHandle.current?.wakeState();
+          setRaceInitial(race);
+          setRaceParent(race.parent);
+        },
         // The chat's own actions only, once it connects: never the native host (automation.ts pageAction).
         call: async (method, params) => (await pageAction(() => window.cmuxAcpmuxActions, method))(params ?? {}),
         ready: async (method) => void (await pageAction(() => window.cmuxAcpmuxActions, method)),
@@ -15057,11 +15066,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     parent={raceParent}
                     catalog={snapshot.catalog}
                     client={directClient.current}
+                    initialRace={raceInitial}
                     onOpenSession={openOfferChat}
                     onClose={() => {
                       pendingWake.current = raceWake.current ?? pendingWake.current;
                       raceWake.current = undefined;
                       setRaceParent(undefined);
+                      setRaceInitial(undefined);
                     }}
                   />
                 ) : viewedSandbox ? (
