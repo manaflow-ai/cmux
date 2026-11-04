@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4173805520001",
+  "notes": "notes/4173805520001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 34235,
+      "title": "ci: full-tree blob:none checkouts leave out cmux-next-ios/verify media",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33115,
+      "title": "test(link hints): typing in a rich editor counts as editing, so no labels show",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34311,
+      "title": "cmux-vm: let a member's session enroll a device into the mesh an entitled service made",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34285,
+      "title": "machine vault E2E: the agent step signs in with the team's Claude subscription",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34278,
+      "title": "Machine update: wait for a part's answer while it is still crossing the link (os error 35)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
