@@ -49,6 +49,8 @@ mod pending;
 
 #[cfg(test)]
 mod delivery_tests;
+#[cfg(test)]
+mod repo_sync_tests;
 
 impl Hub {
     // ------------------------------------------------------------- inbound
@@ -390,6 +392,17 @@ impl Hub {
                     breakdown_changed |= m.usage_limits.as_ref() != Some(&merged);
                     m.usage_limits = Some(merged);
                 }
+                // Codex's, as cmux-codex-acp passes `account/rateLimits/updated` on: each is
+                // every window it knows, so it replaces the last, and one that reports nothing
+                // clears it (`codex_app_server`). Another limit's snapshot changes nothing.
+                if let Some(snapshot) = update
+                    .pointer("/_meta/codexAppServer/rateLimits")
+                    .filter(|s| crate::codex_app_server::is_plan_snapshot(s))
+                {
+                    let limits = crate::codex_app_server::usage_limits(snapshot);
+                    breakdown_changed |= m.usage_limits != limits;
+                    m.usage_limits = limits;
+                }
                 // Claude Code's system/init: its MCP servers, plugins and skills.
                 reported_tools = update
                     .pointer("/_meta/claude")
@@ -620,6 +633,12 @@ impl Hub {
                 format!("write to {shown} rejected by the acpmux permission policy"),
             ));
         }
+        // Keep the read lease through the write; a new seed cannot begin in
+        // between readiness and mutation. A Stop during the wait cancels it.
+        let _repo_ready = super::repo_sync::wait(session, path.clone(), || {
+            session.permission_epoch.load(Ordering::SeqCst) != epoch
+        })
+        .await?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| RpcError::internal(format!("create {}: {e}", parent.display())))?;
@@ -775,6 +794,21 @@ impl Hub {
         let off = self.off_latch();
         #[cfg(test)]
         super::full_access_bound::operation_entry(self);
+        // Native tools can mutate the repository even when their request has
+        // no location or kind. Only known read-only kinds skip the barrier;
+        // moves and unclassified/MCP tools wait before automatic approval too.
+        if !matches!(
+            request.pointer("/toolCall/kind").and_then(Value::as_str),
+            Some("read" | "search" | "think" | "fetch" | "switch")
+        ) && super::repo_sync::wait(session, session.meta().cwd, || {
+            session.permission_epoch.load(Ordering::SeqCst) != epoch
+                || stale_turn(session, &turn_id)
+        })
+        .await
+        .is_err()
+        {
+            return json!({"outcome":{"outcome":"cancelled"}});
+        }
         // One harness-neutral copy of any questions, before rules and the
         // record see the request (questions.rs).
         super::questions::normalize(&mut request, Self::preview_format(session));
@@ -1394,6 +1428,8 @@ impl Hub {
         }
         // A secret card waits on the same turn (`secrets.rs`).
         self.cancel_pending_secrets(session);
+        // So does an MCP connect card (`mcp_connect.rs`).
+        self.cancel_pending_mcp_connects(session);
     }
 }
 

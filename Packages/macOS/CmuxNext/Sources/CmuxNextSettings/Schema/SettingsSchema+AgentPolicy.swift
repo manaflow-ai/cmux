@@ -272,6 +272,8 @@ extension SettingsSchema {
         "freeModel.enabled": .privacy,
         // The Cloud toggle copies the person's folder off this Mac to a paid machine: theirs to set.
         "cloud.newWorkspacesInCloud": .privacy, "cloud.newWorkspaceFolder": .privacy,
+        // Whether an agent starts Cloud machines and sessions with no Start card: only the person delegates it.
+        "cloud.agentsStartWithoutAsking": .userOnly,
         // The person's consent to copy their own Claude login to their own Cloud machines: only theirs to give.
         "cloud.useMyClaudeLoginOnMyCloudMachines": .privacy,
         "agents.chats.roots": .privacy,
@@ -298,6 +300,8 @@ extension SettingsSchema {
         "feed.mirrorNotifications.terminal": .privacy,
         // An agent must not turn on sending its own prompts to the phone (cx-aocz).
         "feed.agentPermissionPrompts": .privacy,
+        // Whether Chief Home pins the Feed's requests over the person's chat is theirs to turn on.
+        "feed.needsYouInChief": .userOnly,
         "feed.github.enabled": .network,
         "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,

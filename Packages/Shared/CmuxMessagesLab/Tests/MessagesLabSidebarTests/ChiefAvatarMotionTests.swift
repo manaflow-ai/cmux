@@ -3,9 +3,11 @@ import Testing
 @testable import MessagesLabSidebar
 
 /// Leo 2026-11-03: "don't bounce the circle. i mean like if you ask codex, ... their dot thing has a few
-/// different animations for different scenarios". A Chief's own avatar in the list and the pinned grid
-/// shows its state, one look per state (idle glints, working runs an arc, waiting and failed draw a still
-/// ring), plays a short cue when the state changes, never moves off its place, and stops every loop under
+/// different animations for different scenarios"; then, relayed by Chief: "per-state animations like the
+/// Codex status dot: thinking, tool running, waiting on you, done". A Chief's own avatar in the list and
+/// the pinned grid shows its state, one look per state (thinking runs an arc, a tool turns a ring of dots,
+/// waiting draws a still orange ring, done a green check badge, failed a still red ring), plays a short
+/// cue when the state changes, never moves off its place, and stops every loop under
 /// each stop condition: Reduce Motion, the host's gate, the app inactive or the window off screen, and the
 /// row going back to the pool.
 @MainActor
@@ -27,11 +29,12 @@ struct ChiefAvatarMotionTests {
             }
             entries = [
                 entry("chief", "Chief", .monogram("CH"), .idle, true),
-                entry("scout", "Scout", .monogram("SC"), .idle, false),
-                entry("maya", "Maya", nil, .working, false),  // no avatar of its own: shows nothing
+                entry("scout", "Scout", .monogram("SC"), .thinking, false),
+                entry("maya", "Maya", nil, .thinking, false),  // no avatar of its own: shows nothing
                 entry("noah", "Noah", .monogram("NO"), nil, false),
             ]
             window.contentView = view
+            view.animates = true  // this suite tests the motion itself (off by default, msg 20105)
             controller.avatarMotion.onScreenPin = true
             controller.setWindowActive(true)  // the host's window is key
             show()
@@ -66,7 +69,17 @@ struct ChiefAvatarMotionTests {
                 .animation(forKey: SidebarAvatarMotion.animationKey) as? CAKeyframeAnimation
         }
 
+        func badge(_ id: String) -> CAShapeLayer? {
+            avatar(id)?.sublayers?.first { $0.name == SidebarAvatarLooks.badgeName } as? CAShapeLayer
+        }
+
         func cue(_ id: String) -> CAAnimation? { avatar(id)?.animation(forKey: SidebarAvatarMotion.cueKey) }
+
+        /// Ring's one glint across the face, a state change's cue.
+        func glintCue(_ id: String) -> CABasicAnimation? {
+            avatar(id)?.sublayers?.first { $0.name == SidebarAvatarLooks.glintName }?.sublayers?.first?
+                .animation(forKey: SidebarAvatarMotion.cueKey) as? CABasicAnimation
+        }
     }
 
     init() {
@@ -94,16 +107,14 @@ struct ChiefAvatarMotionTests {
         let f = Fixture()
         #expect(f.view.avatarMotionStyle == .ring, "Ring is the default")
 
-        // Idle: a glint sweeps across now and then; no ring.
-        let idle = try #require(f.glintMove("scout"), "idle glints")
-        #expect(idle.duration == SidebarAvatarLooks.idleGlintPeriod && idle.repeatCount == .infinity)
-        #expect(f.ring("scout") == nil)
-        #expect(f.glintMove("chief") != nil, "a pinned tile's avatar too")
+        // Idle: at rest, nothing runs (the idle budget); no ring.
+        #expect(!f.looping("chief") && f.ring("chief") == nil && f.glintMove("chief") == nil, "idle runs nothing")
         #expect(f.avatar("maya").map(SidebarAvatarMotion.isLooping) != true, "a conversation without its own avatar shows nothing")
         #expect(!f.looping("noah"), "no state asked: nothing")
 
-        // Working: an arc turns round the edge.
-        f.set("scout", .working)
+        // Thinking: an arc turns round the edge (the pinned tile too).
+        f.set("chief", .thinking)
+        #expect(f.looping("chief"))
         let arc = try #require(f.ring("scout"))
         #expect(arc.strokeEnd < 0.5, "an arc, not the whole ring")
         let turn = try #require(arc.animation(forKey: SidebarAvatarMotion.animationKey) as? CABasicAnimation)
@@ -115,19 +126,38 @@ struct ChiefAvatarMotionTests {
         f.controller.tile(force: true)
         #expect(f.ring("scout")?.animation(forKey: SidebarAvatarMotion.animationKey) === turn)
 
-        // Waiting: a still accent ring, no loop. Failed: a still red ring.
+        // A tool: a ring of dots all the way round, turning slower than thinking's arc.
+        f.set("scout", .tool)
+        let dots = try #require(f.ring("scout"))
+        #expect(dots.strokeEnd == 1 && dots.lineDashPattern?.first == 0, "dots, not an arc")
+        let dotsTurn = try #require(dots.animation(forKey: SidebarAvatarMotion.animationKey) as? CABasicAnimation)
+        #expect(dotsTurn.duration == SidebarAvatarLooks.dotsPeriod && dotsTurn.duration > SidebarAvatarLooks.arcPeriod)
+        #expect(f.cue("scout") == nil, "thinking to a tool is the same turn: no cue")
+        f.set("scout", .thinking)
+        #expect(f.ring("scout")?.lineDashPattern == nil, "back to the solid arc")
+
+        // Waiting on you: a still orange ring, no loop. Done: a green check badge, no ring. Failed: a still red ring.
         f.set("scout", .waiting)
         let waiting = try #require(f.ring("scout"))
-        #expect(waiting.strokeEnd == 1 && !f.looping("scout"))
+        #expect(waiting.strokeEnd == 1 && waiting.strokeColor == NSColor.systemOrange.cgColor && !f.looping("scout"))
+        let glint = try #require(f.glintCue("scout"), "a change glints once")
+        #expect(glint.repeatCount == 0 && glint.duration <= 0.24 && glint.isRemovedOnCompletion)
+        f.set("scout", .done)
+        let badge = try #require(f.badge("scout"))
+        #expect(badge.fillColor == NSColor.systemGreen.cgColor && f.ring("scout") == nil && !f.looping("scout"))
+        let face = try #require(f.avatar("scout")).bounds.width
+        #expect(badge.frame.width < face / 2, "a small mark, not a disc over the face")
         f.set("scout", .failed)
         let failed = try #require(f.ring("scout"))
         #expect(failed.strokeColor == NSColor.systemRed.cgColor && !f.looping("scout"))
 
         for style in CmuxSidebarAvatarMotionStyle.allCases {
             f.view.avatarMotionStyle = style
-            for mode in [CmuxSidebarEntry.AvatarMotion.idle, .working, .waiting, .failed] {
+            for mode in [CmuxSidebarEntry.AvatarMotion.idle, .thinking, .tool, .waiting, .done, .failed] {
                 f.set("scout", mode)
                 #expect(neverTranslates(try #require(f.avatar("scout"))), "\(style) \(mode) moves the avatar off its place")
+                // Only a running turn loops: idle, waiting, done and failed run nothing once their cue has played.
+                #expect(f.looping("scout") == ([.thinking, .tool].contains(mode) && style != .still), "\(style) \(mode) loops")
             }
         }
     }
@@ -135,9 +165,9 @@ struct ChiefAvatarMotionTests {
     @Test func aStateChangePlaysOneShortCue() throws {
         defer { reset() }
         let f = Fixture()
-        f.set("scout", .working)
+        f.set("scout", .tool)
         #expect(f.cue("scout") == nil, "starting work needs no cue: the arc says it")
-        f.set("scout", .waiting)
+        f.set("scout", .done)
         let pop = try #require(f.cue("scout") as? CAKeyframeAnimation, "a turn ending pops")
         #expect(pop.keyPath == "transform.scale" && pop.duration <= 0.24)
         #expect((pop.values as? [NSNumber] ?? []).map(\.doubleValue).max() ?? 0 <= 1.04)
@@ -152,22 +182,36 @@ struct ChiefAvatarMotionTests {
         f.controller.tile(force: true)
         #expect(f.cue("scout") == nil)
 
+        // Done with no turn seen grows its badge in; the avatar stays as it is.
+        f.set("scout", .idle)
+        f.avatar("scout")?.removeAnimation(forKey: SidebarAvatarMotion.cueKey)
+        f.set("scout", .done)
+        let grow = try #require(f.badge("scout")?.animation(forKey: SidebarAvatarMotion.cueKey) as? CAKeyframeAnimation)
+        #expect(grow.keyPath == "transform.scale" && grow.duration <= 0.24 && f.cue("scout") == nil)
+
         // Under Reduce Motion a change plays no cue.
         CmuxSidebarView.reduceMotionOverride = true
-        f.set("scout", .working)
+        f.set("scout", .thinking)
         f.set("scout", .idle)
-        #expect(f.cue("scout") == nil)
+        #expect(f.cue("scout") == nil && f.glintCue("scout") == nil)
+
+        // A cue still playing ends when motion stops (#33475).
+        CmuxSidebarView.reduceMotionOverride = false
+        f.set("scout", .failed)
+        #expect(f.cue("scout") != nil)
+        CmuxSidebarView.reduceMotionOverride = true
+        #expect(f.cue("scout") == nil, "a playing cue ends when motion stops")
     }
 
     @Test func reduceMotionAndTheHostsGateStopEveryLoopButKeepStillRings() throws {
         defer { reset() }
         let f = Fixture()
-        f.set("chief", .working)
+        f.set("chief", .thinking)
         f.set("noah", .failed)
         #expect(f.looping("scout") && f.looping("chief"))
         CmuxSidebarView.reduceMotionOverride = true
         #expect(!f.looping("scout") && !f.looping("chief"), "Reduce Motion stops them at once")
-        #expect(f.ring("chief") != nil, "working's arc stands still, so the state still reads")
+        #expect(f.ring("chief") != nil, "thinking's arc stands still, so the state still reads")
         CmuxSidebarView.reduceMotionOverride = false
         #expect(f.looping("scout") && f.looping("chief"), "and they start again")
 
@@ -183,7 +227,7 @@ struct ChiefAvatarMotionTests {
     @Test func anInactiveAppOrAHiddenWindowStopsEveryLoop() throws {
         defer { reset() }
         let f = Fixture()
-        f.set("chief", .working)
+        f.set("chief", .thinking)
         #expect(f.looping("scout") && f.looping("chief"))
         // The window resigns key: the app went inactive, another window took the keyboard, or it
         // was minimized or hidden. The list's own key tracking stops every loop.
@@ -202,7 +246,7 @@ struct ChiefAvatarMotionTests {
     @Test func aRowBackInThePoolClearsAndStillShowsNothing() throws {
         defer { reset() }
         let f = Fixture()
-        f.set("scout", .working)
+        f.set("scout", .thinking)
         let avatar = try #require(f.avatar("scout"))
         #expect(SidebarAvatarMotion.isLooping(avatar))
         f.entries.removeAll { $0.id == "scout" }
@@ -212,14 +256,15 @@ struct ChiefAvatarMotionTests {
         #expect(avatar.sublayers?.contains { $0.name == SidebarAvatarLooks.ringName } != true, "nor keeps a ring")
 
         f.view.avatarMotionStyle = .still
-        f.set("chief", .working)
+        f.set("chief", .thinking)
         #expect(!f.looping("chief") && f.ring("chief") == nil)
     }
 
     @Test func aStyleChangeRestylesEveryAvatarAtOnce() throws {
         defer { reset() }
         let f = Fixture()
-        f.set("scout", .working)
+        f.set("scout", .thinking)
+        f.set("chief", .thinking)
         #expect(f.ring("scout") != nil)
         f.view.avatarMotionStyle = .tilt  // no data change, no reload
         let rock = try #require(f.avatar("scout")?.animation(forKey: SidebarAvatarMotion.animationKey) as? CAKeyframeAnimation)
@@ -235,7 +280,7 @@ struct ChiefAvatarMotionTests {
         let a = CALayer(), b = CALayer()
         a.bounds = CGRect(x: 0, y: 0, width: 40, height: 40)
         b.bounds = a.bounds
-        let look = SidebarAvatarMotion.Look(style: .tilt, mode: .working, moving: true)
+        let look = SidebarAvatarMotion.Look(style: .tilt, mode: .thinking, moving: true)
         SidebarAvatarLooks.show(look, on: a, seed: "agent_mux")
         SidebarAvatarLooks.show(look, on: b, seed: "agent_scout01")
         let rockA = try #require(a.animation(forKey: SidebarAvatarMotion.animationKey) as? CAKeyframeAnimation)

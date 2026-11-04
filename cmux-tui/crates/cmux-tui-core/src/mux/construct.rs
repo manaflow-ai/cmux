@@ -202,6 +202,9 @@ impl Mux {
         let launch_identity = crate::launch_credential::LaunchIdentity::load(
             registry.session_journal_database_path().as_deref().and_then(Path::parent),
         );
+        // One stage S1 switch for the mux (R-DAEMON-STATE): the state's routes and the client registry's facts.
+        let input_lane = crate::rds_switch::InputLaneSwitch::from_env();
+        let publish_routes = input_lane.on();
         let mux = Arc::new(Mux {
             launch_identity,
             registry_connection: registry.connection.clone(),
@@ -213,7 +216,7 @@ impl Mux {
             registry_identity,
             resource_projection_stats,
             started_at: Instant::now(),
-            state: signaled_mutex::StateMutex::new(state),
+            state: signaled_mutex::StateMutex::new(state, publish_routes),
             subscribers: MuxEventBroadcaster::default(),
             config_reload: Mutex::new(ConfigReloadState::default()),
             config_reload_changed: Condvar::new(),
@@ -409,7 +412,7 @@ impl Mux {
             exit_settles: Arc::default(),
             terminal_respawns: terminal_respawn::TerminalRespawns::from_env(),
             daemon_shutdown_waker: Mutex::new(None),
-            control_clients: crate::server::ClientRegistry::new(),
+            control_clients: crate::server::ClientRegistry::new(input_lane),
             #[cfg(unix)]
             agent_transfers: Default::default(),
             #[cfg(unix)]
@@ -434,7 +437,7 @@ impl Mux {
             image_pastes: crate::image_paste::ImagePasteStore::default(),
             history: crate::history_ops::HistoryHost::default(),
             surface_operation_admission: Arc::new(
-                crate::server::ServerSurfaceOperationAdmission::default(),
+                crate::server::ServerSurfaceOperationAdmission::new(publish_routes),
             ),
             pairing: PairingBroker::new(),
             #[cfg(test)]

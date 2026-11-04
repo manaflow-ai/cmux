@@ -209,6 +209,7 @@ struct KeyboardResizeOneGridReportTests {
     /// spring. p1 is at rest: its terminal sends no grid after the final one of the first press, and its surface never
     /// takes its start size again. p2 is on the second press's spring, which the close takes over: its terminal sends one
     /// grid for the close, the final one, measured from its live size (not from the size its key hold kept).
+    /// Only the pane's content area holds (FRAME OWNER S1): the pane content view, its tab strip with it, follows the pane.
     @Test func aCloseDuringASecondPressSendsEachTerminalOnlyItsFinalGrid() async throws {
         let rig = try Rig(Self.besideStack)
         defer { rig.close() }
@@ -223,8 +224,9 @@ struct KeyboardResizeOneGridReportTests {
         let atPress = try await rig.grids("p1")
         #expect(rig.settle() > 3, "the first press did not spring")
         let host = try #require(rig.root.context.hosts["p1"])
-        try #require(!host.isOnLayoutSpring && host.content.frame.size != host.contentRect.size,
-                     "p1 is not at rest with its content held (\(host.content.frame.size) in \(host.contentRect.size))")
+        let area = try #require((host.content as? PaneContentView)?.contentHost)
+        try #require(!host.isOnLayoutSpring && host.content.frame.size == host.contentRect.size && area.isHolding,
+                     "p1 is not at rest with its content area held (\(host.content.frame.size) in \(host.contentRect.size), area holding \(area.isHolding))")
 
         // Before that commit: Ctrl-Shift-J on p2 springs p2 and p3 (p1 stays at rest), and p3 closes during its spring.
         #expect(PaneResize.press("p2", .down, model: rig.model, view: rig.root))
@@ -252,7 +254,8 @@ struct KeyboardResizeOneGridReportTests {
         #expect(atPress == [final], "the first press asked p1's PTY for \(atPress), not the final grid \(final)")
         #expect(after.isEmpty, "p1: after the final grid \(final) at the first press, letting its content go asked the PTY for \(after) (start grid \(startGrid))")
         #expect(!log.sizes.contains(start.size), "p1's surface took its start size \(start.size) again after the first press: \(log.sizes)")
-        #expect(host.content.frame.size == host.contentRect.size, "p1's content is not at its rest size: \(host.content.frame.size) in \(host.contentRect.size)")
+        #expect(host.content.frame.size == host.contentRect.size && !area.isHolding,
+                "p1's content is not at its rest size: \(host.content.frame.size) in \(host.contentRect.size), area holding \(area.isHolding)")
 
         let p2Final = try #require(p2.surface.fittedGrid, "p2's terminal fits no grid")
         let p2Grids = try await rig.grids("p2")

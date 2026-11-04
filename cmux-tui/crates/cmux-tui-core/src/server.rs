@@ -161,8 +161,10 @@ use command_args::{
 };
 mod origin_gate;
 mod orphan_shutdown;
+mod owner_keepers;
 mod page_router;
 pub use orphan_shutdown::stop_orphaned_owner;
+pub use owner_keepers::{Keepers, OwnerKeepersWatch, watch_owner_keepers};
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 mod starter_exit;
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
@@ -307,6 +309,8 @@ mod chief_engine_mirror;
 mod chief_inspect;
 mod chief_manage;
 mod chief_registry_resource;
+#[cfg(unix)]
+mod chief_work;
 mod participant_avatars;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
 mod url_open;
@@ -790,6 +794,11 @@ enum Command {
     /// The Chief memory inspector's read-only API, for the owner's trusted
     /// connection, forwarded to the brain host (`chief-inspect-v1`).
     ChiefInspect(chief_inspect::Params),
+    /// Read-only inventory of this Chief's owned work (`chief-work-v1`).
+    /// Its bounded async raw handler runs before command dispatch.
+    ChiefWork {
+        chief: String,
+    },
     UrlOpenClaim {
         request_id: String,
     },

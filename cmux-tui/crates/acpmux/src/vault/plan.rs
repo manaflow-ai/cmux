@@ -51,6 +51,21 @@ pub struct State {
     /// deleted yet: never given to an agent, deleted again on every pull.
     #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
     pub pending_delete: std::collections::BTreeSet<String>,
+    /// Where `env`'s values are kept: `os` (the OS store; empty in a state
+    /// saved before this field, which only the OS store wrote) or `memory`
+    /// (the daemon's, where the OS store takes no write).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub backend: String,
+    /// Items still in the OS store from before this machine switched to
+    /// memory: never given to an agent, deleted from the OS store on every
+    /// pull and by `forget`, whichever store is active.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub os_pending: std::collections::BTreeSet<String>,
+}
+
+/// The backend of a store kind: `memory` for the daemon's memory, else `os`.
+pub fn backend_of(kind: &str) -> &'static str {
+    if kind == "memory" { "memory" } else { "os" }
 }
 
 impl State {
@@ -119,6 +134,30 @@ impl State {
         let names: Vec<String> = self.env.keys().cloned().collect();
         self.pending_delete.extend(names);
         self.env.clear();
+    }
+
+    /// Make `kind`'s backend the active one. Entries kept in the other one are
+    /// no longer this machine's: OS store items become `os_pending` (deleted
+    /// from the OS store whatever is active), and values in another process's
+    /// memory went with it. Back on the OS store, `os_pending` joins the
+    /// ordinary cleanup records.
+    pub fn switch_backend(&mut self, kind: &str) {
+        let to = backend_of(kind);
+        let from = if self.backend.is_empty() { "os" } else { self.backend.as_str() };
+        if from != to {
+            let names: Vec<String> =
+                self.env.keys().cloned().chain(self.pending_delete.iter().cloned()).collect();
+            self.env.clear();
+            self.pending_delete.clear();
+            if from == "os" {
+                self.os_pending.extend(names);
+            }
+        }
+        if to == "os" {
+            let left = std::mem::take(&mut self.os_pending);
+            self.pending_delete.extend(left);
+        }
+        self.backend = to.to_owned();
     }
 
     /// Names and revisions, in order: the daemon reloads its values when this

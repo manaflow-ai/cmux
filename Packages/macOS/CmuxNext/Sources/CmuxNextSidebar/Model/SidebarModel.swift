@@ -514,7 +514,7 @@ public final class SidebarModel {
         sections = Self.folding(sections, collapsedSections)
     }
 
-    private func listedPaths(of id: WorkspaceID) -> [SidebarRowIndex.Path] {
+    func listedPaths(of id: WorkspaceID) -> [SidebarRowIndex.Path] {
         if rowIndex == nil { rowIndex = SidebarRowIndex(storedSections) }
         return rowIndex?.paths(of: id) ?? []
     }

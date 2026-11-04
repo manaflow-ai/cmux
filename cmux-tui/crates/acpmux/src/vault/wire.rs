@@ -18,6 +18,19 @@ pub const NOT_GRANTED: &str = "vault.not_granted";
 pub const MAX_VALUE_BYTES: usize = 131_072;
 /// Most entries one answer may carry.
 pub const MAX_ENTRIES: usize = 512;
+/// Linux's limit on one `NAME=value` string in a new process's environment,
+/// its terminator included (`MAX_ARG_STRLEN`, 32 pages): a longer one fails
+/// every spawn with E2BIG.
+pub const MAX_ENV_STRING_BYTES: usize = 131_072;
+/// Most bytes the vault's `NAME=value` strings may take together: they share
+/// the exec argument space (`ARG_MAX`, 1 MiB on macOS) with the agent's own
+/// environment and argv. Entries past it (by name) are refused.
+pub const MAX_VAULT_ENV_BYTES: usize = 262_144;
+
+/// The bytes `NAME=value` takes in a new process's environment.
+pub fn env_string_bytes(name: &str, value: &str) -> usize {
+    name.len().saturating_add(value.len()).saturating_add(2)
+}
 
 /// One env entry of the answer. `value` is `None` for a revoked entry.
 pub struct EnvItem {
@@ -72,11 +85,11 @@ pub fn parse(status: u16, body: &[u8]) -> Answer {
     if items.len() > MAX_ENTRIES {
         return Answer::Refused("vault.too_many".to_owned());
     }
-    let mut refused = 0;
+    let mut refused = 0usize;
     let mut by_name: BTreeMap<String, EnvItem> = BTreeMap::new();
     for item in items {
         let Some(entry) = env_item(item) else {
-            refused += 1;
+            refused = refused.saturating_add(1);
             continue;
         };
         // One entry per name: the newest revision wins.
@@ -87,7 +100,23 @@ pub fn parse(status: u16, body: &[u8]) -> Answer {
             }
         }
     }
-    Answer::Granted { env: by_name.into_values().collect(), refused }
+    // What a spawn can carry: each string under the per-string limit, and
+    // all of them within the vault's share of the exec space. A refused
+    // entry is not delivered, so a stored older value of it is removed.
+    let mut total = 0usize;
+    let mut env = Vec::with_capacity(by_name.len());
+    for entry in by_name.into_values() {
+        if let Some(value) = &entry.value {
+            let bytes = env_string_bytes(&entry.name, value);
+            if bytes > MAX_ENV_STRING_BYTES || total.saturating_add(bytes) > MAX_VAULT_ENV_BYTES {
+                refused = refused.saturating_add(1);
+                continue;
+            }
+            total = total.saturating_add(bytes);
+        }
+        env.push(entry);
+    }
+    Answer::Granted { env, refused }
 }
 
 fn env_item(item: &Value) -> Option<EnvItem> {
@@ -107,7 +136,7 @@ fn env_item(item: &Value) -> Option<EnvItem> {
 /// Base64 (standard, padded or not) of UTF-8 with no NUL, at most
 /// [`MAX_VALUE_BYTES`].
 fn decode_value(text: &str) -> Option<Zeroizing<String>> {
-    if text.len() > MAX_VALUE_BYTES.div_ceil(3) * 4 + 4 {
+    if text.len() > MAX_VALUE_BYTES.div_ceil(3).saturating_mul(4).saturating_add(4) {
         return None;
     }
     let engine = base64::engine::general_purpose::GeneralPurpose::new(

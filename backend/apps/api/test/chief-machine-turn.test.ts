@@ -208,6 +208,29 @@ describe("default Chief machine turn", () => {
     for (const url of ["https://evil.test/oauth/authorize", "https://claude.ai/settings", "https://user:pass@claude.ai/oauth/authorize", "https://auth.openai.com/codex/device"]) expect(machineSignInURL(url, "claude")).toBeNull()
   })
 
+  it.each([
+    "https://claude.com/cai/oauth/authorize?client_id=test-client&state=test-state",
+    "https://claude.com/cai/oauth/authorize/?client_id=test-client",
+  ])("accepts Claude Code's subscription sign-in page: %s", (url) => {
+    expect(machineSignInURL(url, "claude")).toBe(url)
+    expect(machineSignInURL(url, "codex")).toBeNull()
+  })
+
+  it.each([
+    "https://claude.ai/cai/oauth/authorize",
+    "https://platform.claude.com/cai/oauth/authorize",
+    "https://auth.openai.com/cai/oauth/authorize",
+    "https://claude.com.evil.test/cai/oauth/authorize",
+    "https://claude.com/cai/oauth/authorize/extra",
+    "https://claude.com/cai/oauth/authorize-lookalike",
+    "https://claude.com/settings",
+    "https://user:pass@claude.com/cai/oauth/authorize",
+    "https://claude.com:8443/cai/oauth/authorize",
+    "http://claude.com/cai/oauth/authorize",
+  ])("rejects unrelated or unsafe subscription sign-in URLs: %s", (url) => {
+    expect(machineSignInURL(url, "claude")).toBeNull()
+  })
+
   it("offers sign-in for a fresh image's conclusive own-auth check, while unknown stays unknown", () => {
     expect(machineAuthState({ state: "signedOut", source: "authCheck" })).toBe("signed_out")
     expect(machineAuthState({ state: "expired", source: "turn" })).toBe("signed_out")

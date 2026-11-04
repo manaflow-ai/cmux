@@ -108,8 +108,8 @@
    itself and its text shouldn't be affected by the session info"). The page pins the column to the
    width it has in the whole pane (--acpmux-session-info-column) and centers it unrounded in the chat
    beside the panel, so no frame of the slide, whatever the chat's width then, takes a pixel off it and
-   wraps a line anew. The settled room is an even number of pixels (pushedRoom), so the column starts on
-   a whole pixel once the slide ends. */
+   wraps a line anew. The settled room keeps the panel's exact dragged width plus its inset (pushedRoom),
+   so an off-grid panel does not leave a painted gap beside the chat. */
 .acpmux-shell[data-session-info-chat-placement="push"] > .acpmux-main {
   --cv-inset: max(var(--cv-edge), calc((100% - var(--acpmux-session-info-column, var(--cv-column))) / 2));
 }
@@ -244,9 +244,6 @@
   font-weight: 500;
 }
 .acpmux-session-info__body {
-  /* A section's drag handle (.acpmux-session-info-section__handle) is this wide: one base step of the
-     body's left inset, then the head's leading padding up to its icon column. */
-  --acpmux-session-info-handle-width: calc(var(--grid-base) + var(--grid-gap));
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -320,10 +317,13 @@
   position: absolute;
   z-index: var(--layer-raised);
   top: 0;
-  /* From one base step left of the section to its icon column (the head's padding is one grid gap):
-     the panel's resize edge (3px in) stays clear on the left, the icon or title on the right. */
-  left: calc(-1 * var(--grid-base));
-  width: var(--acpmux-session-info-handle-width);
+  /* Centred on the head's left edge, where its hover pill starts, and on the head's middle line, so the
+     grip sits on one line with the row instead of half on, half off its pill (Leo, 2026-11-03: "this is
+     an uglily placed thing. just align the draggable"). Two base steps wide: the panel's resize edge
+     (3px in) stays clear on the left, the icon or title (one grid gap in) on the right. The gallery
+     compares other centres through --acpmux-session-info-grip-center. */
+  left: calc(var(--acpmux-session-info-grip-center, 0px) - var(--grid-base));
+  width: calc(2 * var(--grid-base));
   height: var(--grid-row);
   display: flex;
   align-items: center;
@@ -338,6 +338,11 @@
   opacity: 0;
   touch-action: none;
   appearance: none;
+}
+.acpmux-session-info-section__handle > svg {
+  flex: none;
+  overflow: visible;
+  transform: var(--acpmux-session-info-grip-turn, none);
 }
 .acpmux-session-info-section:has(> .acpmux-session-info-section__disclosure > .ui-disclosure-trigger:hover)
   > .acpmux-session-info-section__handle,
@@ -794,34 +799,10 @@ button.acpmux-session-info-port:hover,
   align-items: center;
   gap: var(--grid-gap);
 }
-/* Remote Control draws as a switch, as Claude desktop's Session Info and our Settings switches do,
-   never a bare checkbox: a 36x20 track (the control-height scale) with a 16px knob, filled when on.
-   The knob is a gradient on the input itself: no extra markup, and it changes in one frame. */
+/* Remote Control uses the shared ui/Switch primitive and its 32x20 grid control. */
 .acpmux-session-info-switch__input {
   flex: none;
-  margin: 0 0 0 auto;
-  appearance: none;
-  width: 36px;
-  height: 20px;
-  border-radius: 10px;
-  background:
-    radial-gradient(circle at center, #fff 7.5px, transparent 8px) no-repeat 0 / 20px 20px,
-    color-mix(in srgb, var(--agent-text) 22%, transparent);
-  cursor: default;
-}
-.acpmux-session-info-switch__input:checked {
-  /* As Settings' switch (`ds-switch`): the text color's track and the surface's knob, so the knob
-     shows in every theme (an accent track hid a white knob where the accent is white). */
-  background:
-    radial-gradient(circle at center, var(--cmux-elevated-background, #fff) 7.5px, transparent 8px) no-repeat 16px /
-      20px 20px,
-    var(--agent-text);
-}
-[dir="rtl"] .acpmux-session-info-switch__input {
-  background-position-x: 16px, 0;
-}
-[dir="rtl"] .acpmux-session-info-switch__input:checked {
-  background-position-x: 0, 0;
+  margin-inline-start: auto;
 }
 .acpmux-session-info-icon-button {
   flex: none;
