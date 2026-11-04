@@ -257,6 +257,35 @@ def passed_steps(lines: list[str], skip: set[int] | None = None) -> set[int]:
     return found
 
 
+# Tokens that differ run to run in the same error (2026-11-04: the same release-notary red on a PR and on the base
+# named /tmp/tmp.Pw5bL0wmeb on one side and another mktemp name on the other). volatile() masks them before two
+# errors are compared; it never decides on its own that a red is the base's, only that two lines say the same thing.
+# A temp dir's first component (mktemp's tmp.XXXXXXXXXX, Python's tmpXXXXXXXX, $RUNNER_TEMP's subdirs, macOS's
+# /var/folders/../T/), the runner's checkout root, an ISO time and a duration. Hex ids and UUIDs outside a temp dir
+# are compared as they are: a missing artifact deadbeef1 is not a missing artifact abcdef12 (base_red_excuse's
+# mask_shas masks only commit shas, for the same reason).
+VOLATILE = (
+    (re.compile(r"(?:/private)?/var/folders/[^/\s'\"]+/[^/\s'\"]+/T(?:/[^/\s'\"():,]+)?"), "<tmp>"),
+    (re.compile(r"(?:/[^/\s'\"]+)*/_temp(?:/[^/\s'\"():,]+)?"), "<tmp>"),
+    (re.compile(r"(?<![\w.])/tmp(?:/[^/\s'\"():,]+)?"), "<tmp>"),
+    (re.compile(r"(?:/home/runner/work|(?:/[^/\s'\"]+)*/_work)/[^/\s'\"]+/[^/\s'\"]+(?=/)"), "<workspace>"),
+    (re.compile(r"\b\d{4}-\d\d-\d\d[T ]\d\d:\d\d(?::\d\d(?:[.,]\d+)?)?(?:Z|[+-]\d\d:?\d\d)?"), "<time>"),
+    (re.compile(r"\b\d+(?:\.\d+)?(?:ns|us|µs|ms|s|m|h)(?:\d+(?:\.\d+)?(?:ms|s|m))*\b"), "<duration>"),
+)
+
+
+def volatile(text: str) -> str:
+    """TEXT with its run-to-run tokens masked (VOLATILE), for comparing one error with another."""
+    for pattern, mask in VOLATILE:
+        text = pattern.sub(mask, text)
+    return text
+
+
+def same_error(head: str | None, base: str | None) -> bool:
+    """Whether two printed errors say the same thing once their run-to-run tokens are masked."""
+    return bool(head) and bool(base) and volatile(head) == volatile(base)
+
+
 def log_lines(log: str) -> list[str]:
     """Every line of a job log with its timestamp and colours removed, the runner's step echoes included."""
     return [STAMP.sub("", ANSI.sub("", line)).rstrip() for line in log.splitlines()]
@@ -901,7 +930,7 @@ def classify(head_log: str | None, base_log: str | None, job: str = "", base: st
     # assertion on the base does not excuse a TypeError on the head. Names with no error printed compare by name.
     differ = [name for name in sorted(head.failed & seen)
               if (head.messages.get(name) or base_result.messages.get(name))
-              and head.messages.get(name) != base_result.messages.get(name) and name not in flaky]
+              and not same_error(head.messages.get(name), base_result.messages.get(name)) and name not in flaky]
     if base_log is None and head.failed - flaky.keys():
         reasons.append(f"no {base} log to compare {len(head.failed)} failing test(s) with")
     elif new:
@@ -1150,7 +1179,7 @@ def classify_web(head_logs: list, base_logs: list, job: str = "", base: str = "t
             new.append(name)
             continue
         mine, theirs = head.failed.get(name, ""), seen.failed[name]
-        if not mine or not theirs or mine != theirs:
+        if not same_error(mine, theirs):
             differ.append(f"{name} ({mine or 'no error read'} here; {theirs or 'no error read'} on {base})")
             continue
         shared.append(name)
