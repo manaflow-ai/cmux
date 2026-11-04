@@ -18,7 +18,7 @@ the page first drew them). Runs `--rounds` relaunches in one journey (variants u
 Writes DIR/report.json ({"rounds": [launch-shift summary per relaunch], "median": {...}, "journey": rows}) and
 DIR/report.md, and prints RELAUNCH-SHIFT {json}. Fleet entry: scripts/measure/relaunch-shift.sh.
 """
-import argparse, glob, json, os, statistics, subprocess, sys, threading
+import argparse, glob, json, os, shutil, statistics, subprocess, sys, threading
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -72,6 +72,8 @@ def main():
     # still answers kill(pid, 0) and looks alive to the journey.
     threading.Thread(target=app.process.wait, daemon=True).start()
     journey_out = os.path.join(out, "journey")
+    # Only this run's rounds: a reused --out keeps an earlier run's summaries, which would pass for this run's.
+    shutil.rmtree(journey_out, ignore_errors=True)
     variants = ",".join([args.variants] * max(1, args.rounds))
     command = [sys.executable, os.path.join(HERE, "restore-journey.py"), "--socket", app.socket, "--allow-non-slot",
                "--variants", variants, "--record-launch", str(args.seconds), "--out", journey_out]
