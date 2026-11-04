@@ -356,12 +356,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         webView.autoresizingMask = [.width, .height]
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false
-        // The page is transparent; WebKit's opaque backing would hide the window's backdrop.
-        // macOS has no public switch, so this uses `_setDrawsBackground:` through KVC, checked first.
-        if webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) {
-            webView.setValue(false, forKey: "drawsBackground")
-        }
-        webView.underPageBackgroundColor = .clear
+        webView.clearBackground()
         // Web Inspector in every build (Inspect Element, Cmd-Opt-I).
         webView.isInspectable = true
         webView.navigationDelegate = self

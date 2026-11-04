@@ -59,7 +59,7 @@ import WebKit
         glass.state = .followsWindowActiveState
         glass.autoresizingMask = [.width, .height]
         let webView = WKWebView(frame: glass.bounds, configuration: WKWebViewConfiguration())
-        webView.setValue(false, forKey: "drawsBackground")
+        webView.clearBackground()
         webView.autoresizingMask = [.width, .height]
         glass.addSubview(webView)
         window.contentView = glass
@@ -130,5 +130,17 @@ import WebKit
         let data = try? Data(blockingContentsOf: file)
         let config = data.flatMap { try? JSONSerialization.jsonObject(with: $0, options: [.json5Allowed]) } as? [String: Any]
         return lookQuery(config: config, dark: dark)
+    }
+}
+
+extension WKWebView {
+    /// The page is transparent; WebKit's opaque backing would hide the window's backdrop. macOS has no
+    /// public switch, so this uses `_setDrawsBackground:` through KVC, checked first (``PageWebView`` and
+    /// ``ViewWindow``).
+    func clearBackground() {
+        if responds(to: NSSelectorFromString("_setDrawsBackground:")) {
+            setValue(false, forKey: "drawsBackground")
+        }
+        underPageBackgroundColor = .clear
     }
 }
