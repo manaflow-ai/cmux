@@ -55,3 +55,19 @@ export function askOnSingleCard(
   if (!groups?.supported || !permission.groupId) return true;
   return !groups.groups.some((group) => group.items.some((item) => item.permissionId === permission.permissionId));
 }
+
+/// The ask kept on its single card while the person writes a deny's instructions on it (`held`, from
+/// the card's draft), even after a group read hands it to the group's panel: the card unmounting would
+/// lose what they typed, and the panel takes no instructions. It goes once it is no longer pending.
+export function heldOnCard<P extends { pending?: boolean; permissionId: string }>(
+  held: P | undefined,
+  permission: P | undefined,
+  groups: PermissionClientState | undefined,
+): P | undefined {
+  if (!held) return undefined;
+  if (permission?.permissionId === held.permissionId) return permission.pending ? permission : undefined;
+  const pending = groups?.groups.some((group) =>
+    group.items.some((item) => item.permissionId === held.permissionId && item.state === "pending"),
+  );
+  return pending ? held : undefined;
+}

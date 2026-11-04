@@ -4687,10 +4687,12 @@ export class AcpmuxDirectClient {
     if (this.copyBack === sessionId) this.copyBack = undefined;
     if (Array.isArray(detail.pending)) {
       // Grouped asks are the group card's only once the groups are read; until then they draw as
-      // single cards at once, and `dropGroupedAsks` hands them over when the read lands.
+      // single cards at once, and `dropGroupedAsks` hands them over when the read lands. An ask the
+      // groups on screen already list (restored on reopen, read or not) is the panel's: it never
+      // heads the single card's queue, where it would hide an ungrouped ask behind it.
       const groupsRead = this.permissions.read;
       const groupedIds = new Set(
-        groupsRead
+        this.permissions.state.supported
           ? this.permissions.state.groups.flatMap((group) => group.items.map((item) => item.permissionId))
           : [],
       );
@@ -4698,7 +4700,7 @@ export class AcpmuxDirectClient {
         .map((item: any) => permissionFromMessage({ ...item, sessionId }, sessionId))
         .filter(
           (item: AcpmuxPermission | undefined): item is AcpmuxPermission =>
-            !!item && (!groupsRead || (!item.groupId && !groupedIds.has(item.permissionId))),
+            !!item && !groupedIds.has(item.permissionId) && (!groupsRead || !item.groupId),
         );
       // acpmux lists them in no order: oldest first, by the record that asked (else by id, a
       // time-ordered UUIDv7), so the card keeps the ask the replay showed.

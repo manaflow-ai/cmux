@@ -254,7 +254,7 @@ import {
 } from "./computerUse/computerUsePreview";
 import { ComputerUsePreviewCard } from "./computerUse/ComputerUsePreviewCard";
 import { PermissionCard } from "./PermissionCard";
-import { askOnSingleCard, cardTakesShortcuts } from "./permissionKeys";
+import { askOnSingleCard, cardTakesShortcuts, heldOnCard } from "./permissionKeys";
 import { QuestionCard } from "./question/QuestionCard";
 import { PermissionQuestion } from "./question/PermissionQuestion";
 import { QUESTION_RECORD } from "./question/record";
@@ -6032,6 +6032,7 @@ function PermissionAsk({
   shortcuts,
   waiting = 0,
   alwaysAtSource,
+  onDraft,
 }: {
   permission: AcpmuxPermission;
   harness?: string;
@@ -6047,6 +6048,8 @@ function PermissionAsk({
   waiting?: number;
   /// A peer's chat, which takes no lasting grant from this Mac (PermissionCard).
   alwaysAtSource?: boolean;
+  /// The card's deny instructions opened or closed (PermissionCard `onDraft`).
+  onDraft?: (open: boolean) => void;
 }) {
   const t = useT();
   if (!permission.question)
@@ -6060,6 +6063,7 @@ function PermissionAsk({
         shortcuts={shortcuts}
         onAnswer={answerPermission(permission)}
         onDenyWithFeedback={shownChat && denyWithFeedback(permission, shownChat)}
+        onDraft={onDraft}
         waiting={waiting}
       />
     );
@@ -7152,9 +7156,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       return;
     if (trustRoute(pending.error, pending.again, pending.declined)) pendingTrustRefusal.current = undefined;
   }, [trustRoute]);
-  const individualPermission = askOnSingleCard(snapshot.permission, snapshot.permissionGroups)
-    ? snapshot.permission
-    : undefined;
+  /// The ask whose card has a deny's instructions open: it stays the single card (`heldOnCard`).
+  const [draftAsk, setDraftAsk] = useState<AcpmuxPermission>();
+  const individualPermission =
+    heldOnCard(draftAsk, snapshot.permission, snapshot.permissionGroups) ??
+    (askOnSingleCard(snapshot.permission, snapshot.permissionGroups) ? snapshot.permission : undefined);
   // Search files reads the session's folder through whoever runs the session: the acpmux
   // client (or the mock daemon), else the native host.
   const fileRoot = snapshot.summary?.cwd;
@@ -13816,6 +13822,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               focusComposer={() => composerHandle.current?.focus()}
               shownChat={shownChat}
               alwaysAtSource={chatOnPeer(snapshot)}
+              onDraft={(open) => setDraftAsk(open ? individualPermission : undefined)}
             />
           )}
           {secret && (

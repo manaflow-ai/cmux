@@ -449,3 +449,44 @@ test("a grouped ask draws on the card at once while its group read is out, then 
     client.close();
   }
 });
+
+test("a reopened chat's restored group keeps its ask, and an ungrouped ask behind it draws at once", async () => {
+  // Codex review of #34386 (F2): on reopen the restored groups list the grouped ask while their
+  // refresh is out; that ask headed the single card's queue, hidden as the panel's, and the ungrouped
+  // ask behind it waited for the refresh.
+  const daemon = new Daemon("restored-group-queue");
+  const [A, B] = [daemon.sessionA, daemon.sessionB];
+  daemon.pages.set(A, { steps: [prompt("Retry path"), reply(A, "Retry added.")] });
+  daemon.pages.set(B, { steps: [prompt("Check disk"), reply(B, "Running du.")] });
+  const ask = (permissionId: string, title: string, groupId?: string) => ({
+    permissionId,
+    ...(groupId ? { groupId } : {}),
+    request: {
+      toolCall: { toolCallId: permissionId, title, kind: "execute", rawInput: { command: title } },
+      options: [
+        { optionId: "allow", name: "Allow once", kind: "allow_once" },
+        { optionId: "deny", name: "Deny", kind: "reject_once" },
+      ],
+    },
+  });
+  daemon.pending.set(B, [ask(`perm-${B}`, "du -sh .", `group-${B}`), ask(`perm2-${B}`, "ls")]);
+  const { client, last } = await paneOn(daemon);
+  try {
+    expect(await settlesWithin(client.select(B), 1_000)).toBe(true);
+    await turns();
+    expect(last().permissionGroups?.groups.map((group) => group.groupId)).toEqual([`group-${B}`]);
+    expect(await settlesWithin(client.select(A), 1_000)).toBe(true);
+    await turns();
+    daemon.holding = (message) => message.method === PERMISSION_GROUP_OPS.groups && message.params?.sessionId === B;
+    expect(await settlesWithin(client.select(B), 1_000)).toBe(true);
+    await turns();
+    expect(daemon.heldMethods()).toEqual([PERMISSION_GROUP_OPS.groups]);
+    // The restored group holds its ask; the ungrouped one is the single card, not hidden behind it.
+    expect(last().permissionGroups?.groups.map((group) => group.groupId)).toEqual([`group-${B}`]);
+    expect(last().permission?.permissionId).toBe(`perm2-${B}`);
+    expect(askOnSingleCard(last().permission, last().permissionGroups)).toBe(true);
+    daemon.release();
+  } finally {
+    client.close();
+  }
+});

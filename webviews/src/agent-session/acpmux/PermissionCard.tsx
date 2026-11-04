@@ -116,6 +116,7 @@ export function PermissionCard({
   waiting = 0,
   alwaysAtSource = false,
   fullAccessMode,
+  onDraft,
 }: {
   permission: AcpmuxPermission;
   /// Sends the answer. A promise that rejects means acpmux refused it (already answered elsewhere,
@@ -137,6 +138,9 @@ export function PermissionCard({
   alwaysAtSource?: boolean;
   /// The chat's mode label while it runs its highest mode (Bypass permissions, Full access).
   fullAccessMode?: string;
+  /// Told when the deny's instructions open (true) and close, sent or not (false; also on unmount),
+  /// so the pane keeps this card up while something is typed on it (permissionKeys.ts `heldOnCard`).
+  onDraft?(open: boolean): void;
 }) {
   const t = useT();
   const command = permissionCommand(permission);
@@ -197,6 +201,13 @@ export function PermissionCard({
     if (!writing) setDraft({ permissionId: permission.permissionId, text: "" });
   };
   const fieldOpen = writing !== undefined;
+  const draftListener = useRef(onDraft);
+  draftListener.current = onDraft;
+  useEffect(() => {
+    if (!fieldOpen) return;
+    draftListener.current?.(true);
+    return () => draftListener.current?.(false);
+  }, [fieldOpen]);
   // Opened by the person's own click or key, so the field takes the keyboard.
   useEffect(() => {
     if (fieldOpen) field.current?.focus();
