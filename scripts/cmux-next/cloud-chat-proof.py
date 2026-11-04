@@ -6,7 +6,7 @@ Run by .github/workflows/cloud-chat-proof.yml after `scripts/reload.sh --tag TAG
 project and mints VM keys at vm-staging.cmux.dev (CloudConfiguration.resolve,
 AppControl+VMAgentKey.vmBaseURL). Through the tagged app's own CLI and socket:
 
-1. waits until the app is signed in (`cloud list-machines` answers),
+1. waits until the app is signed in (`cloud list-machines` says account.signed_in),
 2. `vm token create --ttl 30m` (the key goes to the login Keychain; it is never printed),
 3. `cloud start-chat --prompt ... --wait`: a new machine, a chat on it, the prompt, the reply,
 4. kills the machine the chat made.
@@ -106,10 +106,11 @@ if code != 0:
 # 3. The Cloud chat: start, send, wait for the turn, read the reply. The machine is named after the
 # run, so a start still pending (exit 75: creation goes on in the app) is asked again with the same
 # name, and the machine can be found for cleanup by that name when no answer named its id.
-chat_deadline = time.monotonic() + 1200
+# The whole step has 30 minutes: sign-in (at most ~5), pending retries (10) and the last wait (10).
+chat_deadline = time.monotonic() + 600
 while True:  # bounded: the same start-chat again while its machine is still being made
     code, out, err = cmux("cloud", "start-chat", "--prompt", args.prompt, "--agent", args.agent,
-                          "--name", args.tag, "--wait", "--timeout", "900", "--json", timeout=1200)
+                          "--name", args.tag, "--wait", "--timeout", "600", "--json", timeout=660)
     if code != 75 or time.monotonic() > chat_deadline:
         break
     record("cloud start-chat (machine still starting)", code, "", err)
