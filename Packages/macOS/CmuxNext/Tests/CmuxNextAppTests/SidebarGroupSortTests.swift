@@ -1,4 +1,5 @@
 import Foundation
+@testable import CmuxNextApp
 @testable import CmuxNextSidebar
 import Testing
 
@@ -130,6 +131,24 @@ import Testing
         let once = Self.projection(sort: .name).arrange(Self.raw(), drag: Self.drag)
         let again = try #require(Self.group(Self.projection(sort: .manual).arrange(once, drag: Self.drag)))
         #expect(again.sort == .manual)
+    }
+
+    @Test func aSortOnlyChangeShowsTheSameRowsAgain() {
+        // The rows a sort lists are the same live rows: a pass that lists them again must still arrange them.
+        let store = SidebarDocStore(remote: nil, mirror: nil)
+        store.shown = Self.projection(sort: .manual)
+        let model = SidebarModel(sections: [])
+        model.docDrag = SidebarDocDrag(document: store, item: { Self.drag.item($0) }, section: { id in id == .machine(.local) ? Self.machine : nil },
+                                       begin: { _ in [:] }, drop: { _, _ in })
+        let rows = SidebarRows(model: model, document: { store })
+        rows.show(Self.raw(), creating: ([], nil), unlessShown: true, elsewhere: [])
+        model.setSections([]) // a marker: a skipped pass leaves it
+        rows.show(Self.raw(), creating: ([], nil), unlessShown: true, elsewhere: [])
+        #expect(model.sections.isEmpty, "the same rows and sorts showed again")
+        store.shown = Self.projection(sort: .name)
+        rows.show(Self.raw(), creating: ([], nil), unlessShown: true, elsewhere: [])
+        #expect(Self.group(model.sections).map { Self.titles($0.workspaces) } == ["pinned", "alpha", "zulu"],
+                "a change of a group's sort alone did not show again")
     }
 
     @Test func theEditorsSortRowReadsTheGroupsSort() {
