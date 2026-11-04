@@ -61,10 +61,15 @@ public struct CloudConfiguration: Sendable, Equatable {
     }
 
     func credentialsDirectory(homeDirectory: URL) -> URL {
-        let directory = homeDirectory
-            .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
-            .appendingPathComponent(bundleID ?? "cmux", isDirectory: true)
+        let directory = Self.bundleSupportDirectory(homeDirectory: homeDirectory, bundleID: bundleID ?? "cmux")
         return authStorageProject.map { directory.appendingPathComponent($0, isDirectory: true) } ?? directory
+    }
+
+    /// A bundle's directory under the cmux Application Support folder (its file token store's).
+    static func bundleSupportDirectory(homeDirectory: URL, bundleID: String) -> URL {
+        homeDirectory
+            .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
+            .appendingPathComponent(bundleID, isDirectory: true)
     }
 
     func authDefaultsKey(_ key: String) -> String {
@@ -109,9 +114,8 @@ public struct CloudConfiguration: Sendable, Equatable {
         let nightly = "com.cmuxterm.app.nightly"
         return NightlySession(
             keychainService: "\(nightly).auth", accessGroup: "7WLXT3NR37.\(nightly)",
-            credentialsDirectory: FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
-                .appendingPathComponent(nightly, isDirectory: true))
+            credentialsDirectory: Self.bundleSupportDirectory(
+                homeDirectory: FileManager.default.homeDirectoryForCurrentUser, bundleID: nightly))
     }
 
     static let devAccountDefaultsKey = "cmux.next.dev.account"
