@@ -106,7 +106,7 @@ web server, pid file and chat folder live in --out (the fake chats themselves st
 tag's acpmux home). The app is left running after the last
 relaunch (the caller quits it and releases the slot).
 """
-import argparse, atexit, glob, hashlib, http.server, json, os, plistlib, re, shlex, shutil, signal, socket, subprocess, sys, threading, time
+import argparse, atexit, glob, hashlib, http.server, json, os, plistlib, pwd, re, shlex, shutil, signal, socket, subprocess, sys, threading, time
 from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -278,13 +278,13 @@ class App:
         self.info, self.pid = info, int(info["pid"])
 
     @staticmethod
-    def environment(pid):
+    def environment(pid, keys=None):
         """The app's own launch variables (`ps eww`, same user): the CMUX_* ones plus HOME and
         TMPDIR, which is what a capture slot or a test launch sets."""
         out = subprocess.run(["ps", "eww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout
         # A value runs to the next ` NAME=`, not the next space: a fleet step's HOME is under "Application Support".
         return {key: value for key, value in re.findall(r"(?:^|\s)([A-Za-z_][A-Za-z0-9_]*)=(.*?)(?=\s[A-Za-z_][A-Za-z0-9_]*=|\s*$)", out.strip())
-                if key.startswith(("CMUX_", "ACPMUX_")) or key in ("HOME", "TMPDIR")}
+                if (key in keys if keys else (key.startswith(("CMUX_", "ACPMUX_")) or key in ("HOME", "TMPDIR")))}
 
     def alive(self):
         try:
@@ -566,9 +566,34 @@ def value(answer):
     return answer.get("value", {}) if isinstance(answer, dict) else {}
 
 
-def acpmux_socket_of(home):
+ACPMUX_SOCKETS = {}  # home -> socket, as the app's running daemon reported them (running_daemon)
+
+
+def running_daemon():
+    """(ACPMUX_HOME, ACPMUX_SOCKET) of the acpmux daemon this app started (its bundled binary, `daemon run`), read from
+    the process's environment (`ps eww`, same user); None when none runs or it names neither."""
+    if not APP.bundle:
+        return None
+    binary = os.path.join(APP.bundle, "Contents", "Resources", "bin", "acpmux")
+    try:
+        listing = subprocess.run(["ps", "-axww", "-o", "pid=,command="], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for line in listing.splitlines():
+        pid, _, command = line.strip().partition(" ")
+        if command.startswith(binary + " daemon run"):
+            env = App.environment(int(pid), ("ACPMUX_HOME", "ACPMUX_SOCKET"))
+            home = env.get("ACPMUX_HOME")
+            if home:
+                return home, env.get("ACPMUX_SOCKET") or acpmux_socket_of(home, derived=True)
+    return None
+
+
+def acpmux_socket_of(home, derived=False):
     """acpmux `config::socket_path()`: `<home>/acpmux.sock`, or `/tmp/acpmux-<uid>/<fnv1a64>.sock`
-    when that is too long for sun_path."""
+    when that is too long for sun_path. A home the app's daemon reported keeps the socket it reported."""
+    if not derived and home in ACPMUX_SOCKETS:
+        return ACPMUX_SOCKETS[home]
     preferred = os.path.join(home, "acpmux.sock")
     if len(preferred.encode()) < 96:
         return preferred
@@ -585,7 +610,7 @@ def acpmux_missing():
         return
     ACPMUX_MISSING.append(True)
     say(f"  acpmux: none of these homes has a socket: {acpmux_home.tried}")
-    for base in {os.path.expanduser("~"), APP.env.get("HOME", "")} - {""}:
+    for base in {os.path.expanduser("~"), APP.env.get("HOME", ""), pwd.getpwuid(os.getuid()).pw_dir} - {""}:
         builds = os.path.join(base, ".acpmux", "builds")
         found = sorted(name for name in (os.listdir(builds) if os.path.isdir(builds) else [])
                        if os.path.exists(acpmux_socket_of(os.path.join(builds, name))))
@@ -606,6 +631,12 @@ def acpmux_home():
     isolation, builds/com.cmuxterm.app.debug.<tag slug>. Never /tmp/acpmux-<uid> as such: other
     apps' daemons live there."""
     slug = re.sub(r"[^a-z0-9]+", "-", (APP.tag or "").lower()).strip("-")
+    # First, the app's own running daemon says where it lives (its ACPMUX_HOME and ACPMUX_SOCKET), so the lookup
+    # cannot drift from the app's rule; the derived homes below are the fallback.
+    running = running_daemon()
+    if running and os.path.exists(running[1]):
+        ACPMUX_SOCKETS[running[0]] = running[1]
+        return running[0]
     homes = []
     # A capture slot launches the app with the slot's home as HOME (capture-host since hq#4961): its
     # acpmux home is under that home, by the same build key.
@@ -615,7 +646,15 @@ def acpmux_home():
         except ValueError:
             pass
     homes += [APP.names()["acpmux_home"]] if APP.names() else []
-    for base in {os.path.expanduser("~"), APP.env.get("HOME", "")}:
+    # The app's own rule: `FileManager.homeDirectoryForCurrentUser`, the password database's home, not $HOME (a fleet
+    # step sets HOME to a home of its own under the step's folder; the app's acpmux stays under the account's).
+    account = pwd.getpwuid(os.getuid()).pw_dir
+    if APP.bundle:
+        try:
+            homes.append(build_names.of_app(APP.bundle, account)["acpmux_home"])
+        except ValueError:
+            pass
+    for base in {os.path.expanduser("~"), APP.env.get("HOME", ""), account}:
         if base:
             homes.append(os.path.join(base, ".acpmux", "builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", slug).strip(".")))
     acpmux_home.tried = [(home, acpmux_socket_of(home)) for home in homes]
