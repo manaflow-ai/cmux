@@ -11,7 +11,7 @@
   font-weight: var(--weight-emphasis);
   line-height: 1;
   letter-spacing: 0;
-  color: var(--acpmux-base, var(--agent-accent-text, Canvas));
+  color: var(--agent-page-bg, #fff);
   user-select: none;
 }
 .cv-face > img {

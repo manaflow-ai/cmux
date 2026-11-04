@@ -28,16 +28,6 @@ python3 scripts/journeys/run.py --list     # id, priority, file, title
 python3 scripts/journeys/run.py --check    # validate the journey files (no fleet)
 ```
 
-A journey that needs a display rate says `"require_hz": 120` (on the journey, a step, or a step inside a step group;
-one rate per journey, a whole number of Hz in [24, 240]).
-The minis' own displays run at 60 Hz, so it runs only on the lease's own virtual display:
-`--whole-host --vdisplay 120x1` (1x pixels) or `--vdisplay 120x2` (2x, a Retina laptop's density). The lease
-makes that display the main display before the app launches and measures it with a fresh process; a display
-that is not the main one, or whose measured rate (within 0.35 ms of 1000/HZ) or pixel density is not the asked
-one, makes the lease's journeys `not run`, and `display.json` (each lease's in `displays.jsonl`) keeps what was
-measured. Without the right `--vdisplay`, such a journey is `not run` before any lease or build wait, with what
-to pass.
-
 Capture hosts come from the fleet registry (`~/.ssh/config.d/fleet-registry.json`, written by
 leo-workspace `tools/reach --install`). On a machine without it, name them:
 `--hosts "cmux17 cmux18 cmux19 cmux21 cmux22 cmux23 cmux24"` (sets `CAPTURE_HOST_SLOT_HOSTS`).

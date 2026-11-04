@@ -23,7 +23,7 @@ permissions:
 
 #
 # Coalesced (2026-11-03, cmuxterm-hq build-fleet data for 2026-11-02: 919 push runs, about $4.1k of Blacksmith a
-# day, nearly all for a commit a newer push already held): the web checks run at most once every 30 minutes, on
+# day, nearly all for a commit a newer push already held): the web checks run at most once every 15 minutes, on
 # the newest push that waited, routed from the commit the last run tested, so each run checks everything since.
 # The `coalesce` job waits (scripts/ci/web_coalesce.py wait); a newer push's coalesce job replaces one that is
 # still pending, never one that started, and that run ends cancelled with no job run. A job that slept and finds the
@@ -31,7 +31,7 @@ permissions:
 # coalesced run's webview tests go red, `web bisect` re-runs only the new red files on the commits it covered and
 # names the first red commit and its pull request (test_reds.py bisect_report). Pull requests are unchanged.
 # `web lint (fast)` keeps one run per push in cmux-next-web-lint.yml. vars.NEXT_WEB_COALESCE = '0' runs every push
-# at once. The window was 15 minutes until 2026-11-04 (about 96 runs a day); 30 halves that.
+# at once.
 
 # One run per pushed commit: a later push must not cancel the verdict that
 # base-aware excusal reads.
@@ -42,10 +42,10 @@ concurrency:
 jobs:
   coalesce:
     name: coalesce
-    # A sleep of at most 30 minutes, then a few seconds of work: the reconciled Linux pool's small member, as the
+    # A sleep of at most 15 minutes, then a few seconds of work: the reconciled Linux pool's small member, as the
     # base tier kick does.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
-    timeout-minutes: 35
+    timeout-minutes: 20
     # One coalesce job waits at a time; a newer push's replaces a pending one (never a started one). One that slept
     # yields to a newer push when it wakes (#33872), so no push waits two windows. A dispatch (next_batch's web lane),
     # a re-run and the off switch get a group of their own and run at once: a re-run never waits behind or is
@@ -79,14 +79,14 @@ jobs:
           key: cmux-next-web-coalesce-${{ github.ref_name }}-none
           restore-keys: cmux-next-web-coalesce-${{ github.ref_name }}-
 
-      - name: Wait for the 30-minute window
+      - name: Wait for the 15-minute window
         id: wait
         env:
           PUSH_BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
         run: |
           off=(--ref "$GITHUB_REF"); [ "$COALESCE" = 1 ] || off=(--off)
           python3 -I scripts/ci/web_coalesce.py wait "${off[@]}" --last "$RUNNER_TEMP/web-coalesce/last.json" \
-            --sha "$GITHUB_SHA" --before "$PUSH_BEFORE" --attempt "$GITHUB_RUN_ATTEMPT" --hold-minutes 30 --out "$RUNNER_TEMP/web-coalesce/last.json"
+            --sha "$GITHUB_SHA" --before "$PUSH_BEFORE" --attempt "$GITHUB_RUN_ATTEMPT" --hold-minutes 15 --out "$RUNNER_TEMP/web-coalesce/last.json"
 
       # A re-run records nothing new (its marker is the one it read), and in its own group a late save could roll the
       # newest marker back: only a first attempt saves.

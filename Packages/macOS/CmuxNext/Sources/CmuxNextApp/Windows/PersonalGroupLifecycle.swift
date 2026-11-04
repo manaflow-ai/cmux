@@ -11,7 +11,7 @@ import CmuxNextDesign
 struct PersonalGroupLife {
     let machines: MachineRegistry
 
-    var personal: PersonalStore { machines.local.store.personal }
+    private var personal: PersonalStore { machines.local.store.personal }
     private var rules: PersonalGroupLifecycle {
         PersonalGroupLifecycle(groups: personal.groups.map { .init(id: $0.id, pinned: $0.pinned) }, rows: personal.workspaces)
     }
@@ -57,9 +57,8 @@ struct PersonalGroupLife {
     /// `applied` runs once the home store holds the command's result
     /// (read-your-writes): a sidebar pending edit settles there (cx-odqn).
     /// `completed` runs last, with whether the command and its cleanup applied.
-    /// `landed` gets the command's value as soon as it replied. `until`: sent again while unanswered, never undone.
+    /// `landed` gets the command's value as soon as it replied.
     func commit<Value: Sendable>(_ label: String, ending: [WorkspaceGroupID], recheck: @escaping @MainActor () -> [WorkspaceGroupID] = { [] },
-                                 until claim: PersonalWriteLedger.Claim? = nil, unanswered: (@MainActor () async -> Void)? = nil,
                                  failed: @escaping @MainActor (ActionWorkFailure) -> Void, applied: (@MainActor () -> Void)? = nil,
                                  completed: (@MainActor (Bool) -> Void)? = nil,
                                  landed: @escaping @MainActor (Value) -> Void = { _ in },
@@ -69,10 +68,10 @@ struct PersonalGroupLife {
         Task {
             // Shown again before a failure re-syncs, so a kept group never stays hidden.
             @MainActor func end() { personal.endingGroups.subtract(ending) }
-            let result: (value: Value, completed: Bool)?
+            let result: (value: Value, completed: Bool)
             do {
                 // `perform`, not `request`: a failure comes back with why, for the caller to say (#26382).
-                result = try await home.perform(label, until: claim, unanswered: unanswered) { connection in
+                result = try await home.perform(label) { connection in
                     let value = try await body(connection)
                     // Keep cleanup on the reply's connection and wait for the primary
                     // event before deciding whether the source group is now empty.
@@ -85,7 +84,7 @@ struct PersonalGroupLife {
                         if v2 { try await connection.state.deleteWorkspaceGroup(group.rawValue) }
                         else { try await connection.deletePersonalGroup(group) }
                     }
-                    return (value: value, completed: true)
+                    return (value, true)
                 }
             } catch {
                 end()
@@ -94,8 +93,7 @@ struct PersonalGroupLife {
                 return
             }
             end()
-            if result == nil { applied?() } // superseded: the newer write owns what the rows show
-            completed?(result?.completed ?? true)
+            completed?(result.completed)
         }
     }
 

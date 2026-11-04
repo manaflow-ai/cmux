@@ -4,7 +4,7 @@ export const HEADER_SYMBOLS: Readonly<Record<string, string>> = {
   "diff.file": "plusminus",
   terminal: "terminal",
   browser: "globe",
-  "action.more": "ellipsis",
+  "action.more.vertical": "ellipsis",
   "action.add": "plus",
   "tunable.sidebar": "sidebar.right",
   folder: "folder",

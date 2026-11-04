@@ -25,13 +25,10 @@ permissions:
 jobs:
   web-subarea-scope:
     if: ${{ inputs.web == 'true' || inputs.macos == 'true' }}
-    # The webview suite's router: a declared light job (.github/runners.json hosted_light_jobs,
-    # about 30 s of work). Attempt 1 takes GitHub-hosted Ubuntu, a re-run the Linux pool's live
-    # member, never LINUX_RUNNER alone. On 2026-11-01 LINUX_RUNNER sat on a stalled
-    # blacksmith-32vcpu-ubuntu-2404 and this job (124762739841) waited 50 minutes unassigned; on
-    # 2026-11-04 the pool's blacksmith-4vcpu-ubuntu-2404 held it (126357110799) 10 minutes before the
-    # pool reconciler marked that size dead. Either way every webview shard and the verdict waited.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    # The Linux pool's live member, never LINUX_RUNNER alone: on 2026-11-01
+    # LINUX_RUNNER sat on a stalled blacksmith-32vcpu-ubuntu-2404 and this job (124762739841) waited
+    # 50 minutes unassigned, holding every webview shard behind it.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     outputs:
       db: ${{ steps.scope.outputs.db }}
@@ -918,13 +915,11 @@ jobs:
   # manifest it split by. Its own job, outside the required react-apps-check:
   # a stalled download or cache save must not time out the gate. A missing
   # manifest only means the next run splits by path hash. A pull request's
-  # entry stays in its own ref's scope; fork pull requests save none. A declared light
-  # job on the same route as web-subarea-scope (hosted Ubuntu on attempt 1), so the
-  # manifest is saved to the cache store the router restores it from.
+  # entry stays in its own ref's scope; fork pull requests save none.
   webviews-test-durations:
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
       - name: Checkout the shard helper

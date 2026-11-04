@@ -46,16 +46,7 @@ class Decide(unittest.TestCase):
         with tempfile.NamedTemporaryFile("r+") as out, \
              mock.patch.object(wait, "read_jobs", side_effect=OSError("403")):
             self.assertEqual(wait.main({**HOSTED, "INHERITED_SLOW": "true", "GITHUB_OUTPUT": out.name}), 0)
-            self.assertEqual(out.read(), "hosted_slow=true\nhosted_wait_s=\nslow_runner=\n")
-
-    def test_a_slow_start_names_the_light_jobs_blacksmith_size(self):
-        pools = '{"linux_4": "blacksmith-4vcpu-ubuntu-2404", "linux": "glaeda-linux"}'
-        self.assertEqual(wait.slow_runner({"RUNNER_POOLS": pools}, True), "blacksmith-4vcpu-ubuntu-2404")
-        self.assertEqual(wait.slow_runner({"RUNNER_POOLS": pools}, False), "")
-        # Only a Blacksmith Ubuntu label: never hosted, never a Mac, never an unreadable pool.
-        for pools in ('{"linux_4": "ubuntu-24.04"}', '{"linux_4": "blacksmith-6vcpu-macos-15"}', "not json", "[]", ""):
-            with self.subTest(pools=pools):
-                self.assertEqual(wait.slow_runner({"RUNNER_POOLS": pools}, True), "")
+            self.assertEqual(out.read(), "hosted_slow=true\nhosted_wait_s=\n")
 
 
 class Wiring(unittest.TestCase):
@@ -75,18 +66,6 @@ class Wiring(unittest.TestCase):
         self.assertEqual(pick["outputs"]["hosted_slow"],
                          "${{ steps.hosted-wait.outputs.hosted_slow || needs.decide.outputs.hosted_slow }}")
         self.assertEqual(JOBS["decide"]["outputs"]["hosted_slow"], "${{ steps.hosted-wait.outputs.hosted_slow }}")
-        # The hosted light jobs after decide take its slow-start runner, on this attempt only, before hosted Ubuntu.
-        self.assertEqual(JOBS["decide"]["outputs"]["hosted_slow_runner"], "${{ steps.hosted-wait.outputs.slow_runner }}")
-        term = ("needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) "
-                "&& needs.decide.outputs.hosted_slow_runner")
-        for name in ("resolve-nightly-cmux-tui-client", "find-nightly-next-recovery",
-                     "resolve-nightly-ghostty-cli-helper", "pick-nightly-build-runner"):
-            with self.subTest(job=name):
-                route = JOBS[name]["runs-on"]
-                self.assertIn(term, route)
-                self.assertLess(route.index(term), route.index("github.run_attempt == 1 && 'ubuntu-24.04'"))
-        self.assertIn("(github.run_attempt > 1 || needs.decide.outputs.hosted_slow == 'true') "
-                      "&& fromJSON(vars.RUNNER_POOLS).linux_4 || 'ubuntu-24.04'", JOBS["sentry-dsyms-nightly"]["runs-on"])
         for owner, name in (("decide", "decide"), ("pick-nightly-sign-runner", "pick-nightly-sign-runner")):
             with self.subTest(step=owner):
                 step = next(s for s in JOBS[owner]["steps"] if s.get("id") == "hosted-wait")

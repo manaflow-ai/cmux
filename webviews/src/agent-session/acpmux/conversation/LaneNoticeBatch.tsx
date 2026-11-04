@@ -9,8 +9,6 @@ import { FindReveal } from "./chatFind";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import { messageRunSummary } from "./messageRuns";
 import { NoticeMark } from "./NoticeMark";
-import { useFold } from "./fold";
-import { foldPlays } from "./transcriptView";
 import type { NoticeSeverity } from "./agentNotice";
 import "./LaneNoticeBatch.css";
 
@@ -44,10 +42,6 @@ export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; render
     setOpen(next);
   };
   const bodyId = useId();
-  // The messages open and close with the transcript's fold (fold.ts), as a tool group's steps do; at
-  // the very bottom the text above glides up with it (App.tsx `beginBottomStackFold`). Leo,
-  // 2026-11-04: "how come there aren't animatiosn for expanding/collapsing tool calls anymore???"
-  const fold = useFold(open, foldPlays);
   const reveal = useContext(FindReveal);
   const match = reveal && (reveal.rowId === row.id || row.joined?.includes(reveal.matchRowId ?? reveal.rowId));
   useLayoutEffect(() => {
@@ -121,14 +115,8 @@ export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; render
           onClick={() => show(!open)}
         />
       )}
-      {fold.present && (
-        <div
-          ref={fold.ref}
-          className="cv-fold cv-lane-batch__body"
-          id={bodyId}
-          aria-hidden={open ? undefined : true}
-          inert={open ? undefined : true}
-        >
+      {open && (
+        <div className="cv-lane-batch__body" id={bodyId}>
           {batch.rows.map((member) => (
             <div key={member.id} data-row-id={member.id} data-find-member="">
               <FindReveal.Provider

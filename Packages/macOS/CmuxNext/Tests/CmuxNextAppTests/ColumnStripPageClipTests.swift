@@ -2,7 +2,6 @@ import AppKit
 @testable import CmuxNextBrowser
 @testable import CmuxNextLayout
 import CmuxNextScreenshots
-import CmuxNextTestSupport
 import Testing
 
 /// Columns and chrome (Lawrence 2026-10-13, a screen recording: "there are layering issues for
@@ -12,7 +11,7 @@ import Testing
 /// is a child window: no layer mask reaches it, and the fork clips it only to the host's visible
 /// rect, `cmuxClipPath` and `cmuxOcclusionRects`. Those two are what the fork reads, so they
 /// must carry the strip clip.
-@MainActor @Suite(.closesItsWindows) struct ColumnStripPageClipTests {
+@MainActor @Suite struct ColumnStripPageClipTests {
     /// A pane host as the layout makes it (8 pt padding, 10 pt corners) holding the browser's
     /// `CEFHostView`, the parent view the fork keeps the page window over.
     struct Column {

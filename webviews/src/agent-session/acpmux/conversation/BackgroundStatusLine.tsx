@@ -50,15 +50,12 @@ export function BackgroundStatusLine({ counts }: { counts: BackgroundCounts }) {
   const parts = backgroundStatusParts(t, counts);
   return (
     <output className="cv-bgstatus" data-find-skip>
-      {/* One line box: as flex items, the separator's text would lose its space ("completed,1 failed"). */}
-      <span className="cv-bgstatus__text">
-        {parts.map((part, at) => (
-          <Fragment key={part.text}>
-            {at > 0 && t("toolRun.separator")}
-            <span className={part.failed ? "cv-tool__failed" : undefined}>{part.text}</span>
-          </Fragment>
-        ))}
-      </span>
+      {parts.map((part, at) => (
+        <Fragment key={part.text}>
+          {at > 0 && t("toolRun.separator")}
+          <span className={part.failed ? "cv-tool__failed" : undefined}>{part.text}</span>
+        </Fragment>
+      ))}
     </output>
   );
 }

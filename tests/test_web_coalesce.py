@@ -2,7 +2,7 @@
 """cmux-next-web.yml's coalesced push runs (scripts/ci/web_coalesce.py) and their bisect.
 
 The decision (claude-sr2-coord, 2026-11-03): coalesce the push runs to the newest tip when (1) a run still starts
-at least every 30 minutes of landings (15 until 2026-11-04), (2) a red coalesced run bisects only its failing named tests over the commits
+at least every 15 minutes of landings, (2) a red coalesced run bisects only its failing named tests over the commits
 it skipped, so test_reds.py still names the first red commit and its pull request, and (3) the PR-time webview
 verdict (react-apps-base-check) is unchanged.
 """
@@ -537,10 +537,8 @@ class WorkflowTests(unittest.TestCase):
         # ... and it never saves a marker, so a late save cannot roll the newest one back.
         save = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/cache/save@"))
         self.assertIn("github.run_attempt == '1'", save["if"])
-        self.assertIn("--hold-minutes 30", next(s for s in job["steps"] if s.get("id") == "wait")["run"])
-        # The sleep, then a few minutes of work; the decision's bound on the window is 30 minutes.
-        self.assertEqual(coalesce.HOLD_MINUTES, 30.0)
-        self.assertLessEqual(job["timeout-minutes"], 35)
+        self.assertIn("--hold-minutes 15", next(s for s in job["steps"] if s.get("id") == "wait")["run"])
+        self.assertLessEqual(job["timeout-minutes"], 20)
         self.assertIs(self.web["concurrency"]["cancel-in-progress"], False)
         self.assertNotIn("cancel-in-progress: true", WEB.read_text())
 
