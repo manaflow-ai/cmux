@@ -27,6 +27,15 @@ describe("Toggle", () => {
     host.dispatch("m1", host.findNode("m1", (n) => n.type === "Toggle")!, "change", { value: 0 })
     expect(host.eval("seen")).toEqual([false])
   })
+
+  test("a payload that is not a boolean or a number is dropped, not read as true", () => {
+    const host = new FakeHost(app(`globalThis.seen = []; return { render: () => Toggle(true, { onChange: (v) => seen.push(v) }) }`))
+    host.mount("m1", "render")
+    const id = host.findNode("m1", (n) => n.type === "Toggle")!
+    host.dispatch("m1", id, "change", { value: "false" })
+    host.dispatch("m1", id, "change", {})
+    expect(host.eval("seen")).toEqual([])
+  })
 })
 
 describe("Slider", () => {
@@ -39,6 +48,14 @@ describe("Slider", () => {
     expect(host.tree("m1").nodes.get(id)!.props).toEqual({ value: 25, min: 5, max: 60, step: 5, onChange: true })
     host.dispatch("m1", id, "change", { value: "30" })
     expect(host.eval("seen")).toEqual([30])
+  })
+
+  test("a value that is not a finite number never reaches onChange", () => {
+    const host = new FakeHost(app(`globalThis.seen = []; return { render: () => Slider(25, { min: 5, max: 60, onChange: (v) => seen.push(v) }) }`))
+    host.mount("m1", "render")
+    const id = host.findNode("m1", (n) => n.type === "Slider")!
+    for (const payload of [{}, { value: "abc" }, { value: true }, { value: null }]) host.dispatch("m1", id, "change", payload)
+    expect(host.eval("seen")).toEqual([])
   })
 
   test("defaults to 0...1", () => {

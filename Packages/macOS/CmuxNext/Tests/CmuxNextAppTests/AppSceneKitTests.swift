@@ -57,6 +57,21 @@ import Testing
         #expect(recorder.events.first?.payload["value"]?.boolValue == true)
     }
 
+    @Test func aToggleWithNoOnChangeShowsTheAppsValueAndDoesNotFlip() throws {
+        let model = AppSceneModel()
+        let recorder = Recorder()
+        model.interaction = recorder
+        model.apply([.create(id: "t", type: "Toggle", props: ["value": true, "label": "Sounds"]), .root(id: "t")])
+        let (window, root) = try Self.host(model, "t")
+        defer { window.contentView = nil; window.close() }
+        let control = try #require(Self.all(NSSwitch.self, in: root).first, "the native switch")
+        #expect(control.state == .on)
+        control.performClick(nil)
+        root.layoutSubtreeIfNeeded()
+        #expect(control.state == .on, "a display-only switch keeps the app's value")
+        #expect(recorder.events.isEmpty)
+    }
+
     @Test func aSliderSnapsToItsStepWithinItsRange() {
         let node = AppSceneNode(type: .slider, props: ["min": 5, "max": 60, "step": 5])
         let range = AppSceneSlider.range(node)
@@ -66,6 +81,9 @@ import Testing
         #expect(AppSceneSlider.snap(28, range, step) == 30)
         #expect(AppSceneSlider.snap(99, range, step) == 60)
         #expect(AppSceneSlider.snap(-3, range, step) == 5)
+        // A decimal step sends the step's own value, not its float drift.
+        #expect(AppSceneSlider.snap(0.30000001, 0...1, 0.1) == 0.3)
+        #expect(AppSceneSlider.snap(0.7, 0...1, 0.05) == 0.7)
         // No step: a hundredth of the range. A reversed range is the default 0...1.
         let plain = AppSceneNode(type: .slider, props: ["min": 1, "max": 0])
         #expect(AppSceneSlider.range(plain) == 0...1)
