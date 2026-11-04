@@ -115,15 +115,31 @@ def settings_row(j, label, ident=None, tries=10):
     for _ in range(4):
         j.sim.swipe(200, 250, 200, 700, 0.3)
         time.sleep(0.3)
+    time.sleep(1.2)  # the list settles before its rows are read
     for _ in range(tries):
         e = (j.sim.find(ident=ident) if ident else []) or j.sim.find(label=label, kind="Button") or \
             j.sim.find(label=label, kind="Switch") or j.sim.find(prefix=label, kind="Button")
         e = [x for x in e if 90 < x.frame[1] < 760]
         if e:
             return e[0]
-        j.sim.swipe(200, 640, 200, 300, 0.4)
-        time.sleep(0.7)
+        # A short, slow drag: the page moves by about one screen and stops (no fling).
+        j.sim.drag(200, 600, 200, 350, 0.8, 40, 0.1)
+        time.sleep(1.2)
     return None
+
+
+def press(j, e):
+    """A full-width Settings row (a NavigationLink): a tap in its middle."""
+    j.sim.tap(200, e.frame[1] + e.frame[3] / 2)
+    time.sleep(1.8)
+
+
+def flip(j, e):
+    """A Settings toggle row: its switch, at the row's trailing edge (a tap on the title does not flip it)."""
+    x, y, w_, h = e.frame
+    # The switch sits at the list's trailing edge, whatever part of the row the element covers.
+    j.sim.tap(340, y + h / 2)
+    time.sleep(1.0)
 
 
 def labels(j):
@@ -377,25 +393,18 @@ def newchaton(j, label):
     time.sleep(1.5)
     pq.shot(f"newchaton-{label}-menu")
     out = {"menu": [x.label for x in j.sim.find(kind="Button") if x.label][:30]}
-    on = j.sim.find(ident="workspaces.newAgentChatOn") or j.sim.find(label="New Agent Chat on…", kind="Button")
-    if not on:
-        # The menu scrolls: its last sections sit below the fold.
-        j.sim.swipe(270, 520, 270, 200, 0.4)
-        time.sleep(0.8)
-        on = j.sim.find(ident="workspaces.newAgentChatOn") or j.sim.find(label="New Agent Chat on…", kind="Button")
-        pq.shot(f"newchaton-{label}-menu-end")
+    on = [e for e in j.sim.find(ident="workspaces.newAgentChatOn") if 0 < e.frame[1] < 760]
     out["offered"] = bool(on)
     if label == "before" or not on:
         r.dismiss(j)
         return out
     j.sim.tap_el(on[0]); time.sleep(1.2)
     pq.shot("newchaton-after-macs")
-    mac_name = pq.load().get("mac_name") or ""
-    macs = j.sim.find(label=mac_name, kind="Button") or j.sim.find(contains="Mac mini", kind="Button")
+    macs = [x for x in j.sim.find(kind="Button") if (x.ident or "").startswith("workspaces.newAgentChatOn.")]
     check(macs, f"no Mac under New Agent Chat on…: {labels(j)[:20]}")
     j.sim.tap_el(macs[0]); time.sleep(1.2)
     pq.shot("newchaton-after-folders")
-    folders = [x for x in j.sim.find(kind="Button") if (x.label or "").startswith("proj")]
+    folders = [x for x in j.sim.find(kind="Button") if (x.ident or "").startswith("workspaces.newAgentChatOn.") and x.label == "proj"]
     check(folders, f"no folder under the Mac: {labels(j)[:20]}")
     out["folder"] = folders[0].label
     j.sim.tap_el(folders[0])
@@ -473,14 +482,15 @@ def compact(j, label):
     pq.shot("compact-after-off")
     h0 = [e.frame[3] for e in j.sim.find(kind="Button") if (e.ident or "").startswith("workspace.row.")]
     row = settings_row(j, "Compact workspace list", ident="settings.compactWorkspaceList", tries=4)
-    j.sim.tap_el(row); time.sleep(1)
+    flip(j, row)
+    pq.shot("compact-after-switch")
     tab(j, "Workspaces")
     time.sleep(1.5)
     pq.shot("compact-after-on")
     h1 = [e.frame[3] for e in j.sim.find(kind="Button") if (e.ident or "").startswith("workspace.row.")]
     out.update(heights_off=h0[:6], heights_on=h1[:6])
     row = settings_row(j, "Compact workspace list", ident="settings.compactWorkspaceList", tries=4)
-    j.sim.tap_el(row); time.sleep(1)
+    flip(j, row)
     return out
 
 
@@ -521,9 +531,11 @@ def menus(j, label):
     out = {"row": bool(row)}
     if label == "before" or not row:
         return out
-    j.sim.tap_el(row); time.sleep(1.5)
+    press(j, row)
     pq.shot("menus-after-page")
-    j.sim.tap_q(label="Rename", kind="Switch", timeout=6)
+    rename = [e for e in j.sim.find(contains="Rename") if 90 < e.frame[1] < 760]
+    check(rename, f"no Rename row: {labels(j)[:30]}")
+    flip(j, rename[0])
     time.sleep(0.8)
     pq.shot("menus-after-rename-off")
     seed = pq.load()["ws_name"]
@@ -536,7 +548,7 @@ def menus(j, label):
     pq.shot("menus-after-row-menu")
     r.dismiss(j)
     row = settings_row(j, "Long-Press Menus", ident="settings.longPressMenus", tries=4)
-    j.sim.tap_el(row); time.sleep(1.5)
+    press(j, row)
     j.sim.tap_q(ident="settings.menus.reset", timeout=6)
     return out
 

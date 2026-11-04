@@ -1742,37 +1742,6 @@ struct NewWorkspaceButton: View, Equatable {
                     }
                 }
             }
-            if !agentDestinations.isEmpty {
-                // The Mac's New Agent Chat on…: pick the machine, then the place (one of its
-                // workspace folders); acpmux on that Mac starts the chat there (`session/new {cwd}`).
-                Section {
-                    Menu {
-                        ForEach(agentDestinations) { destination in
-                            Menu {
-                                ForEach(destination.folders, id: \.self) { directory in
-                                    Button {
-                                        createOn(.agent(""), directory, destination.mac.id)
-                                    } label: {
-                                        Label {
-                                            Text(Self.folderName(directory))
-                                            Text(directory)
-                                        } icon: {
-                                            Image(systemName: "folder")
-                                        }
-                                    }
-                                    .accessibilityIdentifier("workspaces.newAgentChatOn.\(destination.mac.id).\(Self.folderName(directory))")
-                                }
-                            } label: {
-                                Label(displayName(destination.mac), systemImage: "desktopcomputer")
-                            }
-                            .accessibilityIdentifier("workspaces.newAgentChatOn.\(destination.mac.id)")
-                        }
-                    } label: {
-                        Label("New Agent Chat on…", systemImage: "bubble.left.and.bubble.right")
-                    }
-                    .accessibilityIdentifier("workspaces.newAgentChatOn")
-                }
-            }
             if options.directories {
                 Section {
                     // The Mac's Open Folder… (⌘O): a typed path, since a phone browses no Mac folders.
@@ -1798,11 +1767,45 @@ struct NewWorkspaceButton: View, Equatable {
 
     @ViewBuilder private func starts(_ options: WorkspaceCreationOptions) -> some View {
         Button("New Workspace", systemImage: "apple.terminal") { create(.terminal, nil) }
+        newAgentChatOn
         ForEach(options.agents.filter { !$0.isEmpty }, id: \.self) { harness in
             Button("New \(Self.agentName(harness)) Workspace", systemImage: "sparkle") { create(.agent(harness), nil) }
         }
         if options.browser {
             Button("New Browser Workspace", systemImage: "globe") { create(.browser, nil) }
+        }
+    }
+
+    /// The Mac's New Agent Chat on…: pick the machine, then the place (one of its workspace
+    /// folders); acpmux on that Mac starts the chat there (`session/new {cwd}`). Beside New
+    /// Workspace, where the menu opens, not under its folder lists.
+    @ViewBuilder private var newAgentChatOn: some View {
+        if !agentDestinations.isEmpty {
+            Menu {
+                ForEach(agentDestinations) { destination in
+                    Menu {
+                        ForEach(destination.folders, id: \.self) { directory in
+                            Button {
+                                createOn(.agent(""), directory, destination.mac.id)
+                            } label: {
+                                Label {
+                                    Text(Self.folderName(directory))
+                                    Text(directory)
+                                } icon: {
+                                    Image(systemName: "folder")
+                                }
+                            }
+                            .accessibilityIdentifier("workspaces.newAgentChatOn.\(destination.mac.id).\(Self.folderName(directory))")
+                        }
+                    } label: {
+                        Label(displayName(destination.mac), systemImage: "desktopcomputer")
+                    }
+                    .accessibilityIdentifier("workspaces.newAgentChatOn.\(destination.mac.id)")
+                }
+            } label: {
+                Label("New Agent Chat on…", systemImage: "bubble.left.and.bubble.right")
+            }
+            .accessibilityIdentifier("workspaces.newAgentChatOn")
         }
     }
 
