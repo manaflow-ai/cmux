@@ -207,11 +207,15 @@ struct JournalFanoutState {
     database_reader_count: u64,
 }
 
+/// Tests: the tailer's gate, closed while the flag is true.
+#[cfg(test)]
+type TailerGate = Arc<(Mutex<bool>, Condvar)>;
+
 /// Tests: releases the tailer held by [`JournalKernel::hold_tailer_for_test`] on drop.
 #[cfg(test)]
 pub(crate) struct TailerHold {
     kernel: Arc<JournalKernel>,
-    hold: Arc<(Mutex<bool>, Condvar)>,
+    hold: TailerGate,
 }
 
 #[cfg(test)]
@@ -233,7 +237,7 @@ pub(crate) struct JournalKernel {
     /// Tests: while set, the tailer waits here before each read pass, so the ring trails the
     /// writer's commits on purpose.
     #[cfg(test)]
-    tailer_hold: Mutex<Option<Arc<(Mutex<bool>, Condvar)>>>,
+    tailer_hold: Mutex<Option<TailerGate>>,
     enabled: bool,
     producers: RwLock<HashMap<String, Arc<CompiledJournalProducer>>>,
     /// The registry file, so a reader behind the ring opens its own
