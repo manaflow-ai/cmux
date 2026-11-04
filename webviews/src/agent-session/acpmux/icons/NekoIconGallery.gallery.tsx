@@ -289,14 +289,23 @@ export default componentEntry({
   title: "Neko icon family comparison",
   area: "Agent pane",
   height: 480,
-  covers: ["agent-session/acpmux/icons/Icon.tsx#Icon", "agent-session/acpmux/conversation/icons.tsx"],
+  covers: [
+    "agent-session/acpmux/icons/Icon.tsx#Icon",
+    "agent-session/acpmux/conversation/icons.tsx#Copy",
+    "agent-session/acpmux/conversation/icons.tsx#Retry",
+    "agent-session/acpmux/conversation/icons.tsx#Speaker",
+    "agent-session/acpmux/conversation/icons.tsx#Pin",
+    "agent-session/acpmux/conversation/icons.tsx#Spinner",
+    "agent-session/acpmux/conversation/icons.tsx#Check",
+    "agent-session/acpmux/conversation/icons.tsx#AlertCircle",
+  ],
   load: async () => NekoIconGallery,
   variants: Object.fromEntries(
     (Object.keys(sets) as SetName[]).flatMap((set) =>
       DENSITIES.flatMap((density) =>
         UI_SCALES.flatMap((uiScale) =>
           (["light", "dark"] as const).map((mode) => [
-            `${set}-${density}-${uiScale === 1 ? "1" : "1.25"}-${mode}`,
+            `${set}-${density}-${uiScale === 1 ? "1" : "1-25"}-${mode}`,
             {
               note: `Unapproved candidate beside default; ${density}, UI scale ${uiScale}, real DPR captures; see neko-evaluation.md for capture-based verdicts.`,
               props: { mode, set, density, uiScale },

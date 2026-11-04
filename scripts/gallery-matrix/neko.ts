@@ -55,7 +55,7 @@ try {
               page.on("pageerror", listener);
               const params = new URLSearchParams({
                 entry: "agent-pane.neko-icon-family",
-                variant: `${set}-${density}-${uiScale === 1 ? "1" : "1.25"}-${mode}`,
+                variant: `${set}-${density}-${uiScale === 1 ? "1" : "1-25"}-${mode}`,
                 source: "src/agent-session/acpmux/icons/NekoIconGallery.gallery.tsx",
                 colorScheme: mode,
                 locale: "en",
@@ -87,7 +87,7 @@ try {
               }));
               if (!provenance.revision || !provenance.source || errors.length)
                 throw new Error(JSON.stringify({ provenance, errors }));
-              const file = `${set}-${density}-${uiScale === 1 ? "1" : "1.25"}-${mode}-${deviceScale}x.png`;
+              const file = `${set}-${density}-${uiScale === 1 ? "1" : "1-25"}-${mode}-${deviceScale}x.png`;
               await stage.screenshot({ path: resolve(out, file), animations: "disabled" });
               results.push({
                 set,
