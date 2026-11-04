@@ -89,7 +89,7 @@ await requireBrowserLane("dictation-popup-hover.test.ts", async () => {
             await settled(page);
             const open = await read();
             expect(await control.getAttribute("data-popup-open")).toBe("");
-            expect(await page.locator("[data-popup-open]").count()).toBe(1);
+            expect(await page.locator(".acpmux-composer-actions button[data-popup-open]").count()).toBe(1);
             const index = hovered.findIndex((item) => item.name.split(" ").includes(selector.slice(1)));
             expect(index).toBeGreaterThan(0);
             expect(hovered[index]!.fill).not.toBe(rest[index]!.fill);
