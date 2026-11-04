@@ -88,8 +88,8 @@ fn a_key_to_a_full_host_socket_goes_to_the_port() {
     let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-inline-full", true);
     let pty = surface.as_pty().expect("a terminal");
     // Fill the socket with whole frames, as a host that reads nothing would leave it.
-    let mut filler = Frame::new(MessageKind::Input, vec![b'f'; 1000]);
-    filler.version = crate::terminal_host_protocol::PROTOCOL_VERSION;
+    // `Frame::new` writes the current protocol version, the fixture connection's.
+    let filler = Frame::new(MessageKind::Input, vec![b'f'; 1000]);
     let filler = crate::terminal_host_protocol::encode_frame(&filler).unwrap();
     let mut filled = 0usize;
     {
