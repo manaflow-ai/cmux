@@ -414,14 +414,23 @@
   },
   {
    "do": "expect",
-   "title": "the built-in extension (uBlock Origin) is loaded in this Chromium profile",
+   "title": "the built-in extension (uBlock Origin) is loaded and enabled in this Chromium profile",
    "timeout": 20,
    "all": [
     {
      "app_rpc": {
       "method": "browser.extensions",
-      "path": "extensions",
-      "contains": "cjpalhdlnbpafiamejdnhcphjbkeiagm"
+      "path": "extensions.0.id",
+      "equals": "cjpalhdlnbpafiamejdnhcphjbkeiagm"
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "browser.extensions",
+      "path": "extensions.0.enabled",
+      "in": [
+       true
+      ]
      }
     }
    ]
