@@ -1,16 +1,14 @@
-#if DEBUG
 import AppKit
 import CmuxNextDesign
 
-/// DEBUG ONLY: one agent's chat in the Agent Messages Playground, the pane a pill opens (user 2026-11-03,
-/// msg 19960 and the design in `plans/cmux-next/home-agent-pills-DESIGN.md`): a header with the agent's
-/// title, status and Go to workspace; "Sent via Chief" over the task (Show more); "Worked for 5m 35s ›" over
-/// its steps; its replies; and the shared composer, where each message names its sender (You or Chief) and
-/// the Chief sees what the human sent. No "Take over" bar. A native mock of the real agent pane; the labels
-/// are DEV-only English.
+/// One agent's chat in the agent pane, the tab a pill opens (user 2026-11-03, msg 19960 and
+/// `plans/cmux-next/home-agent-pills-DESIGN.md`): a header with the agent's title, status and Go to
+/// workspace; "Sent via Chief" over the task (Show more); "Worked for 5m 35s ›" over when it started and
+/// ended; then every later message, the Chief's named. No "Take over" bar. The DEBUG Agent Messages
+/// Playground draws its made-up agents here too, with its DEV-only back, open, close and composer controls.
 @MainActor
 final class HomeAgentChatView: NSView {
-    /// What the header's buttons do; nil hides the button.
+    /// What the header's buttons do; nil hides the button. Only Go to workspace ships; the rest are the DEBUG playground's.
     struct Actions {
         var goToWorkspace: (() -> Void)?
         /// The peek's Open: the chat moves to the right pane.
@@ -23,7 +21,7 @@ final class HomeAgentChatView: NSView {
         var sent: ((String) -> Void)?
     }
 
-    private(set) var agent: HomeAgentPlaygroundAgent
+    private(set) var content: HomeAgentChatContent
     private let actions: Actions
     private let compact: Bool
     private let stack = NSStackView()
@@ -34,8 +32,8 @@ final class HomeAgentChatView: NSView {
 
     /// - Parameters:
     ///   - compact: The peek's look: no composer, the task in two lines, the newest reply only.
-    init(agent: HomeAgentPlaygroundAgent, compact: Bool = false, actions: Actions) {
-        self.agent = agent
+    init(content: HomeAgentChatContent, compact: Bool = false, actions: Actions) {
+        self.content = content
         self.compact = compact
         self.actions = actions
         super.init(frame: .zero)
@@ -64,7 +62,9 @@ final class HomeAgentChatView: NSView {
         scroll.drawsBackground = false
         scroll.automaticallyAdjustsContentInsets = false
         var views: [NSView] = [header, line, scroll]
-        if !compact { views.append(makeComposer()) }
+        #if DEBUG
+        if !compact, actions.sent != nil { views.append(makeComposer()) }
+        #endif
         for view in views {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
@@ -96,21 +96,31 @@ final class HomeAgentChatView: NSView {
     }
 
     private func makeHeader() -> NSView {
-        let title = label(agent.title, size: TypeScale.body, weight: TypeScale.emphasis, color: .labelColor)
-        let status = label("\(agent.peer) · \(agent.status)", size: TypeScale.caption, weight: TypeScale.regular, color: .secondaryLabelColor)
+        let title = label(content.title, size: TypeScale.body, weight: TypeScale.emphasis, color: .labelColor)
+        let status = label("\(content.peer) · \(content.status)", size: TypeScale.caption, weight: TypeScale.regular, color: .secondaryLabelColor)
         let names = NSStackView(views: [title, status])
         names.orientation = .vertical
         names.alignment = .leading
         names.spacing = 1
         var views: [NSView] = []
+        #if DEBUG
         if let back = actions.back { views.append(button("‹ Chief", symbol: nil, action: back)) }
+        #endif
         views.append(names)
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
         views.append(spacer)
-        if let go = actions.goToWorkspace { views.append(button("Go to workspace", symbol: "arrow.up.forward.app", action: go)) }
+        if let go = actions.goToWorkspace {
+            let title = String(localized: "home.agentPane.goToWorkspace", defaultValue: "Go to workspace", bundle: .module)
+            let goButton = button(title, symbol: "arrow.up.forward.app", action: go)
+            goButton.setAccessibilityIdentifier("home.agentPane.goToWorkspace")
+            goToWorkspaceButton = goButton
+            views.append(goButton)
+        }
+        #if DEBUG
         if let open = actions.open { views.append(button("Open", symbol: "sidebar.right", action: open)) }
         if let close = actions.close { views.append(button("Close", symbol: "xmark", action: close)) }
+        #endif
         let header = NSStackView(views: views)
         header.spacing = 8
         header.edgeInsets = NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 12)
@@ -119,9 +129,11 @@ final class HomeAgentChatView: NSView {
         return header
     }
 
+    #if DEBUG
+    /// DEBUG playground only: the shared composer (slice 3 ships it); DEV-only English.
     private func makeComposer() -> NSView {
         let box = HomeAgentFillView(fill: .quaternaryLabelColor.withAlphaComponent(0.12), radius: 18)
-        field.placeholderString = "Message \(agent.peer) (the Chief sees it too)"
+        field.placeholderString = "Message \(content.peer) (the Chief sees it too)"
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
@@ -151,47 +163,57 @@ final class HomeAgentChatView: NSView {
         ])
         return holder
     }
+    #endif
+
+    /// The task's lines before Show more.
+    private var taskLines: Int { compact ? 2 : 4 }
 
     private func fillTranscript() {
-        if !agent.task.isEmpty {
-            add(label("Sent via Chief", size: TypeScale.caption, weight: TypeScale.emphasis, color: .secondaryLabelColor), trailing: true)
-            let task = label(agent.task, size: TypeScale.body, weight: TypeScale.regular, color: .labelColor, wraps: true)
-            task.maximumNumberOfLines = compact ? 2 : 4
+        if !content.task.isEmpty {
+            let sent = String(localized: "home.agentPane.sentViaChief", defaultValue: "Sent via Chief", bundle: .module)
+            add(label(sent, size: TypeScale.caption, weight: TypeScale.emphasis, color: .secondaryLabelColor), trailing: true)
+            let task = label(content.task, size: TypeScale.body, weight: TypeScale.regular, color: .labelColor, wraps: true)
+            task.maximumNumberOfLines = taskLines
             taskLabel = task
             add(bubble(task), trailing: true, fraction: 0.85)
-            add(link("Show more", action: #selector(toggleTask)), trailing: true)
+            add(link(Self.showMore, action: #selector(toggleTask)), trailing: true)
         }
-        if !agent.workedFor.isEmpty {
-            add(link("\(agent.workedFor) ›", action: #selector(toggleSteps), color: .secondaryLabelColor))
-            if !compact {
-                let steps = label(agent.steps.map { "· " + $0 }.joined(separator: "\n"), size: TypeScale.detail, weight: TypeScale.regular,
+        if !content.workedFor.isEmpty {
+            add(link("\(content.workedFor) ›", action: #selector(toggleSteps), color: .secondaryLabelColor))
+            if !compact, !content.details.isEmpty {
+                let steps = label(content.details.map { "· " + $0 }.joined(separator: "\n"), size: TypeScale.detail, weight: TypeScale.regular,
                                   color: .secondaryLabelColor, wraps: true)
                 steps.isHidden = true
                 stepsLabel = steps
                 add(steps)
             }
         }
-        for message in compact ? Array(agent.messages.suffix(1)) : agent.messages { show(message) }
+        for message in compact ? Array(content.messages.suffix(1)) : content.messages { show(message) }
     }
 
-    private func show(_ message: HomeAgentPlaygroundAgent.Message) {
-        guard let sender = message.sender else {
+    private static var showMore: String { String(localized: "home.agentPane.showMore", defaultValue: "Show more", bundle: .module) }
+    private static var showLess: String { String(localized: "home.agentPane.showLess", defaultValue: "Show less", bundle: .module) }
+
+    private func show(_ message: HomeAgentChatContent.Message) {
+        guard let sender = message.sender.label else {
             add(label(message.text, size: TypeScale.body, weight: TypeScale.regular, color: .labelColor, wraps: true), fraction: 1)
             return
         }
-        // A message sent through the shared composer: its sender's name over a bubble on the right.
-        add(label(sender, size: TypeScale.caption, weight: TypeScale.emphasis, color: sender == "Chief" ? .systemPurple : .controlAccentColor), trailing: true)
+        // A message the Chief (or the person) sent the agent: its sender's name over a bubble on the right.
+        let color: NSColor = message.sender == .chief ? .systemPurple : .controlAccentColor
+        add(label(sender, size: TypeScale.caption, weight: TypeScale.emphasis, color: color), trailing: true)
         add(bubble(label(message.text, size: TypeScale.body, weight: TypeScale.regular, color: .labelColor, wraps: true)), trailing: true, fraction: 0.85)
     }
 
     // MARK: Actions
 
+    #if DEBUG
     @objc private func send() {
         let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         field.stringValue = ""
-        let message = HomeAgentPlaygroundAgent.Message(sender: "You", text: text)
-        agent.messages.append(message)
+        let message = HomeAgentChatContent.Message(sender: .you, text: text)
+        content.messages.append(message)
         show(message)
         actions.sent?(text)
         layoutSubtreeIfNeeded()
@@ -203,12 +225,20 @@ final class HomeAgentChatView: NSView {
         field.stringValue = text
         send()
     }
+    #endif
 
-    @objc private func toggleTask(_ sender: NSButton) {
+    /// The header's Go to workspace button; nil when the content has no workspace link (tests).
+    private(set) var goToWorkspaceButton: NSButton?
+
+    /// True while the whole task shows (after Show more).
+    var isTaskExpanded: Bool { taskLabel?.maximumNumberOfLines == 0 }
+
+    /// Show more and Show less: the whole task, or its first lines again.
+    @objc func toggleTask(_ sender: NSButton) {
         guard let taskLabel else { return }
         let open = taskLabel.maximumNumberOfLines != 0
-        taskLabel.maximumNumberOfLines = open ? 0 : (compact ? 2 : 4)
-        sender.title = open ? "Show less" : "Show more"
+        taskLabel.maximumNumberOfLines = open ? 0 : taskLines
+        sender.title = open ? Self.showLess : Self.showMore
     }
 
     @objc private func toggleSteps() { stepsLabel?.isHidden.toggle() }
@@ -284,4 +314,3 @@ private final class ClosureButton: NSButton {
 private final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
-#endif

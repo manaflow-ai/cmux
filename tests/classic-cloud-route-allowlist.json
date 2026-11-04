@@ -96,6 +96,18 @@
       "reason": "keep: moved from CloudConfiguration.swift (#34982, step A); production NEXT customers still sign in and reach their team on cmux.com until cmux-platform serves those routes; step B deletes the Swift copy"
     },
     {
+      "file": "cmux-tui/crates/cmux-cloud-environment/src/lib.rs",
+      "pattern": "base:cmux-staging",
+      "count": 1,
+      "reason": "keep: the staging sign-in, teams and billing origin NEXT development builds still use until cmux-platform serves those routes (#35133 runtime backend selection); step B merges cmux-cloud-environment into cmux-cloud-config"
+    },
+    {
+      "file": "cmux-tui/crates/cmux-cloud-environment/src/lib.rs",
+      "pattern": "base:cmux.com",
+      "count": 1,
+      "reason": "keep: the production sign-in, teams and billing origin NEXT still uses until cmux-platform serves those routes (#35133 runtime backend selection); step B merges cmux-cloud-environment into cmux-cloud-config"
+    },
+    {
       "file": "webviews/src/agent-session/acpmux/run-board/runApi.ts",
       "pattern": "route:/api/runs",
       "count": 3,

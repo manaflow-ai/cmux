@@ -265,6 +265,8 @@ impl Hub {
                     self.processes_lost(&session, processes::HARNESS_EXIT);
                     // So did its background subagents (`work_below.rs`).
                     self.end_background_subagents(&session);
+                    // And its loops, also when a forced Stop dropped its own clear (`loop_goal.rs`).
+                    self.end_loop_goal(&session);
                     // The idle exit marked it before it ended the harness (`idle.rs`); a stop clears the mark.
                     let hibernating = session.hibernated_at.load(Ordering::SeqCst) != 0
                         && session.status() != SessionStatus::Closed;
@@ -366,8 +368,8 @@ impl Hub {
                     && update.get("entries").and_then(Value::as_array).is_some()
                     && let Some(goal) = m.goal.as_mut()
                 {
-                    goal.steps =
-                        crate::goal::GoalState::from_plan_update(update).and_then(|plan| plan.steps);
+                    goal.steps = crate::goal::GoalState::from_plan_update(update)
+                        .and_then(|plan| plan.steps);
                     goal_write = true;
                 }
                 // An ordinary TodoWrite plan (no armed /loop) is not published as the chat's
