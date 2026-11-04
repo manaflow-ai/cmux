@@ -872,3 +872,144 @@ fn a_failed_sync_in_flush_session_freezes_the_checkpoint() {
     let reason = store.stop_reason().and_then(|reason| reason.borrow().clone());
     assert!(reason.is_some(), "the store did not ask the daemon to stop");
 }
+
+// ---------------------------------------------------------------- review 3 of #34901 (follow-ups)
+
+/// Follow-up 1: a chat whose repair fails (its log cannot be read or written now) keeps its
+/// journaled records until a later start repairs it: the open's checkpoint does not retire them.
+/// Its lines also go to `journal-unapplied/` at once.
+#[test]
+fn a_chat_whose_repair_failed_is_repaired_at_the_next_start() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(44);
+    let store = open(home.path(), &journal);
+    store.append("chat-b", &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for seq in 2..=3 {
+        store.append("chat-b", &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    // An OS crash: the log loses lines 2 and 3; the journal keeps them.
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    // chat-b's segment becomes a link: the store never follows one, so its repair fails.
+    let events = home.path().join("sessions").join("chat-b").join("events");
+    let segment = events.join("000001.ndjson");
+    let copy = home.path().join("elsewhere.ndjson");
+    std::fs::copy(&segment, &copy).unwrap_or_else(|e| panic!("{e}"));
+    std::fs::remove_file(&segment).unwrap_or_else(|e| panic!("{e}"));
+    std::os::unix::fs::symlink(&copy, &segment).unwrap_or_else(|e| panic!("{e}"));
+    let store = open(home.path(), &crashed);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    drop(store);
+    // The cause goes; the next start repairs the chat.
+    std::fs::remove_file(&segment).unwrap_or_else(|e| panic!("{e}"));
+    std::fs::copy(&copy, &segment).unwrap_or_else(|e| panic!("{e}"));
+    let store = open(home.path(), &crashed);
+    assert_eq!(
+        seqs(store.as_ref(), "chat-b"),
+        vec![1, 2, 3],
+        "the open's checkpoint retired the records of a chat it could not repair"
+    );
+}
+
+/// Overwrites `id`'s log with zeros from the middle of line `from` to the start of line `to`: a
+/// hole that ends exactly where a line starts, after a torn line.
+fn zero_log_mid_line_to_line_start(home: &Path, id: &str, from: u64, to: u64) {
+    let events = home.join("sessions").join(id).join("events");
+    for entry in std::fs::read_dir(&events).unwrap_or_else(|e| panic!("{e}")).flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|ext| ext != "ndjson") {
+            continue;
+        }
+        let mut bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{e}"));
+        let mut lines = BTreeMap::new();
+        let mut offset = 0;
+        while offset < bytes.len() {
+            let end = bytes
+                .get(offset..)
+                .and_then(|rest| rest.iter().position(|b| *b == b'\n'))
+                .map_or(bytes.len(), |at| offset + at + 1);
+            if let Some(seq) = bytes.get(offset..end).and_then(record_seq) {
+                lines.insert(seq, (offset, end));
+            }
+            offset = end;
+        }
+        if let (Some(&(a, a_end)), Some(&(b, _))) = (lines.get(&from), lines.get(&to)) {
+            if let Some(hole) = bytes.get_mut(a + (a_end - a) / 2..b) {
+                hole.fill(0);
+            }
+            std::fs::write(&path, bytes).unwrap_or_else(|e| panic!("{e}"));
+        }
+    }
+}
+
+/// Follow-up 2: a hole that ends exactly at a line start, after a torn line, does not swallow
+/// that line. It matters for a line only the log holds (here line 8: written, its record never
+/// made, as after a crash between the two).
+#[test]
+fn a_hole_that_ends_at_a_line_start_keeps_that_line() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(45);
+    let store = open(home.path(), &journal);
+    for seq in 1..=5 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for seq in 6..=7 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    write_log_line(home.path(), CHAT, &record(8, "queued"));
+    zero_log_mid_line_to_line_start(home.path(), CHAT, 6, 8);
+    let store = open(home.path(), &killed);
+    assert_eq!(
+        seqs(store.as_ref(), CHAT),
+        (1..=8).collect::<Vec<_>>(),
+        "a line after a hole that ends at its start was dropped"
+    );
+}
+
+/// Follow-up 4: an idle store's checkpointer sleeps until the next change, instead of waking every
+/// period (cmux-ad m9: an idle daemon must not wake periodically); the next change still gets its
+/// checkpoint one period later.
+#[test]
+fn an_idle_store_does_not_wake_its_checkpointer() {
+    use super::journal_store::{CHECKPOINTER_WAKES, TEST_CHECKPOINT_EVERY_MS};
+    use std::sync::atomic::Ordering;
+    TEST_CHECKPOINT_EVERY_MS.store(20, Ordering::SeqCst);
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(46);
+    let store = open(home.path(), &journal);
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    // Let the checkpointer see that nothing is left to do.
+    std::thread::sleep(Duration::from_millis(100));
+    let before = CHECKPOINTER_WAKES.load(Ordering::SeqCst);
+    std::thread::sleep(Duration::from_millis(500));
+    let woke = CHECKPOINTER_WAKES.load(Ordering::SeqCst).saturating_sub(before);
+    assert!(woke <= 1, "an idle checkpointer woke {woke} times in 500 ms (period 20 ms)");
+    // A change wakes it: its checkpoint comes about one period later.
+    store.append(CHAT, &record(2, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let checkpointed = loop {
+        let bytes = std::fs::read(home.path().join("journal-projected.json")).unwrap_or_default();
+        let lsn =
+            serde_json::from_slice::<Value>(&bytes).ok().and_then(|value| value["lsn"].as_u64());
+        if lsn.is_some_and(|lsn| lsn >= 2) || std::time::Instant::now() > deadline {
+            break lsn;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(
+        checkpointed.is_some_and(|lsn| lsn >= 2),
+        "no checkpoint after a change ({checkpointed:?})"
+    );
+}

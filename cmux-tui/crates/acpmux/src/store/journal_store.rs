@@ -87,6 +87,15 @@ const LOCK_WAIT: Duration = Duration::from_secs(5);
 /// The longest a repair waits for the lines it journals before it cuts a log.
 const REPAIR_WAIT: Duration = Duration::from_secs(60);
 
+/// Tests: how many times the checkpointer's loop woke (`journal_store/checkpoint.rs`).
+#[cfg(test)]
+pub(crate) static CHECKPOINTER_WAKES: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+/// Tests: the checkpoint period in milliseconds when not 0 (`checkpoint_every`).
+#[cfg(test)]
+pub(crate) static TEST_CHECKPOINT_EVERY_MS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
 pub struct JournalStore {
     inner: Arc<Inner>,
     checkpointer: Mutex<Option<std::thread::JoinHandle<()>>>,

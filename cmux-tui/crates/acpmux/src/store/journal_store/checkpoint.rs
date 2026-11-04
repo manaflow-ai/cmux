@@ -215,6 +215,8 @@ impl Inner {
             }
             timer.wanted = false;
             drop(timer);
+            #[cfg(test)]
+            CHECKPOINTER_WAKES.fetch_add(1, AtomicOrdering::SeqCst);
             if let Err(error) = self.checkpoint() {
                 tracing::warn!("event journal checkpoint: {error:#}");
             }
@@ -235,6 +237,10 @@ impl Inner {
 /// How long the checkpointer waits between two checkpoints. Debug builds only:
 /// `ACPMUX_TEST_JOURNAL_CHECKPOINT_MS` (10 ms to 60 s) shortens it for the daemon-level tests.
 fn checkpoint_every() -> Duration {
+    #[cfg(test)]
+    if let ms @ 1.. = TEST_CHECKPOINT_EVERY_MS.load(AtomicOrdering::SeqCst) {
+        return Duration::from_millis(ms);
+    }
     #[cfg(debug_assertions)]
     if let Some(ms) = std::env::var("ACPMUX_TEST_JOURNAL_CHECKPOINT_MS")
         .ok()
