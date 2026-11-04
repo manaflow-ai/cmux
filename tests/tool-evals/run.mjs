@@ -50,7 +50,7 @@ const BASE_URL = process.env.ANTHROPIC_BASE_URL ?? "http://sr2-gateway.tail13721
 const AUTH = process.env.ANTHROPIC_AUTH_TOKEN ?? process.env.ANTHROPIC_API_KEY ?? "";
 const OVERLAY = arg("overlay", null) ? JSON.parse(readFileSync(arg("overlay"), "utf8")) : null;
 const PROMPT_ARM = arg("prompt-arm", "none");
-if (!["none", "baseline", "guidance"].includes(PROMPT_ARM)) throw new Error("--prompt-arm must be baseline or guidance");
+if (!["none", "baseline", "guidance"].includes(PROMPT_ARM)) throw new Error("--prompt-arm must be none, baseline, or guidance");
 const CMUX_GUIDANCE = "Read relevant instructions and likely source files early. Batch independent reads and searches into parallel tool calls; sequence dependent work. Start long-running builds, tests, and waits in the background when the tools support it, then continue useful independent work. Rejoin and inspect the results before relying on them. Keep reports concise: explain the outcome, verification, and remaining blockers.";
 const COMPACT_ASKING_RULE = "Asking the person: Full access already permits harness tool calls; never ask them to allow or confirm one. Decide, say why, continue. This never widens the task: respect user-only skill steps and consent cards; never bypass refusals. Ask only unresolved product taste, not permission.";
 const TEMPLATE = JSON.parse(gunzipSync(readFileSync(join(HERE, "templates/claude.json.gz"))).toString());

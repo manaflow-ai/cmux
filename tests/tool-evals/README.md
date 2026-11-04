@@ -58,6 +58,10 @@ preset or Codex developer instruction field. Those runs leave the MCP rule from 
 selected product binary unchanged. Use the same binary in both arms. These system/
 developer-field experiments do not reproduce the product's first-turn user-context
 delivery; use the standalone paired evaluator below for that intervention.
+The allowed values are `none`, `baseline`, and `guidance`; `none` is the default
+and leaves the prompt untouched. The standalone candidate is a combined compact-
+asking-plus-concurrency intervention, so its paired result cannot attribute a
+difference to either text independently.
 
 ```sh
 bun tests/tool-evals/run.mjs --model claude-sonnet-5-5 --surface code \
@@ -80,8 +84,12 @@ captured-Claude harness against fixed synthetic repository fixtures:
 
 ```sh
 cmux-ci test --setup none --timeout 1800 --artifact /tmp/prompt-behavior -- \
-  node tests/tool-evals/prompt-behavior.mjs --samples 3 --base-url https://coderouter.cmux.internal --auth cmux-vm-edge-placeholder
+  node tests/tool-evals/prompt-behavior.mjs --samples 3
 ```
+
+Set `ANTHROPIC_BASE_URL` to the gateway reachable by the selected worker and set
+`ANTHROPIC_AUTH_TOKEN` in its environment when required. The evaluator reads both
+variables; it does not accept credentials or gateway URLs on the command line.
 
 It alternates arm order for each paired task/sample. It uses the captured Claude
 Code 2.1.311 system prompt and native Read/Bash schemas captured on 2026-10-27.
@@ -90,10 +98,14 @@ product change cannot silently alter the control. Both arms approximate MCP serv
 instructions with a labelled system block: the old rule in baseline, the compact
 rule in candidate. Only candidate appends the exact `<cmux-default-context>`
 concurrency guidance as the last block of the first user prompt, matching product
-delivery. A guard rejects captures that already include these cmux additions.
+delivery. The product seam is implemented by
+[cmux#34702](https://github.com/manaflow-ai/cmux/pull/34702). A guard rejects
+captures that already include these cmux additions.
 This is not live MCP initialization or a complete current harness context.
 The three tasks cover independent config reads, cross-file contract comparison,
-and a test command with independent release-note reads. Results are deterministic
+and a test command with independent release-note reads. The contract task passes
+only when the answer connects the server's `retries` field to the schema's
+`retry_limit`, rather than merely mentioning the word "server". Results are deterministic
 fixtures with a 250ms read and 2s command delay; no generated shell runs. A task
 passes only when the model reads every named file, collects its test output, and
 reports the required facts. `manifest.json` records the prompts, hashes and estimate

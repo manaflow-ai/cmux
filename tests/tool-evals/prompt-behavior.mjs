@@ -14,8 +14,8 @@ const arg = (key, fallback) => {
 const model = arg("model", "claude-sonnet-5-5");
 const samples = Number(arg("samples", "3"));
 const out = resolve(arg("out", process.env.FAST_CHECKS_OUT ?? "artifacts/prompt-behavior"));
-const baseUrl = arg("base-url", process.env.ANTHROPIC_BASE_URL ?? "http://sr2-gateway.tail137216.ts.net:4016");
-const auth = arg("auth", process.env.ANTHROPIC_AUTH_TOKEN ?? process.env.ANTHROPIC_API_KEY ?? "");
+const baseUrl = process.env.ANTHROPIC_BASE_URL ?? "http://localhost:4016";
+const auth = process.env.ANTHROPIC_AUTH_TOKEN ?? process.env.ANTHROPIC_API_KEY ?? "";
 const template = JSON.parse(gunzipSync(readFileSync(new URL("./templates/claude.json.gz", import.meta.url))));
 // Freeze the pre-change arm: rebasing onto the shipped rule must not change it.
 // Source: agent_tools.rs at 6dedb9cc163f68759c193491592b30950a78fe34.
@@ -45,7 +45,8 @@ const tasks = [
     id: "compare-contracts",
     prompt: "Check /repo/client.md, /repo/server.md and /repo/schema.md. Tell me which side disagrees with the schema and what field name to fix.",
     files: { "client.md": "The client sends the field retry_limit.", "server.md": "The server reads the field retries.", "schema.md": "The wire contract names this field retry_limit." },
-    must: ["server", "retries", "retry_limit"],
+    must: ["retries", "retry_limit"],
+    mustPatterns: ["server[\\s\\S]{0,80}retries", "retries[\\s\\S]{0,80}retry_limit"],
   },
   {
     id: "test-and-changelog",
@@ -95,6 +96,8 @@ async function sample(task, arm, index) {
   };
   let text = "";
   let error = null;
+  let stopReason = null;
+  let stoppedNaturally = false;
   try {
     for (let step = 0; step < 12; step++) {
       const res = await fetch(`${baseUrl}/v1/messages`, {
@@ -107,6 +110,7 @@ async function sample(task, arm, index) {
       });
       if (!res.ok) throw new Error(`model ${res.status}: ${(await res.text()).slice(0, 200)}`);
       const result = await res.json();
+      stopReason = result.stop_reason ?? stopReason;
       const u = result.usage ?? {};
       usage.input += u.input_tokens ?? 0;
       usage.output += u.output_tokens ?? 0;
@@ -115,7 +119,7 @@ async function sample(task, arm, index) {
       messages.push({ role: "assistant", content: result.content });
       text += result.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
       const uses = result.content.filter((b) => b.type === "tool_use");
-      if (!uses.length) break;
+      if (!uses.length) { stoppedNaturally = true; break; }
       turns.push(uses.length);
       // Fixture reads and the one test are independent; execute their batches
       // concurrently, unlike the historical app-operation runner.
@@ -131,9 +135,11 @@ async function sample(task, arm, index) {
   const requiredFiles = Object.keys(task.files);
   const readFiles = calls.filter((c) => c.name === "Read").map((c) => String(c.input.file_path).replace(/^\/repo\//, ""));
   const sawOutput = !task.command || messages.some((m) => Array.isArray(m.content) && m.content.some((b) => b.type === "tool_result" && b.content === task.result));
-  const pass = !error && requiredFiles.every((f) => readFiles.includes(f)) && sawOutput && task.must.every((s) => text.toLowerCase().includes(s.toLowerCase()));
+  const mustPatterns = (task.mustPatterns ?? []).every((pattern) => new RegExp(pattern, "i").test(text));
+  const pass = !error && requiredFiles.every((f) => readFiles.includes(f)) && sawOutput && task.must.every((s) => text.toLowerCase().includes(s.toLowerCase())) && mustPatterns;
   const row = { task: task.id, arm, sample: index, model, pass, error,
     wall_ms: Date.now() - started, first_read_ms: firstRead,
+    stop_reason: stopReason, step_cap_hit: !error && !stoppedNaturally,
     tool_calls: turns.reduce((a, b) => a + b, 0), tool_turns: turns.length,
     parallel_tool_turns: turns.filter((n) => n > 1).length,
     parallel_share: turns.length ? turns.filter((n) => n > 1).length / turns.length : 0,
@@ -160,7 +166,8 @@ async function main() {
       text, chars: text?.length ?? 0, estimated_tokens: Math.ceil((text?.length ?? 0) / 4), method: "chars/4 estimate",
       sha256: text == null ? null : createHash("sha256").update(text).digest("hex"),
     }))])),
-    delivery: "Both arms approximate MCP initialization instructions as one labelled system block. Only the candidate adds the exact cmux-default-context block after normal first-turn user content, matching the product guidance channel.",
+    delivery: "Both arms approximate MCP initialization instructions as one labelled system block. The product first-turn user-context seam is implemented by cmux#34702 (https://github.com/manaflow-ai/cmux/pull/34702); only the candidate adds the exact cmux-default-context block after normal first-turn user content.",
+    candidate_intervention: "The candidate is one combined intervention: it replaces the long asking rule with the compact rule and adds the early/concurrent-work block. This paired experiment cannot attribute any behavior difference to either text independently.",
     limitation: "Synthetic Claude-only deterministic tool fixtures with historical Claude Code 2.1.311 system and native Read/Bash schemas (2026-10-27). No live MCP initialization or complete current session context. Measures model behavior; not a live app or Codex-session result." };
   writeFileSync(join(out, "manifest.json"), JSON.stringify(manifest, null, 2));
   const rows = [];
@@ -181,6 +188,8 @@ async function main() {
       calls_per_tool_turn: rs.reduce((n, r) => n + r.tool_calls, 0) / rs.reduce((n, r) => n + r.tool_turns, 0),
       aggregate_parallel_share: rs.reduce((n, r) => n + r.parallel_tool_turns, 0) / rs.reduce((n, r) => n + r.tool_turns, 0),
       background_tasks: rs.reduce((n, r) => n + r.background_tasks, 0),
+      step_cap_hits: rs.filter((r) => r.step_cap_hit).length,
+      stop_reasons: Object.fromEntries([...new Set(rs.map((r) => r.stop_reason).filter(Boolean))].map((reason) => [reason, rs.filter((r) => r.stop_reason === reason).length])),
       usage: Object.fromEntries(Object.keys(rs[0].usage).map((key) => [key, rs.reduce((n, r) => n + r.usage[key], 0)])) }];
   }));
   writeFileSync(join(out, "summary.json"), JSON.stringify(summary, null, 2));
