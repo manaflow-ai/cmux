@@ -12,7 +12,11 @@
 //!
 //! A run without the journal (the switch off after a catch-up that failed, or an older build) can
 //! write `session.json` after the journal's records (review of #35483, F1). Every write of the
-//! store's own carries `journalLsn`; a file without it is one the journal did not write. So each
+//! store's own carries `journalLsn` and the journal's id (`journalId`): an LSN means something
+//! only in the journal that gave it, and a chat folder can come from another home's journal
+//! (build adoption moves folders between homes) or outlive a journal made again (review of
+//! #35483 at `8301994b135`, N1). A file without this journal's id is one the journal did not
+//! write. So each
 //! record also says which `session.json` there was when its image was saved: that file's id,
 //! modification time and length (its stamp), or none. The replay writes an image over a file the
 //! journal did not write only when one of the chat's replayed records saw that same file;
@@ -33,6 +37,9 @@ const SAW_FILE: u8 = 1;
 /// The key `session.json` keeps the LSN of the image it holds under (absent without the journal):
 /// the replay never writes an older image over a newer one.
 const JOURNAL_LSN_KEY: &str = "journalLsn";
+/// The key beside it with the id of the journal that gave the LSN, as 16 hex digits (a string: a
+/// JSON reader may keep a number only to 2^53).
+const JOURNAL_ID_KEY: &str = "journalId";
 
 /// Tests: a `settle_meta` of the chat this names stops right after it read the chat's image,
 /// says so on the first channel and waits for the second.
@@ -108,19 +115,28 @@ impl FileStamp {
 /// What a chat's `session.json` is.
 enum SessionFile {
     Missing,
-    /// A file the journal wrote, holding the image of this LSN.
+    /// A file this journal wrote, holding the image of this LSN.
     Journaled(Lsn),
-    /// A file the journal did not write (before the switch went on, with it off, or by an older
-    /// build); one that does not parse is one too.
+    /// A file this journal did not write (before the switch went on, with it off, by an older
+    /// build, or by another journal: another home's, or this home's before its journal was made
+    /// again); one that does not parse is one too.
     Plain(FileStamp),
 }
 
-/// Reads what `dir`'s `session.json` is: its stamp and its bytes from one open file.
-fn session_file(dir: &Path) -> std::io::Result<SessionFile> {
+/// A journal id as `session.json` keeps it.
+fn journal_id_text(id: u64) -> String {
+    format!("{id:016x}")
+}
+
+/// Reads what `dir`'s `session.json` is for the journal `journal`: its stamp and its bytes from
+/// one open file.
+fn session_file(dir: &Path, journal: u64) -> std::io::Result<SessionFile> {
     #[derive(Deserialize)]
     struct Only {
         #[serde(default, rename = "journalLsn")]
         journal_lsn: Lsn,
+        #[serde(default, rename = "journalId")]
+        journal_id: Option<String>,
     }
     let path = dir.join("session.json");
     let mut options = OpenOptions::new();
@@ -140,8 +156,11 @@ fn session_file(dir: &Path) -> std::io::Result<SessionFile> {
     let meta = file.metadata()?;
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)?;
+    let ours = journal_id_text(journal);
     Ok(match serde_json::from_slice::<Only>(&bytes) {
-        Ok(Only { journal_lsn: lsn @ 1.. }) => SessionFile::Journaled(lsn),
+        Ok(Only { journal_lsn: lsn @ 1.., journal_id: Some(id) }) if id == ours => {
+            SessionFile::Journaled(lsn)
+        }
         _ => SessionFile::Plain(FileStamp::of(&meta)),
     })
 }
@@ -232,13 +251,16 @@ fn decode_meta(payload: &[u8]) -> Option<Decoded<'_>> {
     Some(Decoded { chat, folder, saw, image })
 }
 
-/// `session.json` for `meta`, written as `LocalStore::save` writes it, with the image's LSN.
-fn session_json(meta: &SessionMeta, lsn: Lsn) -> Result<Vec<u8>> {
+/// `session.json` for `meta`, written as `LocalStore::save` writes it, with the image's LSN and
+/// its journal's id.
+fn session_json(meta: &SessionMeta, lsn: Lsn, journal: u64) -> Result<Vec<u8>> {
     let mut text = serde_json::to_string_pretty(meta)?;
-    // The struct's field order kept: the key goes before the closing brace of a non-empty object.
+    // The struct's field order kept: the keys go before the closing brace of a non-empty object.
     let Some(close) = text.rfind('}') else { anyhow::bail!("a chat's metadata is not an object") };
     let body = text.get(..close).unwrap_or_default().trim_end().to_owned();
-    text = format!("{body},\n  \"{JOURNAL_LSN_KEY}\": {lsn}\n}}");
+    let id = journal_id_text(journal);
+    text =
+        format!("{body},\n  \"{JOURNAL_LSN_KEY}\": {lsn},\n  \"{JOURNAL_ID_KEY}\": \"{id}\"\n}}");
     Ok(text.into_bytes())
 }
 
@@ -251,7 +273,7 @@ fn session_json(meta: &SessionMeta, lsn: Lsn) -> Result<Vec<u8>> {
 /// was to make durable may be lost, and a later sync of the same file may report success
 /// without it.
 #[cfg(unix)]
-fn write_session_json(dir: &Path, meta: &SessionMeta, lsn: Lsn) -> Result<()> {
+fn write_session_json(dir: &Path, meta: &SessionMeta, lsn: Lsn, journal: u64) -> Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let path = dir.join("session.json");
@@ -267,7 +289,7 @@ fn write_session_json(dir: &Path, meta: &SessionMeta, lsn: Lsn) -> Result<()> {
             .custom_flags(libc::O_NOFOLLOW)
             .open(&tmp)
             .with_context(|| format!("write {}", tmp.display()))?;
-        file.write_all(&session_json(meta, lsn)?)
+        file.write_all(&session_json(meta, lsn, journal)?)
             .with_context(|| format!("write {}", tmp.display()))?;
         log_sync::sync_segment_ordered(&file)
             .map_err(SyncFailed)
@@ -285,8 +307,8 @@ fn write_session_json(dir: &Path, meta: &SessionMeta, lsn: Lsn) -> Result<()> {
 /// Writes `meta` (the image of LSN `lsn`) to `dir`'s `session.json`, durably (NTFS journals its
 /// folder changes).
 #[cfg(not(unix))]
-fn write_session_json(dir: &Path, meta: &SessionMeta, lsn: Lsn) -> Result<()> {
-    crate::config::write_atomic(&dir.join("session.json"), &session_json(meta, lsn)?)
+fn write_session_json(dir: &Path, meta: &SessionMeta, lsn: Lsn, journal: u64) -> Result<()> {
+    crate::config::write_atomic(&dir.join("session.json"), &session_json(meta, lsn, journal)?)
 }
 
 impl super::repair::Replay {
@@ -454,10 +476,13 @@ impl Inner {
         let here = folder_id(&dir).with_context(|| format!("stat {}", dir.display()))?;
         if here == Some(pending.folder) {
             let held = matches!(
-                session_file(&dir),
+                session_file(&dir, self.journal.journal_id()),
                 Ok(SessionFile::Journaled(lsn)) if lsn >= pending.lsn
             );
-            if !held && let Err(error) = write_session_json(&dir, &pending.meta, pending.lsn) {
+            if !held
+                && let Err(error) =
+                    write_session_json(&dir, &pending.meta, pending.lsn, self.journal.journal_id())
+            {
                 let error = error.context(format!("write the metadata of {id}"));
                 if error.chain().any(|cause| cause.is::<SyncFailed>()) {
                     self.freeze(format!("a chat's metadata failed to sync: {error:#}"));
@@ -494,15 +519,17 @@ impl Inner {
                 }
             };
             let why = match folder_id(&dir) {
-                Ok(Some(here)) if here == replayed.folder => match session_file(&dir) {
-                    Ok(SessionFile::Journaled(lsn)) if lsn >= replayed.lsn => continue,
-                    Ok(SessionFile::Journaled(_) | SessionFile::Missing) => None,
-                    Ok(SessionFile::Plain(stamp)) if replayed.saw.contains(&stamp) => None,
-                    Ok(SessionFile::Plain(_)) => Some(
-                        "its session.json changed without the journal since (a run with store.journal off, or an older build)",
-                    ),
-                    Err(_) => Some("its session.json does not read"),
-                },
+                Ok(Some(here)) if here == replayed.folder => {
+                    match session_file(&dir, self.journal.journal_id()) {
+                        Ok(SessionFile::Journaled(lsn)) if lsn >= replayed.lsn => continue,
+                        Ok(SessionFile::Journaled(_) | SessionFile::Missing) => None,
+                        Ok(SessionFile::Plain(stamp)) if replayed.saw.contains(&stamp) => None,
+                        Ok(SessionFile::Plain(_)) => Some(
+                            "its session.json changed without this journal since (a run with store.journal off, an older build, or another journal)",
+                        ),
+                        Err(_) => Some("its session.json does not read"),
+                    }
+                }
                 Ok(Some(_)) => Some("its folder was replaced since"),
                 Ok(None) => Some("its folder is gone"),
                 Err(_) => Some("its folder does not read"),
