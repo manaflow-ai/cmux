@@ -6,7 +6,7 @@ name: Cloud journey (production, hourly)
 #
 # Two models:
 # - stub, every hour: everything is real (account, machine, acpmux, the Claude Code binary, the login copy) except
-#   the model endpoint, a stub on the machine's loopback (scripts/cmux-next/cloud-journey-model-stub.py). The login
+#   the model endpoint, the shared model stub (tests/fixtures/model-stub) on the machine's loopback. The login
 #   passed is a made-up setup-token shape. The reply must carry the stub's nonce, every model request must carry the
 #   passed login (the credential hop), and one Bash tool call must make the round trip. No Claude secret is used.
 #   probe.json is the cmuxterm-hq probes.py row `cloud-chat-replies-production` (ok with the send-to-reply ms).
@@ -66,6 +66,7 @@ jobs:
           sparse-checkout: |
             scripts/cmux-next
             Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials
+            tests/fixtures/model-stub
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         if: env.SELECTED == 'true'
         with:

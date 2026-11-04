@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { claudeLoginPrograms, INSTALLER_SWIFT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { claudeLoginPrograms, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("backend names map to the cmux API Worker of each environment", () => {
@@ -61,10 +61,10 @@ describe("cloud journey", () => {
     const bad = probeRow("p", [{ step: "create machine", status: "fail", ms: 5, detail: "HTTP 503" }], undefined, at);
     expect(bad).toMatchObject({ outcome: "fail", error: "create machine: HTTP 503" });
   });
-  test("the model stub ships next to the journey and judges tool results only", () => {
-    const stub = readFileSync(MODEL_STUB_PY, "utf8");
-    expect(stub).toContain('c.get("type") == "tool_result"');
-    expect(stub).toContain("cred_sha256");
+  test("the journey's stub script is valid for the shared model stub and its reply repeats the tool output", () => {
+    expect(readFileSync(MODEL_STUB_PY, "utf8")).toContain("--ready-file");
+    expect(JOURNEY_STUB_SCRIPT.steps[0].shell).not.toContain("{{nonce}}-tool");
+    expect(JOURNEY_STUB_SCRIPT.steps[1].text).toContain("{{result.0}}");
   });
   test("a team machine gets the DEV creator allowance, as a nightly build copies", () => {
     const team = claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), true);

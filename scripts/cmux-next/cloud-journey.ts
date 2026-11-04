@@ -35,7 +35,8 @@
  * exec and fs/write routes, so a green reply proves the path a signed-in person's Cloud chat takes. Without a
  * token the step is skipped and the reply fails "Not logged in".
  *
- * --model stub makes the model endpoint the only stand-in: cloud-journey-model-stub.py runs on the machine's loopback
+ * --model stub makes the model endpoint the only stand-in: the shared model stub (tests/fixtures/model-stub) runs on
+ * the machine's loopback
  * and Claude Code's settings point there (after the login copy, whose installer refuses a custom endpoint). The login
  * passed is a made-up setup-token shape, so no real credential exists. The reply must carry the stub's nonce, every
  * model request must carry the passed login (its SHA-256, which the stub logs: the credential hop), and one Bash tool
@@ -323,7 +324,13 @@ export function swiftRawString(source: string, name: string): string {
 }
 
 /** The model stub --model stub runs on the machine. */
-export const MODEL_STUB_PY = fileURLToPath(new URL("./cloud-journey-model-stub.py", import.meta.url));
+/** The shared model stub (tests/fixtures/model-stub, #35332): Anthropic Messages and OpenAI Responses, scripted. */
+export const MODEL_STUB_PY = fileURLToPath(new URL("../../tests/fixtures/model-stub/model_stub.py", import.meta.url));
+/**
+ * The journey's stub script: one Bash call whose output (printf joins it, so neither the command nor an error that
+ * quotes it carries it) the reply then repeats, so the reply shows the tool round trip.
+ */
+export const JOURNEY_STUB_SCRIPT = { version: 1, steps: [{ shell: "printf '%s-%s\\n' {{nonce}} tool" }, { text: "Stub reply {{nonce}}. The tool printed {{result.0}}." }] };
 
 /** The Mac's installer (CloudCredentialInstaller.swift), relative to this script in a cmux checkout. */
 export const INSTALLER_SWIFT = fileURLToPath(new URL("../../Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/CloudCredentialInstaller.swift", import.meta.url));
@@ -482,7 +489,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const cmux = argValue("--cmux", argv);
   const keep = argv.includes("--keep");
   const only = new Set((argValue("--skip", argv) ?? "").split(",").filter(Boolean));
-  // --model stub: the model endpoint is the only stand-in (cloud-journey-model-stub.py on the machine). The login the
+  // --model stub: the model endpoint is the only stand-in (the shared model stub on the machine). The login the
   // journey passes is then a made-up setup-token shape: the stub checks it arrived, and no real credential exists.
   const modelStub = argValue("--model", argv) === "stub";
   const nonce = randomBytes(6).toString("hex");
@@ -651,17 +658,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       // copy (whose installer refuses a custom endpoint), so the forwarded login is sent nowhere but the stub.
       await J.step("model stub on the machine", async () => {
         const file = "/home/cmux/.cmux/journey-model-stub.py";
-        const w = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path: file, dataBase64: readFileSync(MODEL_STUB_PY).toString("base64"), mode: 0o644 });
-        if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write: HTTP ${w.status} ${short(w.body?.error?.code ?? "")}`);
+        const script = "/home/cmux/.cmux/journey-model-stub.json";
+        const ready = "/home/cmux/.cmux/journey-model-stub.ready";
+        for (const [path, data] of [[file, readFileSync(MODEL_STUB_PY)], [script, Buffer.from(JSON.stringify(JOURNEY_STUB_SCRIPT))]] as const) {
+          const w = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path, dataBase64: data.toString("base64"), mode: 0o644 });
+          if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write ${path}: HTTP ${w.status} ${short(w.body?.error?.code ?? "")}`);
+        }
         const port = 18000 + Math.floor(Math.random() * 1000);
         const r = await exec(
-          `rm -f ${shq(stubLog)}; (STUB_TOOL=1 nohup python3 ${shq(file)} ${shq(nonce)} ${port} ${shq(stubLog)} >/dev/null 2>&1 &); ` +
-            `for i in $(seq 50); do curl -fsS -m 2 -o /dev/null -X POST "http://127.0.0.1:${port}/v1/messages" -d '{}' && break; sleep 0.2; done; ` +
-            `curl -fsS -m 2 -o /dev/null -X POST "http://127.0.0.1:${port}/v1/messages" -d '{}' || { echo stub-down; tail -5 ${shq(stubLog)}; exit 1; }; ` +
+          `rm -f ${shq(stubLog)} ${shq(ready)}; (nohup python3 ${shq(file)} --port ${port} --script ${shq(script)} --nonce ${shq(nonce)} --log ${shq(stubLog)} --ready-file ${shq(ready)} >${shq(stubLog)}.out 2>&1 &); ` +
+            `for i in $(seq 50); do [ -s ${shq(ready)} ] && break; sleep 0.2; done; ` +
+            `curl -fsS -m 2 "http://127.0.0.1:${port}/__stub/info" | grep -q ${shq(nonce)} || { echo stub-down; tail -5 ${shq(stubLog)}.out; exit 1; }; ` +
             `python3 - ${port} <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.write_text(json.dumps(c))\nprint('stub-ready')\nPY`,
         );
-        if (!r.stdout.includes("stub-ready")) throw new Error(`exit ${r.code} ${r.stderr.slice(-200)}`);
-        return { value: null, detail: `127.0.0.1:${port}, nonce ${nonce}, one Bash tool round trip` };
+        if (!r.stdout.includes("stub-ready")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
+        return { value: null, detail: `the shared model stub at 127.0.0.1:${port}, nonce ${nonce}, one Bash tool round trip` };
       });
     }
     const session = `journey-${tag}`;
@@ -686,7 +697,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const wait = /@@wait (\d+)/.exec(r.stdout)?.[1];
           last = r.stdout.replace(/@@wait \d+\n?/, "").replace(/@@lastexit \d+\s*$/, "").trim();
           if (wait === "0" && last) {
-            if (modelStub && !last.includes(`Stub reply ${nonce}`)) throw new Error(`the reply does not carry the stub's nonce ${nonce}: ${last.slice(-200)}`);
+            // The stub repeats the Bash output in its reply, so this also proves the tool ran and its output came back.
+            if (modelStub && !last.includes(`Stub reply ${nonce}. The tool printed ${nonce}-tool`)) throw new Error(`the reply does not carry the stub's nonce ${nonce} and the tool output: ${last.slice(-200)}`);
             return { value: last, detail: last.slice(0, 280) };
           }
           if (wait === "2") throw new Error(`the agent waits on a permission: ${last.slice(-200)}`);
@@ -705,11 +717,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const rows = r.stdout.split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
           // Every model request Claude Code made (streamed or not, count_tokens too); the journey's own readiness
           // pings send an empty body, so they name no model.
-          const turns = rows.filter((x: any) => x.m === "POST" && String(x.p).startsWith("/v1/messages") && x.model);
+          // Every model request Claude Code made: streamed or not, count_tokens and title side requests too.
+          const turns = rows.filter((x: any) => x.method === "POST" && String(x.path).startsWith("/v1/messages"));
           const want = createHash("sha256").update(claudeLogin).digest("hex");
-          if (!turns.some((x: any) => x.stream)) throw new Error("Claude Code sent the stub no streamed /v1/messages request");
+          if (!turns.some((x: any) => x.stream && !x.side)) throw new Error("Claude Code sent the stub no streamed /v1/messages turn");
           if (!turns.every((x: any) => x.cred_sha256 === want)) throw new Error("a model request did not carry the login the journey passed (the forwarded credential did not reach Claude Code)");
-          if (!turns.some((x: any) => x.tool_ok)) throw new Error("no tool round trip: the Bash call's output never came back to the model");
+          if (!turns.some((x: any) => x.step === 1 && x.tool_results >= 1)) throw new Error("no tool round trip: no request came back with the Bash call's result");
           return { value: null, detail: `${turns.length} model requests, each with the forwarded login (SHA-256 match); Bash ran and its output came back` };
         });
       }
