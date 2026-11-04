@@ -50,7 +50,7 @@
     {
       "id": "mock-app",
       "title": "Mock app, whole window (chat + Session Info)",
-      "url": "app.html",
+      "url": "mock-app.html",
       "budget": {
         "firstFrameMs": 500,
         "longTaskMaxMs": 50,
@@ -61,7 +61,7 @@
     {
       "id": "mock-app-two",
       "title": "Mock app, two panes, compact, light",
-      "url": "app.html?layout=two&density=compact&colorScheme=light",
+      "url": "mock-app.html?layout=two&density=compact&colorScheme=light",
       "budget": {
         "firstFrameMs": 500,
         "longTaskMaxMs": 50,
@@ -72,7 +72,7 @@
     {
       "id": "mock-app-sizes",
       "title": "Mock app, three window sizes",
-      "url": "app.html?windows=pro14,air13,1280x800",
+      "url": "mock-app.html?windows=pro14,air13,1280x800",
       "budget": {
         "firstFrameMs": 500,
         "longTaskMaxMs": 50,
@@ -83,7 +83,7 @@
     {
       "id": "mock-app-streaming",
       "title": "Mock app, streaming script (animating)",
-      "url": "app.html?script=streaming",
+      "url": "mock-app.html?script=streaming",
       "budget": {
         "firstFrameMs": 500,
         "cls": 0

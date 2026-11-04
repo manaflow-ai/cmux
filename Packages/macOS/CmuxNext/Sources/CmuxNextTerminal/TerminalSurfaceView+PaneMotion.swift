@@ -46,7 +46,13 @@ extension TerminalSurfaceView: PaneMotionTargeting {
         return host.surfaceSize(forHostSize: hostSize)
     }
 
-    /// Reports the grid a view of `size` points fits and holds the surface at that size in its host.
+    /// Reports the grid a view of `size` points fits and holds the surface at that size in its host. In a key resize
+    /// whose pane its host follows (FRAME OWNER S3) with `motion.frameOwner.terminals` on, only the grid goes (cmux-ad m6:
+    /// the program's size per press); the surface takes its pane's size in every frame
+    /// (``TerminalHostView/followedSurfaceFrame(_:in:)``), never held at the final size. One exception, as for a split
+    /// or a close: a pane that grows down with the prompt in its lower half (`motionAnchor` answers `.bottom`) keeps the
+    /// surface at its final size on the moving bottom edge, so the prompt on the final grid's last row stays in view (a
+    /// surface at the pane's size shows the final grid's top rows; review of #35470, F2).
     private func restAt(_ size: NSSize, growing: Bool) -> PaneMotionAnchor {
         guard let surface else { return .top }
         let pixels = convertToBacking(size)
@@ -57,6 +63,15 @@ extension TerminalSurfaceView: PaneMotionTargeting {
         else { return .top }
         reportFinalGrid(TerminalGridSize(columns: Int(columns), rows: Int(rows)))
         let anchor = motionAnchor(growing: growing)
+        if anchor == .top, let host = superview as? TerminalHostView, host.followedHold != nil,
+           TerminalDragTunables.framesOwnedByCommit.value {
+            // The newest press's anchor wins: a hold an earlier press or a join set (a low prompt's bottom hold, or the
+            // final size a terminal took before its area handed it the follow) goes now, not at the landing (review of
+            // #35470 at 447f784c3cf, G1: a stale bottom hold through a reverse press, and grid1, grid2, grid1, grid2 for
+            // two presses after a join).
+            host.releaseSurfaceHold()
+            return .top
+        }
         (superview as? TerminalHostView)?.holdSurface(size: size, anchor: anchor)
         return anchor
     }

@@ -1,4 +1,4 @@
-// The mock app's URL contract (app.html): one URL shows the whole cmux NEXT window in one state,
+// The mock app's URL contract (mock-app.html): one URL shows the whole cmux NEXT window in one state,
 // and every condition axis is a query key. Leo, 2026-11-04: "I want the mock web view of the app to
 // be legit like 'oh we can see the whole unified piece and it doesn't lag'". The UI judge
 // (review council, ui-climb) and the native preview window drive it by this URL alone.

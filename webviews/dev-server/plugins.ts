@@ -225,7 +225,7 @@ const devEntries = [
   "src/pages/editor/view.ts",
   "src/gallery/index.html",
   "src/gallery/frame.html",
-  "src/gallery/app.html",
+  "src/gallery/mock-app.html",
 ];
 
 /// The index page, dev React and the dependency cache.

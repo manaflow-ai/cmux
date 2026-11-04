@@ -2,6 +2,10 @@
 //   /gallery/            the shell: every entry and state, with the controls
 //   /gallery/frame.html  one stage: one state of one entry under the controls (the shell's iframes,
 //                        the matrix runner's screenshots)
+//   /gallery/app.html    the whole app: one window (sidebar, tab strips, panes) around the live
+//                        agent pane, loading only the app.window scenes (app/main.tsx)
+//   /gallery/mock-app.html  the mock app: the whole window with each pane a real stage frame, every
+//                        condition a URL key (mock-app/main.ts, mock-app/axes.ts)
 // Virtual modules, for `bun run dev` and the static build (vite.config.gallery.ts) alike:
 //   virtual:cmux-gallery/themes            every theme the app ships (Resources/ghostty/themes, Resources/cmux-themes)
 //   virtual:cmux-gallery/web-theme         WebTheme.bootstrapScript, the script the app injects at

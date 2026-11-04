@@ -216,7 +216,7 @@ chat). Do not write those entries yourself.
 
 ## The mock app: the whole window by URL
 
-`app.html` is cmux NEXT's whole window in a browser: the sidebar, each pane's tab strip, and each
+`mock-app.html` is cmux NEXT's whole window in a browser: the sidebar, each pane's tab strip, and each
 pane's real surface (the agent pane with its transcript, composer, menus and Session Info, New Tab,
 Home) in its own stage frame, as each pane is its own web view in the app. Only the native parts
 around the panes (sidebar, tab strip, traffic lights) are approximated, from the app's metrics
@@ -224,13 +224,16 @@ around the panes (sidebar, tab strip, traffic lights) are approximated, from the
 app shows one state of the whole app per URL, which is what the UI judge (review council,
 `ui-climb`) and the native preview window drive.
 
+`app.html` ("Whole app" in the shell header, #35270) is the lighter page: one window over the `app.window`
+scenes in React. The mock app takes any fixture and every axis below.
+
 ```
-app.html?fixture=app.window/chat-session-info&window=pro14&density=compact&theme=Catppuccin%20Mocha&script=streaming
-app.html?windows=pro14,air13,1280x800&layout=two&fixture2=app.window/new-tab
-app.html?fixture=agent-pane.turn-error-card/disk-full&cpu=4&slot=custom-element&colorScheme=light
+mock-app.html?fixture=app.window/chat-session-info&window=pro14&density=compact&theme=Catppuccin%20Mocha&script=streaming
+mock-app.html?windows=pro14,air13,1280x800&layout=two&fixture2=app.window/new-tab
+mock-app.html?fixture=agent-pane.turn-error-card/disk-full&cpu=4&slot=custom-element&colorScheme=light
 ```
 
-Every key is an axis in `src/gallery/app/axes.ts` (`AXES`). A `frame` axis goes to every pane's
+Every key is an axis in `src/gallery/mock-app/axes.ts` (`AXES`). A `frame` axis goes to every pane's
 `frame.html` unchanged, so any control a stage reads (env.ts) works here too; a `main pane` axis
 goes only to the pane `fixture` names (the panes share one main thread, so a script plays and CPU
 contention runs once); an `app` axis shapes the window. Adding an axis the stage already reads is one row in `AXES`; a new script or extension
@@ -256,8 +259,8 @@ The page sets `data-mock-app-ready="1"` on its root and posts `{type: "cmux-mock
 "ready"}` to its parent when the first window's panes are ready. It runs no timer or animation
 frame while idle (only a `script` or `cpu` does, and those stop while the page is hidden).
 
-Open it from `bun run gallery:dev` at `http://127.0.0.1:4210/gallery/app.html`, from a static build
-(`dist/gallery/app.html`), or on the live tailnet gallery (`.../live/app.html`).
+Open it from `bun run gallery:dev` at `http://127.0.0.1:4210/gallery/mock-app.html`, from a static build
+(`dist/gallery/mock-app.html`), or on the live tailnet gallery (`.../live/mock-app.html`).
 
 ### Open-and-idle cost
 

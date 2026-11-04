@@ -1,5 +1,5 @@
 // l10n-allow-file: the mock app's approximated native chrome (gallery only, not shipped UI).
-// The mock app (app.html): cmux NEXT's whole window in a browser. Each pane is the real surface in
+// The mock app (mock-app.html): cmux NEXT's whole window in a browser. Each pane is the real surface in
 // its own stage frame (frame.html: the real agent pane, New Tab, Session Info, menus, on the
 // in-page host), as each pane is its own web view in the app. Only the native parts around them
 // (the sidebar, the tab strips, the traffic lights) are approximated here, from the app's own

@@ -1,198 +1,276 @@
-/* The mock app's approximated native chrome (app/main.ts). Colors are the theme's tokens, set on
-   the root; sizes are the app's metrics, set inline per window. Nothing animates. */
+/* The whole app (app/main.tsx): the toolbar, then one window scaled to the room under it. The
+   window's chrome reads the same --cmux-* tokens the app hands its pages (applyTheme). Nothing here
+   animates, filters or blurs: the page paints once and the live pane is the only moving part. */
 html,
-body {
+body,
+#app {
+  height: 100%;
   margin: 0;
-  min-height: 100%;
-  font-family: var(--font-ui);
-  font-size: var(--text-body);
-  line-height: var(--text-body--line-height);
-  color: var(--app-text);
 }
+
+body {
+  /* The page around the window: the theme's surface, a step darker. */
+  --app-page: color-mix(in srgb, var(--cmux-surface-solid, #1e1e1e) 70%, #000);
+  display: flex;
+  flex-direction: column;
+  background: var(--app-page);
+  color: var(--cmux-text, #eee);
+  font-family: var(--font-ui);
+  font-size: var(--text-detail);
+}
+
 #app {
   display: flex;
+  flex-direction: column;
+}
+
+.app-toolbar {
+  display: flex;
   flex-wrap: wrap;
-  gap: 24px;
-  justify-content: center;
-  padding: 16px;
+  gap: 8px 16px;
+  align-items: center;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--cmux-separator, #333);
 }
-.app-stage {
+
+.app-control {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--cmux-text-secondary, #aaa);
+}
+
+.app-control select {
+  font: inherit;
+  color: var(--cmux-text, #eee);
+  background: var(--cmux-elevated-background, #2a2a2a);
+  border: 1px solid var(--cmux-separator, #444);
+  border-radius: 6px;
+  padding: 0 4px;
+}
+
+.app-note {
+  flex: 1 1 240px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--cmux-text-tertiary, #888);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.app-status {
+  color: var(--cmux-text-secondary, #aaa);
+  font-variant-numeric: tabular-nums;
+}
+
+.app-toolbar a {
+  color: var(--cmux-accent, #6af);
+}
+
+.app-room {
   position: relative;
-  contain: layout paint;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
 }
-.app-stage-label {
-  height: 24px;
-  font-size: var(--text-caption);
-  color: var(--app-text-2);
+
+.app-fit {
+  position: relative;
 }
+
 .app-window {
   position: absolute;
-  top: 24px;
+  top: 0;
   left: 0;
-  transform: scale(var(--app-scale, 1));
   transform-origin: 0 0;
   overflow: hidden;
   border-radius: 12px;
-  background: var(--app-window);
-  box-shadow:
-    0 0 0 0.5px var(--app-separator),
-    var(--elevation-2);
-  contain: strict;
+  /* The window behind the panes: the theme's surface, a step toward the text color. */
+  background: color-mix(in srgb, var(--cmux-surface-solid, #1e1e1e) 92%, var(--cmux-text, #fff));
+  box-shadow: var(--app-window-shadow);
+  contain: layout paint;
 }
+
 .app-sidebar {
   position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
   display: flex;
   flex-direction: column;
-  background: var(--app-sidebar);
   overflow: hidden;
 }
-.app-lights {
+
+.app-titlebar {
   display: flex;
   flex: none;
   gap: 8px;
   align-items: center;
   padding-left: 12px;
 }
-.app-light {
-  /* The system's traffic lights: their 12 pt size and colours, as AppKit draws them. */
-  --app-light-size: 12px;
-  --app-light-rim: rgb(0 0 0 / 0.2);
+
+.app-window {
+  /* macOS's window controls: fixed colors, as the system draws them in every theme. */
   --app-light-close: #ff5f57;
   --app-light-minimize: #febc2e;
   --app-light-zoom: #28c840;
+  --app-dot-input: #f5a524;
+  /* The rim carries the edge; the drop is the shared scale's (no dramatic shadows). */
+  --app-window-shadow: 0 0 0 1px var(--cmux-separator, #333), var(--elevation-2);
+  --app-light-size: 12px;
+  --app-dot-size: 8px;
+}
+
+.app-light {
   width: var(--app-light-size);
   height: var(--app-light-size);
   border-radius: 50%;
-  box-shadow: inset 0 0 0 0.5px var(--app-light-rim);
-}
-.app-light-close {
   background: var(--app-light-close);
 }
-.app-light-minimize {
+
+.app-light[data-light="minimize"] {
   background: var(--app-light-minimize);
 }
-.app-light-zoom {
+
+.app-light[data-light="zoom"] {
   background: var(--app-light-zoom);
 }
-.app-sidebar-list {
-  flex: 1;
-  overflow: hidden;
-  padding: 4px 8px;
-}
-.app-sidebar-group {
-  padding: 12px 8px 4px;
+
+.app-sidebar-header {
+  padding: 4px 16px;
+  color: var(--cmux-text-tertiary, #888);
   font-size: var(--text-caption);
   font-weight: 600;
-  color: var(--app-text-3);
 }
-.app-sidebar-row {
+
+.app-rows {
+  margin: 0;
+  padding: 0 8px;
+  list-style: none;
+  overflow: hidden;
+}
+
+.app-row {
   display: flex;
   gap: 8px;
   align-items: center;
-  height: 28px;
+  height: var(--app-row-height);
   padding: 0 8px;
   border-radius: 6px;
-  color: var(--app-text-2);
 }
-[data-density="compact"] .app-sidebar-row {
-  height: 24px;
+
+.app-row[data-active] {
+  background: var(--cmux-selection, rgb(255 255 255 / 0.1));
 }
-.app-sidebar-row[data-selected] {
-  background: var(--app-selection);
-  color: var(--app-text);
+
+.app-row-dot {
+  flex: none;
+  width: var(--app-dot-size);
+  height: var(--app-dot-size);
+  border-radius: 50%;
+  background: transparent;
 }
-.app-sidebar-title {
+
+.app-row-dot[data-indicator="working"] {
+  background: var(--cmux-accent, #6af);
+}
+
+.app-row-dot[data-indicator="input"] {
+  background: var(--app-dot-input);
+}
+
+.app-row-dot[data-unread] {
+  background: var(--cmux-text, #eee);
+}
+
+.app-row-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.app-row-title,
+.app-row-subtitle {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.app-sidebar-mark {
-  /* The sidebar row's 6 pt status dot. */
-  --app-mark-size: 6px;
-  flex: none;
-  width: var(--app-mark-size);
-  height: var(--app-mark-size);
-  border-radius: 50%;
+
+.app-row-title {
+  font-size: var(--text-body);
 }
-.app-mark-running {
-  box-shadow: inset 0 0 0 1.5px var(--app-text-2);
+
+.app-row-subtitle {
+  color: var(--cmux-text-tertiary, #888);
+  font-size: var(--text-caption);
 }
-.app-mark-input {
-  background: var(--app-attention);
-}
-.app-mark-error {
-  background: var(--app-danger);
-}
-.app-mark-unread {
-  background: var(--app-accent);
-}
-.app-sidebar-empty {
-  padding: 12px 8px;
-  color: var(--app-text-3);
-}
+
 .app-pane {
   position: absolute;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-radius: var(--app-radius, 8px);
-  background: var(--app-content);
-  box-shadow: 0 0 0 0.5px var(--app-pane-border);
+  border-radius: var(--app-radius);
+  background: var(--cmux-surface-solid, #1e1e1e);
+  box-shadow: 0 0 0 1px var(--cmux-separator, #333);
 }
-[data-glass] .app-pane {
-  background: transparent;
-}
-.app-strip {
+
+.app-tabstrip {
   display: flex;
   flex: none;
   gap: 4px;
   align-items: center;
+  box-sizing: border-box;
   padding: 0 8px;
-  background: var(--app-strip);
-  box-shadow: inset 0 -0.5px 0 var(--app-separator);
+  border-bottom: 1px solid var(--cmux-separator, #333);
 }
+
 .app-tab {
   display: flex;
   align-items: center;
-  max-width: 240px;
+  max-width: 220px;
+  height: var(--app-tab-height);
   padding: 0 12px;
-  border-radius: 6px;
-  background: var(--app-tab);
-  color: var(--app-text);
-}
-.app-tab-title {
   overflow: hidden;
+  border-radius: 6px;
+  color: var(--cmux-text-secondary, #aaa);
+  font-size: var(--text-detail);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.app-strip-plus {
+
+.app-tab[data-active] {
+  background: var(--cmux-hover, rgb(255 255 255 / 0.08));
+  color: var(--cmux-text, #eee);
+}
+
+.app-tab-new {
   padding: 0 8px;
-  color: var(--app-text-3);
+  color: var(--cmux-text-tertiary, #888);
+  font-size: var(--text-title);
 }
-.app-pane-frame {
+
+.app-stage {
   display: block;
-  width: 100%;
+  flex: none;
   border: 0;
-  background: transparent;
 }
-/* `chrome=native`: the native preview window draws the frame, traffic lights and glass. */
-[data-chrome="native"],
-[data-chrome="native"] body {
-  height: 100%;
-  overflow: hidden;
-  background: transparent;
+
+.app-terminal {
+  box-sizing: border-box;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 12px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: var(--text-detail);
 }
-[data-chrome="native"] #app {
-  display: block;
-  padding: 0;
-}
-[data-chrome="native"] .app-window {
-  top: 0;
-  transform: none;
-  border-radius: 0;
-  box-shadow: none;
-  background: transparent;
-}
-[data-chrome="native"] .app-sidebar {
-  background: transparent;
+
+.app-terminal-cursor {
+  width: 0.6em;
+  height: 1.2em;
+  background: var(--cmux-text, #eee);
+  opacity: 0.7;
 }

@@ -57,6 +57,9 @@ export const HIGHLIGHT_COLOR_KEY = "appearance.highlightColor";
 /** appearance.rotateFavoriteThemes: drawn here as its setting row under the terminal theme, once a
  * theme is starred (its App Theme group would draw a second card). */
 export const ROTATE_FAVORITES_KEY = "appearance.rotateFavoriteThemes";
+/** appearance.themeFile: the look from a file in the themes folder, drawn here as its setting row
+ * after the Highlight Color (another App Theme key: its group would draw a second card for it). */
+export const THEME_FILE_KEY = "appearance.themeFile";
 const FOLLOW_TERMINAL = "followTerminal";
 
 export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
@@ -163,6 +166,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
   const accentRow = rowsByKey.get(ACCENT_KEY);
   const highlightRow = rowsByKey.get(HIGHLIGHT_COLOR_KEY);
   const rotateRow = rowsByKey.get(ROTATE_FAVORITES_KEY);
+  const themeFileRow = rowsByKey.get(THEME_FILE_KEY);
   const accentState = useRowState(ACCENT_KEY);
   // The row `?focus=` names, once the owner's values arrive (before that every control is disabled),
   // revealed once: a row that mounts later (Match System Appearance swapping the rows) never takes
@@ -465,6 +469,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
             </StudioRow>
           )}
           {highlightRow && <SettingRow row={highlightRow} focused={focused === HIGHLIGHT_COLOR_KEY} />}
+          {themeFileRow && <SettingRow row={themeFileRow} focused={focused === THEME_FILE_KEY} />}
         </div>
       </section>
     </div>
