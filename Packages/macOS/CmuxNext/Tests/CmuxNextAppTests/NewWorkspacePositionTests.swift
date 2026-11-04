@@ -344,7 +344,9 @@ struct NewWorkspacePositionTests {
         enum FirstTerminalFailure: Error { case expected }
         let launched = try await Self.launch("top")
         let windows = launched.services.windows
-        let anchors = windows.newPlacements.groupAnchors
+        let groupAnchors = windows.newPlacements.groupAnchors
+        let anchors = windows.newPlacements.anchors
+        let placedByDaemon = windows.newPlacements.placedByDaemon
         let pending = Set(windows.pendingPlacements.keys)
         let scope = DaemonCommandScope()
         defer { scope.close() }
@@ -354,7 +356,10 @@ struct NewWorkspacePositionTests {
         await Self.wait(within: .seconds(10)) { scope.isIdle }
         #expect(scope.isIdle)
         #expect(!scope.failures.isEmpty)
-        #expect(windows.newPlacements.groupAnchors == anchors)
+        // The ledger as before: `sending` marks the create placed by the daemon, and the failure releases it.
+        #expect(windows.newPlacements.groupAnchors == groupAnchors)
+        #expect(windows.newPlacements.anchors == anchors)
+        #expect(windows.newPlacements.placedByDaemon == placedByDaemon)
         #expect(Set(windows.pendingPlacements.keys) == pending)
         await launched.stop()
     }
