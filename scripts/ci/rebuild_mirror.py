@@ -101,6 +101,7 @@ def start(root: str, rev: str, job: str, full: dict, output: Path) -> None:
         hit = job_reuse.lookup(record["candidate_key"], None)
         record["candidate_skip"] = hit.get("hit") == "true"
         record["previous_run"] = hit.get("run_url")
+        record["previous_sha"] = hit.get("sha")
     except (inputs.Unresolved, job_reuse.Miss, OSError, ValueError, KeyError, TypeError, AttributeError,
             subprocess.SubprocessError) as error:
         record["uncertain"] = str(error)

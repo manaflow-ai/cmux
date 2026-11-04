@@ -146,6 +146,18 @@ class CandidateInputs(unittest.TestCase):
         self.assertFalse(receipt["candidate_skip"])
         self.assertIn("unavailable", receipt["uncertain"])
 
+    def test_candidate_hit_records_the_prior_commit_for_cross_commit_comparisons(self):
+        plan = self.root / "plan.json"
+        previous = "a" * 40
+        with mock.patch.object(mirror.job_reuse, "lookup", return_value={
+                "hit": "true", "sha": previous, "run_url": "https://github.com/example/repository/actions/runs/1"}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            mirror.start(str(self.root), "HEAD", "release-compile", self.full(), plan)
+        record = json.loads(plan.read_text())
+        self.assertTrue(record["candidate_skip"])
+        self.assertEqual(record["previous_sha"], previous)
+        self.assertNotEqual(record["previous_sha"], record["sha"])
+
 
 def receipt(**changes):
     value = {"schema": mirror.SCHEMA, "repository": "example/repository", "run_id": "42",

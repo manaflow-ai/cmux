@@ -3527,17 +3527,6 @@ jobs:
           mkdir -p "$RUNNER_TEMP/ci-job-pass"
           printf '%s\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" > "$RUNNER_TEMP/ci-job-pass/pass.txt"
 
-      - name: Save the pass
-        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ steps.reuse-key.outputs.key }}
-          path: ${{ runner.temp }}/ci-job-pass
-          if-no-files-found: error
-          retention-days: 14
-          overwrite: true
-
       # Observe the candidate and the full run together. Until the measured
       # rollout is promoted, no candidate (or whole-tree hit) skips this job.
       # CI_REBUILD_MIRROR=0 restores the existing whole-tree reuse path.
@@ -3572,6 +3561,17 @@ jobs:
           path: ${{ runner.temp }}/ci-rebuild-result.json
           if-no-files-found: error
           retention-days: 3
+          overwrite: true
+
+      - name: Save the pass
+        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.reuse-key.outputs.key }}
+          path: ${{ runner.temp }}/ci-job-pass
+          if-no-files-found: error
+          retention-days: 14
           overwrite: true
 
   # The CmuxNext test targets the change reaches: path_route's swift_filter
