@@ -328,7 +328,7 @@ pub(super) fn copy_file_with_progress(
         source: Source::File(local.to_path_buf()),
         permissions: local::permissions_of(meta.permissions().mode()),
     };
-    let mut remote = Remote::connect(socket)?;
+    let mut remote = Remote::connect_negotiated(socket)?;
     let (parent, _) = remote::split(target)?;
     remote.mkdir_all(parent)?;
     write_with_progress(&mut remote, target, &file, progress).map(|_| ())
@@ -364,7 +364,7 @@ pub(super) fn upload(
     }
     let read = std::rc::Rc::new(std::cell::Cell::new(0));
     let mut reader = Counted { inner: file, read: read.clone() };
-    let mut remote = Remote::connect(socket)?;
+    let mut remote = Remote::connect_negotiated(socket)?;
     let (parent, _) = remote::split(target)?;
     remote.mkdir_all(parent)?;
     remote.write_with_progress(target, &mut reader, 0o600, &mut || progress(read.get()))?;
@@ -590,7 +590,7 @@ fn push_inner(
     }
     // What a pull compares the machine's branch and staged changes with.
     let git = if git_record { Some(git_back::base_of(&local)?) } else { None };
-    let mut remote = Remote::connect(socket)?;
+    let mut remote = Remote::connect_negotiated(socket)?;
     remote.mkdir_all(remote_root)?;
     let manifest_path = format!("{remote_root}/{manifest_name}");
     let mut previous: Manifest = remote
@@ -898,6 +898,8 @@ fn write_with_progress(
     file: &LocalFile,
     progress: &mut dyn FnMut(),
 ) -> anyhow::Result<String> {
+    // Asked right before each write, never from a listing read earlier: a
+    // symlink the machine put there since must stop this file.
     match remote.kind(target)?.as_deref() {
         Some("dir") if remote.list(target)?.is_some_and(|entries| entries.is_empty()) => {
             remote.delete(&[target.to_string()])?;
@@ -967,16 +969,24 @@ impl Listings {
     /// The revision of the file at `target`; None when it is missing or not
     /// a file.
     fn revision(&mut self, remote: &mut Remote, target: &str) -> anyhow::Result<Option<String>> {
+        Ok(self
+            .entry(remote, target)?
+            .filter(|entry| entry.kind == "file")
+            .and_then(|entry| entry.revision))
+    }
+
+    fn entry(&mut self, remote: &mut Remote, target: &str) -> anyhow::Result<Option<RemoteEntry>> {
         let (parent, name) = remote::split(target)?;
         if !self.0.contains_key(parent) {
             let listing = remote.list(parent)?;
             self.0.insert(parent.to_string(), listing);
         }
-        Ok(self.0[parent]
-            .as_ref()
+        Ok(self
+            .0
+            .get(parent)
+            .and_then(Option::as_ref)
             .and_then(|entries| entries.get(name))
-            .filter(|entry| entry.kind == "file")
-            .and_then(|entry| entry.revision.clone()))
+            .cloned())
     }
 
     fn clear(&mut self) {

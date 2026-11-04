@@ -7494,7 +7494,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             liveRuns: codexRuns,
             sessionStatus,
             lineBelow,
-            // A finished turn folds as its harness family's app does: Codex under one Worked for, Claude per run.
+            // A finished turn folds under one Worked for; opened, a Claude turn folds per run, as Claude desktop does.
             agentFamily: snapshot.summary?.family,
             // Other sessions' messages among them, two or more in a run, draw as one card.
             waitingSteers: snapshot.waitingSteers,
@@ -10927,6 +10927,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       connecting = true;
       try {
         acpmuxPerf.markAgent("handshakeStart");
+        acpmuxPerf.markLaunch("handshakeStart");
         acpWire.lifecycle("handshake", { reconnect });
         setWaitingSince(Date.now());
         setRestartUnavailable(false);
@@ -10975,6 +10976,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // Before anything draws the chat: its Session Info is this tab's, not another tab's of the chat.
         if (typeof host.tab === "string" && host.tab) setSessionInfoTab(host.tab);
         acpmuxPerf.markAgent("handshakeReady");
+        acpmuxPerf.markLaunch("handshakeReady");
         setCloudCredentialRecoveryAvailable(host.cloudCredentialRecoveryAvailable === true);
         setCloudTeamMachine(host.cloudTeamMachine === true);
         setCloudRepositoryAvailable(host.cloudRepositoryAvailable === true);
@@ -11119,6 +11121,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             : mockModule.mockHost
           : (host as AcpmuxHostConfig);
         let connectingClient: AcpmuxDirectClient | undefined;
+        acpmuxPerf.markLaunch("connectStart");
         const client = await AcpmuxDirectClient.connect(
           config,
           (next) => {
@@ -11198,6 +11201,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           client.close();
           return;
         }
+        acpmuxPerf.markLaunch("connected");
         connectingClient = client;
         directClient.current = client;
         connectedClients.connected(client);
