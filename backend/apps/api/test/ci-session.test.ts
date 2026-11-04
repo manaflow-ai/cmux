@@ -1,5 +1,5 @@
 import { env, exports } from "cloudflare:workers"
-import { createLocalJWKSet, decodeJwt, exportJWK, generateKeyPair, importJWK, SignJWT, type JWK } from "jose"
+import { createLocalJWKSet, decodeJwt, errors as joseErrors, exportJWK, generateKeyPair, importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it, vi } from "vitest"
 import { CI_SESSION_PATH, GITHUB_ACTIONS_ISSUER, handleCiSession, matchCiSessionToken, parseCiSessionTrust } from "../src/ci-session.ts"
 import type { Env } from "../src/env.ts"
@@ -22,6 +22,7 @@ const ROW = {
   repositoryId: "1144115288",
   ref: "refs/heads/main",
   workflowRef: WORKFLOW,
+  events: ["schedule", "workflow_dispatch"],
   stackUser: "stack-user-journey",
   ttlSeconds: 2400
 }
@@ -82,7 +83,11 @@ describe("CI_SESSION_TRUST rows", () => {
       { ...ROW, audience: "http://cloud-api.cmux.dev" },
       { ...ROW, id: "cloud-journey" },
       { ...ROW, stackUser: "" },
-      { ...ROW, extra: true }
+      { ...ROW, extra: true },
+      { ...ROW, repositoryId: undefined },
+      { ...ROW, events: [] },
+      { ...ROW, events: ["pull_request_target"] },
+      { ...ROW, events: ["schedule", "pull_request"] }
     ]) {
       expect(parseCiSessionTrust(JSON.stringify([bad])).ok, JSON.stringify(bad)).toBe(false)
     }
@@ -112,7 +117,13 @@ describe("matching a GitHub Actions token", () => {
       // A job defined in another (reusable) workflow, called from the trusted file.
       { job_workflow_ref: "manaflow-ai/cmux/.github/workflows/reusable.yml@refs/heads/main" },
       { job_workflow_ref: undefined },
-      { jti: undefined }
+      { jti: undefined },
+      // A pull_request_target run of the trusted file at main (it could run a fork's code), and other events.
+      { event_name: "pull_request_target" },
+      { event_name: "pull_request" },
+      { event_name: "push" },
+      { event_name: undefined },
+      { repository_id: undefined }
     ]) {
       expect(await matchCiSessionToken(await token(claims), [ROW], getKey), JSON.stringify(claims)).toMatchObject({ ok: false })
     }
@@ -120,6 +131,9 @@ describe("matching a GitHub Actions token", () => {
 
   it("refuses a wrong audience, a foreign key, an old token and a non-GitHub issuer", async () => {
     expect(await matchCiSessionToken(await token({}, { aud: "https://vm.cmux.dev" }), [ROW], getKey)).toEqual({ ok: false, reason: "invalid" })
+    // A list of audiences that includes the row's is still refused: GitHub mints one.
+    const multi = await new SignJWT({ jti: crypto.randomUUID(), ...CLAIMS, aud: [ROW.audience, "https://other.example"] }).setProtectedHeader({ alg: "RS256", kid: "gh1" }).setIssuer(GITHUB_ACTIONS_ISSUER).setIssuedAt().setExpirationTime("5m").sign(github.privateKey)
+    expect(await matchCiSessionToken(multi, [ROW], getKey)).toEqual({ ok: false, reason: "no-match" })
     const stranger = await generateKeyPair("RS256", { extractable: true })
     expect(await matchCiSessionToken(await token({}, { key: stranger.privateKey }), [ROW], getKey)).toEqual({ ok: false, reason: "invalid" })
     // Unexpired, but minted 20 minutes ago: past the 15-minute age cap.
@@ -169,6 +183,16 @@ describe(`POST ${CI_SESSION_PATH}`, () => {
     const t2 = await token()
     expect((await handleCiSession(new Request(`https://x${CI_SESSION_PATH}`, { method: "POST", headers: { authorization: `Bearer ${t2}` } }), e, { getKey, stack })).status).toBe(200)
     expect((await handleCiSession(new Request(`https://x${CI_SESSION_PATH}`, { method: "POST", headers: { authorization: `Bearer ${t2}` } }), e, { getKey, stack })).status).toBe(401)
+  })
+
+  it("answers 503, not a refusal, when GitHub's keys cannot be read", async () => {
+    const { stack, createSession } = fakeStack()
+    const down = async () => {
+      throw new joseErrors.JWKSTimeout()
+    }
+    const r = await handleCiSession(new Request(`https://x${CI_SESSION_PATH}`, { method: "POST", headers: { authorization: `Bearer ${await token()}` } }), { ...testEnv, CI_SESSION_TRUST: JSON.stringify([ROW]) } as Env, { getKey: down, stack, claimOnce: memoryClaims() })
+    expect(r.status).toBe(503)
+    expect(createSession).not.toHaveBeenCalled()
   })
 
   it("is routed by the Worker and trusts no job without CI_SESSION_TRUST", async () => {

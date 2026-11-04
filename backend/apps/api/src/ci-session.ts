@@ -12,11 +12,13 @@ import { stackServer, type StackServer } from "./stack-server.ts"
  *   [{ "id": "ci-cloud-journey-prod", "audience": "https://cloud-api.cmux.dev",
  *      "repository": "manaflow-ai/cmux", "repositoryId": "1144115288", "ref": "refs/heads/main",
  *      "workflowRef": "manaflow-ai/cmux/.github/workflows/cloud-journey-prod.yml@refs/heads/main",
- *      "stackUser": "<the test account's Stack user id>", "ttlSeconds": 2400 }]
+ *      "events": ["schedule", "workflow_dispatch"], "stackUser": "<the test account's Stack user id>", "ttlSeconds": 2400 }]
  *
  * A token matches a row only when GitHub signed it (RS256, GitHub's own JWKS), it is unexpired and at
- * most 15 minutes old, and its audience, repository (and repository_id when the row names one), ref,
- * workflow_ref and job_workflow_ref all equal the row's. A token from another repository, ref or
+ * most 15 minutes old, its audience (one string), repository, repository_id, ref, workflow_ref and
+ * job_workflow_ref all equal the row's, and its event_name is one of the row's `events`. The events
+ * keep out a pull_request_target (or any other) run of the trusted file at the trusted ref, which
+ * could execute a fork's code, even if that trigger is ever added to the file. A token from another repository, ref or
  * workflow (a fork, a branch's copy of the file, a reusable workflow called from elsewhere) matches
  * nothing. Each token signs in once: its jti is recorded until it expires, and a second use is refused.
  * The answer is a Stack session for the row's one user that Stack ends after `ttlSeconds`
@@ -38,9 +40,10 @@ export interface CiSessionRow {
   readonly id: string
   readonly audience: string
   readonly repository: string
-  readonly repositoryId?: string
+  readonly repositoryId: string
   readonly ref: string
   readonly workflowRef: string
+  readonly events: ReadonlyArray<string>
   readonly stackUser: string
   readonly ttlSeconds: number
 }
@@ -51,15 +54,18 @@ const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 const REF = /^refs\/(heads|tags)\/[A-Za-z0-9_./-]+$/
 const WORKFLOW_REF = /^([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml@(refs\/[A-Za-z0-9_./-]+)$/
 const STACK_USER = /^[A-Za-z0-9_-]{1,64}$/
+/** Events a row may trust: none of them runs code from a pull request's head or a fork. */
+const TRUSTABLE_EVENTS = new Set(["schedule", "workflow_dispatch", "push"])
 
 const validRow = (value: unknown): value is CiSessionRow => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false
   const r = value as Record<string, unknown>
-  const known = new Set(["id", "audience", "repository", "repositoryId", "ref", "workflowRef", "stackUser", "ttlSeconds"])
+  const known = new Set(["id", "audience", "repository", "repositoryId", "ref", "workflowRef", "events", "stackUser", "ttlSeconds"])
   if (Object.keys(r).some((k) => !known.has(k))) return false
   const str = (k: string, re: RegExp) => typeof r[k] === "string" && re.test(r[k] as string)
   if (!str("id", ID) || !str("audience", AUDIENCE) || !str("repository", REPOSITORY) || !str("ref", REF) || !str("stackUser", STACK_USER)) return false
-  if (r.repositoryId !== undefined && !(typeof r.repositoryId === "string" && /^[0-9]{1,20}$/.test(r.repositoryId))) return false
+  if (!str("repositoryId", /^[0-9]{1,20}$/)) return false
+  if (!Array.isArray(r.events) || r.events.length === 0 || !r.events.every((e) => typeof e === "string" && TRUSTABLE_EVENTS.has(e))) return false
   // The workflow file must live in the row's repository and run from the row's ref.
   const wf = typeof r.workflowRef === "string" ? WORKFLOW_REF.exec(r.workflowRef) : null
   if (!wf || wf[1] !== r.repository || wf[2] !== r.ref) return false
@@ -103,18 +109,22 @@ export const matchCiSessionToken = async (
       clockTolerance: 60,
       maxTokenAge: MAX_TOKEN_AGE,
       currentDate: now,
-      requiredClaims: ["exp", "iat", "jti", "repository", "ref", "workflow_ref", "job_workflow_ref"]
+      requiredClaims: ["exp", "iat", "jti", "repository", "repository_id", "ref", "workflow_ref", "job_workflow_ref", "event_name"]
     }))
   } catch (error) {
+    // GitHub's keys could not be read (timeout, bad JWKS answer): says nothing about the caller, so not a refusal.
+    if (error instanceof joseErrors.JWKSTimeout || error instanceof joseErrors.JWKSInvalid) throw error
     if (error instanceof joseErrors.JOSEError) return { ok: false, reason: "invalid" }
     throw error
   }
-  const aud = typeof payload.aud === "string" ? [payload.aud] : Array.isArray(payload.aud) ? payload.aud : []
   const row = rows.find(
     (r) =>
-      aud.includes(r.audience) &&
+      // GitHub sends one audience, as a string; a list is not what the job asked for.
+      payload.aud === r.audience &&
       payload.repository === r.repository &&
-      (r.repositoryId === undefined || payload.repository_id === r.repositoryId) &&
+      payload.repository_id === r.repositoryId &&
+      typeof payload.event_name === "string" &&
+      r.events.includes(payload.event_name) &&
       payload.ref === r.ref &&
       payload.workflow_ref === r.workflowRef &&
       // The job itself must be defined in the row's file: a reusable workflow names its own file here.
