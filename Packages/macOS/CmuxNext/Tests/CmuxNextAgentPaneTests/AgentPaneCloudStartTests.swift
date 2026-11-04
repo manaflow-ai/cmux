@@ -139,11 +139,12 @@ struct AgentPaneCloudStartTests {
         let request = AgentPaneRequest(body: ["method": "cloud.signIn", "params": [
             "task": "preserved prompt", "key": UUID().uuidString, "home": true,
         ]])
-        let send = Task { await model.respond(to: request) }
+        // The reply's code only: a `[String: Any]` cannot cross the task's boundary.
+        let send = Task { ((await model.respond(to: request))["error"] as? [String: Any])?["code"] as? String }
         for await _ in opened.stream { break }
         #expect(await model.respond(to: AgentPaneRequest(body: ["method": "cloud.signInCancel"]))["ok"] as? Bool == true)
-        let reply = await send.value
-        #expect((reply["error"] as? [String: Any])?["code"] as? String == "cloud_sign_in_cancelled")
+        let code = await send.value
+        #expect(code == "cloud_sign_in_cancelled")
         // The browser is still open, and the hold is already gone.
         #expect(model.transport.replacements.beginSandbox())
         model.transport.replacements.endSandbox()
