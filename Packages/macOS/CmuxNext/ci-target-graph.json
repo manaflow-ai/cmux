@@ -1993,14 +1993,10 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextUiLayerPreview",
       "targets": [
-        "CmuxNextCompat",
         "CmuxNextDesign",
-        "CmuxNextIcons",
-        "CmuxNextSettings"
+        "CmuxNextIcons"
       ],
-      "packages": [
-        "CmuxTheme"
-      ]
+      "packages": []
     },
     "CmuxNextUiLayerPreviewTests": {
       "kind": "test",
@@ -2008,9 +2004,7 @@
       "targets": [
         "CmuxNextUiLayerPreview"
       ],
-      "packages": [
-        "CmuxTheme"
-      ],
+      "packages": [],
       "reads": []
     },
     "CmuxNextUpdater": {
