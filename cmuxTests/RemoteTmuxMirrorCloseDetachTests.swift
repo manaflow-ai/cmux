@@ -95,7 +95,13 @@ import Testing
             harness.manager.closeOtherTabsInFocusedPaneWithConfirmation()
         }
 
-        #expect(promptCount == 1)
+        // The keyboard and main-menu path asks whenever the Close Tab warning
+        // is on. The tab context menu asks only when a tab has a running
+        // process, which these idle mirror tabs don't, so it closes without a
+        // prompt and a cancelled confirmation cannot happen there.
+        let expectsPrompt = !contextMenu
+        let closeProceeds = !reconnecting && (!expectsPrompt || acceptConfirmation)
+        #expect(promptCount == (expectsPrompt ? 1 : 0))
         // Remote tabs remain until tmux acknowledges their removal. Rejected
         // and cancelled requests must leave both local and remote tabs alone.
         #expect(Set(workspace.bonsplitController.tabs(inPane: pane).map(\.id)) == Set(tabs.map(\.id)))
@@ -106,7 +112,7 @@ import Testing
             .split(separator: "\n")
             .filter { $0.hasPrefix("kill-window ") }
             .map(String.init)
-        #expect(killCommands == (acceptConfirmation && !reconnecting
+        #expect(killCommands == (closeProceeds
             ? expectedWindowIDs.map { "kill-window -t @\($0)" }
             : []))
     }
