@@ -113,6 +113,9 @@ SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 # expected shape is refused, never guessed at: a rollup red is then never excused.
 RUN_ROLLUPS = (("ci.yml", "ci-status"),)  # red when a job under it is red: the whole run's red jobs are judged
 ROUTED_ROLLUPS = (("ci-guards.yml", "guard-status"),)  # also reports each needed job's route (validate_guard_routes)
+# Jobs a routed rollup needs only to place its runner (their outputs pick its runs-on): no guard verdict of their
+# own, so the contract leaves them out of its routes (ci-guards.yml portable-placement, #34849).
+ROLLUP_PLACEMENT_JOBS = frozenset({"portable-placement"})
 ROLLUPS_FILE = Path(__file__).with_name("base_red_rollups.json")
 WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 ROUTE_IF = re.compile(r"\$\{\{ *inputs\.(\w+) *== *'true' *\}\}")
@@ -339,6 +342,8 @@ def derive_rollups(workflows: Path = WORKFLOWS) -> dict:
                 raise Refused(f"{where}: a routed rollup's workflow must be called only, with inputs")
             routes = {}
             for need in needs:
+                if need in ROLLUP_PLACEMENT_JOBS:
+                    continue
                 condition = jobs[need].get("if")
                 route = None
                 if condition is not None:
