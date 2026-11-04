@@ -466,6 +466,9 @@ fn one_chat_that_cannot_be_repaired_does_not_stop_the_open() {
     let store = open(home.path(), &journal);
     store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
     store.append("chat-b", &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    // Durable first: a checkpoint never passes the journal's durable end, and this one must
+    // cover line 1.
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
     store.flush().unwrap_or_else(|e| panic!("{e:#}"));
     for seq in 2..=3 {
         store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
