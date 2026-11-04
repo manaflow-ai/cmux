@@ -216,7 +216,9 @@ function directExec(api: Api, machine: string, journey: Journey): Exec {
     const s = session!;
     const r = await http("POST", `${s.api_base_url.replace(/\/+$/, "")}/v5/vms/${s.vm_id}/exec-await`, { command, linuxUser: s.linux_user, timeoutMs }, { "x-freestyle-identity-access-token": s.token }, timeoutMs + 15_000);
     if (r.status < 200 || r.status >= 300) throw new Error(`exec-await: HTTP ${r.status}`);
-    return { code: Number(r.body.statusCode ?? r.body.exitCode ?? r.body.code ?? 0), stdout: String(r.body.stdout ?? ""), stderr: String(r.body.stderr ?? "") };
+    const rawCode = r.body.statusCode ?? r.body.exitCode ?? r.body.code;
+    // Freestyle leaves statusCode null or missing when the command timed out; the cmux CLI maps that to 124.
+    return { code: rawCode === null || rawCode === undefined ? 124 : Number(rawCode), stdout: String(r.body.stdout ?? ""), stderr: String(r.body.stderr ?? "") };
   };
 }
 
@@ -259,6 +261,15 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
     return r;
   };
   const where = (j: any) => j?.api_base_url ?? j?.backend ?? j?.api ?? j?.origin ?? j?.host ?? "app";
+  // A plain name (CloudMachineRequest.isPlainName refuses spaces), unique to this run, so a create that
+  // answered `pending` without an id can still be found and deleted.
+  const appName = `journey-${J.meta.tag}`;
+  const findByName = async (): Promise<string | null> => {
+    const r = run(["cloud", "list-machines", "--json"], 60_000);
+    const rows: any[] = r.json?.machines ?? r.json?.items ?? (Array.isArray(r.json) ? r.json : []);
+    const row = rows.find((m) => m?.name === appName && m.status !== "deleted");
+    return row ? String(row.id ?? row.machine_id) : null;
+  };
   let machine: string | null = null;
   try {
     await J.step("app cli: signed in (cloud list-machines)", async () => {
@@ -271,8 +282,8 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
       return { value: null, detail: `issuer ${where(r.json)}` };
     });
     machine = await J.step("app cli: cloud new-machine", async () => {
-      const r = must("cloud new-machine", run(["cloud", "new-machine", "--name", `journey ${J.meta.tag}`, "--json"], 600_000));
-      const id = r.json?.machine_id ?? r.json?.machine?.id ?? r.json?.id;
+      const r = must("cloud new-machine", run(["cloud", "new-machine", "--name", appName, "--json"], 600_000));
+      const id = r.json?.machine_id ?? r.json?.machine?.id ?? r.json?.id ?? (await findByName());
       if (!id) throw new Error(`no machine id in ${short(r.json)}`);
       return { value: String(id), detail: `${id} via ${where(r.json)}` };
     });
@@ -299,6 +310,8 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
       return { value: null, detail: reply.slice(0, 280) };
     });
   } finally {
+    // Creation continues after a `pending` answer: look for the machine by name for a bounded while.
+    for (let t0 = Date.now(); !machine && Date.now() - t0 < 180_000; await sleep(5000)) machine = await findByName();
     if (machine) {
       const id = machine;
       await J.step("app cli: cloud kill-machine", async () => {
@@ -477,11 +490,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     });
     J.skip("connect (link dial)", "a headless link dial needs a credential source without the Mac app's relay (cmux link dial fails closed today)");
 
-    await J.step("handoff record", async () => {
-      const r = await api.raw("POST", "/v1/handoffs", { machine: created.id, title: `cloud journey ${tag}`, harness: agent });
-      if (r.status === 404) throw new Error(`/v1/handoffs: 404 on this backend`);
-      if (r.status >= 300) throw new Error(`/v1/handoffs: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
-      return { value: null, detail: `HTTP ${r.status} ${short(r.body.value?.id ?? r.body.id ?? r.body)}` };
+    // POST /v1/handoffs {sessionId, machine} (backend/apps/api/src/handoffs/routes.ts). Production leaves the
+    // hand-off bindings unbound until it ships there and answers 404: that is a SKIP, not a red.
+    const handoff = await api.raw("POST", "/v1/handoffs", { sessionId: session, machine: created.id });
+    if (handoff.status === 404) J.skip("handoff record", "hand-off is not deployed on this backend (404)");
+    else await J.step("handoff record", async () => {
+      if (handoff.status >= 300) throw new Error(`/v1/handoffs: HTTP ${handoff.status} ${short(handoff.body.error ?? handoff.body)}`);
+      return { value: null, detail: `HTTP ${handoff.status} ${short(handoff.body.value?.id ?? handoff.body.id ?? handoff.body)}` };
     }).catch(() => undefined);
 
     await J.step("sync push/pull (folder round trip)", async () => {
