@@ -72,8 +72,8 @@ struct PageWindowMovesTests {
         let appKitAfter = PageWindowMoves.appKitFrames(of: shown)
         #expect(PageWindowMoves.largestMove(from: appKitBefore, to: appKitAfter, of: [number]) == 30, "AppKit's step")
         let moved = PageWindowMoves.largestMove(from: before, to: after, of: [number])
-        #expect(moved == 30, "the window server's frame moved \(String(describing: moved)) pt (\(listed) to \(String(describing: after[number])); "
-                + "AppKit \(appKitBefore[number].map { "\($0)" } ?? "-") to \(shown.frame))")
+        let seen = "window server \(listed) to \(String(describing: after[number])), AppKit \(String(describing: appKitBefore[number])) to \(shown.frame)"
+        #expect(moved == 30, "the window server's frame moved \(String(describing: moved)) pt: \(seen)")
         #expect(PageWindowMoves.largestMove(from: before, to: after, of: [number + 1_000_000]) == nil, "a window in neither read")
         #expect(PageWindowMoves.pages(of: shown).isEmpty && after.count == 1, "only the window: \(after)")
     }
