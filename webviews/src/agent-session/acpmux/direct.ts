@@ -3445,7 +3445,7 @@ export class AcpmuxDirectClient {
   }
 
   private receive(raw: string, stale = false): void {
-    this.daemonLastFrameAt = Date.now();
+    if (!stale) this.daemonLastFrameAt = Date.now();
     // A frame that is not a JSON object is dropped like one that is not JSON (`null` would throw at `in`).
     // Parsed once: the wire log takes the parsed frame.
     const parsed = parseJsonObjectFrame(raw);
