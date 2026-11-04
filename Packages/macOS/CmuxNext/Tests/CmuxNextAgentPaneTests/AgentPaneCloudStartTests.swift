@@ -290,4 +290,17 @@ struct AgentPaneCloudStartTests {
         #expect(AgentPaneCloudRepick(machine: nil, name: "twin").machineID(in: machines) == nil)
         #expect(AgentPaneCloudRepick(machine: nil, name: "nobody").machineID(in: machines) == nil)
     }
+
+    /// A start this pane refused before the App's start ran is logged under `app.cloud`, by code: the
+    /// pane's transport refusals and its own guards, never a success or the App's own failure.
+    @Test func aRefusalHereIsTheRefusedHereCode() {
+        let outside = AgentPaneModel.transportFailure(.pathOutsideRoots)
+        #expect(AgentPaneHandOff.refusedHere(outside) == AgentPaneTransportError.pathOutsideRoots.rawValue)
+        for code in ["cloud_attachments", "unsupported", "unavailable_now", "sandbox_busy", "sandbox_spent"] {
+            #expect(AgentPaneHandOff.refusedHere(AgentPaneReply.failure(code: code, message: code)) == code)
+        }
+        #expect(AgentPaneHandOff.refusedHere(AgentPaneReply.failure(code: "cloud_start_failed", message: "No machine")) == nil)
+        #expect(AgentPaneHandOff.refusedHere(AgentPaneReply.success(["machine": "cloud-1"])) == nil)
+        #expect(AgentPaneHandOff.refusedHere([:]) == nil)
+    }
 }

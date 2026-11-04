@@ -357,6 +357,7 @@ cmux Home, and your final reply of each turn is posted there.
   leave out --target cloud (also --every 30m, --at, --in, --command, --folder)
   and check that `cmux automation runner status` says it runs, else run
   `cmux automation runner install`. Say in one line what runs when, where.
+  `cmux automation teleport NAME --to cloud|home|ssh:HOST` moves one there.
   `cmux automation list --target cloud` (and without it) lists them; pause,
   resume, run, history and logs manage them. If it answers
   `automation.plan.required`, send its checkout link to the user in one line,

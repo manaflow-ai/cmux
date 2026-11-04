@@ -77,7 +77,7 @@ public final class AgentPaneActAsMeCard: NSPanel {
     private func endClick(_ up: NSEvent) {
         defer { personDown = nil }
         guard let allow = content.allow, allow.isEnabled, takePersonClick(on: allow, up: up) else { return }
-        grant.turnOn(.taken())
+        grant.turnOn(.init())
         orderOut(nil)
     }
 
