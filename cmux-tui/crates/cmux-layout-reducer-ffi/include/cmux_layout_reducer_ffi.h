@@ -925,4 +925,84 @@ const CmuxSidebarFaceReply *cmux_sidebar_face_rows(CmuxSidebarFace *faces, const
  * machine's listed names (its home left out), the rest the reserved ones. */
 const CmuxSidebarFaceText *cmux_sidebar_face_default_name(CmuxSidebarFace *faces, const CmuxSidebarFaceRange *names, uint32_t count, uint32_t existing_count, const uint8_t *strings, size_t strings_len);
 
+/*
+ * The keyboard resize rules (cmux-layout-reducer shown_resize): which split
+ * ratios, column widths and dock widths show as different layouts, the width
+ * trade of a key press between two strip columns, and the row heights of a key
+ * press on a row edge. One call per key press, no handle, no JSON, no
+ * allocation. Each returns 1 and writes its answer, 0 when there is none (the
+ * press moves nothing), or CMUX_LAYOUT_REDUCER_ERR_NULL / ERR_PANIC with
+ * nothing written. Flags are 0 or 1.
+ */
+typedef struct CmuxShownResizeBounds {
+    double lower;
+    double upper;
+} CmuxShownResizeBounds;
+
+typedef struct CmuxShownResizeDock {
+    double width;
+    uint8_t is_target;
+    uint8_t is_band;
+    uint8_t is_docked;
+    uint8_t reserved[5];
+} CmuxShownResizeDock;
+
+typedef struct CmuxShownResizeTrade {
+    double strip_width;
+    double gap;
+    double scale;
+    double delta;
+    double left_min_x;
+    double left_max_x;
+    double left_width;
+    double right_min_x;
+    double right_max_x;
+    double right_width;
+    double left_minimum_width;
+    double right_minimum_width;
+    double left_fraction;
+    double right_fraction;
+    double strip_offset;
+    double uncovered_min_x;
+    double uncovered_max_x;
+    double strip_min_x;
+    uint8_t is_columns;
+    uint8_t has_strip_offset;
+    uint8_t reserved[6];
+} CmuxShownResizeTrade;
+
+typedef struct CmuxShownResizeTradeAnswer {
+    double move_points;
+    double first_left;
+    double first_right;
+    double second_left;
+    double second_right;
+} CmuxShownResizeTradeAnswer;
+
+typedef struct CmuxShownResizeRows {
+    const int64_t *heights;
+    const double *minimum_heights;
+    size_t count;
+    size_t pane_row;
+    double column_height;
+    double gap;
+    double scale;
+    double delta;
+    uint8_t rows_enabled;
+    uint8_t reserved[7];
+} CmuxShownResizeRows;
+
+/* container and divider: the split's and the divider's extents along its axis */
+int32_t cmux_shown_resize_ratio(double container, double divider, double minimum_a, double minimum_b,
+                                CmuxShownResizeBounds *out);
+int32_t cmux_shown_resize_column_width(uint8_t is_columns, uint8_t is_docked, double strip_width,
+                                       double minimum_width, double gap, CmuxShownResizeBounds *out);
+/* docks: every placed dock in the screen's order, one marked is_target */
+int32_t cmux_shown_resize_dock_width(const CmuxShownResizeDock *docks, size_t count, double viewport_width,
+                                     double gap, double minimum_width, CmuxShownResizeBounds *out);
+/* the move and the two width pairs to try, first to second; the caller keeps the first that places right */
+int32_t cmux_shown_resize_trade(const CmuxShownResizeTrade *input, CmuxShownResizeTradeAnswer *out);
+/* writes every row's height (out_count == input->count) */
+int32_t cmux_shown_resize_row_heights(const CmuxShownResizeRows *input, int64_t *out, size_t out_count);
+
 #endif
