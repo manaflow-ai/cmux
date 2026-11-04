@@ -1,7 +1,7 @@
 //! Canonical cmux MCP instruction bytes and compact launch-source inventory.
 //! Full tool schemas and skill bodies stay out of persisted session metadata.
 
-use super::{AgentTools, CUA_RULES, MCP_TOOLS_ENV, PLUGIN_NAME, SKILL_FILES};
+use super::{ASKING_RULE, AgentTools, CUA_RULES, MCP_TOOLS_ENV, PLUGIN_NAME, SKILL_FILES};
 use crate::context_inventory::{ContextPart, estimated_tokens};
 
 pub const BASE_INSTRUCTIONS: &str = "These tools drive the cmux terminal app and its session daemon. \
@@ -80,10 +80,10 @@ impl AgentTools {
                 source(
                     "mcp-base".into(),
                     "mcp-instructions",
-                    format!("cmux MCP base instructions ({mode}; agent_tools/prompt_sources.rs)"),
+                    format!("cmux MCP instructions ({mode}; prompt_sources.rs + ASKING_RULE)"),
                     "mcp-instructions",
                 ),
-                instructions,
+                &format!("{instructions} {ASKING_RULE}"),
                 true,
             ));
         }
@@ -181,18 +181,19 @@ mod tests {
             let parts = tools().listing(all).context_parts(false);
             let base = parts.iter().find(|p| p.id == "cmux-source-mcp-base").unwrap();
             let expected = if all { BASE_INSTRUCTIONS } else { CODE_MODE_INSTRUCTIONS };
-            assert_eq!(base.text.as_deref(), Some(expected));
-            assert_eq!(base.tokens, estimated_tokens(expected));
+            let expected = format!("{expected} {ASKING_RULE}");
+            assert_eq!(base.text.as_deref(), Some(expected.as_str()));
+            assert_eq!(base.tokens, estimated_tokens(&expected));
             assert_eq!(base.source_bytes, Some(expected.len() as u64));
             assert_eq!(base.channel.as_deref(), Some("mcp-instructions"));
             assert!(base.included && !base.editable);
             assert_eq!(base.measurement, "estimated");
-            assert!(!parts.iter().any(|p| p.text.as_deref() == Some(super::super::ASKING_RULE)));
+            assert_eq!(parts.iter().filter(|p| p.text.as_deref().is_some_and(|s| s.contains(ASKING_RULE))).count(), 1);
         }
         let mut allowed = tools();
         allowed.servers[0].env.push((MCP_TOOLS_ENV.into(), "agents_snapshot".into()));
         let base = allowed.context_parts(false).remove(0);
-        assert_eq!(base.text.as_deref(), Some(BASE_INSTRUCTIONS));
+        assert_eq!(base.text, Some(format!("{BASE_INSTRUCTIONS} {ASKING_RULE}")));
     }
 
     #[test]
