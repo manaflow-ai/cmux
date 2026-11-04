@@ -172,12 +172,23 @@ enum GroupEditorStrings {
     static var pin: String { String(localized: "sidebar.groupEditor.pin", defaultValue: "Pin Group", bundle: .module) }
     static var unpin: String { String(localized: "sidebar.groupEditor.unpin", defaultValue: "Unpin Group", bundle: .module) }
     static var moveToTop: String { String(localized: "sidebar.groupEditor.moveToTop", defaultValue: "Move to Top", bundle: .module) }
+    static var sort: String { String(localized: "sidebar.groupEditor.sort", defaultValue: "Sort", bundle: .module) }
+    static var sortUndo: String { String(localized: "sidebar.groupSort.undo", defaultValue: "Sort Group", bundle: .module) }
     static var moreActions: String { String(localized: "sidebar.groupEditor.moreActions", defaultValue: "More Group Actions…", bundle: .module) }
     static var more: String { String(localized: "sidebar.group.more", defaultValue: "Group options", bundle: .module) }
     static var collapse: String { String(localized: "sidebar.group.collapse", defaultValue: "Collapse group", bundle: .module) }
     static var expand: String { String(localized: "sidebar.group.expand", defaultValue: "Expand group", bundle: .module) }
     static var customColor: String { String(localized: "sidebar.groupColor.custom", defaultValue: "Custom color", bundle: .module) }
     static var emoji: String { String(localized: "sidebar.groupEditor.emoji", defaultValue: "Choose emoji or icon", bundle: .module) }
+
+    /// A sort's name in the Sort row and its menu.
+    static func sortTitle(_ sort: SidebarGroupSort) -> String {
+        switch sort {
+        case .manual: String(localized: "sidebar.groupSort.manual", defaultValue: "Manual", bundle: .module)
+        case .name: String(localized: "sidebar.groupSort.name", defaultValue: "Name", bundle: .module)
+        case .recent: String(localized: "sidebar.groupSort.recent", defaultValue: "Recent", bundle: .module)
+        }
+    }
 
     /// A dot's spoken name: none, or the palette color's own name (group
     /// colors are a fixed palette, not the theme's).
