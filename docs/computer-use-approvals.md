@@ -200,7 +200,12 @@ or a 0600 key file on a headless box, reported as lower assurance).
   key's 65 X9.63 bytes (the bytes `approvalKey` base64-decodes to), the same
   rule as `viewerKeyFingerprint` applied to the approval key. People compare
   its first 32 hex digits, uppercase, in eight groups of four (`1A2B 3C4D …`,
-  Swift `DeviceIdentity.displayFingerprint`).
+  Swift `DeviceIdentity.displayFingerprint`, Rust
+  `display_fingerprint(key_fingerprint(..))`). The iPhone shows its own in
+  Settings → Computer Use → Approval key (copyable; "No approval key" when it
+  has none), to compare with what setup prints. Both sides reproduce
+  `schemas/computer-use/approval-key-fingerprint-vector.json`
+  (`{key_base64, fingerprint_hex, display}`).
 - The asking device verifies before it applies a decision; the hub's word
   alone never grants. For an Allow: the decider is not itself, it is a
   `macos`/`ios` device in `GET /v1/devices`, the SHA-256 of its `approvalKey`
@@ -215,7 +220,8 @@ or a 0600 key file on a headless box, reported as lower assurance).
   <device id>`, elevated): setup reads the account's devices as the box's own
   device, shows each chosen device's name, platform and **approval key**
   fingerprint (the lowercase hex SHA-256 of the 65 X9.63 bytes its
-  `approvalKey` decodes to, shown as the iPhone and Mac show it: the first 32
+  `approvalKey` decodes to, shown as the iPhone shows it in Settings → Computer
+  Use (the macOS app holds no approval key yet, so only an iPhone can be pinned): the first 32
   hex digits, uppercase, in eight groups of four) and writes
   `{device_id, approval_key_fingerprint}` into the root- or SYSTEM-owned
   config only after the owner types `yes`. A device with no `approvalKey` is
@@ -436,7 +442,9 @@ CLI renders each case and the host parses each file in their tests.
 user's device (the one cmux Remote uses), shows each chosen device's name,
 platform and approval key fingerprint, and pins them only after the person types
 `yes`; it then elevates with the confirmed pins. Only another Mac or iPhone of
-the account can be pinned. Root's provisioning can pass
+the account can be pinned, and today only an iPhone has an approval key (the
+macOS app registers none), so in practice the approver is an iPhone; compare the
+fingerprint with its Settings → Computer Use → Approval key. Root's provisioning can pass
 `--approver-pin '{"device_id","approval_key_fingerprint","name","platform"}'`
 directly; a non-root run refuses it. A setup without approver flags keeps the
 current `[device_hub]` and approvers. `token_command` is a program that prints
