@@ -367,7 +367,12 @@ public final class BrowserChromeView: NSView {
         siteZoom.follow(tab)
         if boundState == nil { loads.follow(tab) }  // a bound tab's loads follow it (`BrowserChromeTabState.loads`)
         let area = BrowserPageArea(container: contentContainer)
-        if let old, old !== tab { area.leave(old.contentView, parks: parksLeavingPage) }
+        if let old, old !== tab {
+            area.leave(old.contentView, parks: parksLeavingPage)
+            // A parked page carries no key-resize hold: the hold's end reaches only the shown page (one chrome per
+            // pane), and the line below holds this page again if it shows while the hold still runs.
+            (old.contentView as? any BrowserPagePaneMotionHolding)?.holdPage(for: nil)
+        }
         pageInfoIfMade?.tabDidChange()
         area.show(tab.contentView)
         // A page that comes in while the chrome follows its pane through a key hold keeps the pane's page size too.
