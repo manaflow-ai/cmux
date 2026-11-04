@@ -172,13 +172,16 @@ struct HomeAgentMessages {
     /// `peer`'s chat with the Chief over every run of the conversation (``HomeAgentThread``), or nil
     /// when no run has a message with it. `items` are the conversation's own rows: the Chief's link
     /// to the agent's session comes from its words there.
-    func thread(peer: String, in items: [TranscriptItem]) -> HomeAgentThread? {
+    func thread(peer: String, in items: [TranscriptItem], me: ParticipantID? = nil) -> HomeAgentThread? {
         let messages = runs.values.flatMap { run in run.messages.filter { $0.peer == peer } }
             .sorted { ($0.date, $0.sequence, $0.id) < ($1.date, $1.sequence, $1.id) }
         guard let first = messages.first, let last = messages.last else { return nil }
         let task = messages.first(where: \.outgoing)
-        let entries = messages.filter { $0.id != task?.id }
-            .map { HomeAgentThread.Entry(id: $0.id, outgoing: $0.outgoing, text: $0.text, date: $0.date) }
+        var entries = messages.filter { $0.id != task?.id }.map { message in
+            HomeAgentThread.Entry(id: message.id, outgoing: message.outgoing, text: message.text, date: message.date,
+                                  sender: message.outgoing ? message.sender.flatMap(HomeAgentSender.init(meta:)) ?? .chief : .agent)
+        }
+        if let me { Self.addNotes(to: &entries, peer: peer, from: items, me: me) }
         let state: HomeAgentMessageRow.PeerState = last.outgoing ? .told
             : HomeAgentMessageRow.statusNote(last.text) != nil ? .stopped : .reported
         let chief = items.lazy.filter { !$0.isReadOnly }.map(\.plainText)
@@ -187,5 +190,31 @@ struct HomeAgentMessages {
             entries: entries, startedAt: first.date, endedAt: state == .told ? nil : last.date,
             newestReportAt: messages.last(where: { !$0.outgoing })?.date,
             workspaceLink: HomeAgentThread.workspaceLink(for: peer, in: chief))
+    }
+
+    /// The person's own ``HomeAgentNote``s to `peer` in `items`, labelled You: a Chief message that says the
+    /// same words after it is its relay and shows once (as the person's); a note not relayed yet shows at once.
+    private static func addNotes(to entries: inout [HomeAgentThread.Entry], peer: String, from items: [TranscriptItem],
+                                 me: ParticipantID) {
+        var added = false
+        for item in items where item.author == me && !item.isReadOnly && !item.isRetracted
+            && item.agentMessage == nil && item.feedRow == nil {
+            guard let note = HomeAgentNote(parsing: item.plainText), note.peer == peer else { continue }
+            let words = note.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            // The relay is written after the note; a clock on another machine may run a little behind.
+            let earliest = item.createdAt.addingTimeInterval(-300)
+            if let relay = entries.firstIndex(where: { $0.outgoing && $0.sender != .you && $0.date >= earliest
+                && $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == words }) {
+                entries[relay].sender = .you
+            } else {
+                entries.append(HomeAgentThread.Entry(id: "note:\(item.key.rawValue)", outgoing: true, text: words,
+                                                     date: item.createdAt, sender: .you))
+                added = true
+            }
+        }
+        // Stable: messages at the same time keep their order.
+        if added {
+            entries = entries.enumerated().sorted { ($0.element.date, $0.offset) < ($1.element.date, $1.offset) }.map(\.element)
+        }
     }
 }

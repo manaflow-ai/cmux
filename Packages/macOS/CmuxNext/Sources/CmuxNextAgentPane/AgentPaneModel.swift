@@ -371,6 +371,7 @@ public final class AgentPaneModel {
     public var newTabForPage: AgentPaneNewTab? {
         guard var page = newTab else { return nil }
         if page.draft == nil { page.draft = newChatLeftoverDraft?() }
+        page.start = startFolders.local(of: self)
         return page
     }
 

@@ -1300,6 +1300,10 @@ path = "tests/test_send_path_caps.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_short_timeout_guard.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_classic_cloud_routes.py"
 lane = "linux-guard"
 
