@@ -14011,6 +14011,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             draft={draft}
             onUnsentDraft={quick ? undefined : onNewChatDraft}
             onTyping={quick ? undefined : postTyping}
+            onSuggestionTaken={() => directClient.current?.takeSuggestion()}
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={handleCmuxCommand}
             onSend={(text, chips, steer) => {
