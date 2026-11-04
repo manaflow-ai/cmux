@@ -96,6 +96,7 @@ import {
 } from "./sessionAuth";
 import { postNative } from "./native";
 import { OpenAppCard } from "./OpenAppCard";
+import { setCloudPreviewContext } from "./cloudPreviewPorts";
 import { CloudEnvironmentEditor } from "./CloudEnvironmentEditor";
 import { NativeError } from "./nativeError";
 import { errorMessage, isStartCancelled, startCancelled } from "./transportErrors";
@@ -8553,6 +8554,31 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
+  const cloudPreviewTurnId = useMemo(() => {
+    for (let index = snapshot.rows.length - 1; index >= 0; index -= 1) {
+      const row = snapshot.rows[index];
+      if (row?.turnId) return row.turnId;
+      if (row?.kind === "user") return row.id;
+    }
+    return undefined;
+  }, [snapshot.isWorking, snapshot.rows]);
+  useEffect(() => {
+    const machineID = cloudMachineID ?? snapshot.summary?.machine;
+    setCloudPreviewContext({
+      machineID,
+      sessionId: shownSessionId,
+      turnId: cloudPreviewTurnId,
+      active: !quick && snapshot.isWorking && snapshot.summary?.hostKind === "cloud",
+    });
+  }, [
+    cloudMachineID,
+    cloudPreviewTurnId,
+    quick,
+    shownSessionId,
+    snapshot.isWorking,
+    snapshot.summary?.hostKind,
+    snapshot.summary?.machine,
+  ]);
   /// Run as is a new chat's choice, in a pane with tabs (not the floating chat).
   /// Not once a chat is starting here (a harness pick, a deferred start): its session would replace
   /// the sandbox's result. The host refuses `sandbox.run` then too (AcpmuxPaneReplacements). Not
@@ -13482,7 +13508,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                         afterLatest={
                                                           !childRows && (trayPlacement === "after-latest-message" || !quick) ? (
                                                             <>
-                                                              {!quick && <OpenAppCard />}
+                                                              {!quick && (
+                                                                <OpenAppCard
+                                                                  enabled={
+                                                                    snapshot.summary?.hostKind === "cloud" ||
+                                                                    cloudMachineID !== undefined
+                                                                  }
+                                                                />
+                                                              )}
                                                               {trayPlacement === "after-latest-message" && trayNode}
                                                             </>
                                                           ) : undefined
