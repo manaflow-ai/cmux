@@ -158,7 +158,8 @@ fn is_flag(arg: &str) -> bool {
 }
 
 /// What a person sees for `share chat`: the link alone, so `cmux share chat | pbcopy` works; for
-/// `share invite` and `share uninvite`, one line naming the account. None for every other run (and
+/// `share invite` and `share uninvite`, one line naming the account (an invite's followed by its
+/// invite link, when the share has a room). None for every other run (and
 /// a link-less share, whose fields print as a table).
 pub(super) fn human_line(params: &Value, result: &Value) -> Option<String> {
     let action = params.get("action")?.as_str()?;
@@ -168,7 +169,12 @@ pub(super) fn human_line(params: &Value, result: &Value) -> Option<String> {
         "share invite" | "agent.share.invite" => {
             let account = result.get("account")?.as_str()?;
             let can = if result.get("role")?.as_str()? == "view" { "view" } else { "talk" };
-            Some(format!("Invited {account} (can {can})\n"))
+            let mut line = format!("Invited {account} (can {can})\n");
+            // The link the owner sends the invitee (none without a room).
+            if let Some(link) = result.get("invite_url").and_then(Value::as_str) {
+                line.push_str(&format!("Invite link: {link}\n"));
+            }
+            Some(line)
         }
         "share uninvite" | "agent.share.uninvite" => {
             Some(format!("Removed {}\n", result.get("account")?.as_str()?))

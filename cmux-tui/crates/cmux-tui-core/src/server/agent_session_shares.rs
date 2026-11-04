@@ -21,6 +21,10 @@
 //! An invitee is a guest like any other (same `guest:` author, same hold on every prompt), whose
 //! author also names its `account` and `role`: `view` watches only, `talk` may also prompt and
 //! type. An invite spends no link use. `-uninvite` removes the account and kicks its guests.
+//! An invite and `-list` answer `invite_url`, the link the owner hands out (`<room origin>/i/<share_id>`,
+//! no secret in it; null without a room). A connection that lists with `watch: true` is sent
+//! `agent-session-shares-changed` (no fields) after every change of the shares, so an open owner
+//! surface reads them again instead of polling.
 //!
 //! With a hosted room configured (`agent_session_share_room.rs`), create provisions the share in
 //! the room first (`provisioning` until it answers) and answers the guest link; a revoke or kick
@@ -252,6 +256,13 @@ impl LinkShare {
         self.room.as_ref()?.get(field)?.as_str()
     }
 
+    /// The link an invitee opens: the room's origin, then `/i/<share_id>` (no secret in it, the
+    /// room signs the account in). Null while the share has no room.
+    fn invite_url(&self) -> Value {
+        self.room_str("url")
+            .map_or(Value::Null, |origin| json!(format!("{origin}/i/{}", self.share_id)))
+    }
+
     /// The room's `DELETE` is already queued.
     fn delete_queued(&self) -> bool {
         self.pending_room_ops.iter().any(|op| op_of(op) == Some("delete"))
@@ -285,7 +296,7 @@ impl LinkShare {
             "uses_left": self.uses_left, "state": self.state, "url": null,
             "create_id": self.create_id,
             "room": self.room.as_ref().map(|room| room.get("url").cloned().unwrap_or(Value::Null)),
-            "guests": guests, "invitees": invitees})
+            "invite_url": self.invite_url(), "guests": guests, "invitees": invitees})
     }
 }
 
@@ -306,6 +317,9 @@ pub(in crate::server) struct LinkShares {
     mux: Mutex<Weak<Mux>>,
     /// The hosted room each share is bridged to.
     pub(in crate::server) bridge: room::Bridge,
+    /// The connections that listed with `watch: true` (one entry each, by client), told
+    /// `agent-session-shares-changed` after every change; a closed one is dropped.
+    watchers: Mutex<Vec<(u64, MessageWriter)>>,
     /// Added to the wall clock (tests move time with it).
     skew_ms: AtomicU64,
     /// Runs once between a guest bind's check and its registration (tests).
@@ -428,6 +442,9 @@ struct Create {
 struct List {
     #[serde(default)]
     surface: Option<u64>,
+    /// Also tell this connection about every later change (`agent-session-shares-changed`).
+    #[serde(default)]
+    watch: bool,
 }
 
 #[derive(Deserialize)]
@@ -516,7 +533,35 @@ impl LinkShares {
             }
         };
         self.note_ended(&start, shares);
+        let changed = *shares != start;
+        drop(slot);
+        if changed {
+            self.tell_watchers();
+        }
         answer
+    }
+
+    /// Adds `client`'s connection to the watchers, once.
+    fn watch(&self, client: u64, writer: &MessageWriter) {
+        let mut watchers = self.watchers.lock().unwrap_or_else(|e| e.into_inner());
+        watchers.retain(|(_, w)| w.is_open());
+        if !watchers.iter().any(|(id, _)| *id == client) {
+            watchers.push((client, writer.clone()));
+        }
+    }
+
+    /// Sends `agent-session-shares-changed` to every open watcher, outside the shares lock.
+    fn tell_watchers(&self) {
+        let watchers: Vec<MessageWriter> = {
+            let mut watchers = self.watchers.lock().unwrap_or_else(|e| e.into_inner());
+            watchers.retain(|(_, w)| w.is_open());
+            watchers.iter().map(|(_, w)| w.clone()).collect()
+        };
+        let event = json!({"event": "agent-session-shares-changed"});
+        for writer in watchers {
+            // A connection that fails the send is closed by it and dropped at the next change.
+            let _ = writer.send_control(&event);
+        }
     }
 
     /// The shares in `directory`'s file (none without one). A file that is there but does not
@@ -819,7 +864,7 @@ impl LinkShares {
                 share.live()?;
             }
             let answer = json!({"share_id": share.share_id, "account": account, "role": role,
-                "state": InviteState::Invited});
+                "state": InviteState::Invited, "invite_url": share.invite_url()});
             if let Some(invitee) = share.invitees.iter_mut().find(|i| i.account == account) {
                 if invitee.state == InviteState::Invited {
                     return if invitee.role == role {
@@ -1218,6 +1263,9 @@ pub(super) fn handle(
             }
         }),
         "agent-session-share-list" => parse(params).and_then(|p: List| {
+            if p.watch {
+                shares.watch(client, writer);
+            }
             let session = match p.surface {
                 Some(surface) => Some(tab_session(mux, surface).ok_or("share.not_a_chat")?),
                 None => None,
