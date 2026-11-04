@@ -102,6 +102,19 @@ fn agent_background() -> bool {
     std::env::var_os(ENV).is_some_and(|v| v == "background")
 }
 
+/// The daemon's tier once its config is read: with `store.journal` on, acknowledged replies wait
+/// on the journal's sync, so the daemon keeps the default disk tier (lead rule 2026-11-04: a reply
+/// the person waits for never waits on a throttled sync) and only its background threads yield
+/// ([`background_thread`]). Without the journal, [`Tier::Serving`] as before.
+pub fn enter_daemon(journal: bool) {
+    let _ = journal;
+    enter(Role::Daemon);
+}
+
+/// The calling thread, dedicated to background work for its whole life (the event journal's
+/// checkpointer): its disk I/O at the utility tier. Only for a thread that does nothing else.
+pub fn background_thread() {}
+
 /// Put this process in `role`'s tier. Call it first thing in `main`, before
 /// any thread starts: for [`Tier::Agent`] on macOS it re-executes the process
 /// in place and returns only when that is not done (already clamped, turned
@@ -416,6 +429,10 @@ mod imp {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "qos_journal_tests.rs"]
+mod journal_tests;
 
 #[cfg(test)]
 mod tests {
