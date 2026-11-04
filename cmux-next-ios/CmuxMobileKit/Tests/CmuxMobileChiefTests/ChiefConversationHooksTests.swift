@@ -99,9 +99,9 @@ struct ChiefConversationHooksTests {
         let (controller, window) = try await loaded([source])
         defer { controller.store.stop(); window.isHidden = true }
         var replies: [ConversationSelectionReply] = []
-        controller.onReplyWithSelection = { reply in
+        controller.onReplyWithSelection = { [weak controller] reply in
             replies.append(reply)
-            ChiefPageMenu.replyWithSelection(reply, in: controller)
+            if let controller { ChiefPageMenu.replyWithSelection(reply, in: controller) }
         }
         controller.composer.text = "and tell me"
         controller.beginTextSelection(rowID: source.rowID)
