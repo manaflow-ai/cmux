@@ -105,7 +105,56 @@ async fn context_inventory_overrides_reach_only_the_first_turn_and_new_sessions_
         let prompts: Vec<_> = records.iter().filter(|e| e.kind == "user_message").collect();
         assert_eq!(prompts.len(), 2);
         assert_eq!(prompts[0].msg["text"], "first words");
-        assert_eq!(prompts[0].msg["hiddenContext"], true);
+        assert_ne!(prompts[0].msg["hiddenContext"], true);
+        assert_eq!(
+            hub.logged_prompt_blocks(session, &prompts[0].msg).unwrap(),
+            vec![json!({"type":"text", "text":"first words"})],
+            "saved snapshot context must not prevent Retry or restart replay"
+        );
         assert_ne!(prompts[1].msg["hiddenContext"], true);
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn context_inventory_keeps_unrecorded_client_context_unreplayable() {
+    let hub = hub();
+    let session = hub
+        .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() })
+        .await
+        .unwrap();
+    let blocks = vec![
+        json!({"type":"text", "text":"first words"}),
+        json!({"type":"text", "text":"unrecorded client context", "_meta":{"acpmux":{"context":true}}}),
+    ];
+    hub.append_prompt(&session, json!({"text":"first words"}), &blocks, None);
+    let records = hub.events(&session.id, 0, 100).unwrap();
+    let prompt = records.iter().find(|e| e.kind == "user_message").unwrap();
+    assert_eq!(prompt.msg["hiddenContext"], true);
+    assert!(hub.logged_prompt_blocks(&session, &prompt.msg).is_none());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn context_inventory_requeues_an_unstarted_request_once_from_its_log() {
+    let hub = hub();
+    hub.config.write().await.context_overrides.user = Some("saved guidance".into());
+    let session = hub
+        .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() })
+        .await
+        .unwrap();
+    let mut blocks = vec![json!({"type":"text", "text":"original request"})];
+    crate::context_inventory::append_snapshot(session.meta().cmux_context.as_deref(), &mut blocks);
+    hub.append_prompt(
+        &session,
+        json!({"text":"original request", "promptId":"accepted", "turnId":"unstarted", "control":"local"}),
+        &blocks,
+        None,
+    );
+    // Restart recovery reads these saved records before a turn ever starts.
+    hub.restore_queue(&session);
+    hub.restore_queue(&session);
+    let records = hub.events(&session.id, 0, 100).unwrap();
+    let queued: Vec<_> = records.iter().filter(|e| e.kind == "queued").collect();
+    assert_eq!(queued.len(), 1);
+    assert_eq!(queued[0].msg["restored"], "unstarted");
+    assert_eq!(queued[0].msg["prompt"], json!([{"type":"text", "text":"original request"}]));
 }
