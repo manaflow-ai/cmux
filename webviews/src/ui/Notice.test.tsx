@@ -150,6 +150,21 @@ test("a queue keeps at least the newest toast, whatever its limit", () => {
   expect(closed).toEqual(["a:replaced"]);
 });
 
+test("an onClose that changes the queue sees it already changed", () => {
+  // Replaced: closing a toast ahead of it must not leave the old toast in place of the new one.
+  const replaced = createNoticeQueue();
+  replaced.show({ id: "b", message: "b" });
+  replaced.show({ id: "a", message: "a", onClose: () => replaced.close("b") });
+  replaced.show({ id: "a", message: "a2" });
+  expect(replaced.snapshot().map((entry) => entry.spec.message)).toEqual(["a2"]);
+  // Pushed out: showing a toast from the evicted one's onClose must not evict it again.
+  const evicted = createNoticeQueue(2);
+  evicted.show({ id: "a", message: "a", onClose: () => evicted.show({ id: "x", message: "x" }) });
+  evicted.show({ id: "b", message: "b" });
+  evicted.show({ id: "c", message: "c" });
+  expect(evicted.snapshot().map((entry) => entry.spec.id)).toEqual(["c", "x"]);
+});
+
 test("a toast times out, but not while the stack is hovered, and gets its full time after", () => {
   let clock = 0;
   const armed: { fire(): void; ms: number; live: boolean }[] = [];
