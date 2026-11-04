@@ -76,15 +76,27 @@ export type NewTabMachine = {
 /// The machines a chat can run on: this Mac first (always online), then acpmux's peers (online),
 /// then the hosts older chats ran on that acpmux no longer lists (offline). Each peer's kind is its
 /// transport (`peerKinds`, environments.ts); a Cloud chat's host is Cloud.
+/// A listed peer whose link acpmux says is down (`peerConnected` false, or a `peerStates` state other
+/// than `connected`) is not online: a Cloud machine that paused keeps its peer entry while its link is
+/// lost (cmux-platform docs/agent-turn-sleep.md).
 export function newTabMachines(
-  snapshot: Pick<AcpmuxSnapshot, "sessions" | "peers">,
+  snapshot: Pick<AcpmuxSnapshot, "sessions" | "peers" | "peerConnected" | "peerStates">,
   peerKinds: Record<string, "ssh" | "cloud">,
   localName: string,
 ): NewTabMachine[] {
   const machines: NewTabMachine[] = [{ id: "local", label: localName, kind: "local", online: true }];
-  const online = new Set(snapshot.peers ?? []);
+  const listed = new Set(snapshot.peers ?? []);
+  const linked = (id: string) => {
+    const state = snapshot.peerStates?.[id];
+    if (state !== undefined) return state === "connected";
+    return snapshot.peerConnected?.[id] !== false;
+  };
   for (const machine of knownMachines(snapshot.peers ?? [], snapshot.sessions, peerKinds)) {
-    machines.push({ ...machine, online: online.has(machine.id), color: machineColor(machine.label) });
+    machines.push({
+      ...machine,
+      online: listed.has(machine.id) && linked(machine.id),
+      color: machineColor(machine.label),
+    });
   }
   return machines;
 }

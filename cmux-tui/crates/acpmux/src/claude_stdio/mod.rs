@@ -275,6 +275,9 @@ mod inbound;
 // What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
 mod logged_bodies;
 pub use logged_bodies::leave_out_bodies;
+mod loops;
+#[cfg(test)]
+mod loops_tests;
 mod outbound;
 pub mod prompt_cache;
 pub mod prompt_suggestions;
@@ -609,6 +612,8 @@ pub struct Translator {
     /// Claude Code's task list, from its TaskCreate and TaskUpdate calls
     /// (`task_plan.rs`), sent whole as the turn's ACP plan.
     task_plan: Mutex<task_plan::TaskPlan>,
+    /// Claude Code's /loop: its tools' calls and the loops armed, the chat's goal (`loops.rs`).
+    loops: Mutex<loops::Loops>,
 }
 
 /// A running shell: the session its Bash call ran in, its command, Claude's
@@ -729,6 +734,7 @@ impl Translator {
             edits: Mutex::new(HashMap::new()),
             announced: Mutex::new(HashMap::new()),
             usage_limits: Mutex::new(Default::default()),
+            loops: Mutex::new(Default::default()),
         })
     }
 

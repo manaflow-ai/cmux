@@ -285,6 +285,12 @@ impl Translator {
                             };
                             self.background_shells.lock().await.insert(id.to_owned(), shell);
                         }
+                        // Claude's /loop tools, the chat's goal from their results (`loops.rs`).
+                        if parent.is_none()
+                            && let Some(id) = c.get("id").and_then(Value::as_str)
+                        {
+                            self.note_loop_call(id, name, &input).await;
+                        }
                         let mut call = tool_call_fields(name, &input);
                         call.set("sessionUpdate", json!("tool_call"));
                         call.set("toolCallId", c.get("id").cloned().unwrap_or(Value::Null));
@@ -434,6 +440,11 @@ impl Translator {
                             out.push(upd(plan));
                         }
                         if let Some(update) = self.workflow_launched(tool, is_err, line).await {
+                            out.push(upd(update));
+                        }
+                        if let Some(update) =
+                            self.loop_result(tool, is_err, line.get("tool_use_result")).await
+                        {
                             out.push(upd(update));
                         }
                         // A background subagent's result is only its launch, unless the launch
@@ -1023,7 +1034,8 @@ impl Translator {
     /// ended with its process, so each is reported `stopped`, marked
     /// `_meta.acpmux.endedBy: "harness_exit"` for the hub (`hub/processes.rs`
     /// lists it `lost`); the update itself is what clients show. A call named
-    /// early whose input was still streaming ends `failed` with them.
+    /// early whose input was still streaming ends `failed` with them, and its
+    /// loops end with it too (`loops.rs`).
     pub async fn end_background_shells(&self) -> Vec<Message> {
         let mut shells: Vec<_> =
             self.background_shells.lock().await.drain().filter(|(_, s)| s.background).collect();
@@ -1037,6 +1049,7 @@ impl Translator {
                            "_meta": {"acpmux": {"endedBy": "harness_exit"}}}),
             )
         }));
+        out.extend(self.end_loops().await);
         out
     }
 
