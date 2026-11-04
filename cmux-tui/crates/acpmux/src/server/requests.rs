@@ -1507,6 +1507,9 @@ async fn dispatch_request_with_identity(
                 .ok_or_else(|| {
                     RpcError::invalid_params("prompt must be an array of content blocks")
                 })?;
+            // The words the person sent, before any context is added: whether they took the
+            // suggestion the chat showed (`suggestion_gate.rs`).
+            let sent_text = crate::suggestion_gate::prompt_text(&blocks);
             // A remote web client may not hide text, directly or through a peer daemon.
             let web = super::remote_guard::control_of(conn.origin, conn.auth, &params)
                 == crate::hub::Control::Web;
@@ -1742,6 +1745,17 @@ async fn dispatch_request_with_identity(
                 Some(host) => format!("{}@{host}", conn.label()),
                 None => conn.label(),
             };
+            // The person's answer to the suggestion the chat showed, if any (`suggestion_gate.rs`).
+            if !agent_message && person_asks(conn) {
+                crate::suggestion_gate::note_prompt(
+                    &s.id,
+                    &sent_text,
+                    crate::suggestion_gate::marked_taken(&params),
+                );
+            } else {
+                // Another agent's message answers nothing the person was shown.
+                crate::suggestion_gate::withdraw(&s.id);
+            }
             let answer = heap(|| hub.prompt_with(&s, blocks, &client, steer, opts)).await;
             if let Some(saved) = saved {
                 saved.settle(hub, &answer).await;
