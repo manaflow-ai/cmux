@@ -938,7 +938,9 @@ jobs:
 
       - name: Validate triage severity and area rules
         if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_triage_rules.py
+        run: |
+          python3 tests/test_triage_rules.py
+          python3 tests/test_ci_auto_triage_event.py
 
       - name: Validate cmux-tui focused filter routing
         if: ${{ matrix.group == 'ci' }}
