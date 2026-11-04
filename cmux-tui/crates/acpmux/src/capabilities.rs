@@ -208,6 +208,12 @@ pub const CAPABILITIES: &[Capability] = &[
     // A chat adopted or watched from Claude Code pages its older turns in from the transcript,
     // past the newest page its log was seeded with (`hub/native_history.rs`).
     Capability { id: "native-history-v1", wire: &[method::MUX_NATIVE_HISTORY] },
+    // The Context viewer's source inventory and cmux-owned override editor. Project scope is
+    // always resolved from the addressed session's metadata, never from caller-supplied paths.
+    Capability {
+        id: "context-inventory-v1",
+        wire: &[method::MUX_CONTEXT, method::MUX_CONTEXT_OVERRIDE],
+    },
     Capability {
         id: "durable-watches-v1",
         wire: &[method::MUX_WATCH_ADD, method::MUX_WATCH_LS, method::MUX_WATCH_RM],

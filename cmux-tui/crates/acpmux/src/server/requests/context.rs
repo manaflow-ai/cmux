@@ -2,8 +2,8 @@
 use super::*;
 use std::path::Path;
 
-fn project_path(value: Option<&Value>, fallback: &Path) -> Result<std::path::PathBuf, RpcError> {
-    let raw = value.and_then(Value::as_str).unwrap_or_else(|| fallback.to_str().unwrap_or(""));
+fn project_path(fallback: &Path) -> Result<std::path::PathBuf, RpcError> {
+    let raw = fallback.to_str().unwrap_or("");
     if raw.is_empty() {
         return Err(RpcError::invalid_params("cwd is required for a project override"));
     }
@@ -21,6 +21,11 @@ pub(super) async fn handle(
     method_name: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
+    // The session is the authority for both identity and project directory. A caller-supplied
+    // cwd would let a local client edit an unrelated project's override.
+    if params.get("cwd").is_some() {
+        return Err(RpcError::invalid_params("cwd is derived from the attached session"));
+    }
     let session = hub.resolve_told(super::session_key(params)?, conn.origin == Origin::Local)?;
     if method_name == method::MUX_CONTEXT_OVERRIDE {
         if conn.origin.web_class() {
@@ -28,17 +33,19 @@ pub(super) async fn handle(
                 "context overrides are available only to local clients",
             ));
         }
-        let scope = params.get("scope").and_then(Value::as_str).unwrap_or("user");
+        let scope = params
+            .get("scope")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError::invalid_params("scope is required"))?;
+        if !matches!(scope, "user" | "project") {
+            return Err(RpcError::invalid_params("scope must be user or project"));
+        }
         let text = match params.get("text") {
             None | Some(Value::Null) => None,
             Some(Value::String(text)) => Some(text.clone()),
             Some(_) => return Err(RpcError::invalid_params("text must be a string or null")),
         };
-        let cwd = if scope == "project" {
-            Some(project_path(params.get("cwd"), &session.meta().cwd)?)
-        } else {
-            None
-        };
+        let cwd = if scope == "project" { Some(project_path(&session.meta().cwd)?) } else { None };
         let mut cfg = hub.config.write().await;
         let previous = cfg.context_overrides.clone();
         match params.get("partId") {
