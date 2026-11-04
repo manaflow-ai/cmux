@@ -1159,7 +1159,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The Mac Screen against cmux-rd-proto's golden app lines (cmux rd serve|connect stdout).
         .testTarget(
             name: "CmuxNextMacScreenTests",
-            dependencies: ["CmuxNextMacScreen"],
+            dependencies: ["CmuxNextMacScreen", "CmuxNextRemoteView"],
             swiftSettings: uiSwiftSettings
         ),
         // Remote tab client (remote-tab.md r2): the page of a browser tab
@@ -1257,7 +1257,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextCloudTests",
-            dependencies: ["CmuxNextCloud", "CmuxNextDaemon"],
+            dependencies: ["CmuxNextCloud", "CmuxNextDaemon", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(
