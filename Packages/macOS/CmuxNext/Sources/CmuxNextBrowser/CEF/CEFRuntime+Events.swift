@@ -164,6 +164,7 @@ extension CEFRuntime {
             } else if let browser = event.browserID, event.isLoadEvent {
                 // A load event of a browser no tab owns is dropped: the trace says so (lead on STATUS 8457).
                 BrowserLifecycleTrace.shared.record(BrowserTabID(rawValue: "browser-\(browser)"), "cef-load-event-without-tab")
+                CEFSpareWindow.shared.unownedLoadEvent(event) // an extension navigated the waiting spare page
             }
         }
     }
@@ -228,6 +229,8 @@ extension CEFRuntime {
             register(tab, browser: browser)
             return
         }
+        // Inside the spare page's tab_add: held until it returns, to tell the page from Chromium's own tabs.
+        if CEFSpareWindow.shared.holdIfMakingPage(browser, window: window, created: created) { return }
         // Chromium created the tab itself (target=_blank, chrome.tabs.create).
         orphans.adopt(browser: browser, window: window, created: created)
     }
@@ -251,8 +254,9 @@ extension CEFRuntime {
         if let tab = tabsByBrowser.removeValue(forKey: browser) {
             tab.browserDidClose(closesTab: shutdownSequence == nil)
         } else {
-            // Never registered: drop a pending adoption of it.
+            // Never registered: drop a pending adoption of it, or the spare page.
             orphans.closedUnregistered(browser)
+            CEFSpareWindow.shared.browserClosed(browser)
         }
         devToolsCalls.failAll(where: { $0.browser == browser }, with: BrowserTabError.closed)
         unawaitedDevTools = unawaitedDevTools.filter { $0.key.browser != browser }
