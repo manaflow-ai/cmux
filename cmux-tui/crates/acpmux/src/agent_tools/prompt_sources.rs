@@ -245,8 +245,21 @@ mod tests {
         no_plugin.plugin_dir = None;
         assert!(!no_plugin.context_parts(true).iter().any(|p| p.source == "cmux-skill-listing"));
         assert!(AgentTools::default().context_parts(true).is_empty());
+        let mut meta: crate::store::SessionMeta = serde_json::from_value(serde_json::json!({
+            "schema":"acpmux.session.v1", "id":"s", "name":"s", "harness":"claude",
+            "cwd":"/repo", "status":"idle", "createdAt":0, "updatedAt":0
+        })).unwrap();
+        let cfg = crate::config::Config::default();
+        let inspectable = |meta: &crate::store::SessionMeta| {
+            crate::context_inventory::inventory(meta, &cfg).parts.iter()
+                .filter(|p| p.id.starts_with("cmux-source-") && p.text.is_some()).count()
+        };
+        let before = inspectable(&meta);
+        crate::context_inventory::record_tool_sources(&mut meta, parts.clone());
+        let after = inspectable(&meta);
+        assert_eq!((before, after), (0, 6));
         println!(
-            "context-source-fixture: rows={}, text_parts={}, persisted_bytes={}, skill_description_tokens={}, full_skill_body_tokens={}",
+            "context-source-fixture: inspectable_before={before}, inspectable_after={after}, rows={}, text_parts={}, persisted_bytes={}, skill_description_tokens={}, full_skill_body_tokens={}",
             parts.len(),
             parts.iter().filter(|p| p.text.is_some()).count(),
             serialized.len(),
