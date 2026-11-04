@@ -181,11 +181,11 @@ await requireBrowserLane("transcript-received-line.test.ts", async () => {
       expect(Math.abs(got.received!.centre - got.glyph! - value("footer-to-next"))).toBeLessThanOrEqual(1);
     });
     // The turn the received line started folds under its Worked for (Leo, 2026-11-04), opened here:
-    // that line sits between the two with the room it has in a Codex turn (transcriptSpacing.ts).
-    test(`the received line, its turn's Worked for and the run's line keep the fold's room (${theme.file})`, async () => {
+    // that line is a one-line row between the two (transcriptSpacing.ts).
+    test(`the received line, its turn's Worked for and the run's line sit one line apart each (${theme.file})`, async () => {
       const got = await of(theme);
-      expect(Math.abs(got.worked! - got.received!.centre - value("received-to-worked"))).toBeLessThanOrEqual(1);
-      expect(Math.abs(got.run!.centre - got.worked! - value("worked-to-status"))).toBeLessThanOrEqual(1);
+      expect(Math.abs(got.worked! - got.received!.centre - value("received-to-worked"))).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(got.run!.centre - got.worked! - value("worked-to-status"))).toBeLessThanOrEqual(0.5);
     });
     test(`the received line's words are the tool rows' size (${theme.file})`, async () => {
       const got = await of(theme);
