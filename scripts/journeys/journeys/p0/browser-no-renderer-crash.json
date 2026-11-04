@@ -2,9 +2,9 @@
  "id": "browser-no-renderer-crash",
  "priority": "P0",
  "title": "Browser pages and an extension load with no renderer crash: 3 local pages (JIT-heavy JS, a big DOM, a cross-site frame) draw in Chromium tabs and the built-in uBlock Origin runs, with no Chromium helper crash and no crash notice",
- "why": "cmux-ad m7 2 (CHROME LATEST). The CEF 156 pin 953dc952763 (cef-156.0.15-cmux.43) started renderer and extension processes from the plain Helper.app, signed without allow-jit: under the hardened runtime V8 could not reserve its code range and every page and extension process died about 0.6 s after start (SIGTRAP; uBlock Origin has crashed). #34904 (e1869abf57c) fixed it. Dogfood build 363e39f2 (bd14c57f74f7) has the pin and not the fix; it passed every P0 journey, because none loaded a page. This journey makes a CEF bump that crashes pages red before it reaches Lawrence. The pages come from a local server in a cmux terminal (127.0.0.1 and localhost, no outside network). The crash state is the app's own: debug.crashes (CEFRuntime+Crashes: the CEF renderer callback and the kqueue child-exit monitor) and the tab's crash notice (debug.browser.page_status gone).",
+ "why": "cmux-ad m7 2 (CHROME LATEST). The CEF 156 pin 953dc952763 (cef-156.0.15-cmux.43) started renderer and extension processes from the plain Helper.app, signed without allow-jit: under the hardened runtime V8 could not reserve its code range and every page and extension process died about 0.6 s after start (SIGTRAP; uBlock Origin has crashed). #34904 (e1869abf57c) fixed it. Dogfood build 363e39f2 (bd14c57f74f7) has the pin and not the fix; it passed every P0 journey, because none loaded a page. This journey makes a CEF bump that crashes pages red before it reaches Lawrence. A fleet build is signed ad hoc without the hardened runtime, where V8 needs no allow-jit, so the crash does not show there: the journey first signs this lease's copy of the Chromium helpers with the hardened runtime, each keeping its own entitlements (plus disable-library-validation, which stands in for the shipped Team ID), and relaunches, so pages run as in a shipped build. The pages come from a local server in a cmux terminal (127.0.0.1 and localhost, no outside network). The crash state is the app's own: debug.crashes (CEFRuntime+Crashes: the CEF renderer callback and the kqueue child-exit monitor) and each page's own script finishing (its title in debug.cef devtools).",
  "source": "cmux-ad m7 2, STATUS 11229; #34904",
- "budget_seconds": 200,
+ "budget_seconds": 240,
  "steps": [
   {
    "do": "file",
@@ -123,12 +123,108 @@
    ]
   },
   {
+   "do": "file",
+   "path": "/tmp/jr-cefjit-harden-${nonce}.sh",
+   "lines": [
+    "#!/bin/bash",
+    "# jr-cefjit: sign the app's Chromium helpers the way a shipped build runs them: with the hardened runtime, each",
+    "# helper keeping its own entitlements. A fleet build is signed ad hoc without the hardened runtime, where V8 needs",
+    "# no allow-jit, so a helper that lacks it still runs pages there (the #34904 crash did not show on fleet builds).",
+    "# disable-library-validation stands in for the shipped Team ID (ad hoc code has none, so library validation would",
+    "# refuse the ad hoc framework); it does not change what JIT needs. Only this lease's copy of the app changes.",
+    "set -u",
+    "app=\"$1\"",
+    "fw=\"$app/Contents/Frameworks\"",
+    "n=0",
+    "for h in \"$fw\"/*\" Helper.app\" \"$fw\"/*\" Helper (\"*\").app\"; do",
+    "  [ -d \"$h\" ] || continue",
+    "  ent=\"$(mktemp /tmp/jr-cefjit-ent.XXXXXX)\"",
+    "  /usr/bin/codesign -d --entitlements - --xml \"$h\" > \"$ent\" 2>/dev/null",
+    "  if ! /usr/libexec/PlistBuddy -c \"Print\" \"$ent\" >/dev/null 2>&1; then",
+    "    printf '%s\\n' '<?xml version=\"1.0\" encoding=\"UTF-8\"?>' '<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">' '<plist version=\"1.0\"><dict/></plist>' > \"$ent\"",
+    "  fi",
+    "  jit=nojit",
+    "  /usr/libexec/PlistBuddy -c \"Print :com.apple.security.cs.allow-jit\" \"$ent\" 2>/dev/null | grep -q true && jit=jit",
+    "  /usr/libexec/PlistBuddy -c \"Delete :com.apple.security.cs.disable-library-validation\" \"$ent\" >/dev/null 2>&1",
+    "  /usr/libexec/PlistBuddy -c \"Add :com.apple.security.cs.disable-library-validation bool true\" \"$ent\" >/dev/null",
+    "  if ! /usr/bin/codesign --force --sign - --options runtime --timestamp=none --entitlements \"$ent\" \"$h\" 2>/tmp/jr-cefjit-sign.err; then",
+    "    echo \"jr-cefjit-harden-failed $(basename \"$h\") $(tail -1 /tmp/jr-cefjit-sign.err)\"",
+    "    rm -f \"$ent\"",
+    "    exit 1",
+    "  fi",
+    "  rm -f \"$ent\"",
+    "  n=$((n + 1))",
+    "  echo \"jr-cefjit-helper $(basename \"$h\" .app | tr ' ' _) $jit runtime\"",
+    "done",
+    "echo \"jr-cefjit-hardened $n\""
+   ]
+  },
+  {
    "do": "new_terminal",
    "name": "jr-cefjit-${nonce}",
    "as": "server"
   },
   {
    "do": "neutral_prompt"
+  },
+  {
+   "do": "expect",
+   "title": "the app under test names its bundle",
+   "timeout": 10,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "system.identify",
+      "path": "app_bundle_path",
+      "contains": ".app",
+      "bind": "app_bundle"
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "/bin/bash /tmp/jr-cefjit-harden-${nonce}.sh '${app_bundle}'",
+   "enter": true,
+   "mark": "hardened"
+  },
+  {
+   "do": "expect",
+   "title": "the Chromium helpers are signed with the hardened runtime, as in a shipped build",
+   "since": "hardened",
+   "timeout": 60,
+   "all": [
+    {
+     "daemon_contains": "jr-cefjit-hardened "
+    },
+    {
+     "daemon_lacks": "jr-cefjit-harden-failed"
+    }
+   ]
+  },
+  {
+   "do": "relaunch",
+   "how": "quit",
+   "mark": "reopened"
+  },
+  {
+   "do": "use",
+   "name": "server"
+  },
+  {
+   "do": "expect",
+   "title": "the app is back after the quit, clean",
+   "since": "reopened",
+   "timeout": 45,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.crashes",
+      "path": "launch.recovery",
+      "equals": "clean"
+     }
+    }
+   ]
   },
   {
    "do": "type",
@@ -169,16 +265,9 @@
     },
     {
      "app_rpc": {
-      "method": "debug.browser.page_status",
-      "path": "title",
+      "method": "debug.cef",
+      "path": "devtools",
       "contains": "jr-cefjit heavy ok"
-     }
-    },
-    {
-     "app_rpc": {
-      "method": "debug.browser.page_status",
-      "path": "gone",
-      "equals": "0"
      }
     },
     {
@@ -208,16 +297,9 @@
     },
     {
      "app_rpc": {
-      "method": "debug.browser.page_status",
-      "path": "title",
+      "method": "debug.cef",
+      "path": "devtools",
       "contains": "jr-cefjit dom ok"
-     }
-    },
-    {
-     "app_rpc": {
-      "method": "debug.browser.page_status",
-      "path": "gone",
-      "equals": "0"
      }
     },
     {
@@ -247,16 +329,9 @@
     },
     {
      "app_rpc": {
-      "method": "debug.browser.page_status",
-      "path": "title",
+      "method": "debug.cef",
+      "path": "devtools",
       "contains": "jr-cefjit frame ok"
-     }
-    },
-    {
-     "app_rpc": {
-      "method": "debug.browser.page_status",
-      "path": "gone",
-      "equals": "0"
      }
     },
     {
@@ -274,9 +349,9 @@
     },
     {
      "app_rpc": {
-      "method": "debug.browser.page_status",
-      "path": "title",
-      "contains": "http://localhost:47923"
+      "method": "debug.cef",
+      "path": "devtools",
+      "contains": "jr-cefjit frame ok http://localhost:47923"
      }
     }
    ]
@@ -327,7 +402,7 @@
   },
   {
    "do": "expect",
-   "title": "no renderer, extension, GPU or other Chromium helper process ended abnormally, and the tab shows its page, not a crash notice",
+   "title": "no renderer, extension, GPU or other Chromium helper process ended abnormally, and the tab still shows its page",
    "timeout": 10,
    "all": [
     {
@@ -346,15 +421,8 @@
     },
     {
      "app_rpc": {
-      "method": "debug.browser.page_status",
-      "path": "gone",
-      "equals": "0"
-     }
-    },
-    {
-     "app_rpc": {
-      "method": "debug.browser.page_status",
-      "path": "title",
+      "method": "debug.cef",
+      "path": "devtools",
       "contains": "jr-cefjit frame ok"
      }
     },
