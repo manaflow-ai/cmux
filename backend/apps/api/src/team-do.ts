@@ -31,7 +31,7 @@ import type { SshPresence } from "./team-ssh-presence.ts"
 import { serverNetworkExternal } from "./server-network-confirm.ts"
 import { hostNetworkExternal } from "./host-network-bind.ts"
 import { hostNetworkTarget, hostNetworkTargetOwner } from "./host-network-target.ts"
-import { vmApiConnection } from "./cloud-vm-api-config.ts"
+import { vmApiConnection, vmApiOrigin } from "./cloud-vm-api-config.ts"
 import { authorizeNativeDial, recheckNativeDial, type NativeDialDeps, type NativeDialPermit, type NativeDialTarget } from "./cloud-native-dial.ts"
 import { vmReceiverPeers, type VmReceiverPeerTarget } from "./cloud-vm-receiver-peers.ts"
 import { cleanupRemovedMembers, revokeMemberCertsNow } from "./team-member-cleanup.ts"
@@ -301,8 +301,8 @@ export class TeamDO extends OwnerDO<TeamState> {
     if (!this.isBound(entity)) return { ok: false as const, code: "auth.forbidden", message: "no active team network owner" }
     const engine = this.bind(entity)
     return hostNetworkTargetOwner({
-      team: entity, project: this.env.STACK_PROJECT_ID, connection: () => vmApiConnection(this.env), revision: () => String(engine.currentSeq),
-      state: () => engine.currentState, rows: engine.rows, tenant: () => this.vmApiTenant(entity, "operate"), http: this.http, now: Date.now,
+      team: entity, project: this.env.STACK_PROJECT_ID, origin: () => vmApiOrigin(this.env), revision: () => String(engine.currentSeq),
+      state: () => engine.currentState, rows: engine.rows, tenant: () => this.vmApiTenant(entity, "operate"), now: Date.now,
       identity: (user, install, grant) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).readIdentity(user, install, grant)
     }, p, params)
   }

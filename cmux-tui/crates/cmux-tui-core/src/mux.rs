@@ -95,6 +95,8 @@ use cell_pixel_state::apply_cell_pixel_size_until;
 use cell_pixel_state::cell_pixel_retry_delay;
 use cell_pixel_state::validate_cell_pixel_convergence;
 mod client_sizing_state;
+/// A key's sizing note without the sizing lock (R-DAEMON-STATE stage S1).
+pub(crate) mod sizing_fast_path;
 use client_sizing_state::AppliedClientSize;
 use client_sizing_state::ClientResizeRequest;
 pub(crate) use client_sizing_state::ClientSizeRollback;
@@ -233,6 +235,7 @@ mod events;
 pub(crate) mod layout_invariants;
 mod layout_ratio_error;
 mod layout_resize;
+mod layout_sizes;
 mod layout_types;
 mod layout_undo;
 mod lifecycle;
@@ -354,6 +357,7 @@ pub use dock_columns::{
 pub(crate) use dock_columns::{ensure_permanent_columns_kept, permanent_columns};
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use layout_ratio_error::LayoutRatioError;
+pub use layout_sizes::{LayoutSizeValue, LayoutSizesError};
 pub(crate) use pinned_columns::{
     LONE_DOCK_NEIGHBOR_WIDTH, ensure_pane_takes_tabs, ensure_pinned_columns_kept,
     ensure_pinned_tabs_not_closed, lone_pinned_dock_taking_no_tabs, pane_in_lone_pinned_column,
@@ -535,7 +539,7 @@ pub struct Mux {
     workspace_lifecycles: Mutex<HashMap<WorkspaceId, Weak<Mutex<()>>>>,
     pending_workspace_surfaces: Mutex<HashMap<SurfaceId, WorkspaceId>>,
     client_sizing_lifecycle: Mutex<()>,
-    client_sizing: Mutex<ClientSizingState>,
+    client_sizing: sizing_fast_path::SizingMutex,
     /// Per-client focus memory (client-focus-v1): the most recent focus each
     /// client id reported, so a reconnecting client restores its own view
     /// instead of the shared session focus. In-memory and bounded; a mux
@@ -961,6 +965,8 @@ impl Mux {
         self.control_clients.set_input_lane_for_test(on);
         self.remote_relay().peers.set_publishing_for_test(on);
         self.surface_operation_admission.set_lock_free_for_test(on);
+        self.client_sizing.set_publishing_for_test(on);
+        self.activity.set_lock_free_for_test(on);
     }
 
     #[cfg(test)]

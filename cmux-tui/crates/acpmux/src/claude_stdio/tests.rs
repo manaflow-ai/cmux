@@ -651,6 +651,11 @@ fn claude_chats_ask_for_thinking_summaries() {
     )
     .unwrap();
     let plan = spawn_plan(&pinned, None, false, None, None, "default", None);
-    assert_eq!(plan.args.iter().filter(|a| *a == "--thinking-display").count(), 1, "{:?}", plan.args);
+    assert_eq!(
+        plan.args.iter().filter(|a| *a == "--thinking-display").count(),
+        1,
+        "{:?}",
+        plan.args
+    );
     assert!(plan.args.iter().any(|a| a == "omitted"));
 }
