@@ -175,5 +175,6 @@ pub mod workflow_reply;
 pub mod workflow_runs;
 pub mod worktree_sessions;
 pub mod wrap_up_suggestion;
+pub mod write_journal;
 
 pub mod model_catalog;

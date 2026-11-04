@@ -1519,7 +1519,7 @@
           "title": "Titlebar",
           "help": "Minimal has no titlebar strip; the top row moves the window.",
           "kind": "choice",
-          "default": "standard",
+          "default": "minimal",
           "group": "Window",
           "values": [
             "minimal",
