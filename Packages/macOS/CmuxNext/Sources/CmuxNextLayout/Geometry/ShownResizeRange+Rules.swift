@@ -5,7 +5,7 @@ import CoreGraphics
 // `cmux-tui/crates/cmux-layout-reducer/tests/data/shown_resize_corpus.txt` holds their answers for a seeded corpus;
 // `ShownResizeRangeCorpusTests` (Swift) and `shown_resize_corpus` (Rust) both check against it, so the Rust port is
 // proven equal before the app calls it (RUST MIGRATION, swift-logic owner, step A).
-extension ShownResizeRange {
+nonisolated extension ShownResizeRange {
     /// A closed range as two numbers (the shape the C ABI returns).
     struct Bounds: Equatable {
         var lower: Double
