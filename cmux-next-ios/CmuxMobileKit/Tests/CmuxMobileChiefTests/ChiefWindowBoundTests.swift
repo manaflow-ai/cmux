@@ -8,9 +8,8 @@ import UIKit
 
 /// The Chief conversation, open and resting at the bottom, keeps its loaded
 /// window bounded while replies keep arriving: nobody scrolls a Chief chat
-/// left open, so the bound must not wait for a scroll to end. Each batch
-/// records a frame of the real conversation view with the loaded count drawn
-/// on it (attachments `chief-window-NN.png`), the video proof of the change.
+/// left open, so the bound must not wait for a scroll to end. The video proof
+/// is the app's own: ChiefWindowBoundUITests (demo `chief-flood`).
 @Suite(.serialized) @MainActor struct ChiefWindowBoundTests {
     @Test func liveRepliesWhileRestingAtTheBottomKeepTheWindowBounded() async throws {
         let backend = FloodBackend()
@@ -30,7 +29,6 @@ import UIKit
         let perBatch = 50
         var seq = 0
         var maxLoaded = 0
-        record(window: window, frame: 0, arrived: 0, loaded: store.messages.count)
         for batch in 1...batches {
             for _ in 0..<perBatch {
                 seq += 1
@@ -43,7 +41,6 @@ import UIKit
             try await settle(window)
             maxLoaded = max(maxLoaded, store.messages.count)
             print("CHIEF_WINDOW batch=\(batch) arrived=\(seq) loaded=\(store.messages.count) cells=\(Self.visibleCells(in: window))")
-            record(window: window, frame: batch, arrived: seq, loaded: store.messages.count)
         }
         print("CHIEF_WINDOW final arrived=\(seq) loaded=\(store.messages.count) max=\(maxLoaded) threshold=\(ConversationStore.windowTrimThreshold)")
         #expect(store.messages.count <= ConversationStore.windowTrimThreshold)
@@ -74,32 +71,6 @@ import UIKit
     private static func visibleCells(in view: UIView) -> Int {
         if let collection = view as? UICollectionView { return collection.visibleCells.count }
         return view.subviews.reduce(0) { $0 + visibleCells(in: $1) }
-    }
-
-    /// One frame: the conversation as drawn, with a banner of the counts.
-    private func record(window: UIWindow, frame: Int, arrived: Int, loaded: Int) {
-        let size = window.bounds.size
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 2
-        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
-            UIColor.systemBackground.setFill()
-            context.fill(window.bounds)
-            window.layer.render(in: context.cgContext)
-            let banner = CGRect(x: 0, y: size.height - 132, width: size.width, height: 132)
-            let over = loaded > ConversationStore.windowTrimThreshold
-            (over ? UIColor.systemRed : UIColor.systemGreen).withAlphaComponent(0.92).setFill()
-            context.fill(banner)
-            let text = "Chief replies arrived: \(arrived)\nMessages loaded: \(loaded)\nBound: trims above \(ConversationStore.windowTrimThreshold) to \(ConversationStore.windowKeepCount)"
-            let style = NSMutableParagraphStyle()
-            style.alignment = .center
-            (text as NSString).draw(in: banner.insetBy(dx: 12, dy: 16), withAttributes: [
-                .font: UIFont.monospacedSystemFont(ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize, weight: .semibold),
-                .foregroundColor: UIColor.white,
-                .paragraphStyle: style,
-            ])
-        }
-        guard let png = image.pngData() else { return }
-        Attachment.record(png, named: String(format: "chief-window-%02d.png", frame))
     }
 }
 

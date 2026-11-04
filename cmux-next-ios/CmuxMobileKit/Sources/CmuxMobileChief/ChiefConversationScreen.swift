@@ -781,6 +781,45 @@ public final class ChiefDemoHook {
         store.react(messageID: message.id, reaction: reaction)
     }
 
+    /// Chief posts `count` replies (mock content only); false when no mock Chief is open.
+    public func flood(_ count: Int) async -> Bool {
+        guard let backend = container?.session.backend as? ChiefMockBackend else { return false }
+        await backend.debugFlood(count)
+        return true
+    }
+
+    /// How many messages the open conversation holds loaded (nil: none open).
+    public var loadedCount: Int? { controller?.store.messages.count }
+
+    /// A status line over the open conversation, for recordings (`chief.flood.status`).
+    public func showStatus(_ text: String) {
+        guard let view = controller?.view else { return }
+        let label = (view.viewWithTag(0xF100D) as? UILabel) ?? {
+            let label = UILabel()
+            label.tag = 0xF100D
+            label.accessibilityIdentifier = "chief.flood.status"
+            label.numberOfLines = 0
+            label.textAlignment = .center
+            label.font = .monospacedSystemFont(ofSize: UIFont.preferredFont(forTextStyle: .headline).pointSize, weight: .semibold)
+            label.textColor = .white
+            label.layer.cornerRadius = 12
+            label.layer.masksToBounds = true
+            label.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(label)
+            NSLayoutConstraint.activate([
+                label.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
+                label.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
+                label.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 96),
+                label.heightAnchor.constraint(greaterThanOrEqualToConstant: 76),
+            ])
+            return label
+        }()
+        label.text = text
+        label.accessibilityLabel = text
+        label.backgroundColor = (text.contains("OVER") ? UIColor.systemRed : UIColor.systemGreen).withAlphaComponent(0.92)
+        view.bringSubviewToFront(label)
+    }
+
     /// Scrolls the transcript to the top (true) or the bottom (false).
     public func scroll(toTop: Bool) {
         guard let view = controller?.view,
