@@ -68,12 +68,22 @@ def _desktop_boxes(j, name, n):
 
 
 def _box(boxes, text, top_band=None, below=None):
-    """The box whose text is TEXT (case-insensitive, trimmed): in the top TOP_BAND pixels (the menu bar), or under
-    BELOW's y (the open menu); the leftmost first."""
+    """The box of TEXT (case-insensitive): in the top TOP_BAND pixels (the menu bar), or under BELOW's y (the open
+    menu); the leftmost first. Vision reads neighbor menu titles as one line ("View Server Window Help"): a box whose
+    words contain TEXT gives TEXT's part of it, placed by its share of the line's characters."""
     want = text.strip().lower()
-    found = [b for b in boxes if b[4].strip().lower() == want
-             and (top_band is None or b[1] < top_band) and (below is None or b[1] > below)]
-    return sorted(found, key=lambda b: (b[1], b[0]))[0] if found else None
+    places = lambda b: (top_band is None or b[1] < top_band) and (below is None or b[1] > below)
+    exact = [b for b in boxes if b[4].strip().lower() == want and places(b)]
+    if exact:
+        return sorted(exact, key=lambda b: (b[1], b[0]))[0]
+    for x, y, w, h, line in sorted((b for b in boxes if places(b)), key=lambda b: (b[1], b[0])):
+        at = line.lower().find(want)
+        words = line.lower().split()
+        if at < 0 or want.split()[0] not in words or not line.strip():
+            continue
+        per = w / max(len(line), 1)
+        return (x + at * per, y, len(want) * per, h, text)
+    return None
 
 
 def _desktop_click(j, box):
