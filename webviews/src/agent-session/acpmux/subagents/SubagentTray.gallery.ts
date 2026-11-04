@@ -165,7 +165,9 @@ const RAW_COMMANDS = [
  * on (session-info/commandRulePresets.ts: Leo asked that our own tools not be built in), and a rule
  * of one's own. */
 const FLEET_COMMANDS = [
-  "glaeda-gh wait run manaflow-ai/cmux/41762593154 --until done --timeout 3000 2>&1 | tail -5",
+  // The preset's CI-wait rule is covered by test/command-rules.test.ts; a gallery fixture names no fleet tool
+  // (scripts/cmux-next/check-fixture-host-names.py), so the scene starts a session instead.
+  "sessions new -n 'Tray command labels' --brief brief.md",
   'cmux-ci test --setup playwright --timeout 2400 --workflow-ref feat-cmux-next -- "$(cat check.sh)"',
   "cmux-ci run --key sr2c-ctx-34769-$(date +%s) --class light --script check.sh --ref HEAD",
   "deploy staging --wait",
@@ -681,7 +683,7 @@ export default agentPaneEntry({
       }),
     },
     "command-words-preset": {
-      note: "With cmux-next.json's agentPane.display.commandLabels set to [\"cmux-fleet\", a deploy rule], the fleet preset names the CI wait and cmux-ci lines (Waiting on cmux checks, Fleet tests · Playwright, Fleet run for #34769) and the person's own rule names deploy (Deploying staging). Without it they read by program and main argument, as cmux-ci test.",
+      note: "With cmux-next.json's agentPane.display.commandLabels set to [\"cmux-fleet\", a deploy rule], the fleet preset names the session and cmux-ci lines (Starting Tray command labels, Fleet tests · Playwright, Fleet run for #34769) and the person's own rule names deploy (Deploying staging). Without it they read by program and main argument, as cmux-ci test.",
       height: 480,
       display: {
         "agentPane.display.commandLabels": [
@@ -695,7 +697,7 @@ export default agentPaneEntry({
           (name) => name.textContent,
         );
         for (const want of [
-          "Waiting on cmux checks",
+          "Starting Tray command labels",
           "Fleet tests · Playwright",
           "Fleet run for #34769",
           "Deploying staging",
