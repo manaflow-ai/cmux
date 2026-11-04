@@ -571,6 +571,109 @@ fn session_path_never_waits_for_the_journal() {
     journal.set_sync_delay(Duration::ZERO);
 }
 
+// ---------------------------------------------------------------- review of #35562 (the hold)
+
+/// Makes `id`'s first log segment a link to a copy of itself: the store never follows one, so the
+/// chat's repair fails at every open (as `one_chat_that_cannot_be_repaired_does_not_stop_the_open`).
+fn link_first_segment(home: &Path, id: &str) {
+    let segment = home.join("sessions").join(id).join("events").join("000001.ndjson");
+    let copy = home.join(format!("{id}-elsewhere.ndjson"));
+    std::fs::copy(&segment, &copy).unwrap_or_else(|e| panic!("{e}"));
+    std::fs::remove_file(&segment).unwrap_or_else(|e| panic!("{e}"));
+    std::os::unix::fs::symlink(&copy, &segment).unwrap_or_else(|e| panic!("{e}"));
+}
+
+/// F1 of the review of #35562 (its test): after a failed repair, a checkpoint still writes only
+/// metadata images whose records are durable (the file never holds an image a crash can take
+/// back, and its `journalLsn` never names a record the journal can lose and give out again).
+#[test]
+fn a_checkpoint_after_a_failed_repair_writes_only_durable_images() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(70);
+    let store = open(home.path(), &journal);
+    store.append("chat-b", &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.append("chat-b", &record(2, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    // A kill: chat-b's line 2 is past the checkpoint, and its repair fails at the next open.
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    link_first_segment(home.path(), "chat-b");
+    let store = open(home.path(), &killed);
+    // A metadata change whose record waits in a 2 s sync, then a checkpoint.
+    killed.set_sync_delay(Duration::from_secs(2));
+    store.save(&meta(CHAT, "after", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let written = session_json(home.path(), CHAT).map(|value| value["name"].clone());
+    let durable = store.wait_durable(Duration::ZERO).unwrap_or_else(|e| panic!("{e:#}"));
+    killed.set_sync_delay(Duration::ZERO);
+    assert!(
+        written != Some(json!("after")) || durable,
+        "the checkpoint wrote an image to session.json before its record was durable"
+    );
+}
+
+/// A run with the switch on that a kill ended, with chat-b's repair failing at every later open.
+fn killed_run_with_a_broken_chat(home: &Path, save: &[SessionMeta]) {
+    let store = super::open(&config(), home).unwrap_or_else(|e| panic!("{e:#}"));
+    store.append("chat-b", &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    for meta in save {
+        store.save(meta).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    drop(store);
+    link_first_segment(home, "chat-b");
+}
+
+fn open_switch_off(home: &Path) -> Box<dyn Store> {
+    super::open(&StoreConfig::default(), home).unwrap_or_else(|e| panic!("{e:#}"))
+}
+
+/// F2 of the review of #35562 (its test): with the switch off, a start's catch-up never writes an
+/// older journaled image over a change made with the switch off, also after a failed repair
+/// (DESIGN.md 3.3c: "turning it on again replays nothing old").
+#[test]
+fn a_start_with_the_switch_off_after_a_failed_repair_keeps_a_rename_made_with_it_off() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    killed_run_with_a_broken_chat(home.path(), &[meta(CHAT, "on", 0)]);
+    let off = open_switch_off(home.path());
+    let mut renamed = off
+        .load(CHAT)
+        .unwrap_or_else(|e| panic!("{e:#}"))
+        .unwrap_or_else(|| panic!("the chat is gone"));
+    renamed.name = "off".into();
+    off.save(&renamed).unwrap_or_else(|e| panic!("{e:#}"));
+    drop(off);
+    let off = open_switch_off(home.path());
+    let name = off.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).map(|meta| meta.name);
+    assert_eq!(
+        name.as_deref(),
+        Some("off"),
+        "the catch-up wrote an older journaled image over a rename made with the switch off"
+    );
+}
+
+/// F2 of the review of #35562 (its test): with the switch off, a chat deleted with the switch off
+/// stays deleted at the next start, also after a failed repair.
+#[test]
+fn a_start_with_the_switch_off_after_a_failed_repair_keeps_a_chat_deleted_with_it_off() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    killed_run_with_a_broken_chat(home.path(), &[meta(CHAT, "chat", 0)]);
+    let off = open_switch_off(home.path());
+    off.delete(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
+    drop(off);
+    let off = open_switch_off(home.path());
+    assert!(
+        off.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).is_none(),
+        "a chat deleted with the switch off came back"
+    );
+    assert!(
+        !home.path().join("sessions").join(CHAT).exists(),
+        "the catch-up made its folder again"
+    );
+}
+
 // ---------------------------------------------------------------- review of #35483 at 8301994b135 (N1)
 
 /// N1 (the reviewer's test): a chat folder moved in from another acpmux home
