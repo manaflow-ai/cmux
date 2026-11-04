@@ -54,14 +54,15 @@ Prototypes/ViewShell/inject.sh --live ~/.cache/cmux-view-shell/live Sources/View
 
 `inject.sh` compiles the module with the Debug build's settings, links only the edited files into a
 signed dylib and moves it into the live folder. The shell (`LiveCode.swift`) loads it, interposes
-every Swift function the patch defines onto the executable's own (functions only, never type
-metadata), and redraws. The patch can be compiled on another Mac at the same commit and copied
+every Swift function the patch defines onto the executable's own (and onto an earlier patch's
+copy, so the same file can be patched again and again), and redraws. The patch can be compiled on another Mac at the same commit and copied
 into the folder; it is the same file.
 
 What applies live: any change inside a function or computed property, a view's body included. A
 view whose `body` is `AnyView(content)` (`PreviewBadge`) may also change what it builds, its
 modifiers and their types. What needs a rebuild: a new or changed stored property, a changed
 function signature, a new type used from another file, `main.swift` and `LiveCode.swift`
-themselves, resources and the package manifest. `--live-render DIR` draws the badge offscreen
+themselves, resources and the package manifest. Nothing in the shell checks for those: such a
+patch is applied anyway and can corrupt memory, so the tool that sends patches has to refuse them. `--live-render DIR` draws the badge offscreen
 after each patch (`generation-N.png`), and `--headless` runs the loop with no windows, so a host
 without a screen can measure it (`scripts/measure/live-code-shell.sh`).

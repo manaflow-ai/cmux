@@ -3,10 +3,10 @@
 // (inject.sh); dropped into the live folder, it is loaded here, every function it defines that
 // this executable also defines is interposed onto the new one (the executable is linked
 // `-interposable` in Debug, so its own calls go through bindings dyld can repoint), and the views
-// are redrawn. Only code is repointed, never type metadata, so a value change (a padding, a colour,
-// a string, a modifier inside a view built with `LiveView`) applies, and a change of stored
-// properties or signatures needs a rebuild (the patch is then refused by the loader's check, or
-// does nothing).
+// are redrawn. A change inside a function body (a padding, a colour, a string, a modifier inside a
+// view whose body is an `AnyView`) applies. A change of stored properties or signatures needs a
+// rebuild, and nothing here checks for it: such a patch is applied anyway and the running code then
+// disagrees with the patch about the type's layout. The tool that sends patches has to refuse those.
 import AppKit
 import Combine
 import Darwin
@@ -113,6 +113,11 @@ enum Interposer {
 
     private typealias DynamicInterpose = @convention(c) (UnsafePointer<mach_header>, UnsafeRawPointer, Int) -> Void
 
+    /// Each replaced function's newest code: dyld repoints the bindings that hold the replacee, which
+    /// after the first patch is that patch's copy, not the executable's.
+    @MainActor private static var current: [String: UnsafeRawPointer] = [:]
+
+    @MainActor
     static func apply(dylib path: String) throws -> Int {
         guard dlopen(path, RTLD_NOW | RTLD_LOCAL) != nil else {
             throw LiveCodeError.open(String(cString: dlerror()))
@@ -126,22 +131,30 @@ enum Interposer {
         let interpose = unsafeBitCast(symbol, to: DynamicInterpose.self)
         let mainOnly = UnsafeMutableRawPointer(bitPattern: -5) // RTLD_MAIN_ONLY
         var tuples: [Tuple] = []
+        var replaced: [String: UnsafeRawPointer] = [:]
         for (name, address) in codeSymbols(header: header, slide: _dyld_get_image_vmaddr_slide(index)) {
-            // Swift functions only; the executable's own copy is the one being replaced.
+            // Swift functions only, that the executable also defines.
             guard name.hasPrefix("_$s"), let old = dlsym(mainOnly, String(name.dropFirst())), UnsafeRawPointer(old) != address else { continue }
-            tuples.append(Tuple(replacement: address, replacee: UnsafeRawPointer(old)))
+            let original = UnsafeRawPointer(old)
+            tuples.append(Tuple(replacement: address, replacee: original))
+            // An earlier patch's copy is what the bindings hold now: repoint that too.
+            if let previous = current[name], previous != original, previous != address {
+                tuples.append(Tuple(replacement: address, replacee: previous))
+            }
+            replaced[name] = address
         }
         guard !tuples.isEmpty, let main = _dyld_get_image_header(0) else { throw LiveCodeError.nothingToReplace }
         tuples.withUnsafeBytes { interpose(main, $0.baseAddress!, tuples.count) }
-        return tuples.count
+        current.merge(replaced) { $1 }
+        return replaced.count
     }
 
     /// The external symbols defined in the image's `__TEXT,__text`: its functions, not its data.
     private static func codeSymbols(header: UnsafePointer<mach_header>, slide: Int) -> [(String, UnsafeRawPointer)] {
         let base = UnsafeRawPointer(header)
         var command = base + MemoryLayout<mach_header_64>.size
-        var sectionIndex: UInt8 = 0
-        var textSection: UInt8 = 0
+        var sectionIndex = 0
+        var textSection = 0
         var linkedit: segment_command_64?
         var symtab: symtab_command?
         for _ in 0..<header.pointee.ncmds {
@@ -172,7 +185,7 @@ enum Interposer {
             let symbol = symbols[index]
             let type = symbol.n_type
             guard type & UInt8(N_STAB) == 0, type & UInt8(N_TYPE) == UInt8(N_SECT), type & UInt8(N_EXT) != 0,
-                  symbol.n_sect == textSection, let address = UnsafeRawPointer(bitPattern: Int(symbol.n_value) + slide) else { continue }
+                  Int(symbol.n_sect) == textSection, let address = UnsafeRawPointer(bitPattern: Int(symbol.n_value) + slide) else { continue }
             out.append((String(cString: strings + Int(symbol.n_un.n_strx)), address))
         }
         return out

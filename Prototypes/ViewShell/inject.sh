@@ -29,7 +29,7 @@ sources="$package/Sources/ViewShell"
 target="$(uname -m)-apple-macos14.0"
 work="$(mktemp -d "${TMPDIR:-/tmp}/cmux-view-shell-patch.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
-started=$(date +%s.%N 2>/dev/null || python3 -c 'import time; print(time.time())')
+started=$(python3 -c 'import time; print(f"{time.time():.3f}")')
 
 # The module's every file, as SwiftPM's Debug build compiles it; only the edited ones are linked.
 all=("$sources"/*.swift)
