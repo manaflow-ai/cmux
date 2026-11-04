@@ -56,8 +56,6 @@ pub(crate) struct WorkspaceCommitReceipt {
     /// The resource revision the commit installed (`project_resource`, not
     /// replayed).
     pub(crate) resource_revision: Option<u64>,
-    /// The changes the commit journaled at `resource_revision`, for the public fold (`None`: none journaled).
-    pub(crate) journaled: Option<Value>,
 }
 
 impl WorkspaceRegistry {
@@ -145,11 +143,6 @@ impl WorkspaceRegistry {
         tx.commit()?;
         drop(db);
         self.connection.write_path_stats().request_effect_committed();
-        if let (Some(revision), Some(journaled)) =
-            (receipt.resource_revision, receipt.journaled.as_ref())
-        {
-            self.record_workspace_commit_fold(revision.saturating_sub(1), revision, journaled);
-        }
         Ok(receipt.commit)
     }
 }
@@ -223,7 +216,6 @@ impl WorkspaceCommitIntent {
                     replayed: true,
                 },
                 resource_revision: None,
-                journaled: None,
             });
         }
 
@@ -336,7 +328,6 @@ impl WorkspaceCommitIntent {
                 [resource_revision.to_string()],
             )?;
         }
-        let mut journaled_changes = None;
         if let (
             Some(previous_topology),
             Some(previous_resource_revision),
@@ -388,12 +379,10 @@ impl WorkspaceCommitIntent {
                 &resource_deltas,
             )?;
             resource_store::prune_resource_mutations(tx)?;
-            journaled_changes = Some(resource_deltas);
         }
         Ok(WorkspaceCommitReceipt {
             commit: RegistryCommit { revision, result: result.clone(), replayed: false },
             resource_revision,
-            journaled: journaled_changes,
         })
     }
 }
