@@ -65,7 +65,7 @@ import Testing
         defer { window.close() }
         let stopped = Stops()
         let (answer, card) = try await ask(services, in: window, stopAsking: { stopped.count += 1 })
-        let toggle = try #require(card.actions.first(where: \.isSwitch))
+        let toggle = try #require(card.actions.first { $0.isSwitch })
         SidebarCardFeed.handle(.noticeAction(card: card.id, action: toggle.id), services: services)
         #expect(await answer.value, "Don't Ask Again did not create the machine")
         #expect(stopped.count == 1, "Don't Ask Again left asking on")
