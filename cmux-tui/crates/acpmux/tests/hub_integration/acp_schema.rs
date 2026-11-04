@@ -224,7 +224,7 @@ impl Recorder {
     }
 }
 
-/// Validate recorded frames: requests and notifications by method, a response by the
+/// Validate one connection's recorded frames: requests and notifications by method, a response by the
 /// method of the request it answers (its error as ACP's `Error`).
 fn conformance_failures(frames: &[(Side, Value)]) -> Vec<String> {
     let mut acp = Acp::load();
@@ -291,17 +291,17 @@ async fn a_recorded_acp_conversation_conforms_to_acp() {
         .await;
     resumed.request(method::SESSION_CLOSE, json!({"sessionId": id})).await;
 
-    let mut frames = c.frames;
-    frames.extend(loaded.frames);
-    frames.extend(resumed.frames);
-    let checked: Vec<&str> = frames
+    // Request ids are per connection, so each connection's frames are checked on their own.
+    let connections = [c.frames, loaded.frames, resumed.frames];
+    let checked: Vec<&str> = connections
         .iter()
+        .flatten()
         .filter_map(|(_, f)| f["method"].as_str())
         .filter(|m| METHODS.iter().any(|(name, ..)| name == m))
         .collect();
     for m in ["initialize", "session/new", "session/prompt", "session/update", "session/load"] {
         assert!(checked.contains(&m), "the recording has no {m} frame: {checked:?}");
     }
-    let failures = conformance_failures(&frames);
+    let failures: Vec<String> = connections.iter().flat_map(|f| conformance_failures(f)).collect();
     assert!(failures.is_empty(), "ACP schema mismatches:\n{}", failures.join("\n"));
 }
