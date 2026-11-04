@@ -280,6 +280,21 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         snap["topology"]["workspaces"][0]["screens"][0]["panes"][0]["selected_tab"] = "tab_2"
         self.assertIsNone(smoke.home_tab(snap))
 
+    def test_the_first_run_page_over_home_counts_only_with_the_apps_mark(self):
+        tab = {"id": "tab_1", "kind": "page", "page": "home-dock"}
+        snap = {"topology": {"windows": [{"visible": True, "workspace": "ws_1"}],
+                             "workspaces": [{"id": "ws_1", "screens": [{"panes": [{"selected_tab": None, "tabs": [tab]}]}]}]}}
+        frame = {smoke.RENDER_MARK: 1.0}
+        shown = {**frame, smoke.FIRST_RUN_MARK: 2.0}
+        self.assertFalse(smoke.home_rendered(snap, frame))
+        self.assertFalse(smoke.home_rendered(snap, {smoke.FIRST_RUN_MARK: 2.0}))
+        self.assertTrue(smoke.home_rendered(snap, shown))
+        snap["topology"]["windows"][0]["visible"] = False
+        self.assertFalse(smoke.home_rendered(snap, shown))
+        snap["topology"]["windows"][0]["visible"] = True
+        snap["topology"]["workspaces"][0]["screens"][0]["panes"][0]["tabs"] = [{"id": "tab_2", "page": "terminal"}]
+        self.assertFalse(smoke.home_rendered(snap, shown))
+
 
 if __name__ == "__main__":
     unittest.main()

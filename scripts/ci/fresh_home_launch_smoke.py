@@ -63,6 +63,9 @@ AFTER_RENDER = None
 PREPARE_HOME = None
 RENDER_MARK = "first_window_frame_committed"
 HOME_PAGE = "home-dock"
+# The app marks this when it opens the first-run Bring your history page over Home. That page is not
+# in the topology, so Home's tab has no selection while it shows.
+FIRST_RUN_MARK = "first_run.history_import_shown"
 
 
 class CannotRun(Exception):
@@ -301,6 +304,35 @@ def home_tab(snap: dict | None) -> dict | None:
     return None
 
 
+def first_run_home_tab(snap: dict | None) -> dict | None:
+    """Home's page tab with nothing selected in its pane, in a workspace a visible window shows; None otherwise.
+
+    This alone does not prove a healthy launch. It counts only with FIRST_RUN_MARK, the app's word that
+    its first-run page is what covers Home.
+    """
+    topology = (snap or {}).get("topology") or {}
+    shown = {window.get("workspace") for window in topology.get("windows") or []
+             if isinstance(window, dict) and window.get("visible")}
+    for workspace in topology.get("workspaces") or []:
+        if not isinstance(workspace, dict) or workspace.get("id") not in shown:
+            continue
+        for screen in workspace.get("screens") or []:
+            for pane in (screen or {}).get("panes") or []:
+                if (pane or {}).get("selected_tab") is not None:
+                    continue
+                for tab in (pane or {}).get("tabs") or []:
+                    if isinstance(tab, dict) and tab.get("page") == HOME_PAGE:
+                        return tab
+    return None
+
+
+def home_rendered(snap: dict | None, marks: dict[str, float]) -> bool:
+    """A visible window committed a frame showing Home, or the first-run page the app opened over Home."""
+    if RENDER_MARK not in marks:
+        return False
+    return bool(home_tab(snap)) or (FIRST_RUN_MARK in marks and bool(first_run_home_tab(snap)))
+
+
 def read_marks(path: Path) -> dict[str, float]:
     marks: dict[str, float] = {}
     try:
@@ -433,7 +465,7 @@ def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_pat
                 break
             if rendered_at is None:
                 snap = snapshot(socket_path) or snap
-                if home_tab(snap) and RENDER_MARK in read_marks(marks_path):
+                if home_rendered(snap, read_marks(marks_path)):
                     rendered_at = elapsed
                     log(f"ok: Home rendered in a visible window {elapsed:.1f}s after launch")
             if elapsed >= seconds and (rendered_at is not None or elapsed >= startup_timeout):
