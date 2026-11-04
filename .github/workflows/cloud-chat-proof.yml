@@ -147,6 +147,7 @@ jobs:
       # newest published commit with the same cmux-tui and Ghostty inputs,
       # checked against its build-provenance attestation.
       - name: Build in-tree acpmux
+        if: inputs.build != 'published'
         run: |
           set -euo pipefail
           ./scripts/install-rust-ci.sh
@@ -155,6 +156,7 @@ jobs:
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
 
       - name: Install the matching published cmux-tui client
+        if: inputs.build != 'published'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
