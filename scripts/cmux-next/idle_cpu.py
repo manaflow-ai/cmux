@@ -31,11 +31,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
@@ -279,7 +281,8 @@ def seed_history(home: Path, chats: int, prompt_kb: int = 0) -> dict:
 
 WRITER = r"""
 import json, os, random, sqlite3, sys, time
-home, every = sys.argv[1], float(sys.argv[2])
+home, every, count_file = sys.argv[1], float(sys.argv[2]), sys.argv[3]
+parent = os.getppid()
 db = os.path.join(home, ".codex", "state_5.sqlite")
 claude = sorted(os.path.join(r, f) for r, _, fs in os.walk(os.path.join(home, ".claude", "projects")) for f in fs
                 if f.endswith(".jsonl"))
@@ -288,7 +291,7 @@ claude = sorted(os.path.join(r, f) for r, _, fs in os.walk(os.path.join(home, ".
 conn = sqlite3.connect(db)
 ids = [row[0] for row in conn.execute("select id from threads")]
 n = 0
-while True:
+while os.getppid() == parent:   # the run that started it ended (also a SIGKILLed step): stop
     n += 1
     now = int(time.time() * 1000)
     conn.execute("update threads set updated_at = ?, updated_at_ms = ? where id = ?",
@@ -299,17 +302,29 @@ while True:
             f.write(json.dumps({"type": "assistant", "isSidechain": False, "timestamp": "2026-11-04T00:00:00.000Z",
                                 "message": {"role": "assistant", "content": [{"type": "text", "text": f"step {n}"}]}})
                     + "\n")
+    with open(count_file, "w") as f:
+        f.write(str(n))
     time.sleep(every)
 """
 
 
-def start_writers(home: Path, every: float) -> subprocess.Popen:
+def start_writers(home: Path, every: float, log_dir: Path) -> subprocess.Popen:
     """Agents at work outside cmux: one Codex state database write and one Claude Code transcript line every EVERY
     seconds (a stand-in for the Claude Code and Codex sessions in a person's terminals). It runs under HOME, so the
     launch smoke stops it with the app (by the run's root)."""
-    return subprocess.Popen([sys.executable, "-I", "-c", WRITER, str(home), str(every)],
-                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                            start_new_session=True)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    errors = open(log_dir / "writers.log", "ab")
+    # Not a new session: the writer stays in the step's process group, so a step that is killed takes it along;
+    # it also stops when its parent (this run) is gone.
+    return subprocess.Popen([sys.executable, "-I", "-c", WRITER, str(home), str(every), str(log_dir / "writers.count")],
+                            stdin=subprocess.DEVNULL, stdout=errors, stderr=errors)
+
+
+def writer_writes(log_dir: Path) -> int:
+    try:
+        return int((log_dir / "writers.count").read_text() or 0)
+    except (OSError, ValueError):
+        return 0
 
 
 def group_of(row: dict) -> str | None:
@@ -370,6 +385,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out")
     args = parser.parse_args(argv)
     if (args.windows < 1 or args.window <= 0 or args.minutes < 0 or args.chats < 0 or args.history < 0
+            or not math.isfinite(args.writers) or not math.isfinite(args.window) or not math.isfinite(args.minutes)
             or args.writers < 0 or args.history_prompt_kb < 0 or (args.writers > 0 and args.history <= 0)):
         parser.error("--windows must be >= 1, --window > 0, --minutes, --chats, --history, --history-prompt-kb and "
                      "--writers >= 0, and --writers needs --history")
@@ -438,7 +454,8 @@ def main(argv: list[str] | None = None) -> int:
             for index, row in enumerate(rows):   # rows are busiest first: the first one is always sampled
                 if index == 0 or SAMPLE_KINDS.match(row["kind"]) or row["cpu_pct"] > args.budget_cpu:
                     samples[row["pid"]] = sample(row["pid"], row["kind"], out)
-        result["bench"] = bench_line(rows, samples)
+        result["bench"] = dict(bench_line(rows, samples), history=args.history, prompt_kb=args.history_prompt_kb,
+                               writers=args.writers, writes=writer_writes(writer_dir))
         log("IDLE-CPU-JSON " + json.dumps(result["bench"], sort_keys=True))
         # The bundle's acpmux daemon: `acpmux daemon run`, or the same daemon inside cmux-tui (`cmux acp daemon run`).
         acp = [row for row in rows if row["kind"].startswith("acpmux-daemon") or " acp daemon run" in row["command"]]
@@ -452,18 +469,29 @@ def main(argv: list[str] | None = None) -> int:
                 and (row["cpu_pct"] > args.budget_cpu or row["wakeups_per_s"] > args.budget_wakeups)]
         result["over_budget"] = [{k: row[k] for k in ("kind", "pid", "cpu_pct", "wakeups_per_s")} for row in over]
         verdict["status"] = 1 if over else 0
+        writers = state.get("writers")
+        if writers is not None:
+            result["writers"]["writes"] = writer_writes(writer_dir)
+            if writers.poll() is not None:
+                verdict.update(status=3, why=f"the outside writers stopped (status {writers.returncode}; "
+                                            f"{writer_dir / 'writers.log'})")
+            elif result["writers"]["writes"] < 2:
+                verdict.update(status=3, why="the outside writers wrote nothing")
         return []
 
     smoke.AFTER_RENDER = after_render
     # Idle CPU needs a launched app with a visible window and its first frame, not Home selected: a fresh launch of
     # feat opens a New Tab tab with Home in the sidebar (tip-watcher smoke check-01.png, 2026-11-04 11:35Z).
     smoke.READY = lambda snap: smoke.visible_windows(snap) > 0
+    state: dict = {}
+    writer_dir = (out or Path(tempfile.mkdtemp(prefix="idle-cpu-"))) / "writers"
     if args.history > 0:
         def prepare(env):
             result["history"] = seed_history(Path(env["HOME"]), args.history, args.history_prompt_kb)
             log(f"idle-cpu: home seeded: {json.dumps(result['history'])}")
             if args.writers > 0:
-                writers = start_writers(Path(env["HOME"]), args.writers)
+                writers = start_writers(Path(env["HOME"]), args.writers, writer_dir)
+                state["writers"] = writers
                 result["writers"] = {"every_s": args.writers, "pid": writers.pid}
                 log(f"idle-cpu: outside agents write every {args.writers:g} s (pid {writers.pid})")
         smoke.PREPARE_HOME = prepare
@@ -480,7 +508,9 @@ def main(argv: list[str] | None = None) -> int:
     detail = "; ".join(f"{r['kind']} pid {r['pid']} cpu {r['cpu_pct']}% wakeups {r['wakeups_per_s']}/s" for r in over)
     if verdict["status"] != 0 and not detail:
         detail = verdict.get("why", "")
-    log(f"IDLE-CPU-VERDICT {word} minutes={args.minutes:g} chats={result.get('chats_made', 0)} "
+    context = (f"history={args.history} prompt_kb={args.history_prompt_kb} writers={args.writers:g}"
+               f"/{(result.get('writers') or {}).get('writes', 0)}writes")
+    log(f"IDLE-CPU-VERDICT {word} minutes={args.minutes:g} chats={result.get('chats_made', 0)} {context} "
         f"budget cpu<={args.budget_cpu}% wakeups<={args.budget_wakeups}/s per daemon process"
         + (f": {detail}" if detail else ""))
     if out:

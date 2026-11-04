@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import signal
@@ -100,8 +101,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--json", action="store_true",
                     help="with --wait: the last stdout line is the step's IDLE-CPU-JSON object (or a one-line reason)")
     a = ap.parse_args(argv)
-    if a.windows < 1 or a.window <= 0 or a.minutes < 0 or a.chats < 0 or a.history < 0:
-        print("idle-cpu-run: --windows >= 1, --window > 0, --minutes, --chats and --history >= 0", file=sys.stderr)
+    if (a.windows < 1 or a.window <= 0 or a.minutes < 0 or a.chats < 0 or a.history < 0 or a.history_prompt_kb < 0
+            or a.writers < 0 or not all(math.isfinite(x) for x in (a.window, a.minutes, a.writers))
+            or (a.writers > 0 and a.history <= 0)):
+        print("idle-cpu-run: --windows >= 1, --window > 0; --minutes, --chats, --history, --history-prompt-kb and "
+              "--writers >= 0 and finite; --writers needs --history", file=sys.stderr)
         return 2
     if a.mini and a.mini not in MINIS:
         print(f"idle-cpu-run: --mini must be one of {', '.join(MINIS)}", file=sys.stderr)

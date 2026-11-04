@@ -31,6 +31,7 @@ done
 for n in "$minutes" "$window" "$windows" "$chats" "$history" "$prompt_kb" "$writers" "$budget_cpu" "$budget_wakeups"; do
   [[ "$n" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "idle-cpu.sh: $n is not a number" >&2; exit 2; }
 done
+[[ "$prompt_kb" =~ ^[0-9]+$ ]] || { echo "idle-cpu.sh: prompt_kb= must be a whole number" >&2; exit 2; }
 [[ "$windows" =~ ^[1-9][0-9]*$ ]] || { echo "idle-cpu.sh: windows= must be a whole number >= 1" >&2; exit 2; }
 [[ "$window" =~ ^0*([.]0*)?$ ]] && { echo "idle-cpu.sh: window= must be > 0" >&2; exit 2; }
 out="$PWD/.build/idle-cpu"
