@@ -397,12 +397,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // that turn ended successfully or failed. A view-only turn has no retry callback, so it stays
   // out of both controls.
   const modelRetry =
-    retryWith &&
-    retryWith.models.length > 1 &&
-    retry &&
-    row.retryable === true &&
-    prompt &&
-    row.retryRowId
+    retryWith && retryWith.models.length > 1 && retry && row.retryable === true && prompt && row.retryRowId
       ? { retryWith, rowId: row.retryRowId, prompt }
       : undefined;
   // The card's lead (errorRecovery.ts): Continue when the turn had done work, Retry when nothing

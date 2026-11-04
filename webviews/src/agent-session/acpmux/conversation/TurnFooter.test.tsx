@@ -184,7 +184,9 @@ test("the retry hint only marks a completed edit with a known non-empty patch", 
   expect(changed?.changedFiles).toBe(true);
 
   for (const row of [
-    turnView([prompt, edit("completed", "same", "same"), summary], new Set()).find((item) => item.kind === "turnSummary"),
+    turnView([prompt, edit("completed", "same", "same"), summary], new Set()).find(
+      (item) => item.kind === "turnSummary",
+    ),
     turnView([prompt, edit("failed", "before"), summary], new Set()).find((item) => item.kind === "turnSummary"),
     turnView([prompt, edit("pending", "before"), summary], new Set()).find((item) => item.kind === "turnSummary"),
     turnView([prompt, edit("completed", undefined, "new file"), summary], new Set()).find(
@@ -207,7 +209,12 @@ test("the retry hint only marks a completed edit with a known non-empty patch", 
       new Set(),
     ).find((item) => item.kind === "turnSummary"),
     turnView(
-      [prompt, edit("completed", "before", "after", undefined, undefined, "file.ts"), edit("completed", "after", "before", undefined, "/repo/file.ts", "file.ts"), summary],
+      [
+        prompt,
+        edit("completed", "before", "after", undefined, undefined, "file.ts"),
+        edit("completed", "after", "before", undefined, "/repo/file.ts", "file.ts"),
+        summary,
+      ],
       new Set(),
     ).find((item) => item.kind === "turnSummary"),
     turnView([prompt, edit("completed", undefined, "partial", true), summary], new Set()).find(
