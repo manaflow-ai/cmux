@@ -46,8 +46,6 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'preflight', 'poll', 'wait-and-staple', 'poll-outer', 'staple-outer', 'poll-stapled', 'staple-stapled', 'verify-stapled', 'publish', 'generate-deltas', 'republish-deltas'}),
     'build-ghosttykit.yml': ('not yet on a pool; moves in its own PR',
      {'build-ghosttykit'}),
-    'ci-cloud-overflow-probe.yml': ('holds the App key that writes the runner variables, so a variable must never move it (it would write its own runner)',
-     {'watch'}),
     'cmux-next-dev-daily.yml': ('DEV signing and publish: an ephemeral label the signing rule checks literally',
      {'sign', 'publish', 'tip-dmg'}),
     'cmux-tui-build-package.yml': ('GitHub OIDC provenance: moves to fromJSON(vars.RUNNER_POOLS).provenance',

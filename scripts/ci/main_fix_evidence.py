@@ -51,6 +51,11 @@ def _rate_limit_module():
     return module
 
 
+PER_PAGE = 100
+# 5,000 entries: far above any check-run, job or file list the evidence reads.
+MAX_PAGES = 50
+
+
 class GitHub:
     def run(self, args: list[str]) -> str:
         # Disk and memory are bounded per command; neither logs nor receipts are
@@ -81,28 +86,33 @@ class GitHub:
         if not paginate:
             return json.loads(self.run(["api", route]))
         # The gh-quota broker refuses --paginate, so page explicitly. Keep each
-        # response bounded and stop only after GitHub returns an empty page.
+        # response bounded. A page shorter than PER_PAGE is the last one, as in
+        # GitHub's own pagination, so a list that fits one page costs one request;
+        # an empty page also ends the list. MAX_PAGES bounds the walk: a reader
+        # that repeats a full page (a stale proxy, a test double) refuses instead
+        # of asking for pages forever (the CI fast guards hang, 2026-11-02).
         split = urlsplit(route)
         query = [(key, value) for key, value in parse_qsl(split.query, keep_blank_values=True)
                  if key not in {"page", "per_page"}]
         pages = []
-        page = 1
-        while True:
+        for page in range(1, MAX_PAGES + 1):
             page_route = urlunsplit((split.scheme, split.netloc, split.path,
-                                     urlencode(query + [("per_page", "100"), ("page", str(page))]),
+                                     urlencode(query + [("per_page", str(PER_PAGE)), ("page", str(page))]),
                                      split.fragment))
             document = json.loads(self.run(["api", page_route]))
             if isinstance(document, list):
-                empty = not document
+                size = len(document)
             elif isinstance(document, dict):
                 lists = [value for value in document.values() if isinstance(value, list)]
-                empty = bool(lists) and all(not value for value in lists)
+                size = max((len(value) for value in lists), default=0)
             else:
-                empty = True
-            if empty:
+                size = 0
+            if size == 0:
                 return pages
             pages.append(document)
-            page += 1
+            if size < PER_PAGE:
+                return pages
+        raise Refused(f"GitHub evidence for {split.path} has more than {MAX_PAGES} pages of {PER_PAGE}")
 
     def log(self, repo: str, job: dict) -> str:
         try:

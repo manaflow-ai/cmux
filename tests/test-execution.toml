@@ -174,6 +174,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_browser_screenshot_out_path.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_todo_status_arguments.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -2147,6 +2152,10 @@ path = "tests/test_verify_signed_dev_app.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_diff_sidecar_handshake_runnable_arch.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_workflow_scripts_are_executable.py"
 lane = "linux-guard"
 
@@ -2201,6 +2210,11 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_signing_runner_claim.py"
+lane = "linux-guard"
+
+[[test]]
+[[test]]
+path = "tests/test_ci_hosted_light_rescue.py"
 lane = "linux-guard"
 
 [[test]]

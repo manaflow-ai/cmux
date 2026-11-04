@@ -1298,16 +1298,17 @@ source = (root / ".github/workflows/fast-checks.yml").read_text()
 workflow = yaml.safe_load(source)
 jobs = workflow.get("jobs", {})
 admit = jobs.get("admit", {})
-line = "    runs-on: ubuntu-24.04 # github-hosted-required: light read-only runner admission"
+selector = '${{ contains(fromJSON(\'["blacksmith-8vcpu-ubuntu-2404"]\'), inputs.runner) && inputs.runner || \'ubuntu-24.04\' }}'
+line = f"    runs-on: {selector} # github-hosted-required: light read-only runner admission"
 valid = (
     set(declared) == {"fast-checks.yml:admit"}
     and declared["fast-checks.yml:admit"].get("runner") == "ubuntu-24.04"
     and bool(declared["fast-checks.yml:admit"].get("why"))
-    and admit.get("runs-on") == "ubuntu-24.04"
+    and admit.get("runs-on") == selector
     and admit.get("environment") is None
     and admit.get("permissions") == {"contents": "read"}
     and workflow.get("permissions") == {"contents": "read"}
-    and [name for name, job in jobs.items() if job.get("runs-on") == "ubuntu-24.04"] == ["admit"]
+    and [name for name, job in jobs.items() if job.get("runs-on") == selector] == ["admit"]
     and source.splitlines().count(line) == 1
 )
 if not valid:
@@ -1315,7 +1316,7 @@ if not valid:
     raise SystemExit(1)
 PY_LIGHT
   local -a exceptions=(
-    "fast-checks.yml:    runs-on: ubuntu-24.04 # github-hosted-required: light read-only runner admission"
+    'fast-checks.yml:    runs-on: ${{ contains(fromJSON('"'"'["blacksmith-8vcpu-ubuntu-2404"]'"'"'), inputs.runner) && inputs.runner || '"'"'ubuntu-24.04'"'"' }} # github-hosted-required: light read-only runner admission'
     # npm trusted publishing and --provenance accept only GitHub-hosted runners.
     "sdk-bootstrap-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing"
     "sdk-release-cut.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
