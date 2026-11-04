@@ -91,7 +91,6 @@ class EveryJobOnOurMinis(unittest.TestCase):
             if runs_on == "${{ needs.route-visual-gate-nightly.outputs.runs_on }}":
                 continue  # cmux_next_media_runner.py --idle-now: an idle owned session runner, else the job skips
             if runs_on == "${{ matrix.pool }}":
-                pools = [manaflow_route(name).replace(runs_on, p) for p in job["strategy"]["matrix"]["pool"]]
                 bad = [p for p in job["strategy"]["matrix"]["pool"]
                        if NOT_OURS.search(re.sub(r"github\.repository_owner != 'manaflow-ai' && '[^']*' \|\|", "", p))]
                 if bad:
@@ -154,15 +153,21 @@ class NoFleetLinuxAdmission(unittest.TestCase):
 
 class PublishersHoldTheWholeMini(unittest.TestCase):
     def test_route_is_the_owned_pool_held_to_its_attempt(self) -> None:
-        # promote-nightly-next runs alone (a main dispatch, no build): the nightly-only pool.
+        # promote-nightly-next runs alone (a main dispatch, no build): the owned signing pool. The nightly-only
+        # minis' admission (glaeda-nightly-only-admit) refuses every signing-class job, so no publisher may land there.
         self.assertEqual(manaflow_route("promote-nightly-next"),
-                         "${{  vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}")
-        for name in EXCLUSIVE_PUBLISHERS[1:]:
+                         "${{  vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}")
+        for name in EXCLUSIVE_PUBLISHERS:
             with self.subTest(job=name):
                 route = manaflow_route(name)
-                self.assertIn("needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && "
-                              "needs.pick-nightly-sign-runner.outputs.sign_owned_pool", route)
+                if name != "promote-nightly-next":
+                    self.assertIn("needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && "
+                                  "needs.pick-nightly-sign-runner.outputs.sign_owned_pool", route)
                 self.assertNotRegex(route, NOT_OURS)
+                self.assertNotIn("CI_NIGHTLY_ONLY_RUNNER", route)
+                self.assertNotIn("glaeda-nightly-only-m4pro", route)
+                self.assertTrue(route.rstrip(" }").endswith(
+                    "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6'"))
 
     def test_claim_gate_first_then_claim_and_clean_workdir_before_any_secret(self) -> None:
         for name in EXCLUSIVE_PUBLISHERS:

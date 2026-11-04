@@ -11,14 +11,12 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 sys.path.insert(0, str(ROOT / "tests"))
 import nightly_linux_admission as admission
 import fleet_admission_transport as transport
-from test_nightly_trusted_routing import evaluate, parse_expression
 
 ENV = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "123",
        "GITHUB_RUN_ATTEMPT": "1", "GITHUB_SHA": "a" * 40,
@@ -240,76 +238,6 @@ class Transport(unittest.TestCase):
             self.assertEqual(transport.exchange("https://controller.example/v1"), {"status": "pending"})
             self.assertEqual(build.call_args.args[0].proxies, {})
             self.assertIsInstance(build.call_args.args[1], transport.NoRedirect)
-
-
-class Workflow(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.jobs = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())["jobs"]
-
-    def test_admitted_jobs_have_no_credentials_or_environment(self):
-        for name in admission.JOBS:
-            with self.subTest(job=name):
-                self.assertNotIn("environment", self.jobs[name])
-                self.assertNotIn("secrets.", yaml.safe_dump(self.jobs[name]))
-        legacy = next(step for step in self.jobs["decide"]["steps"]
-                      if step.get("id") == "place-early-mac")
-        self.assertEqual(legacy["env"]["JOBS"], "pick-nightly-build-runner")
-        self.assertEqual(legacy["env"]["FLEET_LINUX"], "")
-        self.assertEqual(legacy["env"]["REQUIRE_LIVE_CAPACITY"], "1")
-        sparse = next(step for step in self.jobs["decide"]["steps"]
-                      if step.get("name") == "Check out NEXT decision and placement helpers")
-        self.assertIn("/.github/runners.json", sparse["with"]["sparse-checkout"])
-
-    def test_missing_stale_or_quota_failed_picker_uses_measured_overflow(self):
-        for name in admission.JOBS:
-            source = resolve_pool_literals(self.jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}"))
-            key = f"needs.decide.outputs.early_{admission.output_key(name)}_runner"
-            for attempt in (1, 2, 3):
-                for overflow in admission.OVERFLOW:
-                    context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": attempt,
-                               "needs.decide.outputs.track": "nightly-next",
-                               "needs.decide.outputs.early_attempt": "0", key: overflow,
-                               "vars.LINUX_RUNNER": overflow, **pool_context(overflow)}
-                    with self.subTest(job=name, attempt=attempt, overflow=overflow):
-                        self.assertEqual(evaluate(parse_expression(source), context), expected_fallback(name))
-
-    def test_light_resolvers_keep_hosted_first_only_for_nightly_next(self):
-        for name in admission.JOBS - {"build-nightly-inputs"}:
-            source = resolve_pool_literals(self.jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}"))
-            key = f"needs.decide.outputs.early_{admission.output_key(name)}_runner"
-            for attempt in (1, 2):
-                context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": attempt,
-                           "needs.decide.outputs.track": "nightly-next",
-                           "needs.decide.outputs.early_attempt": "0", key: "",
-                           "vars.LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404",
-                           **pool_context("blacksmith-16vcpu-ubuntu-2404")}
-                # A re-run takes hosted Ubuntu, never Blacksmith (nightlies never use Blacksmith).
-                expected = "ubuntu-24.04"
-                self.assertEqual(evaluate(parse_expression(source), context), expected)
-
-    def test_light_resolvers_on_other_tracks_take_hosted_ubuntu(self):
-        for name in ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper"):
-            source = resolve_pool_literals(self.jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}"))
-            for track in ("nightly", "rc"):
-                with self.subTest(job=name, track=track):
-                    context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": 1,
-                               "needs.decide.outputs.track": track,
-                               "vars.LINUX_RUNNER": ENV["OVERFLOW_LINUX"],
-                               **pool_context(ENV["OVERFLOW_LINUX"])}
-                    self.assertEqual(evaluate(parse_expression(source), context), "ubuntu-24.04")
-
-    def test_each_job_consumes_only_its_current_attempt_receipt(self):
-        for name in admission.JOBS:
-            source = resolve_pool_literals(self.jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}"))
-            key = f"needs.decide.outputs.early_{admission.output_key(name)}_runner"
-            for label in (receipt("fleet")["runners"][name], expected_fallback(name)):
-                context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": 2,
-                           "needs.decide.outputs.track": "nightly-next",
-                           "needs.decide.outputs.early_attempt": "2", key: label}
-                context.update(pool_context(label if label.startswith("blacksmith-") else ENV["OVERFLOW_LINUX"]))
-                with self.subTest(job=name, label=label):
-                    self.assertEqual(evaluate(parse_expression(source), context), label)
 
 
 if __name__ == "__main__":

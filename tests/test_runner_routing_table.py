@@ -147,18 +147,22 @@ class RoutingTableTests(unittest.TestCase):
             with self.subTest(expression=changed):
                 self.assertTrue(table.portable_order(changed, nightly=True))
 
-    def test_nightly_light_fleet_linux_comes_before_the_mini(self) -> None:
+    def test_nightly_light_jobs_take_the_mini_then_the_nightly_only_pool_never_fleet_linux(self) -> None:
         attempt = "needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt)"
         linux = attempt + " && needs.build-nightly-app.outputs.light_linux_runner"
         mini = (attempt + " && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' prepare-nightly-variant-primary ')"
                 " && needs.build-nightly-app.outputs.light_mini_runner")
         tail = "vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro'"
-        self.assertEqual(table.portable_order("${{ " + " || ".join((linux, mini, tail)) + " }}", nightly=True), "")
+        self.assertEqual(table.portable_order("${{ " + " || ".join((mini, tail)) + " }}", nightly=True), "")
+        # The plain nightly-only pool alone is in order: its minis take only nightly work.
+        self.assertEqual(table.portable_order("${{ " + tail + " }}", nightly=True), "")
         # Nightlies never run on Blacksmith: a Blacksmith pool tail is refused.
         self.assertTrue(table.portable_order(
-            "${{ " + " || ".join((linux, mini, "fromJSON(vars.RUNNER_POOLS).linux_32")) + " }}", nightly=True))
-        self.assertTrue(table.portable_order("${{ " + " || ".join((mini, linux, tail)) + " }}", nightly=True))
-        self.assertTrue(table.portable_order("${{ " + " || ".join((linux, tail)) + " }}", nightly=True))
+            "${{ " + " || ".join((mini, "fromJSON(vars.RUNNER_POOLS).linux_32")) + " }}", nightly=True))
+        # Nor on fleet Linux, wherever it sits: nightlies run only on our own Mac minis.
+        for route in ((linux, mini, tail), (mini, linux, tail), (linux, tail)):
+            with self.subTest(route=route):
+                self.assertIn("fleet Linux", table.portable_order("${{ " + " || ".join(route) + " }}", nightly=True))
 
     def test_portable_order_resolves_declared_pool_members(self) -> None:
         expression = ("${{ needs.portable-placement.outputs.linux_runner || "
