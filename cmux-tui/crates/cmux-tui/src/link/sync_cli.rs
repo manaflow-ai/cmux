@@ -563,6 +563,7 @@ fn push_inner(
     listings.clear();
 
     let mut made: BTreeSet<String> = BTreeSet::new();
+    let mut folder_links: BTreeMap<String, bool> = BTreeMap::new();
     let mut next = Manifest { version: 1, files: BTreeMap::new(), git, links: BTreeMap::new() };
     let save_every_files = SAVE_EVERY_FILES.max(done.files_total / 20);
     let (mut files_since_save, mut bytes_since_save) = (0u64, 0u64);
@@ -579,6 +580,14 @@ fn push_inner(
             summary.unchanged += 1;
             next.files.insert(relative.clone(), pushed.clone());
         } else {
+            // A symlink of the machine's on the way to it: the write would
+            // land wherever that link points, so this Mac's file stays.
+            if through_link(&mut remote, remote_root, parent, &mut folder_links)? {
+                set.skips.note(relative, skips::Why::SymlinkTaken);
+                done.files_done += 1;
+                done.bytes_done += bytes;
+                continue;
+            }
             if made.insert(parent.to_string()) {
                 remote.mkdir_all(parent)?;
             }
@@ -791,6 +800,38 @@ fn write_with_progress(
     }
     let mut reader = open(file)?;
     remote.write_with_progress(target, &mut reader, file.permissions, progress)
+}
+
+/// Whether a folder of `parent` below `remote_root` is a symlink on the
+/// machine (each folder looked at once per push, in `seen`).
+fn through_link(
+    remote: &mut Remote,
+    remote_root: &str,
+    parent: &str,
+    seen: &mut BTreeMap<String, bool>,
+) -> anyhow::Result<bool> {
+    let Some(below) = parent.strip_prefix(remote_root) else { return Ok(false) };
+    let mut folder = remote_root.to_string();
+    for name in below.split('/').filter(|name| !name.is_empty()) {
+        folder.push('/');
+        folder.push_str(name);
+        let is_link = match seen.get(&folder) {
+            Some(is_link) => *is_link,
+            None => {
+                let kind = remote.kind(&folder)?;
+                let is_link = kind.as_deref() == Some("symlink");
+                seen.insert(folder.clone(), is_link);
+                if kind.is_none() {
+                    return Ok(false);
+                }
+                is_link
+            }
+        };
+        if is_link {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// A symlink on the machine where a file would be written: never written

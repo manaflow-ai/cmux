@@ -1265,6 +1265,15 @@ fn a_file_is_never_written_through_a_link_the_machine_changed() {
         "a symlink (something else is at its path on the other side)",
         "{pushed}"
     );
+    // Nor into a folder the machine made a link: `sub/b.txt` stays here.
+    std::fs::create_dir_all(folder.join("sub")).unwrap();
+    std::fs::write(folder.join("sub/b.txt"), "b\n").unwrap();
+    std::fs::create_dir_all(remote.join("elsewhere")).unwrap();
+    std::os::unix::fs::symlink("elsewhere", remote.join("sub")).unwrap();
+    let (ok, into, _) = push_output(&socket, &folder, &remote);
+    assert!(ok, "{into}");
+    assert!(!remote.join("elsewhere/b.txt").exists(), "{into}");
+    assert!(skipped_by_path(&into).contains_key("sub/b.txt"), "{into}");
     // Nor the push after it, whose record no longer holds the link.
     let (ok, again, _) = push_output(&socket, &folder, &remote);
     assert!(ok, "{again}");
