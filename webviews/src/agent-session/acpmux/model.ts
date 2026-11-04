@@ -1315,6 +1315,11 @@ export const isLiveLine = (row: AcpmuxRow) =>
 /// spacing and formatting"; design/transcript-spacing.md rule 3).
 export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
   isLiveLine(row) && prev !== undefined && (isStepRow(prev) || isStatusRow(prev));
+/// A row's kind for the gap rules (transcriptGrid.ts transcriptGap), `prev` the drawn row above it.
+/// A compact live line keeps its 22px height and composer gap, but is a live indicator for
+/// spacing: classifying it as another step would swallow the run gap before Thinking.
+export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
+  isStepRow(row) ? MARK_STEP : isLiveStep(row, prev) ? MARK_INDICATOR : isStatusRow(row) ? MARK_STATUS : rowMark(row);
 const LIVE_STEP_EDGE = "+step";
 /// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
 /// #29965), `--cv-tool-row-height`.
@@ -2460,15 +2465,7 @@ export function layoutConversation(
   let prevDrawn = prevDrawnRow(rows, start);
   for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
-    // A compact live line keeps its 22px height and composer gap, but is a live indicator for
-    // spacing: classifying it as another step would swallow the run gap before Thinking.
-    marks[index] = isStepRow(row)
-      ? MARK_STEP
-      : isLiveStep(row, prevDrawn)
-        ? MARK_INDICATOR
-        : isStatusRow(row)
-          ? MARK_STATUS
-          : rowMark(row);
+    marks[index] = gridMark(row, prevDrawn);
     messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
