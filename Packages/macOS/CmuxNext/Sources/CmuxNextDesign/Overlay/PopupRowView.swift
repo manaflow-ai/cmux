@@ -7,7 +7,7 @@ public import AppKit
 /// A row is a leading column (an icon or a check mark), a title with an optional subtitle, and an
 /// optional trailing view (a shortcut, a chevron, a toggle, buttons). The row owns the states
 /// every popup shares: the gray highlight in the popup row radius (``PopupStyle``), a press fill,
-/// a gray keyboard focus ring (never the system accent), hover tracking, a click (release inside
+/// keyboard focus as the row's fill (never a ring), hover tracking, a click (release inside
 /// the row), Return / Enter / Space when it has the keys, and the accessibility press.
 @MainActor
 open class PopupRowView: NSView {
@@ -54,7 +54,7 @@ open class PopupRowView: NSView {
             needsDisplay = true
         }
     }
-    /// The row takes the keys (Tab, arrows) and draws the focus ring when it has them.
+    /// The row takes the keys (Tab, arrows) and draws its fill when it has them.
     public var takesFocus = false
     public let isInteractive: Bool
 
@@ -171,14 +171,9 @@ open class PopupRowView: NSView {
         let rect = bounds.insetBy(dx: rowLayout.fillInset.width, dy: rowLayout.fillInset.height)
         let path = NSBezierPath(roundedRect: rect, xRadius: style.rowCornerRadius, yRadius: style.rowCornerRadius)
         performWithTheme {
+            // Keyboard focus is the row's fill alone, as a menu row's highlight: no ring over it (#34473).
             (pressed ? Palette.pressedFill : Palette.hoverFill).setFill()
             path.fill()
-            guard showsFocus else { return }
-            let ring = NSBezierPath(roundedRect: rect.insetBy(dx: 0.75, dy: 0.75), xRadius: style.rowCornerRadius,
-                                    yRadius: style.rowCornerRadius)
-            ring.lineWidth = Metrics.lineWidth(1.5)
-            Palette.focusRing.setStroke()
-            ring.stroke()
         }
     }
 

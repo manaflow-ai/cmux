@@ -179,7 +179,7 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
         return true
     }
 
-    // Gray keyboard focus instead of the accent-colored system ring.
+    // Keyboard focus shows the hover fill instead of the system ring.
     override func becomeFirstResponder() -> Bool {
         showsFocus = true
         return super.becomeFirstResponder()
@@ -194,12 +194,11 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
 
     /// The hover fill eases in and clears at once; a press shows at once (`ChromeHover.fade`).
     private func refreshFill(animated: Bool = false) {
-        layer?.borderWidth = Metrics.lineWidth(showsFocus ? 1.5 : 0)
         guard let layer else { return }
         performWithTheme {
-            let fill: NSColor? = isPressed ? PageInfoStyle.pressed : (isHovering ? OmnibarStyle.chipHoverFill : nil)
+            // Keyboard focus takes the hover fill, never a bordered ring (#34473).
+            let fill: NSColor? = isPressed ? PageInfoStyle.pressed : (isHovering || showsFocus ? OmnibarStyle.chipHoverFill : nil)
             ChromeHover.paint(layer, fill, animated: animated && window != nil, pressed: isPressed)
-            layer.borderColor = PageInfoStyle.focusRing.cgColor
         }
     }
 

@@ -32,7 +32,6 @@ enum PageInfoStyle {
     static var hover: NSColor { Palette.hoverFill } // theme-scoped
     static var pressed: NSColor { Palette.pressedFill } // theme-scoped
     static var separator: NSColor { Palette.separator } // theme-scoped
-    static var focusRing: NSColor { Palette.focusRing } // theme-scoped
     static var danger: NSColor { Palette.danger } // theme-scoped
 
     /// The pack icon for SF Symbol `name` (else the symbol) beside a `size`-point label.

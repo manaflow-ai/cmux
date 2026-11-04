@@ -42,6 +42,8 @@ public final class TitlebarBandButton: ClickableButton {
         super.init(frame: .zero)
         isBordered = false
         bezelStyle = .regularSquare
+        // Keyboard focus is the hover fill (`hover.state.focused`), never AppKit's bordered ring (#34473).
+        focusRingType = .none
         imagePosition = .imageOnly
         // A collapsing band narrows its items: the glyph scales down with them.
         imageScaling = .scaleProportionallyDown
@@ -67,6 +69,19 @@ public final class TitlebarBandButton: ClickableButton {
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override public var mouseDownCanMoveWindow: Bool { false }
+
+    /// Full Keyboard Access focus shows as the filled highlight, as the pointer's hover does.
+    override public func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { hover.state.focused = true }
+        return became
+    }
+
+    override public func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { hover.state.focused = false }
+        return resigned
+    }
 
     /// Disabled under a still pointer (Back with no history left): hover
     /// follows at once (cx-3wu5).
