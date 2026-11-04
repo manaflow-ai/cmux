@@ -6,19 +6,6 @@ extension MainFrameBudget {
         return UInt64(clamping: seconds) &* 1_000_000_000 &+ UInt64(clamping: attoseconds / 1_000_000_000)
     }
 
-    /// Per-frame budgets of the budgeted classes (``FrameBudgets``: the 60 Hz split, its refresh
-    /// scaling and the pass targets of both batch placements).
+    /// Per-frame budgets of the budgeted classes (``FrameBudgets``).
     public typealias Budgets = FrameBudgets
-
-    /// The after-commit placement's budget turn begins (the ``MainWorkScheduler``'s turn after the
-    /// tick's commit): the turn meter counts the turn as a budget turn.
-    public func beginBudgetTurn() {
-        turns.noteTurn(.budget)
-    }
-
-    /// The budget turn's work ended: counted in ``budgetTurnStats``, late when it ended past the
-    /// frame's deadline (the next vsync less the commit estimate).
-    public func endBudgetTurn() {
-        budgetTurnStats.noteEnded(at: uptimeNanos(), deadline: deadline)
-    }
 }

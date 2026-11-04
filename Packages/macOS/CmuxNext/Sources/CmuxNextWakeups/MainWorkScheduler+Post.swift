@@ -278,11 +278,9 @@ extension MainWorkScheduler {
         }
     }
 
-    /// Runs `queue`'s work now while its class may run, and leaves the rest ticking on frames. After a
-    /// tick whose batch waits for its own turn (after-commit placement), that turn runs it: right after
-    /// the tick's commit, so the tick's turn holds no budgeted task.
+    /// Runs `queue`'s work now while its class may run, and leaves the rest ticking on frames.
     private func runNow(_ queue: FrameBatchQueue) {
-        if !isBudgetTurnPending, startup.admits(queue.workClass), budget.mayRun(queue.workClass) { _ = queue.drainNow(limit: queue.count) }
+        if startup.admits(queue.workClass), budget.mayRun(queue.workClass) { _ = queue.drainNow(limit: queue.count) }
         queue.activate()
     }
 

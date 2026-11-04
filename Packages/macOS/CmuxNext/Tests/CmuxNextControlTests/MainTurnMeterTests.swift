@@ -398,13 +398,11 @@ import Testing
         budget.turns.loopWillWait()
         budget.turns.loopDidRender()
         let report = try #require(budget.report.objectValue)
-        // The budget's own fields: the input-response stats and the budgeted batch's placement and turns
-        // came with the scheduler's input-response cap and the after-commit batch turn.
+        // The budget's own fields: the input-response stats came with the scheduler's input-response cap.
         let existing: Set<String> = ["frames", "classes", "pending_input", "input_checks", "max_input_check_ms", "render_passes",
-                                     "max_render_pass_ms", "input_response_cap_hits", "max_input_response_ms", "placement",
-                                     "budget_turns"]
+                                     "max_render_pass_ms", "input_response_cap_hits", "max_input_response_ms"]
         #expect(existing.isSubset(of: Set(report.keys)))
-        #expect(Set(report.keys).subtracting(existing) == ["turn_ms", "tick_turn_ms", "budget_turn_ms", "task_ms", "unattributed_share",
+        #expect(Set(report.keys).subtracting(existing) == ["turn_ms", "tick_turn_ms", "task_ms", "unattributed_share",
                                                            "top_unattributed_turns"])
         #expect(report["unattributed_share"]?.doubleValue.map { abs($0 - 0.4) < 1e-9 } == true)
         #expect(report["turn_ms"]?["count"]?.intValue == 1)

@@ -273,8 +273,9 @@ public struct CmuxNextApp {
         WindowOverlayHost.appInputTap = inputTap
         TooltipPresenter.shared.inputTap = inputTap
         watchdog.startupStep("main.launch_order")
-        let order = LaunchOrder(fence: fence, board: mainBoard, input: inputTap, startupTag: startupTag, wakeUps: mainWakeUps,
-                                budgetPlacement: features.isEnabled(.mainBudgetTurn) ? .afterCommit : .inTick) { DebugTimings.markLaunch($0) }
+        let order = LaunchOrder(fence: fence, board: mainBoard, input: inputTap, startupTag: startupTag, wakeUps: mainWakeUps) {
+            DebugTimings.markLaunch($0)
+        }
         DaemonLauncher.captureLoginEnvironment(after: order.startup) // at once only with nothing remembered
         #if DEBUG || CMUX_BENCH_HOOKS
         mainJobs?.freeze(after: order.startup)

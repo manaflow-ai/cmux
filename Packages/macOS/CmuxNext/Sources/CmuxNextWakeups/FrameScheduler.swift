@@ -104,9 +104,6 @@ public final class FrameScheduler: NSObject {
     /// ``MainWorkScheduler``: a short idle period may follow the frame's render pass, until one
     /// millisecond before the next vsync). Stall-deadline ticks have no vsync and are not reported.
     var onLinkFrame: (@MainActor (_ timestamp: CFTimeInterval, _ refreshInterval: Double) -> Void)?
-    /// Takes each tick's budgeted batch out of the tick (the ``MainWorkScheduler``'s after-commit
-    /// placement), which runs it in a turn of its own (``runBudgeted(_:)``); nil: it runs in the tick.
-    var defersBudgeted: (@MainActor (FrameTick) -> Void)?
     /// The link frame this scheduler ticks in now, reported when its part of the frame ends.
     private var linkFrame: (timestamp: CFTimeInterval, refreshInterval: Double)?
     private let ledger: WakeupLedger

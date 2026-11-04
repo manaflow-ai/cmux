@@ -1,12 +1,8 @@
 extension MainTurnMeter {
-    /// What a turn ran for the budgeted scheduler: its display tick, or the
-    /// after-commit placement's budget turn. One turn may be both (a nested loop's turn, or a tick
-    /// that came in the budget turn's run-loop pass).
+    /// What a turn ran for the budgeted scheduler: its display tick.
     public enum TurnKind: UInt8, Sendable {
         /// The budgeted scheduler's display tick (``MainFrameBudget/beginFrame(timestamp:targetTimestamp:refreshInterval:ranAt:)``).
         case tick = 1
-        /// The budgeted batch in its own turn after the tick's commit (``MainFrameBudget/beginBudgetTurn()``).
-        case budget = 2
     }
 
     // MARK: Reading
@@ -30,13 +26,12 @@ extension MainTurnMeter {
     }
 
     /// Counts the turn that just ended in the histograms of its kinds; a tick turn that ran a budgeted
-    /// task is counted apart (the after-commit placement keeps that count at zero).
+    /// task is counted apart.
     func recordKinds(turnNanos: UInt64) {
         let bucket = Snapshot.bucket(turnNanos)
         if turnKinds & TurnKind.tick.rawValue != 0 {
             counters.tickTurns.record(turnNanos, bucket: bucket)
             if ranBudgetedTask { counters.tickTurnsWithBudgetedTasks += 1 }
         }
-        if turnKinds & TurnKind.budget.rawValue != 0 { counters.budgetTurns.record(turnNanos, bucket: bucket) }
     }
 }

@@ -22,7 +22,7 @@ extension MainFrameBudget {
         var classes: [String: JSONValue] = [:]
         for (index, workClass) in Stats.classes.enumerated() {
             classes[workClass.description] = [
-                "budget_ms": .number(Double(Self.nanos(shares.budget(workClass) ?? .zero)) / 1_000_000),
+                "budget_ms": .number(Double(Self.nanos(budgets.budget(workClass) ?? .zero)) / 1_000_000),
                 "tasks": JSONValue((stats.tasks[checked: index] ?? 0)),
                 "yielded_to_input": JSONValue((stats.yieldedToInput[checked: index] ?? 0)),
                 "yielded_to_input_response": JSONValue((stats.yieldedToInputResponse[checked: index] ?? 0)),
@@ -42,10 +42,6 @@ extension MainFrameBudget {
             "max_input_response_ms": .number(Double(stats.maxInputResponseNanos) / 1_000_000),
         ]
         if let starvation { fields["render_starvation"] = Self.starvationReport(starvation) }
-        let turnStats = budgetTurnStats
-        fields["placement"] = .string(placement == .afterCommit ? "after_commit" : "in_tick")
-        fields["budget_turns"] = ["turns": JSONValue(turnStats.turns), "past_deadline": JSONValue(turnStats.pastDeadline),
-                                  "max_overrun_ms": .number(Double(turnStats.maxOverrunNanos) / 1_000_000)]
         return (fields, turns.snapshot())
     }
 
@@ -84,7 +80,6 @@ nonisolated extension MainTurnMeter.Snapshot {
         return [
             "turn_ms": .object(turnFields),
             "tick_turn_ms": .object(tickFields),
-            "budget_turn_ms": .object(Self.distribution(budgetTurns)),
             "task_ms": .object(Self.distribution(taskBuckets, count: tasks, max: maxTaskNanos)),
             "unattributed_share": .number(unattributedShare),
             "top_unattributed_turns": .array(longestUnattributed.map(Self.turn)),

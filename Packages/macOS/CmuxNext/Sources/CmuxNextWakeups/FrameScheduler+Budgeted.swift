@@ -1,10 +1,8 @@
 extension FrameScheduler {
     /// Only on the scheduler that holds the budget, after every other scheduler on its display: the
-    /// tick's budgeted batch. In the tick (``runBudgeted(_:)``), or, under the after-commit placement,
-    /// handed to ``defersBudgeted``, which runs it in a turn of its own after the tick's commit.
+    /// tick's budgeted batch, in the tick (``runBudgeted(_:)``).
     func deliverBudgeted(_ tick: FrameTick) {
-        guard budget != nil else { return }
-        if let defersBudgeted { defersBudgeted(tick) } else { runBudgeted(tick) }
+        runBudgeted(tick)
     }
 
     /// The budgeted batches in class order, each only while its class may run (a held one stays

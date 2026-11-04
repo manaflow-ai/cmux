@@ -85,11 +85,10 @@ public struct LaunchOrder {
     ///     scheduler keeps its running task and phase there, so a launch stall names them.
     ///   - wakeUps: The main thread's one deadline queue `main()` made first and gave the main-thread watchdog,
     ///     whose busy windows end on it; the scheduler's deadlines share it (no default: no second timer).
-    ///   - budgetPlacement: Where each frame's budgeted batch runs (feature `mainBudgetTurn`: after the commit).
     ///   - mark: Records a launch mark (`launch.revealed`, `launch.settled`, `startup_complete`).
     public init(fence: BestEffortFence, board: MainTaskBoard = MainTaskBoard(), input: any InputObserving,
                 startupTag: StartupTaskTag = StartupTaskTag(), wakeUps: MainWakeUpQueue,
-                budgetPlacement: BudgetedBatchPlacement = .inTick, mark: @escaping @MainActor (String) -> Void) {
+                mark: @escaping @MainActor (String) -> Void) {
         // One display link per display, shared by the app, window and budgeted frame schedulers.
         let displays = DisplayClock()
         // One frame.commit per commit, and each key echo's present at its display's vsync (p09-observability 037).
@@ -103,8 +102,7 @@ public struct LaunchOrder {
         phase.whenReached(.settled) { mark("launch.settled") }
         let starvation = RenderStarvationGuard(holdsWork: false, signposts: true) // holds work once FeatureList is in the app
         let pending = SessionInputPending(events: WindowServerInputEvents(input: input))
-        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: pending, board: board, signposts: true, starvation: starvation,
-                                                                 placement: budgetPlacement),
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: pending, board: board, signposts: true, starvation: starvation),
                                          displays: displays, startup: phase, wakeUps: wakeUps)
         // The quiet before a long idle period starts again at each key, click, scroll or drag.
         pending.onInputDispatched = { [weak idle = mainWork.idle] in idle?.noteInput() }

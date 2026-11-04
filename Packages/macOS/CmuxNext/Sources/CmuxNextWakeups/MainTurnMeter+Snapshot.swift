@@ -35,11 +35,9 @@ extension MainTurnMeter {
         /// zero); ``longestUnattributed`` sorts them.
         public var topUnattributed = [TopTurn](repeating: TopTurn(), count: MainTurnMeter.topCount)
         /// The turns that ran the budgeted scheduler's display tick (``TurnKind/tick``), and how many
-        /// of them ran a budgeted task too: the in-tick placement's batch, zero after commit.
+        /// of them ran a budgeted task too.
         public var tickTurns = KindTurns()
         public var tickTurnsWithBudgetedTasks = 0
-        /// The after-commit placement's budget turns (``TurnKind/budget``).
-        public var budgetTurns = KindTurns()
 
         /// One kind's turns: how many, the longest, and per bucket of ``bucketEdges``.
         public nonisolated struct KindTurns: Sendable, Equatable {
