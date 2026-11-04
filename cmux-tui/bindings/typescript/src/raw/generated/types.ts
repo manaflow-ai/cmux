@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR dbb6d5bcff30c1db703c0ff175acb28f75d2bfe02a82ba6de26191fc52ec0976. */
+/* cmux-tui mux protocol 12, IR 90d0605d1f55a8b89b86ace2127f57445382f7e804efff5ba385ae75bddc84dd. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -171,6 +171,26 @@ export type CellPixelSurface = {
   "height_px": number;
   "surface": Id;
   "width_px": number;
+};
+
+export type ChiefWorkAgent = {
+  "id": string;
+  "name": string;
+  "startedAt": (bigint) | null;
+  "state": "working" | "waiting" | "idle" | "failed";
+  "task": (string) | null;
+  "updatedAt": (bigint) | null;
+};
+
+export type ChiefWorkTask = {
+  "command": string;
+  "detail": (string) | null;
+  "endedAt": (bigint) | null;
+  "id": string;
+  "sessionId": string;
+  "startedAt": (bigint) | null;
+  "status": "running" | "done" | "failed" | "cancelled" | "unknown";
+  "title": string;
 };
 
 export type ClientInfo = {
@@ -1155,7 +1175,10 @@ export type ServerStatsWritePath = {
   "effect_intent_batches": bigint;
   "effect_intent_failures": bigint;
   "effect_intents": bigint;
+  "registry_wal_frame_bytes"?: bigint;
   "request_effect_commits": bigint;
+  "wal_commits"?: bigint;
+  "wal_synced_commits"?: bigint;
   "writer_registry_locks": bigint;
 };
 

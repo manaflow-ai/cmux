@@ -28,6 +28,16 @@ python3 scripts/journeys/run.py --list     # id, priority, file, title
 python3 scripts/journeys/run.py --check    # validate the journey files (no fleet)
 ```
 
+A journey that needs a display rate says `"require_hz": 120` (on the journey, a step, or a step inside a step group;
+one rate per journey, a whole number of Hz in [24, 240]).
+The minis' own displays run at 60 Hz, so it runs only on the lease's own virtual display:
+`--whole-host --vdisplay 120x1` (1x pixels) or `--vdisplay 120x2` (2x, a Retina laptop's density). The lease
+makes that display the main display before the app launches and measures it with a fresh process; a display
+that is not the main one, or whose measured rate (within 0.35 ms of 1000/HZ) or pixel density is not the asked
+one, makes the lease's journeys `not run`, and `display.json` (each lease's in `displays.jsonl`) keeps what was
+measured. Without the right `--vdisplay`, such a journey is `not run` before any lease or build wait, with what
+to pass.
+
 Capture hosts come from the fleet registry (`~/.ssh/config.d/fleet-registry.json`, written by
 leo-workspace `tools/reach --install`). On a machine without it, name them:
 `--hosts "cmux17 cmux18 cmux19 cmux21 cmux22 cmux23 cmux24"` (sets `CAPTURE_HOST_SLOT_HOSTS`).
@@ -140,8 +150,8 @@ how long it may take (it plans the leases). Copy `journeys/p0/type.json` (the sm
 
 | `do` | Fields | What it does |
 | --- | --- | --- |
-| `new_terminal` | `via`, `name` | `via: "key"`: the person's New Terminal Tab key (Ctrl-\`, newSurface) through `debug.key` (origin user: it claims the window's keyboard), then as `focused_terminal`; use it in every journey that plays what a person does. `via: "socket"` (the default, kept for older journeys): `action.run newTab` named `name` (focused); waits for the new focused terminal pane and its first prompt; later steps use that terminal |
-| `script_new_terminal` | `name`, `focus` | automation on purpose: a script's `action.run newTab` through the socket; waits for the topology to list workspace `name` with a terminal and its first prompt, without waiting for it to show (a script's newTab does not take a text input the person has: cp/fix-chief-composer-focus) |
+| `new_terminal` | `via`, `name` | `via: "key"`: the person's New Terminal Tab key (Ctrl-\`, newSurface) through `debug.key` (origin user: it claims the window's keyboard), then as `focused_terminal`; use it in every journey that plays what a person does. `via: "socket"` (the default, kept for older journeys): `action.run newTab` named `name` (focused); waits for the new focused terminal pane that holds the terminal the reply says it created (else the pane view's own creation key) and its first prompt; later steps use that terminal |
+| `script_new_terminal` | `name`, `focus` | automation on purpose: a script's `action.run newTab` through the socket; adopts the terminal the reply says it created (`created`: the daemon's public id at once, or the creation's host id once its tab is the daemon's) and waits for its first prompt, without waiting for the workspace to show (a script's newTab does not take a text input the person has: cp/fix-chief-composer-focus); a reply that names no created terminal fails the step |
 | `neutral_prompt` | | writes `PS1='J> '` (zsh and bash), `cd /tmp` and a clear into the PTY through the daemon (set-up, not under test; no host, user or path in any frame) |
 | `type` | `text`, `enter`, `mark` | presses each character with `debug.key`, then Return when `enter` |
 | `key` | `key`, `modifiers`, `mark` | one `debug.key` (`modifiers`: `control`, `shift`, `option`, `cmd`; named keys: `return`, `escape`, `tab`, `space`, `up`, `down`, `left`, `right`, `delete`, `pageup`, ...) |

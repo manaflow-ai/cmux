@@ -132,7 +132,7 @@ const services = Layer.mergeAll(
     findActiveById: (tenant, id) => Effect.sync(() => Option.fromNullable([...keys.values()].find((key) => key.tenantId === tenant && key.id === id && !revoked.has(key.id)))),
   }),
   tenantPolicyLayer({ environment: "local" }),
-  Layer.succeed(Entitlements, { mayCreate: (t) => Effect.succeed(t === tenantId) }),
+  Layer.succeed(Entitlements, { mayCreate: (caller) => Effect.succeed(caller.tenantId === tenantId) }),
   memoryLimitsLayer(),
   Layer.succeed(UpstreamClient, makeUpstreamClient(upstreamConfig)),
   Layer.succeed(SessionVerifier, { verify: () => Effect.die("sessions are not used by the M3 proof") }),

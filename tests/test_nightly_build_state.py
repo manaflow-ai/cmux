@@ -195,6 +195,38 @@ class DedicatedBuilder(unittest.TestCase):
         self.commit({'Prototypes/Lab/Package.swift': '// removed\n', 'Sources/a.swift': 'import Foundation\n'})
         self.assertEqual(self.build()[0], 'mode=clean')
 
+    def test_a_package_tests_import_or_structure_change_stays_incremental(self):
+        self.build()
+        self.commit({'Packages/Shared/Lab/Tests/LabTests/a.swift': 'import Testing\n#if DEBUG\n#endif\n',
+                     'Packages/macOS/App/Tests/Support/module.modulemap': 'module X {}\n'})
+        self.assertEqual(self.build()[0], 'mode=incremental')
+        self.commit({'Packages/Shared/Lab/Sources/Lab/a.swift': 'import Foundation\n'})
+        self.assertEqual(self.build()[0], 'mode=clean')
+
+    def test_package_tests_trees_feed_only_test_targets(self):
+        """PACKAGE_TESTS skips Packages/*/*/Tests/: no product and no non-test target outside Tests/ may
+        depend on a target whose sources live there, or a change there would reach the app."""
+        import re
+        for package in sorted(ROOT.glob('Packages/*/*/Package.swift')):
+            text = package.read_text()
+            pieces = re.split(r'\.(target|testTarget|executableTarget|binaryTarget|plugin|library|executable)\(', text)
+            in_tests, others = set(), []
+            for kind, body in zip(pieces[1::2], pieces[2::2]):
+                name = re.search(r'name:\s*"([^"]+)"', body)
+                path = re.search(r'path:\s*"([^"]+)"', body)
+                if name is None:
+                    continue
+                if kind in ('library', 'executable'):
+                    others.append((kind, name.group(1), body.split(')', 1)[0]))
+                elif path and re.match(r'(\./)?Tests(/|$)', path.group(1)):
+                    in_tests.add(name.group(1))
+                elif kind != 'testTarget':
+                    others.append((kind, name.group(1), body.split('swiftSettings')[0]))
+            for kind, name, body in others:
+                for target in in_tests:
+                    with self.subTest(package=str(package.relative_to(ROOT)), target=name, depends_on=target):
+                        self.assertNotRegex(body, rf'"{re.escape(target)}"')
+
     def test_an_import_change_makes_it_clean(self):
         for name, text in (('Sources/a.swift', 'import Foundation\nlet a = 1\n'),
                            ('Sources/b.swift', '@_exported import Bar\n'),

@@ -63,7 +63,9 @@ async fn handle(hub: &Arc<Hub>, conn: &Conn, m: &str, params: &Value) -> Result<
                     .as_bool()
                     .ok_or_else(|| RpcError::invalid_params("notify must be true or false"))?,
             };
-            hub.bg_start(&session, command, cwd, description, notify).await
+            // The task prints its outcome last (`run_wait`): its summary line once it ended.
+            let result_line = params.get("resultLine").and_then(Value::as_bool).unwrap_or(false);
+            hub.bg_start(&session, command, cwd, description, notify, result_line).await
         }
         method::MUX_BG_LIST => Ok(hub.bg_list(&session)),
         method::MUX_BG_OUTPUT => {

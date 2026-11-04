@@ -23,6 +23,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-mcp-connect",
  "cmux-palette-ranker",
  "cmux-panic-log",
  "cmux-sdk",
@@ -30,6 +31,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-tailnet",
  "cmux-unix-socket",
+ "cmux-vault-egress",
  "cmux-wg",
  "cmux-worktree-care",
  "crossterm",
@@ -68,6 +70,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "turmoil",
  "unicode-normalization",
  "unicode-width",
  "uuid",
@@ -1142,8 +1145,10 @@ dependencies = [
 name = "cmux-conversation"
 version = "0.1.0"
 dependencies = [
+ "pulldown-cmark",
  "serde",
  "serde_json",
+ "unicase",
 ]
 
 [[package]]
@@ -1201,7 +1206,9 @@ name = "cmux-git"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "serde_json",
  "sha2 0.10.9",
+ "tempfile",
  "wait-timeout",
 ]
 
@@ -1333,6 +1340,17 @@ dependencies = [
  "hmac",
  "sha2 0.10.9",
  "subtle",
+]
+
+[[package]]
+name = "cmux-mcp-connect"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "url",
 ]
 
 [[package]]
@@ -1720,6 +1738,7 @@ dependencies = [
  "cmux-chat-index",
  "cmux-config",
  "cmux-conversation",
+ "cmux-git",
  "cmux-holder",
  "cmux-host",
  "cmux-json",
@@ -1768,6 +1787,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "toml",
+ "unicode-normalization",
  "unicode-segmentation",
  "unicode-width",
  "url",
@@ -1807,6 +1827,7 @@ name = "cmux-tui-core"
 version = "1.0.0"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "base64",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
@@ -1944,6 +1965,7 @@ dependencies = [
  "anyhow",
  "base64",
  "cmux-link",
+ "cmux-tui-util",
  "getrandom 0.3.4",
 ]
 
@@ -1955,6 +1977,7 @@ version = "0.0.0"
 name = "cmux-tui-util"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
  "cmux-tui-platform",
  "getrandom 0.3.4",
  "libc",
@@ -1973,6 +1996,34 @@ dependencies = [
 [[package]]
 name = "cmux-url-input"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-vault-egress"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "bytes",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "rcgen",
+ "rustls",
+ "rustls-native-certs",
+ "time",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "tracing-subscriber",
+ "zeroize",
+]
+
+[[package]]
+name = "cmux-view-rows"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+]
 
 [[package]]
 name = "cmux-vm"
@@ -2055,6 +2106,19 @@ dependencies = [
  "tokio-util",
  "x25519-dalek",
  "zeroize",
+]
+
+[[package]]
+name = "cmux-wg-tun"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "boringtun",
+ "cmux-wg",
+ "getrandom 0.3.4",
+ "libc",
+ "tokio",
+ "x25519-dalek",
 ]
 
 [[package]]
@@ -4734,6 +4798,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
+ "libm",
 ]
 
 [[package]]
@@ -5643,6 +5708,16 @@ name = "rand_core"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
+
+[[package]]
+name = "rand_distr"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a8615d50dcf34fa31f7ab52692afec947c4dd0ab803cc87cb3b0b4570ff7463"
+dependencies = [
+ "num-traits",
+ "rand 0.9.5",
+]
 
 [[package]]
 name = "rand_pcg"
@@ -7303,6 +7378,21 @@ dependencies = [
  "rustls-pki-types",
  "sha1",
  "thiserror 2.0.19",
+]
+
+[[package]]
+name = "turmoil"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0061c28f1469e94771bb8aa626ce6b29265c2fb5034115046a170b0cba2e33d2"
+dependencies = [
+ "bytes",
+ "indexmap",
+ "rand 0.9.5",
+ "rand_distr",
+ "scoped-tls",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
