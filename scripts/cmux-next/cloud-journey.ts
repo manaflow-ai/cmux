@@ -18,7 +18,7 @@
  *
  *   health -> sign in -> user.ensure -> install token -> create machine -> running (status) -> listed
  *   -> first exec -> start agent (acpmux on the machine) -> send chat -> reply -> connect (connect_info
- *   + link_token) -> handoff record -> sync push/pull (a folder round trip) -> pause -> resume -> delete
+ *   + link_token + link dial) -> handoff record -> sync push/pull (a folder round trip) -> pause -> resume -> delete
  *
  * Each step prints PASS/FAIL/SKIP with its latency; --out DIR also gets journey.json (the steps) and
  * summary.md (a table for a PR comment or job summary). The machine this run made is deleted at the
@@ -30,8 +30,10 @@
  *
  * Secrets are read from the environment or files, sent only in headers, and never printed.
  */
-import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { createServer } from "node:net";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -233,6 +235,42 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
   };
 }
 
+type HeadlessLink = { stateDir: string; linkSocket: string; bridgeSocket: string; close: () => Promise<void> };
+
+/** Start the userspace link and bridge its stdio dial into a Unix socket for link sync. */
+async function startHeadlessLink(cmux: string, host: string, install: { id: string; token: string }, api: string, tag: string): Promise<HeadlessLink> {
+  const stateDir = mkdtempSync(path.join(tmpdir(), `cmux-journey-link-${tag}-`));
+  const ensured = spawnSync(cmux, ["link", "ensure", "--state-dir", stateDir, "--install", install.id, "--port", "0"], {
+    env: { ...process.env, CMUX_CLOUD_API_URL: api, CMUX_CLOUD_INSTALL_TOKEN: install.token }, encoding: "utf8", timeout: 30_000,
+  });
+  if (ensured.error || ensured.status !== 0) throw new Error(`link ensure failed: ${ensured.stderr || ensured.stdout || ensured.error?.message}`);
+  let ready: any;
+  for (const line of ensured.stdout.split("\n").reverse()) {
+    try { const value = JSON.parse(line); if (value.socket) { ready = value; break; } } catch { /* status output */ }
+  }
+  if (!ready?.socket) throw new Error(`link ensure returned no socket: ${ensured.stdout.slice(-300)}`);
+  const bridgeSocket = path.join(stateDir, "machine.sock");
+  const server = createServer((socket) => {
+    const child = spawn(cmux, ["link", "dial", "--host", host, "--service", "daemon", "--socket", ready.socket], { stdio: ["pipe", "pipe", "pipe"] });
+    socket.pipe(child.stdin);
+    child.stdout.pipe(socket);
+    child.stderr.resume();
+    const close = () => { if (!socket.destroyed) socket.destroy(); if (!child.killed) child.kill(); };
+    socket.on("close", close);
+    child.on("exit", () => { if (!socket.destroyed) socket.destroy(); });
+  });
+  await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(bridgeSocket, () => resolve()); });
+  return {
+    stateDir, linkSocket: ready.socket, bridgeSocket,
+    close: async () => {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      const stopped = spawnSync(cmux, ["link", "stop", "--state-dir", stateDir], { encoding: "utf8", timeout: 20_000 });
+      if (stopped.error) throw stopped.error;
+      rmSync(stateDir, { recursive: true, force: true });
+    },
+  };
+}
+
 /** The guest's own cmux-tui (cloud_start_chat.rs GUEST_PRELUDE): the build the machine's acpmux runs. */
 const GUEST = 'export HOME="${HOME:-/home/cmux}"; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
@@ -362,9 +400,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   let machine: string | null = null;
   let deleted = false;
   let cleaned = false;
+  let headlessLink: HeadlessLink | null = null;
   // Delete what this run made, pass, fail or cancel. A create whose reply was lost leaves `machine`
   // null, so the run's own machine is also found by its name (`cloud journey <tag>`).
   const cleanup = async () => {
+    if (headlessLink) {
+      await headlessLink.close().catch(() => undefined);
+      headlessLink = null;
+    }
     if (cleaned || keep || deleted || !api.bearer) return;
     cleaned = true;
     let id = machine;
@@ -446,6 +489,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return { value: null, detail: `${rows.length} machines` };
     });
 
+    if (cmux) {
+      await J.step("link ensure (headless)", async () => {
+        headlessLink = await startHeadlessLink(cmux, bound.host, install, backend.api, tag);
+        return { value: null, detail: `socket ${headlessLink.linkSocket}` };
+      });
+    }
+
     const exec = cmux ? cliExec(cmux, api, created.id) : directExec(api, created.id, J);
     await J.step("first exec", async () => {
       const r = await exec("echo journey-ok; uname -m");
@@ -488,7 +538,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (!tok?.expires_at) throw new Error(`link_token answered ${short(Object.keys(tok ?? {}))}`);
       return { value: null, detail: `host ${info.host} state ${info.state} epoch ${info.epoch}; link token until ${tok.expires_at}` };
     });
-    J.skip("connect (link dial)", "a headless link dial needs a credential source without the Mac app's relay (cmux link dial fails closed today)");
+    if (headlessLink) {
+      await J.step("connect (link dial)", async () => {
+        const dial = spawnSync(cmux!, ["link", "dial", "--host", bound.host, "--service", "daemon", "--socket", headlessLink!.linkSocket], {
+          input: '{"id":1,"cmd":"identify"}\n', encoding: "utf8", timeout: 45_000,
+        });
+        if (dial.error || dial.status !== 0) throw new Error(`link dial failed: ${dial.stderr || dial.error?.message}`);
+        if (!dial.stdout.includes("capabilities") && !dial.stdout.includes('"data"')) throw new Error(`link dial returned no identify response: ${dial.stdout.slice(-300)}`);
+        return { value: null, detail: dial.stdout.trim().split("\n").slice(-1)[0].slice(0, 280) };
+      });
+    } else {
+      J.skip("connect (link dial)", "--cmux is required for a headless link dial");
+    }
 
     // POST /v1/handoffs {sessionId, machine} (backend/apps/api/src/handoffs/routes.ts). Production leaves the
     // hand-off bindings unbound until it ships there and answers 404: that is a SKIP, not a red.
@@ -498,15 +559,25 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (handoff.status >= 300) throw new Error(`/v1/handoffs: HTTP ${handoff.status} ${short(handoff.body.error ?? handoff.body)}`);
       return { value: null, detail: `HTTP ${handoff.status} ${short(handoff.body.value?.id ?? handoff.body.id ?? handoff.body)}` };
     }).catch(() => undefined);
+    J.skip("handoff (agent move)", "headless agent move requires a local session daemon socket; the Cloud guest session has no local source socket");
 
     await J.step("sync push/pull (folder round trip)", async () => {
-      const dir = `/tmp/journey-sync-${tag}`;
+      if (!headlessLink) throw new Error("--cmux is required for link sync");
       const payload = Buffer.from(`journey ${tag} ${Date.now()}\n`.repeat(64)).toString("base64");
-      const push = await exec(`mkdir -p ${dir}/a && printf '%s' ${shq(payload)} | base64 -d > ${dir}/a/file.txt && sha256sum ${dir}/a/file.txt | cut -c1-64`);
-      const pull = await exec(`cat ${dir}/a/file.txt | base64 -w0; echo; rm -rf ${dir}`);
-      const back = Buffer.from(pull.stdout.trim(), "base64").toString();
-      if (push.code !== 0 || back !== Buffer.from(payload, "base64").toString()) throw new Error(`round trip differs (push exit ${push.code}, pull exit ${pull.code})`);
-      return { value: null, detail: `${back.length} bytes up and back over exec (link sync needs the headless link dial)` };
+      const local = mkdtempSync(path.join(tmpdir(), `cmux-journey-sync-${tag}-`));
+      const source = path.join(local, "file.txt");
+      writeFileSync(source, Buffer.from(payload, "base64"));
+      const remote = `/tmp/${tag}/sync`;
+      const push = spawnSync(cmux!, ["link", "sync", "push", "--socket", headlessLink.bridgeSocket, local, remote], { encoding: "utf8", timeout: 120_000 });
+      if (push.error || push.status !== 0) throw new Error(`sync push failed: ${push.stdout || push.stderr || push.error?.message}`);
+      const mutate = await exec(`printf '%s' ${shq("remote-change\n")} >> ${shq(`${remote}/file.txt`)}`);
+      if (mutate.code !== 0) throw new Error(`remote mutation failed: ${mutate.stderr}`);
+      const pull = spawnSync(cmux!, ["link", "sync", "pull", "--socket", headlessLink.bridgeSocket, local, remote], { encoding: "utf8", timeout: 120_000 });
+      if (pull.error || pull.status !== 0) throw new Error(`sync pull failed: ${pull.stdout || pull.stderr || pull.error?.message}`);
+      const back = readFileSync(source, "utf8");
+      rmSync(local, { recursive: true, force: true });
+      if (!back.endsWith("remote-change\n")) throw new Error("pulled file did not include the remote change");
+      return { value: null, detail: `${back.length} bytes pushed and pulled through link` };
     });
 
     if (!only.has("pause")) {
