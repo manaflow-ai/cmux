@@ -94,6 +94,7 @@ fn plain_setup() -> Setup {
         approvers: Vec::new(),
         #[cfg(not(target_os = "macos"))]
         approver_pins: Vec::new(),
+        reload_endpoint: None,
     }
 }
 
@@ -177,7 +178,8 @@ fn a_screenshot_is_the_first_image_or_the_refusal_text() {
 #[cfg(not(target_os = "macos"))]
 mod system {
     use super::super::system_config::{
-        DeviceHub, Pin, SystemConfig, config, elevated_args, pins_of, read_manifest, render,
+        DeviceHub, Pin, SystemConfig, config, elevated_args, pins_of, read_manifest,
+        reload_endpoint_of, render,
     };
     use super::*;
 
@@ -224,7 +226,12 @@ mod system {
             name: "Aziz's iPhone".into(),
             platform: "ios".into(),
         };
-        let args = elevated_args(&setup, std::slice::from_ref(&pin)).unwrap();
+        let endpoint = if cfg!(windows) {
+            std::path::PathBuf::from(r"\\.\pipe\cmux-remote-rh-0123")
+        } else {
+            std::path::PathBuf::from("/run/user/1000/cmux/rh-0123/s.sock")
+        };
+        let args = elevated_args(&setup, std::slice::from_ref(&pin), Some(&endpoint)).unwrap();
         assert_eq!(&args[..4], ["computer-use", "setup", "--mode", "bounded"]);
         assert_eq!(args[4], "--manifest");
         assert!(std::path::Path::new(&args[5]).is_absolute(), "{args:?}");
@@ -236,10 +243,43 @@ mod system {
         assert!(back.elevated && back.hub_allow_always);
         assert_eq!(back.approver_pins, vec![pin]);
         assert_eq!(back.device_hub, setup.device_hub);
+        assert_eq!(back.reload_endpoint.as_deref(), Some(endpoint.as_path()), "the elevated run reloads that host");
+        let without = elevated_args(&setup, &[], None).unwrap();
+        assert!(!without.contains(&RELOAD_FLAG.to_owned()));
+    }
+
+    /// sudo always asks (no cached ticket from an earlier command in the
+    /// terminal): it, not the typed `yes`, is the gate.
+    #[cfg(unix)]
+    #[test]
+    fn sudo_asks_every_time() {
+        let words = system_config::sudo_args(std::path::Path::new("/usr/bin/cmux"), vec!["computer-use".into()]);
+        let words: Vec<String> = words.iter().map(|word| word.to_string_lossy().into_owned()).collect();
+        assert_eq!(words, ["-k", "--", "/usr/bin/cmux", "computer-use"]);
+    }
+
+    /// The elevated run opens only a host supervisor endpoint the status names.
+    #[test]
+    fn the_reload_endpoint_comes_from_the_hosts_status_and_is_checked() {
+        let status = |endpoint: &str| json!({"computer_use": {"reload_endpoint": endpoint}});
+        if cfg!(windows) {
+            let pipe = r"\\.\pipe\cmux-remote-rh-0123";
+            assert_eq!(reload_endpoint_of(&status(pipe)), Some(pipe.into()));
+            for bad in [r"\\host\pipe\cmux-remote-x", r"\\.\pipe\other", r"\\.\pipe\cmux-remote-", r"C:\x\s.sock"] {
+                assert_eq!(reload_endpoint_of(&status(bad)), None, "{bad}");
+            }
+        } else {
+            let socket = "/run/user/1000/cmux/rh-0123/s.sock";
+            assert_eq!(reload_endpoint_of(&status(socket)), Some(socket.into()));
+            for bad in ["relative/s.sock", "/etc/shadow", "/tmp/x.sock", ""] {
+                assert_eq!(reload_endpoint_of(&status(bad)), None, "{bad}");
+            }
+        }
+        assert_eq!(reload_endpoint_of(&json!({})), None);
     }
 
     #[test]
-    fn only_another_mac_or_iphone_with_an_approval_key_can_be_pinned() {
+    fn only_another_device_with_an_approval_key_can_be_pinned() {
         use base64::Engine as _;
         let signing = base64::engine::general_purpose::STANDARD.encode([4_u8; 65]);
         let mut approval_point = [7_u8; 65];
@@ -263,6 +303,7 @@ mod system {
         assert_ne!(pins[0].approval_key_fingerprint, cmux_device_hub_client::key_fingerprint(&signing).unwrap());
         let error = pins_of(&devices, "box", &["old-mac".into()]).unwrap_err();
         assert!(error.contains("no approval key"), "{error}");
+        assert!(error.contains("only the cmux iPhone app"), "says a Mac cannot be pinned yet: {error}");
         assert!(pins_of(&devices, "box", &["box".into()]).is_err(), "never itself");
         assert!(pins_of(&devices, "box", &["pc".into()]).is_err(), "never a Windows box");
         assert!(pins_of(&devices, "box", &["missing".into()]).is_err());

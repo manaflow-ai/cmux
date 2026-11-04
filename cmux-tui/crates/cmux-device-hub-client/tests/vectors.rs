@@ -122,3 +122,16 @@ fn the_vector_private_key_signs_what_the_hub_verifies() {
     let signature = keys.sign(canonical.as_bytes()).unwrap();
     assert!(verify(&public, canonical.as_bytes(), &signature));
 }
+
+/// The shared approval key fingerprint vector
+/// (`schemas/computer-use/approval-key-fingerprint-vector.json`): what `cmux
+/// computer-use setup` shows for a key is what the iPhone shows for it.
+#[test]
+fn approval_key_fingerprint_vector() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../schemas/computer-use/approval-key-fingerprint-vector.json");
+    let vector: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let fingerprint = cmux_device_hub_client::key_fingerprint(str_of(&vector, "key_base64")).unwrap();
+    assert_eq!(fingerprint, str_of(&vector, "fingerprint_hex"));
+    assert_eq!(cmux_device_hub_client::display_fingerprint(&fingerprint), str_of(&vector, "display"));
+}
