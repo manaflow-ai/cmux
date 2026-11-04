@@ -470,8 +470,8 @@ fn direct_source(token_file: Option<&Path>) -> Option<cloud::DirectSource> {
 }
 
 fn read_cloud_token_file(path: &Path) -> anyhow::Result<String> {
-    let metadata = std::fs::metadata(path)
-        .with_context(|| format!("read Cloud token file {}", path.display()))?;
+    let metadata =
+        std::fs::metadata(path).map_err(|error| anyhow!("read Cloud token file: {error}"))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
@@ -479,7 +479,8 @@ fn read_cloud_token_file(path: &Path) -> anyhow::Result<String> {
             bail!("Cloud token file must be private (mode 0600): {}", path.display());
         }
     }
-    let token = std::fs::read_to_string(path)?;
+    let token =
+        std::fs::read_to_string(path).map_err(|error| anyhow!("read Cloud token file: {error}"))?;
     if token.trim().is_empty() {
         bail!("Cloud token file is empty");
     }

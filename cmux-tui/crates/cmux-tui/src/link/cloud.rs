@@ -143,6 +143,7 @@ impl DirectSource {
             .send()
             .await
             .map_err(|_| ConnectInfoError::Unavailable("the Cloud API did not answer".into()))?;
+        let status = response.status();
         let value: serde_json::Value = response
             .json()
             .await
@@ -150,7 +151,7 @@ impl DirectSource {
         if value.get("ok").and_then(serde_json::Value::as_bool) == Some(true) {
             return Ok(value.get("value").cloned().unwrap_or(serde_json::Value::Null));
         }
-        let error = value.get("error");
+        let error = value.get("error").or_else(|| status.is_client_error().then_some(&value));
         let field =
             |name: &str| error.and_then(|e| e.get(name)).and_then(serde_json::Value::as_str);
         Err(ConnectInfoError::from_code(
