@@ -336,15 +336,22 @@ export function cloudStartEnded(
   if (answer.ok) return undefined;
   // The pane's own refusal (AgentPaneCloudStart: the folder check, the gesture) is worded by its
   // code, never the host's generic "The app refused the agent connection." (cloudRefusalText).
-  const refusedHere = answer.code.startsWith("transport.");
-  const message = refusedHere ? cloudRefusalText(answer.code) : line(answer.message, 240);
+  const refusedHere = answer.code.startsWith("transport.") || REFUSED_HERE.has(answer.code);
+  const message = refusedHere ? cloudRefusalText(answer.code, answer.message) : line(answer.message, 240);
   return { ...current, state: "failed", ...(message ? { message } : {}), ...(refusedHere ? { refusedHere } : {}) };
 }
 
 /// The words for a Cloud start this Mac's pane refused: a folder that is not one of the tab's own
 /// asks the person to pick it (a pick grants it, `workspace.useFolder`); any other `transport.*`
 /// code reads as the pane's refusal text (transportErrors.ts).
-export function cloudRefusalText(code: string): string {
+export function cloudRefusalText(code: string, hostWords?: string): string {
   if (code === "transport.path_outside_roots") return translate("cloudStartup.folderNotOpen");
-  return errorMessage({ code });
+  if (code.startsWith("transport.")) return errorMessage({ code });
+  // The attachment refusal's words are the host's own sentence; the others carry only their code.
+  if (code === "cloud_attachments") return line(hostWords, 240) ?? translate("composer.offloadNotRun", { action: translate("composer.cloud") });
+  return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
 }
+
+/// The codes the pane refuses a Cloud start with before it reaches Cloud, besides `transport.*`
+/// (AgentPaneHandOff.refusedHereCodes, the same list): no step ran, so none is marked failed.
+const REFUSED_HERE = new Set(["cloud_attachments", "unsupported", "unavailable_now", "sandbox_busy", "sandbox_spent"]);
