@@ -301,7 +301,8 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
   /// Details) glides too at the very bottom: the thread slides to what it laid out in one step, over
   /// several painted frames, never most of the way in one (router-review F1 on #34780).
   test("at the very bottom, a shell block's Show all lines glides the text above over several frames", async () => {
-    const page = await open("collapse-tall-group");
+    // Its play opens and closes the group (three toggles at once mid-play): wait on the row itself.
+    const page = await open("collapse-tall-group", '[data-row-id="expand-at-bottom-run"]');
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, {
       timeout: 60_000,
     });
