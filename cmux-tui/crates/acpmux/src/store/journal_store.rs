@@ -134,6 +134,13 @@ pub(crate) fn checkpointer_seams<T>(
 /// Tests: the next append stops right after its log write, says so on the first channel and
 /// waits for the second (the appends' lock held, as at that point in a real append).
 #[cfg(test)]
+thread_local! {
+    /// Tests: the next removal of a chat's folder in `Store::delete` on this thread fails.
+    pub(crate) static FAIL_NEXT_FOLDER_REMOVAL: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
 pub(crate) static PAUSE_AFTER_LOG_WRITE: Mutex<
     Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>,
 > = Mutex::new(None);
@@ -660,6 +667,10 @@ impl Store for JournalStore {
         {
             // Not while a checkpoint writes this chat's `session.json` (`journal_store/meta.rs`).
             let _folder = inner.folders.lock_or_recover();
+            #[cfg(test)]
+            if FAIL_NEXT_FOLDER_REMOVAL.with(|fail| fail.replace(false)) {
+                anyhow::bail!("a failed folder removal (a test)");
+            }
             Store::delete(&inner.local, id)?;
         }
         if let Some(path) = repair {
