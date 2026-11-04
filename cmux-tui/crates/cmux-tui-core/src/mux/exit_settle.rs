@@ -77,6 +77,12 @@ impl ExitSettleTimer {
         due
     }
 
+    /// Exits whose detach waits for its deadline (or for a retry): each
+    /// keeps an app session's owner (`Mux::kept_terminal_count`).
+    pub(super) fn pending(&self) -> usize {
+        self.state.lock().unwrap().deadlines.len()
+    }
+
     fn earliest(state: &ExitSettleState) -> Option<u64> {
         state.deadlines.values().map(|deadline| deadline.until_ms).min()
     }
@@ -166,7 +172,15 @@ impl Mux {
     pub(super) fn run_due_exit_settles(&self) {
         let _running = self.exit_settles.running.lock().unwrap();
         let now_ms = self.session_shutdown.now_ms();
-        for (terminal_id, failures) in self.exit_settles.take_due(now_ms) {
+        let due = self.exit_settles.take_due(now_ms);
+        if due.is_empty() {
+            return;
+        }
+        // These exits kept the owner until now: its keepers watch reads
+        // again once they ran (a detach that changes nothing sends no
+        // topology event).
+        let _wake = WakeOwnerKeepers(self);
+        for (terminal_id, failures) in due {
             if self.shutting_down.load(Ordering::Acquire) {
                 return;
             }
@@ -186,5 +200,16 @@ impl Mux {
                 );
             }
         }
+    }
+}
+
+/// Wakes the owner's keepers watch when dropped (server/owner_keepers.rs
+/// listens to the client presence observers), so the watch reads again on
+/// every way out of a settle run.
+struct WakeOwnerKeepers<'a>(&'a Mux);
+
+impl Drop for WakeOwnerKeepers<'_> {
+    fn drop(&mut self) {
+        self.0.control_clients.notify_client_presence();
     }
 }

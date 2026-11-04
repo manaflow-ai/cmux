@@ -2,8 +2,8 @@
 //! else keeps it (R-LIFECYCLE stage 1, handoff/rewrites/R-LIFECYCLE/DESIGN.md).
 //!
 //! `server ensure` starts the owner of an app session (`cmux-app`,
-//! `cmux-app-*`) detached, so that terminals outlive the app (pty-holder.md
-//! D1). With nothing to keep, that owner ran until reboot: after a quit, a
+//! `cmux-app-*`) and of the app's Chief session (`cmux-chief-*`) detached,
+//! so that terminals outlive the app (pty-holder.md D1). With nothing to keep, that owner ran until reboot: after a quit, a
 //! crash or a deleted bundle, for every build and tag a person ran (STATUS
 //! 1370: 105 such processes on 8 fleet hosts; STATUS 8519: the cmux20
 //! nightly's owner after its app quit). Its state is durable, so a stop
@@ -19,9 +19,12 @@
 //! - a live terminal (launching, adopting or running): this includes a
 //!   closed terminal in its Reopen hold until the reaper ends it, and a
 //!   terminal marked `keep`; a terminal whose new shell is on its way (a
-//!   lost host's respawn in its backoff, or an `on_exit` shell restart); and
-//!   an ended `on_exit` keep or shell terminal whose tabs and final screen
-//!   only this owner holds (a new owner detaches them);
+//!   lost host's respawn in its backoff, or an `on_exit` shell restart); an
+//!   ended `on_exit` keep or shell terminal whose tabs and final screen
+//!   only this owner holds (a new owner detaches them); and a signal exit
+//!   whose detach waits out the session shutdown lead (a stop in that wait
+//!   would make it a host loss, and the next owner would respawn a shell the
+//!   person killed);
 //! - its running browser host (an agent in one of its terminals may use it);
 //! - a running app server (an `always` server, or an on-demand server until
 //!   its idle stop), and an `always` server that crashed and waits for its
@@ -41,9 +44,9 @@
 //! apps supervisor's count; the terminal count (a registry read) runs only
 //! when none of those keeps the owner. All of it runs on the watch thread.
 //!
-//! The headless owner starts the watch (cmux-tui `headless.rs`) behind
-//! `CMUX_TUI_OWNER_KEEPERS=1`, the stage's switch, which is deleted when the
-//! stage passes.
+//! The headless owner starts the watch (cmux-tui `headless.rs`) unless
+//! `CMUX_TUI_OWNER_KEEPERS=0`, the stage's switch, which is deleted when the
+//! stage has passed dogfood (R-LIFECYCLE ORPHANS turned it on by default).
 
 use super::*;
 use crate::event_bus::MuxEventReceiver;
