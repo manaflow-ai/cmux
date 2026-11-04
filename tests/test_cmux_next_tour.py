@@ -937,5 +937,31 @@ class WindowVideoTests(unittest.TestCase):
             process.kill.assert_called_once_with()
             self.assertIsNone(recording.process)
 
+class CustomizeTemplatesTourTests(unittest.TestCase):
+    """The customize-templates tour types each template into the app's terminal (base64, so
+    no shell expansion touches it, and no checkout is needed on the capture Mac); what it
+    types must be the files in skills/cmux-customization/templates as they are now."""
+
+    def test_the_tour_writes_the_checked_in_templates_and_probe(self) -> None:
+        import base64
+        tour = json.loads((ROOT / "scripts/cmux-next/media/tours/customize-templates.json").read_text(encoding="utf-8"))
+        texts = [step["cmux"][step["cmux"].index("--text") + 1] for step in tour["steps"]
+                 if "--text" in step.get("cmux", [])]
+        written = {}
+        for text in texts:
+            for payload, target in re.findall(r'echo ([A-Za-z0-9+/=]+) \| base64 -d > "([^"]+)"', text):
+                name = re.search(r"saved (\S+)", text)
+                key = f"{name.group(1)}/{Path(target).name}" if name else Path(target).name
+                written[key] = base64.b64decode(payload).decode("utf-8")
+        templates = ROOT / "skills/cmux-customization/templates"
+        expected = {f"{folder.name}/{file}": (folder / file).read_text(encoding="utf-8")
+                    for folder in templates.iterdir() if folder.is_dir() for file in ("cmux-app.json", "main.js")}
+        probe = ROOT / "scripts/cmux-next/media/fixtures/customize-reload-latency.py"
+        expected[probe.name] = probe.read_text(encoding="utf-8")
+        self.assertEqual(sorted(written), sorted(expected))
+        for key, text in expected.items():
+            self.assertEqual(written[key], text, f"{key}: regenerate the tour's payload from the file")
+
+
 if __name__ == "__main__":
     unittest.main()
