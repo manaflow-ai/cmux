@@ -298,6 +298,18 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
       }),
     [onReconnectMcp],
   );
+  // The daemon keeps `progress` referentially stable while tokens stream. Derive native rows once
+  // per checklist update so unrelated activity does not remap every plan entry on every frame.
+  const progressRows = useMemo(
+    () =>
+      props.progress?.plan.map((entry, index) => ({
+        id: `progress:${index}`,
+        title: entry.content,
+        tone: entry.status === "completed" ? "muted" : entry.status === "in_progress" ? "running" : "waiting",
+        working: entry.status === "in_progress" && !props.progress?.ended,
+      })),
+    [props.progress],
+  );
   const actions = new NativeInfoActions();
   const sections: (NativeInfoSection | undefined)[] = [];
   if (shown) {
@@ -353,12 +365,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
             open: state.sections.progress,
             foldable: true,
             reorderable: true,
-            rows: props.progress.plan.map((entry, index) => ({
-              id: `progress:${index}`,
-              title: entry.content,
-              tone: entry.status === "completed" ? "muted" : entry.status === "in_progress" ? "running" : "waiting",
-              working: entry.status === "in_progress" && !props.progress?.ended,
-            })),
+            rows: progressRows ?? [],
           }
         : undefined,
       connectorsSection(
