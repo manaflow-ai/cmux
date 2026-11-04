@@ -28,7 +28,9 @@ import CoreGraphics
 ///   target exactly, so a drag with no spring running places frames as before S2B.
 /// A press that cannot hold while the screen moves turns the rule off for its drag, which is then the drag from before
 /// S2B (every frame it retargets snaps to its rest place): no frame for the line, a value the probes cannot move, a row
-/// edge, or a pane whose size spring could take it further under its rest size than a pane's minimum (a drag that
+/// edge, a view offset that places the line and still moves (the strip's camera, a scroll area or a scrolling row: the
+/// line's own spring cannot hold it where it is drawn), or a pane whose size spring could take it further under its
+/// rest size than a pane's minimum (a drag that
 /// shrinks it to its minimum would then show it with a negative size). A release's fling seeds only the edges it moved.
 enum SharedEdgeMotion {
     /// One axis of a frame as its two edges: where each shows, how fast it moves, and where it goes.
@@ -157,7 +159,9 @@ extension SharedEdgeMotion {
             let horizontal = divider.axis == .horizontal
             let base = horizontal ? divider.container.minX : divider.container.minY
             let line = horizontal ? divider.frame.minX : divider.frame.minY
-            let hold = Hold(line: line, spring: horizontal ? handle.x : handle.y, shown: ShownPixels(screen: screen, kind: kind, axis: divider.axis))
+            let shown = ShownPixels(screen: screen, kind: kind, axis: divider.axis)
+            guard !shown.moves else { return .cannotCatch }
+            let hold = Hold(line: line, spring: horizontal ? handle.x : handle.y, shown: shown)
             func ratio(_ extent: CGFloat) -> DividerDragValue {
                 .ratio(id, SplitGeometry.ratio(forPointer: base + extent, container: divider.container, axis: divider.axis, style: style,
                                                minimumA: divider.minimumA, minimumB: divider.minimumB))
@@ -175,7 +179,9 @@ extension SharedEdgeMotion {
             case .bottom?: (frame.minY, frame.maxY, -1)
             case .left?, nil: (frame.maxX, frame.minX, 1)
             }
-            let hold = Hold(line: line, spring: band ? handle.y : handle.x, shown: ShownPixels(screen: screen, kind: kind, axis: axis))
+            let shown = ShownPixels(screen: screen, kind: kind, axis: axis)
+            guard !shown.moves else { return .cannotCatch }
+            let hold = Hold(line: line, spring: band ? handle.y : handle.x, shown: shown)
             let minimum = band ? column.minimumSize(style: style).height : column.minimumSize(style: style).width
             let viewport = switch edge {
             case nil: geometry.stripWidth
@@ -237,10 +243,15 @@ extension SharedEdgeMotion {
     struct ShownPixels {
         var shift: CGFloat
         var scale: CGFloat
+        /// The view offset that places the line along the axis still moves (the strip's camera, a scroll area's or a
+        /// scrolling row's spring): the line cannot be held where it is drawn by stopping its own spring, so the press
+        /// takes the drag from before S2B.
+        var moves: Bool
 
         init(screen: ScreenContentView, kind: DividerHandleView.Kind, axis: SplitAxis) {
             shift = axis == .horizontal ? (screen.scrolls(kind) ? screen.stripShift : 0) - screen.areaOffset(of: kind) : -screen.rowOffset(of: kind)
             scale = screen.scale
+            moves = screen.viewOffsetMoves(of: kind, axis: axis)
         }
 
         func edge(_ value: CGFloat) -> CGFloat {
@@ -348,5 +359,24 @@ extension SharedEdgeMotion {
             if abs(value.value) < 0.25, abs(value.velocity) < 2 { break }
         }
         return lowest
+    }
+}
+
+extension ScreenContentView {
+    /// Whether the view offset that places `kind`'s line along `axis` still moves: the strip's camera (for a line that
+    /// scrolls, horizontal), its scroll area's spring (horizontal) or its scrolling row's spring (vertical).
+    func viewOffsetMoves(of kind: DividerHandleView.Kind, axis: SplitAxis) -> Bool {
+        func moves(_ spring: SpringValue) -> Bool { abs(spring.value - spring.target) > 0.001 || abs(spring.velocity) > 0.001 }
+        if axis == .horizontal {
+            if scrolls(kind), moves(scroll) { return true }
+            guard case let .split(id) = kind, let area = baseGeometry.scrollAreaOfSplit[id] else { return false }
+            return areaScrolls[area].map { moves($0.state.spring) } ?? false
+        }
+        let column: ColumnID? = switch kind {
+        case let .split(id): baseGeometry.rowColumnOfSplit[id]
+        case let .rowEdge(id, _): id
+        case .columnEdge: nil
+        }
+        return column.flatMap { rowScrolls[$0] }.map { moves($0.state.spring) } ?? false
     }
 }
