@@ -8639,7 +8639,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     onMode: (mode: RunMode) => {
       if (mode === "cloud") {
         const folder = cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);
-        if ("cwd" in folder) cloudFolderGrant.granting(folder.cwd, pickFolder(callNative, folder.cwd, () => undefined));
+        if ("cwd" in folder)
+          cloudFolderGrant.granting(
+            folder.cwd,
+            pickFolder(callNative, folder.cwd, () => undefined),
+          );
       }
       sandboxModeRows.onMode(mode);
     },
