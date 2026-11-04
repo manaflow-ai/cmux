@@ -47,6 +47,7 @@ pub(super) async fn handle(
             if scope == "project" { Some(project_path(None, &session.meta().cwd)?) } else { None };
         let mut cfg = hub.config.write().await;
         let previous = cfg.context_overrides.clone();
+        let previous_presets = cfg.presets.clone();
         if part_id.is_some() {
             let preset_name = session
                 .meta()
@@ -76,6 +77,7 @@ pub(super) async fn handle(
         }
         if let Err(e) = cfg.save() {
             cfg.context_overrides = previous;
+            cfg.presets = previous_presets;
             return Err(RpcError::internal(format!("save context override: {e}")));
         }
     }
