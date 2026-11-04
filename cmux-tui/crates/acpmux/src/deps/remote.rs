@@ -80,7 +80,16 @@ pub enum Fetched {
     Miss,
     /// The hub has no dependency caches.
     Off,
+    /// Given up part way: at its pace it would have been slower than a cold
+    /// install (`give_up`). The archive's size and the bytes read.
+    Abandoned {
+        size: u64,
+        got: u64,
+    },
 }
+
+/// Time a download's pace is measured over before `give_up` is asked.
+const PACE_AFTER_MS: u64 = 300;
 
 /// What an upload did.
 #[derive(Debug, PartialEq, Eq)]
@@ -127,7 +136,15 @@ impl Remote {
     }
 
     /// Download `key` into `out`, verifying its size and digest as it streams.
-    pub async fn fetch(&self, key: &str, out: &Path) -> Result<Fetched> {
+    /// `give_up(got, size, elapsed_ms)` is asked as it goes (after a short
+    /// measuring time): true ends the download as [`Fetched::Abandoned`].
+    pub async fn fetch(
+        &self,
+        key: &str,
+        out: &Path,
+        give_up: impl Fn(u64, u64, u64) -> bool,
+    ) -> Result<Fetched> {
+        let started = std::time::Instant::now();
         let mut response = self
             .client
             .get(self.url(key, ""))
@@ -167,6 +184,10 @@ impl Remote {
             }
             hasher.update(&chunk);
             file.write_all(&chunk)?;
+            let elapsed = started.elapsed().as_millis() as u64;
+            if elapsed >= PACE_AFTER_MS && got < size && give_up(got, size, elapsed) {
+                return Ok(Fetched::Abandoned { size, got });
+            }
         }
         file.flush()?;
         if got != size {
