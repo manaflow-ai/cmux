@@ -4,6 +4,7 @@ import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import {
+  draftAfterSave,
   parseAgentSetup,
   savedPrompt,
   type AgentSetup,
@@ -129,6 +130,7 @@ export function AgentSetupScreen({
                   (async (text) => {
                     const parsed = parseAgentSetup(await save(text));
                     if (parsed) setSetup(parsed);
+                    return parsed?.preset?.systemPrompt;
                   })
                 }
               />
@@ -165,7 +167,8 @@ function PresetPrompt({
   save,
 }: {
   preset: AgentSetupPreset;
-  save?: (systemPrompt: string | null) => Promise<void>;
+  /// Answers the prompt acpmux now holds, when its reply says.
+  save?: (systemPrompt: string | null) => Promise<string | undefined>;
 }) {
   const t = useT();
   const saved = preset.systemPrompt ?? "";
@@ -176,6 +179,14 @@ function PresetPrompt({
       <div className="acpmux-agent-setup-card">
         <span className="acpmux-agent-setup-name">{preset.name}</span>
         <p className="acpmux-agent-setup-note">{t("agentSetup.claudeOnly")}</p>
+      </div>
+    );
+  if ((!preset.editable || !save) && preset.systemPrompt)
+    return (
+      <div className="acpmux-agent-setup-card" data-agent-setup-read-only>
+        <span className="acpmux-agent-setup-name">{preset.name}</span>
+        <pre className="acpmux-agent-setup-text">{preset.systemPrompt}</pre>
+        <p className="acpmux-agent-setup-note">{t("agentSetup.presetReadOnly")}</p>
       </div>
     );
   if (!preset.editable || !save)
@@ -192,11 +203,11 @@ function PresetPrompt({
   const busy = saving?.kind === "saving";
   const submit = () => {
     setSaving({ kind: "saving" });
-    const sent = savedPrompt(draft);
-    save(sent).then(
-      () => {
-        // A prompt cleared with only whitespace left reads as the empty one acpmux now holds.
-        if (sent === null) setDraft("");
+    const submitted = draft;
+    save(savedPrompt(submitted)).then(
+      (stored) => {
+        // Text typed while the save was pending stays, unsaved; untouched, the editor shows acpmux's.
+        setDraft((current) => draftAfterSave(submitted, current, stored));
         setSaving({ kind: "saved" });
       },
       (error: unknown) =>
@@ -221,7 +232,12 @@ function PresetPrompt({
       <p className="acpmux-agent-setup-note">{t("agentSetup.presetApplies", { name: preset.name })}</p>
       <div className="acpmux-agent-setup-actions">
         {saving?.kind === "failed" && (
-          <span className="acpmux-agent-setup-status" data-status="failed" title={saving.reason}>
+          <span
+            className="acpmux-agent-setup-status"
+            data-status="failed"
+            data-agent-setup-save-error
+            title={saving.reason}
+          >
             {t("agentSetup.saveFailed", { reason: saving.reason })}
           </span>
         )}

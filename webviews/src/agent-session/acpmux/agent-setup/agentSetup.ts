@@ -82,6 +82,14 @@ export function parseAgentSetup(value: unknown): AgentSetup | undefined {
 /// What Save sends for the editor's text: null (remove the prompt) when it is only whitespace.
 export const savedPrompt = (draft: string): string | null => (draft.trim() ? draft : null);
 
+/// The editor's text once a save of `submitted` succeeds. Edits made while it was pending stay (and
+/// so stay unsaved); otherwise the editor shows what acpmux now holds: `stored`, the reply's prompt,
+/// or, with no readable reply, what was sent (a whitespace-only prompt reads as the empty one).
+export function draftAfterSave(submitted: string, current: string, stored: string | undefined): string {
+  if (current !== submitted) return current;
+  return stored ?? savedPrompt(submitted) ?? "";
+}
+
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
 /// Asks the app to open (or focus) chat `sessionId`'s Agent setup tab right of the chat; false when

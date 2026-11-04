@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { openAgentSetupPane, parseAgentSetup, savedPrompt } from "./agentSetup";
+import { draftAfterSave, openAgentSetupPane, parseAgentSetup, savedPrompt } from "./agentSetup";
 
 test("reads acpmux's agent setup answer", () => {
   expect(
@@ -43,6 +43,16 @@ test("a chat without a preset, and a reply that is not one", () => {
 test("Save sends null for an empty prompt", () => {
   expect(savedPrompt("  \n")).toBeNull();
   expect(savedPrompt("Be brief.")).toBe("Be brief.");
+});
+
+test("a save keeps what was typed while it was pending", () => {
+  // Cleared, saved, then typed into before acpmux answered: the new text stays.
+  expect(draftAfterSave("", "New text", undefined)).toBe("New text");
+  expect(draftAfterSave("Be brief.", "Be brief. Really.", "Be brief.")).toBe("Be brief. Really.");
+  // Untouched since Save: the editor shows what acpmux holds.
+  expect(draftAfterSave("Be brief.", "Be brief.", "Be brief.")).toBe("Be brief.");
+  expect(draftAfterSave("  \n", "  \n", undefined)).toBe("");
+  expect(draftAfterSave("Be brief.", "Be brief.", undefined)).toBe("Be brief.");
 });
 
 test("a host that opens no tab answers false", async () => {

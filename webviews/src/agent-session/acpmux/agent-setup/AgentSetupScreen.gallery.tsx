@@ -151,11 +151,20 @@ const openServer: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-agent-setup-tool-list"));
 };
 
-const editAndSave: Play = async (ctx) => {
+const editAndClickSave: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-agent-setup-editor"));
   await ctx.type("\nKeep the review under twenty lines.", { selector: ".acpmux-agent-setup-editor" });
   await ctx.click({ selector: "[data-agent-setup-save]" });
+};
+
+const editAndSave: Play = async (ctx) => {
+  await editAndClickSave(ctx);
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-agent-setup-gallery[data-saved]"));
+};
+
+const editAndFailSave: Play = async (ctx) => {
+  await editAndClickSave(ctx);
+  await ctx.waitFor(() => ctx.document.querySelector("[data-agent-setup-save-error]"));
 };
 
 export default componentEntry<Props>({
@@ -187,7 +196,7 @@ export default componentEntry<Props>({
     "save-failed": {
       note: "acpmux refuses the save: the reason shows beside Revert and Save, and the edit stays.",
       props: { setup: editable, saveFails: true },
-      play: editAndSave,
+      play: editAndFailSave,
     },
     "open-layout": {
       note: "Layout alternative: every server's instructions open at once (tools still folded).",
@@ -204,6 +213,18 @@ export default componentEntry<Props>({
           name: "claude-reviewer",
           hasSystemPrompt: true,
           systemPrompt: null,
+          takesSystemPrompt: true,
+          editable: false,
+        }),
+      },
+    },
+    "read-only-prompt": {
+      note: "A preset with its own arguments, read from another Mac: its prompt shows in full, read only, with where to change it.",
+      props: {
+        setup: claude({
+          name: "claude-reviewer",
+          hasSystemPrompt: true,
+          systemPrompt: REVIEWER_PROMPT,
           takesSystemPrompt: true,
           editable: false,
         }),
