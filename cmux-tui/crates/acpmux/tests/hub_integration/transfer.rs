@@ -80,7 +80,7 @@ async fn busy_chat(c: &mut TestClient, queued: &[(&str, &str)]) -> String {
     id
 }
 
-fn prompt(id: &str, prompt_id: &str, text: &str) -> Value {
+pub(super) fn prompt(id: &str, prompt_id: &str, text: &str) -> Value {
     json!({"sessionId": id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": prompt_id}}})
 }
 
@@ -220,7 +220,7 @@ fn assert_moved_continuation(text: &str) {
 }
 
 /// Records of `kind` in a session's log, their `msg`.
-async fn records(c: &mut TestClient, id: &str, kind: &str) -> Vec<Value> {
+pub(super) async fn records(c: &mut TestClient, id: &str, kind: &str) -> Vec<Value> {
     let page = c
         .request(method::MUX_EVENTS, json!({"sessionId": id, "afterSeq": 0, "kinds": [kind]}))
         .await
@@ -241,7 +241,7 @@ async fn listen(hub: &Arc<Hub>) -> std::path::PathBuf {
 }
 
 /// Waits until `id`'s status on `c` is `status`.
-async fn wait_status(c: &mut TestClient, id: &str, status: &str) {
+pub(super) async fn wait_status(c: &mut TestClient, id: &str, status: &str) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     loop {
         let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
@@ -408,7 +408,12 @@ async fn a_failed_durable_import_leaves_no_recovery_marker_so_a_retry_runs_on_th
 }
 
 /// One move, `begin` to `commit`, as `acpmux session move` makes it: `to` is where it went.
-async fn move_whole(src: &mut TestClient, dst: &mut TestClient, id: &str, to: Value) -> Value {
+pub(super) async fn move_whole(
+    src: &mut TestClient,
+    dst: &mut TestClient,
+    id: &str,
+    to: Value,
+) -> Value {
     let begin = src.request("_acpmux/transfer_begin", json!({"sessionId": id})).await.unwrap();
     let received =
         dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await.unwrap();
