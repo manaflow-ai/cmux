@@ -670,7 +670,7 @@ pub struct Hub {
     pub(super) idle_wake: Arc<Notify>,
     pub(super) idle_reaper: AtomicBool,
     /// The clocks at the last gap check, and how many gaps were seen (`resume.rs`).
-    pub(super) resume_watch: StdMutex<crate::resume::ResumeWatch>,
+    pub(super) resume_watch: Arc<resume::ResumeState>,
     pub(super) resumes: tokio::sync::watch::Sender<u64>,
     /// Set when `shutdown_all` starts: the idle reaper stops for good.
     pub(super) stopping: AtomicBool,

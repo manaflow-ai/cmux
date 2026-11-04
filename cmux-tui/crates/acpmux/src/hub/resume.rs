@@ -12,8 +12,12 @@
 //! that judge them are moved. The peer links redial on their own wake check (`peer_link::SleepWatch`).
 //! Subscribers of [`Hub::subscribe_resumes`] (the Cloud activity report) act on the same gap.
 //!
-//! One task checks the clocks every `ResumeWatch::EVERY` (10 s) and ends with the hub (its weak
-//! reference) or once shutdown starts (`stopping`). A timer about to judge a turn checks first
+//! One task checks the clocks every `ResumeWatch::EVERY` (10 s) while something reads the gaps: a
+//! running turn, or a subscriber of [`Hub::subscribe_resumes`]. When neither is left it parks the
+//! watch and waits, with no timer, for the next `turn_started` record (or a timer of a turn that
+//! checks first): an idle daemon does not wake for it (cmux-ad m9: 10 s ticks, each one waking a
+//! blocking-pool thread, were the measured wakeups of an idle macOS daemon). It ends with the hub
+//! (its weak reference) or once shutdown starts (`stopping`). A timer about to judge a turn checks first
 //! ([`Hub::check_resume`]), so a turn whose deadline passed while the daemon was stopped is never
 //! judged before the gap is seen, whichever timer the runtime fires first.
 
@@ -27,8 +31,17 @@ fn mono_now() -> std::time::Duration {
     ORIGIN.get_or_init(std::time::Instant::now).elapsed()
 }
 
-pub(super) fn new_watch() -> StdMutex<ResumeWatch> {
-    StdMutex::new(ResumeWatch::new(crate::store::now_ms(), mono_now()))
+/// The hub's watch, and the signal a check of a parked watch gives the parked task.
+pub(super) struct ResumeState {
+    watch: StdMutex<ResumeWatch>,
+    unparked: Notify,
+}
+
+pub(super) fn new_watch() -> Arc<ResumeState> {
+    Arc::new(ResumeState {
+        watch: StdMutex::new(ResumeWatch::new(crate::store::now_ms(), mono_now())),
+        unparked: Notify::new(),
+    })
 }
 
 impl Hub {
@@ -43,14 +56,24 @@ impl Hub {
     }
 
     /// Reads the clocks now; a gap since the last check is handled before this returns.
+    /// A check of a parked watch (a turn's timer while the tick waits) starts the tick again.
     pub(super) fn check_resume(&self) -> Option<Resume> {
-        let resume = self
-            .resume_watch
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .observe(crate::store::now_ms(), mono_now())?;
+        let (was_parked, resume) = {
+            let mut watch = self.resume_watch.watch.lock().unwrap_or_else(|e| e.into_inner());
+            let was_parked = watch.parked();
+            (was_parked, watch.observe(crate::store::now_ms(), mono_now()))
+        };
+        if was_parked {
+            self.resume_watch.unparked.notify_one();
+        }
+        let resume = resume?;
         self.machine_resumed(resume);
         Some(resume)
+    }
+
+    /// Whether anything reads the gaps now: a running turn here, or a subscriber.
+    fn resume_needed(&self) -> bool {
+        self.resumes.receiver_count() > 0 || self.sessions().iter().any(|s| s.turn().is_some())
     }
 
     /// Handles one gap (module docs). Public so a test can stand in for a paused machine.
@@ -95,18 +118,49 @@ impl Hub {
         self.idle_wake.notify_one();
     }
 
-    /// Checks the clocks every `ResumeWatch::EVERY` until the hub goes or shutdown starts.
+    /// Checks the clocks every `ResumeWatch::EVERY` while [`Hub::resume_needed`], else parks
+    /// (module docs), until the hub goes or shutdown starts.
     pub async fn resume_loop(hub: std::sync::Weak<Hub>) {
-        let mut tick = tokio::time::interval(ResumeWatch::EVERY);
-        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
-            tick.tick().await;
-            let Some(hub) = hub.upgrade() else { return };
-            if hub.stopping.load(Ordering::SeqCst) {
-                return;
+            let mut tick = tokio::time::interval(ResumeWatch::EVERY);
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            // Ticking: the first tick is at once (a start, or the turn that unparked it).
+            let (mut events, state) = loop {
+                tick.tick().await;
+                let Some(hub) = hub.upgrade() else { return };
+                if hub.stopping.load(Ordering::SeqCst) {
+                    return;
+                }
+                // Subscribed before the check, so a turn that starts in between is not missed.
+                let events = hub.subscribe();
+                // Appends write the chat logs: off the runtime's threads.
+                let checked = hub.clone();
+                let _ = tokio::task::spawn_blocking(move || checked.check_resume()).await;
+                if !hub.resume_needed() {
+                    hub.resume_watch.watch.lock().unwrap_or_else(|e| e.into_inner()).park();
+                    break (events, Arc::clone(&hub.resume_watch));
+                }
+            };
+            // Parked: no timer, and no strong reference to the hub (its end closes `events`). A
+            // local turn's start, or a check of the parked watch, ends it.
+            loop {
+                tokio::select! {
+                    event = events.recv() => match event {
+                        Ok(event) if event.remote.is_none() && event.record.kind == "turn_started" => break,
+                        Ok(_) => {}
+                        // Missed records: look at the turns themselves.
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                            let Some(hub) = hub.upgrade() else { return };
+                            if hub.resume_needed() {
+                                break;
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                    },
+                    () = state.unparked.notified() => break,
+                }
             }
-            // Appends write the chat logs: off the runtime's threads.
-            let _ = tokio::task::spawn_blocking(move || hub.check_resume()).await;
+            drop(events);
         }
     }
 }
