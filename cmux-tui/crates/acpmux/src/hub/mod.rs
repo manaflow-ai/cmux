@@ -150,8 +150,6 @@ mod lane_report_reads;
 mod lane_report_text;
 mod lane_reports;
 mod loop_goal;
-#[cfg(test)]
-mod loop_goal_tests;
 mod mcp_connect;
 pub(crate) mod mcp_probe;
 mod meta_save;
