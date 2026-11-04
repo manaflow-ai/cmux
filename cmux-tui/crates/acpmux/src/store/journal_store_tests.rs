@@ -1058,3 +1058,67 @@ fn a_checkpoint_waits_for_a_sync_under_way_on_another_thread() {
         panic!("a checkpoint failed for a sync under way on another thread: {e:#}")
     });
 }
+
+// ---------------------------------------------------------------- review of #35895 (repro, not for merge)
+
+/// Review of #35895: a log's close on another thread (`close_log`; an eviction, a segment's end
+/// and a retention commit use the same `SegmentWriter::close`) syncs outside `counted_sync` and
+/// notes a failure in `sync_failed` only after its sync returned. A checkpoint that cloned the log
+/// before the close and syncs it after the close's failed sync sees success; it reads
+/// `sync_failed` before the note and must still not retire the line's record.
+#[test]
+fn a_checkpoint_never_goes_past_a_log_close_whose_sync_is_failing_on_another_thread() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(97);
+    let store: Arc<dyn Store> = Arc::from(open(home.path(), &journal));
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.append(CHAT, &record(2, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    // A checkpoint that cloned the chat's open log and stops before its own sync of it.
+    let (cloned_tx, cloned) = std::sync::mpsc::channel();
+    let (go, go_rx) = std::sync::mpsc::channel();
+    let checkpoint = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || {
+            super::log_sync::HOLD_AFTER_LOG_CLONE
+                .with(|hold| *hold.borrow_mut() = Some((cloned_tx, go_rx)));
+            store.flush()
+        })
+    };
+    cloned
+        .recv_timeout(WAIT)
+        .unwrap_or_else(|e| panic!("the checkpoint never cloned the log: {e}"));
+    // The log closes on another thread: its sync fails, and it stops before it notes that.
+    let (failed_tx, failed) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    let closing = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || {
+            super::log_sync::HOLD_BEFORE_CLOSE_NOTE
+                .with(|hold| *hold.borrow_mut() = Some((failed_tx, release_rx)));
+            FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
+            store.close_log(CHAT);
+            FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
+        })
+    };
+    failed.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the close's sync never failed: {e}"));
+    let _ = go.send(());
+    let checkpointed = checkpoint.join().unwrap_or_else(|_| panic!("the checkpoint panicked"));
+    let _ = release.send(());
+    closing.join().unwrap_or_else(|_| panic!("the close panicked"));
+    drop(store);
+    let store = open(home.path(), &journal);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    assert_eq!(
+        seqs(store.as_ref(), CHAT),
+        vec![1, 2],
+        "a checkpoint went past a log close whose sync was failing on another thread (it returned {})",
+        if checkpointed.is_ok() { "ok" } else { "an error" }
+    );
+}
