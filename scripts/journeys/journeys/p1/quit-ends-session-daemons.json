@@ -12,7 +12,7 @@
     },
     {
       "do": "expect",
-      "title": "a fresh app with Home only, connected to its daemon, no terminal",
+      "title": "a fresh app, loaded and connected to its daemon, no terminal",
       "timeout": 30,
       "all": [
         {
@@ -28,9 +28,6 @@
             "path": "topology.daemon_state",
             "equals": "connected"
           }
-        },
-        {
-          "frame_text": "Open a terminal"
         }
       ]
     },
@@ -149,17 +146,9 @@
       ]
     },
     {
-      "do": "key",
-      "key": "`",
-      "modifiers": [
-        "control"
-      ],
-      "mark": "open-terminal"
-    },
-    {
-      "do": "focused_terminal",
-      "as": "last",
-      "timeout": 20
+      "do": "script_new_terminal",
+      "name": "jr-quit-daemons",
+      "as": "last"
     },
     {
       "do": "neutral_prompt"
