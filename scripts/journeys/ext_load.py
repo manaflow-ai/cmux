@@ -21,10 +21,11 @@ Steps (`do`):
   probe_relaunch {hang_ms?: 4, env?: {KEY: VALUE}, new_daemon?: false}  reopens the app with the in-app per-key
                    marks on (see the function); `env` adds launch variables (an A/B arm's CMUX_NEXT_* switch);
                    `new_daemon` stops the app's daemon while no app runs, so the reopen starts a new one with them.
-  daemon_arm  {as, want: on|off, value?, name?: CMUX_TUI_RDS_INPUT}  proves the arm: `ps -wwE -p <daemon pid>`
-                   shows NAME=1 (on) or not (off); with `value` the word NAME=<value> must be there too (an OFF
-                   arm that sets 0, for a build where an unset switch is on). Kept as OUT/daemon-arm-<as>.json. A
-                   mismatch: not run. It also
+  daemon_arm  {as, want: on|off|unset, value?, name?: CMUX_TUI_RDS_INPUT, names?}  proves the arm:
+                   `ps -wwE -p <daemon pid>` shows NAME=1 (on) or not (off); with `value` the word NAME=<value> must
+                   be there too (an OFF arm that sets 0, for a build where an unset switch is on); `unset` (each build
+                   at its own default) needs no word of NAME or of any name in `names`. Kept as
+                   OUT/daemon-arm-<as>.json. A mismatch: not run. It also
                    records whether the current terminal's host has CMUX_TRACE_FLOWS (its flow trace is on).
   server_stats {as, include?: ["locks"]}  the raw line {"id":1,"cmd":"server-stats","include":[...]} on the app's
                    daemon socket; the reply as OUT/server-stats-<as>.json (the lock holds by code site). No
@@ -361,12 +362,15 @@ def step_daemon_arm(j, step):
     if not pid:
         raise D.NotRun(f"daemon_arm: no daemon pid (debug.daemon {json.dumps(getattr(j.app, 'daemon_state', None))[:200]})")
     text = subprocess.run(["ps", "-wwE", "-p", str(int(pid))], capture_output=True, text=True, timeout=10).stdout
-    words = [w for w in text.split() if w.startswith(name + "=")]
+    names = [name] + [n for n in step.get("names") or [] if n != name]
+    words = [w for w in text.split() if any(w.startswith(n + "=") for n in names)]
     exe = D.process_exe(pid) or None  # ps comm: the whole path (the command words split a path with spaces)
     rec = {"as": step["as"], "pid": int(pid), "exe": exe, "words": words, "on": (name + "=1") in words,
            "want": step.get("want"), "value": step.get("value"), "t": round(host_now(), 6), "host": _host_trace(j, name)}
     (j.out / f"daemon-arm-{step['as']}.json").write_text(json.dumps(rec))
     want, value = step.get("want"), step.get("value")
+    if want == "unset" and words:
+        raise D.NotRun(f"daemon_arm {step['as']}: want no {' or '.join(names)}, daemon pid {pid} has {words}")
     if want in ("on", "off") and rec["on"] != (want == "on"):
         raise D.NotRun(f"daemon_arm {step['as']}: want {want}, daemon pid {pid} has {words or 'no ' + name}")
     if value is not None and f"{name}={value}" not in words:

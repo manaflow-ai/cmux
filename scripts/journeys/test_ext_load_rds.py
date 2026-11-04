@@ -169,6 +169,22 @@ class RdsArms(unittest.TestCase):
         with self.assertRaises(self.load.D.NotRun):
             self.arm_value(self.PS_ZERO, "on", "1")
 
+    def arm_unset(self, daemon_env):
+        j = FakeJourney(self.out, FakeApp())
+        exe = {200: f"{self.BUNDLE}/Contents/Resources/bin/cmux"}
+        step = {"as": "before", "want": "unset", "names": ["CMUX_TUI_RDS_INPUT", "CMUX_NEXT_TUI_RDS_INPUT"]}
+        with mock.patch.object(self.load.subprocess, "run", side_effect=self.fake_ps({200: daemon_env}, exe)), \
+                mock.patch.object(self.load, "host_now", return_value=1.0):
+            return self.load.step_daemon_arm(j, step)
+
+    def test_unset_arm_needs_neither_variable(self):
+        rec = self.arm_unset(self.PS_OFF)
+        self.assertEqual((rec["words"], rec["on"]), ([], False))
+        for env in (self.PS_ON, self.PS_ZERO, self.PS_OFF + " CMUX_NEXT_TUI_RDS_INPUT=1",
+                    self.PS_OFF + " CMUX_NEXT_TUI_RDS_INPUT=0"):
+            with self.assertRaises(self.load.D.NotRun, msg=env):
+                self.arm_unset(env)
+
     def test_arm_proof_names_the_typing_host_and_its_flow_trace(self):
         j = FakeJourney(self.out, FakeApp(), pane="pane_t", host_pid=300)
         rec = self.arm(self.PS_ON, "on", j=j, env={300: "/x/host CMUX_TRACE_FLOWS=/o/flows TOKEN=abc"})
@@ -320,6 +336,24 @@ class Journeys(unittest.TestCase):
                             next(i for i, s in enumerate(spec["steps"]) if s["do"] == "echo_start"))
 
 
+class UnsetJourney(unittest.TestCase):
+    """typing-load-l6-unset is typing-load-l6 (the gated journey) plus two read-only daemon_arm steps."""
+
+    def test_gated_journey_plus_two_proofs(self):
+        sys.path.insert(0, str(HERE / "typing"))
+        import gen_load
+        unset, gated = gen_load.unset_journey(), gen_load.journey("L6", True)
+        self.assertEqual(unset["id"], "typing-load-l6-unset")
+        self.assertEqual([s for s in unset["steps"] if s["do"] != "daemon_arm"], gated["steps"])
+        self.assertEqual(unset["finally"], gated["finally"])
+        proofs = [s for s in unset["steps"] if s["do"] == "daemon_arm"]
+        self.assertEqual([(p["as"], p["want"]) for p in proofs], [("before", "unset"), ("after", "unset")])
+        self.assertTrue(all(p["names"] == ["CMUX_TUI_RDS_INPUT", "CMUX_NEXT_TUI_RDS_INPUT"] for p in proofs))
+        relaunch = next(s for s in unset["steps"] if s["do"] == "probe_relaunch")
+        self.assertNotIn("env", relaunch)
+        self.assertNotIn("new_daemon", relaunch)
+
+
 class OffArm(unittest.TestCase):
     """The OFF journey sets the switch to 0 and proves CMUX_TUI_RDS_INPUT=0 (an unset switch is ON after S1.7)."""
 
@@ -376,17 +410,15 @@ class ResultFetch(unittest.TestCase):
         (self.out / j).mkdir(parents=True, exist_ok=True)
         (self.out / j / f"daemon-arm-{side}.json").write_text(json.dumps({"pid": daemon, "host": {"pid": host}}))
 
-    def fetch(self, left_s=400.0, fail_movies=False):
+    def fetch(self, left_s=400.0, fail_flows=False):
         """fetch_in_lease with `remote` faked; the scripts it ran are returned. LEFT_S: lease seconds left."""
         calls = []
 
         def remote(host, script, **kw):
             calls.append((script, kw.get("timeout")))
-            if "*/video" in script:
-                if fail_movies:
-                    raise subprocess.TimeoutExpired(script, kw.get("timeout") or 0)
-                return subprocess.CompletedProcess(script, 0, self.tar([("j/video/a.mov", b"m")]), b"")
             if "/flows/" in script:
+                if fail_flows:
+                    raise subprocess.TimeoutExpired(script, kw.get("timeout") or 0)
                 return subprocess.CompletedProcess(script, 0, self.tar([("j/flows/flows-100.jsonl", b"{}"),
                                                                          ("j/flows/flows-200.jsonl", b"{}")]), b"")
             return subprocess.CompletedProcess(script, 0, b"", b"")
@@ -395,35 +427,64 @@ class ResultFetch(unittest.TestCase):
             self.run.fetch_in_lease("cmux21", "/lease/journeys", self.out, {"j"}, left)
         return calls
 
-    def test_fetches_only_the_named_flow_files_then_the_movies(self):
+    def test_fetches_only_the_named_flow_files_in_the_lease(self):
         self.arm_file("j", "before", 100, 200)
         self.arm_file("j", "after", 100, 200)
         calls = self.fetch()
-        flows, movies = calls[0][0], calls[1][0]
+        self.assertEqual(len(calls), 1)               # the flow files only: the movies are parked, not fetched here
+        flows = calls[0][0]
         for name in ("j/flows/flows-100.jsonl", "j/flows/*-100.recording.cmxtrace", "j/flows/flows-200.jsonl"):
             self.assertIn(name, flows)
-        self.assertNotIn("*/flows", flows)           # never every process's file
-        self.assertIn("tar c */video", movies)
-        self.assertNotIn("nice", movies)             # in the lease the mini is ours
-        self.assertEqual(len(calls), 2)              # nothing else: no park, no rm, no later fetch
+        self.assertNotIn("*/flows", flows)            # never every process's file
+        self.assertNotIn("video", flows)
         self.assertTrue((self.out / "j" / "flows" / "flows-100.jsonl").is_file())
-        self.assertTrue((self.out / "j" / "video" / "a.mov").is_file())
         self.assertFalse((self.out / "kept-on-mini.json").exists())
-        self.assertLessEqual(calls[1][1], 390)        # the movie fetch keeps 30 s of the lease for the release
 
-    def test_too_little_lease_left_fetches_nothing_and_names_what_stays(self):
-        self.arm_file("j", "before", 100, 200)
-        calls = self.fetch(left_s=20.0)
-        self.assertEqual(calls, [])
-        kept = json.loads((self.out / "kept-on-mini.json").read_text())
-        self.assertEqual(kept["not_fetched"], ["flows", "movies"])
+    def test_no_daemon_arm_record_fetches_nothing(self):
+        self.assertEqual(self.fetch(), [])
 
-    def test_a_movie_fetch_that_runs_out_of_time_is_named(self):
+    def test_too_little_lease_left_or_a_failed_flow_fetch_is_named(self):
         self.arm_file("j", "before", 100, 200)
-        self.fetch(fail_movies=True)
-        kept = json.loads((self.out / "kept-on-mini.json").read_text())
-        self.assertEqual(kept["not_fetched"], ["movies"])
-        self.assertTrue((self.out / "j" / "flows" / "flows-200.jsonl").is_file())
+        self.assertEqual(self.fetch(left_s=20.0), [])
+        self.assertEqual(json.loads((self.out / "kept-on-mini.json").read_text())["not_fetched"], ["flows"])
+        (self.out / "kept-on-mini.json").unlink()
+        self.fetch(fail_flows=True)
+        self.assertEqual(json.loads((self.out / "kept-on-mini.json").read_text())["not_fetched"], ["flows"])
+
+    def park(self, reply):
+        calls = []
+
+        def remote(host, script, **kw):
+            calls.append(script)
+            return subprocess.CompletedProcess(script, 0, reply.encode(), b"")
+        with mock.patch.object(self.run, "remote", side_effect=remote), mock.patch.object(self.run, "log"):
+            self.run.park_movies("cmux21", "/lease/journeys", self.out, "20261104T120000Z-ab12cd34", lambda cap: cap)
+        return calls
+
+    def test_park_moves_the_movies_out_of_the_lease_root_and_names_them(self):
+        calls = self.park("PARKED j/video\nPATH /Users/cmux/.cache/cmux-journeys/fetch/20261104T120000Z-ab12cd34\n")
+        self.assertEqual(len(calls), 1)
+        self.assertIn("mv \"$d\" \"$p/$d\"", calls[0])
+        self.assertIn("-mmin +360", calls[0])          # old parked folders are removed first
+        self.assertIn("p=$HOME/.cache/cmux-journeys/fetch/20261104T120000Z-ab12cd34", calls[0])
+        parked = json.loads((self.out / "parked.json").read_text())
+        self.assertEqual((parked["host"], parked["path"], parked["items"]),
+                         ("cmux21", "/Users/cmux/.cache/cmux-journeys/fetch/20261104T120000Z-ab12cd34", ["j/video"]))
+
+    def test_nothing_parked_writes_no_parked_json(self):
+        self.park("")
+        self.assertFalse((self.out / "parked.json").exists())
+        calls = []
+        with mock.patch.object(self.run, "remote", side_effect=lambda *a, **k: calls.append(a)), \
+                mock.patch.object(self.run, "log"):
+            self.run.park_movies("cmux21", "/w", self.out, "bad id; rm -rf /", lambda cap: cap)
+        self.assertEqual(calls, [])                    # a run id that is not plain is never put in a command
+
+    def test_the_hog_stops_before_the_lease_fetch(self):
+        src = (HERE / "run.py").read_text()
+        body = src[src.index("        if hog_started:\n            hog_log = remote("):src.index("    except (RuntimeError, subprocess.TimeoutExpired, KeyError")]
+        self.assertLess(body.index("stop_hog(host, work)"), body.index("fetch_in_lease("))
+        self.assertLess(body.index("fetch_in_lease("), body.index("park_movies("))
 
     def test_no_fetch_after_the_release(self):
         # run_lease has no code path that runs a remote command after `capture-host release` (R-HARNESS rule).

@@ -144,13 +144,35 @@ def rds_journey(arm, target="new_tab"):
     return spec
 
 
+def unset_journey():
+    """typing-load-l6-unset (REWRITE R-DAEMON-STATE, S1.7 typing pair): typing-load-l6 as the smoke gate runs it (film,
+    the same daemon from the lease's first launch, the set-up terminal, 8 L1 workers), each build at its own default
+    of the input lane, plus two read-only steps that prove it: the daemon's `ps -wwE` has neither
+    CMUX_TUI_RDS_INPUT nor CMUX_NEXT_TUI_RDS_INPUT, after echo_start and after the typing. P1 (run with --journey).
+    Its daemon starts before the probe relaunch sets the trace knob, so it writes no flow file."""
+    spec = journey("L6", True)
+    spec.update(id="typing-load-l6-unset", priority="P1",
+                title="Typing under load L6 as the gate runs it, the input lane at the build's default (no switch set; proven)",
+                source="REWRITE R-DAEMON-STATE S1.7 typing pair (BASE vs HEAD, each at its default)")
+    proof = {"names": ["CMUX_TUI_RDS_INPUT", "CMUX_NEXT_TUI_RDS_INPUT"], "want": "unset"}
+    out = []
+    for step in spec["steps"]:
+        out.append(step)
+        if step["do"] == "echo_start":
+            out.append(dict(proof, do="daemon_arm", **{"as": "before"}))
+        if step["do"] == "probe_mark" and step["as"] == "after":
+            out.append(dict(proof, do="daemon_arm", **{"as": "after"}))
+    spec["steps"] = out
+    return spec
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--check", action="store_true")
     a = ap.parse_args()
     bad = 0
     specs = [journey(profile, film) for profile in PROFILES for film in (True, False)]
-    for spec in specs + [rds_journey("off"), rds_journey("on"), rds_journey("on", target="adopted")]:
+    for spec in specs + [rds_journey("off"), rds_journey("on"), rds_journey("on", target="adopted"), unset_journey()]:
         path = OUT / f"{spec['id']}.json"
         text = json.dumps(spec, indent=2) + "\n"
         if a.check:
