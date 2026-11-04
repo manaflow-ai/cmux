@@ -56,15 +56,33 @@ import Testing
         #expect(button.accessibilityLabel() == "Sign In")
     }
 
-    /// The title reads on the fill in light and dark (the dialog default button's 4.5:1).
-    @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
-    func titleReadsOnItsFill(_ name: NSAppearance.Name) throws {
+    /// In a light and a dark theme the title reads on the fill (the dialog default button's 4.5:1), and
+    /// the fill stands out from the page it sits on (3:1, WCAG's floor for a control's edge), so the
+    /// button never draws white on a white page.
+    @Test(arguments: [false, true])
+    func titleReadsOnItsFillAndTheFillOnThePage(_ dark: Bool) throws {
+        let scope = try Self.scope(dark: dark)
+        let tile = NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 40))
+        scope.root(tile)
         let button = SignInButton {}
-        button.appearance = try #require(NSAppearance(named: name))
+        tile.addSubview(button)
         let look = button.look
         for surface in look.surfaces {
             #expect(look.title.contrast(with: surface) >= CmuxDialogButtonLook.minimumContrast)
         }
+        #expect(look.fill.withAlpha(1).contrast(with: Self.page(dark: dark)) >= 3)
+        withExtendedLifetime(scope) {}  // the registry holds a view's scope weakly
+    }
+
+    /// The page color of the light or dark test theme.
+    private static func page(dark: Bool) -> ThemeRGB { ThemeRGB(hex: dark ? 0x1E1E20 : 0xFFFFFF) }
+
+    /// A theme scope with a plain light or dark theme, as a page in that theme draws in.
+    private static func scope(dark: Bool) throws -> ThemeScope {
+        let scope = ThemeScope(level: .room)
+        let input = ThemeInput(background: page(dark: dark), foreground: ThemeRGB(hex: dark ? 0xF2F2F7 : 0x1D1D1F))
+        scope.setOverride(try #require(ThemeSpec(dark ? "Sign In Dark" : "Sign In Light")), input: input, animated: false)
+        return scope
     }
 
     /// Renders the button at Compact and Comfortable, light and dark, to one PNG for review
@@ -73,18 +91,22 @@ import Testing
         let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 120))
         canvas.wantsLayer = true
         canvas.layer?.backgroundColor = NSColor.gray.cgColor
+        var scopes: [ThemeScope] = []
+        defer { withExtendedLifetime(scopes) {} }
         for (row, preset) in [DensityPreset.compact, .comfortable].enumerated() {
-            for (column, name) in [NSAppearance.Name.aqua, .darkAqua].enumerated() {
+            for (column, dark) in [false, true].enumerated() {
                 let tile = NSView(frame: NSRect(x: 12 + CGFloat(column) * 174, y: 12 + CGFloat(row) * 54, width: 162, height: 46))
                 tile.wantsLayer = true
-                tile.appearance = NSAppearance(named: name)
-                tile.layer?.backgroundColor = (name == .aqua ? NSColor.white : NSColor(white: 0.12, alpha: 1)).cgColor
+                let scope = try Self.scope(dark: dark)
+                scopes.append(scope)  // the registry holds a view's scope weakly
+                scope.root(tile)
+                tile.layer?.backgroundColor = Self.page(dark: dark).nsColor.cgColor
                 let button = SignInButton {}
-                button.density = preset.tokens
+                tile.addSubview(button)
+                button.density = preset.tokens  // redraws in the tile's scope
                 button.translatesAutoresizingMaskIntoConstraints = true
                 let size = button.intrinsicContentSize
                 button.frame = NSRect(x: (162 - size.width) / 2, y: (46 - size.height) / 2, width: size.width, height: size.height)
-                tile.addSubview(button)
                 canvas.addSubview(tile)
             }
         }
