@@ -249,7 +249,11 @@ class VirtualDisplay(Harness):
         self.assertTrue(any("driver.py" in s for s in self.scripts))
         # The display runs under the lease's root, so capture-host's release stops it with every process there.
         made = next(s for s in self.scripts if "vdisplay120.m" in s)
-        self.assertIn("cd '/tmp/fake-root/journeys'", made)
+        # The release stops only what runs from under the lease's root: one cd into it, first, and every VD.app path
+        # relative to it (review 3 of #34161: a bundle outside the root would survive the release).
+        self.assertTrue(made.startswith("set -e; cd '/tmp/fake-root/journeys'; "), made)
+        self.assertEqual(len(re.findall(r"\bcd\b", made)), 1, made)
+        self.assertEqual(set(re.findall(r"(\S*)VD\.app", made)), {""}, "every VD.app path is under that cd")
         self.assertIn("release slot-cmux99-abc", self.calls())
         self.assertFalse(any("kill" in s for s in self.scripts), "run.py signals nothing by name or pattern")
 

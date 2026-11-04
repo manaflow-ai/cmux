@@ -41,7 +41,7 @@ The display (REWRITE R-HARNESS rule R11): the minis' own displays run at 60 Hz. 
 makes the lease's own virtual display (vdisplay120.m) the main display before the app launches, at HZ and 1x or 2x
 pixels, and a fresh process measures it: OUT/display.json. A display that is not the main one, or whose measured rate
 or pixel density is not the asked one, makes the lease's journeys "not run". A journey that needs a rate
-(`require_hz`, on the journey or on one of its steps) and does not get it from --vdisplay is "not run" before any
+(`require_hz`, on the journey or anywhere in its steps, a step group's steps included) and does not get it from --vdisplay is "not run" before any
 lease, with what to pass.
 """
 from __future__ import annotations
