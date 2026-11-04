@@ -1314,6 +1314,12 @@ pub fn daemon_prefix() -> Vec<std::ffi::OsString> {
     DAEMON_PREFIX.get().cloned().unwrap_or_default()
 }
 
+/// A detached daemon that remains alive but never binds its socket is a hung start.
+/// This is the caller's fallback for that real hazard; lock-holder paths use
+/// process/socket liveness instead of this bound.
+// timeout: cleanup for a child that never reaches readiness must return to the CLI.
+pub(crate) const START_BUDGET: Duration = Duration::from_secs(8);
+
 /// How long a stopping daemon may take to exit: the agents' budget, the router's stop and kill
 /// waits, and a margin.
 pub const EXIT_BUDGET: Duration = SHUTDOWN_BUDGET.saturating_add(Duration::from_secs(8));
@@ -1769,7 +1775,14 @@ async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<St
     // EOF means the detached child exited; a live child keeps the pipe open
     // until it writes readiness. The pipe itself is the liveness signal, so a
     // busy machine never turns a slow but live daemon into a startup failure.
-    wait.await
+    match tokio::time::timeout(START_BUDGET, wait).await {
+        Ok(read) => read,
+        Err(_) => Err(anyhow!(
+            "daemon did not come up at {} within {START_BUDGET:?}; see {}",
+            path.display(),
+            home().join("daemon.log").display()
+        )),
+    }
 }
 /// The readiness line of a daemon that found the lock taken (`run`).
 #[cfg(target_os = "macos")]
