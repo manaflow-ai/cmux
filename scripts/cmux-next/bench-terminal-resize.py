@@ -77,7 +77,7 @@ parser.add_argument("--key-repeat", type=int, default=1, help="presses of each k
 parser.add_argument("--key-gap-ms", type=float, default=33.0, help="between repeated presses of one key")
 parser.add_argument("--key-settle-s", type=float, default=0.6, help="after the last press of a key")
 # SCRATCH (frame-owner-s4 profile, never merge): an xctrace recording of the first round of each arm of the key layouts.
-parser.add_argument("--xctrace", help="xctrace template (e.g. 'Time Profiler', 'Metal System Trace'): record each arm's first key round")
+parser.add_argument("--xctrace", help="xctrace template key: time (Time Profiler) or metal (Metal System Trace): record each arm's first key round")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 APP = (opts.app or "").rstrip("/")
@@ -350,7 +350,8 @@ def xctrace_start(label):
     xcodes = sorted(glob.glob("/Applications/Xcode*.app"))
     env_x = dict(os.environ, DEVELOPER_DIR=(xcodes[-1] + "/Contents/Developer") if xcodes else "")
     trace = os.path.join(opts.out, f"xct-{label}.trace")
-    proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", opts.xctrace, "--all-processes", "--time-limit", "60s",
+    template = {"time": "Time Profiler", "metal": "Metal System Trace"}.get(opts.xctrace, opts.xctrace)
+    proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", template, "--all-processes", "--time-limit", "60s",
                              "--output", trace, "--no-prompt"], env=env_x, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     time.sleep(4)  # bench script: the recorder starts
     return proc, trace, env_x
