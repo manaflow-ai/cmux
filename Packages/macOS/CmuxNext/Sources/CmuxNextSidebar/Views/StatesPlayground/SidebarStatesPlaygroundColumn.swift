@@ -30,7 +30,7 @@ nonisolated struct SidebarStatesPlaygroundColumn: Hashable, Sendable {
 
     /// Every favicon style at the compact density and the default text size, current first.
     static var faviconStyles: [SidebarStatesPlaygroundColumn] {
-        SidebarFaviconStyle.allCases.map { Self(density: .compact, textSize: .standard, faviconStyle: $0) }
+        SidebarFaviconStyle.allCases.map { Self(density: .compact, textSize: .small, faviconStyle: $0) }
     }
 
     /// The column's caption ("Compact · Large"), or its favicon style's name.
@@ -42,6 +42,9 @@ nonisolated struct SidebarStatesPlaygroundColumn: Hashable, Sendable {
 
     static func title(_ density: SidebarDensity) -> String {
         switch density {
+        case .ultraCompact:
+            String(localized: "sidebar.statesPlayground.density.ultraCompact", defaultValue: "Ultra-compact", bundle: .module)
+        case .normal: String(localized: "sidebar.statesPlayground.density.normal", defaultValue: "Normal", bundle: .module)
         case .compact: String(localized: "sidebar.statesPlayground.density.compact", defaultValue: "Compact", bundle: .module)
         case .comfortable:
             String(localized: "sidebar.statesPlayground.density.comfortable", defaultValue: "Comfortable", bundle: .module)
@@ -67,9 +70,9 @@ nonisolated struct SidebarStatesPlaygroundColumn: Hashable, Sendable {
 
     static func title(_ size: SidebarTextSize) -> String {
         switch size {
-        case .standard: String(localized: "sidebar.statesPlayground.textSize.default", defaultValue: "Default text", bundle: .module)
-        case .large: String(localized: "sidebar.statesPlayground.textSize.large", defaultValue: "Large text", bundle: .module)
-        case .larger: String(localized: "sidebar.statesPlayground.textSize.larger", defaultValue: "Larger text", bundle: .module)
+        case .small: String(localized: "sidebar.statesPlayground.textSize.default", defaultValue: "Default text", bundle: .module)
+        case .medium: String(localized: "sidebar.statesPlayground.textSize.large", defaultValue: "Large text", bundle: .module)
+        case .large: String(localized: "sidebar.statesPlayground.textSize.larger", defaultValue: "Larger text", bundle: .module)
         }
     }
 }
