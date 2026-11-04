@@ -237,8 +237,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// shows it later takes it back.
     func keepRendering(_ tab: WebKitTab) async -> Bool {
         guard let services, let entry = services.cache.existingBrowser(tab.id.rawValue), (entry.tab as? WebKitTab) === tab else { return false }
-        return renderWindows.keepRendering(tabID: tab.id.rawValue, chrome: entry.chrome, webView: tab.webView,
-                                           keepsPageShown: { [weak tab] in tab?.setKeptRendering($0) })
+        return renderWindows.keepRendering(tabID: tab.id.rawValue, chrome: entry.chrome, webView: tab.webView)
     }
 
     /// A persistent WebKit profile's cookie store (`cookies.restore`): the

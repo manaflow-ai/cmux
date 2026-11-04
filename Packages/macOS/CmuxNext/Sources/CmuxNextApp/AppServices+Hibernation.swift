@@ -28,7 +28,6 @@ extension AppServices {
         let audible = features.isEnabled(.recentlyAudibleProtection) ? AudibleHistory(mainWork: mainWork) : nil
         let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, deadlines: mainDeadlines, energy: mainWork.energy, audible: audible, followsTabVisibility: features.isEnabled(.chromiumTabVisibility), freezeEligibility: features.isEnabled(.memoryFreezeEligibility))
         cache.hibernation = hibernation
-        cache.webKit.hidesHiddenTabs = features.isEnabled(.webkitHiddenTabs) // WebKit tabs follow their hides too
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
         hibernation.isDownloading = { [weak self] key in self?.cache.pageRequests.downloads.isDownloading(tab: key) ?? false }
         hibernation.measureMemory = { [weak self] in await self?.resources.sample(.everything).browserPageMemory ?? [:] }
