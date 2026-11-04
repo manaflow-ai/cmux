@@ -1408,6 +1408,9 @@ where
 
 /// How often a command tries again while another daemon holds the lock.
 const HANDOVER_RETRY: Duration = Duration::from_millis(250);
+// timeout: cleanup for a wedged systemctl health probe; the daemon request waits on liveness.
+#[cfg(target_os = "linux")]
+const PROBE_BUDGET: Duration = Duration::from_secs(1);
 
 /// A CLI may be launched without the service's `ACPMUX_HOME` (for example,
 /// from a session shell) while its daemon is owned by the user systemd unit.
@@ -1427,7 +1430,6 @@ where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T>>,
 {
-    const PROBE_BUDGET: Duration = Duration::from_secs(1);
     let show = tokio::process::Command::new(systemctl.clone())
         .args(["--user", "show", "acpmux.service", "-p", "LoadState", "--value"])
         .output();
