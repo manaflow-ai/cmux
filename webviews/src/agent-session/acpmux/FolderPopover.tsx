@@ -176,10 +176,9 @@ export function FolderPopover({
     const switchPopover = (event: Event) => {
       const target = (event as CustomEvent<unknown>).detail;
       if (!(target instanceof Element)) return;
-      if (
-        target.closest(".acpmux-composer, .nt-composer") ===
-        trigger.current?.closest(".acpmux-composer, .nt-composer")
-      )
+      const targetComposer = target.closest(".acpmux-composer, .nt-composer");
+      const folderComposer = trigger.current?.closest(".acpmux-composer, .nt-composer");
+      if (targetComposer && targetComposer === folderComposer)
         close();
     };
     document.addEventListener("cmux-composer-popover-switch", switchPopover);
