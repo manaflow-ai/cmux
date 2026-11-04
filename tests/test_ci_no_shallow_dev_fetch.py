@@ -55,6 +55,8 @@ OWN_REPOSITORY = {
     "scripts/cmux-next/notices/vt_link_graph.py": "fetches into a fresh `git init` temp directory",
     "scripts/cmux_agent_cursor_vendor.py": "fetches into a fresh `git init` temp directory",
     "scripts/ci/swiftpm_prefetch_binary_artifacts.py": "fetches each dependency pin into its own temporary `git init` directory",
+    "webviews/src/agent-session/acpmux/session-info/commandRules.ts":
+        "runs no git: it names a shown command line in words, and lists `git clone`'s --depth as a flag to skip",
 }
 
 
