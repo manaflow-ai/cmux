@@ -42,3 +42,16 @@ export function cardTakesShortcuts(groups: PermissionClientState | undefined): b
     !groups?.supported || !groups.groups.some((group) => group.state === "pending" || group.state === "collecting")
   );
 }
+
+/// Whether `permission` draws as the single card: unless a permission group on screen holds it. A
+/// grouped ask whose group is not read yet (a peer's read waits on its attach) is the single card
+/// at once, and the group's panel takes it when the read lands; an ask restored groups already hold
+/// is the panel's only, never on both.
+export function askOnSingleCard(
+  permission: { pending?: boolean; permissionId: string } | undefined,
+  groups: PermissionClientState | undefined,
+): boolean {
+  if (!permission?.pending) return false;
+  if (!groups?.supported) return true;
+  return !groups.groups.some((group) => group.items.some((item) => item.permissionId === permission.permissionId));
+}
