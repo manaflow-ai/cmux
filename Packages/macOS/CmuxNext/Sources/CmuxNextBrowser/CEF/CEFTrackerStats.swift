@@ -41,6 +41,14 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
 
     public init() {}
 
+    /// The counters `debug.cef` reports as `tracker`, by key (milliseconds for the times). Per action = the change of
+    /// each counter over it (scripts/cmux-next/pane-perf-terminal.py --browser).
+    public var reportFields: [String: Double] {
+        ["clip_reads": Double(clipReads), "occlusion_reads": Double(occlusionReads), "clip_builds": Double(clipBuilds),
+         "clip_hits": Double(clipHits), "clip_ms": clipSeconds * 1_000, "geometry_posts": Double(geometryPosts),
+         "hosted_pages": Double(hostedPages), "hosting_refused": Double(hostingRefused), "geometry_skips": Double(geometrySkips)]
+    }
+
     /// Monotonic seconds for timing a read.
     static func now() -> Double {
         Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1e9
