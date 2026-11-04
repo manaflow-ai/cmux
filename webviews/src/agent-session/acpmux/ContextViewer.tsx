@@ -64,7 +64,17 @@ function sourceLabel(part: ContextPart, t: Translate): string {
   return `${part.source}${scope}${part.channel ? ` · ${part.channel}` : ""}${part.applied === false ? ` · ${t("context.notIncluded")}` : ""}`;
 }
 
-function PartRow({ part, t, open, onToggle }: { part: ContextPart; t: Translate; open: boolean; onToggle: () => void }) {
+function PartRow({
+  part,
+  t,
+  open,
+  onToggle,
+}: {
+  part: ContextPart;
+  t: Translate;
+  open: boolean;
+  onToggle: () => void;
+}) {
   const detailsId = useId();
   const unavailable = part.textAvailable === false;
   return (
@@ -82,7 +92,8 @@ function PartRow({ part, t, open, onToggle }: { part: ContextPart; t: Translate;
         <span className="acpmux-context-part__name">{part.label}</span>
         <span className="acpmux-context-part__source">{sourceLabel(part, t)}</span>
         <span className="acpmux-context-part__tokens">
-          {tokenLabel(part.measurement === "unavailable" ? undefined : part.tokenCount, t)} · {measurementLabel(part, t)}
+          {tokenLabel(part.measurement === "unavailable" ? undefined : part.tokenCount, t)} ·{" "}
+          {measurementLabel(part, t)}
         </span>
       </button>
       {open && (
@@ -235,10 +246,20 @@ export function ContextViewer({
     [parts, settings?.defaultText],
   );
   return (
-    <section className="acpmux-context-viewer" aria-label={t("context.viewer.title")} data-harness={harness} data-session-id={sessionId}>
+    <section
+      className="acpmux-context-viewer"
+      aria-label={t("context.viewer.title")}
+      data-harness={harness}
+      data-session-id={sessionId}
+    >
       <header className="acpmux-context-viewer__header">
         {onClose && (
-          <button type="button" className="acpmux-context-viewer__back" aria-label={t("context.close")} onClick={onClose}>
+          <button
+            type="button"
+            className="acpmux-context-viewer__back"
+            aria-label={t("context.close")}
+            onClick={onClose}
+          >
             ‹
           </button>
         )}
@@ -270,9 +291,7 @@ export function ContextViewer({
           {error}
         </p>
       )}
-      {!loading && !error && parts.length === 0 && (
-        <p className="acpmux-context-viewer__state">{t("context.empty")}</p>
-      )}
+      {!loading && !error && parts.length === 0 && <p className="acpmux-context-viewer__state">{t("context.empty")}</p>}
       {!loading && !error && parts.length > 0 && (
         <div className="acpmux-context-viewer__parts">
           {parts.map((part) => (
