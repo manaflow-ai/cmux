@@ -26,13 +26,17 @@ missed = an interval over 1.5 refresh periods), main-thread time in Ghostty's di
 for the GPU), and the render counters of every resized terminal (`debug.surfaces`): frames drawn by
 the main thread, fresh frames presented in the commit of their size, late passes (GhosttyNextKit with
 G1; absent before), full rebuilds. After the drag every terminal's drawn, fitted and owner grids must
-agree. Prints one JSON summary per layout and writes OUT/terminal-resize.json. Exit 0 always (a bench,
-not a gate); the summary says what to compare.
+agree. Prints one JSON summary per layout and writes OUT/terminal-resize.json; the summary says what to
+compare. Exits non-zero, after writing the report, when a layout measured nothing (terminal_resize_verdict.py:
+a layout error, a drag in which no terminal resized, no frame was counted or no terminal drew, a split action
+that resized no terminal): such zeros are not a result.
 """
 import argparse, glob, importlib.util, json, os, plistlib, signal, socket, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import bench_launch  # noqa: E402
+import terminal_resize_verdict  # noqa: E402
 from tag_teardown import TagTeardown  # noqa: E402
 
 parser = argparse.ArgumentParser()
@@ -350,6 +354,21 @@ def split_resize(stress_session=False):
 
 if os.path.exists(SOCKET):
     os.unlink(SOCKET)
+# The run measures a session it builds: the tag's saved session from earlier runs on this host would be restored
+# (cmux22, 2026-11-04: STRESS refused "the app already has 61 workspaces", and the light layout's terminals sat behind
+# what the restored session showed). Only with no process of the bundle running: its state must not be in use.
+# BENCH_LAUNCH_KEEP_STATE=1 keeps it.
+running = bench_launch.bundle_pids(APP)
+if running:
+    print(f"bench-terminal-resize: {APP} already runs (pid {', '.join(map(str, running))}): its saved session stays",
+          file=sys.stderr, flush=True)
+elif not os.environ.get("BENCH_LAUNCH_KEEP_STATE"):
+    bench_launch.start_fresh_state(TAG)
+# An empty session is a first run: the app would put its Bring your history page in front of the first window
+# (OnboardingService.showHistoryAtFirstRun, once per app channel). This tag's own defaults domain says it showed.
+if sys.platform == "darwin" and info.get("CFBundleIdentifier") and not bench_launch.is_shipped_state_tag(TAG):
+    subprocess.run(["defaults", "write", info["CFBundleIdentifier"], "home.firstRun.historyImportShown", "-bool", "YES"],
+                   capture_output=True, timeout=30, stdin=subprocess.DEVNULL)
 scratch = tempfile.mkdtemp(prefix=f"bench-terminal-resize-{TAG}-")
 config = os.path.join(scratch, "cmux.json")
 with open(config, "w") as f:
@@ -365,6 +384,7 @@ teardown.install()
 log = open(os.path.join(opts.out, "app.log"), "a")
 app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
 report = {"pid": app.pid, "app": APP, "layouts": []}
+unmeasured = []
 try:
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
         log.flush()
@@ -373,6 +393,11 @@ try:
     for name in [n for n in opts.layouts.split(",") if n]:
         result = {"idle-cursor": idle_cursor, "light": light, "stress": stress, "split-resize": split_resize,
                   "split-resize-stress": lambda: split_resize(stress_session=True)}[name]()
+        found = terminal_resize_verdict.problems(result)
+        if found:
+            # A layout that measured nothing fails the run (its zeros are not a result).
+            result["problems"] = found
+            unmeasured.extend(found)
         report["layouts"].append(result)
         print(f"TERMINAL-RESIZE {json.dumps(result)}", flush=True)
 finally:
@@ -384,6 +409,10 @@ finally:
             app.kill()
             app.wait()
     teardown.end()
+    if unmeasured:
+        report["problems"] = unmeasured
     for path in [os.path.join(opts.out, "terminal-resize.json")] + ([opts.json] if opts.json else []):
         with open(path, "w") as f:
             json.dump(report, f, indent=1)
+if unmeasured:
+    sys.exit("bench-terminal-resize: a layout measured nothing:\n  " + "\n  ".join(unmeasured))

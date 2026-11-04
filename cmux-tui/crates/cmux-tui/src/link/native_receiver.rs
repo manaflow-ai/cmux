@@ -12,7 +12,9 @@ use anyhow::{anyhow, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use cmux_host::cloud::receiver::ReceiverBinding;
 use cmux_link::elapsed::Deadline;
-use cmux_link::native_token::{NativePolicy, NativeTokenVerifier, PolicyDeadline};
+use cmux_link::native_token::{
+    MAX_POLICY_LEASE_MS, NativePolicy, NativeTokenVerifier, PolicyDeadline,
+};
 use cmux_link::overlay_addr::overlay_address;
 use cmux_wg::{
     InterfaceAddress, IpNetwork, WgMesh, WgMeshConfig, WgMeshListener, WgPeer, WgStream,
@@ -171,7 +173,7 @@ impl NativeReceiver {
             let lifetime = policy
                 .expires_at_ms
                 .checked_sub(policy.checked_at_ms)
-                .filter(|duration| *duration > 0 && *duration <= 30_000)
+                .filter(|duration| *duration > 0 && *duration <= MAX_POLICY_LEASE_MS)
                 .ok_or_else(|| anyhow!("cloud.receiver.policy_lease_refused"))?;
             let deadline = policy
                 .request_started

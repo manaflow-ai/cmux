@@ -5,6 +5,11 @@ test("the Chief harness is named Chief", () => {
   expect(agentDisplayName("chief")).toBe("Chief");
 });
 
+test("first-class provider harnesses keep their product names", () => {
+  expect(agentDisplayName("gemini")).toBe("Gemini CLI");
+  expect(agentDisplayName("muse")).toBe("Muse Code");
+});
+
 test("a harness that offers no models names itself on the model chip, not 'Model'", () => {
   // The Chief picks its own engine: its chat has no model list, so the chip says whose chat it is.
   expect(modelChipFallback({ id: "chief", name: "Chief", models: [] }, [])).toBe("Chief");
