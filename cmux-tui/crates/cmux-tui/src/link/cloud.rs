@@ -452,6 +452,8 @@ pub(super) async fn apply_cloud_event<O: Overlay, S: ConnectInfoSource>(
 
 /// A refused Cloud dial: the typed code, and what failed in `error_detail`
 /// and on this link's stderr (the app keeps it in the link's `link.log`).
+/// Both get the same clipped, one-line detail (`failed_because`), never the
+/// raw text.
 async fn refuse<C: AsyncWrite + Unpin>(
     caller: &mut C,
     host: &str,
@@ -459,8 +461,12 @@ async fn refuse<C: AsyncWrite + Unpin>(
     error: DialError,
     detail: &str,
 ) {
-    eprintln!("cmux link: dial {host} {service:?} refused ({error:?}): {detail}");
-    reply(caller, DialReply::failed_because(error, detail)).await;
+    let refused = DialReply::failed_because(error, detail);
+    eprintln!(
+        "cmux link: dial {host} {service:?} refused ({error:?}): {}",
+        refused.error_detail.as_deref().unwrap_or("")
+    );
+    reply(caller, refused).await;
 }
 
 /// Serve one `link.dial` for a Cloud host id: the record (cached), the

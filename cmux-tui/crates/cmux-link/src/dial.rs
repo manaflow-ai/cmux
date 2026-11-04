@@ -85,8 +85,10 @@ pub enum DialError {
     HostPaused,
 }
 
+/// Readers ignore unknown fields (unlike the request types): a reply may
+/// gain a field such as `error_detail`, and a reader that predates it must
+/// still read the typed `error_code`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct DialReply {
     pub ok: bool,
     pub path_state: PathState,
@@ -319,6 +321,12 @@ mod tests {
         let wide = DialReply::failed_because(DialError::Unreachable, &"\u{e9}".repeat(1000));
         assert!(wide.error_detail.is_some_and(|d| d.len() <= MAX_ERROR_DETAIL_BYTES));
         assert_eq!(DialReply::failed_because(DialError::Unreachable, " \n").error_detail, None);
+        // A reply with a field this reader does not know still parses.
+        let newer: DialReply = parse_line(
+            "{\"ok\":false,\"path_state\":\"unreachable\",\"relay_available\":false,\"error_code\":\"unreachable\",\"later_field\":1}",
+        )
+        .expect("an unknown reply field is ignored");
+        assert_eq!(newer.error_code, Some(DialError::Unreachable));
     }
 
     #[test]
