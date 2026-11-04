@@ -208,7 +208,7 @@ pub struct PinnedApprover {
 /// hex digits; None when the text is not one.
 pub fn key_fingerprint(key_base64: &str) -> Option<String> {
     let bytes = base64::engine::general_purpose::STANDARD.decode(key_base64.trim()).ok()?;
-    (bytes.len() == 65 && bytes[0] == 0x04).then(|| hex::encode(Sha256::digest(&bytes)))
+    (bytes.len() == 65 && bytes.first() == Some(&0x04)).then(|| hex::encode(Sha256::digest(&bytes)))
 }
 
 /// A fingerprint as people compare it, the same as the iPhone and Mac show it
