@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7c39669d1126b40e5f9e8759eee6ec5ee6eec5da05b4c5a793d8cb16c32dc31b. */
+/* cmux-tui mux protocol 12, IR 90d0605d1f55a8b89b86ace2127f57445382f7e804efff5ba385ae75bddc84dd. */
 
 
 import type * as T from "./types.js";
@@ -231,6 +231,18 @@ export type ChiefInspectResult = {
   "body"?: (T.JsonValue) | null;
   "error"?: (string) | null;
   "status": bigint;
+};
+
+/** Protocol v12; authority: frontend. */
+export interface ChiefWorkRequest extends CmuxRequestBase {
+  cmd: "chief-work";
+  "chief": string;
+}
+export type ChiefWorkResult = {
+  "agents": Array<T.ChiefWorkAgent>;
+  "taskSources": Array<string>;
+  "tasks": Array<T.ChiefWorkTask>;
+  "truncated": boolean;
 };
 
 /** Protocol v9; authority: control. */
@@ -1620,6 +1632,7 @@ export interface MoveTabToColumnRequest extends CmuxRequestBase {
   "dock"?: (T.ColumnPin) | null;
   "keep_focus"?: boolean;
   "pane"?: (T.Id) | null;
+  "pane_id"?: (string) | null;
   "respawn"?: (T.SplitRespawn) | null;
   "screen"?: (T.Id) | null;
   "surface": T.Id;
@@ -2932,6 +2945,7 @@ export type CmuxRequest =
   | BrowserWheelRequest
   | BrowserWheelGuardedRequest
   | ChiefInspectRequest
+  | ChiefWorkRequest
   | ClearHistoryRequest
   | ClearWindowTitleRequest
   | ClientFocusRequest
@@ -3368,6 +3382,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "chief-inspect-v1";
+    stream: null;
+  };
+  "chief-work": {
+    request: ChiefWorkRequest;
+    result: ChiefWorkResult;
+    authority: "frontend";
+    since: 12;
+    capability: "chief-work-v1";
     stream: null;
   };
   "clear-history": {

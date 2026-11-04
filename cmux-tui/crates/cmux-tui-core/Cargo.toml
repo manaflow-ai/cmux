@@ -54,6 +54,7 @@ cmux-link.workspace = true
 getrandom.workspace = true
 rusqlite.workspace = true
 parking_lot = { workspace = true, features = ["arc_lock"] }
+arc-swap.workspace = true
 fs4.workspace = true
 sha2.workspace = true
 socket2.workspace = true

@@ -8,7 +8,7 @@
 // where the card's x and y count from, so it lands where it always did. The wheel over the card and
 // a scrolling key on its bookmark still scroll the transcript, and reach the scroller's own
 // listeners first (wheelPassThrough.ts), as they did when the card was inside it.
-import React, { useCallback, useLayoutEffect, useRef } from "react";
+import React, { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -100,6 +100,12 @@ export const PreviewCard = React.forwardRef<
     scroller?: HTMLElement | null;
     /// The prompt's line; a reply's card has none.
     prompt?: string;
+    /// The prompt is not loaded yet (a pending tick, model.ts `pendingTurns`): the card holds a blank
+    /// line where its words go, and they fade in there when they arrive.
+    pending?: boolean;
+    /// The rail row the card is open on: the fade of arriving words is this row's, never replayed on
+    /// the row the card moves to.
+    row?: number;
     /// The prompt's sender, when another session sent it (model.ts `promptSender`): a line above it
     /// names them, so it never reads as the person's own words.
     from?: string;
@@ -124,6 +130,8 @@ export const PreviewCard = React.forwardRef<
     viewportHeight,
     scroller,
     prompt,
+    pending = false,
+    row,
     from,
     reply,
     metadata,
@@ -139,6 +147,18 @@ export const PreviewCard = React.forwardRef<
 ) {
   const t = useT();
   const layer = scroller?.parentElement;
+  /// The words of a prompt that was pending under the open card arrived: they fade in (opacity only,
+  /// threadMinimap.css `[data-arrived]`), in the place the blank line held. Set before paint.
+  const [arrived, setArrived] = useState(false);
+  const wasPending = useRef(pending);
+  const wasRow = useRef(row);
+  useLayoutEffect(() => {
+    if (wasRow.current !== row) setArrived(false);
+    else if (wasPending.current && !pending) setArrived(true);
+    else if (pending) setArrived(false);
+    wasPending.current = pending;
+    wasRow.current = row;
+  }, [pending, row]);
   const anchor = useRef<HTMLSpanElement>(null);
   const self = useRef<HTMLDivElement | null>(null);
   /// Where the card goes, as of the last render: read by `place`, which a commit or a resize runs.
@@ -280,6 +300,9 @@ export const PreviewCard = React.forwardRef<
       className="acpmux-minimap__card"
       data-prompt={prompt !== undefined ? "" : undefined}
       data-incoming={from !== undefined || undefined}
+      data-pending={pending || undefined}
+      data-arrived={arrived || undefined}
+      aria-busy={pending || undefined}
       // Its transform is `place`'s, written before paint; on the right with no layer it is pinned to
       // the right edge (left: auto; right: 0) and `place` counts `x` in from there.
       style={cardStyle}
@@ -294,7 +317,11 @@ export const PreviewCard = React.forwardRef<
       )}
       {prompt !== undefined && (
         <div className="acpmux-minimap__title">
-          <span className="acpmux-minimap__prompt">{prompt}</span>
+          {pending ? (
+            <span className="acpmux-minimap__prompt" data-pending="" aria-hidden />
+          ) : (
+            <span className="acpmux-minimap__prompt">{prompt}</span>
+          )}
           {bookmark && (
             <button
               type="button"

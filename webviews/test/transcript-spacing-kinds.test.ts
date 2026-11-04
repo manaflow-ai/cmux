@@ -238,15 +238,23 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
         .querySelector('[data-row-id="received-footer"] .cv-turn-actions button svg')
         ?.getBoundingClientRect();
       const received = document.querySelector('[data-row-id="received-line"]') ?? undefined;
+      const bubble = document.querySelector('[data-row-id="sp-prompt"] .cv-user__bubble')?.getBoundingClientRect();
       const sent = byText(/^Sent to/m) ?? document.querySelector('[data-row-id="received-sent"]') ?? undefined;
       const gaps: Record<string, number | null> = {
         "work-to-subagent": diff(head(byText(/Sent a message/)), head(byClass("acpmux-subagentDone"))),
-        "subagent-to-live": diff(head(byClass("acpmux-subagentDone")), head(live)),
-        "live-to-waiting": diff(head(live), head(byClass("acpmux-pendingMessages"))),
+        "subagent-to-waiting": diff(head(byClass("acpmux-subagentDone")), head(byClass("acpmux-pendingMessages"))),
+        // The closed group draws its first line under its head (stacked): the live line is a row under that.
+        "waiting-to-live": after(
+          byClass("acpmux-pendingMessages"),
+          diff(head(byClass("acpmux-pendingMessages")), head(live)),
+        ),
         "reply-footer-to-received":
           footer && footer.height > 0 ? diff((footer.top + footer.bottom) / 2, head(received)) : null,
         "received-to-sent": diff(head(received), head(sent)),
         "sent-to-live": diff(head(sent), head(live)),
+        "status-to-prompt": diff(head(byClass("acpmux-subagentDone")), bubble?.top),
+        "prompt-to-sent": diff(bubble?.bottom, head(document.querySelector('[data-row-id="sp-sent"]') ?? undefined)),
+        "note-to-live": diff(head(document.querySelector('[data-row-id="notes-last"]') ?? undefined), head(live)),
       };
       const chips = [...document.querySelectorAll<HTMLElement>(".cv-agent-tag")].filter(shown).map((chip) => {
         const label = lines(chip)[0];

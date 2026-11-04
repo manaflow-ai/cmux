@@ -1,4 +1,4 @@
-// The agent pane host: the real pane entry (acpmux/main.tsx, so AcpmuxApp under its boundary and
+// The agent pane host: the real pane entry (acpmux/mount.tsx, so AcpmuxApp under its boundary and
 // the desktop layer) on a stand-in for the app's pane bridge (`webkit.messageHandlers.agentSession`
 // plus `window.cmuxAcpmuxBridge`). `ready` answers the state's host fields with the `preview`
 // transport, which runs no client; the state's snapshot then arrives through `receive`, as the
@@ -10,6 +10,7 @@ import type { StageContext } from "./context";
 import { installChipHost } from "./chips";
 import { resetSummaryCards } from "../../agent-session/acpmux/summary/cardState";
 import { setChatDisplay } from "../../agent-session/acpmux/chatDisplay";
+import { prepareMockTransport } from "../../agent-session/acpmux/mockTransport";
 
 type Message = { id?: string; method?: string; params?: Record<string, unknown> };
 
@@ -163,19 +164,38 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   // Before the pane's scripts run, as AgentPaneTunables.documentScript sets them in the app.
   for (const [name, value] of Object.entries(state.documentAttributes ?? {}))
     document.documentElement.setAttribute(`data-${name}`, value);
-  // The desktop layer first (the pane's main.tsx imports it): it inserts desktop.css and the liquid
+  // The desktop layer first (the pane's mount.tsx imports it): it inserts desktop.css and the liquid
   // glass (ui/glass/glass.css) on their own, and the pane's sheet, which holds them in the shipped
   // order ahead of the pane's own sheets, must come after so a surface's rules outrank `.ui-glass`
   // as they do in the app.
   await import("../../pages/shared/desktop");
   await import("virtual:cmux-gallery/agent-pane.css");
   await import("katex/dist/katex.min.css");
-  await import("../../agent-session/acpmux/main");
-  // main.tsx imports some pane sheets itself (styles.css, diffTokens.css, composerFooterShared.css,
+  // Mock pages need their daemon before mounting: the ready reply schedules the fixture
+  // snapshot, which must not paint while the mock transport's chunk is still loading.
+  if (state.ready?.transport === "mock") prepareMockTransport(await import("../../agent-session/acpmux/mock"));
+  const { mountAcpmux } = await import("../../agent-session/acpmux/mount");
+  // Static chat previews already have their final snapshot. Do not first mount an empty shell
+  // and simulate a network delivery of data we hold. Scenes specifying a handshake, New Tab
+  // context or a delayed host still exercise the normal asynchronous startup.
+  const initialChat =
+    !state.ready && !state.nativeDelayMs?.ready && !state.native?.["newTab.context"]
+      ? { snapshot: structuredClone(snapshot), machineName: "This Mac", workflowLabs: state.workflowLabs }
+      : undefined;
+  if (initialChat) {
+    const { applyPaneTheme, applyPaneThemeCSS } = await import("../../agent-session/acpmux/App");
+    const { setSessionStatus } = await import("../../agent-session/acpmux/sessionStatus");
+    applyPaneTheme({ ...context.agentTheme, ...state.theme });
+    applyPaneThemeCSS(agentPaneFontCSS(context.env.fontFamily, context.env.fontSize));
+    setSessionStatus(state.sessionStatus === true);
+    setChatDisplay(state.display ?? {});
+  }
+  // mount.tsx imports some pane sheets itself (styles.css, diffTokens.css, composerFooterShared.css,
   // #26126). The app's bundle drops those imports and ships each sheet once in dev.tsx's order, but
   // here each lands as a second copy after the pane's sheet, so styles.css's base rules outranked the
   // later sheets' (the quiet row took the bar's 10 px padding back). The pane's sheet goes last again,
   // after every copy, so the shipped order wins.
   const paneSheet = document.querySelector('style[data-vite-dev-id$="/agent-pane.virtual.css"]');
   if (paneSheet) document.head.append(paneSheet);
+  mountAcpmux(initialChat);
 }

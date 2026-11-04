@@ -21,6 +21,8 @@ use lock::{
 };
 mod running;
 pub use running::connect_running;
+mod snapshot_clear;
+pub(crate) use snapshot_clear::clear_peer_snapshots;
 mod router_owner;
 #[cfg(unix)]
 pub(crate) use router_owner::open_router_owner;
@@ -37,6 +39,10 @@ pub(crate) mod login_session;
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod cloud_handoff;
+// Counts this daemon's chats at work toward the Cloud machine's activity (idle pause).
+#[cfg(unix)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod cloud_activity;
 mod handover;
 mod home_watch;
 mod notify;
@@ -65,6 +71,9 @@ pub struct DaemonOptions {
     pub dev_origins: Vec<String>,
     /// `--dev`: a development launch (see `dev_origins_permitted`).
     pub dev: bool,
+    /// `--take-over`: this daemon is the home's supervised owner (the systemd unit); it takes
+    /// the home over from another daemon that serves the same socket ([`take_over_holder`]).
+    pub take_over: bool,
 }
 
 /// The daemon's panic log, `$ACPMUX_HOME/panics.jsonl` (cmux-panic-log):
@@ -189,7 +198,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let _ = std::env::set_current_dir(home());
     exe_path::check_run(opts.ready_fd)?;
     let lock = home().join("daemon.lock");
-    let _lock_file = match acquire_daemon_lock(&lock).await {
+    let _lock_file = match acquire_daemon_lock(&lock, opts.take_over).await {
         Ok(lock) => lock,
         Err(e) => {
             // The command that started this daemon waits for the holder (`connect`).
@@ -663,6 +672,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 hub.adopt_agent_hosts().await;
                 hub.settle_unadopted().await;
             }
+            hub.recover_workflows().await;
             {
                 let hub = hub.clone();
                 tokio::spawn(async move {
@@ -684,8 +694,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         })
     };
     tokio::spawn(notify::notify_loop(hub.clone()));
+    // A paused machine or a stopped daemon is noticed on resume (`hub/resume.rs`).
+    tokio::spawn(Hub::resume_loop(Arc::downgrade(&hub)));
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
+    #[cfg(target_os = "linux")]
+    tokio::spawn(cloud_activity::activity_loop(hub.clone()));
 
     #[cfg(all(unix, feature = "tailnet"))]
     let tailnet = crate::tailnet::embedded_service::Service::spawn(hub.clone());
@@ -1213,13 +1227,31 @@ fn managed_by_acpmux_unit() -> bool {
     false
 }
 
-async fn acquire_daemon_lock(path: &std::path::Path) -> Result<DaemonLock> {
+/// Take this home's lock. The unit's daemon (`--take-over`, or a daemon in the
+/// `acpmux.service` cgroup) first asks a holder that serves this same socket to hand over
+/// ([`take_over_holder`]), then waits for the lock: a client can start a detached daemon in the
+/// seconds between a shutdown and the unit's restart (chief-sub-a524, 2026-11-03), and waiting
+/// alone would end in a lock refusal and leave the unit failed while that daemon serves the home
+/// outside it. A `--take-over` start whose holder serves another socket is refused at once.
+async fn acquire_daemon_lock(path: &std::path::Path, take_over: bool) -> Result<DaemonLock> {
+    let supervised = take_over || managed_by_acpmux_unit();
+    let mut asked = false;
     loop {
         match acquire_lock(path) {
             Ok(lock) => return Ok(lock),
-            Err(error)
-                if managed_by_acpmux_unit() && error.downcast_ref::<LockHeld>().is_some() =>
-            {
+            Err(error) if supervised && error.downcast_ref::<LockHeld>().is_some() => {
+                #[cfg(unix)]
+                let ours =
+                    lock::holder_socket(path).is_some_and(|held| same_path(&held, &socket_path()));
+                #[cfg(not(unix))]
+                let ours = false;
+                if take_over && !ours {
+                    return Err(error);
+                }
+                if ours && !asked {
+                    asked = true;
+                    take_over_holder(&socket_path()).await;
+                }
                 if !wait_for_lock_release(path.to_owned(), Duration::from_secs(60)).await {
                     return Err(error);
                 }
@@ -1227,6 +1259,53 @@ async fn acquire_daemon_lock(path: &std::path::Path) -> Result<DaemonLock> {
             Err(error) => return Err(error),
         }
     }
+}
+
+/// Ask the daemon at `socket` to hand this home over: `_acpmux/shutdown` with its agents kept,
+/// as `acpmux daemon shutdown` sends it, once its status names this home and socket. Best
+/// effort: a holder that does not answer, or one that is already stopping, is waited out by the
+/// caller.
+async fn take_over_holder(socket: &std::path::Path) {
+    let Ok(Ok(client)) =
+        tokio::time::timeout(Duration::from_secs(5), crate::client::Client::connect(socket)).await
+    else {
+        return;
+    };
+    let status = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})),
+    )
+    .await;
+    let Ok(Ok(status)) = status else { return };
+    let same = |key: &str, want: &std::path::Path| {
+        status
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|got| same_path(std::path::Path::new(got), want))
+    };
+    if !same("home", &home()) || !same("socket", socket) {
+        return;
+    }
+    tracing::info!(
+        pid = status.get("pid").and_then(serde_json::Value::as_u64),
+        "another daemon of this home serves its socket; asking it to hand over"
+    );
+    let _ = tokio::time::timeout(
+        Duration::from_secs(10),
+        client.request(crate::rpc::method::MUX_SHUTDOWN, serde_json::json!({})),
+    )
+    .await;
+}
+
+/// Whether two paths name the same file: equal, or equal once canonical (a missing file through
+/// its canonical folder).
+fn same_path(left: &std::path::Path, right: &std::path::Path) -> bool {
+    fn canonical(path: &std::path::Path) -> Option<std::path::PathBuf> {
+        std::fs::canonicalize(path)
+            .ok()
+            .or_else(|| Some(std::fs::canonicalize(path.parent()?).ok()?.join(path.file_name()?)))
+    }
+    left == right || canonical(left).zip(canonical(right)).is_some_and(|(l, r)| l == r)
 }
 
 fn random_token() -> Result<String> {

@@ -32,7 +32,7 @@
   --cu-preview-close-press: color-mix(in srgb, black 64%, transparent);
   position: absolute;
   top: calc(var(--acpmux-header-height, 44px) + 8px);
-  right: 12px;
+  right: var(--ds-space-3, 12px);
   z-index: var(--layer-sticky);
   /* As wide as the frame, at most 180px (the column's reserve): a tall window gets a narrow card. */
   width: fit-content;
@@ -72,7 +72,7 @@
 .acpmux-cu-preview__open:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: 2px;
-  border-radius: 10px;
+  border-radius: var(--grid-cards-radius, 12px);
 }
 
 .acpmux-cu-preview__frame {
@@ -165,8 +165,8 @@
    preview). Hover lifts its fill a little and scales it up; a press scales it down. */
 .acpmux-cu-preview__close {
   position: absolute;
-  top: 6px;
-  left: 6px;
+  top: var(--ds-space-2, 8px);
+  left: var(--ds-space-2, 8px);
   display: grid;
   place-items: center;
   width: 20px;

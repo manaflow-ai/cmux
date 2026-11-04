@@ -48,9 +48,12 @@ const sessionInfo =
       await ctx.waitFor(() => ctx.document.querySelector(".acpmux-session-info-toggle"));
       if (ctx.document.querySelector(toggle)) await ctx.click({ selector: toggle });
     }
+    // Push pushes only where the transcript's column keeps its width beside the panel; in this 760px pane a
+    // push would narrow it, so it lies over the chat instead (#33037, SessionInfo.tsx pushKeepsColumn).
+    const drawn = placement === "push" ? "overlay" : placement;
     await ctx.waitFor(() =>
       open
-        ? ctx.document.querySelector(`.acpmux-session-info[data-placement="${placement}"][data-presence="shown"]`)
+        ? ctx.document.querySelector(`.acpmux-session-info[data-placement="${drawn}"][data-presence="shown"]`)
         : !ctx.document.querySelector(".acpmux-session-info"),
     );
   };
@@ -136,7 +139,7 @@ export default agentPaneEntry({
       play: sessionInfo("push", false),
     },
     "session-info-push-open": {
-      note: "Push always narrows the conversation below the header; the tools keep their full-width alignment.",
+      note: "Push chosen in a 760px pane: a push would narrow the conversation's column, so Session Info lies over the chat instead; the tools keep their full-width alignment.",
       snapshot: chat(finished),
       play: sessionInfo("push", true),
     },

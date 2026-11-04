@@ -161,6 +161,9 @@ extension CEFRuntime {
                 CEFEventTrace.record(browser, event)
                 #endif
                 tab.handle(event)
+            } else if let browser = event.browserID, event.isLoadEvent {
+                // A load event of a browser no tab owns is dropped: the trace says so (lead on STATUS 8457).
+                BrowserLifecycleTrace.shared.record(BrowserTabID(rawValue: "browser-\(browser)"), "cef-load-event-without-tab")
             }
         }
     }
@@ -222,7 +225,12 @@ extension CEFRuntime {
         if let tab = tabBeingAdded {
             // cmux_tab_add runs OnAfterCreated before it returns.
             tabBeingAdded = nil
+            #if DEBUG || CMUX_BENCH_HOOKS
+            // cmux's own attach work inside `cef.tab_add` (its span includes this one): what is Chromium's and what is cmux's.
+            benchMarks.span("cef.tab_add.attach") { register(tab, browser: browser) }
+            #else
             register(tab, browser: browser)
+            #endif
             return
         }
         // Chromium created the tab itself (target=_blank, chrome.tabs.create).
@@ -328,11 +336,22 @@ extension CEFRuntime {
         state != .shutDown && !stopping
     }
 
+    /// How long quit waits for Chromium to commit every cookie store before CefShutdown
+    /// (`flushCookieStores`). A flush takes milliseconds on an idle disk.
+    static let cookieFlushLimit: Duration = .milliseconds(500)
+
     /// Closes every browser, waits (without blocking the main thread) until
-    /// the Chromium windows are destroyed or `timeout` passes, then calls
-    /// CefShutdown. The App awaits this from `applicationShouldTerminate`
-    /// (terminate-later), so the run loop keeps pumping CEF meanwhile.
-    func shutdown(timeout: Duration) async {
+    /// the Chromium windows are destroyed or `timeout` passes, commits every
+    /// cookie store (main thread free, at most `cookieFlushLimit`), then runs
+    /// `beforeEngineStop` (the App hides its windows) and calls CefShutdown.
+    /// The App awaits this from `applicationShouldTerminate` (terminate-later),
+    /// so the run loop keeps pumping CEF meanwhile.
+    ///
+    /// CefShutdown blocks the main thread for 2 to 3.4 s at quit (cmuxterm-hq#6338: its
+    /// thread pool's shutdown tasks and child processes, under load), and in most of those
+    /// quits the quit deadline ended the process inside it, before Chromium's own cookie
+    /// flush finished. The flush here runs first, while the main thread is free.
+    func shutdown(timeout: Duration, beforeEngineStop: @MainActor () -> Void = {}) async {
         if state == .loading {
             // The library is still mapping: never initialize after quit began.
             state = .shutDown
@@ -365,6 +384,8 @@ extension CEFRuntime {
         shutdownTimeout?.cancel()
         shutdownTimeout = nil
         devToolsCalls.failAll(where: { _ in true }, with: BrowserTabError.closed)
+        // Also when the close timed out and CefShutdown is skipped: the cookies still reach disk.
+        await flushCookieStores(shim, limit: Self.cookieFlushLimit)
         siteReplies.failAll(where: { _ in true }, with: BrowserTabError.closed)
         pump?.stop()
         guard shutdownSequence?.phase == .readyToShutdown else {
@@ -372,9 +393,22 @@ extension CEFRuntime {
             state = .shutDown
             return
         }
+        beforeEngineStop()
         shim.shutdown()
         state = .shutDown
         logger.notice("CEF shutdown complete")
+    }
+
+    /// Commits every profile's cookie store (`cmux_shim_flush_cookie_stores`) and waits, with the
+    /// main thread free and CEF pumped, for Chromium's answer or `limit`.
+    private func flushCookieStores(_ shim: CEFShimLibrary, limit: Duration) async {
+        let started = ContinuousClock.now
+        do {
+            let reply = try await engineReply(label: "cookie flush", timeout: limit) { shim.flushCookieStores($0) }
+            logger.notice("CEF cookie stores flushed: \(reply.value, privacy: .public) in \(ContinuousClock.now - started, privacy: .public)")
+        } catch {
+            logger.error("CEF cookie flush before shutdown: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Called after every close/destroy event during shutdown. A pane's browser still being made
@@ -410,7 +444,7 @@ extension CEFShimEvent {
              .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
              .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _), .pageDragEnter(let b, _),
              .fileDialog(let b, _, _, _, _),
-             .pageMessage(let b, _, _, _):
+             .pageMessage(let b, _, _, _), .statusMessage(let b, _):
             b
         case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .evaluateResult, .unknown:
             nil

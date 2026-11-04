@@ -81,6 +81,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // This daemon's own copy of a peer session's events (`hub/peer_snapshot.rs`),
     // answered here while the peer is down too.
     "_acpmux/peer_snapshot",
+    "_acpmux/peer_snapshots_clear",
 ];
 
 /// Whether `m` names a session that a peer's session forwards for: not one this daemon answers
@@ -220,17 +221,61 @@ pub(super) async fn forward(
 ) -> Option<Result<Value, RpcError>> {
     let reply = forward_inner(hub, conn, m, params).await.transpose();
     // A client waits on a peer that is down (a chat it opens): the peer reconnects within
-    // seconds (`peer_wanted.rs`). A peer daemon's connection is no client waiting here.
-    if conn.origin != Origin::Peer
-        && let Some(Err(e)) = &reply
+    // seconds (`peer_wanted.rs`). A peer daemon's connection is no client waiting here. A
+    // message for a session there, from any connection (a peer daemon's forward and this
+    // daemon's own outbox included), also asks the peer's route to wake a paused machine
+    // (`Peer::wake`); the sender's outbox delivers it once the link is back.
+    if let Some(Err(e)) = &reply
         && let Some(peer) = unreachable_peer(hub, e)
     {
-        peer.want();
+        ask_back(&peer, m, params, conn.origin);
     }
     if conn.origin == Origin::Peer {
         return reply.map(|r| r.map_err(super::redact::hide_unreachable_peer));
     }
     reply
+}
+
+/// What a request refused because `peer`'s link is down asks of the peer: a message (from any
+/// connection) wakes it (`Peer::wake`), and so does a client's sign that a person is writing one
+/// ([`composing`]; typing reaches it from `forward_inner`, which answers typing itself), a
+/// client's other request wants it back (`Peer::want`), and a peer daemon's
+/// other request asks nothing.
+///
+/// Waking on the first keystroke instead of on Send starts the paused machine's resume while the
+/// person types, so it is mostly done when the message goes (HQ#6694: Freestyle's resume through
+/// the app is seconds, typing a message is longer). A draft that is never sent costs one resume,
+/// which the machine's idle pause takes back.
+fn ask_back(peer: &crate::peer::Peer, m: &str, params: &Value, origin: Origin) {
+    if m == method::SESSION_PROMPT {
+        peer.wake();
+    } else if !wake_if_composing(peer, m, params, origin) && origin != Origin::Peer {
+        peer.want();
+    }
+}
+
+/// Wakes `peer` when a client (never a peer daemon's forward) says a person is writing to its
+/// chat ([`composing`]); whether it did.
+fn wake_if_composing(peer: &crate::peer::Peer, m: &str, params: &Value, origin: Origin) -> bool {
+    let wakes = origin != Origin::Peer && composing(m, params);
+    if wakes {
+        peer.wake();
+    }
+    wakes
+}
+
+/// Whether request `m` says a person is writing to the chat: typing turned on
+/// (`_acpmux/typing`), or a surface's unsent text that is not blank (`_acpmux/composer_set`).
+/// Clearing it or stopping typing is not, and neither is `_acpmux/draft_set`: the pane saves the
+/// last chat's draft when it switches away, unchanged, which is no one writing.
+fn composing(m: &str, params: &Value) -> bool {
+    match m {
+        method::MUX_TYPING => params.get("on").and_then(Value::as_bool) == Some(true),
+        method::MUX_COMPOSER_SET => {
+            params.get("text").and_then(Value::as_str).is_some_and(|text| !text.trim().is_empty())
+        }
+        _ => false,
+    }
 }
 
 /// The peer of this daemon that `e` refused a request for because its link is down.
@@ -281,6 +326,16 @@ async fn forward_inner(
         && hub.resolve(key).is_err()
         && let Some((peer, id, row)) = hub.resolve_remote(key)
     {
+        // A link that is down lists no features (`link_ended`), so every feature check below (the
+        // trust gate, attachments, a prompt that waits for the owner) would call a prompt
+        // unsupported: final for the outbox, and the peer never asked to wake. The prompt is
+        // refused as unreachable instead, which `forward` turns into a wake and the outbox tries
+        // again; the checks run on that try, once the link is back.
+        if m == method::SESSION_PROMPT && !peer.ready() {
+            crate::author::of_prompt(params)?;
+            crate::prompt_provenance::notice_checked(params)?;
+            return Err(peer.unreachable_error());
+        }
         if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
             return Err(super::trust_gate::peer_unsupported(&peer.name));
         }
@@ -301,12 +356,22 @@ async fn forward_inner(
                 return Err(peer.unreachable_error());
             }
         }
-        // A dropped file crosses the link as one frame: checked here, and only to a peer that
-        // takes it (`hub/file_uploads.rs`).
+        // A legacy dropped file is adapted to bounded chunks before crossing the peer link,
+        // and only to a peer that takes uploads (`hub/file_uploads.rs`).
         if m == method::MUX_FILE_PUT {
-            crate::hub::file_uploads::check(params)?;
+            let (_, data) = crate::hub::file_uploads::check(params)?;
             if !peer.supports_file_put() {
                 return Err(crate::hub::file_uploads::peer_unsupported(&peer));
+            }
+            if crate::hub::file_uploads::decoded_len(data)
+                > crate::hub::file_uploads::LEGACY_MAX_BYTES
+            {
+                let mut header = json!({"sessionId": id});
+                super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut header);
+                let mut result =
+                    crate::hub::file_uploads::forward_put(&peer, header, params).await?;
+                result.set("peer", json!(peer.name));
+                return Ok(Some(result));
             }
         }
         // A person's prompt is checked here, before `mark_forwarded` drops its provenance
@@ -404,6 +469,11 @@ async fn forward_inner(
         // forwarded, whatever the peer serves this link as, one entry there would stand for
         // every client here.
         if m == method::MUX_TYPING || (m == method::MUX_VIEW && crate::author::present(params)) {
+            // A person typing to the chat of a peer that is down still wakes it before they
+            // send (`ask_back`); the typing itself stays this daemon's own.
+            if !peer.ready() {
+                wake_if_composing(&peer, m, params, conn.origin);
+            }
             return Err(crate::hub::presence::peer_unsupported());
         }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
@@ -630,7 +700,18 @@ async fn forward_inner(
         // A page goes on the link it is labelled with, or fails; so does a held prompt, an
         // answer to one or a read of one, on the link that listed its feature.
         let on = bound.unwrap_or_else(|| pages.then_some(link).or(resume_link.flatten()));
-        let result = if crate::peer::waits_on_turn(m) {
+        let result = if matches!(m, method::MUX_INFO | method::MUX_EVENTS | method::MUX_HISTORY) {
+            // History reads answer from the current snapshot, even during a running turn.
+            // A connected link can still have a stuck handler; do not inherit its ten-minute
+            // generic deadline. Dropping this future releases its pending reply entry. Attach
+            // keeps its existing lifecycle: it installs a live subscription before replying.
+            tokio::time::timeout(std::time::Duration::from_secs(30), peer.request_on(m, p, on))
+                .await
+                .unwrap_or_else(|_| Err(RpcError::internal(format!(
+                    "reading {m} from peer {} did not finish within 30 seconds; check the peer connection and retry this read",
+                    peer.name
+                )).with_data(json!({"reason": "peer_read_timeout", "peer": peer.name, "method": m}))))
+        } else if crate::peer::waits_on_turn(m) {
             tokio::select! {
                 result = peer.request_on(m, p, on) => result,
                 () = conn.closed() => Err(RpcError::internal("the client closed the connection")),
@@ -899,6 +980,76 @@ mod tests {
                 .unwrap();
             assert!(!result, "stopped peer was reported ready");
         }
+    }
+
+    /// A message for a down peer's session wakes the peer whoever sent it, a peer daemon's
+    /// forward of another daemon's send included; any other request from a peer daemon asks
+    /// nothing, and a client's wants the link back without asking its route to wake a machine.
+    #[test]
+    fn only_a_message_asks_a_down_peers_route_to_wake_it() {
+        let peer = || {
+            let (notices, _receiver) = tokio::sync::mpsc::channel(1);
+            crate::peer::Peer::new("fs-lane-3", "ssh://fs-lane-3", None, None, notices)
+        };
+        let none = json!({});
+        for origin in [Origin::Peer, Origin::Local, Origin::Web] {
+            let p = peer();
+            ask_back(&p, method::SESSION_PROMPT, &none, origin);
+            assert!(p.waking() && p.is_wanted(), "{origin:?}");
+        }
+        let p = peer();
+        ask_back(&p, method::MUX_ATTACH, &none, Origin::Peer);
+        assert!(!p.waking() && !p.is_wanted());
+        let p = peer();
+        ask_back(&p, method::MUX_ATTACH, &none, Origin::Local);
+        assert!(!p.waking() && p.is_wanted());
+    }
+
+    /// A person starting to write to a down peer's chat wakes the peer before they send: typing
+    /// on, or surface text that is not blank. Typing off, cleared text and a saved draft only
+    /// want the link back, and a peer daemon's forward of any of them asks nothing. Typing,
+    /// which `forward_inner` answers itself, wakes through `wake_if_composing` there.
+    #[test]
+    fn typing_to_a_down_peers_chat_wakes_it_before_the_send() {
+        let peer = || {
+            let (notices, _receiver) = tokio::sync::mpsc::channel(1);
+            crate::peer::Peer::new("fs-lane-3", "ssh://fs-lane-3", None, None, notices)
+        };
+        let writing = [
+            (method::MUX_TYPING, json!({"sessionId": "s", "on": true})),
+            (method::MUX_COMPOSER_SET, json!({"sessionId": "s", "surface": "pane", "text": "h"})),
+        ];
+        for (m, params) in &writing {
+            for origin in [Origin::Local, Origin::Web] {
+                let p = peer();
+                ask_back(&p, m, params, origin);
+                assert!(p.waking() && p.is_wanted(), "{m} from {origin:?}");
+            }
+            let p = peer();
+            ask_back(&p, m, params, Origin::Peer);
+            assert!(!p.waking() && !p.is_wanted(), "{m} forwarded by a peer daemon");
+        }
+        let idle = [
+            (method::MUX_TYPING, json!({"sessionId": "s", "on": false})),
+            (
+                method::MUX_COMPOSER_SET,
+                json!({"sessionId": "s", "surface": "pane", "text": "  \n"}),
+            ),
+            // The pane saves the chat it leaves as is: a draft write is no one typing.
+            (method::MUX_DRAFT_SET, json!({"sessionId": "s", "text": "fix the"})),
+            (method::MUX_COMPOSER_SET, json!({"sessionId": "s", "surface": "pane", "text": ""})),
+        ];
+        for (m, params) in &idle {
+            let p = peer();
+            ask_back(&p, m, params, Origin::Local);
+            assert!(!p.waking() && p.is_wanted(), "{m} with nothing written");
+        }
+        let p = peer();
+        assert!(wake_if_composing(&p, method::MUX_TYPING, &writing[0].1, Origin::Local));
+        assert!(p.waking());
+        let p = peer();
+        assert!(!wake_if_composing(&p, method::MUX_TYPING, &writing[0].1, Origin::Peer));
+        assert!(!p.waking() && !p.is_wanted());
     }
 
     /// A refused answer for a peer's prompt names that peer, so the app can say where to

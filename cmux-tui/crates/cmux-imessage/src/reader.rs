@@ -19,9 +19,17 @@ const ATTACHMENT_TABLES: [&str; 2] = ["attachment", "message_attachment_join"];
 /// The most rows one call returns, whatever the caller asks for.
 pub const MAX_LIMIT: usize = 500;
 
-/// A message the conversation view shows: not a tapback (`associated_message_type` 2000-3005),
-/// and not a group event such as a rename or a member change (`item_type` > 0).
-const VISIBLE: &str = "m.associated_message_type = 0 AND m.item_type = 0";
+/// A message the conversation view shows: anything but a tapback or its removal
+/// (`associated_message_type` 2000-2007 and 3000-3007, kept clear of the whole 2000-3999 band) and
+/// a group event such as a rename or a member change (`item_type` > 0). Stickers (1000) and app
+/// messages show. Old rows may hold NULL in either column; NULL means a plain message.
+const VISIBLE: &str = "IFNULL(m.item_type, 0) = 0 \
+     AND IFNULL(m.associated_message_type, 0) NOT BETWEEN 2000 AND 3999";
+
+/// A message row's edit and unsend marks, as the last two columns of every message query.
+const CHANGE_MARKS: &str = "IFNULL(m.date_edited, 0), IFNULL(m.date_retracted, 0)";
+/// The later of the two: when the message last changed after it was sent.
+const CHANGE_MARK: &str = "MAX(IFNULL(m.date_edited, 0), IFNULL(m.date_retracted, 0))";
 
 /// `~/Library/Messages/chat.db` for the current user, when `HOME` is set.
 pub fn default_database_path() -> Option<PathBuf> {
@@ -33,6 +41,8 @@ pub fn default_database_path() -> Option<PathBuf> {
 pub struct Reader {
     connection: Connection,
     has_attachments: bool,
+    /// The message table has `date_edited` and `date_retracted` (macOS 13 and later).
+    has_edit_marks: bool,
 }
 
 impl Reader {
@@ -57,23 +67,28 @@ impl Reader {
             return Err(MirrorError::Schema(format!("missing tables: {}", missing.join(", "))));
         }
         let has_attachments = ATTACHMENT_TABLES.iter().all(|name| has_table(&connection, name));
-        Ok(Self { connection, has_attachments })
+        let has_edit_marks = has_column(&connection, "message", "date_edited")
+            && has_column(&connection, "message", "date_retracted");
+        Ok(Self { connection, has_attachments, has_edit_marks })
     }
 
     /// Conversations with at least one visible message, newest activity first.
     pub fn threads(&self, limit: usize) -> Result<Vec<Thread>, MirrorError> {
         let limit = clamp(limit);
         let sql = format!(
-            "WITH last AS (
-                 SELECT cmj.chat_id AS chat_id, MAX(cmj.message_id) AS last_id
+            // The newest visible message per chat by date (rowid breaks ties): iCloud backfill
+            // gives old messages high rowids, so the highest rowid is not the newest message.
+            "WITH ranked AS (
+                 SELECT cmj.chat_id AS chat_id, m.ROWID AS last_id, IFNULL(m.date, 0) AS last_date,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY cmj.chat_id ORDER BY IFNULL(m.date, 0) DESC, m.ROWID DESC
+                        ) AS rank
                  FROM chat_message_join cmj JOIN message m ON m.ROWID = cmj.message_id
-                 WHERE {VISIBLE}
-                 GROUP BY cmj.chat_id)
+                 WHERE {VISIBLE})
              SELECT c.ROWID, c.guid, c.display_name, c.style, c.service_name, c.chat_identifier,
-                    last.last_id
-             FROM chat c JOIN last ON last.chat_id = c.ROWID
-             JOIN message m ON m.ROWID = last.last_id
-             ORDER BY m.date DESC, c.ROWID DESC
+                    ranked.last_id
+             FROM chat c JOIN ranked ON ranked.chat_id = c.ROWID AND ranked.rank = 1
+             ORDER BY ranked.last_date DESC, c.ROWID DESC
              LIMIT ?1"
         );
         let mut statement = self.connection.prepare(&sql)?;
@@ -121,13 +136,21 @@ impl Reader {
         before_rowid: Option<i64>,
         limit: usize,
     ) -> Result<Vec<Message>, MirrorError> {
+        // Newest first by (date, rowid), then reversed: iCloud backfill gives old messages high
+        // rowids, so rowid order is not time order. `before_rowid` is the oldest message the caller
+        // holds; the page is what comes before it in time.
+        let marks = self.mark_columns();
         let sql = format!(
-            "SELECT m.ROWID, m.guid, cmj.chat_id, h.id, m.is_from_me, m.date, m.text,
-                    m.attributedBody
+            "WITH anchor AS (SELECT IFNULL(date, 0) AS d, ROWID AS r FROM message WHERE ROWID = ?2)
+             SELECT m.ROWID, m.guid, cmj.chat_id, h.id, m.is_from_me, m.date, m.text,
+                    m.attributedBody, {marks}
              FROM chat_message_join cmj JOIN message m ON m.ROWID = cmj.message_id
              LEFT JOIN handle h ON h.ROWID = m.handle_id
-             WHERE cmj.chat_id = ?1 AND {VISIBLE} AND (?2 IS NULL OR m.ROWID < ?2)
-             ORDER BY m.ROWID DESC
+             WHERE cmj.chat_id = ?1 AND {VISIBLE}
+               AND (?2 IS NULL
+                    OR (IFNULL(m.date, 0), m.ROWID) < (SELECT d, r FROM anchor)
+                    OR (NOT EXISTS (SELECT 1 FROM anchor) AND m.ROWID < ?2))
+             ORDER BY IFNULL(m.date, 0) DESC, m.ROWID DESC
              LIMIT ?3"
         );
         let mut messages =
@@ -139,16 +162,58 @@ impl Reader {
     /// Visible messages in any conversation with a rowid above `after_rowid`, oldest first, at
     /// most `limit`. Live updates call it with the last rowid they saw.
     pub fn since(&self, after_rowid: i64, limit: usize) -> Result<Vec<Message>, MirrorError> {
+        let marks = self.mark_columns();
         let sql = format!(
             "SELECT m.ROWID, m.guid, cmj.chat_id, h.id, m.is_from_me, m.date, m.text,
-                    m.attributedBody
-             FROM message m JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
+                    m.attributedBody, {marks}
+             FROM message m
+             JOIN (SELECT message_id, MIN(chat_id) AS chat_id FROM chat_message_join
+                   WHERE message_id > ?1 GROUP BY message_id) cmj ON cmj.message_id = m.ROWID
              LEFT JOIN handle h ON h.ROWID = m.handle_id
              WHERE m.ROWID > ?1 AND {VISIBLE}
              ORDER BY m.ROWID ASC
              LIMIT ?2"
         );
         self.query_messages(&sql, params![after_rowid, clamp(limit)])
+    }
+
+    /// Visible messages edited or unsent after `after_mark`, in the order they changed, at most
+    /// `limit`. The mark is Messages' own clock (`date_edited` / `date_retracted`); live updates
+    /// keep [`Reader::latest_change_mark`] and pass it back. Empty on databases without the
+    /// columns (before macOS 13).
+    pub fn changed_since(
+        &self,
+        after_mark: i64,
+        limit: usize,
+    ) -> Result<Vec<Message>, MirrorError> {
+        if !self.has_edit_marks {
+            return Ok(Vec::new());
+        }
+        let sql = format!(
+            "SELECT m.ROWID, m.guid,
+                    (SELECT MIN(chat_id) FROM chat_message_join WHERE message_id = m.ROWID),
+                    h.id, m.is_from_me, m.date, m.text, m.attributedBody, {CHANGE_MARKS}
+             FROM message m LEFT JOIN handle h ON h.ROWID = m.handle_id
+             WHERE {CHANGE_MARK} > ?1 AND {VISIBLE}
+               AND EXISTS (SELECT 1 FROM chat_message_join WHERE message_id = m.ROWID)
+             ORDER BY {CHANGE_MARK} ASC, m.ROWID ASC
+             LIMIT ?2"
+        );
+        self.query_messages(&sql, params![after_mark, clamp(limit)])
+    }
+
+    /// The newest edit or unsend mark in the database (0 when none, or without the columns).
+    pub fn latest_change_mark(&self) -> Result<i64, MirrorError> {
+        if !self.has_edit_marks {
+            return Ok(0);
+        }
+        let sql = format!("SELECT IFNULL(MAX({CHANGE_MARK}), 0) FROM message m");
+        Ok(self.connection.query_row(&sql, [], |row| row.get(0))?)
+    }
+
+    /// The two edit-mark columns of a message row, or zeros when the database has none.
+    fn mark_columns(&self) -> &'static str {
+        if self.has_edit_marks { CHANGE_MARKS } else { "0, 0" }
     }
 
     /// The highest message rowid, the watermark live updates start from (0 when empty).
@@ -224,6 +289,7 @@ impl Reader {
 
 fn message_row(row: &Row<'_>) -> rusqlite::Result<Message> {
     let is_from_me = row.get::<_, Option<i64>>(4)?.unwrap_or(0) != 0;
+    let unsent = row.get::<_, Option<i64>>(9)?.unwrap_or(0) != 0;
     Ok(Message {
         rowid: row.get(0)?,
         guid: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
@@ -231,8 +297,11 @@ fn message_row(row: &Row<'_>) -> rusqlite::Result<Message> {
         sender: if is_from_me { None } else { row.get(3)? },
         is_from_me,
         date_ms: row.get::<_, Option<i64>>(5)?.and_then(apple_to_unix_ms),
-        text: text_of(row.get(6)?, row.get(7)?),
+        // An unsent message keeps its place but none of its words.
+        text: if unsent { None } else { text_of(row.get(6)?, row.get(7)?) },
         attachments: Vec::new(),
+        edited: row.get::<_, Option<i64>>(8)?.unwrap_or(0) != 0,
+        unsent,
     })
 }
 
@@ -245,6 +314,19 @@ fn text_of(text: Option<String>, attributed_body: Option<Vec<u8>>) -> Option<Str
     let cleaned: String = raw.chars().filter(|c| *c != '\u{FFFC}').collect();
     let trimmed = cleaned.trim();
     if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+}
+
+fn has_column(connection: &Connection, table: &str, column: &str) -> bool {
+    connection
+        .query_row(
+            "SELECT 1 FROM pragma_table_info(?1) WHERE name = ?2",
+            params![table, column],
+            |_| Ok(()),
+        )
+        .optional()
+        .ok()
+        .flatten()
+        .is_some()
 }
 
 fn has_table(connection: &Connection, name: &str) -> bool {
