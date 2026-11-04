@@ -17,7 +17,7 @@ mod open_file_limit;
 pub(crate) use lock::socket_held_by_other;
 use lock::{
     DaemonLock, LockHeld, acquire_lock, lock_has_live_holder, not_serving_recovery,
-    wait_for_lock_release,
+    wait_for_lock_release, wait_for_lock_release_with_budget,
 };
 mod running;
 pub use running::connect_running;
@@ -1051,7 +1051,6 @@ pub async fn start_keyed(fd: i32) -> Result<String> {
     }
     // Another daemon is stopping or starting: start again until this key's daemon has the lock,
     // never leaving the caller to start an unkeyed one.
-    let deadline = tokio::time::Instant::now() + HANDOVER_BUDGET;
     loop {
         let ready = start_daemon_with(Some(key.clone())).await?;
         if !lock_held(&ready) {
@@ -1063,12 +1062,6 @@ pub async fn start_keyed(fd: i32) -> Result<String> {
                 home().join("daemon.log").display()
             );
             return Ok(ready);
-        }
-        if tokio::time::Instant::now() + HANDOVER_RETRY >= deadline {
-            return Err(anyhow!(
-                "another acpmux daemon still holds {} after {HANDOVER_BUDGET:?}; the keyed daemon did not start",
-                home().join("daemon.lock").display()
-            ));
         }
         tokio::time::sleep(HANDOVER_RETRY).await;
         if Client::connect(&path).await.is_ok() {
@@ -1252,9 +1245,10 @@ async fn acquire_daemon_lock(path: &std::path::Path, take_over: bool) -> Result<
                     asked = true;
                     take_over_holder(&socket_path()).await;
                 }
-                if !wait_for_lock_release(path.to_owned(), Duration::from_secs(60)).await {
-                    return Err(error);
-                }
+                // The kernel lock is the liveness signal: a live holder keeps it and a
+                // dead holder releases it. Do not turn a busy but healthy daemon into a
+                // startup failure with an arbitrary wall-clock cutoff.
+                wait_for_lock_release(path.to_owned()).await;
             }
             Err(error) => return Err(error),
         }
@@ -1266,17 +1260,13 @@ async fn acquire_daemon_lock(path: &std::path::Path, take_over: bool) -> Result<
 /// effort: a holder that does not answer, or one that is already stopping, is waited out by the
 /// caller.
 async fn take_over_holder(socket: &std::path::Path) {
-    let Ok(Ok(client)) =
-        tokio::time::timeout(Duration::from_secs(5), crate::client::Client::connect(socket)).await
+    // Client::connect and request finish promptly on a closed socket. If the
+    // peer is alive but busy, keep the handover request alive until it answers.
+    let Ok(client) = crate::client::Client::connect(socket).await else { return };
+    let Ok(status) = client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})).await
     else {
         return;
     };
-    let status = tokio::time::timeout(
-        Duration::from_secs(5),
-        client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})),
-    )
-    .await;
-    let Ok(Ok(status)) = status else { return };
     let same = |key: &str, want: &std::path::Path| {
         status
             .get(key)
@@ -1290,11 +1280,7 @@ async fn take_over_holder(socket: &std::path::Path) {
         pid = status.get("pid").and_then(serde_json::Value::as_u64),
         "another daemon of this home serves its socket; asking it to hand over"
     );
-    let _ = tokio::time::timeout(
-        Duration::from_secs(10),
-        client.request(crate::rpc::method::MUX_SHUTDOWN, serde_json::json!({})),
-    )
-    .await;
+    let _ = client.request(crate::rpc::method::MUX_SHUTDOWN, serde_json::json!({})).await;
 }
 
 /// Whether two paths name the same file: equal, or equal once canonical (a missing file through
@@ -1328,7 +1314,8 @@ pub fn daemon_prefix() -> Vec<std::ffi::OsString> {
     DAEMON_PREFIX.get().cloned().unwrap_or_default()
 }
 
-/// How long a started daemon may take to report that its socket is bound.
+/// timeout: a detached child that never binds its socket is a hung start; the
+/// lock-holder paths below use process/socket liveness instead of this bound.
 const START_BUDGET: Duration = Duration::from_secs(8);
 
 /// How long a stopping daemon may take to exit: the agents' budget, the router's stop and kill
@@ -1338,7 +1325,9 @@ pub const EXIT_BUDGET: Duration = SHUTDOWN_BUDGET.saturating_add(Duration::from_
 /// Wait until no daemon holds this home's lock (the running one exited),
 /// at most [`EXIT_BUDGET`]. True when it was released.
 pub async fn wait_for_exit() -> bool {
-    wait_for_lock_release(home().join("daemon.lock"), EXIT_BUDGET).await
+    // timeout: shutdown cleanup must return even if a crashed supervisor leaves
+    // a lock held forever; ordinary client handover waits on lock liveness.
+    wait_for_lock_release_with_budget(home().join("daemon.lock"), Some(EXIT_BUDGET)).await
 }
 
 /// Connect to the daemon, starting one if needed.
@@ -1402,11 +1391,9 @@ where
 /// first (`SHUTDOWN_BUDGET`, the router's stop and kill waits; 12.3 s on cosmic-gray on
 /// 2026-10-22), a starting one binds within `START_BUDGET`. The last start then has its own
 /// `START_BUDGET`.
-pub const HANDOVER_BUDGET: Duration = Duration::from_secs(20);
-
 // A detached start may wait for the old owner before binding its own socket.
 // Keep its launcher alive through both phases, including the Windows pipe reader.
-const READINESS_BUDGET: Duration = HANDOVER_BUDGET.saturating_add(START_BUDGET);
+const READINESS_BUDGET: Duration = START_BUDGET;
 
 /// How often a command tries again while another daemon holds the lock.
 const HANDOVER_RETRY: Duration = Duration::from_millis(250);
@@ -1438,9 +1425,9 @@ where
         Ok(Ok(_)) => false,
         Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Ok(Err(error)) => return Err(error.into()),
-        Err(_) => {
-            return Err(anyhow!("systemd did not report acpmux.service within {PROBE_BUDGET:?}"));
-        }
+        // Health discovery is advisory. A slow systemd must not prevent the
+        // normal detached launch path below from serving the real request.
+        Err(_) => return Ok(None),
     };
     if !loaded {
         return Ok(None);
@@ -1460,11 +1447,7 @@ where
             ));
         }
         Ok(Err(error)) => return Err(error.into()),
-        Err(_) => {
-            return Err(anyhow!(
-                "systemd did not report acpmux.service environment within {PROBE_BUDGET:?}"
-            ));
-        }
+        Err(_) => return Ok(None),
     };
     let unit_home =
         unit_environment_path(&env, "ACPMUX_HOME").unwrap_or_else(crate::config::default_home);
@@ -1480,48 +1463,21 @@ where
         return Ok(None);
     }
 
-    // A unit start can overlap the old daemon's graceful handover. Give the
-    // unit the same bounded window clients use for that handover, rather than
-    // failing after the shorter socket-bind budget while it still owns the
-    // lock and is waiting for the old process to exit.
-    let deadline = tokio::time::Instant::now() + HANDOVER_BUDGET;
-    let mut last_start_error = None;
+    // A unit start can overlap the old daemon's graceful handover. The socket
+    // is the authoritative liveness signal; a slow start command is retried.
     let mut next_start = tokio::time::Instant::now();
     loop {
         if tokio::time::Instant::now() >= next_start {
             let start = tokio::process::Command::new(systemctl.clone())
                 .args(["--user", "start", "acpmux.service"])
                 .output();
-            match tokio::time::timeout(PROBE_BUDGET, start).await {
-                Ok(Ok(output)) if output.status.success() => last_start_error = None,
-                Ok(Ok(output)) => {
-                    last_start_error = Some(format!(
-                        "systemd could not start acpmux.service: {}",
-                        String::from_utf8_lossy(&output.stderr).trim()
-                    ));
-                }
-                Ok(Err(error)) => last_start_error = Some(error.to_string()),
-                Err(_) => {
-                    last_start_error = Some(format!(
-                        "systemd did not start acpmux.service within {PROBE_BUDGET:?}"
-                    ))
-                }
-            }
+            let _ = tokio::time::timeout(PROBE_BUDGET, start).await;
             next_start = tokio::time::Instant::now() + HANDOVER_RETRY;
         }
         if let Ok(value) = connect().await {
             return Ok(Some(value));
         }
-        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-        if left.is_zero() {
-            return Err(anyhow!(last_start_error.unwrap_or_else(|| {
-                format!(
-                    "acpmux.service did not provide a socket at {} within {HANDOVER_BUDGET:?}",
-                    path.display()
-                )
-            })));
-        }
-        tokio::time::sleep(HANDOVER_RETRY.min(left)).await;
+        tokio::time::sleep(HANDOVER_RETRY).await;
     }
 }
 
@@ -1630,7 +1586,6 @@ where
     if let Some(other) = holder_elsewhere(path).await {
         return Err(serves_elsewhere(path, &other));
     }
-    let deadline = tokio::time::Instant::now() + HANDOVER_BUDGET;
     loop {
         let ready = start_daemon().await?;
         let error = match connect().await {
@@ -1643,15 +1598,6 @@ where
         // The lock's holder serves this home at another socket: no wait makes it serve this one.
         if let Some(other) = holder_elsewhere(path).await {
             return Err(serves_elsewhere(path, &other));
-        }
-        if tokio::time::Instant::now() + HANDOVER_RETRY >= deadline {
-            return Err(anyhow!(
-                "another acpmux daemon still holds {} after {HANDOVER_BUDGET:?} and serves no socket at {}{}; see {}",
-                home().join("daemon.lock").display(),
-                path.display(),
-                not_serving_recovery(&home().join("daemon.lock")),
-                home().join("daemon.log").display()
-            ));
         }
         tokio::time::sleep(HANDOVER_RETRY).await;
         if let Ok(c) = connect().await {

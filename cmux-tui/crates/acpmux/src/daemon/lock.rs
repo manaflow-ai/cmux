@@ -231,12 +231,22 @@ pub(super) fn acquire_lock(path: &Path) -> Result<DaemonLock> {
 /// blocking `flock` on a worker thread would outlive the timeout and hold
 /// up runtime teardown.
 #[cfg(unix)]
-pub(super) async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bool {
+pub(super) async fn wait_for_lock_release(lock: PathBuf) -> bool {
+    wait_for_lock_release_with_budget(lock, None).await
+}
+
+/// Wait for a lock with an optional cleanup budget. A caller waiting for a live
+/// daemon's handover uses [`wait_for_lock_release`], while shutdown cleanup may
+/// still choose a finite bound.
+pub(super) async fn wait_for_lock_release_with_budget(
+    lock: PathBuf,
+    budget: Option<Duration>,
+) -> bool {
     use std::os::unix::io::AsRawFd;
     let Ok(file) = crate::config::private_state_rw(&lock) else {
         return true;
     };
-    let deadline = tokio::time::Instant::now() + budget;
+    let deadline = budget.map(|budget| tokio::time::Instant::now() + budget);
     loop {
         // SAFETY: flock on a descriptor this function owns.
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
@@ -246,7 +256,7 @@ pub(super) async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bo
         if kind != std::io::ErrorKind::WouldBlock && kind != std::io::ErrorKind::Interrupted {
             return false;
         }
-        if tokio::time::Instant::now() >= deadline {
+        if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
             return false;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -255,18 +265,25 @@ pub(super) async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bo
 /// Windows: polls a non-blocking `LockFileEx` (std's `File::try_lock`), as
 /// the Unix arm polls `flock`.
 #[cfg(windows)]
-pub(super) async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bool {
+pub(super) async fn wait_for_lock_release(lock: PathBuf) -> bool {
+    wait_for_lock_release_with_budget(lock, None).await
+}
+
+pub(super) async fn wait_for_lock_release_with_budget(
+    lock: PathBuf,
+    budget: Option<Duration>,
+) -> bool {
     let Ok(file) = crate::config::private_state_rw(&lock) else {
         return true;
     };
-    let deadline = tokio::time::Instant::now() + budget;
+    let deadline = budget.map(|budget| tokio::time::Instant::now() + budget);
     loop {
         match file.try_lock() {
             Ok(()) => return true,
             Err(std::fs::TryLockError::WouldBlock) => {}
             Err(std::fs::TryLockError::Error(_)) => return false,
         }
-        if tokio::time::Instant::now() >= deadline {
+        if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
             return false;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;

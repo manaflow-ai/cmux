@@ -4,7 +4,7 @@
 //! as a host with nothing on it (hq#4897 failure 4, hq#5075). While a live daemon holds this
 //! home's lock without serving yet (a restart's handover), the listing waits for its socket.
 
-use super::{HANDOVER_BUDGET, HANDOVER_RETRY, lock_has_live_holder, not_serving_recovery};
+use super::{HANDOVER_RETRY, lock_has_live_holder};
 use crate::cli::errors::{AppError, Code};
 use crate::client::Client;
 use crate::config::{home, socket_path};
@@ -26,36 +26,22 @@ pub async fn connect_running() -> Result<Arc<Client>> {
     {
         return Err(super::serves_elsewhere(&path, &other));
     }
-    connect_running_with(
-        &path,
-        || lock_has_live_holder(&lock),
-        HANDOVER_BUDGET,
-        || Client::connect(&path),
-    )
-    .await
+    connect_running_with(&path, || lock_has_live_holder(&lock), || Client::connect(&path)).await
 }
 
-async fn connect_running_with<T, H, F, Fut>(
-    path: &Path,
-    held: H,
-    budget: Duration,
-    connect: F,
-) -> Result<T>
+async fn connect_running_with<T, H, F, Fut>(path: &Path, held: H, connect: F) -> Result<T>
 where
     H: Fn() -> bool,
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T>>,
 {
-    let deadline = tokio::time::Instant::now() + budget;
     loop {
-        // Bounded too: a socket that accepts but never answers its hello waits out the budget,
-        // never hangs the listing.
-        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-        if let Ok(Ok(value)) = tokio::time::timeout(left, connect()).await {
+        // A short retry interval keeps closed sockets fast while an open socket
+        // is allowed to remain slow as long as its daemon lock holder lives.
+        if let Ok(Ok(value)) = tokio::time::timeout(HANDOVER_RETRY, connect()).await {
             return Ok(value);
         }
-        let timed_out = tokio::time::Instant::now() + HANDOVER_RETRY >= deadline;
-        if !held() && !timed_out {
+        if !held() {
             return Err(AppError::new(
                 Code::Runtime,
                 "no_daemon",
@@ -64,20 +50,6 @@ where
                     path.display()
                 ),
             )
-            .into());
-        }
-        if timed_out {
-            return Err(AppError::new(
-                Code::Runtime,
-                "daemon_not_serving",
-                format!(
-                    "an acpmux daemon holds {} but does not answer at {} after {budget:?}{}",
-                    home().join("daemon.lock").display(),
-                    path.display(),
-                    not_serving_recovery(&home().join("daemon.lock")),
-                ),
-            )
-            .retryable()
             .into());
         }
         tokio::time::sleep(HANDOVER_RETRY).await;
@@ -100,7 +72,6 @@ mod tests {
         let got = connect_running_with(
             Path::new("/x/acpmux.sock"),
             || false,
-            HANDOVER_BUDGET,
             || {
                 tries.fetch_add(1, Ordering::SeqCst);
                 async { Err::<(), _>(anyhow::anyhow!("refused")) }
@@ -120,7 +91,6 @@ mod tests {
         let got = connect_running_with(
             Path::new("/x/s"),
             || true,
-            HANDOVER_BUDGET,
             || {
                 let n = tries.fetch_add(1, Ordering::SeqCst);
                 async move { if n < 3 { Err(anyhow::anyhow!("not yet")) } else { Ok(n) } }
@@ -131,29 +101,27 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_lock_holder_that_never_serves_ends_the_wait() {
+    async fn a_slow_but_alive_daemon_is_not_cut_off_by_the_old_budget() {
+        let tries = AtomicUsize::new(0);
         let got = connect_running_with(
             Path::new("/x/s"),
             || true,
-            Duration::from_secs(2),
-            || async { Err::<(), _>(anyhow::anyhow!("not yet")) },
+            || {
+                let n = tries.fetch_add(1, Ordering::SeqCst);
+                async move { if n < 120 { Err(anyhow::anyhow!("daemon is busy")) } else { Ok(n) } }
+            },
         )
         .await;
-        let e = got.unwrap_err();
-        assert_eq!(detail(&e), "daemon_not_serving", "{e}");
+        assert_eq!(got.unwrap(), 120);
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_socket_that_never_answers_ends_the_wait() {
-        let got = connect_running_with(
-            Path::new("/x/s"),
-            || false,
-            Duration::from_secs(2),
-            std::future::pending::<Result<()>>,
-        )
-        .await;
+    async fn a_closed_socket_fails_fast_even_when_the_connect_future_is_slow() {
+        let got =
+            connect_running_with(Path::new("/x/s"), || false, std::future::pending::<Result<()>>)
+                .await;
         let e = got.unwrap_err();
-        assert_eq!(detail(&e), "daemon_not_serving", "{e}");
+        assert_eq!(detail(&e), "no_daemon", "{e}");
     }
 
     #[cfg(unix)]
