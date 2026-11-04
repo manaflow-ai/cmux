@@ -55,7 +55,8 @@ nonisolated final class MacScreenRdProcess: Sendable {
     let lines: AsyncStream<MacScreenRdMessage>
     private let continuation: AsyncStream<MacScreenRdMessage>.Continuation
     private let state = Mutex(State())
-    private let writes = DispatchQueue(label: "com.cmuxterm.mac-screen.rd-stdin")
+    // Candidates and stop: a session start waits for them, no frame does.
+    private let writes = DispatchQueue(label: "com.cmuxterm.mac-screen.rd-stdin", qos: .userInitiated)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mac-screen-rd")
 
     private struct State {

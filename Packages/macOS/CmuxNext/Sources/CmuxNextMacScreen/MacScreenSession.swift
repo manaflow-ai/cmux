@@ -384,7 +384,8 @@ public final class MacScreenSession {
 nonisolated enum MacScreenUnixStream {
     static func open(path: String) async throws -> RemoteRdByteStream {
         let connection = NWConnection(to: .unix(path: path), using: .tcp)
-        let queue = DispatchQueue(label: "com.cmuxterm.mac-screen.rd-socket")
+        // The stream's bytes: the next decoded frame waits for them.
+        let queue = DispatchQueue(label: "com.cmuxterm.mac-screen.rd-socket", qos: .userInitiated)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             let resumed = Mutex(false)
             connection.stateUpdateHandler = { state in
