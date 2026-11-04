@@ -211,6 +211,8 @@ async fn races_overlap_review_and_cancel_without_touching_other_sessions() {
     assert_eq!(done["winnerId"], "c1", "{done}");
     let candidates = done["candidates"].as_array().unwrap();
     assert_ne!(candidates[0]["cwd"], candidates[1]["cwd"]);
+    assert_eq!(candidates[0]["base"].as_str().unwrap().len(), 40);
+    assert_eq!(candidates[0]["base"], candidates[1]["base"]);
     assert!(!repo.join("implementation.txt").exists());
     for (i, expected) in ["a", "b"].iter().enumerate() {
         assert_eq!(
@@ -240,6 +242,12 @@ async fn races_overlap_review_and_cancel_without_touching_other_sessions() {
     for candidate in failed["candidates"].as_array().unwrap() {
         assert_eq!(candidate["state"], "completed", "{failed}");
         assert!(Path::new(candidate["cwd"].as_str().unwrap()).exists());
+    }
+    let stopped_failed = client.ok("_acpmux/race/cancel", json!({"raceId":bad["id"]})).await;
+    assert_eq!(stopped_failed["state"], "cancelled");
+    for candidate in failed["candidates"].as_array().unwrap() {
+        let info = app.ok("_acpmux/info", json!({"sessionId":candidate["sessionId"]})).await;
+        assert_eq!(info["status"], "closed", "{info}");
     }
     let held = client.ok("_acpmux/race/start", start("hold", "review")).await;
     let held_id = held["id"].as_str().unwrap();
