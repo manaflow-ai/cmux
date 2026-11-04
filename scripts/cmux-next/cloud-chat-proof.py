@@ -169,14 +169,13 @@ def browser_event_proof(events: list[dict]) -> dict:
             has_browser_tool = "agent-browser" in lower or re.search(
                 r"\bbrowser(?:[._ -](?:navigate|open|snapshot|page|tab|goto))?\b", lower
             )
-            if has_browser_tool and BROWSER_PROOF_URL in text:
+            call_id = update.get("toolCallId") or event.get("toolCallId")
+            if has_browser_tool and BROWSER_PROOF_URL in text and isinstance(call_id, str) and call_id:
                 browser_call_seen = True
-                call_id = update.get("toolCallId") or event.get("toolCallId")
-                if isinstance(call_id, str):
-                    browser_call_ids.add(call_id)
+                browser_call_ids.add(call_id)
         elif kind == "tool_call_update":
             call_id = update.get("toolCallId") or event.get("toolCallId")
-            tied_to_browser = not browser_call_ids or call_id in browser_call_ids
+            tied_to_browser = isinstance(call_id, str) and call_id in browser_call_ids
             status = str(update.get("status", "")).lower()
             if tied_to_browser and status in {"completed", "complete", "success", "succeeded"}:
                 # A completed browser update carrying the page text is the readback proof. The
