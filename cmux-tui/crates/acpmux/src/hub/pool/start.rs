@@ -244,7 +244,7 @@ impl Hub {
             matches!(&*slot, TapSlot::Held(h) if held_reports_full_access(h, None))
         };
         let outcome = tokio::select! {
-            started = wait_for_start(&child, started) => {
+            started = Self::wait_for_start(&child, started) => {
                 started.map_err(|e| anyhow::anyhow!("{}", e.message))
             }
             () = latch.reported_under_off(&reported, held_full) => {
