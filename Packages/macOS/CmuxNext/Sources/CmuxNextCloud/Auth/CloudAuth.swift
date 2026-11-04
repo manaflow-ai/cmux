@@ -21,7 +21,7 @@ public final class CloudAuth {
     @ObservationIgnored private let usesCaptureFixture: Bool
     /// This build's stored session (refresh token, and the access token when one is stored), read off the
     /// main actor: what cmux NIGHTLY hands to another local cmux build (`auth.session.handoff`). Nil when
-    /// signed out.
+    /// signed out. The two tokens are one pair (``consistentSession(refresh:access:)``).
     @ObservationIgnored public nonisolated let storedSession: @Sendable () async -> (accessToken: String?, refreshToken: String)?
 
     public var isSignedIn: Bool { coordinator.isAuthenticated }
@@ -131,8 +131,8 @@ public final class CloudAuth {
         #endif
         let sessionStore = tokenStore
         storedSession = {
-            guard let refresh = await sessionStore.getStoredRefreshToken(), !refresh.isEmpty else { return nil }
-            return (await sessionStore.getStoredAccessToken(), refresh)
+            await Self.consistentSession(refresh: { await sessionStore.getStoredRefreshToken() },
+                                         access: { await sessionStore.getStoredAccessToken() })
         }
         let config = AuthConfig(
             stack: CMUXAuthConfig(projectId: configuration.stackProjectID, publishableClientKey: configuration.stackPublishableClientKey),
@@ -318,5 +318,20 @@ extension CloudAuth {
     nonisolated static func mask(_ email: String) -> String {
         guard let at = email.firstIndex(of: "@") else { return "***" }
         return String(email.prefix(1)) + "***" + String(email[at...])
+    }
+}
+
+extension CloudAuth {
+    /// The stored pair, read so a refresh that rotates the tokens between the two reads is never handed out
+    /// half old: the refresh token is read before and after the access token, and the read is retried (three
+    /// times at most) until both agree. Nil when signed out or when the tokens keep rotating.
+    nonisolated static func consistentSession(refresh: () async -> String?, access: () async -> String?) async
+        -> (accessToken: String?, refreshToken: String)? {
+        for _ in 0 ..< 3 {
+            guard let before = await refresh(), !before.isEmpty else { return nil }
+            let accessToken = await access()
+            if await refresh() == before { return (accessToken, before) }
+        }
+        return nil
     }
 }
