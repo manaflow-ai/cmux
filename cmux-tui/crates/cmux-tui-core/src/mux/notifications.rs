@@ -665,23 +665,33 @@ impl Mux {
         expected_revision: Option<u64>,
         scope: NotificationClearScope<'_>,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        let members = match scope {
+        let workspace_members = match scope {
             NotificationClearScope::Workspace(workspace) => Some(
                 self.workspace_notification_members(workspace)
                     .with_context(|| format!("unknown workspace {}", workspace.as_str()))?,
             ),
+            _ => None,
+        };
+        // A one-row clear resolves its row's source under the feed lock: a
+        // notification of that source commits its ledger row before its ring
+        // and item, so a post racing the clear is either seen (its source
+        // keeps its marker) or rings after the clear.
+        let resolve = || match scope {
             NotificationClearScope::Notification(notification) => {
                 Some(self.notification_row_members(notification))
             }
-            _ => None,
+            _ => workspace_members,
         };
-        let cleared_scope = ClearedScope { scope, members: members.as_ref() };
         // The clear reads the cleared scope's local items (every item for a
         // session-wide clear) in its transaction, and drops the rings, under
         // the feed lock (mux/feed_local.rs).
         let mut committed = None;
-        let cleared = |item: &cmux_feed_core::Item| cleared_scope.covers_item(item);
-        let wrote = self.read_feed_items_in(cleared, |extra, feed| {
+        let cleared = |members: &Option<WorkspaceNotificationMembers>,
+                       item: &cmux_feed_core::Item| {
+            ClearedScope { scope, members: members.as_ref() }.covers_item(item)
+        };
+        let wrote = self.read_feed_items_resolved(resolve, cleared, |members, extra, feed| {
+            let cleared_scope = ClearedScope { scope, members: members.as_ref() };
             let commit = self.apply_notification_clear(
                 mutation,
                 expected_revision,
