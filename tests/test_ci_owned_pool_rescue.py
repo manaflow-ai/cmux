@@ -4654,6 +4654,24 @@ class Sweeper(unittest.TestCase):
                                     wait=clock.sleep, running_code=running)
         return clock, watched, outcomes
 
+    def test_light_rescue_starts_once_and_hands_over_even_when_the_app_budget_is_spent(self):
+        import hosted_light_rescue
+        api, clock, calls = SweepAPI([]), Clock(), []
+        api.pace = lambda interval: 1800.0
+        stopped = []
+        def worker(callback, **kwargs):
+            calls.append(callback)
+            # Its independent cadence lives in hosted_light_rescue.follow, not in the paced App tick.
+            stopped.append(kwargs["stopped"])
+            callback()
+        with unittest.mock.patch.object(hosted_light_rescue, "follow", worker):
+            rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0", now=clock.now,
+                         log=lambda text: None, sweep_seconds=120, tick_seconds=60, wait=clock.sleep,
+                         light_rescue=lambda: calls.append("light pass"))
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[1], "light pass")
+        self.assertTrue(stopped[0](0), "handover must stop the light worker before joining it")
+
     def test_a_re_run_whose_jobs_read_failed_is_adopted_on_a_later_tick(self):
         run = dict(nightly_event(head_branch="nightly-next")["workflow_run"], id=7, run_attempt=4,
                    status="in_progress")

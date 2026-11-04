@@ -9,6 +9,8 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest import mock
+import urllib.error
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -167,6 +169,36 @@ class Periodic(unittest.TestCase):
         calls = []
         rescue.follow(lambda: calls.append(1), stopped=lambda seconds: True, seconds=300)
         self.assertEqual(calls, [1])
+
+
+class WorkflowToken(unittest.TestCase):
+    def test_the_minute_pass_uses_only_its_workflow_token(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            policy = Path(tmp)
+            (policy / "runners.json").write_text(json.dumps({"hosted_light_jobs": {"pr-checks.yml#size": {}}}))
+            (policy / "workflows").mkdir()
+            env = {"HOSTED_LIGHT_TOKEN": "workflow-token", "READ_TOKEN": "routing-app-token",
+                   "GH_TOKEN": "bot-token", "HOSTED_LIGHT_POLICY": str(policy)}
+            with mock.patch.object(rescue, "GitHub") as client, mock.patch.object(rescue, "sweep", return_value=[]):
+                callback = rescue.from_env(env, "o/r", now=lambda: NOW, log=lambda text: None)
+                callback()
+            client.assert_called_once_with("workflow-token", "o/r")
+            self.assertIsNone(rescue.from_env(dict(env, HOSTED_LIGHT_DISABLED="1"), "o/r",
+                                             now=lambda: NOW, log=lambda text: None))
+
+    def test_unchanged_job_reads_use_authenticated_conditional_requests(self):
+        client = rescue.GitHub("workflow-token", "o/r")
+        answer = mock.MagicMock()
+        answer.__enter__.return_value = answer
+        answer.read.return_value = b'{"jobs": []}'
+        answer.headers = {"ETag": '"v1"'}
+        not_modified = urllib.error.HTTPError("url", 304, "not modified", {}, None)
+        with mock.patch.object(rescue.urllib.request, "urlopen", side_effect=[answer, not_modified]) as opened:
+            self.assertEqual(client.jobs(7), [])
+            self.assertEqual(client.jobs(7), [])
+        request = opened.call_args_list[1].args[0]
+        self.assertEqual(request.get_header("If-none-match"), '"v1"')
+        self.assertEqual(request.get_header("Authorization"), "Bearer workflow-token")
 
 
 class Sweep(unittest.TestCase):

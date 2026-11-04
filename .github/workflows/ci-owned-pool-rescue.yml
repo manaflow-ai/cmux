@@ -136,6 +136,15 @@ jobs:
           ref: main
           persist-credentials: false
 
+      - name: Check current declared light-job routes
+        if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && vars.CI_HOSTED_LIGHT_RESCUE_DISABLED != '1'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          path: .rescue-workflows
+          sparse-checkout: .github
+          persist-credentials: false
+
       - name: Mint the cmux-bot token
         id: cmux-bot-token
         if: vars.CMUX_BOT_APP_ID != ''
@@ -180,6 +189,10 @@ jobs:
 
       - name: Watch runs on persistent pools
         env:
+          # The minute light-job pass never borrows either App's quota.
+          HOSTED_LIGHT_TOKEN: ${{ github.token }}
+          HOSTED_LIGHT_POLICY: .rescue-workflows/.github
+          HOSTED_LIGHT_DISABLED: ${{ vars.CI_HOSTED_LIGHT_RESCUE_DISABLED }}
           READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.read-token.outputs.token }}
           # A CI run's budget grows by a round per queue round the picker allows.
           QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}

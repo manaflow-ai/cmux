@@ -1,6 +1,8 @@
 name: CI hosted light rescue
 
 # Recovery cannot wait for the overflow probes it is meant to recover from.
+# The existing owned-pool sweeper provides the minute cadence; this schedule
+# is independent recovery, not a claim that a five-minute cron bounds queue age.
 on:
   schedule:
     - cron: "*/5 * * * *"
@@ -21,23 +23,15 @@ concurrency:
 jobs:
   rescue:
     if: github.repository == 'manaflow-ai/cmux' && vars.CI_HOSTED_LIGHT_RESCUE_DISABLED != '1'
-    runs-on: ${{ vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: Actions write stays on a fresh runner; never an owned label
     timeout-minutes: 8
     permissions:
       actions: write
       contents: read
     steps:
-      - name: Check out the reviewed hosted light rescue
-        id: hosted-light-tooling
-        timeout-minutes: 2
+      - name: Check out trusted rescue code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: 1ecf8a89abe506ae2ec97feb245d6ba642adfac6 # cmux#32023 + #32120 on feat-cmux-next
-          path: .hosted-light-tooling
-          sparse-checkout: |
-            scripts/ci/hosted_light_rescue.py
-            .github/runners.json
-          sparse-checkout-cone-mode: false
           persist-credentials: false
 
       - name: Check current workflow routes
@@ -46,7 +40,7 @@ jobs:
         with:
           ref: feat-cmux-next
           path: .rescue-workflows
-          sparse-checkout: .github/workflows
+          sparse-checkout: .github
           persist-credentials: false
 
       # The existing helper only moves attempt-1 current-head PR runs whose
@@ -59,6 +53,6 @@ jobs:
           GH_REPO: ${{ github.repository }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
         run: >-
-          python3 .hosted-light-tooling/scripts/ci/hosted_light_rescue.py
-          --runners .hosted-light-tooling/.github/runners.json
+          python3 scripts/ci/hosted_light_rescue.py
+          --runners .rescue-workflows/.github/runners.json
           --workflows .rescue-workflows/.github/workflows
