@@ -22,16 +22,24 @@ export type SubagentTarget = {
   claude: boolean;
 };
 
-/// The target for a subagent of a chat whose harness family is `family` (`claude`, `codex`, ...).
-/// Claude Code reaches a subagent by the agentId its Agent call answered with; Codex by the agent's
-/// thread id, which is its subagent id in acpmux's records (cmux-tui acpmux `subagents.rs`).
+/// Whether `family` is harness `base` or one of its profiles (`claude-sr2`, `codex_work`), as the mode
+/// menu reads it (harnessModes.ts `familyMenu`).
+function isHarness(family: string | undefined, base: "claude" | "codex"): boolean {
+  const id = (family ?? "").toLowerCase();
+  return id === base || id.startsWith(`${base}-`) || id.startsWith(`${base}_`);
+}
+
+/// The target for a subagent of a chat whose harness family is `family` (`claude`, `codex`, or a
+/// profile of one, `claude-sr2`). Claude Code reaches a subagent by the agentId its Agent call
+/// answered with; Codex by the agent's thread id, which is its subagent id in acpmux's records
+/// (cmux-tui acpmux `subagents.rs`).
 export function subagentTarget(
   agent: Pick<Subagent, "id" | "name" | "task" | "agentId">,
   family: string | undefined,
 ): SubagentTarget {
-  const claude = family === "claude";
+  const claude = isHarness(family, "claude");
   const name = agent.task ?? agent.name;
-  const id = claude ? agent.agentId : family === "codex" ? agent.id : agent.agentId;
+  const id = claude ? agent.agentId : isHarness(family, "codex") ? agent.id : agent.agentId;
   return { name, claude, ...(id ? { id } : {}) };
 }
 

@@ -13,6 +13,7 @@ import {
   subagentDraft,
   subagentDraftUnsaved,
   subscribeSubagentDraft,
+  takeUnsavedSubagentDrafts,
   wakeIntoSubagentDrafts,
   wakeSubagentDrafts,
   type Draft,
@@ -121,6 +122,18 @@ describe("subagent drafts", () => {
     storage.refuse = false;
     keepSubagentDraft(KEY, draft("again, smaller"));
     expect(subagentDraftUnsaved()).toBe(false);
+  });
+
+  test("a closing page takes the drafts the storage refused, each with its chat, and keeps none", () => {
+    keepSubagentDraft("chat-1\u0000agent-2", draft("stored"));
+    storage.refuse = true;
+    keepSubagentDraft(KEY, draft("a huge paste"));
+    expect(takeUnsavedSubagentDrafts()).toEqual([{ chat: "chat-1", draft: draft("a huge paste") }]);
+    expect(subagentDraftUnsaved()).toBe(false);
+    expect(subagentDraft(KEY)).toEqual(draft(""));
+    // One the storage took stays there.
+    expect(subagentDraft("chat-1\u0000agent-2")).toEqual(draft("stored"));
+    expect(takeUnsavedSubagentDrafts()).toEqual([]);
   });
 
   test("a draft nobody came back to in two weeks is forgotten when a page loads", () => {

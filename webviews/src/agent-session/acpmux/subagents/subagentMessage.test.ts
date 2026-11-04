@@ -12,6 +12,13 @@ test("a Claude subagent is reached by the agentId its Agent call answered with, 
   expect(subagentTarget({ ...claude, agentId: undefined }, "claude")).toEqual({ name: "Reviewer", claude: true });
 });
 
+test("a profile of a harness (claude-sr2, codex_work) reaches its subagents as that harness does", () => {
+  expect(subagentTarget(claude, "claude-sr2")).toEqual({ name: "Reviewer", id: "a39e817af38ddf5e7", claude: true });
+  expect(subagentTarget({ id: "019a-thread", name: "Read a" }, "codex_work").id).toBe("019a-thread");
+  // A name that only starts like one is another harness.
+  expect(subagentTarget(claude, "claudette").claude).toBe(false);
+});
+
 test("a Codex subagent is reached by its thread id, which acpmux records as its subagent id", () => {
   expect(subagentTarget({ id: "019a-thread", name: "Read a" }, "codex")).toEqual({
     name: "Read a",

@@ -141,6 +141,23 @@ export function subagentDraftUnsaved(): boolean {
   return unsaved.size > 0;
 }
 
+/// The drafts kept only in memory (the storage refused them), each with its chat, forgotten here: a
+/// closing page has nowhere else to keep them, so it hands each to its chat's own draft, which
+/// outlives the page (App.tsx `pane.wakeState`, review of #33280).
+export function takeUnsavedSubagentDrafts(): { chat: string; draft: Draft }[] {
+  const taken: { chat: string; draft: Draft }[] = [];
+  for (const key of unsaved) {
+    const draft = drafts.get(key);
+    const split = key.indexOf("\u0000");
+    if (draft && split > 0) taken.push({ chat: key.slice(0, split), draft });
+    drafts.delete(key);
+    keptAt.delete(key);
+    keptHere.delete(key);
+  }
+  unsaved.clear();
+  return taken;
+}
+
 // A web update waits while a draft is kept only in memory: reloading would lose it.
 holdWebSwap(() => (unsaved.size > 0 ? "subagents.draft-unsaved" : null));
 

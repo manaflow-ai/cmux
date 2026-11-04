@@ -568,7 +568,13 @@ import { deleteChatRow, moveMachineRow } from "./header/chatRows";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
 import { SubagentComposer } from "./subagents/SubagentComposer";
-import { subagentDraftUnsaved, wakeIntoSubagentDrafts, wakeSubagentDrafts } from "./subagents/subagentDrafts";
+import {
+  draftMessage as subagentDraftMessage,
+  subagentDraftUnsaved,
+  takeUnsavedSubagentDrafts,
+  wakeIntoSubagentDrafts,
+  wakeSubagentDrafts,
+} from "./subagents/subagentDrafts";
 import {
   subagentRelayPrompt,
   subagentRelaySteers,
@@ -12244,7 +12250,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // The tab closes (AgentPageRetirer, while the bridge still answers): held prompts go
             // into their chats' drafts and kept chips, never its composer, which goes with it.
             if (closing === true) {
-              const all = held.release();
+              // A subagent's draft the storage refused lives only in this page: it goes into its
+              // chat's draft and kept chips the same way, a pasted chip's text in its place.
+              const subagents = takeUnsavedSubagentDrafts().map(({ chat, draft }) => ({
+                id: crypto.randomUUID(),
+                chat,
+                cwd: undefined,
+                text: subagentDraftMessage(draft),
+                attachments: draft.attachments.filter((chip) => chip.kind !== "pasted"),
+                ticket: Promise.resolve(undefined),
+              }));
+              const all = [...held.release(), ...subagents];
               if (all.length) await giveBackTrustHeld.current(all, false, true, until);
               return {};
             }
