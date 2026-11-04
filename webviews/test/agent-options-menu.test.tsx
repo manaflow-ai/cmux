@@ -203,7 +203,9 @@ test("a custom harness collaboration option stays available in Options", async (
 });
 
 test("a chat still opening draws no Options from the last session's summary", async () => {
-  const recap = [option("session-recap", ["default", "on", "off"], { name: "Session recap", category: "model_config" })];
+  const recap = [
+    option("session-recap", ["default", "on", "off"], { name: "Session recap", category: "model_config" }),
+  ];
   // The pane opened chat s2 while the summary still describes s1 (another chat's switches).
   await render(codex(recap), [], { sessionId: "s2" });
   expect(host.querySelector("[data-menu=options]")).toBeNull();
