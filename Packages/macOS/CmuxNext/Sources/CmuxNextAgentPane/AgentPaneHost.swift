@@ -377,6 +377,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         let task = Task {
             let endpoint = try await Self.findOrStart(environment, daemons: daemons, startsDaemon: startsDaemon, owned: owned,
                                                       heal: heal, startOwner: startOwner, approver: approver)
+            AgentPaneLaunchTimings.shared.mark("acpmux.lookup_end")
             await daemonReady(daemonSocket)
             return endpoint
         }
@@ -529,14 +530,17 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                                     heal: (@Sendable (Int32) async -> Bool)?,
                                     startOwner: (@Sendable () async -> Bool)? = nil,
                                     approver: AgentPanePeerApprover? = nil) async throws -> AcpmuxWebEndpoint {
+        AgentPaneLaunchTimings.shared.mark("acpmux.lookup_start")
         // cmux NEXT adopts its old acpmux home before it asks or starts a daemon (cx-is1kf.9).
         await AcpmuxEnvironment.adoptBuildHomes()
+        AgentPaneLaunchTimings.shared.mark("acpmux.adopted")
         // This lookup took a stray daemon over or handed a stale one off: Settings' daemon line
         // says restarting until it ends.
         var handedOff = false
         defer { if handedOff { daemons.mark(home: environment.home, restarting: false) } }
         do {
             let status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath, deadline: nil)
+            AgentPaneLaunchTimings.shared.mark("acpmux.status_answered")
             // A daemon of another acpmux home answers on this socket: it is another app's or
             // tag's. Never hand it off, stop it or use it.
             guard status.serves(home: environment.home) else { throw Self.foreignHome(status, environment) }
@@ -581,6 +585,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             let stray = await AcpmuxStrayDaemon.handOffIfStray(status, environment: environment, daemons: daemons)
             let stale = stray ? true : await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment, daemons: daemons)
             handedOff = stale
+            if stale { AgentPaneLaunchTimings.shared.mark("acpmux.handed_off") }
             let stopped = stale ? true : await AcpmuxPersonKey.enroll(status, environment: environment)
             guard stopped else {
                 await AcpmuxComputerUse.enroll(environment)
@@ -619,7 +624,9 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             throw failure(environment, .other, detail: String(describing: error))
         }
         do {
+            AgentPaneLaunchTimings.shared.mark("acpmux.spawn_start")
             let launched = try await AcpmuxDaemonLauncher.launchReporting(environment)
+            AgentPaneLaunchTimings.shared.mark("acpmux.spawn_ready")
             // A signed daemon ignores the spawn key: it takes the key by this app's signature.
             if let status = await Self.startedStatus(environment), status.serves(home: environment.home) {
                 _ = await AcpmuxPersonKey.enroll(status, environment: environment,
