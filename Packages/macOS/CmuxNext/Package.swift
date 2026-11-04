@@ -217,7 +217,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextCloudCredentials",
             // CCmuxAppFFI: the Cloud start's harness login decision (cmux-cloud-start-core).
-            dependencies: ["CmuxNextCloud", "CmuxNextDaemon", "CmuxNextCompat", "CCmuxAppFFI"],
+            dependencies: ["CmuxNextCloud", "CmuxNextDaemon", "CmuxNextCompat", "CmuxNextWakeups", "CCmuxAppFFI"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(
@@ -1154,6 +1154,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextRemoteViewTests",
             dependencies: ["CmuxNextRemoteView"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The Mac Screen against cmux-rd-proto's golden app lines (cmux rd serve|connect stdout).
+        .testTarget(
+            name: "CmuxNextMacScreenTests",
+            dependencies: ["CmuxNextMacScreen"],
             swiftSettings: uiSwiftSettings
         ),
         // Remote tab client (remote-tab.md r2): the page of a browser tab

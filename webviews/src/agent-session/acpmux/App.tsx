@@ -309,7 +309,7 @@ import {
 } from "./session-info/subagentScope";
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { SubagentTray } from "./subagents/SubagentTray";
-import { TrayPullTab, tuckTray } from "./subagents/TrayPullTab";
+import { pullTabCounts, TrayPullTab, tuckTray } from "./subagents/TrayPullTab";
 import { agentProgressSource } from "./subagents/agentProgressSource";
 import { AgentProgressContext, AgentProgressStore } from "./subagents/agentProgressStore";
 import { BackgroundTasksPanel } from "./backgroundTasks/BackgroundTasksPanel";
@@ -592,7 +592,13 @@ import { cloudStartBegun, cloudStartEnded, cloudStartPushed, type CloudStartProg
 import { CloudStartView } from "./CloudStartView";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatSizing } from "./chatWidth";
-import { registerChatDisplayHost, useChatDisplay, useChatPinnedPlan, useTrayTucked } from "./chatDisplay";
+import {
+  registerChatDisplayHost,
+  useChatDisplay,
+  useChatPinnedPlan,
+  useTrayHandle,
+  useTrayTucked,
+} from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { wrapOutputRow } from "./header/transcriptViewRow";
 import { presentationRow } from "./header/presentationRow";
@@ -7647,6 +7653,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const pinnedPlan = useChatPinnedPlan();
   // The hat tucked away to its pull tab (chatDisplay.ts TRAY_TUCKED_KEY; Leo, 2026-11-04).
   const trayTucked = useTrayTucked();
+  // Where its tuck chevron and pull tab sit along the composer's top edge (chatDisplay.ts TRAY_HANDLE_KEY).
+  const trayHandle = useTrayHandle();
   // Debug Settings agent.sessionStatus draws its activity line under the pinned list, so it pins it.
   const planInHat = subagentTray && !pinnedPlan && !sessionStatus && !quick && !childRows && snapshot.isWorking;
   const hatPlanRow = useMemo(() => (planInHat ? liveTurnPlan(turnRowsShown) : undefined), [planInHat, turnRowsShown]);
@@ -9780,6 +9788,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             enters={trayEnters}
             plan={hatPlan}
             onTuck={trayPlacement === "tray" ? tuckTray : undefined}
+            tuckSide={trayHandle}
           />
         </SubagentHarnessContext.Provider>
       </SubagentClockContext.Provider>
@@ -14258,7 +14267,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             composer's top middle (subagents/TrayPullTab.tsx). */}
         {trayPlacement === "tray" &&
           (trayTucked && trayNode ? (
-            <TrayPullTab running={trayList.length > 0 || (hatPlan !== undefined && hatPlan.length > 0)} />
+            <TrayPullTab
+              chat={shownSessionId}
+              {...pullTabCounts(trayList, waitingAgents)}
+              working={hatPlan !== undefined && hatPlan.length > 0}
+              side={trayHandle}
+            />
           ) : (
             trayNode
           ))}
