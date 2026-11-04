@@ -72,6 +72,27 @@ def is_delivery_run(path: str | None, *names: str | None) -> bool:
     return any(str(name or "").startswith(prefix) for name in names for prefix in prefixes)
 
 
+# A delivery workflow's run from one of these events only tests a change to it: nightly-next-canary.yml and
+# nightly-next-launch-smoke.yml run for the pull requests that edit them, and that run publishes, signs, rolls back
+# and files nothing. dep-fleet's ruling (#27521) protects started nightly, DEV and promote builds, never these, so a
+# pull request run of a delivery workflow is an ordinary pull request run to the rescue's open-head failover and the
+# queue janitor.
+TEST_ONLY_EVENTS = frozenset({"pull_request", "pull_request_target", "merge_group"})
+
+
+def is_delivery_event(event: str | None) -> bool:
+    """Whether a run's event can deliver: any event but a pull request's (TEST_ONLY_EVENTS). An unread event counts,
+    so a run whose event is unknown keeps its protection."""
+    return str(event or "") not in TEST_ONLY_EVENTS
+
+
+def delivers(path: str | None, event: str | None, *names: str | None) -> bool:
+    """Whether a run is a delivery run: a delivery workflow's (is_delivery_run(), the same titles) from an event that
+    can deliver (is_delivery_event()): a schedule, a dispatch, a push, a workflow_run. A pull request run of
+    nightly-next-canary.yml is not one; its scheduled run, or a dispatch on the nightly branch, is."""
+    return is_delivery_event(event) and is_delivery_run(path, *names)
+
+
 # --- skipping a stale run for the tip ----------------------------------------
 # The rule (sr2, 2026-10-28): "count a nightly, dev or promote run as stale,
 # and so cancellable, only when all of these hold: 1. every job except light
@@ -369,6 +390,100 @@ def superseded_unstarted(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any
         why_not = why_not or f"run {other.get('id')}: {problem}"
     return False, (f"condition 3 fails: no newer run of {run.get('head_branch')} at its tip is building in its place "
                    f"({why_not})")
+
+
+# --- DEV publish runs a newer publish already covered ---------------------------
+# cmux-next-dev-daily.yml's publish runs ("cmux NEXT DEV daily · publish <source run>") all run on main, at
+# whatever main's head was when the dispatcher asked, so superseded_unstarted() can never tell them apart by head;
+# and their Linux sign jobs run within minutes, so build_started() counts every one as started. On 2026-10-31 that
+# left 115 of them queued (the oldest 37 hours), each holding a Verify and a tip DMG job on a Mac label (106 on
+# blacksmith-12vcpu-macos-26, dead since 10-30, the rest on glaeda-std-xcode-26.6).
+#
+# Such a run can never publish once a newer publish run has published: its Publish job's not_newer() skips a
+# source commit the publish record already contains, and the tip feed refuses a build that is not newer than the
+# one it has. So it is certain not to deliver, the "certain to fail" exception of the standing rule, when:
+#   1. it is a DEV publish run, in flight, no job of its current attempt is running (in progress, or queued with a
+#      runner assigned), and its Publish job has not run: what is left only waits for a runner. A tip DMG or tip
+#      feed job that already finished changes nothing, since the tip feed refuses a build that is not newer;
+#   2. nothing in it has moved for STALE_WAIT;
+#   3. a newer DEV publish run (a later source run id) completed in success with its Publish job succeeding; and
+#   4. that run's source commit contains this run's source commit (`contains(old, new)` is True).
+# Anything unread is a keep.
+DEV_PUBLISH_WORKFLOW = "cmux-next-dev-daily.yml"
+DEV_PUBLISH_TITLE = re.compile(r"^cmux NEXT DEV daily · publish ([0-9]+)$")
+DEV_PUBLISH_JOB = "Publish cmux NEXT DEV"
+
+
+def dev_publish_source(run: Mapping[str, Any]) -> int | None:
+    """The source run id a DEV publish run publishes (from its title), or None when it is not one."""
+    if _file_name(run.get("path")) != DEV_PUBLISH_WORKFLOW:
+        return None
+    for title in (run.get("name"), run.get("display_title")):
+        match = DEV_PUBLISH_TITLE.match(str(title or ""))
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def dev_publish_published(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]] | None) -> bool:
+    """Whether a DEV publish run finished in success with its Publish job succeeding (its source, or a newer one,
+    is then in the publish record)."""
+    if dev_publish_source(run) is None or run.get("status") != "completed" or run.get("conclusion") != "success":
+        return False
+    mine = attempt_jobs(run, jobs) if jobs is not None else None
+    return bool(mine) and any(_base_name(str(job.get("name") or "")) == DEV_PUBLISH_JOB
+                              and job.get("status") == "completed" and job.get("conclusion") == "success"
+                              for job in mine)
+
+
+def dev_publish_superseded(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]] | None, *,
+                           source_sha: str | None, newer: Mapping[str, Any] | None,
+                           newer_jobs: Sequence[Mapping[str, Any]] | None, newer_source_sha: str | None,
+                           contains: Contains, now: _dt.datetime | None = None,
+                           stale_wait: _dt.timedelta = STALE_WAIT) -> tuple[bool, str]:
+    """(True, why) when a DEV publish run can never publish because `newer` (a later DEV publish run) already
+    published a source commit that contains this run's; (False, why not) otherwise or when anything is unread."""
+    source = dev_publish_source(run)
+    if source is None:
+        return False, "it is not a DEV publish run"
+    if run.get("status") not in WAITING_JOB_STATUSES and run.get("status") != "in_progress":
+        return False, f"it is {run.get('status') or 'in an unknown state'}"
+    mine = attempt_jobs(run, jobs) if jobs is not None else None
+    if mine is None:
+        return False, "its jobs, or which attempt they belong to, could not be read"
+    for job in mine:
+        name, status = str(job.get("name") or ""), job.get("status")
+        if status == "completed" and job.get("conclusion") not in KNOWN_CONCLUSIONS | {"skipped"}:
+            return False, f"its job {name!r} finished with an unknown conclusion ({job.get('conclusion')!r})"
+        waiting = status in WAITING_JOB_STATUSES and not job.get("runner_name")
+        if status != "completed" and not waiting:
+            return False, f"condition 1 fails: its job {name!r} is running ({status}, runner {job.get('runner_name')!r})"
+        if (_base_name(name) == DEV_PUBLISH_JOB and not waiting
+                and not (status == "completed" and job.get("conclusion") == "skipped")):
+            return False, f"condition 1 fails: its Publish job has run ({job.get('conclusion')})"
+    since = waited_since(run, mine)
+    if since is None:
+        return False, "how long it has waited could not be read"
+    waited = (now or _dt.datetime.now(_dt.timezone.utc)) - since
+    if waited < stale_wait:
+        return False, (f"condition 2 fails: it has waited {int(waited.total_seconds() // 60)} min since it last "
+                       f"moved, under {int(stale_wait.total_seconds() // 60)} min")
+    if newer is None:
+        return False, "condition 3 fails: no newer DEV publish run has published"
+    newer_source = dev_publish_source(newer)
+    if newer_source is None or newer_source <= source:
+        return False, f"condition 3 fails: run {newer.get('id')} does not publish a later source run than {source}"
+    if not dev_publish_published(newer, newer_jobs):
+        return False, f"condition 3 fails: run {newer.get('id')} has not published (Publish job not a success)"
+    old, new = str(source_sha or "").lower(), str(newer_source_sha or "").lower()
+    if not _SHA.fullmatch(old) or not _SHA.fullmatch(new):
+        return False, "condition 4 fails: a source commit could not be read"
+    if old != new and contains(old, new) is not True:
+        return False, f"condition 4 fails: {new[:12]} could not be shown to contain {old[:12]}"
+    return True, (f"certain not to publish: run {newer.get('id')} published source run {newer_source} "
+                  f"({new[:12]}), which contains this run's source {old[:12]}; the publisher and the tip feed refuse "
+                  f"a commit that is not newer (it waited {int(waited.total_seconds() // 60)} min with no job "
+                  "running)")
 
 
 # --- runs that can never deliver ----------------------------------------------
