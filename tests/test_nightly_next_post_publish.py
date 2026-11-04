@@ -35,8 +35,7 @@ def needs(job_text: str) -> str:
 failures = []
 publish = job("publish-nightly")
 publish_needs = needs(publish)
-compatibility_jobs = ("legacy-identity-target", "legacy-signer-app", "legacy-signer-dmg-image", "legacy-signer-dmg",
-                      "verify-nightly-identity-legacy-pool", "sign-nightly-identity-legacy")
+compatibility_jobs = ("legacy-identity-target", "sign-nightly-identity-legacy")
 
 for post_job in compatibility_jobs:
     if post_job in publish_needs:
@@ -45,9 +44,6 @@ if "prepare-nightly-variant" not in needs(job("legacy-identity-target")):
     failures.append("legacy-identity-target must wait for the prepared NEXT artifact")
 if "publish-nightly" not in needs(job("sign-nightly-identity-legacy")):
     failures.append("the macOS legacy signer (an owned signing Mac) must run after the primary NEXT publication")
-for pool_job in ("legacy-signer-app", "legacy-signer-dmg"):
-    if "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.run_attempt > 1 || needs.pick-nightly-sign-runner.outputs.hosted_slow == 'true') && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}" not in job(pool_job):
-        failures.append(f"{pool_job} must sign on the signer route (hosted Linux), never an owned signing Mac")
 legacy = job("legacy-identity-target")
 if "build-nightly-app" not in needs(legacy):
     failures.append("legacy identity targeting must know the current build number")

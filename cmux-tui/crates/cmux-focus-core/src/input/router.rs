@@ -15,9 +15,9 @@ use super::{
     ConsumeReason, DropReason, GoneReason, InputEffect, InputEvent, InputId, Via, WaitReason,
 };
 use crate::event::{FocusEffect, FocusEvent, Source};
-use crate::reducer;
 use crate::state::{Expectation, ExpectationKey, FocusState, Resolved, Target};
 use crate::topology::Kind;
+use crate::window::WindowFocus;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
@@ -28,7 +28,9 @@ pub(super) struct TabInfo {
 }
 
 pub(super) struct WindowInput {
-    pub(super) focus: FocusState,
+    /// The window's focus, as the app's focus handle keeps it (the state, the
+    /// address bar memory, the Close Tab aim).
+    pub(super) window: WindowFocus,
     /// The tabs of the window's topology, by id (the first tab with an id).
     pub(super) tabs: HashMap<Arc<str>, TabInfo>,
     /// The tab showing each daemon surface (the first one, in layout order).
@@ -40,16 +42,24 @@ pub(super) struct WindowInput {
 
 impl WindowInput {
     fn new() -> WindowInput {
-        let mut focus = FocusState::default();
-        focus.derive();
-        WindowInput { focus, tabs: HashMap::new(), surfaces: HashMap::new(), return_to: None }
+        WindowInput {
+            window: WindowFocus::new(),
+            tabs: HashMap::new(),
+            surfaces: HashMap::new(),
+            return_to: None,
+        }
+    }
+
+    /// The window's focus state.
+    pub(super) fn focus(&self) -> &FocusState {
+        self.window.state()
     }
 
     /// Rebuilds the tab index from the focus topology.
     fn reindex(&mut self) {
         self.tabs.clear();
         self.surfaces.clear();
-        for pane in &self.focus.topology.panes {
+        for pane in &self.window.state().topology.panes {
             for tab in &pane.tabs {
                 let id: Arc<str> = Arc::from(tab.id.as_str());
                 if let Some(surface) = tab.surface.as_deref() {
@@ -215,7 +225,7 @@ impl InputRouter {
 
     /// `window`'s focus; none for a window that is not open.
     pub fn focus(&self, window: &str) -> Option<&FocusState> {
-        self.windows.get(window).map(|w| &w.focus)
+        self.windows.get(window).map(WindowInput::focus)
     }
 
     /// The sink a text key typed now in `window` is aimed at.
@@ -272,12 +282,15 @@ impl InputRouter {
 
     fn focus_event(&mut self, window: &Arc<str>, event: &FocusEvent) {
         let Some(input) = self.windows.get_mut(window) else { return };
-        let before = input.focus.derived.resolved.clone();
-        reducer::reduce(&mut input.focus, event, &mut self.focus_effects);
+        let before = input.focus().derived.resolved.clone();
+        // The app's focus handle's reduction: a topology takes the fast path,
+        // and the address bar memory notes every reduction.
+        let reduction = input.window.send(event, &mut self.focus_effects);
         for effect in self.focus_effects.drain(..) {
             self.effects.push(InputEffect::Focus { window: window.clone(), effect });
         }
-        let after = &input.focus.derived.resolved;
+        self.effects.push(InputEffect::FocusReduced { window: window.clone(), reduction });
+        let after = &input.focus().derived.resolved;
         if !is_return_field(after) {
             input.return_to = None;
         } else if is_content(&before) && is_user_move(event) {
@@ -394,7 +407,7 @@ impl InputRouter {
         // (Cmd-W closes the tab and its dialog), else it is the dialog's.
         let dialog = self.dialog_for(window_id, aim.sink.as_ref());
         if let Some(binding) = &key.binding {
-            let focus = &window.focus;
+            let focus = window.focus();
             // The rules read the key's own target: the tab the focus is on its
             // way to, else the focused target. Copy mode is the focused
             // terminal's, never a new one's.
@@ -567,7 +580,7 @@ impl InputRouter {
         };
         let input = self.windows.get(window)?;
         let pane = input.return_to.as_ref()?;
-        input.focus.topology.contains_pane(pane).then(|| pane.clone())
+        input.focus().topology.contains_pane(pane).then(|| pane.clone())
     }
 
     pub(super) fn push(&mut self, effect: InputEffect) {
@@ -580,7 +593,7 @@ impl InputRouter {
     /// the tab the focus is on its way to (a creation's, a drop's), else the
     /// focused target.
     pub(super) fn aim_in(&self, window_id: &Arc<str>, window: &WindowInput) -> Aim {
-        let focus = &window.focus;
+        let focus = window.focus();
         if let Some(top) = focus.overlays.last() {
             return Aim {
                 sink: Some(Sink::Overlay { window: window_id.clone(), overlay: *top }),
