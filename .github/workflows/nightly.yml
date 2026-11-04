@@ -3345,6 +3345,10 @@ jobs:
       owned: ${{ github.repository == 'manaflow-ai/cmux' && github.ref_name == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.owned.outputs.owned || '' }}
       # A drained (or draining) owned Mac for the release signing jobs (sign-nightly-identity-legacy), as the JSON runs-on
       # array scripts/ci/signing_runner.py prints, or empty, under the same marker and `attempt` rules as `owned`.
+      # One nightly-only runner label per post-sign verify job, off every mini whose signing runner takes the whole-Mac
+      # claim (run 41896773873's Verify final nightly DMG waited 35 min on cmux15), or empty: the job takes `owned`.
+      verify_signed: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.owned.outputs.verify_signed || '' }}
+      verify_dmg: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.owned.outputs.verify_dmg || '' }}
       sign_owned: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.sign-owned.outputs.owned || '' }}
       # The shared pool label from sign_owned. Publication controls use this pool route so they never pin one runner.
       sign_owned_pool: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.sign-owned.outputs.owned_pool || '' }}
@@ -3400,6 +3404,8 @@ jobs:
           OWNED_LABELS: ${{ format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
           # Attempt 1 of a nightly-next push takes the all-nightly reservation with no runner read (nightly_build_runner.py).
           NIGHTLY_ONLY_LABEL: ${{ vars.CI_NIGHTLY_ONLY_RUNNER }}
+          # The signing runners' label: the verify jobs keep off the minis that carry it.
+          SIGN_RUNNER_LABEL: ${{ vars.CI_NIGHTLY_SIGN_RUNNER }}
           CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
           # As the build pick: unread runners (run 41335987427's 403 rate limit on the routing App) queue the
           # verify jobs on the watched owned pool, not blind on Blacksmith macOS.
@@ -4257,7 +4263,8 @@ jobs:
       contents: read
     # A failed-jobs rerun retains an older picker. Rejoin the fleet pool, never
     # that old runner choice, once; later attempts use the Blacksmith overflow.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
+    # Its own nightly-only runner off the signing mini (nightly_build_runner.off_signing_verify_route()), else the owned route.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.verify_signed || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -4360,7 +4367,8 @@ jobs:
     outputs:
       # 'true' only when this job's own launch smoke passed.
       smoked_in_job: ${{ steps.own-smoke.outcome == 'success' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
+    # Its own nightly-only runner off the signing mini (nightly_build_runner.off_signing_verify_route()), else the owned route.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.verify_dmg || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false

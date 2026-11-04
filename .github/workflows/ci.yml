@@ -1133,7 +1133,7 @@ jobs:
     # gate still requires static-preflight, so starting them together lets it
     # decline ~25 s sooner without admitting macOS on a rejected diff.
     needs: [changes]
-    if: ${{ ((github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.next_line != 'true' && (needs.changes.outputs.linux_guard_tests != 'false' || needs.changes.outputs.linux_guard_history != 'false' || needs.changes.outputs.linux_guard_cli != 'false' || needs.changes.outputs.linux_guard_source != 'false')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}
+    if: ${{ (!cancelled() && needs.changes.result == 'success' && ((github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.next_line != 'true' && (needs.changes.outputs.linux_guard_tests != 'false' || needs.changes.outputs.linux_guard_history != 'false' || needs.changes.outputs.linux_guard_cli != 'false' || needs.changes.outputs.linux_guard_source != 'false'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}
     permissions:
       contents: read
     uses: ./.github/workflows/ci-guards.yml
@@ -1146,7 +1146,7 @@ jobs:
 
   ghosttykit-release-check:
     needs: [changes]
-    if: ${{ (needs.changes.outputs.ghosttykit_release == 'true') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}
+    if: ${{ (!cancelled() && needs.changes.result == 'success' && (needs.changes.outputs.ghosttykit_release == 'true')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}
     name: GhosttyKit release check
     permissions:
       contents: read
@@ -1180,12 +1180,12 @@ jobs:
 
   browser:
     needs: [changes]
-    if: ${{ ((github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.next_line != 'true' && needs.changes.outputs.browser == 'true') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}
+    if: ${{ (!cancelled() && needs.changes.result == 'success' && ((github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.next_line != 'true' && needs.changes.outputs.browser == 'true')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}
     uses: ./.github/workflows/cmux-browser.yml
 
   remote-daemon:
     needs: [changes, static-preflight]
-    if: ${{ ((github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.next_line != 'true' && needs.changes.outputs.remote_daemon == 'true') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}
+    if: ${{ (!cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && ((github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.next_line != 'true' && needs.changes.outputs.remote_daemon == 'true')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}
     permissions:
       contents: read
       pull-requests: read
@@ -1199,8 +1199,13 @@ jobs:
 
   web:
     # Beside static-preflight for the same reason as guards.
+    # !cancelled() and the result of each need, never the implicit success(): that one also
+    # reads every ancestor, and portable-placement skips on a re-run (attempt 3, or a person's
+    # attempt 2) and on a fork, so a whole-run re-run skipped the web shards and the webview
+    # verdict though `changes` routed web=true (run 41892308895 attempt 3). The same holds for
+    # every job below that needs `changes` (tests/test_ci_portable_job_placement.py).
     needs: [changes]
-    if: ${{ (needs.changes.outputs.web != 'false' || needs.changes.outputs.agent_session_web != 'false') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}
+    if: ${{ (!cancelled() && needs.changes.result == 'success' && (needs.changes.outputs.web != 'false' || needs.changes.outputs.agent_session_web != 'false')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}
     uses: ./.github/workflows/ci-web.yml
     with:
       web: ${{ needs.changes.outputs.web }}
@@ -1420,7 +1425,7 @@ jobs:
     # <!-- cmux:dogfood-build -->
     name: "Dogfood build #${{ github.event.pull_request.number }}"
     needs: [changes, static-preflight]
-    if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'feat-cmux-next' && needs.changes.outputs.next_line != 'true' && contains(github.event.pull_request.labels.*.name, 'dev-build') && github.event.action != 'unlabeled' && (github.event.action != 'labeled' || github.event.label.name == 'dev-build') && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.macos != 'false' || needs.changes.outputs.delta_base_sha != '')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}
+    if: ${{ (!cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'feat-cmux-next' && needs.changes.outputs.next_line != 'true' && contains(github.event.pull_request.labels.*.name, 'dev-build') && github.event.action != 'unlabeled' && (github.event.action != 'labeled' || github.event.label.name == 'dev-build') && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.macos != 'false' || needs.changes.outputs.delta_base_sha != '')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 45
     # This job is intentionally outside ci-status, so a build or publication
