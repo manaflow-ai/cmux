@@ -38,9 +38,9 @@ export function ImportHistory({ store, strings, layout = "list" }: ImportHistory
           type="button"
           className="history-link"
           disabled={busy || snapshot.phase === "detecting" || Boolean(snapshot.picking)}
-          onClick={() => void store.pickZip("dot")}
+          onClick={() => void store.findExports()}
         >
-          {strings.format("history.chooseFor", t("history.source.dot"))}
+          {t("history.findExports")}
         </button>
       </div>
       <div className="history-sources" aria-label={t("history.sources")}>
@@ -168,7 +168,7 @@ function SourceRow({
               )}
             </span>
           )}
-          {row.kind === "zip" && !row.detected && (
+          {row.kind === "zip" && (
             <button
               type="button"
               className="history-link"

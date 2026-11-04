@@ -86,7 +86,7 @@ export function canImport(snapshot: HistorySnapshot): boolean {
 }
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-/** One owner for detection, explicit picks and the complete batch. No folder scan requests export discovery. */
+/** One owner for detection, explicit picks and the complete batch. Export discovery is explicit. */
 export class ImportHistoryStore {
   private snapshot: HistorySnapshot;
   private readonly listeners = new Set<() => void>();
@@ -123,14 +123,20 @@ export class ImportHistoryStore {
     return this.snapshot.phase === "importing" || this.snapshot.undoing;
   }
   async start(): Promise<void> {
-    if (this.detecting || this.snapshot.phase !== "idle") return;
+    await this.detect(false);
+  }
+  async findExports(): Promise<void> {
+    await this.detect(true);
+  }
+  private async detect(exports: boolean): Promise<void> {
+    if (this.detecting || this.busy) return;
     this.detecting = true;
     this.set({ phase: "detecting" });
     try {
       if (!this.client) throw new Error("cmux.importHistory.unavailable");
       const result = await this.client.call<{
         sources: { source: string; kind?: string; title?: string; path?: string }[];
-      }>(OPS.detect, {});
+      }>(OPS.detect, exports ? { exports: true } : {});
       const detected = result.sources ?? [];
       this.set({
         phase: "ready",

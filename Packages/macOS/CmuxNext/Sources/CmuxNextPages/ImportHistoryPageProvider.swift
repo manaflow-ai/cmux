@@ -40,10 +40,13 @@ public final class ImportHistoryPageProvider: PageProvider {
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         switch op {
         case "cmux.importHistory.detect":
-            // The page is already open because the person chose Bring your history. Scan the
-            // usual export folders once here so found archives are checked without another click.
-            let result = try await run(command.detect(exports: true), .seconds(60))
-            let sources = result["sources"]?.arrayValue ?? []
+            // Passive page detection must stay TCC-safe. Export folders are scanned only after
+            // the person clicks Find exports in the open import page.
+            let includesExports = params["exports"]?.boolValue == true
+            let result = try await run(command.detect(exports: includesExports), .seconds(60))
+            let sources = (result["sources"]?.arrayValue ?? []).filter { source in
+                includesExports || !(source["source"]?.stringValue ?? "").hasPrefix("zip:")
+            }
             for source in sources {
                 if let name = source["source"]?.stringValue {
                     // Presence hints for no-export assistants are already text sources;

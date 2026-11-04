@@ -71,6 +71,12 @@
 .history-source-action {
   flex-shrink: 0;
 }
+.history-sources {
+  max-height: min(52vh, 520px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-inline-end: 4px;
+}
 .history-muted,
 .history-safety,
 .history-file,

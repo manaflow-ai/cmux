@@ -60,6 +60,25 @@ describe("Bring your history", () => {
     expect(store.getSnapshot().rows.some((row) => row.id === "dot")).toBe(false);
     expect(canImport(store.getSnapshot())).toBe(true);
   });
+  test("export discovery is opt-in after the passive mount scan", async () => {
+    const client = host(({ op, params }) =>
+      op === OPS.detect
+        ? {
+            sources: params.exports
+              ? [{ source: "zip:/Downloads/chatgpt.zip", kind: "chatgpt-export" }]
+              : [{ source: "codex", kind: "codex" }],
+          }
+        : undefined,
+    );
+    const store = new ImportHistoryStore(client);
+    await store.start();
+    await store.findExports();
+    expect(client.calls).toEqual([
+      { op: OPS.detect, params: {} },
+      { op: OPS.detect, params: { exports: true } },
+    ]);
+    expect(store.getSnapshot().rows.find((row) => row.id === "chatgpt")?.detected).toBe(true);
+  });
   test("recognized export archives are prechecked and retain their path", async () => {
     const client = host(({ op }) =>
       op === OPS.detect
