@@ -91,4 +91,15 @@ struct StoreIndexLookupTests {
         #expect(store.workspace(resourceID: ResourceID(rawValue: "ws_b"))?.id == "b")
         #expect(store.screen(id: "screen:200") != nil)
     }
+
+    /// A reopen wait hears a workspace whose resource id arrives in place: the workspace list itself
+    /// does not change, so the wait must not observe only that list (it would sit until its timeout).
+    @Test func aReopenWaitHearsAResourceIDArriveInPlace() async {
+        let store = DaemonStore()
+        store.apply(snapshot: Self.tree())
+        let wait = Task { await store.workspace(afterReopen: ResourceID(rawValue: "ws_a2"), timeout: .seconds(5)) }
+        for _ in 0..<10 { await Task.yield() }
+        store.apply(snapshot: Self.tree(firstResource: "ws_a2"))
+        #expect(await wait.value == "a")
+    }
 }
