@@ -23,6 +23,7 @@ function recordingClient(): { client: AcpmuxDirectClient; sent: Record<string, u
     permissions: {
       state: { supported: false, ready: false, groups: [], chatAllowance: false, loading: false, busy: false },
     },
+    queue: [],
     queueWithdrawn: [],
     listener: () => undefined,
     subagents: {
