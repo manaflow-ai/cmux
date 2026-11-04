@@ -1938,5 +1938,83 @@ class LiveResizeSwitchTests(unittest.TestCase):
         self.assertEqual([o[0] for o in order if o[0] in ("switch", "drag")][:2], ["switch", "drag"])
 
 
+
+class HoverApp(SpringApp):
+    """SpringApp's two column edges, the pointer and the cursor the app shows (`debug.cursor`). A key spring moves column
+    edge 0 by S; the cursor is the resize cursor where the pointer is within half the 7 pt hit band of a vertical divider's
+    current place (`stale`: of its place before the key, the bug: hover kept where the divider was), else the I-beam of
+    the terminal under it. `cursor_reply`: what debug.cursor answers (None: a build without it)."""
+
+    def __init__(self, clock, offset, stale=False, cursor_reply=True):
+        super().__init__(clock, offset, response=0.15, hit_pt=7.0)
+        self.pointer, self.stale, self.cursor_reply = None, stale, cursor_reply
+        self.moves = []
+
+    def rpc(self, method, params=None, timeout=None):
+        if method == "debug.cursor":
+            if not self.cursor_reply:
+                return {"error": "unknown method debug.cursor"}
+            t = self.key_down if self.stale and self.key_down is not None else self.host()
+            over = self.pointer is not None and any(
+                d[4] > d[3] and abs(self.pointer[0] - (d[1] + d[3] / 2)) <= d[3] / 2 for d in self.dividers(t - 1e-6))
+            name = "columnResize" if over else "iBeam"
+            return {"app": name, "system": name}
+        return super().rpc(method, params, timeout)
+
+
+class HoverJourney(SpringJourney):
+    def step_hid_move(self, step):
+        self.log.append(("move", self.clock.t, dict(step)))
+        self.app.pointer = tuple(step["window_point"])
+        self.app.moves.append(tuple(step["window_point"]))
+        self.clock.t += 0.02
+        return {"point": step["window_point"]}
+
+
+class DividerHoverTests(unittest.TestCase):
+    """px_divider_hover (HOT PATH AUDIT frames, the divider cursor redesign: one tracking area on the screen view
+    hit-tests the current divider frames). The real pointer on a column edge shows the resize cursor; a real key resize
+    springs the edge away under the still pointer, which then shows no resize cursor; the pointer at the edge's new place
+    shows it, and at its old place does not. Any reading that differs fails the journey; a build without debug.cursor is
+    not run."""
+
+    def setUp(self):
+        self.clock = FakeClock()
+        self.saved = (X.D.now, X.time, X.V._host_offset_s)
+        X.D.now, X.time = self.clock.monotonic, self.clock
+        X.V._host_offset_s = lambda: 8000.0
+
+    def tearDown(self):
+        X.D.now, X.time, X.V._host_offset_s = self.saved
+
+    def run_step(self, app):
+        j = HoverJourney(app, tempfile.mkdtemp(), self.clock)
+        return j, X.step_px_divider_hover(j, {"key": "l", "modifiers": ["control", "shift"], "target": {"divider": 0},
+                                              "mark": "hover"})
+
+    def test_the_resize_cursor_follows_the_divider(self):
+        app = HoverApp(self.clock, 8000.0)
+        j, out = self.run_step(app)
+        info = out["divider_hover"]
+        self.assertEqual([r["label"] for r in info["readings"]],
+                         ["on the divider at rest", "still pointer after the divider moved away", "the divider's new place",
+                          "the divider's old place"])
+        self.assertEqual([r["app"] for r in info["readings"]], ["columnResize", "iBeam", "columnResize", "iBeam"])
+        self.assertTrue(all(r["ok"] for r in info["readings"]))
+        old, new = info["old_center"], info["new_center"]
+        self.assertAlmostEqual(new[0] - old[0], app.S, delta=0.5)
+        self.assertEqual(app.moves, [tuple(old), tuple(new), tuple(old)])
+        self.assertEqual([e[0] for e in j.log], ["move", "key", "move", "move"])
+
+    def test_a_cursor_left_at_the_old_place_fails(self):
+        with self.assertRaises(X.D.StepError) as caught:
+            self.run_step(HoverApp(self.clock, 8000.0, stale=True))
+        self.assertIn("the divider's new place", str(caught.exception))
+
+    def test_a_build_without_debug_cursor_is_not_run(self):
+        with self.assertRaises(X.D.NotRun):
+            self.run_step(HoverApp(self.clock, 8000.0, cursor_reply=False))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
