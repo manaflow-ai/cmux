@@ -6,6 +6,7 @@ import { SidebarShapes } from "./SidebarShapes";
 export type ChromeShapeVariant = "recommendation" | "group-line" | "aside-labels" | "rex-icons";
 export type ChromeDensity = "compact" | "comfortable";
 export type ChromeTheme = "light" | "dark";
+const sidebarVariants = { recommendation: "A", "group-line": "B", "aside-labels": "C", "rex-icons": "D" } as const;
 
 export type WindowChromeShapeProps = {
   variant: ChromeShapeVariant;
@@ -66,7 +67,7 @@ export function WindowChromeShape({ variant, density, theme, menuScene }: Window
         </div>
       </header>
       <div className="chrome-window-body">
-        <aside className="chrome-sidebar"><SidebarShapes variant={{ recommendation: "A", "group-line": "B", "aside-labels": "C", "rex-icons": "D" }[variant]} density={density} appearance={theme} /></aside>
+        <aside className="chrome-sidebar"><SidebarShapes variant={sidebarVariants[variant]} density={density} appearance={theme} /></aside>
         <main className="chrome-main">
           <div className="chrome-content-surface">
             <div className="chrome-pane-grid">

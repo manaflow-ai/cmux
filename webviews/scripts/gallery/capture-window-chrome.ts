@@ -23,7 +23,7 @@ const cases = ["recommendation", "group-line", "aside-labels", "rex-icons"].flat
   ["compact", "comfortable"].flatMap(density => ["light", "dark"].map(scheme => ({ variant: `${shape}-${density}-${scheme}`, density, scheme }))));
 for (const scene of scenes) for (const density of ["compact", "comfortable"]) for (const scheme of ["light", "dark"])
   cases.push({ variant: `recommendation-${density}-${scheme}-${scene}`, density, scheme });
-const results: unknown[] = [];
+const results: Array<{ variant: string; engine: string; before: ChromeHeaderGeometry; readback: { rowHeight: number } } & Record<string, unknown>> = [];
 try {
   for (const engine of ["chromium", "webkit"] as const) {
     const browser = await (engine === "chromium" ? chromium.launch({ channel: "chrome", headless: true }) : webkit.launch({ headless: true }));
@@ -89,7 +89,7 @@ try {
 } finally {
   server.stop();
   await writeFile(path.join(out, "geometry.json"), JSON.stringify(results, null, 2));
-  await writeFile(path.join(out, "geometry.md"), `| State | Engine | Header height | Add center X | Add center Y | Row height | Hover/focus delta |\n|---|---|---:|---:|---:|---:|---:|\n` + results.map((r: any) => `| ${r.variant} | ${r.engine} | ${r.before.height} | ${r.before.addCenterX} | ${r.before.addCenterY} | ${r.readback.rowHeight} | 0 |`).join("\n"));
+  await writeFile(path.join(out, "geometry.md"), `| State | Engine | Header height | Add center X | Add center Y | Row height | Hover/focus delta |\n|---|---|---:|---:|---:|---:|---:|\n` + results.map(r => `| ${r.variant} | ${r.engine} | ${r.before.height} | ${r.before.addCenterX} | ${r.before.addCenterY} | ${r.readback.rowHeight} | 0 |`).join("\n"));
 }
 assert.equal(results.length, 96);
 console.log(`96 geometry cases and 192 2x images in ${out}`);
