@@ -646,11 +646,13 @@ import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { AgentRunTranscriptCard } from "./subagents/AgentRunCard";
 import { SubagentEmptyRow } from "./subagents/SubagentEmptyRow";
+import { SubagentResultRow } from "./subagents/SubagentResultHead";
 import { restartOwner, restartPrompt, restartReaches } from "./subagents/restart";
 import {
   SUBAGENT_DONE,
   SUBAGENT_EMPTY,
   SUBAGENT_OF,
+  SUBAGENT_RESULT,
   SUBAGENT_ROW,
   WORKFLOW_CARD,
   type SubagentRows,
@@ -1845,6 +1847,13 @@ const SubagentOfPillRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.row.text === b.row.text,
 );
+/// The child view's result head under its pill (subagents/SubagentResultHead.tsx): state, time, report.
+const SubagentResultHeadRow = memo(
+  function SubagentResultHeadRow({ row }: RowProps) {
+    return <SubagentResultRow row={row} />;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 /// The edited-files card (conversation/EditedFilesCard.tsx, data in turnChanges/).
 const EditedFilesRow = memo(
   function EditedFilesRow({ row, sessionId, onOpenDiff }: RowProps) {
@@ -2041,6 +2050,7 @@ const defaultRegistry: NativeRegistry = {
   [SUBAGENT_DONE]: SubagentDoneRow,
   [SUBAGENT_OF]: SubagentOfPillRow,
   [SUBAGENT_EMPTY]: SubagentEmptyRow,
+  [SUBAGENT_RESULT]: SubagentResultHeadRow,
   [WORKFLOW_CARD]: WorkflowCardRow,
 };
 
@@ -7194,10 +7204,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const manager = drivingUntil !== undefined && drivingExpired !== drivingUntil ? chatManager : undefined;
   // The Chief whose prompts this chat draws "Sent from" (conversation/sentFrom.ts).
   const chatChief = useMemo(() => chiefOf(shownSessionId, snapshot.sessions), [shownSessionId, snapshot.sessions]);
-  const freshAgents = useMemo(
-    () => [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()],
+  const freshAgentMap = useMemo(
+    () => subagentsIn(snapshot.rows, snapshot.subagentViews),
     [snapshot.rows, snapshot.subagentViews],
   );
+  const freshAgents = useMemo(() => [...freshAgentMap.values()], [freshAgentMap]);
   /// The name a subagent's pane tab shows (subagentPanes.ts subagentTabTitle): its own, else "Subagent of" the chat.
   const subagentTitle = (id: string) =>
     subagentTabTitle(
@@ -7252,6 +7263,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     workflowLabsEnabled,
     workflowTranscript.rows,
   ]);
+  // A subagent that ended opens on its top, its result head in view (subagentRows.ts `childView`):
+  // Leo, 2026-11-04: "Opening a subagent shows its result first". A running one opens on its latest
+  // row, following it, as a chat does.
+  const childOpenAt = useMemo((): ScrollAnchor | undefined => {
+    const pill = childRows?.[0];
+    const agent = pill?.kind === SUBAGENT_OF ? pill.subagents?.[0] : undefined;
+    return pill && agent && agent.state !== "running" ? { rowId: pill.id, offset: 0 } : undefined;
+  }, [childRows]);
   // The session's edit rows for the edited-files card, the same array while they are the same rows.
   const lastEditRows = useRef<SessionEdits | undefined>(undefined);
   const editRows = useMemo(() => {
@@ -13512,11 +13531,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                               : undefined
                                                         }
                                                         openAt={
-                                                          !childRows &&
-                                                          shownSessionId &&
-                                                          scrollAnchor?.sessionId === shownSessionId
-                                                            ? scrollAnchor
-                                                            : undefined
+                                                          childRows
+                                                            ? childOpenAt
+                                                            : shownSessionId && scrollAnchor?.sessionId === shownSessionId
+                                                              ? scrollAnchor
+                                                              : undefined
                                                         }
                                                         anchorNow={quick || childRows ? undefined : transcriptAnchor}
                                                         inViewNow={quick || childRows ? undefined : transcriptInView}
@@ -15265,6 +15284,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             <BackgroundTasksPanel
               groups={backgroundList}
               views={snapshot.subagentViews}
+              agents={freshAgentMap}
               look={experimentArm(backgroundTasksLook)}
               expanded={backgroundPanel.expanded}
               stopsAgents={stopSubagent !== undefined}

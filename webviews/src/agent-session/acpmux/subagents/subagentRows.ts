@@ -9,6 +9,9 @@ export const SUBAGENT_ROW = "subagent";
 export const SUBAGENT_OF = "subagentOf";
 /// The known child has no recorded messages or tool calls yet.
 export const SUBAGENT_EMPTY = "subagentEmpty";
+/// The child view's result head under its pill: its state, how long it ran and its final report,
+/// above its transcript (SubagentResultHead.tsx), so opening a subagent shows its result first.
+export const SUBAGENT_RESULT = "subagentResult";
 /// A subagent's one line where it ended, while running ones sit in the tray (SubagentDoneLine.tsx,
 /// runningTray.ts).
 export const SUBAGENT_DONE = "subagentDone";
@@ -33,8 +36,28 @@ export function subagentsIn(
   return found;
 }
 
+/// The row id of subagent `id`'s result head: a finished child view opens on it.
+export const subagentResultRowId = (id: string) => `${id}:result`;
+
+/// The text a result head shows for `agent`: its final report once it ended (its result, else the
+/// last thing it said), and why it failed when it failed with nothing to report. None while it runs:
+/// its live reply is the transcript's latest row.
+export function subagentReport(agent: Subagent): string | undefined {
+  if (agent.state === "running") return undefined;
+  return agent.result?.trim() || agent.lastMessage?.trim() || agent.error?.trim() || undefined;
+}
+
+/// A version that moves whenever what the result head draws does (its state, end, report, error).
+function resultVersion(agent: Subagent): number {
+  const key = `${agent.state}|${agent.endedAt ?? ""}|${agent.paused ? 1 : 0}|${subagentReport(agent) ?? ""}|${agent.error ?? ""}`;
+  let hash = 1;
+  for (let index = 0; index < key.length; index += 1) hash = (Math.imul(hash, 31) + key.charCodeAt(index)) | 0;
+  return hash >>> 0 || 1;
+}
+
 /// Subagent `id`'s own view: the "Subagent of" pill naming its parent (a subagent, or the chat,
-/// `chat`), then its rows with its open groups listed. Undefined when the subagent is unknown.
+/// `chat`), its result head (state, duration, final report), then its rows with its open groups
+/// listed. Undefined when the subagent is unknown.
 export function childView(
   id: string,
   rows: readonly AcpmuxRow[],
@@ -54,12 +77,21 @@ export function childView(
     subagents: [agent],
     text: parent,
   };
+  // Leo, 2026-11-04: "Opening a subagent shows its result first ... Put status, duration and its
+  // final report above its transcript, the way ChatGPT does."
+  const result: AcpmuxRow = {
+    id: subagentResultRowId(id),
+    version: resultVersion(agent),
+    at: agent.startedAt,
+    kind: SUBAGENT_RESULT,
+    subagents: [agent],
+  };
   const content = withSubagentRows(views?.[id] ?? [], expanded);
   // Views are populated by recorded child events, not a separate fetch. An absent entry does
   // not mean a request is pending; describe the empty transcript without claiming it is loading.
   return content.length
-    ? [pill, ...content]
-    : [pill, { id: `${id}:empty`, version: 1, at: agent.startedAt, kind: SUBAGENT_EMPTY }];
+    ? [pill, result, ...content]
+    : [pill, result, { id: `${id}:empty`, version: 1, at: agent.startedAt, kind: SUBAGENT_EMPTY }];
 }
 
 export const isSubagentGroup = (row: AcpmuxRow) => row.kind === SUBAGENTS;

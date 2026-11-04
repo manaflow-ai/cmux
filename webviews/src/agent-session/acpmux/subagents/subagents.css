@@ -1403,3 +1403,80 @@ button.cv-subagent > :last-child {
   grid-column: 6;
   grid-row: 1;
 }
+
+/* A subagent's result head (SubagentResultHead.tsx), under the child view's "Subagent of" pill and
+   above its transcript: one tool-row line (mark, state · time, Copy), then the final report in the
+   reply's type on the column's left edge, cut to --cv-subagent-result-lines with Show more, then a
+   hairline in the pill's ring colour that sets it off from the transcript. Flush on the grid, no card
+   (design/transcript-spacing.md: a card in the transcript brings back the boxed look). Leo,
+   2026-11-04: "Put status, duration and its final report above its transcript, the way ChatGPT does."
+   model.ts estimates the same height: change them together. */
+.cv-subagent-result {
+  --cv-subagent-result-lines: 12;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-gap);
+  margin: 0;
+  padding: var(--grid-base) 0 calc(var(--grid-gap) * 2);
+  border-bottom: 1px solid var(--cv-card-ring);
+  min-width: 0;
+}
+.cv-subagent-result__head {
+  cursor: default;
+}
+.cv-subagent-result__status {
+  display: inline-flex;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+.cv-subagent-result__state {
+  flex: none;
+  color: var(--cv-text);
+  font-weight: var(--weight-emphasis);
+}
+.cv-subagent-result__time {
+  flex: none;
+  color: var(--cv-text-muted);
+  white-space: pre;
+}
+/* The error mark is the only red (the failed line's rule, design/chat-transcript.md). */
+.cv-subagent-result[data-state="failed"] .cv-subagent-result__mark {
+  color: var(--agent-status-failure);
+}
+.cv-subagent-result__actions {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  margin-inline-start: auto;
+}
+.cv-subagent-result__body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--grid-base);
+  min-width: 0;
+}
+.cv-subagent-result__report {
+  align-self: stretch;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--cv-text);
+  user-select: text;
+  -webkit-user-select: text;
+}
+.cv-subagent-result__report > .cv-md > :first-child {
+  margin-top: 0;
+}
+.cv-subagent-result__report > .cv-md > :last-child {
+  margin-bottom: 0;
+}
+.cv-subagent-result__report[data-cut] {
+  max-height: calc(var(--cv-line-height) * var(--cv-subagent-result-lines));
+  overflow: hidden;
+}
+/* Only a cut that hides lines fades its last one. */
+.cv-subagent-result__report[data-more] {
+  -webkit-mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
+  mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
+}

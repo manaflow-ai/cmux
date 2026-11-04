@@ -43,6 +43,7 @@ import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
 import { useNow } from "../subagents/SubagentGroup";
+import type { Subagent } from "../subagents/subagentFold";
 import type { WorkflowAgent } from "../summary/workflow";
 import type { TranscriptRead } from "../summary/workflowTranscript";
 import { useWorkflowTranscript } from "../summary/useWorkflowTranscript";
@@ -80,6 +81,7 @@ export type Drill = { agentId: string; rowId?: string; workflow?: boolean };
 export function BackgroundTasksPanel({
   groups,
   views,
+  agents,
   look = "nested",
   expanded = false,
   initialDrill,
@@ -95,6 +97,8 @@ export function BackgroundTasksPanel({
   groups: readonly BackgroundGroup[];
   /// The subagents' own rows (the snapshot's `subagentViews`), which a drill-in draws from.
   views?: Record<string, AcpmuxRow[]>;
+  /// Every subagent the chat knows, by id: a drill-in's result head reads its state, time and report.
+  agents?: ReadonlyMap<string, Subagent>;
   look?: PanelLook;
   /// The panel takes the whole right column (Expand); the side panel above it rests.
   expanded?: boolean;
@@ -199,6 +203,7 @@ export function BackgroundTasksPanel({
                 key={`${stack.length}:${drill.agentId}`}
                 rows={views?.[drill.agentId] ?? []}
                 running={drilled?.state === "running"}
+                agent={agents?.get(drill.agentId)}
                 anchor={drill.rowId}
               />
             </NestedAgents.Provider>

@@ -46,7 +46,9 @@ import {
   SUBAGENT_DONE,
   SUBAGENT_EMPTY,
   SUBAGENT_OF,
+  SUBAGENT_RESULT,
   SUBAGENT_ROW,
+  subagentReport,
   WORKFLOW_CARD,
 } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
@@ -1815,6 +1817,20 @@ function fallbackRowHeight(
   if (row.kind === SUBAGENT_ROW) return finish(row.status === "last" || row.status === "only" ? 56 : 48);
   // The child view's 28px "Subagent of" pill with 8px above and below it.
   if (row.kind === SUBAGENT_OF) return finish(44);
+  // The child view's result head (subagents.css `.cv-subagent-result`): 4 above, the 22px state line,
+  // then the report cut to 12 reply lines (with its 4 gap and 20px Show more past that), 16 and the
+  // hairline below. Measured on mount; this keeps the first frame close.
+  if (row.kind === SUBAGENT_RESULT) {
+    const agent = row.subagents?.[0];
+    const report = agent ? subagentReport(agent) : undefined;
+    const lineHeight = metrics().lineHeight;
+    const perLine = Math.max(24, Math.floor(width / 8));
+    const lines = report
+      ? report.split("\n").reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / perLine)), 0)
+      : 0;
+    const body = report ? 8 + Math.min(lines, 12) * lineHeight + (lines > 12 ? 24 : 0) : 0;
+    return finish(4 + 22 + body + 17);
+  }
   // Empty child copy is measured on mount; start with two body lines.
   if (row.kind === SUBAGENT_EMPTY) return finish(2 * metrics().lineHeight);
   // The 27px disclosure line, and the live status lines in its place.

@@ -23,7 +23,8 @@ import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
-import { SUBAGENTS } from "../subagents/subagentFold";
+import { SUBAGENTS, type Subagent } from "../subagents/subagentFold";
+import { SubagentResultHead } from "../subagents/SubagentResultHead";
 
 /// Rows mounted at first, and how many more each scroll to the top adds.
 export const WINDOW = 60;
@@ -75,12 +76,17 @@ export function windowRange(rows: readonly AcpmuxRow[], anchor?: string): Range 
 export function SubagentTranscript({
   rows,
   running,
+  agent,
   anchor,
   onLoadOlder,
   notice,
 }: {
   rows: readonly AcpmuxRow[];
   running: boolean;
+  /// The subagent itself, when the chat knows it: its result head (state, time, final report) leads
+  /// the transcript, and one that ended opens on it (Leo, 2026-11-04: "Opening a subagent shows its
+  /// result first").
+  agent?: Subagent;
   /// The row of the task that was opened: the transcript opens on it.
   anchor?: string;
   /// Set while older history can be read (a workflow agent's transcript): reaching the top reads it.
@@ -91,13 +97,17 @@ export function SubagentTranscript({
   const scroller = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
-  const [range, setRange] = useState(() => windowRange(rows, anchor));
+  // An ended subagent with no task row to open on opens at its top, its result head in view: its
+  // window starts at its first row.
+  const resultFirst = agent !== undefined && agent.state !== "running" && anchor === undefined;
+  const windowAnchor = anchor ?? (resultFirst ? rows[0]?.id : undefined);
+  const [range, setRange] = useState(() => windowRange(rows, windowAnchor));
   // Opened before acpmux streamed any of its rows: the window is taken from the first rows that
   // arrive, so a long transcript still mounts one window, not every row.
   const [seeded, setSeeded] = useState(rows.length > 0);
   if (!seeded && rows.length > 0) {
     setSeeded(true);
-    setRange(windowRange(rows, anchor));
+    setRange(windowRange(rows, windowAnchor));
   }
   // Rows replaced by fewer (a workflow agent's transcript read again from a fresh page after its file
   // was cut or replaced): the window is taken again from the new rows, never left past their end.
@@ -117,7 +127,7 @@ export function SubagentTranscript({
         }));
     }
   }
-  const atBottom = useRef(anchor === undefined);
+  const atBottom = useRef(anchor === undefined && !resultFirst);
   // While the mounted window moves (rows added above, rows unmounted above, older text merged into a
   // row): the row the reader is on and where its bottom edge sat in the view. Each render puts that
   // edge back where it was (a no-op once it is), so nothing the reader sees moves; with that row gone
@@ -139,6 +149,7 @@ export function SubagentTranscript({
       placed.current = true;
       const target = anchor ? view.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(anchor)}"]`) : null;
       if (target) view.scrollTop = Math.max(0, target.offsetTop - view.clientHeight / 3);
+      else if (resultFirst) view.scrollTop = 0;
       else view.scrollTop = view.scrollHeight;
       return;
     }
@@ -224,6 +235,7 @@ export function SubagentTranscript({
       }}
     >
       {notice && <p className="acpmux-bg__notice">{notice}</p>}
+      {agent && first === 0 && <SubagentResultHead agent={agent} />}
       {(first > 0 || loadOlder) && <div ref={top} className="acpmux-bg__sentinel" aria-hidden="true" />}
       {shown.map((row) => (
         <TranscriptRow key={row.id} row={row} version={row.version} />
