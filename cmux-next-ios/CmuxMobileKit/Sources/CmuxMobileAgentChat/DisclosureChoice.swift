@@ -40,6 +40,23 @@ final class ChatDisclosures {
         open[key] = value
         revision &+= 1
     }
+
+    /// Disclosures opening or closing on the person's tap (`toggleDisclosure`): their rows draw
+    /// in SwiftUI until the animation completes, so every disclosure plays the same reveal. A
+    /// native row (a finished tool row, group or thought at rest) swapped to its open SwiftUI
+    /// view with nothing to animate, so it opened at once while SwiftUI rows animated, and an
+    /// open row swapped back to native mid-close.
+    @ObservationIgnored private var settling: Set<String> = []
+
+    func isSettling(_ key: String) -> Bool {
+        access(keyPath: \.revision)
+        return settling.contains(key)
+    }
+
+    func settle(_ key: String, _ on: Bool) {
+        guard on ? settling.insert(key).inserted : settling.remove(key) != nil else { return }
+        revision &+= 1
+    }
 }
 
 extension EnvironmentValues {
