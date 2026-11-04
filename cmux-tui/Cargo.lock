@@ -1961,6 +1961,7 @@ dependencies = [
  "anyhow",
  "base64",
  "cmux-link",
+ "cmux-tui-util",
  "getrandom 0.3.4",
 ]
 
@@ -1972,6 +1973,7 @@ version = "0.0.0"
 name = "cmux-tui-util"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
  "cmux-tui-platform",
  "getrandom 0.3.4",
  "libc",
