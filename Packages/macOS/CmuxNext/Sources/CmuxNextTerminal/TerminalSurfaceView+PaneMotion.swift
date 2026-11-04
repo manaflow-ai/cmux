@@ -63,10 +63,7 @@ extension TerminalSurfaceView: PaneMotionTargeting {
         else { return .top }
         reportFinalGrid(TerminalGridSize(columns: Int(columns), rows: Int(rows)))
         let anchor = motionAnchor(growing: growing)
-        // A host in a holding area follows its pane (FRAME OWNER S3), also one shown mid-hold before the area's next
-        // layout pass hands it the hold (a parked tab shown again; review of #35470, F3).
-        if anchor == .top, let host = superview as? TerminalHostView,
-           host.followedHold != nil || (host.superview as? PaneContentAreaView)?.isHolding == true,
+        if anchor == .top, let host = superview as? TerminalHostView, host.followedHold != nil,
            TerminalDragTunables.framesOwnedByCommit.value {
             return .top
         }
