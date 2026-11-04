@@ -623,12 +623,11 @@ fn push_inner(
             Placed::Skipped(why) => set.skips.note(relative, why),
         }
     }
-    if !set.links.is_empty() {
-        let (skipped_files, skipped_counts) = set.skips.json();
-        summary.skipped = set.skips.total();
-        summary.skipped_files = skipped_files;
-        summary.skipped_counts = skipped_counts;
-    }
+    // Links skipped since the summary began are named too.
+    let (skipped_files, skipped_counts) = set.skips.json();
+    summary.skipped = set.skips.total();
+    summary.skipped_files = skipped_files;
+    summary.skipped_counts = skipped_counts;
 
     let manifest = serde_json::to_vec(&next)?;
     remote

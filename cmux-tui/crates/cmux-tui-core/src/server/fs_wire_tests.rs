@@ -456,7 +456,7 @@ fn a_symlink_is_made_inside_the_root_and_one_leaving_it_is_refused() {
     let root = home.path.display().to_string();
     std::fs::create_dir_all(home.path.join("work/app/src")).unwrap();
     std::fs::write(home.path.join("work/app/src/a.txt"), "a").unwrap();
-    std::fs::write(home.path.join("work/x"), "x").unwrap();
+    std::fs::write(home.path.join("x"), "x").unwrap();
     let call = |cmd: &str, params: Value| service.call("owner", cmd, params);
 
     let made = call("fs.symlink", json!({"path": format!("{root}/work/app/lib"), "target": "src"}))
