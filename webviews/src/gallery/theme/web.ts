@@ -170,9 +170,10 @@ export function agentPaneTheme(
     surfaceBackground: css(page),
     surfaceElevatedBackground: css(tokens.elevatedBackground),
     inputBackground: css(tokens.hoverFill),
-    border: css(tokens.separator),
-    borderStrong: css(tokens.paneBorder),
-    borders,
+    // AgentPaneTheme.swift: no lines draws the borders transparent.
+    border: borders === "none" ? "transparent" : css(tokens.separator),
+    borderStrong: borders === "none" ? "transparent" : css(tokens.paneBorder),
+    borders: borders === "none" ? "none" : "default",
     text: css(tokens.textPrimary),
     mutedText: css(tokens.textSecondary),
     softText: css(tokens.textTertiary),
@@ -191,6 +192,8 @@ export function agentPaneTheme(
       .slice(0, 16)
       .map((color) => css(readable(color, tokens.elevatedBackground, MINIMUM_TEXT_CONTRAST))),
     motion,
+    statusIndicators: reducedMotion ? "static" : "animated",
+    workingLook: "spinner",
   };
 }
 

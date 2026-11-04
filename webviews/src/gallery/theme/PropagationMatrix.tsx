@@ -30,7 +30,7 @@ const CONTRAST_THEMES = [
   "Rose Pine Dawn",
   "Dracula",
   "Nord",
-  "Solarized Light",
+  "iTerm2 Solarized Light",
   "GitHub Dark High Contrast",
 ];
 
@@ -46,9 +46,19 @@ function runHere(themes: readonly GhosttyTheme[]): MatrixRow[] {
   if (!theme) return [];
   const before = theme.current;
   const style = root.getAttribute("style");
-  const attributes = ["data-borders", "data-theme", "data-status-indicators", "data-working-look", "class"].map(
-    (name) => [name, root.getAttribute(name)] as const,
-  );
+  const attributes = [
+    "data-borders",
+    "data-theme",
+    "data-status-indicators",
+    "data-working-look",
+    "data-glass",
+    "data-cmux-motion",
+    "data-scrollers",
+    "data-agent-os",
+    "data-agent-motion",
+    "data-focus-ring-enabled",
+    "class",
+  ].map((name) => [name, root.getAttribute(name)] as const);
   try {
     return runPropagationMatrix(
       (applied) => {
@@ -90,7 +100,16 @@ export function propagationMatrix(themes: readonly GhosttyTheme[]) {
           <tbody>
             {CONTRAST_THEMES.map((name) => {
               const theme = themes.find((candidate) => candidate.name === name);
-              if (!theme) return null;
+              if (!theme) {
+                return (
+                  <tr key={name}>
+                    <th scope="row">{name}</th>
+                    <td className="theme-matrix-fail" colSpan={4}>
+                      not a shipped theme
+                    </td>
+                  </tr>
+                );
+              }
               const measured = glassContrast(themeTokens(theme));
               const mark = (value: number) => (value >= 4.5 ? "theme-matrix-pass" : "theme-matrix-fail");
               return (
