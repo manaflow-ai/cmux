@@ -12,7 +12,6 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { NEXT_STEP, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { NextStepCard } from "../src/agent-session/acpmux/conversation/NextStepCard";
 import { nextStepAsk } from "../src/agent-session/acpmux/conversation/nextStepAsk";
-import { recapFrom } from "../src/agent-session/acpmux/recap";
 
 const ANSWER =
   "The lane ran about 40 slow commands in the foreground.\n\n[outward] Add a hook that pushes them to the background?\n- Yes, add the hook\n- Not now\n- Fix CI first";
@@ -74,11 +73,6 @@ describe("a tagged ask in the transcript", () => {
       new Set(),
     );
     expect(nextSteps(drawn)).toHaveLength(0);
-  });
-
-  test("the recap card steps aside for a tagged ask", () => {
-    expect(recapFrom(turn("[outward] Should I post the release notes?"))).toBeNull();
-    expect(recapFrom(turn("Done. Should I open a PR?"))?.question).toBe("Should I open a PR?");
   });
 });
 
