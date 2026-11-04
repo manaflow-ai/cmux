@@ -192,3 +192,26 @@ async fn no_other_connection_reads_or_saves_the_preset_prompt() {
     let file = state.0.join("presets").join("tuned").join("system.md");
     assert_eq!(std::fs::read_to_string(file).unwrap(), PROMPT);
 }
+
+#[tokio::test]
+async fn the_pane_is_not_offered_an_edit_the_save_would_refuse() {
+    let state = state("args");
+    let hub = hub(&state);
+    let (mut local, id) = chat(&hub).await;
+    let set = local
+        .call(
+            "_acpmux/presets",
+            json!({"name": "tuned", "set": {"args": ["--no-session-persistence"]}}),
+        )
+        .await;
+    assert!(set.get("error").is_none(), "{set}");
+    let mut app = Client::person_app(&hub).await;
+    let read = app.call("_acpmux/agent_setup", json!({"sessionId": id})).await;
+    assert_eq!(read["result"]["preset"]["editable"], false, "{read}");
+    let saved = app
+        .call("_acpmux/agent_setup/save", json!({"sessionId": id, "systemPrompt": EDITED}))
+        .await;
+    assert!(saved.get("error").is_some(), "{saved}");
+    let read = local.call("_acpmux/agent_setup", json!({"sessionId": id})).await;
+    assert_eq!(read["result"]["preset"]["editable"], true, "the unix socket still may: {read}");
+}

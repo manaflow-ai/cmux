@@ -58,7 +58,8 @@ pub(super) async fn handle(
             "hasSystemPrompt": p.system_prompt_sha256.is_some(),
             "systemPrompt": text,
             "takesSystemPrompt": takes_prompt,
-            "editable": takes_prompt && own,
+            // `_acpmux/presets` refuses the pane's write to a preset that carries args (#34676).
+            "editable": takes_prompt && own && (conn.origin == Origin::Local || p.args.is_empty()),
         })
     });
     Ok(json!({
