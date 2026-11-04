@@ -29,8 +29,8 @@ function readChoices(search: string): Choices {
   const layout = params.get("layout") ?? "";
   return {
     scene: SCENES.includes(scene) ? scene : SCENES[0]!,
-    window: window in WINDOW_PRESETS ? window : "pro14",
-    layout: layout in PANE_LAYOUTS ? (layout as PaneLayout) : "agent-right",
+    window: Object.hasOwn(WINDOW_PRESETS, window) ? window : "pro14",
+    layout: Object.hasOwn(PANE_LAYOUTS, layout) ? (layout as PaneLayout) : "agent-right",
     scheme: params.get("scheme") === "light" ? "light" : "dark",
     density: params.get("density") === "compact" ? "compact" : "comfortable",
   };

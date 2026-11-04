@@ -222,6 +222,7 @@ body {
   flex: none;
   gap: 4px;
   align-items: center;
+  box-sizing: border-box;
   padding: 0 8px;
   border-bottom: 1px solid var(--cmux-separator, #333);
 }
@@ -258,6 +259,7 @@ body {
 }
 
 .app-terminal {
+  box-sizing: border-box;
   display: flex;
   gap: 8px;
   align-items: flex-start;
