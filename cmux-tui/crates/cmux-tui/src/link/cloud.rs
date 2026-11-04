@@ -121,6 +121,7 @@ impl DirectSource {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
+            .timeout(DIAL_TIMEOUT)
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|_| {
@@ -202,7 +203,7 @@ impl ConnectInfoSource for DirectSource {
 fn secure_origin(raw: &str) -> Result<String, ConnectInfoError> {
     let url = reqwest::Url::parse(raw.trim())
         .map_err(|_| ConnectInfoError::Unavailable("the Cloud API URL is invalid".into()))?;
-    let local = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
+    let local = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "::1"));
     if url.host_str().is_none()
         || !url.username().is_empty()
         || url.password().is_some()
