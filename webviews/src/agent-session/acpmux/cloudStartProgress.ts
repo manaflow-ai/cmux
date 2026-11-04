@@ -1,4 +1,6 @@
 import type { CloudStartAnswer } from "./cloudRun";
+import { translate } from "./i18n";
+import { errorMessage } from "./transportErrors";
 import { sliceWhole } from "../../ui/wholeChars";
 
 /// A chat starting in Cloud, as the chat shows it (CloudStartView; cloud work mode, leo-workspace
@@ -56,6 +58,9 @@ export type CloudStartProgress = {
   setup?: CloudStartupSetup;
   /// True after the harness has started. The checklist stays available but folds to one quiet line.
   initialized?: boolean;
+  /// This Mac's pane refused the start before it reached Cloud (a `transport.*` code: a folder that
+  /// is not the tab's own, a Send without a gesture): no step ran, so the checklist marks none failed.
+  refusedHere?: boolean;
 };
 
 export type CloudStartupOperation = {
@@ -329,6 +334,17 @@ export function cloudStartEnded(
 ): CloudStartProgress | undefined {
   if (current?.key !== key) return current;
   if (answer.ok) return undefined;
-  const message = line(answer.message, 240);
-  return { ...current, state: "failed", ...(message ? { message } : {}) };
+  // The pane's own refusal (AgentPaneCloudStart: the folder check, the gesture) is worded by its
+  // code, never the host's generic "The app refused the agent connection." (cloudRefusalText).
+  const refusedHere = answer.code.startsWith("transport.");
+  const message = refusedHere ? cloudRefusalText(answer.code) : line(answer.message, 240);
+  return { ...current, state: "failed", ...(message ? { message } : {}), ...(refusedHere ? { refusedHere } : {}) };
+}
+
+/// The words for a Cloud start this Mac's pane refused: a folder that is not one of the tab's own
+/// asks the person to pick it (a pick grants it, `workspace.useFolder`); any other `transport.*`
+/// code reads as the pane's refusal text (transportErrors.ts).
+export function cloudRefusalText(code: string): string {
+  if (code === "transport.path_outside_roots") return translate("cloudStartup.folderNotOpen");
+  return errorMessage({ code });
 }
