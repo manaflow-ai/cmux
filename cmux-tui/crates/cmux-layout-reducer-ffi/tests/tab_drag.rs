@@ -83,7 +83,7 @@ fn group_index_counts_only_members_before_display_slot() {
                 3,
             )
         },
-        1
+        2
     );
     assert_eq!(
         unsafe {
