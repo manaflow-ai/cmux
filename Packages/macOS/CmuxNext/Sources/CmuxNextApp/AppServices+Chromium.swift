@@ -157,7 +157,6 @@ extension AppServices {
         let prefetchWork = features.isEnabled(.cefPrefetchBehindFence) ? work : nil
         let mergeWork = features.isEnabled(.cefMergedEvents) ? mainWork : nil // page events per frame
         let pumpFrames = features.isEnabled(.cefPumpFrameDeadline) ? mainWork : nil // pump slices to the frame
-        let hangFollowsVisibility = features.isEnabled(.chromiumHangFollowsVisibility) // Chrome's hidden-tab hang rules
         // Host mode only: the host's widgets in cmux panels and panes.
         chromiumRuntime.source.showsHostWidgets = features.isEnabled(.chromiumHostWidgets)
         // Host mode only: hosted pages' input through the host's input ring.
@@ -196,7 +195,6 @@ extension AppServices {
                                                        prefetchWork: prefetchWork,
                                                        launch: launchOrder, pageHostScripts: pageHostScripts).usingLayerHostingByDefault(layerHosting).usingAttachedPages(attachedPages)
                                           .hostingEveryPage(everyPage).votingMemoryPressure(of: memoryCoordinator).mergingEvents(on: mergeWork)
-                                          .followingVisibilityForRendererHangs(hangFollowsVisibility)
                                           .slicingPumpToFrames(of: pumpFrames).cappingSharedRendererMemory(rendererCaps).usingResizeFence(resizeFence)
                                   },
                                   engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,

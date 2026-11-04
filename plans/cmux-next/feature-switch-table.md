@@ -201,7 +201,6 @@ owner `Performance Lead` or a workstream OWNERS.md does not list, until the lead
 
 | switch | task(s) | owner | dev/nightly/release (tip) | perf claim | proof (strict: sha, host, opt. build, bench, numbers) | due | owner (one) |
 |---|---|---|---|---|---|---|---|
-| `chromiumHangFollowsVisibility` | p01-process-072 | PL-cef-layer | off/off/off | no | none; planned: red/green on v2.2.4-opt in process: CMUX_ENABLE_FEATURES=chromiumHangFollowsVisibility (not in the chromeParity set) vs off, hang a renderer in a hidden tab with a debug hang page, check debug.cef shows no prompt; row p01-13 "Unresponsive prompt follows tab visibility" | 2026-11-04 23:59 PT | PL-cef-layer |
 | `idleHelperBackgroundPriority` | p14-energy-038 | PL-acpmux | off/off/off | perf | none; planned: A/B on v2.2.4-opt: idleHelperBackgroundPriority on vs off (needs launch env), idle-budget agent session.; row p14-10 "Idle acpmux helpers at background priority" | 2026-11-04 23:59 PT | PL-acpmux |
 | `responsiveScrolling` | p03-rendering-110 | Performance Lead | off/off/off | perf | none; planned: A/B on v2.2.4-opt: responsiveScrolling on vs off (needs launch env), scroll motion story with an injected main stall, drops column.; row p03-14 "Responsive scrolling for sidebar and palette" | 2026-11-04 23:59 PT | motion (proposed) |
 

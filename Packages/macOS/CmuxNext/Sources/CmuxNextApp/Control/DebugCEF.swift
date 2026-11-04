@@ -75,13 +75,6 @@ enum DebugCEF {
             .object(["asked": .number(Double(report.asked)), "answered": .number(Double(report.answered)),
                      "waiting": .number(Double(report.waiting))])
         } ?? .null
-        // Feature chromiumHangFollowsVisibility: each tab's renderer hang; null with the feature off.
-        object["renderer_hangs"] = services.cache.cef.rendererHangs.map { hangs in
-            .array(hangs.map { hang in
-                .object(["browser": .number(Double(hang.browser)), "title": hang.title.map(JSONValue.string) ?? .null,
-                         "prompting": .bool(hang.prompting), "held": .bool(hang.held), "shown": .bool(hang.shown)])
-            })
-        } ?? .null
         // Host mode with feature chromiumHostLocks: the key window's page view's locks.
         let lockPage = (NSApp.keyWindow?.firstResponder as? ChromiumHostPageView)
         object["host_locks"] = services.cache.cef.hostLocks(page: lockPage).map(hostLocks) ?? .null
