@@ -111,17 +111,12 @@ fn file_id(_path: &Path) -> Option<FileId> {
     None
 }
 
-/// The file `pid` runs. Linux: `/proc/<pid>/exe` itself, which opens the running inode even after
-/// the path was replaced. macOS: the path the kernel reports for it now (`proc_pidpath` follows a
-/// rename of its bundle); once that fails, the exec path it falls back to names the new file, so a
-/// replaced (not moved) binary reads as current there and is left to the next restart.
+/// The file `pid` runs: the path the kernel reports for it now (`proc_pidpath` on macOS, the
+/// `/proc/<pid>/exe` link on Linux, both of which follow a rename of the file or its bundle). A binary
+/// replaced in place rather than moved reads as the new file there, so it is left to the next restart.
 #[cfg(unix)]
 fn running_file(pid: u32) -> Option<FileId> {
-    if cfg!(target_os = "linux") {
-        file_id(Path::new(&format!("/proc/{pid}/exe")))
-    } else {
-        file_id(&crate::agent_host::tree::exe(pid)?)
-    }
+    file_id(&crate::agent_host::tree::exe(pid)?)
 }
 
 /// Windows has no process tree reader here, so no host reads as stale.
