@@ -598,7 +598,7 @@ class Wiring(unittest.TestCase):
         print(f"status reports offered an idle mini: {offered}/2")
         self.assertEqual(offered, 2)
 
-    def test_early_nightly_controls_try_fleet_before_blacksmith_without_signing_secrets(self):
+    def test_early_nightly_controls_try_fleet_before_our_fallback_without_signing_secrets(self):
         nightly = jobs("nightly.yml")
         step = next(s for s in nightly["decide"]["steps"] if s.get("id") == "place-early")
         self.assertEqual(step["env"]["NIGHTLY_WAIT_FOR_FLEET"], "1")
@@ -611,7 +611,14 @@ class Wiring(unittest.TestCase):
                 self.assertIn("needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)", route)
                 selected = f"needs.decide.outputs.early_{name.replace('cmux-', '').replace('-', '_')}_runner"
                 self.assertIn(selected, route)
-                self.assertLess(route.index(selected), route.index("fromJSON(vars.RUNNER_POOLS).linux_32"))
+                # Then hosted Ubuntu (the light controls) or the owned nightly pool (the inputs build), never
+                # Blacksmith: nightlies never use it (Lawrence, 2026-10-30).
+                fallback = ("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}"
+                            if name == "build-nightly-inputs" else "|| 'ubuntu-24.04' }}")
+                self.assertTrue(route.endswith(fallback), route)
+                self.assertLess(route.index(selected), route.rindex(fallback))
+                self.assertNotIn("blacksmith", route)
+                self.assertNotIn("RUNNER_POOLS", route)
                 self.assertIn("needs.decide.outputs.track == 'nightly-next'", route)
                 self.assertNotIn("secrets.APPLE", yaml.safe_dump(job))
                 self.assertNotIn("secrets.CMUX_RELEASE_APP_KEY", yaml.safe_dump(job))
@@ -694,28 +701,28 @@ class Wiring(unittest.TestCase):
         self.assertLess(inspect.index('echo "run_macos=$run_macos"'), inspect.index("place_macos=false"))
         self.assertLess(inspect.index('echo "owns_key=$owns_key"'), inspect.index("place_macos=false"))
 
-    def test_the_nightly_light_jobs_read_build_nightly_app_s_placement_then_blacksmith(self):
+    def test_the_nightly_light_jobs_read_build_nightly_app_s_placement_then_our_nightly_macs(self):
         nightly = jobs("nightly.yml")
         step = next(step for step in nightly["build-nightly-app"]["steps"] if step.get("id") == "place-light-start")
         self.assertEqual(step["env"]["NIGHTLY"], "1")
-        # About one core each (.github/runners.json linux_sizes): the Linux 4 vCPU pool, and 16 vCPU
-        # for prepare-nightly-variant's retry after a failed primary.
-        expected_pools = {"prepare-nightly-variant-primary": "linux_4",
-                          "prepare-nightly-variant": "linux_16",
-                          "await-nightly-tree-marker": "linux_4"}
+        # Unplaced, each takes our nightly-only Macs, never Blacksmith (nightlies never use it).
+        fallback = "vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"
         for name in step["env"]["JOBS"].split():
             with self.subTest(job=name):
                 job = nightly[name]
                 self.assertIn("build-nightly-app", job["needs"])
                 runs_on = job["runs-on"]
                 mini = runs_on.index(f"contains(needs.build-nightly-app.outputs.light_mini_jobs, ' {name} ')")
-                self.assertLess(mini, runs_on.rindex(f"fromJSON(vars.RUNNER_POOLS).{expected_pools[name]}"))
+                self.assertTrue(runs_on.endswith(fallback), runs_on)
+                self.assertLess(mini, runs_on.rindex(fallback))
+                self.assertNotIn("blacksmith", runs_on)
+                self.assertNotIn("RUNNER_POOLS", runs_on)
                 self.assertIn("needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt)",
                               runs_on)
 
     def test_the_primary_preparation_takes_fleet_linux_only_from_an_idle_runner(self):
         # build-nightly-app's place-fleet: fleet Linux while a runner idles there now, else nothing
-        # (the light placement's mini, then Blacksmith); it never waits and never offers a mini.
+        # (the light placement's mini, then our nightly-only Macs); it never waits and never offers a mini.
         nightly = jobs("nightly.yml")
         build = nightly["build-nightly-app"]
         step = next(step for step in build["steps"] if step.get("id") == "place-fleet")

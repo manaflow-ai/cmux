@@ -21,7 +21,7 @@ from test_nightly_trusted_routing import evaluate, parse_expression
 ENV = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "41276832605",
        "GITHUB_RUN_ATTEMPT": "1", "GITHUB_SHA": "cfb07455959e2391c0001bcee71d02102ea43317",
        "JOBS": " ".join(sorted(admission.JOBS)), "CHECK_RECEIPTS": "1",
-       "SNAPSHOT_TOKEN": "test-token", "OVERFLOW_LINUX": "blacksmith-16vcpu-ubuntu-2404"}
+       "SNAPSHOT_TOKEN": "test-token", "OVERFLOW_LINUX": "ubuntu-24.04"}
 REQUEST = admission.identity(ENV)
 
 
