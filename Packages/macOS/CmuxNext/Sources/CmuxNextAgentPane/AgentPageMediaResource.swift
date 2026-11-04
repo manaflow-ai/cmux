@@ -6,6 +6,7 @@ import Foundation
 /// pane host serves at `cmux-agent://pane/__media/` (``AgentPaneSchemeHandler/readSlice(of:range:)``),
 /// so a player streams a file of any size. A token the host never granted is a 404. Only WebKit
 /// asks in ranges; a whole-body request (the Chromium page) gets a 404, never a whole file read.
+@MainActor
 final class AgentPageMediaResource: PageRangedResourceSource {
     static let shared = AgentPageMediaResource()
     static let prefix = "__media"
