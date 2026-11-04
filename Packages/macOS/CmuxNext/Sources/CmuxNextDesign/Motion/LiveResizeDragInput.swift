@@ -38,6 +38,10 @@ public final class LiveResizeDragInput {
         self?.tick() ?? false
     }
 
+    /// This live resize's drags wait for the frame tick: `motion.frameOwner.liveResize` read at its first held drag and
+    /// kept until the release. What else S7 changes in a live resize (``LiveResizePageUpdates``, ``FollowedViews``) follows it.
+    public var isFramed: Bool { latched == true }
+
     /// Drags given to AppKit from a frame tick and drags a newer one replaced, cumulative (diagnostics and tests).
     public private(set) var tickDeliveries = 0, replaced = 0
 
@@ -79,7 +83,7 @@ public final class LiveResizeDragInput {
     /// then `frameApplied` runs.
     public func applyingFrame(_ apply: () -> Void) {
         defer { frameApplied() }
-        guard latched == true, let window else { return apply() }
+        guard isFramed, let window else { return apply() }
         FollowedViews.of(window).holdingFrameNotices(apply)
     }
 

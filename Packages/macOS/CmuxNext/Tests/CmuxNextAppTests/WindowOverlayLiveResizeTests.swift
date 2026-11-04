@@ -39,9 +39,9 @@ struct WindowOverlayLiveResizeTests {
         }
     }
 
-    @Test(arguments: [false, true])
-    func aLiveResizeMovesNoCatcherPanelAndAsksThePagesOncePerAppliedDrag(_ framed: Bool) throws {
-        try WindowLiveResizeFrameTickTests.withSwitch(framed) {
+    /// With `motion.frameOwner.liveResize` on (off is today's path, every request at once).
+    @Test func aLiveResizeMovesNoCatcherPanelAndAsksThePagesOncePerAppliedDrag() throws {
+        try WindowLiveResizeFrameTickTests.withSwitch(true) {
             let rig = WindowLiveResizeFrameTickTests.Rig()
             defer { rig.close() }
             let window = rig.window, layer = window.overlayLayer
@@ -58,8 +58,8 @@ struct WindowOverlayLiveResizeTests {
             for step in 1...3 {
                 let before = posts.count, dividers = layer.dividerAreas.map(\.rect)
                 window.sendEvent(rig.event(.leftMouseDragged, CGPoint(x: press.x + 24 * CGFloat(step), y: press.y)))
-                // Switch on: the drag reaches AppKit's resize at the window's frame tick.
-                if framed { rig.frameTick() }
+                // The drag reaches AppKit's resize at the window's frame tick.
+                rig.frameTick()
                 // The display cycle's window layout pass of that turn.
                 window.layoutIfNeeded()
                 #expect(window.frame.width == startWidth + 24 * CGFloat(step), "step \(step): the window is \(window.frame.width - startWidth) pt wider")

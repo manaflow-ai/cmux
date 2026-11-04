@@ -14,11 +14,16 @@ public final class LiveResizePageUpdates {
     public private(set) var held: (force: Bool, geometryOnly: Bool)?
     /// The resize's end runs now (``end(_:)``): the window no longer counts as resizing live.
     private var ending = false
+    /// Whether the window's live resize runs on the frame tick (``LiveResizeDragInput/isFramed``, the stage's switch).
+    private let isFramed: @MainActor () -> Bool
 
-    public init() {}
+    /// `isFramed`: whether the window's live resize runs on the frame tick now; off, every request goes at once.
+    public init(isFramed: @escaping @MainActor () -> Bool) {
+        self.isFramed = isFramed
+    }
 
-    /// Whether `window` resizes live now (``Motion/isInLiveResize(_:)``), but not while its end runs.
-    public func isActive(in window: NSWindow) -> Bool { !ending && Motion.isInLiveResize(window) }
+    /// Whether `window` resizes live on the frame tick now (``Motion/isInLiveResize(_:)``), but not while its end runs.
+    public func isActive(in window: NSWindow) -> Bool { !ending && Motion.isInLiveResize(window) && isFramed() }
 
     /// Holds a request when `window` resizes live: true when held (the caller sends nothing now).
     public func holds(force: Bool, geometryOnly: Bool, in window: NSWindow) -> Bool {
