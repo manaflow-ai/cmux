@@ -8,7 +8,7 @@ import os
 ///
 /// Safety: every handle access is serialized by `taskState`, so cancellation
 /// from a nonisolated store deinitializer cannot race task completion.
-private final class MainActorTaskStoreOwner: @unchecked Sendable {
+final class MainActorTaskStoreOwner: @unchecked Sendable {
     private struct State: Sendable {
         var task: Task<Void, Never>?
         var isCancelled = false
@@ -51,15 +51,15 @@ private final class MainActorTaskStoreOwner: @unchecked Sendable {
 ///
 /// Safety: `owners` serializes every mutation and snapshot. The registry
 /// never owns a task or operation strongly.
-private final class MainActorTaskStoreOwnerRegistry: @unchecked Sendable {
+final class MainActorTaskStoreOwnerRegistry: @unchecked Sendable {
     /// Safety: weak-reference loads are runtime synchronized, and instances
     /// of this wrapper are otherwise accessed only inside the registry lock
     /// or in a snapshot no other thread can reach.
-    private struct WeakOwner: @unchecked Sendable {
+    struct WeakOwner: @unchecked Sendable {
         weak var value: MainActorTaskStoreOwner?
     }
 
-    private let owners = OSAllocatedUnfairLock(
+    let owners = OSAllocatedUnfairLock(
         initialState: [UInt64: WeakOwner]()
     )
 
@@ -107,18 +107,14 @@ public final class MainActorTaskStore<Key: Hashable & Sendable> {
         let generation: UInt64
     }
 
-    /// Read by the nonisolated deinitializer, which has exclusive access.
-    private var taskOwners: MainActorTaskStoreOwnerRegistry?
+    /// Created with the first task. Read by the nonisolated deinitializer,
+    /// which has exclusive access.
+    private(set) var taskOwners: MainActorTaskStoreOwnerRegistry?
     private var entries: [Key: Entry] = [:]
     private var nextGeneration: UInt64 = 0
 
     /// Creates an empty task store.
     public init() {}
-
-    /// Whether a task was ever started, so teardown has something to cancel.
-    var hasCancellationRegistry: Bool {
-        taskOwners != nil
-    }
 
     /// Returns whether `key` currently has a running or reserved task.
     ///

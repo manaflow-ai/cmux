@@ -183,10 +183,10 @@ struct MainActorTaskStoreTests {
         // drops all but the first, so an unused store must tear down for free.
         for _ in 0..<1_000 {
             let store = MainActorTaskStore<String>()
-            #expect(!store.hasCancellationRegistry)
+            #expect(store.taskOwners == nil)
             store.cancel("search")
             store.cancel(where: { _ in true })
-            #expect(!store.hasCancellationRegistry)
+            #expect(store.taskOwners == nil)
         }
     }
 
@@ -222,6 +222,7 @@ struct MainActorTaskStoreTests {
         }
         _ = try #require(await finishedIterator.next())
         #expect(store?.contains(-1) == false)
+        #expect(store?.taskOwners?.owners.withLock { $0.count } == 0)
 
         for slot in 0..<slotCount {
             let handlerSlot = slot
