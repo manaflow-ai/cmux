@@ -165,7 +165,7 @@
   text-underline-offset: 3px;
 }
 .acpmux-md .acpmux-deeplink.is-chip {
-  padding: 1px 5px;
+  padding: 0 4px;
   border-radius: 6px;
   background: color-mix(in srgb, var(--agent-text) 9%, transparent);
   color: var(--agent-link, var(--agent-accent));
