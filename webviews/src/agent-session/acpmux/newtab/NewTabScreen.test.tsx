@@ -15,7 +15,7 @@ import { inlineToken, type ComposerAttachment } from "../attachments";
 import { translate } from "../i18n";
 import { seedLastPicks } from "../lastPick";
 import { EMPTY_OMNIBAR } from "../omnibar";
-import { CloudTypingPrewarm, CLOUD_TYPING_PREWARM_REFRESH_MS } from "../cloudTypingPrewarm";
+import { CloudTypingPrewarm, CLOUD_TYPING_PREWARM_REFRESH_MS, cloudTypingMachineID } from "../cloudTypingPrewarm";
 import type { CloudMachine } from "../cloudMachines";
 
 let dom: JSDOM | undefined;
@@ -1213,7 +1213,7 @@ test.each(["project", "saved"] as const)(
   async (selection) => {
     // The App retains the account-machine choice outside NewTabScreen. A direct project/card
     // or saved-environment pick must clear that same target before the next prompt edit.
-    let target: CloudMachine | undefined = {
+    let target: CloudMachine | null | undefined = {
       id: "cloud-draft",
       name: "Draft machine",
       stage: "paused",
@@ -1244,9 +1244,12 @@ test.each(["project", "saved"] as const)(
             remove: async () => {},
           }}
           onCloudMachinePicked={(machine) => {
-            target = machine;
+            target = machine ?? null;
           }}
-          onPromptTyped={(text) => prewarm.typed(text, target ? { machineID: target.id } : undefined)}
+          onPromptTyped={(text) => {
+            const machineID = cloudTypingMachineID(target === null ? null : target?.id, "previous-cloud");
+            prewarm.typed(text, machineID ? { machineID } : undefined);
+          }}
         />,
       );
     });
@@ -1271,7 +1274,7 @@ test.each(["project", "saved"] as const)(
       await act(async () => (row.closest<HTMLElement>('[role="option"]') ?? row).click());
     }
 
-    expect(target).toBeUndefined();
+    expect(target).toBeNull();
     await typePrompt("edit on the local destination");
     expect(wakes).toEqual(["cloud-draft"]);
   },

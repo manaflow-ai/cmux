@@ -182,7 +182,7 @@ import { isDefaultChoice } from "./defaultChoice";
 import { applySwitch, browserSwitchClock, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { NewChatPrewarm, type PrewarmTarget } from "./newChatPrewarm";
 import { harnessModeName, highestMode } from "./harnessModes";
-import { CloudTypingPrewarm } from "./cloudTypingPrewarm";
+import { CloudTypingPrewarm, cloudTypingMachineID } from "./cloudTypingPrewarm";
 import { harnessProfiles } from "./harnessProfiles";
 import { setStartModeSource } from "./startMode";
 import { setPromptSurfaces } from "./surfaces/promptSurface";
@@ -6396,8 +6396,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [cloudRepositoryAvailable, setCloudRepositoryAvailable] = useState(false);
   const [cloudChatIdentity, setCloudChatIdentity] = useState<CloudChatIdentity>();
   // A fresh composer can select a paused Cloud machine before it has a session. Keep only that
-  // explicit picker choice; never guess a machine from the account inventory.
-  const cloudDraftMachineID = useRef<string | undefined>();
+  // explicit picker choice; never guess a machine from the account inventory. Null records a
+  // non-Cloud destination and suppresses the previous identity while its handshake catches up.
+  const cloudDraftMachineID = useRef<string | null | undefined>();
   const [cloudCredentialRecoveryAvailable, setCloudCredentialRecoveryAvailable] = useState(false);
   // A team Cloud machine its start passed no personal login to (handshake `cloudTeamMachine`): a
   // sign-in failure says so (failureCopy.ts isTeamMachineSignIn) and offers no login transfer.
@@ -8697,7 +8698,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     onMode: (mode: RunMode) => {
       // Run mode is a new destination (including a brand-new Cloud machine); an account-machine
       // picker target must not survive that choice and wake the old machine on the next edit.
-      cloudDraftMachineID.current = undefined;
+      cloudDraftMachineID.current = null;
       cloudTypingPrewarm.reset();
       runModePicked.current = true;
       sandbox.setMode(mode);
@@ -13361,7 +13362,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const onNewTabPromptTyped = useCallback(
     (text: string, target?: { harness?: string; cwd?: string }) => {
       newTabFieldEdited(text);
-      const machineID = cloudDraftMachineID.current ?? cloudChatIdentity?.id;
+      const machineID = cloudTypingMachineID(cloudDraftMachineID.current, cloudChatIdentity?.id);
       if (machineID && handshaken && !reconnectingRef.current)
         cloudTypingPrewarm.typed(text, { machineID });
       newChatPrewarm.typed(
@@ -13380,14 +13381,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       if (!handshaken || reconnectingRef.current) return;
       // An explicit picker choice belongs to this draft and wins over any identity carried by a
       // previous Cloud chat until the selected machine's own handshake arrives.
-      const machineID = cloudDraftMachineID.current ?? cloudChatIdentity?.id;
+      const machineID = cloudTypingMachineID(cloudDraftMachineID.current, cloudChatIdentity?.id);
       if (!machineID) return;
       cloudTypingPrewarm.typed(text, { machineID, ...(sessionId ? { sessionID: sessionId } : {}) });
     },
     [cloudChatIdentity, cloudTypingPrewarm, handshaken],
   );
   const onCloudMachinePicked = useCallback((machine: CloudMachine | undefined) => {
-    cloudDraftMachineID.current = machine?.id;
+    cloudDraftMachineID.current = machine?.id ?? null;
   }, []);
   const newTabSnapshot = useMemo(
     () =>
@@ -14408,7 +14409,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             onComputer={(computer) => {
               // Switching away from an explicitly selected Cloud machine must not leave a stale
               // draft target that a later keystroke could wake.
-              cloudDraftMachineID.current = undefined;
+              cloudDraftMachineID.current = null;
               void callNative("chat.new", computer === "local" ? {} : { peer: computer }).catch(() => undefined);
             }}
             // A chat on a Cloud machine whose first send has not run: another Cloud machine picked moves it

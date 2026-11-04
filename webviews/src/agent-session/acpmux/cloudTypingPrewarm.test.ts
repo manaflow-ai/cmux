@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { CLOUD_TYPING_PREWARM_REFRESH_MS, CloudTypingPrewarm } from "./cloudTypingPrewarm";
+import { CLOUD_TYPING_PREWARM_REFRESH_MS, CloudTypingPrewarm, cloudTypingMachineID } from "./cloudTypingPrewarm";
 
 function harness() {
   let now = 0;
@@ -55,4 +55,11 @@ test("fresh and missing-session drafts can wake an explicitly selected machine",
   prewarm.typed("h", { machineID: "cloud-draft" });
   prewarm.typed("he", { machineID: "cloud-draft" });
   expect(calls).toEqual(["cloud-draft"]);
+});
+
+test("an explicit local choice suppresses a previous Cloud identity until the chat changes", () => {
+  expect(cloudTypingMachineID(undefined, "previous-cloud")).toBe("previous-cloud");
+  expect(cloudTypingMachineID("picked-cloud", "previous-cloud")).toBe("picked-cloud");
+  expect(cloudTypingMachineID(null, "previous-cloud")).toBeUndefined();
+  expect(cloudTypingMachineID(undefined)).toBeUndefined();
 });

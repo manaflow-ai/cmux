@@ -12,6 +12,11 @@ export type CloudTypingPrewarmPort = { prewarm(machineID: string): void };
 
 export type CloudTypingTarget = { machineID: string; sessionID?: string };
 
+/** Undefined means no draft choice; null is an explicit departure from the previous Cloud target. */
+export function cloudTypingMachineID(draft: string | null | undefined, identity?: string): string | undefined {
+  return draft === undefined ? identity : (draft ?? undefined);
+}
+
 const sameTarget = (left: CloudTypingTarget | undefined, right: CloudTypingTarget) =>
   left?.machineID === right.machineID && left?.sessionID === right.sessionID;
 
