@@ -1820,3 +1820,41 @@ button.cv-subagent > :last-child {
 .acpmux-tray-pull__tab:focus-visible > svg {
   opacity: 1;
 }
+
+/* Result-first heads keep a finished subagent's answer visible before its full transcript. */
+.cv-subagent-result {
+  display: grid;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-3) var(--ds-space-4);
+  border-bottom: 1px solid var(--cv-divider);
+}
+
+.cv-subagent-result__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  color: var(--cv-text-muted);
+  font-size: var(--ds-font-size-xs);
+}
+
+.cv-subagent-result__state {
+  color: var(--cv-text);
+}
+
+.cv-subagent-result__meta .cv-iconbtn {
+  margin-left: auto;
+}
+
+.cv-subagent-result__report,
+.cv-subagent-result__empty {
+  color: var(--cv-text);
+  font-size: var(--ds-font-size-sm);
+}
+
+.cv-subagent-result__report > :first-child {
+  margin-top: 0;
+}
+
+.cv-subagent-result__report > :last-child {
+  margin-bottom: 0;
+}

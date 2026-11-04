@@ -24,7 +24,8 @@ import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
-import { SUBAGENTS } from "../subagents/subagentFold";
+import { SUBAGENTS, type Subagent } from "../subagents/subagentFold";
+import { SubagentResultHeader } from "../subagents/SubagentResultHeader";
 
 /// Rows mounted at first, and how many more each scroll to the top adds.
 export const WINDOW = 60;
@@ -76,12 +77,15 @@ export function windowRange(rows: readonly AcpmuxRow[], anchor?: string): Range 
 export function SubagentTranscript({
   rows,
   running,
+  agent,
   anchor,
   onLoadOlder,
   notice,
 }: {
   rows: readonly AcpmuxRow[];
   running: boolean;
+  /// The subagent metadata used for the result-first head.
+  agent?: Subagent;
   /// The row of the task that was opened: the transcript opens on it.
   anchor?: string;
   /// Set while older history can be read (a workflow agent's transcript): reaching the top reads it.
@@ -216,7 +220,9 @@ export function SubagentTranscript({
   }, [first, last, rows.length, loadOlder]);
 
   return (
-    <div
+    <>
+      {agent && <SubagentResultHeader agent={agent} />}
+      <div
       ref={scroller}
       className="acpmux-bg__transcript"
       onScroll={(event) => {
@@ -235,7 +241,8 @@ export function SubagentTranscript({
           <Spinner size={14} loading />
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }
 

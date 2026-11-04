@@ -43,6 +43,7 @@ import { ChevronLeft, Close, Expand } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
+import type { Subagent } from "../subagents/subagentFold";
 import { useNow } from "../subagents/SubagentGroup";
 import type { WorkflowAgent } from "../summary/workflow";
 import type { TranscriptRead } from "../summary/workflowTranscript";
@@ -96,6 +97,7 @@ export function BackgroundTasksPanel({
   groups: readonly BackgroundGroup[];
   /// The subagents' own rows (the snapshot's `subagentViews`), which a drill-in draws from.
   views?: Record<string, AcpmuxRow[]>;
+  agents?: ReadonlyMap<string, Subagent>;
   look?: PanelLook;
   /// The panel takes the whole right column (Expand); the side panel above it rests.
   expanded?: boolean;
@@ -145,7 +147,7 @@ export function BackgroundTasksPanel({
   };
   const finished = useMemo(() => finishedGroupIds(groups), [groups]);
   const sections = useMemo(() => panelSections(groups), [groups]);
-  const drilled = drill && agentOf(groups, drill.agentId);
+  const drilled = drill && agentOf(groups, drill.agentId, agents);
   return (
     <StopsAgents.Provider value={stopsAgents}>
       <Workflows.Provider value={workflow}>
@@ -200,6 +202,7 @@ export function BackgroundTasksPanel({
                 key={`${stack.length}:${drill.agentId}`}
                 rows={views?.[drill.agentId] ?? []}
                 running={drilled?.state === "running"}
+                agent={drilled?.agent}
                 anchor={drill.rowId}
               />
             </NestedAgents.Provider>
@@ -249,7 +252,14 @@ function Section({ id, count, children }: { id: PanelSection["id"]; count: numbe
 }
 
 /// The group a subagent is, or the one it is a task of.
-function agentOf(groups: readonly BackgroundGroup[], agentId: string) {
+function agentOf(groups: readonly BackgroundGroup[], agentId: string, agents?: ReadonlyMap<string, Subagent>) {
+  const known = agents?.get(agentId);
+  if (known)
+    return {
+      name: known.name,
+      state: known.state === "running" ? "running" : known.state === "failed" ? "failed" : "done",
+      agent: known,
+    };
   for (const group of groups) {
     if (group.agentId === agentId) return { name: group.name, state: group.state };
     for (const task of [...group.running, ...group.finished]) {

@@ -697,6 +697,7 @@ import {
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { AgentRunTranscriptCard } from "./subagents/AgentRunCard";
+import { SubagentResultHeader } from "./subagents/SubagentResultHeader";
 import { SubagentEmptyRow } from "./subagents/SubagentEmptyRow";
 import { restartOwner, restartPrompt, restartReaches } from "./subagents/restart";
 import {
@@ -7488,6 +7489,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()],
     [snapshot.rows, snapshot.subagentViews],
   );
+  const freshAgentMap = useMemo(() => new Map(freshAgents.map((agent) => [agent.id, agent])), [freshAgents]);
   /// The name a subagent's pane tab shows (subagentPanes.ts subagentTabTitle): its own, else "Subagent of" the chat.
   const subagentTitle = (id: string) =>
     subagentTabTitle(
@@ -14066,7 +14068,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                     findRef={findRef}
                                                   >
                                                     {(find) => (
-                                                      <VirtualTranscript
+                                                      <>
+                                                        {childRows && subagentView &&
+                                                          (() => {
+                                                            const agent = freshAgents.find((candidate) => candidate.id === subagentView);
+                                                            return agent ? <SubagentResultHeader agent={agent} /> : null;
+                                                          })()}
+                                                        <VirtualTranscript
                                                         key={chatPresentation}
                                                         topInset={soloUnder ? tabRow.height : 0}
                                                         rows={transcriptRows}
@@ -14126,9 +14134,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                               : undefined
                                                         }
                                                         openAt={
-                                                          !childRows &&
-                                                          shownSessionId &&
-                                                          scrollAnchor?.sessionId === shownSessionId
+                                                          !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
                                                             ? scrollAnchor
                                                             : undefined
                                                         }
@@ -14163,6 +14169,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                         onOpenDiff={quick ? undefined : openDiff}
                                                         onToggleActivity={toggleActivity}
                                                       />
+                                                      </>
                                                     )}
                                                   </ChatFindScope>
                                                   <SelectionReplyChip />
@@ -15954,6 +15961,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             <BackgroundTasksPanel
               groups={backgroundList}
               views={snapshot.subagentViews}
+              agents={freshAgentMap}
               look={experimentArm(backgroundTasksLook)}
               expanded={backgroundPanel.expanded}
               stopsAgents={stopSubagent !== undefined}
