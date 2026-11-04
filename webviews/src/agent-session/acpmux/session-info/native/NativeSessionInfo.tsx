@@ -367,6 +367,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
       sourcesSection(
         {
           sources,
+          ...(summary?.additionalDirectories ? { folders: summary.additionalDirectories } : {}),
           cwd: summary?.cwd,
           onOpenFile: sourceFiles.open,
           failures: sourceFiles.failures,
