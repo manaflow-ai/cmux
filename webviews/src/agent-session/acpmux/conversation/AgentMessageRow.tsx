@@ -82,7 +82,8 @@ export function AgentMessageRow({
 }) {
   const bodyId = useId();
   const [before = "", after = ""] = sentence.split("\u0000");
-  // Stacked (the default, messageLineLook.ts): the first line under the row, on its own line.
+  // Single (the default, messageLineLook.ts): the first line on the row, after the name; the
+  // stacked gallery version puts it under the row, on its own line.
   const look = useMessageLineLook();
   const inline = look === "single" && !open ? preview : "";
   const below = look === "stacked" && !open ? preview : "";

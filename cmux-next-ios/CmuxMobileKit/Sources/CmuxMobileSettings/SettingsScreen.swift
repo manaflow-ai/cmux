@@ -31,6 +31,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     let callChief: (() -> Void)?
     /// Screen Sharing with the account's Macs (nil in mock mode: no row).
     let screenSharing: ScreenSharingService?
+    /// The account's Cloud page (Automations) and Connect GitHub (nil: no Cloud rows).
+    let cloudPages: SettingsCloudPages?
     private let callKeys = OpenAIKeyModel.shared
     private let callPreferences = VoiceCallPreferences.shared
     private let accentTheme = CmuxMobileAccentTheme.shared
@@ -41,10 +43,11 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     @State private var notificationPermission: NotificationPermission?
     @Environment(\.scenePhase) private var scenePhase
 
-    public init(auth: CmuxMobileAuthModel, store: AppStore, settings: SettingsStore, path: Binding<[SettingsRoute]>, scrollRequest: String? = nil, directory: (any SettingsDeviceDirectory)? = nil, sizing: (any TerminalSizingService)? = nil, callChief: (() -> Void)? = nil, screenSharing: ScreenSharingService? = nil, inviteToTeam: @escaping (Team) -> Void, saveAppearance: @escaping (TeamAppearance, Team) -> Void, @ToolbarContentBuilder leading: @escaping () -> Leading) {
+    public init(auth: CmuxMobileAuthModel, store: AppStore, settings: SettingsStore, path: Binding<[SettingsRoute]>, scrollRequest: String? = nil, directory: (any SettingsDeviceDirectory)? = nil, sizing: (any TerminalSizingService)? = nil, callChief: (() -> Void)? = nil, screenSharing: ScreenSharingService? = nil, cloudPages: SettingsCloudPages? = nil, inviteToTeam: @escaping (Team) -> Void, saveAppearance: @escaping (TeamAppearance, Team) -> Void, @ToolbarContentBuilder leading: @escaping () -> Leading) {
         self.scrollRequest = scrollRequest
         self.callChief = callChief
         self.screenSharing = screenSharing
+        self.cloudPages = cloudPages
         self.directory = directory
         self.sizing = sizing
         self.auth = auth
@@ -88,6 +91,18 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                 } header: {
                     Text("Connection")
                 }
+                if let cloudPages {
+                    // The Mac's Automations and Artifacts pages and Connect GitHub, with this account's own sign-in.
+                    Section {
+                        NavigationLink(value: SettingsRoute.automations) {
+                            SettingsLabel("Automations", symbol: "clock.badge.checkmark")
+                        }
+                        .accessibilityIdentifier("settings.automations")
+                        cloudPages.connectGitHub()
+                    } header: {
+                        Text("Cloud")
+                    }
+                }
                 Section {
                     NavigationLink(value: SettingsRoute.chiefCalls) {
                         SettingsLabel("Chief Calls", symbol: "phone",
@@ -100,6 +115,15 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     NavigationLink(value: SettingsRoute.composer) {
                         SettingsLabel("Composer", symbol: "keyboard", value: settings.followUp.title)
                     }
+                    // The Mac's Compact Workspace List: one line per workspace.
+                    Toggle(isOn: $settings.compactWorkspaceList) {
+                        SettingsLabel("Compact workspace list", symbol: "rectangle.grid.1x2")
+                    }
+                    .accessibilityIdentifier("settings.compactWorkspaceList")
+                    NavigationLink(value: SettingsRoute.longPressMenus) {
+                        SettingsLabel("Long-Press Menus", symbol: "contextualmenu.and.cursorarrow")
+                    }
+                    .accessibilityIdentifier("settings.longPressMenus")
                 }
                 Section {
                     AppearanceTiles(selection: $settings.appearance)
@@ -140,7 +164,15 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                 #endif
                 Section {
                     LinkRow("Help", symbol: "questionmark.circle", url: "https://cmux.com/docs")
-                    LinkRow("Report a problem", symbol: "flag", url: "https://github.com/manaflow-ai/cmux/issues")
+                    // The Mac's Help links (menu bar and Help menu).
+                    LinkRow("Troubleshooting and Support", symbol: "lifepreserver", url: "https://cmux.com/support")
+                    LinkRow("Join the cmux Discord", symbol: "bubble.left.and.bubble.right", url: "https://discord.gg/xsgFEVrWCZ")
+                    LinkRow("Follow @cmux on X", symbol: "at", url: "https://x.com/cmux")
+                    LinkRow("cmux on GitHub", symbol: "chevron.left.forwardslash.chevron.right", url: "https://github.com/manaflow-ai/cmux")
+                    // The Mac's Send Feedback (Help menu): the same new-issue page.
+                    LinkRow("Send feedback", symbol: "envelope", url: "https://github.com/manaflow-ai/cmux/issues/new")
+                        .accessibilityIdentifier("settings.sendFeedback")
+                    CopyLogsRow()
                     LinkRow("Terms of Use", symbol: "doc.text", url: "https://cmux.com/terms-of-service")
                     LinkRow("Privacy Policy", symbol: "hand.raised", url: "https://cmux.com/privacy-policy")
                     NavigationLink(value: SettingsRoute.acknowledgements) {
@@ -249,6 +281,10 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         case .chiefCalls: ChiefCallsPage(keys: callKeys, preferences: callPreferences, callChief: callChief)
         case .screenSharing:
             if let screenSharing { ScreenSharingPage(service: screenSharing) }
+        case .automations:
+            cloudPages?.automations()
+        case .longPressMenus:
+            LongPressMenusPage()
         }
     }
 }
@@ -265,6 +301,10 @@ public enum SettingsRoute: Hashable, Sendable {
     case screenSharing
     /// Appearance → Accent color: the one accent every chrome tint reads.
     case accentColor
+    /// Cloud → Automations (the account's Cloud automations).
+    case automations
+    /// Long-Press Menus: the menu items the person hid.
+    case longPressMenus
 
     /// The route named by its case name (DEBUG launch arguments). The old
     /// name "pairedMacs" opens Devices.
@@ -274,7 +314,8 @@ public enum SettingsRoute: Hashable, Sendable {
             return
         }
         let all: [SettingsRoute] = [.account, .team, .transport, .devices, .terminal, .terminalSizing, .composer, .notifications,
-                                    .acknowledgements, .chiefCalls, .screenSharing, .accentColor]
+                                    .acknowledgements, .chiefCalls, .screenSharing, .accentColor, .automations,
+                                    .longPressMenus]
         guard let route = all.first(where: { "\($0)" == name }) else { return nil }
         self = route
     }
@@ -310,6 +351,13 @@ struct SettingsLabel: View {
 
     init(_ title: LocalizedStringResource, symbol: String, value: String? = nil) {
         self.title = String(localized: title)
+        self.symbol = symbol
+        self.value = value
+    }
+
+    /// A title already in the person's language (a catalog's own localized title).
+    init(verbatim title: String, symbol: String, value: String? = nil) {
+        self.title = title
         self.symbol = symbol
         self.value = value
     }

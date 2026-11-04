@@ -69,6 +69,7 @@ import type { AgentNotice } from "./agentNotice";
 import { NoticeMark, SEVERITY_LABEL } from "./NoticeMark";
 import { noticeMarkdown } from "./agentNotice";
 import { useNoticeLook, type NoticeLook } from "./noticeLook";
+import { openSessionAttributes } from "./menuParts";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
 const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
@@ -202,6 +203,7 @@ export function SenderName({
           className="cv-received__from cv-received__from--open"
           title={openTitle}
           ariaLabel={open}
+          attributes={openSessionAttributes(sessionId, true)}
           onClick={() => onOpen(sessionId)}
         />
       ) : (
@@ -444,8 +446,8 @@ export function IncomingMessageLine({
       lineClassName="cv-agent-activity-row"
       toggleLabel={t("message.collapsedLabel", { from, preview: preview || t("message.noText") })}
       label={
-        // Find counts the panel's whole text, not the line's first-line copy of it. Stacked (the
-        // default, messageLineLook.ts) a message's first line is under the sender, on its own line.
+        // Find counts the panel's whole text, not the line's first-line copy of it. Single (the
+        // default, messageLineLook.ts) a message's first line follows the sender on its line.
         // A notice's title is its text (the row's, which Find searches) and stays on the line: Find
         // highlights it here, inside the line Find otherwise skips (chatFind.ts `findSkipped`).
         lineLook === "single" || agentNotice ? (

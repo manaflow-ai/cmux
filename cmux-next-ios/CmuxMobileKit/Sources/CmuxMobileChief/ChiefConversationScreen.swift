@@ -36,8 +36,9 @@ public struct ChiefRoute: Hashable, Sendable {
 /// The header's avatar and name push Chief's info (``ChiefSettingsView``)
 /// on the same stack, as Messages pushes contact details from the
 /// conversation header: a back chevron and the system swipe back return to
-/// the conversation. The trailing button is Invite to cmux
-/// (``ChiefInvite``): the share sheet with a note and the public cmux link.
+/// the conversation. The trailing button is Chief's page menu: Invite to
+/// cmux (``ChiefInvite``, the share sheet with a note and the public cmux
+/// link) and the Chief zoom (``ChiefTextZoom``).
 public struct ChiefConversationScreen: View {
     let session: ChiefSession
     let compose: ChiefComposer?
@@ -106,11 +107,11 @@ extension ConversationPresentationOptions {
             placeholder: String(localized: "Message Chief"),
             serviceTitle: "Chief",
             serviceSubtitle: String(localized: "mobile.chief.serviceSubtitle", defaultValue: "Runs your agents", bundle: .module),
-            // The header's trailing button is Invite to cmux (the share sheet).
-            trailingSymbol: ChiefInvite.symbol,
+            // The header's trailing button is Chief's page menu (Invite to cmux, the zoom).
+            trailingSymbol: ChiefPageMenu.symbol,
             header: ConversationHeaderPresentation(
                 scrollEdge: .system,
-                actionAccessibilityLabel: ChiefInvite.actionTitle,
+                actionAccessibilityLabel: ChiefPageMenu.title,
                 avatarAccessibilityLabel: String(localized: "Chief"),
                 avatarAccessibilityHint: String(localized: "Opens Chief's settings")
             )
@@ -166,6 +167,12 @@ struct ChiefConversationController: UIViewControllerRepresentable {
         // A conversation of the Mac's Home list has no composer: no Forward
         // button there (it did nothing when tapped).
         conversation.onForward = compose.map { compose in { draft in compose.present(forwarding: draft) } }
+        // Reply with Selection (the Mac's `home.replyToSelection`): the reply to that
+        // message opens with the selected words quoted, then whatever was typed.
+        conversation.onReplyWithSelection = { [weak conversation] reply in
+            guard let conversation else { return }
+            ChiefPageMenu.replyWithSelection(reply, in: conversation)
+        }
     }
 }
 
@@ -207,12 +214,16 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         conversation.store.addObserver { [weak self] _ in
             guard let self, self.isViewLoaded else { return }
             self.updateAvailability()
+            // The conversation becomes known on connect (or the store moves to another
+            // Chief): that chat's own colours apply then.
+            if self.chatColorsKey != self.appliedChatColorsKey { self.applyChatColors() }
             guard self.chiefInitials != self.headerAvatar else { return }
             self.headerAvatar = self.chiefInitials
             if self.view.window != nil { self.conversation.setBackUnreadCount(self.backUnreadCount) }
         }
         installSendGate()
         observeAvailability()
+        installPageMenu()
     }
 
     // MARK: Chief unavailable (full verify D2, D3)
@@ -491,6 +502,8 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     }
 
     private var headerAvatar: String?
+    /// The chat whose colours the conversation draws (``applyChatColors()``).
+    var appliedChatColorsKey: String?
     private var chiefInitials: String? {
         conversation.store.info?.participants.first { $0.id == session.identity.chiefID }?.initials
     }
@@ -503,6 +516,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
 
     private func takeOverHeader() {
         conversation.onHeaderInfo = { [weak self] in self?.presentSettings() }
+        // The page menu (``ChiefPageMenu``) replaces this tap; kept for a package without menus.
         conversation.onHeaderAction = { [weak self] anchor in self?.presentInvite(anchor: anchor) }
         headerTakenOver = true
     }
@@ -562,6 +576,8 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     public override func viewIsAppearing(_ animated: Bool) {
         super.viewIsAppearing(animated)
         conversation.setBackUnreadCount(backUnreadCount)
+        // The person's text size is final once the screen is in the window.
+        applyTextZoom()
     }
 
     /// SwiftUI turns the edge pop off again whenever it updates the hidden
@@ -710,19 +726,23 @@ private extension UIView {
         (gestureRecognizers ?? []) + subviews.flatMap { $0.allGestureRecognizersInSubtree() }
     }
 
+    func subviewsOfType<T: UIView>(_ type: T.Type) -> [T] {
+        subviews.flatMap { view -> [T] in
+            if let match = view as? T { return [match] }
+            return view.subviewsOfType(type)
+        }
+    }
+}
+
+extension UIView {
+    /// The first view under this one that matches (CmuxConversation marks its
+    /// composer and header controls with accessibility identifiers).
     func firstSubview(where match: (UIView) -> Bool) -> UIView? {
         for view in subviews {
             if match(view) { return view }
             if let found = view.firstSubview(where: match) { return found }
         }
         return nil
-    }
-
-    func subviewsOfType<T: UIView>(_ type: T.Type) -> [T] {
-        subviews.flatMap { view -> [T] in
-            if let match = view as? T { return [match] }
-            return view.subviewsOfType(type)
-        }
     }
 }
 
@@ -766,7 +786,7 @@ public final class ChiefDemoHook {
         container?.presentSettings()
     }
 
-    /// Opens the Invite to cmux share sheet, as the header's trailing button does.
+    /// Opens the Invite to cmux share sheet, as the page menu's Invite to cmux does.
     public func openInvite() {
         container?.presentInvite()
     }

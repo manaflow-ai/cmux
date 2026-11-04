@@ -9,7 +9,8 @@ nonisolated struct SidebarColumns: Hashable, Sendable {
     var depth: Int = 0
     var leadingOffset: CGFloat = 0
     var leadingInset: CGFloat = LayoutGrid.sidebarHighlightInset
-    var trailingInset: CGFloat = LayoutGrid.sidebarHighlightInset
+    /// The first trailing center's distance in from the row's end (the grid's line less the highlight inset by default).
+    var trailingCenterInset: CGFloat = LayoutGrid.sidebarTrailCenter - LayoutGrid.sidebarHighlightInset
     /// The least icon column width: a glyph box that grows with a larger text size widens the column.
     var minIconBox: CGFloat = 0
     /// The least distance from the row's end to the first trailing center: the trailing slot's half plus its
@@ -44,7 +45,7 @@ nonisolated struct SidebarColumns: Hashable, Sendable {
     }
 
     func trailingCenter(index: Int = 0) -> CGFloat {
-        rowWidth - max(LayoutGrid.sidebarTrailCenter - trailingInset, minTrailingCenterInset)
+        rowWidth - max(trailingCenterInset, minTrailingCenterInset)
             - CGFloat(index) * LayoutGrid.sidebarSecondMarkPitch
     }
 

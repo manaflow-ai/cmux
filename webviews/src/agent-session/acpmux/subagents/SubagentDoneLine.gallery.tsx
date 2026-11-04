@@ -6,21 +6,42 @@
 // chevron sits right after it; the duration stays at the line's end. Three looks are compared: the
 // chip taking the row (the pick), the chip capped at 60% of the line, and the base's 40% cap, which
 // left a gap after the chip. Synthetic data.
+//
+// A finished line with a report (Leo, 2026-11-03, on parallel agents in the running tray: "Tray only,
+// richer"): the report variants compare how the line offers it (doneReport.experiment.ts), the
+// chevron that opens it under the line (the pick), a two-line preview with Show more, and the line
+// that only opens the agent's view.
 import { componentEntry } from "../../../gallery/format";
 import { minutesAgo } from "../../../gallery/clock";
+import type { Play } from "../../../gallery/play";
 import type { AcpmuxRow } from "../model";
 import type { Subagent } from "./subagentFold";
+import { doneReportLook, type DoneReportLook } from "./doneReport.experiment";
 
 type Look = "fill" | "cap60" | "before";
-/** `pane`: the column's width in CSS px, for the narrow pane. */
-type Props = { names: string[]; look?: Look; pane?: number; failed?: boolean };
+/** `pane`: the column's width in CSS px, for the narrow pane. `report`: the first line's final report.
+ *  `arm`: the report look a variant pins; unset, the experiment's arm (the compare view). */
+type Props = { names: string[]; look?: Look; pane?: number; failed?: boolean; report?: string; arm?: DoneReportLook };
+
+const REPORT = `Found the drift: the settings schema generator reads \`defaults.json\` before the MDM overlay is applied, so three keys ship with stale defaults.
+
+- \`sidebar.compact\` defaults to \`false\` in the docs but \`true\` in the app
+- \`terminal.bell\` is missing from the MDM profile export
+- the golden files were regenerated from the stale read
+
+Fixed the read order in \`gen-schema.ts\`, regenerated the golden files and the docs page, and added a test that compares the generator's output with the app's defaults. All 214 settings tests pass.`;
+
+const openReport: Play = async (ctx) => {
+  await ctx.click({ selector: ".cv-subagent-done__disclose" });
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-done__report") !== null);
+};
 
 const LONG =
   "Fix defaults-snapshot drift in the settings schema generator, its golden files, the docs page, the MDM profile export and every test that reads them";
 const ERROR = "503: no non-exhausted claude accounts available after four retries on the capacity route, giving up";
 const SHORT = "Explore";
 
-const done = (name: string, index: number, failed = false): AcpmuxRow => {
+const done = (name: string, index: number, failed = false, report?: string): AcpmuxRow => {
   const agent: Subagent = {
     id: `agent-done-${index}`,
     parent: null,
@@ -32,6 +53,7 @@ const done = (name: string, index: number, failed = false): AcpmuxRow => {
     startedAt: minutesAgo(12),
     endedAt: minutesAgo(10.6),
     prompt: name,
+    ...(report && !failed && { result: report }),
   };
   return {
     id: `done-${index}`,
@@ -50,25 +72,43 @@ export default componentEntry<Props>({
   height: 160,
   widths: { narrow: 420, normal: 760, wide: 1100 },
   anchors: [{ selector: "[data-subagent-done-gallery]" }],
-  covers: ["agent-session/acpmux/subagents/SubagentDoneLine.tsx#SubagentDoneLine"],
+  covers: [
+    "agent-session/acpmux/subagents/SubagentDoneLine.tsx#SubagentDoneLine",
+    "agent-session/acpmux/subagents/doneReport.experiment.ts",
+  ],
+  experiment: {
+    definition: doneReportLook,
+    // Only the disclosure arm has the chevron to click; the other arms show their resting state.
+    script: [
+      {
+        name: "Open the report",
+        run: async (ctx) => {
+          if (ctx.document.querySelector(".cv-subagent-done__disclose"))
+            await ctx.click({ selector: ".cv-subagent-done__disclose" });
+        },
+      },
+    ],
+  },
   load: async () => {
-    const { SubagentDoneLine } = await import("./SubagentDoneLine");
+    const { SubagentDoneLine, DoneReportLookContext } = await import("./SubagentDoneLine");
     const { SubagentNavContext } = await import("./SubagentGroup");
-    return function GallerySubagentDone({ names, look = "fill", pane, failed }: Props) {
+    return function GallerySubagentDone({ names, look = "fill", pane, failed, report, arm }: Props) {
       return (
         <SubagentNavContext.Provider value={() => undefined}>
-          <main
-            className="acpmux-shell subagent-done-gallery"
-            data-subagent-done-gallery
-            data-look={look}
-            style={{ padding: "16px", flexDirection: "column", gap: "0", ...(pane ? { width: `${pane}px` } : {}) }}
-          >
-            {names.map((name, index) => (
-              <section key={index} className="acpmux-row">
-                <SubagentDoneLine row={done(name, index, failed)} />
-              </section>
-            ))}
-          </main>
+          <DoneReportLookContext.Provider value={arm}>
+            <main
+              className="acpmux-shell subagent-done-gallery"
+              data-subagent-done-gallery
+              data-look={look}
+              style={{ padding: "16px", flexDirection: "column", gap: "0", ...(pane ? { width: `${pane}px` } : {}) }}
+            >
+              {names.map((name, index) => (
+                <section key={index} className="acpmux-row">
+                  <SubagentDoneLine row={done(name, index, failed, index === 0 ? report : undefined)} />
+                </section>
+              ))}
+            </main>
+          </DoneReportLookContext.Provider>
         </SubagentNavContext.Provider>
       );
     };
@@ -94,7 +134,7 @@ export default componentEntry<Props>({
       props: { names: [LONG, SHORT], pane: 320 },
     },
     "failed-long-error": {
-      note: "A failure with a long error: the error is cut first, the name chip keeps its words.",
+      note: "A failure with a long error, on the failed-line grid: the reason is cut first, the title keeps its words.",
       props: { names: ["Push relay for GCP lane bundles"], failed: true },
     },
     "cap-60": {
@@ -104,6 +144,32 @@ export default componentEntry<Props>({
     before: {
       note: "Before: the base's 40% cap, a cut name and an empty gap before the chevron, Leo's capture.",
       props: { names: [LONG, SHORT], look: "before" },
+    },
+    "report-collapsed": {
+      note: "A finished agent with a multi-paragraph report, collapsed: the chevron right after the words opens it; the line opens the agent's view.",
+      height: 120,
+      props: { names: ["Fix defaults-snapshot drift"], report: REPORT, arm: "disclosure" },
+    },
+    "report-open": {
+      note: "The same line, its report opened under it in the transcript's Markdown, capped at 240px and scrolling past it.",
+      height: 360,
+      props: { names: ["Fix defaults-snapshot drift"], report: REPORT, arm: "disclosure" },
+      play: openReport,
+    },
+    "arm-disclosure": {
+      note: "Arm disclosure (the pick): a chevron after the words opens the report; a line with no report keeps its plain mark.",
+      height: 140,
+      props: { names: ["Fix defaults-snapshot drift", SHORT], report: REPORT, arm: "disclosure" },
+    },
+    "arm-preview": {
+      note: "Arm preview: the report's first two lines always under the line, with Show more.",
+      height: 220,
+      props: { names: ["Fix defaults-snapshot drift", SHORT], report: REPORT, arm: "preview" },
+    },
+    "arm-view": {
+      note: "Arm view (before): the line only opens the agent's view; the report is there.",
+      height: 120,
+      props: { names: ["Fix defaults-snapshot drift", SHORT], report: REPORT, arm: "view" },
     },
   },
 });
