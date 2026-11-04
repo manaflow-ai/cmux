@@ -233,7 +233,7 @@ await requireBrowserLane("composer-plus-menu-shape.browser.test.ts", async () =>
       const x = (Math.max(pill.left, menu.popup.left) + Math.min(pill.right, menu.popup.right)) / 2;
       const y = (Math.max(pill.top, menu.popup.top) + Math.min(pill.bottom, menu.popup.bottom)) / 2;
       const onTop = await page.evaluate(
-        ([px, py, plus]) => !!document.elementFromPoint(px as number, py as number)?.closest(`${plus} .acpmux-menu`),
+        ([px, py, plus]) => !!document.elementFromPoint(px as number, py as number)?.closest(`${plus}.acpmux-menu`),
         [x, y, STATES.newTab.plus] as const,
       );
       expect(onTop).toBe(true);
