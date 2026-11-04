@@ -42,9 +42,9 @@ struct CloudStartSession {
         /// The command that asks for this again, every word as the shell reads it back.
         var command: String {
             var words = ["cmux cloud start-session"]
-            if let machineID { words.append("--target machine:" + CloudStartSession.shellQuoted(machineID)) } else { words.append("--name " + CloudStartSession.shellQuoted(name ?? "")) }
+            if let machineID { words.append("--target machine:" + CloudStartCore.shellQuoted(machineID)) } else { words.append("--name " + CloudStartCore.shellQuoted(name ?? "")) }
             words.append("--agent " + agent)
-            if let cwd { words.append("--cwd " + CloudStartSession.shellQuoted(cwd)) }
+            if let cwd { words.append("--cwd " + CloudStartCore.shellQuoted(cwd)) }
             if let choice = login.requested { words.append("--login " + choice.rawValue) }
             return words.joined(separator: " ")
         }
@@ -69,7 +69,9 @@ struct CloudStartSession {
             CloudHandlers.result("start cloud session", context) {
                 try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services), forgotten: Self.forgotten(request, services)) {
                     // A person's gesture only as the outermost run's origin says (a script's nested run is not one).
-                    try await start.run(request, invocation, context, account: key.account, byPerson: CloudHandlers.origin(of: invocation) == .user)
+                    let delegated = CloudAgentStartSetting().delegated(in: services.settings?.snapshot.root ?? .object([:]))
+                    return try await start.run(request, invocation, context, account: key.account,
+                                               byPerson: CloudStartCore().startsAsPerson(byPerson: CloudHandlers.origin(of: invocation) == .user, delegated: delegated))
                 }
             }
         }
@@ -336,13 +338,6 @@ struct CloudStartSession {
         return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: Self.reason(reason))
     }
 
-    /// `text` as one shell word: as it is when it is a plain name, else in single quotes.
-    static func shellQuoted(_ text: String) -> String {
-        let plain = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
-        guard text.isEmpty || !text.unicodeScalars.allSatisfy(plain.contains) else { return text }
-        return "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
     /// A refusal sentence inside the run's parentheses: no closing period.
     static func reason(_ text: String) -> String {
         var text = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -388,7 +383,7 @@ struct CloudStartSession {
         } catch {
             let detail = (error as? ActionFailure)?.message ?? (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
             try Self.failed(account, now: cloud.account, request.asked(machine: name),
-                            CloudStartSessionStrings.createFailed(name, quoted: Self.shellQuoted(name), agent: request.agent, reason: Self.reason(detail)))
+                            CloudStartSessionStrings.createFailed(name, quoted: CloudStartCore.shellQuoted(name), agent: request.agent, reason: Self.reason(detail)))
         }
     }
 

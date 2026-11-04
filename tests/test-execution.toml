@@ -179,6 +179,10 @@ path = "tests/test_ci_package_bisect.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_tap_test_health.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_change_areas.py"
 lane = "linux-guard"
 
@@ -2027,6 +2031,10 @@ path = "tests/test_ci_no_github_token_polling.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_github_token_budget.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_merge_freeze.py"
 lane = "linux-guard"
 
@@ -2567,6 +2575,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_owned_minis_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_signing_on_cmux15.py"
 lane = "linux-guard"
 
 [[test]]
