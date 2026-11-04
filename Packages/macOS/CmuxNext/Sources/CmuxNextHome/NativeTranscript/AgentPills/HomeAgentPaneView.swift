@@ -3,7 +3,7 @@ import CmuxNextCompat
 import Foundation
 
 /// The agent pane on the right of a Home chat (user 2026-11-03, msg 19960): ``HomeAgentSidePane``'s tab
-/// strip over the selected agent's ``HomeAgentChatView``, kept on ``HomeAgentPane`` (the tabs, the selection)
+/// strip over the selected agent's ``HomeAgentChatView`` (with the composer the person shares with the Chief), kept on ``HomeAgentPane`` (the tabs, the selection)
 /// and on each agent's chat in the store (a new report redraws its tab and, while it shows, is seen).
 @MainActor
 final class HomeAgentPaneView: NSView {
@@ -76,7 +76,14 @@ final class HomeAgentPaneView: NSView {
         guard let selected = shown.selected else { return }
         if drawn[selected] != .some(shown.content) {
             drawn[selected] = .some(shown.content)
-            side.replace(selected, title: shown.content?.title ?? selected, content: chat(shown.content, peer: selected))
+            let title = shown.content?.title ?? selected
+            // The open chat redraws in place, so the composer keeps what the person types.
+            if let content = shown.content, let open = side.content(of: selected) as? HomeAgentChatView {
+                open.update(content)
+                side.retitle(selected, title: title)
+            } else {
+                side.replace(selected, title: title, content: chat(shown.content, peer: selected))
+            }
             pane.selectedChanged()
         }
         side.select(selected)
@@ -87,7 +94,8 @@ final class HomeAgentPaneView: NSView {
         let content = content ?? HomeAgentChatContent(peer: peer, title: peer, status: "", task: "", workedFor: "", details: [],
                                                       messages: [], workspaceLink: nil)
         let go: (() -> Void)? = content.workspaceLink.map { url in { [weak self] in self?.onGoToWorkspace?(url) } }
-        return HomeAgentChatView(content: content, actions: HomeAgentChatView.Actions(goToWorkspace: go))
+        let sent: (String) -> Void = { [weak pane] text in pane?.send(text, to: peer) }
+        return HomeAgentChatView(content: content, actions: HomeAgentChatView.Actions(goToWorkspace: go, sent: sent))
     }
 
     /// The selected tab's chat view (tests).

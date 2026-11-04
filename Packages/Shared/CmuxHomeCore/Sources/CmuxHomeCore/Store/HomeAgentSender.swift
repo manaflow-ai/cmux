@@ -17,6 +17,11 @@ public enum HomeAgentSender: Hashable, Sendable {
     /// - Parameter meta: The value of `_meta.cmux.sender`.
     /// - Returns: Nil for an empty or unknown value (the caller falls back to its own rule).
     public init?(meta: String) {
-        return nil
+        guard let colon = meta.firstIndex(of: ":"), meta.index(after: colon) < meta.endIndex else { return nil }
+        switch meta[..<colon] {
+        case "human": self = .you
+        case "chief": self = .chief
+        default: return nil
+        }
     }
 }
