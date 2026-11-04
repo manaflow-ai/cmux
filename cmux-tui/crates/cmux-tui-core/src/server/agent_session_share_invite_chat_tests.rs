@@ -1,6 +1,7 @@
 //! `agent-session-share-invite-chat`: an account invited to the chat on a surface, on the chat's
 //! invite share, made in the same step when the chat has none. A refused invite leaves no share.
-use super::room::tests::{FakeRoom, OWNER_TOKEN, bridged};
+use super::room::Timing;
+use super::room::tests::{FakeRoom, OWNER_TOKEN};
 use super::*;
 use crate::server::agent_session_attach_tests::{
     Client, FakeAcpmux, SESSION, agent_tab, assert_code, mux_with, terminal_pane,
@@ -29,7 +30,8 @@ fn list(owner: &mut Client) -> Vec<Value> {
 
 fn accounts(share: &Value) -> Vec<(String, String)> {
     let invitees = share["invitees"].as_array().unwrap();
-    let pair = |i: &Value| (i["account"].as_str().unwrap().into(), i["role"].as_str().unwrap().into());
+    let pair =
+        |i: &Value| (i["account"].as_str().unwrap().into(), i["role"].as_str().unwrap().into());
     invitees.iter().map(pair).collect()
 }
 
@@ -42,10 +44,13 @@ fn an_invite_to_a_chat_makes_its_invite_share_once_then_invites_there() {
     // A guest link of the chat is not where invites go: its 24 hours and one use are the link's.
     let link = owner.request(json!({"cmd":"agent-session-share-create", "surface":surface}));
     assert_eq!(link["ok"], true, "{link}");
-    let first = invited(&mut owner, surface, " Ann@Example.com ", json!({"role":"view",
-        "session":SESSION}));
+    let ask = json!({"role":"view", "session":SESSION});
+    let first = invited(&mut owner, surface, " Ann@Example.com ", ask);
     assert_eq!(first["created_share"], true, "{first}");
-    assert_eq!((first["account"].clone(), first["role"].clone()), (json!("ann@example.com"), json!("view")));
+    assert_eq!(
+        (first["account"].clone(), first["role"].clone()),
+        (json!("ann@example.com"), json!("view"))
+    );
     assert_eq!(first["state"], "invited");
     assert!(first.get("invite_url").is_some_and(Value::is_null), "no room, no link: {first}");
     assert!(first.get("secret").is_none(), "an invite share's link secret is never answered");
@@ -62,10 +67,16 @@ fn an_invite_to_a_chat_makes_its_invite_share_once_then_invites_there() {
     assert_eq!(accounts(made), [("ann@example.com".into(), "view".into())]);
     // The next account goes on that share; the same account and role again changes nothing.
     let second = invited(&mut owner, surface, "@theo", json!({}));
-    assert_eq!((second["share_id"].clone(), second["created_share"].clone()), (share_id.clone(), json!(false)));
+    assert_eq!(
+        (second["share_id"].clone(), second["created_share"].clone()),
+        (share_id.clone(), json!(false))
+    );
     assert_eq!(second["role"], "talk", "talk unless named view");
     let again = invited(&mut owner, surface, "ann@example.com", json!({"role":"view"}));
-    assert_eq!((again["share_id"].clone(), again["created_share"].clone()), (share_id.clone(), json!(false)));
+    assert_eq!(
+        (again["share_id"].clone(), again["created_share"].clone()),
+        (share_id.clone(), json!(false))
+    );
     let shares = list(&mut owner);
     assert_eq!(shares.len(), 2, "no second invite share");
     let made = shares.iter().find(|s| s["share_id"] == share_id).unwrap();
@@ -104,7 +115,10 @@ fn a_refused_invite_to_a_chat_leaves_no_share() {
     ] {
         assert_code(&invite_chat(&mut owner, surface, "ann@example.com", bad), "share.bad_request");
     }
-    assert_code(&invite_chat(&mut owner, terminal, "ann@example.com", json!({})), "share.not_a_chat");
+    assert_code(
+        &invite_chat(&mut owner, terminal, "ann@example.com", json!({})),
+        "share.not_a_chat",
+    );
     let moved = invite_chat(&mut owner, surface, "ann@example.com", json!({"session":"acp_other"}));
     assert_code(&moved, "share.chat_moved");
     assert!(list(&mut owner).is_empty(), "no refusal made a share");
@@ -134,6 +148,17 @@ fn an_invite_to_a_chat_with_no_room_for_a_share_makes_none() {
     assert!(shares.iter().all(|s| s["invitees"].as_array().unwrap().is_empty()), "nobody invited");
 }
 
+/// A daemon with one agent chat, bridged to `room`.
+fn bridged(label: &str, room: &FakeRoom) -> (FakeAcpmux, Arc<Mux>, u64, Client) {
+    let fake = FakeAcpmux::start(label);
+    let mux = mux_with(&fake, label);
+    let shares = &mux.control_clients.agent_sessions.link_shares;
+    assert!(shares.bridge.configure(Some(&room.url), Timing::default()));
+    let surface = agent_tab(&mux, Some(SESSION));
+    let owner = Client::connect(&mux, label);
+    (fake, mux, surface, owner)
+}
+
 #[test]
 fn an_invite_to_a_chat_needs_the_owner_token_only_to_make_its_share() {
     let room = FakeRoom::start(&[]);
@@ -149,7 +174,10 @@ fn an_invite_to_a_chat_needs_the_owner_token_only_to_make_its_share() {
     assert_eq!((path, bearer), (format!("/v1/chat-shares/{id}"), OWNER_TOKEN.to_owned()));
     // The share is there: the next invite needs no token, and answers the same link.
     let next = invited(&mut owner, surface, "@theo", json!({}));
-    assert_eq!((next["share_id"].clone(), next["created_share"].clone()), (json!(id), json!(false)));
+    assert_eq!(
+        (next["share_id"].clone(), next["created_share"].clone()),
+        (json!(id), json!(false))
+    );
     assert_eq!(next["invite_url"], made["invite_url"]);
     assert_eq!(list(&mut owner).len(), 1);
 }

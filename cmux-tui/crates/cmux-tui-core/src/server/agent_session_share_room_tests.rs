@@ -367,7 +367,7 @@ fn fast() -> Timing {
 }
 
 /// A daemon with one agent chat, bridged to `room`.
-pub(in crate::server) fn bridged(label: &str, room: &FakeRoom) -> (FakeAcpmux, Arc<Mux>, u64, Client) {
+fn bridged(label: &str, room: &FakeRoom) -> (FakeAcpmux, Arc<Mux>, u64, Client) {
     bridged_with(label, room, Fixture::default())
 }
 
