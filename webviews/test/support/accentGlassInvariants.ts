@@ -22,16 +22,16 @@
 // Each part scans every `parts`-th stage of the sorted list.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
-// gallery-frame-every-entry: it scans every web entry, so it warms the frame for all of them once;
-// each stage still passes its own entryPath.
+// Warm the first stage through its scoped frame. Crawling the generic frame follows every lazy
+// import, including page hosts this scan never renders, and can exhaust the startup budget.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { loadEntrySources } from "../../scripts/gallery/entries";
 import { findingKey, scanStage, type Finding } from "./accentGlassScan";
+import { warmGalleryFrame } from "./galleryFrame";
 import { requireBrowserLane } from "./requireBrowserLane";
-import { warmViteServer } from "./warmDevServer";
 
 export type AccentGlassPart = {
   /** The part's test file name, for requireBrowserLane. */
@@ -97,8 +97,13 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
         logLevel: "error",
       });
       await vite.listen();
-      await warmViteServer(vite, "/gallery/frame.html");
       browser = await chromium.launch({ headless: true });
+      const first = stages[0];
+      if (first)
+        await warmGalleryFrame(vite, first.entry, {
+          browser,
+          params: { variant: first.variant, theme: first.theme, frame: "component" },
+        });
     });
     afterAll(async () => {
       await browser?.close();
