@@ -7669,7 +7669,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const client = directClient.current;
       if (!client) throw new Error("Session is disconnected");
       const request = contextRequest.current;
-      const next = contextInventory(await client.setContextOverride(sessionId, scope, text, partId === "cmux-system-prompt" ? partId : undefined));
+      const editablePartId = partId === "cmux-system-prompt" ? partId : undefined;
+      const next = contextInventory(await client.setContextOverride(sessionId, scope, text, editablePartId));
       if (request === contextRequest.current) setContextViewerSettings(next.settings);
     },
     [shownSessionId, snapshot.sessionId],
@@ -7681,7 +7682,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const client = directClient.current;
       if (!client) throw new Error("Session is disconnected");
       const request = contextRequest.current;
-      const next = contextInventory(await client.setContextOverride(sessionId, scope, null, partId === "cmux-system-prompt" ? partId : undefined));
+      const editablePartId = partId === "cmux-system-prompt" ? partId : undefined;
+      const next = contextInventory(await client.setContextOverride(sessionId, scope, null, editablePartId));
       if (request === contextRequest.current) setContextViewerSettings(next.settings);
     },
     [shownSessionId, snapshot.sessionId],
