@@ -259,6 +259,15 @@
    "name": "px-keys-then-clamp-3x-sw-sharededges-off-s0125",
    "steps": [
     {
+     "do": "rpc",
+     "method": "debug.motion",
+     "params": {
+      "action": "trace_start",
+      "window": 0
+     },
+     "title": "set-up: a geometry trace, so the set-up drags find x where it is now"
+    },
+    {
      "do": "hid_drag",
      "target": {
       "divider": 1
@@ -415,6 +424,15 @@
    "do": "px_film",
    "name": "px-keys-then-clamp-3x-sw-sharededges-on-s0125",
    "steps": [
+    {
+     "do": "rpc",
+     "method": "debug.motion",
+     "params": {
+      "action": "trace_start",
+      "window": 0
+     },
+     "title": "set-up: a geometry trace, so the set-up drags find x where it is now"
+    },
     {
      "do": "hid_drag",
      "target": {

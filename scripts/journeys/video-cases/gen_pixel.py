@@ -472,7 +472,12 @@ CLAMP_ROOM_PT = 6
 def clamp_before():
     """Before each clamp film: the split x (vertical divider 1) dragged left into b1's minimum, then right by CLAMP_ROOM_PT,
     so every film starts with b1 at its minimum plus the room; then p0 focused for the key."""
-    return [G.kit_drag({"divider": 1}, [-80, 0], 400, "minimum", "set-up: the split x 80 pt left (b1 stops at its minimum)"),
+    # The set-up drags find x in the geometry trace's newest sample: before the first film no trace runs (round
+    # ab-s2bd-sw-813ac15: "no vertical divider 1 (0 shown)"), and before a later one the newest sample is from the last
+    # film, before its rebuild moved x. A trace started here samples the layout as it is (the film's recorder restarts it).
+    return [{"do": "rpc", "method": "debug.motion", "params": {"action": "trace_start", "window": 0},
+             "title": "set-up: a geometry trace, so the set-up drags find x where it is now"},
+            G.kit_drag({"divider": 1}, [-80, 0], 400, "minimum", "set-up: the split x 80 pt left (b1 stops at its minimum)"),
             rest(0.6, "the split rests at b1's minimum"),
             G.kit_drag({"divider": 1}, [CLAMP_ROOM_PT, 0], 300, "room", f"set-up: the split x {CLAMP_ROOM_PT} pt right"),
             rest(0.6, "the split rests at the pointer"), focus("p0")]
