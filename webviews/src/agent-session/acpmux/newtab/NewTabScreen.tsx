@@ -123,6 +123,7 @@ import {
 } from "../slashCommands";
 import { useNewTabCommand, type NewTabCommandActions } from "./useNewTabCommand";
 import { useHarnessesListed } from "../catalog";
+import { agentName } from "../agents";
 import { openHarnessesPage } from "../harnesses/harnessesPage";
 import { NewTabExtras } from "./NewTabExtras";
 import type { SuggestionOrder } from "./suggestionOrder";
@@ -793,12 +794,14 @@ export function NewTabScreen(props: Props) {
     parentSignIn?.authObservation,
   );
 
-  // The Ask row names the agent Return asks and the model on its chip.
+  // The Ask row names the agent Return asks and, once the catalog lists it, the model on its chip.
+  // A harness the chip names always has the row: a last pick stands before the catalog lists it
+  // (newTabStart), and with no row Return took the prompt to the web search under that chip.
   const ask = useMemo(() => {
+    if (!harness) return undefined;
     const entry = snapshot.catalog.find((agent) => agent.id === harness);
-    if (!harness || !entry) return undefined;
-    const model = entry.models.find((option) => option.id === chipSnapshot.summary?.model)?.name;
-    return { harness, agent: entry.name, ...(model ? { model } : {}) };
+    const model = entry?.models.find((option) => option.id === chipSnapshot.summary?.model)?.name;
+    return { harness, agent: agentName(harness, entry?.name), ...(model ? { model } : {}) };
   }, [snapshot.catalog, harness, chipSnapshot.summary?.model]);
   // Shell mode's text is a command line, where a `/` starts a path.
   const commandAt = shell ? undefined : commandTrigger;

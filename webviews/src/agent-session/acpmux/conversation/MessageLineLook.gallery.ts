@@ -234,7 +234,19 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/Thinking.tsx",
     "agent-session/acpmux/subagents/DisclosureRow.tsx",
   ],
-  keywords: ["message", "sent", "received", "preview", "one line", "inline", "two lines", "stacked", "and more commands", "sending", "long names"],
+  keywords: [
+    "message",
+    "sent",
+    "received",
+    "preview",
+    "one line",
+    "inline",
+    "two lines",
+    "stacked",
+    "and more commands",
+    "sending",
+    "long names",
+  ],
   variants: {
     single: {
       note: "The default: each message row on one line, the verb, the recipient's whole name, the count, the message's first line muted and cut, then the chevron right after the words. Rows read in the transcript's text tone.",

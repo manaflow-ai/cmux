@@ -309,7 +309,9 @@ test("the stored entry names the start by a hash, never its prompt", () => {
 test("a New Tab project pick hands its grant over, so a Cloud send can wait for it", async () => {
   let release: (() => void) | undefined;
   const native = (method: string) =>
-    method === "workspace.useFolder" ? new Promise((resolve) => (release = () => resolve({ status: "ok" }))) : Promise.resolve({});
+    method === "workspace.useFolder"
+      ? new Promise((resolve) => (release = () => resolve({ status: "ok" })))
+      : Promise.resolve({});
   const grants: Promise<unknown>[] = [];
   const { onProjectPicked } = newTabProjectPick(native, true, (grant) => grants.push(grant));
   onProjectPicked!("/Users/me/src/paint");
