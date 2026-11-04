@@ -116,9 +116,10 @@ class FakeGitHub:
         if "ids" in variables:
             ids = {int(i.removeprefix("CR_")) for i in variables["ids"]}
             return {"nodes": [{"databaseId": rid,
-                               "steps": {"nodes": [{"name": st.get("name"), "number": n + 1,
+                               "steps": {"pageInfo": {"hasNextPage": len(self.steps.get(rid, [])) > 100},
+                                         "nodes": [{"name": st.get("name"), "number": n + 1,
                                                     "conclusion": (st.get("conclusion") or "").upper() or None}
-                                                   for n, st in enumerate(self.steps.get(rid, []))]},
+                                                   for n, st in enumerate(self.steps.get(rid, [])[:100])]},
                                "annotations": {"nodes": [{"title": a.get("title"), "message": a.get("message"),
                                                           "annotationLevel": (a.get("annotation_level") or "").upper()}
                                                          for a in self.annotations.get(rid, [])]}}
@@ -507,6 +508,16 @@ def test_a_green_pr_reads_its_runs_with_one_graphql_query():
     fake = FakeGitHub([run(RAC, "success", id_=11)], [], base_runs=[run(RAC, "failure", id_=21)])
     assert fake.run() == []
     assert rest_check_reads(fake) == [] and len(fake.check_queries) == 1
+
+
+def test_a_job_with_more_steps_than_a_page_reads_them_over_rest():
+    # Review of #35330: a failed step past the 100th must still count, so that run's steps come from REST.
+    many = [ok(f"step {n}") for n in range(120)] + [failed("Lint")]
+    fake = FakeGitHub([run(RAC, "failure", id_=11)], [], base_runs=[run(RAC, "failure", id_=21)],
+                      steps={11: many, 21: [failed("Test webviews")]})
+    assert "NEW: step `Lint` passes on the base" in checks_line(fake)
+    assert any("/actions/jobs/11" in p for p in fake.gets)
+    assert not any("/actions/jobs/21" in p for p in fake.gets)
 
 if __name__ == "__main__":
     import traceback

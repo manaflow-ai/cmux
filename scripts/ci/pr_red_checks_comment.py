@@ -208,7 +208,7 @@ CHECKS_QUERY = ("query($owner:String!,$name:String!,$head:GitObjectID!,$base:Git
                 " base:object(oid:$base) @include(if:$withBase){...on Commit{" + _RUNS + "}}}"
                 " rateLimit{limit cost remaining used resetAt}}")
 DETAILS_QUERY = ("query($ids:[ID!]!){nodes(ids:$ids){...on CheckRun{databaseId"
-                 " steps(first:100){nodes{name conclusion number}}"
+                 " steps(first:100){pageInfo{hasNextPage} nodes{name conclusion number}}"
                  " annotations(first:100){nodes{title message annotationLevel}}}}"
                  " rateLimit{limit cost remaining used resetAt}}")
 
@@ -270,6 +270,10 @@ def prefetch_details(gh, runs, query=None):
         return
     for node in (data or {}).get("nodes") or []:
         if not node or node.get("databaseId") is None:
+            continue
+        if ((node.get("steps") or {}).get("pageInfo") or {}).get("hasNextPage"):
+            # REST's job read returns every step; a failed step past the first page must not drop out of the
+            # signature (it could turn a new red into a base red), so REST answers this run.
             continue
         steps = [{"name": s.get("name"), "conclusion": _lower(s.get("conclusion")), "number": s.get("number")}
                  for s in ((node.get("steps") or {}).get("nodes") or [])]
