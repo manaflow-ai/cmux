@@ -1298,7 +1298,7 @@ source = (root / ".github/workflows/fast-checks.yml").read_text()
 workflow = yaml.safe_load(source)
 jobs = workflow.get("jobs", {})
 admit = jobs.get("admit", {})
-selector = '${{ contains(fromJSON(\'["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]\'), inputs.runner) && inputs.runner || \'ubuntu-24.04\' }}'
+selector = '${{ contains(fromJSON(\'["blacksmith-8vcpu-ubuntu-2404"]\'), inputs.runner) && inputs.runner || \'ubuntu-24.04\' }}'
 line = f"    runs-on: {selector} # github-hosted-required: light read-only runner admission"
 valid = (
     set(declared) == {"fast-checks.yml:admit"}
@@ -1316,7 +1316,7 @@ if not valid:
     raise SystemExit(1)
 PY_LIGHT
   local -a exceptions=(
-    'fast-checks.yml:    runs-on: ${{ contains(fromJSON('"'"'["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'"'"'), inputs.runner) && inputs.runner || '"'"'ubuntu-24.04'"'"' }} # github-hosted-required: light read-only runner admission'
+    'fast-checks.yml:    runs-on: ${{ contains(fromJSON('"'"'["blacksmith-8vcpu-ubuntu-2404"]'"'"'), inputs.runner) && inputs.runner || '"'"'ubuntu-24.04'"'"' }} # github-hosted-required: light read-only runner admission'
     # npm trusted publishing and --provenance accept only GitHub-hosted runners.
     "sdk-bootstrap-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing"
     "sdk-release-cut.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
