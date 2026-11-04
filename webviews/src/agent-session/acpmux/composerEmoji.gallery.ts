@@ -61,11 +61,15 @@ export default agentPaneEntry({
       await ctx.waitFor(() => ctx.document.querySelector(ROW) === null);
       if (!promptText(ctx).includes("Ship it 🧸")) throw new Error(`pick did not write the emoji: ${promptText(ctx)}`);
     }),
-    "return-sends": variant("Play: Return with no row chosen sends `Ship it :tedd` as typed; no emoji is written.", async (ctx) => {
+    "return-sends": variant("Play: Return with no row chosen sends; `:tedd` is never turned into an emoji.", async (ctx) => {
       await typeToMenu(ctx, "Ship it :tedd");
       await ctx.press("Enter");
-      await ctx.waitFor(() => ctx.document.querySelector(ROW) === null);
-      if (promptText(ctx).includes("🧸")) throw new Error(`Return wrote an emoji: ${promptText(ctx)}`);
+      // fixed-wait: this static snapshot has no host to take the prompt, so the draft stays; the
+      // assertion is that Return wrote no emoji over `:tedd` after a beat (a pick would within a frame).
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const typed = promptText(ctx);
+      if (typed.includes("🧸")) throw new Error(`Return wrote an emoji: ${typed}`);
+      if (typed.trim() !== "" && !typed.includes(":tedd")) throw new Error(`Return changed the text: ${typed}`);
     }),
     "emoticon-tab": variant("Play: Tab on `:DD` (no row chosen) writes the first row, 😆.", async (ctx) => {
       await typeToMenu(ctx, "That fixed it :DD");
