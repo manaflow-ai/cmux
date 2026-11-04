@@ -488,6 +488,11 @@ export interface MenuItemProps {
   "data-value"?: string;
   disabled?: boolean;
   shortcut?: ReactNode;
+  onPointerMove?(event: PointerEvent<HTMLElement>): void;
+  onPointerEnter?(event: PointerEvent<HTMLElement>): void;
+  onPointerLeave?(event: PointerEvent<HTMLElement>): void;
+  onMouseEnter?(event: MouseEvent<HTMLElement>): void;
+  onMouseLeave?(event: MouseEvent<HTMLElement>): void;
   onSelect?(event: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>): void;
   children: ReactNode;
 }
@@ -497,6 +502,11 @@ export function MenuItem({
   "data-value": dataValue,
   disabled,
   shortcut,
+  onPointerMove,
+  onPointerEnter,
+  onPointerLeave,
+  onMouseEnter,
+  onMouseLeave,
   onSelect,
   closeOnClick,
   expanded,
@@ -521,7 +531,14 @@ export function MenuItem({
       {...(expanded === undefined ? {} : { "aria-expanded": expanded })}
       {...(controls ? { "aria-controls": controls } : {})}
       {...(closeOnClick === false ? { "data-keeps-open": "" } : {})}
-      onPointerMove={(event) => context?.movePointer(event)}
+      onPointerMove={(event) => {
+        context?.movePointer(event);
+        onPointerMove?.(event);
+      }}
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       onPointerUp={(event) => {
         if (disabled) return;
         if (context?.activatePointer(event, () => onSelect?.(event), closeOnClick === false)) {
