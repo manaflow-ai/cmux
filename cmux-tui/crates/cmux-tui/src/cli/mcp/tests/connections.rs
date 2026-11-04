@@ -26,7 +26,7 @@ fn listed() -> Value {
 /// Records each app method and answers like an app with `listed()`.
 fn app(sent: &mut Vec<(String, Value)>) -> impl FnMut(&str, Value) -> Result<Value, Value> + '_ {
     move |method: &str, params: Value| {
-        sent.push((method.to_owned(), params.clone()));
+        sent.push((method.to_owned(), params));
         match method {
             "mcp.servers.list" => Ok(listed()),
             "mcp.servers.audit" => Ok(json!({"lines": [{"event": "remove", "seq": 3}]})),
