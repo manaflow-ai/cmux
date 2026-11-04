@@ -973,9 +973,15 @@ def _expectation(result, expect):
     listed = KIND_LIST.get(expect.get("judge"))
     if listed and not isinstance(result.get(listed), list):
         raise Unchecked(f"{expect.get('judge')}'s result has no {listed} list")
-    if ("absent_check" in expect or "absent_kind" in expect) and expect.get("judge") == "video_judge" \
-            and not result.get("frames"):
-        raise Unchecked("video_judge judged no frame of this film: an absence needs the film's frames")
+    # An absence holds only where its judge looked (R4: an absence of defects needs the coverage that could show one).
+    if "absent_kind" in expect and result.get("motion") is None:
+        raise Unchecked("judge_trace judged no motion of this film: an absence needs a judged motion")
+    if "absent_check" in expect:
+        if not result.get("frames"):
+            raise Unchecked("video_judge judged no frame of this film: an absence needs the film's frames")
+        if expect["absent_check"] not in TRACE_ONLY_CHECKS and not result.get("motion"):
+            raise Unchecked("video_judge judged no motion window of this film: its checks look only inside motion "
+                            "windows, so an absence needs one")
     if "defect_frames" in expect:  # every frame of these spans is inside some defect finding of the judge
         spans = [f.get("frames") for f in result.get("findings") or [] if f.get("severity") == "defect"
                  and isinstance(f.get("frames"), list) and len(f["frames"]) == 2]
@@ -1025,6 +1031,22 @@ FACT_KEYS = {"id", "film", "why", "ruler", "expect"}
 KIND_JUDGE = {"check": "video_judge", "defect_frames": "video_judge", "absent_check": "video_judge",
               "kind": "judge_trace", "absent_kind": "judge_trace"}
 KIND_LIST = {"video_judge": "findings", "judge_trace": "defects"}
+# The names each judge reports (video_judge's finding checks; judge_trace's defect kinds), as their source writes them
+# (a test pins these sets to the source). A fact that names anything else checks nothing: NO VERDICT. A judge PR that
+# adds a name adds it here.
+JUDGE_NAMES = {
+    "video_judge": frozenset({
+        "blank pane", "capture stall", "capture stall in motion", "content not at final size after motion",
+        "content size during motion", "content stretched", "content wait", "divider not shown", "dropped frames",
+        "encoder dropped frames", "flash", "frame gap during slow input", "gap or overlap", "half-pixel blend",
+        "idle refresh in motion", "jump", "jump back", "jump back (animation)",
+        "main thread missed refreshes before the first frame", "model edge off the device-pixel grid", "reflow",
+        "scan count mismatch", "shown geometry not in the model"}),
+    "judge_trace": frozenset({"dropped", "end-jump", "gap", "lurch", "off-grid", "overlap", "overlap-fading",
+                              "reverse"}),
+}
+# video_judge checks the trace alone, outside any motion window: an absence of these needs no motion window.
+TRACE_ONLY_CHECKS = frozenset({"model edge off the device-pixel grid"})
 
 
 def _span_problem(span):
@@ -1083,6 +1105,10 @@ def truth_problems(manifest, films_doc):
             if KIND_JUDGE.get(kinds[0]) != expect["judge"]:
                 problems.append(f"{fid}: {kinds[0]} reads {KIND_JUDGE.get(kinds[0])}'s result, not "
                                 f"{expect['judge']}'s: it would check nothing")
+            elif kinds[0] in ("check", "absent_check", "kind", "absent_kind") \
+                    and expect[kinds[0]] not in JUDGE_NAMES.get(expect["judge"], ()):
+                problems.append(f"{fid}: {expect['judge']} reports no {expect[kinds[0]]!r} (its names: "
+                                f"{', '.join(sorted(JUDGE_NAMES.get(expect['judge'], ())))})")
             if fact.get("film") in films and expect["judge"] not in film_judges_listed:
                 problems.append(f"{fid}: {expect['judge']} does not judge {fact.get('film')} "
                                 f"(its judges: {', '.join(sorted(film_judges_listed)) or 'none'})")

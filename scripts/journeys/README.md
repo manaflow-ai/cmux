@@ -305,8 +305,10 @@ Every change to a judge reproduces the judge goldens. They have two tiers:
   no `why`, an unknown key, no ruler and no expectation, an expectation of an unknown form or of a kind its judge
   does not report (`check`, `defect_frames` and `absent_check` are video_judge's findings; `kind` and `absent_kind`
   are judge_trace's defects), a judge that does not judge its film, or an empty or reversed span; so is an absence on
-  a video_judge result with no frame, and a missing `truth.json`. A ruler fact also needs the film's scan records to
-  be its complete frames, one each, in order (the judge's frame numbers).
+  a video_judge result with no frame or no motion window (except the trace-only model-grid check) and on a
+  judge_trace result with no motion; so is a check, kind or absence of a name its judge does not report
+  (`JUDGE_NAMES`), and a missing `truth.json`. A ruler fact also needs the film's scan records to be its complete
+  frames, one each, in order (the judge's frame numbers).
 
 ```bash
 PY=/work/tmp/bv-venv/bin/python
