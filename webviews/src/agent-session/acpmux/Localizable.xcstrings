@@ -211377,134 +211377,1058 @@
         }
       }
     },
-    "subagents.paneReadOnly": {
-      "comment": "Agent pane: where a subagent's own pane would show the chat's composer; {name} is the chat that takes messages",
+    "subagents.messageFailed": {
+      "comment": "Agent pane: a message from a subagent's own composer did not reach its chat",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Read only · messages go to {name}"
+            "value": "Not sent"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "للقراءة فقط · تُرسل الرسائل إلى {name}"
+            "value": "لم يُرسَل"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Samo za čitanje · poruke idu u {name}"
+            "value": "Nije poslano"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skrivebeskyttet · beskeder går til {name}"
+            "value": "Ikke sendt"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nur lesen · Nachrichten gehen an {name}"
+            "value": "Nicht gesendet"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Solo lectura · los mensajes van a {name}"
+            "value": "No enviado"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lecture seule · les messages vont à {name}"
+            "value": "Non envoyé"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sola lettura · i messaggi vanno a {name}"
+            "value": "Non inviato"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "閲覧のみ · メッセージは {name} へ"
+            "value": "送信されませんでした"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "អានតែប៉ុណ្ណោះ · សារទៅកាន់ {name}"
+            "value": "មិនបានផ្ញើ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "읽기 전용 · 메시지는 {name}(으)로"
+            "value": "보내지 못함"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skrivebeskyttet · meldinger går til {name}"
+            "value": "Ikke sendt"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tylko do odczytu · wiadomości trafiają do {name}"
+            "value": "Nie wysłano"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Somente leitura · as mensagens vão para {name}"
+            "value": "Não enviado"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Только чтение · сообщения уходят в {name}"
+            "value": "Не отправлено"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "อ่านอย่างเดียว · ข้อความไปที่ {name}"
+            "value": "ไม่ได้ส่ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Salt okunur · mesajlar {name} sohbetine gider"
+            "value": "Gönderilmedi"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Лише читання · повідомлення йдуть у {name}"
+            "value": "Не надіслано"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chỉ đọc · tin nhắn gửi tới {name}"
+            "value": "Chưa gửi"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "只读 · 消息发送到 {name}"
+            "value": "未发送"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "唯讀 · 訊息傳送到 {name}"
+            "value": "未傳送"
+          }
+        }
+      }
+    },
+    "subagents.messagePlaceholder": {
+      "comment": "Agent pane: the placeholder of a subagent's own composer in its pane; {name} is the subagent",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message {name}"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "راسِل {name}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poruka za {name}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Besked til {name}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachricht an {name}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mensaje para {name}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message à {name}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Messaggio a {name}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} にメッセージ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើសារទៅ {name}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name}에게 메시지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melding til {name}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiadomość do {name}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mensagem para {name}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сообщение для {name}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งข้อความถึง {name}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} adlı alt ajana mesaj"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повідомлення для {name}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhắn cho {name}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "给 {name} 发消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳訊息給 {name}"
+          }
+        }
+      }
+    },
+    "subagents.messageSend": {
+      "comment": "Agent pane: the Send button of a subagent's own composer; {name} is the subagent",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send to {name}"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أرسل إلى {name}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pošalji za {name}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send til {name}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An {name} senden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar a {name}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer à {name}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia a {name}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} に送信"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើទៅ {name}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name}에게 보내기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send til {name}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyślij do {name}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar para {name}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить {name}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งถึง {name}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} adlı alt ajana gönder"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надіслати {name}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gửi cho {name}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送给 {name}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送給 {name}"
+          }
+        }
+      }
+    },
+    "subagents.messageVia": {
+      "comment": "Agent pane: under a subagent's own composer, the chat that takes the message and passes it on to the subagent; {name} is the chat",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sent through {name}"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُرسَل عبر {name}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Šalje se preko {name}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sendes via {name}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geht über {name}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se envía a través de {name}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyé via {name}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inviato tramite {name}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} 経由で送信"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើតាម {name}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name}을(를) 통해 전송"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sendes via {name}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wysyłane przez {name}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviado por meio de {name}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправляется через {name}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งผ่าน {name}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} üzerinden gönderilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надсилається через {name}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gửi qua {name}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "经由 {name} 发送"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "經由 {name} 傳送"
+          }
+        }
+      }
+    },
+    "subagents.relay": {
+      "comment": "Agent pane: the prompt a subagent's own composer sends its chat when no id for the subagent is known; {name} is the subagent, {message} what the person typed, kept as is on the lines after",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send your subagent \"{name}\" the message below, word for word. If it can no longer take messages, say so.\n\n{message}"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أرسل إلى الوكيل الفرعي \"{name}\" الرسالة أدناه حرفيًا. إن لم يعد يستقبل الرسائل، فقل ذلك.\n\n{message}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pošalji podagentu \"{name}\" poruku ispod, doslovno. Ako više ne prima poruke, reci to.\n\n{message}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send din underagent \"{name}\" beskeden nedenfor, ord for ord. Hvis den ikke længere kan modtage beskeder, så sig det.\n\n{message}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sende deinem Subagenten \"{name}\" die Nachricht unten, Wort für Wort. Kann er keine Nachrichten mehr annehmen, sag das.\n\n{message}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envía a tu subagente \"{name}\" el mensaje de abajo, palabra por palabra. Si ya no puede recibir mensajes, dilo.\n\n{message}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoie à ton sous-agent \"{name}\" le message ci-dessous, mot pour mot. S'il ne peut plus recevoir de messages, dis-le.\n\n{message}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia al tuo subagente \"{name}\" il messaggio qui sotto, parola per parola. Se non può più ricevere messaggi, dillo.\n\n{message}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブエージェント「{name}」 に下のメッセージをそのまま送ってください。もうメッセージを受け取れない場合は、そう伝えてください。\n\n{message}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើសារខាងក្រោមទៅភ្នាក់ងាររង \"{name}\" ពាក្យដោយពាក្យ។ បើវាលែងទទួលសារបាន សូមប្រាប់។\n\n{message}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 에이전트 \"{name}\"에게 아래 메시지를 그대로 보내세요. 더 이상 메시지를 받을 수 없다면 그렇다고 말해 주세요.\n\n{message}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send underagenten \"{name}\" meldingen nedenfor, ord for ord. Hvis den ikke lenger kan ta imot meldinger, si fra.\n\n{message}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyślij podagentowi \"{name}\" poniższą wiadomość, słowo w słowo. Jeśli nie może już przyjmować wiadomości, powiedz o tym.\n\n{message}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envie ao seu subagente \"{name}\" a mensagem abaixo, palavra por palavra. Se ele não puder mais receber mensagens, diga isso.\n\n{message}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправь своему субагенту \"{name}\" сообщение ниже, слово в слово. Если он больше не принимает сообщения, так и скажи.\n\n{message}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งข้อความด้านล่างถึงเอเจนต์ย่อย \"{name}\" แบบคำต่อคำ หากรับข้อความไม่ได้แล้ว ให้บอก\n\n{message}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\"{name}\" adlı alt ajanına aşağıdaki mesajı kelimesi kelimesine gönder. Artık mesaj alamıyorsa bunu söyle.\n\n{message}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надішли своєму субагенту \"{name}\" повідомлення нижче, слово в слово. Якщо він більше не приймає повідомлень, так і скажи.\n\n{message}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gửi cho subagent \"{name}\" tin nhắn bên dưới, nguyên văn. Nếu nó không còn nhận tin nhắn được, hãy nói vậy.\n\n{message}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把下面的消息原样发给你的子代理“{name}”。如果它已无法再接收消息，请说明。\n\n{message}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把下面的訊息原樣傳給你的子代理「{name}」。如果它已無法再接收訊息，請說明。\n\n{message}"
+          }
+        }
+      }
+    },
+    "subagents.relayClaude": {
+      "comment": "Agent pane: the prompt a subagent's own composer sends its Claude Code chat when the subagent's agentId is not known yet (keep SendMessage as is); {name} is the subagent, {message} what the person typed, kept as is on the lines after",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use SendMessage to send your subagent \"{name}\" the message below, word for word. If it has finished, SendMessage resumes it.\n\n{message}"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم SendMessage لإرسال الرسالة أدناه حرفيًا إلى الوكيل الفرعي \"{name}\". إن كان قد انتهى، فإن SendMessage يستأنفه.\n\n{message}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristi SendMessage da podagentu \"{name}\" pošalješ poruku ispod, doslovno. Ako je završio, SendMessage ga nastavlja.\n\n{message}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug SendMessage til at sende din underagent \"{name}\" beskeden nedenfor, ord for ord. Hvis den er færdig, genoptager SendMessage den.\n\n{message}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sende deinem Subagenten \"{name}\" mit SendMessage die Nachricht unten, Wort für Wort. Ist er fertig, setzt SendMessage ihn fort.\n\n{message}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa SendMessage para enviar a tu subagente \"{name}\" el mensaje de abajo, palabra por palabra. Si ya terminó, SendMessage lo reanuda.\n\n{message}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilise SendMessage pour envoyer à ton sous-agent \"{name}\" le message ci-dessous, mot pour mot. S'il a terminé, SendMessage le relance.\n\n{message}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa SendMessage per inviare al tuo subagente \"{name}\" il messaggio qui sotto, parola per parola. Se ha finito, SendMessage lo riprende.\n\n{message}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SendMessage を使って、サブエージェント「{name}」 に下のメッセージをそのまま送ってください。終了している場合は SendMessage が再開します。\n\n{message}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើ SendMessage ដើម្បីផ្ញើសារខាងក្រោមទៅភ្នាក់ងាររង \"{name}\" ពាក្យដោយពាក្យ។ បើវាបានបញ្ចប់ SendMessage នឹងបន្តវា។\n\n{message}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SendMessage로 하위 에이전트 \"{name}\"에게 아래 메시지를 그대로 보내세요. 이미 끝났다면 SendMessage가 다시 이어 갑니다.\n\n{message}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk SendMessage til å sende underagenten \"{name}\" meldingen nedenfor, ord for ord. Hvis den er ferdig, gjenopptar SendMessage den.\n\n{message}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użyj SendMessage, aby wysłać podagentowi \"{name}\" poniższą wiadomość, słowo w słowo. Jeśli skończył, SendMessage go wznowi.\n\n{message}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use SendMessage para enviar ao seu subagente \"{name}\" a mensagem abaixo, palavra por palavra. Se ele já terminou, SendMessage o retoma.\n\n{message}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "С помощью SendMessage отправь своему субагенту \"{name}\" сообщение ниже, слово в слово. Если он завершился, SendMessage его возобновит.\n\n{message}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ SendMessage ส่งข้อความด้านล่างถึงเอเจนต์ย่อย \"{name}\" แบบคำต่อคำ หากทำงานเสร็จแล้ว SendMessage จะให้ทำงานต่อ\n\n{message}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SendMessage ile \"{name}\" adlı alt ajanına aşağıdaki mesajı kelimesi kelimesine gönder. Bitmişse SendMessage onu sürdürür.\n\n{message}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За допомогою SendMessage надішли своєму субагенту \"{name}\" повідомлення нижче, слово в слово. Якщо він завершився, SendMessage його відновить.\n\n{message}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng SendMessage để gửi cho subagent \"{name}\" tin nhắn bên dưới, nguyên văn. Nếu nó đã xong, SendMessage sẽ tiếp tục nó.\n\n{message}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 SendMessage 把下面的消息原样发给你的子代理“{name}”。如果它已结束，SendMessage 会让它继续。\n\n{message}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 SendMessage 把下面的訊息原樣傳給你的子代理「{name}」。如果它已結束，SendMessage 會讓它繼續。\n\n{message}"
+          }
+        }
+      }
+    },
+    "subagents.relayClaudeId": {
+      "comment": "Agent pane: the prompt a subagent's own composer sends its Claude Code chat, to pass the message on with SendMessage (keep SendMessage and agentId as is); {name} is the subagent, {id} its agentId, {message} what the person typed, kept as is on the lines after",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use SendMessage to send your subagent \"{name}\" (agentId {id}) the message below, word for word. If it has finished, SendMessage resumes it.\n\n{message}"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم SendMessage لإرسال الرسالة أدناه حرفيًا إلى الوكيل الفرعي \"{name}\" (agentId {id}). إن كان قد انتهى، فإن SendMessage يستأنفه.\n\n{message}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristi SendMessage da podagentu \"{name}\" (agentId {id}) pošalješ poruku ispod, doslovno. Ako je završio, SendMessage ga nastavlja.\n\n{message}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug SendMessage til at sende din underagent \"{name}\" (agentId {id}) beskeden nedenfor, ord for ord. Hvis den er færdig, genoptager SendMessage den.\n\n{message}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sende deinem Subagenten \"{name}\" (agentId {id}) mit SendMessage die Nachricht unten, Wort für Wort. Ist er fertig, setzt SendMessage ihn fort.\n\n{message}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa SendMessage para enviar a tu subagente \"{name}\" (agentId {id}) el mensaje de abajo, palabra por palabra. Si ya terminó, SendMessage lo reanuda.\n\n{message}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilise SendMessage pour envoyer à ton sous-agent \"{name}\" (agentId {id}) le message ci-dessous, mot pour mot. S'il a terminé, SendMessage le relance.\n\n{message}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa SendMessage per inviare al tuo subagente \"{name}\" (agentId {id}) il messaggio qui sotto, parola per parola. Se ha finito, SendMessage lo riprende.\n\n{message}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SendMessage を使って、サブエージェント「{name}」(agentId {id}) に下のメッセージをそのまま送ってください。終了している場合は SendMessage が再開します。\n\n{message}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើ SendMessage ដើម្បីផ្ញើសារខាងក្រោមទៅភ្នាក់ងាររង \"{name}\" (agentId {id}) ពាក្យដោយពាក្យ។ បើវាបានបញ្ចប់ SendMessage នឹងបន្តវា។\n\n{message}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SendMessage로 하위 에이전트 \"{name}\"(agentId {id})에게 아래 메시지를 그대로 보내세요. 이미 끝났다면 SendMessage가 다시 이어 갑니다.\n\n{message}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk SendMessage til å sende underagenten \"{name}\" (agentId {id}) meldingen nedenfor, ord for ord. Hvis den er ferdig, gjenopptar SendMessage den.\n\n{message}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użyj SendMessage, aby wysłać podagentowi \"{name}\" (agentId {id}) poniższą wiadomość, słowo w słowo. Jeśli skończył, SendMessage go wznowi.\n\n{message}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use SendMessage para enviar ao seu subagente \"{name}\" (agentId {id}) a mensagem abaixo, palavra por palavra. Se ele já terminou, SendMessage o retoma.\n\n{message}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "С помощью SendMessage отправь своему субагенту \"{name}\" (agentId {id}) сообщение ниже, слово в слово. Если он завершился, SendMessage его возобновит.\n\n{message}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ SendMessage ส่งข้อความด้านล่างถึงเอเจนต์ย่อย \"{name}\" (agentId {id}) แบบคำต่อคำ หากทำงานเสร็จแล้ว SendMessage จะให้ทำงานต่อ\n\n{message}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SendMessage ile \"{name}\" adlı alt ajanına (agentId {id}) aşağıdaki mesajı kelimesi kelimesine gönder. Bitmişse SendMessage onu sürdürür.\n\n{message}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За допомогою SendMessage надішли своєму субагенту \"{name}\" (agentId {id}) повідомлення нижче, слово в слово. Якщо він завершився, SendMessage його відновить.\n\n{message}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng SendMessage để gửi cho subagent \"{name}\" (agentId {id}) tin nhắn bên dưới, nguyên văn. Nếu nó đã xong, SendMessage sẽ tiếp tục nó.\n\n{message}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 SendMessage 把下面的消息原样发给你的子代理“{name}”（agentId {id}）。如果它已结束，SendMessage 会让它继续。\n\n{message}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 SendMessage 把下面的訊息原樣傳給你的子代理「{name}」（agentId {id}）。如果它已結束，SendMessage 會讓它繼續。\n\n{message}"
+          }
+        }
+      }
+    },
+    "subagents.relayId": {
+      "comment": "Agent pane: the prompt a subagent's own composer sends its chat (a harness other than Claude Code) to pass the message on; {name} is the subagent, {id} the id the harness knows it by, {message} what the person typed, kept as is on the lines after",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send your subagent \"{name}\" (id {id}) the message below, word for word. If it can no longer take messages, say so.\n\n{message}"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أرسل إلى الوكيل الفرعي \"{name}\" (المعرّف {id}) الرسالة أدناه حرفيًا. إن لم يعد يستقبل الرسائل، فقل ذلك.\n\n{message}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pošalji podagentu \"{name}\" (id {id}) poruku ispod, doslovno. Ako više ne prima poruke, reci to.\n\n{message}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send din underagent \"{name}\" (id {id}) beskeden nedenfor, ord for ord. Hvis den ikke længere kan modtage beskeder, så sig det.\n\n{message}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sende deinem Subagenten \"{name}\" (ID {id}) die Nachricht unten, Wort für Wort. Kann er keine Nachrichten mehr annehmen, sag das.\n\n{message}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envía a tu subagente \"{name}\" (id {id}) el mensaje de abajo, palabra por palabra. Si ya no puede recibir mensajes, dilo.\n\n{message}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoie à ton sous-agent \"{name}\" (id {id}) le message ci-dessous, mot pour mot. S'il ne peut plus recevoir de messages, dis-le.\n\n{message}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia al tuo subagente \"{name}\" (id {id}) il messaggio qui sotto, parola per parola. Se non può più ricevere messaggi, dillo.\n\n{message}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブエージェント「{name}」(id {id}) に下のメッセージをそのまま送ってください。もうメッセージを受け取れない場合は、そう伝えてください。\n\n{message}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើសារខាងក្រោមទៅភ្នាក់ងាររង \"{name}\" (id {id}) ពាក្យដោយពាក្យ។ បើវាលែងទទួលសារបាន សូមប្រាប់។\n\n{message}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 에이전트 \"{name}\"(id {id})에게 아래 메시지를 그대로 보내세요. 더 이상 메시지를 받을 수 없다면 그렇다고 말해 주세요.\n\n{message}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send underagenten \"{name}\" (id {id}) meldingen nedenfor, ord for ord. Hvis den ikke lenger kan ta imot meldinger, si fra.\n\n{message}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyślij podagentowi \"{name}\" (id {id}) poniższą wiadomość, słowo w słowo. Jeśli nie może już przyjmować wiadomości, powiedz o tym.\n\n{message}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envie ao seu subagente \"{name}\" (id {id}) a mensagem abaixo, palavra por palavra. Se ele não puder mais receber mensagens, diga isso.\n\n{message}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправь своему субагенту \"{name}\" (id {id}) сообщение ниже, слово в слово. Если он больше не принимает сообщения, так и скажи.\n\n{message}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งข้อความด้านล่างถึงเอเจนต์ย่อย \"{name}\" (id {id}) แบบคำต่อคำ หากรับข้อความไม่ได้แล้ว ให้บอก\n\n{message}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\"{name}\" adlı alt ajanına (id {id}) aşağıdaki mesajı kelimesi kelimesine gönder. Artık mesaj alamıyorsa bunu söyle.\n\n{message}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надішли своєму субагенту \"{name}\" (id {id}) повідомлення нижче, слово в слово. Якщо він більше не приймає повідомлень, так і скажи.\n\n{message}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gửi cho subagent \"{name}\" (id {id}) tin nhắn bên dưới, nguyên văn. Nếu nó không còn nhận tin nhắn được, hãy nói vậy.\n\n{message}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把下面的消息原样发给你的子代理“{name}”（id {id}）。如果它已无法再接收消息，请说明。\n\n{message}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把下面的訊息原樣傳給你的子代理「{name}」（id {id}）。如果它已無法再接收訊息，請說明。\n\n{message}"
           }
         }
       }

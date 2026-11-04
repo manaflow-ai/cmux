@@ -1479,6 +1479,11 @@
       "title" : "Theme Edits",
       "type" : "object"
     },
+    "appearance.themeFile" : {
+      "description" : "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies.",
+      "title" : "Theme File",
+      "type" : "string"
+    },
     "appearance.wallpaperTint" : {
       "default" : true,
       "description" : "The glass takes the colors of your desktop picture and follows it when the picture or Space changes.",
