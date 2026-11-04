@@ -1,7 +1,7 @@
 //! The backend owns client configuration. Build-time values are an origin
 //! allowlist and a temporary fallback for deployments predating this endpoint.
 
-use crate::{namespace, Configuration, Environment, Resolver, Selection};
+use crate::{Configuration, Environment, Resolver, Selection, namespace};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs::{self, OpenOptions};
@@ -34,10 +34,10 @@ pub struct ClientConfig {
 }
 
 /// Create parameters whose meaning is only safe when the selected backend
-/// advertises the corresponding capability. Basic legacy fields (for example
-/// `image` and `from_snapshot`) intentionally remain outside this preflight.
+/// advertises the corresponding capability. The legacy size object and name
+/// are supported by the compatibility path; named sizes are backend-specific.
 pub const ADVANCED_CREATE_FIELDS: &[&str] =
-    &["size", "name", "idle_seconds", "bootstrap", "machine_config_base64"];
+    &["size_name", "idle_seconds", "bootstrap", "machine_config_base64"];
 
 /// Fail closed before a machine-create request is sent when a parameter needs
 /// a backend capability that was not advertised by `/v1/client-config`.
@@ -328,20 +328,30 @@ mod tests {
         let resolver = Resolver::new(crate::DEV_BUNDLE, &home.0).unwrap();
         let mut selection = resolver.resolve(Some("dev")).unwrap();
         selection.capabilities = serde_json::json!({
-            "machine_create": {"size": true, "bootstrap": false}
+            "machine_create": {"size": true, "name": true, "bootstrap": false}
         });
         check_create_capabilities(&selection, &serde_json::json!({"image": "ubuntu"})).unwrap();
-        check_create_capabilities(&selection, &serde_json::json!({"size": "large"})).unwrap();
+        check_create_capabilities(
+            &selection,
+            &serde_json::json!({"size": {"cpu": 2}, "name": "worker"}),
+        )
+        .unwrap();
+        let named =
+            check_create_capabilities(&selection, &serde_json::json!({"size_name": "large"}))
+                .unwrap_err();
+        assert!(named.contains("machine_create.size_name"));
         let refused = check_create_capabilities(&selection, &serde_json::json!({"bootstrap": "x"}))
             .unwrap_err();
         assert!(refused.contains("backend capability refused: machine_create.bootstrap"));
-        let missing = check_create_capabilities(&selection, &serde_json::json!({"name": "worker"}))
-            .unwrap_err();
+        let missing =
+            check_create_capabilities(&selection, &serde_json::json!({"size_name": "large"}))
+                .unwrap_err();
         assert!(
-            missing.contains("backend capability not declared/unavailable: machine_create.name")
+            missing
+                .contains("backend capability not declared/unavailable: machine_create.size_name")
         );
-        selection.capabilities["machine_create"]["name"] = serde_json::json!(true);
-        check_create_capabilities(&selection, &serde_json::json!({"name": "worker"})).unwrap();
+        selection.capabilities["machine_create"]["size_name"] = serde_json::json!(true);
+        check_create_capabilities(&selection, &serde_json::json!({"size_name": "large"})).unwrap();
     }
 
     #[test]

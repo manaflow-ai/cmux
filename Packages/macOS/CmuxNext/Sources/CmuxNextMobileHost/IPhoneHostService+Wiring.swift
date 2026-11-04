@@ -40,6 +40,9 @@ extension IPhoneHostService {
                      settings: @escaping @MainActor @Sendable () -> SettingsController?,
                      bundleID: String?, computerName: @escaping @Sendable () async -> String,
                      processEnvironment: [String: String] = ProcessInfo.processInfo.environment) {
+        // A failed runtime Cloud selection is inert: do not pair the phone host
+        // with a development mobile API or reuse production pairing state.
+        guard !auth.configuration.apiBaseURL.isFileURL else { return }
         let bundled = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux-mobile-host", isDirectory: false)
         // Debug builds may point at another hostd or service; a release build never does.
         #if DEBUG
