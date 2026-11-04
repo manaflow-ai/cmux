@@ -47,6 +47,18 @@ extension LayoutRootView {
         while let view = stack.popLast() {
             guard let root = view as? LayoutRootView else { stack.append(contentsOf: view.subviews); continue }
             report["pointer"] = root.context.hoverPointer(window).map { "\($0.x),\($0.y)" } ?? "none"
+            let top = NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0)
+            let owner = NSApp.windows.first { $0.windowNumber == top }
+            report["topmost"] = "\(top) key=\(window.windowNumber) ours=\(owner.map { String(describing: type(of: $0)) } ?? "no")"
+                + " reaches=\(root.context.hoverReaches(window, pointer: root.context.hoverPointer(window) ?? .zero))"
+            if let pointer = root.context.hoverPointer(window) {
+                for (id, screen) in root.screenViews where !screen.isHidden {
+                    let point = screen.convert(pointer, from: nil)
+                    let under = screen.dividerViews.values.filter { screen.convert($0.frame, from: screen).contains(point) }
+                    report["under.\(id.rawValue)"] = under.map { "\($0.kind.mouseAreaID) alpha=\($0.alphaValue) clip=\(screen.convert($0.cursorRectInBounds, from: $0))" }
+                        .joined(separator: "; ")
+                }
+            }
             for (id, screen) in root.screenViews where !screen.isHidden {
                 let hovered = screen.dividerViews.values.filter(\.isHovered).map(\.kind.mouseAreaID).sorted()
                 report["screen.\(id.rawValue)"] = "hovered=\(hovered.joined(separator: "+")) shown=\(screen.dividerPointer.shownCursor?.debugName ?? "none")"
