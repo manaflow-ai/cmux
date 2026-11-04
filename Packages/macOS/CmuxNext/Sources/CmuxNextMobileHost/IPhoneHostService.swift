@@ -73,6 +73,9 @@ public final class IPhoneHostService {
         /// and its socket once connected. hostd's `chief` service dials it; without it hostd
         /// guesses `~/.cmux/chief/default`, which is not a DEV or tagged build's Chief.
         var chief: (@MainActor () async -> ChiefPlacement?)?
+        /// Tests only: reads this Mac's identity key in place of the Keychain store
+        /// (``MobileHostMacIdentityStore/loadOrCreate(fileStoreOnRefusal:)``). Nil in the app.
+        var macIdentity: (@Sendable (_ fileStoreOnRefusal: Bool) throws -> MobileHostMacIdentity)?
     }
 
     /// Where this app's Chief owner listens (``Dependencies/chief``).
@@ -189,7 +192,7 @@ public final class IPhoneHostService {
     /// The user and team hostd runs for now (the toggle on); a name or email change does not restart it.
     @ObservationIgnored private var running: String?
     /// The next try at this Mac's identity key after the Keychain refused the read, and how many
-    /// were refused in a row (``MobileHostMacIdentityStore/loadOrCreate(mintOnRefusal:)``).
+    /// were refused in a row (``MobileHostMacIdentityStore/loadOrCreate(fileStoreOnRefusal:)``).
     @ObservationIgnored private var identityRetry: Task<Void, Never>?
     @ObservationIgnored private var identityRefusals = 0
     /// The spacing of those tries (1 s doubling to 30 s), and the clock it waits on (tests inject their own).
@@ -197,15 +200,15 @@ public final class IPhoneHostService {
     @ObservationIgnored var identityRetryClock: any Clock<Duration> = ContinuousClock()
     /// The account and team those refusals were counted for: another one starts from zero.
     @ObservationIgnored private var identityRefusalsKey: String?
-    /// Refused reads in a row after which a DEV build makes a file key, as before (about a minute of
+    /// Refused reads in a row after which a DEV build uses the file store, as before (about a minute of
     /// tries): a rebuilt or re-signed DEV app may never read the item an earlier signature made. A
     /// Release build (nightly, stable) is always signed the same way, so a refusal there is a locked
     /// or busy Keychain: it waits for it however long, and never makes a second identity.
     static let identityRefusalsBeforeFileKey = 6
     #if DEBUG
-    static let mayMintOnRefusal = true
+    static let mayUseFileStoreOnRefusal = true
     #else
-    static let mayMintOnRefusal = false
+    static let mayUseFileStoreOnRefusal = false
     #endif
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone")
 
@@ -505,7 +508,12 @@ public final class IPhoneHostService {
         KeepAwakeService.shared.setIPhoneServing(allowed && account != nil && !removed)
         let want = allowed ? account : nil
         let key = want.map { "\($0.userID)\u{0}\($0.teamID)" }
-        guard key != running else { return }
+        // A Keychain wait leaves `running` nil with a retry pending: turning connections off or
+        // signing out meanwhile must still stop it and show that state, not the wait.
+        let waitingOnIdentity = identityRetry != nil
+        guard key != running || (key == nil && waitingOnIdentity) else { return }
+        identityRetry?.cancel()
+        identityRetry = nil
         running = key
         let previous = applying
         let dependencies = dependencies
@@ -541,8 +549,9 @@ public final class IPhoneHostService {
                                                 stateDirectory: dependencies.stateDirectory, loginKeychain: loginKeychain)
                 // task-owner: one Keychain read per hostd start; awaited here
                 if self?.identityRefusalsKey != key { self?.identityRefusals = 0; self?.identityBackoff.reset() }
-                let mint = Self.mayMintOnRefusal && (self?.identityRefusals ?? 0) >= Self.identityRefusalsBeforeFileKey
-                let identity = try await Task.detached { try store.loadOrCreate(mintOnRefusal: mint) }.value
+                let fileStore = Self.mayUseFileStoreOnRefusal && (self?.identityRefusals ?? 0) >= Self.identityRefusalsBeforeFileKey
+                let read = dependencies.macIdentity
+                let identity = try await Task.detached { try read?(fileStore) ?? store.loadOrCreate(fileStoreOnRefusal: fileStore) }.value
                 self?.identityRefusals = 0
                 self?.identityBackoff.reset()
                 let name = await dependencies.computerName()
@@ -562,8 +571,10 @@ public final class IPhoneHostService {
                 // newer reconcile meanwhile owns what happens next: no retry from this one.
                 guard !Task.isCancelled, self?.running == key else { return }
                 logger.error("iPhone host waits for the Keychain (\(status, privacy: .public)) to read this Mac's identity")
-                await supervisor.stop(phase: .waiting(IPhoneHostStrings.unavailable))
+                await supervisor.stop(phase: .waiting(IPhoneHostStrings.keychainLocked))
                 guard !Task.isCancelled, self?.running == key else { return }
+                // Nothing to serve while it waits: the Mac may sleep (the retry's reconcile sets it again).
+                KeepAwakeService.shared.setIPhoneServing(false)
                 self?.running = nil
                 self?.retryIdentity(for: key)
             } catch {

@@ -119,13 +119,13 @@ nonisolated let testLoginKeychain = LoginKeychain()
         let directory = scratch()
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, keychain: recorder.calls, loginKeychain: testLoginKeychain)
-        let pinned = try store.loadOrCreate(mintOnRefusal: false)
+        let pinned = try store.loadOrCreate(fileStoreOnRefusal: false)
         for status in [errSecAuthFailed, errSecInteractionNotAllowed, errSecMissingEntitlement] {
             recorder.refuseReads(status)
-            #expect(throws: MobileHostMacIdentityError.keychainRefused(status)) { try store.loadOrCreate(mintOnRefusal: false) }
+            #expect(throws: MobileHostMacIdentityError.keychainRefused(status)) { try store.loadOrCreate(fileStoreOnRefusal: false) }
             #expect(!FileManager.default.fileExists(atPath: store.fallbackFile.path))
             recorder.refuseReads(nil)
-            #expect(try store.loadOrCreate(mintOnRefusal: false) == pinned)
+            #expect(try store.loadOrCreate(fileStoreOnRefusal: false) == pinned)
         }
     }
 
@@ -146,6 +146,29 @@ nonisolated let testLoginKeychain = LoginKeychain()
         let aside = try Data(contentsOf: store.fallbackFile.appendingPathExtension("superseded"))
         #expect(MobileHostMacIdentity.restore(aside) == second)
         recorder.refuseReads(errSecAuthFailed)
-        #expect(throws: MobileHostMacIdentityError.keychainRefused(errSecAuthFailed)) { try store.loadOrCreate(mintOnRefusal: false) }
+        #expect(throws: MobileHostMacIdentityError.keychainRefused(errSecAuthFailed)) { try store.loadOrCreate(fileStoreOnRefusal: false) }
+    }
+
+    /// A Mac still split when the fixed build first runs, with the Keychain refusing: the old code (and
+    /// the first fix) proved the file key, so the phone that pinned the Keychain's saw
+    /// `mac_identity_changed` until the Keychain answered and a relaunch. A refused read proves no file
+    /// key: it waits for the Keychain's. Only the DEV fallback after its retries uses the file.
+    @Test func aRefusedReadNeverProvesTheFileKeyBesideTheKeychainItem() throws {
+        let recorder = Recorder()
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, keychain: recorder.calls, loginKeychain: testLoginKeychain)
+        let pinned = try store.loadOrCreate()
+        let second = MobileHostMacIdentity.generate()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try second.privateKey.write(to: store.fallbackFile)
+        recorder.refuseReads(errSecInteractionNotAllowed)
+        #expect(throws: MobileHostMacIdentityError.keychainRefused(errSecInteractionNotAllowed)) {
+            try store.loadOrCreate(fileStoreOnRefusal: false)
+        }
+        #expect(try store.loadOrCreate(fileStoreOnRefusal: true) == second)
+        recorder.refuseReads(nil)
+        #expect(try store.loadOrCreate(fileStoreOnRefusal: false) == pinned)
+        #expect(!FileManager.default.fileExists(atPath: store.fallbackFile.path))
     }
 }

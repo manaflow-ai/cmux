@@ -475,17 +475,19 @@ def discovery_ask(mac_log, since, status, rpc, note):
     and the Mac shows it (the Allow prompt, the page's waiting row) within seconds. Only the person
     answers it (debug.dialog refuses a press on it); the run pairs with the code after."""
     hit = mac_log.wait_at(ASKS, 60, since=since)
-    took = hit[0] - since if hit else None
+    took, m = (hit[0] - since, hit[1]) if hit else (None, None)
     pending = (status().get("host") or {}).get("pending") or []
     dialogs = [d for d in (rpc("debug.dialog").get("dialogs") or []) if d.get("identifier") == "cmux.dialog.iphonePair"]
     press = rpc("debug.dialog", {"id": dialogs[0]["id"], "press": "allow"}) if dialogs else {}
-    ok = bool(hit) and took <= 15 and bool(pending)
-    note(f"- discovery, Allow request: {'phone ' + hit.group(1) + ' asked (' + hit.group(2) + ')' if hit else 'NO request'}"
+    # The prompt answers only to the person: a scripted press that is not refused is a failure.
+    refused = not dialogs or bool(press.get("error"))
+    ok = bool(hit) and took <= 15 and bool(pending) and refused
+    note(f"- discovery, Allow request: {'phone ' + m.group(1) + ' asked (' + m.group(2) + ')' if m else 'NO request'}"
          f"{f' {took:.1f} s after the phone app launched' if hit else ' in 60 s'}; the page lists "
          f"{len(pending)} waiting phone(s); {len(dialogs)} pairing prompt(s) open"
          f"{(': ' + repr(dialogs[0].get('title'))) if dialogs else ' (none on screen: no frontmost window in a step)'}; "
          f"a scripted Allow is refused: {press.get('error') or press or 'no prompt to press'}"
-         f" -> {'PASS' if ok else 'FAIL (needs a request within 15 s and a waiting row)'}")
+         f" -> {'PASS' if ok else 'FAIL (needs a request within 15 s, a waiting row and a refused scripted Allow)'}")
     return ok
 
 
