@@ -6,7 +6,7 @@ export class MockImportHistoryProvider implements PageClient {
   private readonly imported = new Set<string>();
   constructor(private readonly empty = false) {}
   async call<R>(op: string, params: unknown): Promise<R> {
-    const input = (params ?? {}) as { source?: string; origin?: string; kind?: string };
+    const input = (params ?? {}) as { source?: string; summaryOrigin?: string; kind?: string };
     switch (op) {
       case OPS.detect:
         return {
@@ -24,7 +24,7 @@ export class MockImportHistoryProvider implements PageClient {
           name: `${input.kind}-export.zip`,
         } as R;
       case OPS.prepareText:
-        return { source: `text:/sample/${input.origin}.txt` } as R;
+        return { source: `text:/sample/${input.summaryOrigin}.txt` } as R;
       case OPS.dryRun:
         return this.report(input.source ?? "") as R;
       case OPS.write: {

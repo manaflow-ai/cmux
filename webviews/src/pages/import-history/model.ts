@@ -246,14 +246,14 @@ export class ImportHistoryStore {
       try {
         const origin = row.kind === "text" ? (row.id as Origin) : undefined;
         const source = origin
-          ? (await client.call<{ source: string }>(OPS.prepareText, { origin, text: row.text ?? "" })).source
+          ? (await client.call<{ source: string }>(OPS.prepareText, { summaryOrigin: origin, text: row.text ?? "" })).source
           : row.source;
         if (this.stopped) return;
         if (!source) throw new Error("cmux.importHistory.missing_source");
         const report = await client.call<ImportReport>(OPS.dryRun, {
           source,
           batch,
-          ...(origin ? { origin } : {}),
+          ...(origin ? { summaryOrigin: origin } : {}),
         });
         if (this.stopped) return;
         if (
@@ -282,7 +282,7 @@ export class ImportHistoryStore {
         const result = await client.call<ImportReport>(OPS.write, {
           source,
           batch,
-          ...(origin ? { origin } : {}),
+          ...(origin ? { summaryOrigin: origin } : {}),
         });
         if (this.stopped) return;
         this.row(row.id, { phase: "done", report: result });

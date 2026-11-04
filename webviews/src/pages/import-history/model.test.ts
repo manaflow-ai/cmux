@@ -26,7 +26,7 @@ function host(handle?: (call: Call) => unknown | Promise<unknown>) {
         case OPS.pickZip:
           return { source: `zip:/selected/${String(call.params.kind)}.zip`, name: "export.zip" } as R;
         case OPS.prepareText:
-          return { source: `text:/private/${String(call.params.origin)}.txt` } as R;
+          return { source: `text:/private/${String(call.params.summaryOrigin)}.txt` } as R;
         case OPS.dryRun:
           return report() as R;
         case OPS.write:
@@ -144,9 +144,9 @@ describe("Bring your history", () => {
     await store.run();
     const ops = client.calls.slice(1);
     expect(ops.map(({ op }) => op)).toEqual([OPS.begin, OPS.prepareText, OPS.dryRun, OPS.write]);
-    expect(ops[1]?.params).toEqual({ origin: "muse", text: "I work on a garden." });
-    expect(ops[2]?.params.origin).toBe("muse");
-    expect(ops[3]?.params.origin).toBe("muse");
+    expect(ops[1]?.params).toEqual({ summaryOrigin: "muse", text: "I work on a garden." });
+    expect(ops[2]?.params.summaryOrigin).toBe("muse");
+    expect(ops[3]?.params.summaryOrigin).toBe("muse");
   });
   test("zero-new and unsafe-cost plans never write", async () => {
     const client = host(({ op, params }) =>
