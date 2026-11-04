@@ -430,6 +430,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        (window as? ShellWindow)?.liveResizeInput.windowWillClose()
         pagePresentation = nil
         services.keyRouter.cancelChord()
         removeHistoryObserver()
@@ -444,25 +445,16 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// windows (`WindowOverlayLayer`).
 final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting,
     CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting, WindowZoomFinishing, WindowControlsAvoidanceHosting {
-    /// The traffic lights' last windowed place: their left edge, their top's
-    /// distance from the window's top, and their size (the window may come
-    /// back from full screen at another height).
-    private var windowedLights: (x: CGFloat, fromTop: CGFloat, size: CGSize)?
+    /// The traffic lights' last windowed place (`WindowedTrafficLights`).
+    private var windowedLights = WindowedTrafficLights()
     /// Between `willExitFullScreen` and its end (WindowController+FullScreen).
     var isLeavingFullScreen = false
 
     /// Where the lights come back to while the window leaves full screen.
-    var restingTrafficLights: CGRect? {
-        guard isLeavingFullScreen, let windowedLights else { return nil }
-        return CGRect(x: windowedLights.x, y: frame.height - windowedLights.fromTop - windowedLights.size.height,
-                      width: windowedLights.size.width, height: windowedLights.size.height)
-    }
+    var restingTrafficLights: CGRect? { windowedLights.resting(in: self, leavingFullScreen: isLeavingFullScreen) }
 
     /// The root's layout reports the lights it found (window coordinates).
-    func noteTrafficLights(_ lights: CGRect) {
-        guard !styleMask.contains(.fullScreen), !isLeavingFullScreen else { return }
-        windowedLights = (lights.minX, frame.height - lights.maxY, lights.size)
-    }
+    func noteTrafficLights(_ lights: CGRect) { windowedLights.note(lights, in: self, leavingFullScreen: isLeavingFullScreen) }
 
     /// A pane policy that may hold cursor-rect invalidations (ShellWindow+Events.swift).
     weak var cursorRectHold: (any CursorRectHoldPolicy)?
@@ -476,6 +468,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     weak var keyRouter: KeyRouter?
     weak var focus: FocusCoordinator?
     private(set) lazy var overlayLayer = WindowOverlayLayer(window: self)
+    private(set) lazy var liveResizeInput = LiveResizeDragInput(window: self) { [weak self] in self?.sendHeldDrag($0) }
 
     /// Zoom without AppKit's blocking animation (``WindowZoom``): every entrypoint comes here.
     private var zoomState = WindowZoom()

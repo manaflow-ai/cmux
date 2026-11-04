@@ -314,7 +314,7 @@ public final class FrameScheduler: NSObject {
         if clients.values.contains(where: { $0.isActive && $0.isAnimation }) {
             ExpectedActivity.shared.note(.animationFrame)
         }
-        // Clients activated during this frame tick next frame. Frame-locked clients first, every
+        // Clients activated during this frame tick next frame. Input clients first, then frame-locked clients, every
         // frame; then (only on the scheduler that holds the budget) the budgeted batches in class
         // order, each only while its class may run (a held one stays active and ticks next frame:
         // input pending, or the class's budget spent).
@@ -322,7 +322,11 @@ public final class FrameScheduler: NSObject {
         let order = budgetedOrder
         budget?.beginFrame(timestamp: timestamp, refreshInterval: refreshInterval)
         let outOfSight = isOutOfSight
-        for client in ticking where !client.workClass.isBudgeted {
+        // Input that waited for this frame first (a live-resize drag, FRAME OWNER S7), as Chrome runs a frame's input
+        // before its animation: the springs and probes of the same tick read the state it made. Inside each class the
+        // order is as it was.
+        for client in ticking where client.workClass == .input { fire(client, tick) }
+        for client in ticking where client.workClass == .frame {
             // A window that went out of sight between frames: its animations end, the rest tick.
             if outOfSight, client.isAnimation { end(client) } else { fire(client, tick) }
         }

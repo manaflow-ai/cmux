@@ -13,6 +13,8 @@ extension ShellWindow {
         if FirstClickPolicy().takesFirstClick(event, in: self, keyWindow: NSApp.keyWindow, mainWindow: NSApp.mainWindow,
                                               appIsActive: NSApp.isActive, appIsModal: NSApp.modalWindow != nil) { makeKey() }
         cursorRectHold?.windowWillSend(event, in: self)
+        // A live-resize drag waits for the window's frame tick (`LiveResizeDragInput`, FRAME OWNER S7).
+        if liveResizeInput.takes(event) { return }
         // A press in a workspace shown beside the focused one (`sidebar.multiView`) focuses it before it lands there.
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown: (windowController as? WindowController)?.focusOnScreenWorkspace(at: event.locationInWindow)
@@ -25,6 +27,9 @@ extension ShellWindow {
         if event.clickCount != 2 { super.sendEvent(event) }
         WindowTitlebar.handleMouseDown(event, in: self)
     }
+
+    /// A held live-resize drag reaches AppKit's resize from the frame tick (the pane policy saw it when it came).
+    func sendHeldDrag(_ event: NSEvent) { super.sendEvent(event) }
 
     /// The pane policy may keep an invalidation for later (`CursorRectHoldPolicy`); every other
     /// invalidation is AppKit's as before.

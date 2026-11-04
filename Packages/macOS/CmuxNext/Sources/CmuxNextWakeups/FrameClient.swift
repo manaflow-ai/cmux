@@ -27,8 +27,9 @@ public final class FrameClient {
     /// Visible motion (springs, autoscroll); false for batch work such as
     /// the daemon store drain, which the busy watchdog must not excuse.
     public let isAnimation: Bool
-    /// The client's priority class: ``MainWorkClass/frame`` (every frame, unbudgeted) unless the
-    /// client was made with ``init(owner:budgeted:on:onFrame:)``.
+    /// The client's priority class: ``MainWorkClass/frame`` (every frame, unbudgeted), ``MainWorkClass/input`` for a
+    /// client made with `input: true` (every frame, before the frame clients), or a budgeted class for a client made
+    /// with ``init(owner:budgeted:on:onFrame:)``.
     public let workClass: MainWorkClass
     private let onFrame: @MainActor (FrameTick) -> Bool
     /// Ends the client's work at its final state in one go (``FrameScheduler`` calls it for an
@@ -42,12 +43,14 @@ public final class FrameClient {
     /// scheduler `resolve` returns when it activates.
     /// `settle` ends the work at its final state in one go when its window goes out of sight (nil:
     /// the client just stops; its owner activates it again when needed).
-    public init(owner: String, isAnimation: Bool = true, scheduler resolve: @escaping @MainActor () -> FrameScheduler,
+    /// `input`: the client applies input that waited for the frame (``MainWorkClass/input``): it ticks before every
+    /// other client of its scheduler, so what the frame shows starts from that input (FRAME OWNER S7).
+    public init(owner: String, isAnimation: Bool = true, input: Bool = false, scheduler resolve: @escaping @MainActor () -> FrameScheduler,
                 settle: (@MainActor () -> Void)? = nil, onFrame: @escaping @MainActor (FrameTick) -> Bool) {
         self.owner = owner
         self.isAnimation = isAnimation
         self.settleNow = settle
-        self.workClass = .frame
+        self.workClass = input ? .input : .frame
         self.resolve = resolve
         self.onFrame = onFrame
     }
@@ -76,9 +79,9 @@ public final class FrameClient {
 
     /// A client of a fixed scheduler (``FrameScheduler/app`` once that scheduler is gone,
     /// as for a view client without a window).
-    public convenience init(owner: String, isAnimation: Bool = true, on scheduler: FrameScheduler,
+    public convenience init(owner: String, isAnimation: Bool = true, input: Bool = false, on scheduler: FrameScheduler,
                             onFrame: @escaping @MainActor (FrameTick) -> Bool) {
-        self.init(owner: owner, isAnimation: isAnimation, scheduler: { [weak scheduler] in scheduler ?? .app }, onFrame: onFrame)
+        self.init(owner: owner, isAnimation: isAnimation, input: input, scheduler: { [weak scheduler] in scheduler ?? .app }, onFrame: onFrame)
     }
 
     /// Starts ticking (no effect while active).
