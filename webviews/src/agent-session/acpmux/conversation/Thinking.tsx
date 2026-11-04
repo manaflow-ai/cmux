@@ -104,7 +104,7 @@ export function liveLead(label: string, leads: boolean, call: boolean): { lead: 
 /// repo: repo grep 3m 2s · 47.4K tokens", as Claude Code desktop's live line reads, with no mark
 /// before it: the shimmer is its only working sign (Leo, 2026-11-03: "we don't want the claude
 /// symbol ellipsis thing btw we just keep the shimmer ONLY"). Past the turn's first step
-/// (`turnTotal`) that clock reads "· 4m total", after a finished step's own time, so a long wait
+/// (`turnTotal`) that clock reads "· 4m" after the dot, behind a finished step's own time, so a long wait
 /// never reads as that long a think or call. All shimmer. While text streams (`quietKey` moves) the
 /// line keeps its height but draws nothing.
 export function Thinking({
@@ -152,7 +152,7 @@ export function Thinking({
   liveAgents?: number;
   /// "Thinking" past the first step: the turn's summed thinking time, shown beside the word.
   thoughtMs?: number;
-  /// Past the turn's first step the clock reads as the turn's whole time ("· 4m total"), after the
+  /// Past the turn's first step the clock reads as the turn's whole time ("· 4m"), after the
   /// finished step's own time when it has one, so no wait reads as that long a think or call.
   turnTotal?: boolean;
   untimed?: boolean;
@@ -203,13 +203,12 @@ export function Thinking({
           : doing;
   const lead = doing === undefined ? undefined : liveLead(label, verbLeads(t), !doingShell && sendName === undefined);
   const turnTime = timed ? formatDuration(Math.max(0, time - from)) : undefined;
-  // Past the first step the turn's time is labelled as the whole turn's, after the finished step's
-  // own time when it has one: "Ran grep -n x 2s · 15s total", "Waiting on 2 subagents · 1h 24m total"
-  // (Leo, 2026-11-03: "i think the "thinking" accounting is also off pretty frequently").
-  // The total's words around the time ("{time} total"), so the turn's clock stays its own element
-  // (`cv-worked__time`) that keeps ticking from the prompt.
-  const total =
-    turnTotal && turnTime !== undefined ? t("turn.live.total", { time: "\u0000" }).split("\u0000") : undefined;
+  // Past the first step the turn's time stands after a dot, behind the finished step's own time
+  // when it has one: "Ran grep -n x 2s · 15s", "Waiting on 2 subagents · 1h 24m" (Leo, 2026-11-03:
+  // "i think the "thinking" accounting is also off pretty frequently"). The step's time is attached
+  // to its words and the turn's follows the dot, so the two read apart with no word for either
+  // (Leo, 2026-11-03, on "Thinking · 1m 51s total": "the total is redundant").
+  const total = Boolean(turnTotal && turnTime !== undefined);
   // What stands beside the label then, never a clock that starts again at a call (Leo, 2026-11-01:
   // "it should just keep going"): a finished step's own start to end, or the turn's summed thinking.
   const ownMs = doing === undefined ? (waitsOnAgents || writing ? undefined : thoughtMs) : done ? doneMs : undefined;
@@ -310,9 +309,7 @@ export function Thinking({
           <span className="cv-worked__sep" aria-hidden="true">
             ·
           </span>
-          {total[0]}
           <span className="cv-worked__time">{turnTime}</span>
-          {total.slice(1).join("")}
         </span>
       )}
       {showTokens && (

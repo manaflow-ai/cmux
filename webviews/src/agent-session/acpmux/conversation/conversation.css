@@ -2062,15 +2062,26 @@ pre.cv-math-source {
   flex: none;
   margin-inline-start: 6px;
 }
-/* The words around the turn's total ("· 12m 9s total") read at the time's own dim tone: one
-   tone for the whole count, never a brighter "total" after a dim clock (Leo, 2026-11-03). */
-.cv-worked__total {
-  color: var(--cv-text-dim);
-}
-/* Past the turn's first step its clock reads as the total ("· 4m total", Thinking.tsx): the words
-   around it sit at the count's own gap. */
+/* Past the turn's first step its clock stands after a dot ("· 4m", Thinking.tsx), at the count's
+   own gap. */
 .cv-worked__total .cv-worked__time {
   margin-inline: 0;
+}
+/* The live line's counts ("Ran cat x 0s · 39s · 1K tokens", "Thinking · 1m 51s") are one tone and
+   one rhythm: each dot stands the count's own gap from the segment before it and the one after it,
+   never the line's wider gap before the dot, and every dot, time and count reads at the time's dim
+   tone (Leo, 2026-11-03: "this aint aligned also the total is redundant" and "same here it's
+   annoying to look at"; test webviews/test/transcript-row-hover-scope.test.ts). */
+.cv-worked.cv-worked--live {
+  gap: var(--cv-worked-count-gap);
+}
+.cv-worked--live {
+  --cv-worked-count-gap: 4px;
+}
+.cv-worked--live > .cv-worked__count {
+  margin-left: 0;
+  gap: var(--cv-worked-count-gap);
+  color: var(--cv-text-dim);
 }
 /* A command in flight leads with the terminal glyph (WorkingFor.tsx), still, like the tool rows'. */
 .cv-worked__glyph {

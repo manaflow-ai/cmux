@@ -8,7 +8,9 @@
 //   chevron lifts, and only when the line is a button that opens something.
 // - A line with no action behind it (the live "Thinking" line, a `div.cv-worked`) never lifts: only
 //   the "Worked for" button's own hover may.
-// - The live line's "· 12m 9s total" reads at one tone: the words around the time are as dim as it.
+// - The live line's counts ("Ran cat x 0s · 39s · 1K tokens") keep one gap on each side of every
+//   dot and one dim tone, and no word "total" (Leo, 2026-11-03: "this aint aligned also the total
+//   is redundant", "same here it's annoying to look at").
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -20,10 +22,26 @@ const INK = /(?<![\w-])(color|opacity|filter)\s*:/;
 function rules(file: string): { selector: string; body: string }[] {
   const css = readFileSync(join(DIR, file), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
   return [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].flatMap(([, selectors = "", body = ""]) =>
-    selectors
-      .split(/,(?![^()]*\))/)
-      .map((selector) => ({ selector: selector.trim().replace(/\s+/g, " "), body })),
+    splitList(selectors).map((selector) => ({ selector: selector.trim().replace(/\s+/g, " "), body })),
   );
+}
+
+/** A selector list's members, split on commas outside parentheses (nested ones too). */
+function splitList(list: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < list.length; i += 1) {
+    const ch = list[i];
+    if (ch === "(") depth += 1;
+    else if (ch === ")") depth -= 1;
+    else if (ch === "," && depth === 0) {
+      out.push(list.slice(start, i));
+      start = i + 1;
+    }
+  }
+  out.push(list.slice(start));
+  return out;
 }
 
 /** The selector's subject: its last compound (after the last combinator outside parentheses). */
@@ -69,14 +87,22 @@ test("a clicked activity row's focus never lights its words", () => {
   // `.cv-tool` is also every activity row's control: a click leaves it focused, so the tool rows'
   // focus lift leaves it out (TranscriptActivityRow.css lights only its chevron).
   const found = rules("conversation.css")
-    .filter(({ selector, body }) => /^\.cv-tool(?![\w-])/.test(subject(selector)) && /:focus-within\b/.test(subject(selector)) && INK.test(body))
+    // A bare `.cv-tool` rule matches an activity row's control; rows inside a step list don't.
+    .filter(({ selector, body }) => selector === subject(selector) && /^\.cv-tool(?![\w-])/.test(selector) && /:focus-within\b/.test(selector) && INK.test(body))
     .filter(({ selector }) => !/\.cv-agent-activity__control/.test(selector))
     .map(({ selector }) => selector);
   expect(found).toEqual([]);
 });
 
-test("the live line's total reads at the time's dim tone", () => {
+test("the live line's counts keep one gap and one dim tone, and no word says total", () => {
   const css = rules("conversation.css");
-  const total = css.find(({ selector }) => selector === ".cv-worked__total");
-  expect(total?.body).toMatch(/(?<![\w-])color\s*:\s*var\(--cv-text-dim\)/);
+  const body = (selector: string) => css.find((rule) => rule.selector === selector)?.body ?? "";
+  // The line's own gap is the count's gap, so no dot stands wider from what comes before it.
+  expect(body(".cv-worked.cv-worked--live")).toMatch(/(?<![\w-])gap\s*:\s*var\(--cv-worked-count-gap\)/);
+  const count = body(".cv-worked--live > .cv-worked__count");
+  expect(count).toMatch(/margin-left\s*:\s*0\b/);
+  expect(count).toMatch(/(?<![\w-])gap\s*:\s*var\(--cv-worked-count-gap\)/);
+  expect(count).toMatch(/(?<![\w-])color\s*:\s*var\(--cv-text-dim\)/);
+  // "· 1m 51s total": the step's time sits on its words, the turn's after the dot (Thinking.tsx).
+  expect(readFileSync(join(DIR, "Thinking.tsx"), "utf8")).not.toContain("turn.live.total");
 });
