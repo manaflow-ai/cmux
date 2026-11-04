@@ -457,6 +457,17 @@ mod tests {
     }
 
     #[test]
+    fn a_handed_over_session_the_machine_daemon_lacks_is_reported_closed() {
+        let (_, _, port) = moved();
+        let up = port.here_events(AgentEvent::Up(vec![summary("s-person")]));
+        assert!(
+            matches!(&up[..], [AgentEvent::SessionChanged(s)]
+                if s.session_id == "s-work" && s.status == SessionStatus::Closed),
+            "{up:?}"
+        );
+    }
+
+    #[test]
     fn only_subagents_a_move_placed_are_read_as_placed() {
         let spawns = json!({
             "sp1": {"subs": [
