@@ -40,6 +40,13 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
 
     static let limit = 256
 
+    /// A permission answer in flight: whether it carried this Mac's signed allow, and whether it
+    /// answers one prompt (`_acpmux/permission_respond`) rather than a group.
+    struct Sent: Equatable {
+        let proved: Bool
+        let single: Bool
+    }
+
     private struct State {
         var order: [String] = []
         var byKey: [String: Context] = [:]
@@ -61,9 +68,9 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         /// order (at most ``limit``).
         var answers: [Answer] = []
         /// The page's permission answers in flight to a peer, by page request id: whether each
-        /// went out with this Mac's signed allow (``sent(pageID:proved:)``). Oldest first, at most
+        /// went out with this Mac's signed allow (``sent(pageID:proved:single:)``). Oldest first, at most
         /// ``limit``.
-        var proved: [String: Bool] = [:]
+        var proved: [String: Sent] = [:]
         var provedOrder: [String] = []
         var groups: [String: Group] = [:]
         var groupOrder: [String] = []
@@ -96,7 +103,7 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
             // late one of the connection before a reconnect, which `reset` forgot) says nothing.
             let pageID = object["id"].flatMap(AcpmuxPaneMethods.rawID)
             state.withLock { state in
-                guard let proved = pageID.flatMap({ state.proved.removeValue(forKey: $0) }) else { return }
+                guard let sent = pageID.flatMap({ state.proved.removeValue(forKey: $0) }) else { return }
                 var answer: Answer?
                 if let error = object["error"] as? [String: Any] {
                     let data = error["data"] as? [String: Any]
@@ -105,7 +112,13 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
                     // (every other unsigned allow for a peer's prompt never goes, `signPeerAllow`).
                     if data?["reason"] as? String == "permission.person_required",
                        let peer = data?["peer"] as? String, !peer.isEmpty {
-                        answer = proved ? .refused(peer: peer) : .unproved(peer: peer)
+                        // Only a single prompt's unsigned answer went for want of a record; a
+                        // group's unsigned answer (Allow for this chat) was already said.
+                        if sent.proved {
+                            answer = .refused(peer: peer)
+                        } else if sent.single {
+                            answer = .unproved(peer: peer)
+                        }
                     }
                 } else if object["result"] != nil {
                     answer = .counted
@@ -326,18 +339,20 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
     /// How the daemon answered the pane's permission answers since the last call, in order.
     /// The page's permission answer `pageID` goes out to the daemon, with this Mac's signed allow
     /// (`proved`) or without: only a signed one's refusal is read as "not enrolled there".
-    func sent(pageID: String, proved: Bool) {
+    func sent(pageID: String, proved: Bool, single: Bool) {
         state.withLock { state in
             // Answered ones leave the order here, so it stays as long as what is in flight.
             state.provedOrder.removeAll { state.proved[$0] == nil }
-            if state.proved.updateValue(proved, forKey: pageID) == nil { state.provedOrder.append(pageID) }
+            if state.proved.updateValue(Sent(proved: proved, single: single), forKey: pageID) == nil {
+                state.provedOrder.append(pageID)
+            }
             while state.provedOrder.count > Self.limit {
                 state.proved[state.provedOrder.removeFirst()] = nil
             }
         }
     }
 
-    /// The answer ``sent(pageID:proved:)`` named did not go out after all.
+    /// The answer ``sent(pageID:proved:single:)`` named did not go out after all.
     func notSent(pageID: String) {
         state.withLock { state in
             state.proved[pageID] = nil

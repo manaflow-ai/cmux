@@ -49,6 +49,18 @@ impl HeldAsks {
         });
     }
 
+    /// Drops peer `peer`'s held asks for its session `session` that `permission` names (every
+    /// one of that session's for None): answered, decided or withdrawn there before the peer
+    /// listed the session, so none comes back as a live card.
+    pub(crate) fn forget(&self, peer: &str, session: &str, permission: Option<&str>) {
+        let mut held = self.held.lock().unwrap_or_else(|e| e.into_inner());
+        held.retain(|h| {
+            h.peer != peer
+                || h.session != session
+                || permission.is_some_and(|p| h.permission() != Some(p))
+        });
+    }
+
     /// Takes peer `peer`'s held asks (of link generation `generation`) whose session
     /// `listed` now finds, in the order they came; an older generation's are dropped.
     pub(crate) fn take_listed(
@@ -80,6 +92,17 @@ impl HeldAsks {
     }
 }
 
+impl Held {
+    /// The `permissionId` of the held ask: a pending notice's own, or its event record's `msg`.
+    fn permission(&self) -> Option<&str> {
+        let PeerNotice::Notification { params, .. } = &self.notice else { return None };
+        params
+            .get("permissionId")
+            .or_else(|| params.pointer("/msg/permissionId"))
+            .and_then(serde_json::Value::as_str)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,6 +128,31 @@ mod tests {
         assert!(held.take_listed("p", 1, |s| s == "s1").is_empty());
         assert_eq!(held.take_listed("p", 1, |_| true).len(), 1);
         assert_eq!(held.take_listed("q", 1, |_| true).len(), 1);
+    }
+
+    #[test]
+    fn a_resolved_ask_is_forgotten() {
+        let held = HeldAsks::default();
+        let pending = |id: &str, p: &str| PeerNotice::Notification {
+            method: "_acpmux/permission_pending".into(),
+            params: json!({"sessionId": id, "permissionId": p}),
+            link: 1,
+        };
+        let record = |id: &str, p: &str| PeerNotice::Notification {
+            method: "_acpmux/event".into(),
+            params: json!({"sessionId": id, "kind": "permission_request", "msg": {"permissionId": p}}),
+            link: 1,
+        };
+        held.hold("p", 1, "s", pending("s", "a"));
+        held.hold("p", 1, "s", record("s", "a"));
+        held.hold("p", 1, "s", pending("s", "b"));
+        held.hold("p", 1, "t", pending("t", "a"));
+        held.forget("p", "s", Some("a"));
+        assert_eq!(held.take_listed("p", 1, |id| id == "s").len(), 1);
+        held.hold("p", 1, "s", pending("s", "c"));
+        held.forget("p", "s", None);
+        assert!(held.take_listed("p", 1, |id| id == "s").is_empty());
+        assert_eq!(held.take_listed("p", 1, |_| true).len(), 1);
     }
 
     #[test]

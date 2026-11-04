@@ -2623,6 +2623,45 @@ async fn peer_pending_for_a_session_listed_after_it_is_relayed_once_listed() {
     assert_eq!(got[0]["peer"], "l", "{got:?}");
 }
 
+/// A held ask (its session not listed yet) that the peer decided before it
+/// listed the session never comes back as a live card; another session's
+/// held ask, listed after, does.
+#[tokio::test]
+async fn peer_pending_decided_before_its_session_is_listed_is_not_relayed() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let says = Lying {
+        instance: json!("l-run"),
+        sessions: vec![json!({"sessionId": "far-1", "name": "far"})],
+        pending: vec![
+            peer_prompt("far-2", "gone", "l-run"),
+            peer_prompt("far-3", "fresh", "l-run"),
+        ],
+        changed: vec![
+            json!({"session": {"sessionId": "far-2", "name": "decided"},
+                   "kind": "permission_decision", "seq": 2}),
+            json!({"session": {"sessionId": "far-3", "name": "new"}, "kind": "created", "seq": 1}),
+        ],
+        ..Lying::default()
+    };
+    let port = lying_peer(says).await;
+    let mut watcher = plain(a.clone()).await;
+    watcher.call(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
+    a.add_peer("l", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let mut got = Vec::new();
+    loop {
+        let p = watcher.wait(method::MUX_PERMISSION_PENDING, |_| true).await;
+        let fresh = p["permissionId"] == "fresh";
+        got.push(p);
+        if fresh {
+            break;
+        }
+    }
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert_eq!(got[0]["sessionId"], "far-3", "{got:?}");
+}
+
 /// A peer's prompt for its own session in its own run reaches the watcher,
 /// with which peer asks.
 #[tokio::test]

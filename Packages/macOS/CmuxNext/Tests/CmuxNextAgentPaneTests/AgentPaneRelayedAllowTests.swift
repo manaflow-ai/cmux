@@ -706,6 +706,11 @@ struct AgentPaneRelayedAllowTests {
         let sentChat = try #require(server.peers.first?.frames.last { $0.contains("permission_group_respond") })
         #expect(!sentChat.contains("approverDecisions"), "a lasting grant was signed: \(sentChat)")
         #expect(peerOff == [nil, .onceOnly])
+        // The peer's refusal of that unsigned group answer leaves the notice as it is.
+        let chatID = try #require((try JSONSerialization.jsonObject(with: Data(sentChat.utf8)) as? [String: Any])?["id"] as? Int)
+        server.push(Self.refusal(chatID, peer: "far"), to: 0)
+        _ = await inbox.frame(containing: "person_required")
+        #expect(peerOff == [nil, .onceOnly])
         #expect(!remoteOff)
     }
 }

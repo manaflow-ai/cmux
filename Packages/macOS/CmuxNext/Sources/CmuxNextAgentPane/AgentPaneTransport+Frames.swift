@@ -521,7 +521,8 @@ extension AgentPaneTransport {
         let answer = !facts.isFirst
             && (facts.method == "_acpmux/permission_respond" || facts.method == "_acpmux/permission_group_respond")
         if answer, let pageID = facts.pageID {
-            decisions.sent(pageID: pageID, proved: box.hasAcpmuxMeta("approverDecision") || box.hasAcpmuxMeta("approverDecisions"))
+            decisions.sent(pageID: pageID, proved: box.hasAcpmuxMeta("approverDecision") || box.hasAcpmuxMeta("approverDecisions"),
+                           single: facts.method == "_acpmux/permission_respond")
         }
         if let error = await Self.encodeAndSend(box, relayID: relayID, socket: socket) {
             socket.pageFrameNotSent(method: facts.method)

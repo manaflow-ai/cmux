@@ -753,6 +753,10 @@ impl Hub {
                             );
                         }
                     }
+                    // An ask decided there before the session was listed here never comes back.
+                    if matches!(kind.as_str(), "permission_decision" | "permission_resolved") {
+                        self.held_peer_asks.forget(&peer, &mux_id, None);
+                    }
                     self.save_peer_cache(&peer, generation, false);
                     let _ = self.events.send(HubEvent {
                         session_id: mux_id,
@@ -767,7 +771,8 @@ impl Hub {
                         remote: Some(RemoteRef { peer: peer.clone(), summary: summary.clone() }),
                         update_line: Default::default(),
                     });
-                    // Its live asks that came before the session was listed, after the row.
+                    // The rest of its live asks that came before the session was listed, after
+                    // the row.
                     self.release_held_peer_asks(&peer, generation);
                 }
                 // A prompt this daemon forwarded was taken (`outbox.rs` `PeerAccepts`).
@@ -857,6 +862,16 @@ impl Hub {
                                 msg: params.get("msg").cloned().unwrap_or(Value::Null),
                                 host_seq: None,
                             };
+                            // An ask held for this session that was answered meanwhile is not
+                            // shown again once the session is listed.
+                            if matches!(
+                                record.kind.as_str(),
+                                "permission_decision" | "permission_auto" | "permission_withdrawn"
+                            ) {
+                                let permission =
+                                    record.msg.get("permissionId").and_then(Value::as_str);
+                                self.held_peer_asks.forget(&peer, &id, permission);
+                            }
                             if is_permission_ask(&record.kind) {
                                 match self.peer_ask_run(&peer, &id, &record.msg) {
                                     PeerAskRun::Current => {}
