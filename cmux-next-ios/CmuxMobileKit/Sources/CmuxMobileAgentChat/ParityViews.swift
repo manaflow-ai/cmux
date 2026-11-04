@@ -71,6 +71,8 @@ struct AgentParityDestination: View {
         case .handoff: HandoffScreen(store: store, surface: surface)
         case .handoffTo(let target): HandoffReviewScreen(store: store, surface: surface, target: target)
         case .sessionInfo: SessionInfoScreen(store: store, surface: surface)
+            // Popped together with the chat (to the list): what the chat was reading stops.
+            .onDisappear { if surface.parityRoute == .sessionInfo { ChatReadAloud.shared.stopIfReading(chat: store.summary.id) } }
         case .eventInspector: EventInspectorScreen(journal: store.source.eventJournal, sessionID: store.summary.id)
         case .replay: ReplayConversationScreen(store: store)
         }

@@ -395,6 +395,8 @@ final class ChatReplayPlayer {
     var speed: Double = 1
     /// Where the scrubber is while a finger drags it (nil: not dragging).
     var scrubTime: TimeInterval?
+    /// A finger is on the scrubber.
+    var scrubbing = false
     /// The transcript the replay draws (rebuilt when the playhead moves back).
     private(set) var store: AgentChatStore?
     let surface = AgentChatSurface()
@@ -539,8 +541,11 @@ struct ChatReplayControls: View {
             ZStack(alignment: .leading) {
                 // A drag moves the clock; the transcript plays to it when the finger lifts (a move
                 // back replays the chat from its start, once, not per drag step).
-                Slider(value: Binding(get: { player.scrubTime ?? player.time }, set: { player.scrubTime = $0 }),
-                       in: 0...max(player.duration, 0.1)) { editing in
+                // A change with no drag (VoiceOver's adjust) seeks at once.
+                Slider(value: Binding(get: { player.scrubTime ?? player.time }, set: { value in
+                    if player.scrubbing { player.scrubTime = value } else { player.seek(to: value) }
+                }), in: 0...max(player.duration, 0.1)) { editing in
+                    player.scrubbing = editing
                     if !editing, let time = player.scrubTime {
                         player.scrubTime = nil
                         player.seek(to: time)
