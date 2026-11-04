@@ -604,7 +604,10 @@ fn preview_proof_returns_screenshot_and_console_errors() {
     let _ = std::fs::remove_dir_all(&dir);
 
     assert!(success, "preview proof command failed: {output}");
-    assert!(output.contains("PNG_SIGNATURE:137,80,78,71,13,10,26,10"), "valid PNG missing: {output}");
+    assert!(
+        output.contains("PNG_SIGNATURE:137,80,78,71,13,10,26,10"),
+        "valid PNG missing: {output}"
+    );
     assert!(output.contains("fixture console error"), "console error missing: {output}");
     assert!(output.contains("fixture page error"), "page error missing: {output}");
     assert!(
