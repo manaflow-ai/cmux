@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { bearer } from "../support/endpoints.ts";
 import { makeHarness, type HarnessOptions } from "../support/harness.ts";
 import { parseCiTrust } from "../../src/auth/ci-trust.ts";
+import { withCiTeamQuotas } from "../../src/policy.ts";
 
 type Harness = Awaited<ReturnType<typeof makeHarness>>;
 
@@ -113,6 +114,22 @@ describe("a trusted job", () => {
     expect((await create(t, token)).status).toBe(429);
     const { id } = await first.json<{ id: string }>();
     expect((await t.request(`/v1/vms/${id}/fork`, bearer(token), { method: "POST", body: {} })).status).toBe(403);
+  });
+
+  it("may not grow a VM past what it was created with", async () => {
+    const t = await harness();
+    const token = await t.githubToken(CLAIMS);
+    const { id } = await (await create(t, token)).json<{ id: string }>();
+    const response = await t.request(`/v1/vms/${id}/resize`, bearer(token), { method: "POST", body: { resources: { vcpus: 16, memoryMib: 65536 } } });
+    expect(response.status).toBe(403);
+    expect(t.upstream.callsTo("POST", /\/resize$/)).toHaveLength(0);
+  });
+
+  it("caps its team's quota at the row's maxVms, so the atomic tenant ledger holds the limit under concurrency", () => {
+    const rows = [{ team: TEAM, maxVms: 2 }];
+    expect(withCiTeamQuotas({}, rows)).toEqual({ [TEAM]: 2 });
+    expect(withCiTeamQuotas({ [TEAM]: 20, other: 5 }, rows)).toEqual({ [TEAM]: 2, other: 5 });
+    expect(withCiTeamQuotas({ [TEAM]: 1 }, rows)).toEqual({ [TEAM]: 1 });
   });
 
   it("may not act for another team or reach that team's VMs", async () => {
