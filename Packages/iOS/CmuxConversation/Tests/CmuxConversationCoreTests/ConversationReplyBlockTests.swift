@@ -146,8 +146,9 @@ import Testing
         let byID = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
         #expect(ConversationRunPlan.threadRoot(of: "m2") { byID[$0] }?.id == "m1")
         #expect(ConversationRunPlan.threadRoot(of: "m1") { byID[$0] }?.id == "m1")
-        // A root that is not loaded leaves the oldest loaded message of the chain.
-        #expect(ConversationRunPlan.threadRoot(of: "m3") { $0 == "m1" ? nil : byID[$0] }?.id == "m2")
+        // A root that is not loaded leaves no root (no quote, no line), even
+        // under a reply to a reply.
+        #expect(ConversationRunPlan.threadRoot(of: "m3") { $0 == "m1" ? nil : byID[$0] } == nil)
         #expect(ConversationRunPlan.threadRoot(of: "gone") { byID[$0] } == nil)
     }
 
@@ -164,5 +165,17 @@ import Testing
         #expect(entries[3].replyThread == .init(showsQuote: false, arrival: .line, continuesBelow: true))
         #expect(entries[4].replyThread == .init(showsQuote: false, arrival: .line, continuesBelow: false))
         #expect(!entries[2].isLastInRun && !entries[3].isFirstInRun, "a reply to my reply above runs with it")
+    }
+
+    /// My reply, my reply to it, then my reply to the root: one block, and
+    /// all three run together (4 pt; only the last keeps its tail).
+    @Test func mySameThreadRepliesRunTogetherWhateverTheyAnswer() {
+        let entries = plan([
+            message(1, "a", minute: 0), message(2, "a", minute: 1),
+            message(3, "me", minute: 2, replyTo: "m1"), message(4, "me", minute: 3, replyTo: "m3"),
+            message(5, "me", minute: 4, replyTo: "m1"),
+        ]).entries
+        #expect(!entries[3].isLastInRun && !entries[4].isFirstInRun)
+        #expect(entries[4].isLastInRun)
     }
 }
