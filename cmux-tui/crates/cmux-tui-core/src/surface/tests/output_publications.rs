@@ -187,3 +187,91 @@ fn local_output_reaches_the_terminal_while_the_registry_is_held() {
          workspace registry: the reader waited in the durable publication of the first output"
     );
 }
+
+/// #35765 review 2 (should-fix 1): a hosted terminal whose host connection is lost commits the directory its shell
+/// reported last before it becomes adopting, as the reader did when it published inline before it read the end of the
+/// stream. A publication still queued when the reader commits the loss commits nothing (an adopting terminal keeps it
+/// pending, and a host that is then declared dead ends it), so the dead tab and its respawn kept the old directory.
+#[test]
+fn a_host_loss_commits_the_directory_the_shell_reported_last() {
+    const TERMINAL: &str = "00000000000040008000000000357652";
+    const INCARNATION: &str = "10000000000040008000000000357652";
+    let mux = Mux::new_for_test("output-publications-host-loss", SurfaceOptions::default());
+    let workspace = mux
+        .create_empty_workspace(
+            Some("host-loss".into()),
+            Some("018f6e21-7b70-7e70-8000-000000357652".into()),
+            None,
+        )
+        .unwrap();
+    mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+    let terminal = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .terminal_resource_id(TERMINAL)
+        .unwrap()
+        .expect("the seeded terminal's public id");
+    let (mut attachment, mut host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+    attachment.record.terminal_id = TERMINAL.into();
+    attachment.record.incarnation = INCARNATION.into();
+    attachment.record.workspace_key = workspace.key.clone();
+    let surface = Surface::spawn_hosted(
+        mux.next_surface_id_for_test(),
+        SurfaceOptions::default(),
+        Arc::downgrade(&mux),
+        HostedSurfaceLaunch {
+            adopted: false,
+            attachment,
+            kitty_reservation: None,
+            terminate_on_error: false,
+            defer_launch_activation: false,
+            lifetime: PtyLifetime::SessionOwned,
+            terminal_public_id: Some(terminal.clone()),
+            resource_identity: None,
+        },
+    )
+    .unwrap();
+    mux.install_live_terminal_runtime_for_test(&terminal, surface.clone()).unwrap();
+    host.set_write_timeout(Some(Duration::from_secs(10))).unwrap();
+    let lifecycle = || {
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .terminal_record(TERMINAL)
+            .unwrap()
+            .expect("the seeded terminal's record")
+            .lifecycle
+    };
+    assert_eq!(lifecycle(), crate::workspace_registry::TerminalLifecycle::Running);
+    let dir = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+    let dir_text = dir.to_string_lossy().into_owned();
+    {
+        // The shell's last report reaches the reader, which queues its publication; then the host connection is lost.
+        let _held = mux.hold_terminal_publisher_for_test();
+        let report =
+            send_output(&mut host, 1, &format!("\x1b]7;file://localhost{dir_text}\x07in-dir"));
+        assert!(
+            shown_after(&surface, "in-dir", report).is_some(),
+            "the report never reached the terminal"
+        );
+        drop(host);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while lifecycle() == crate::workspace_registry::TerminalLifecycle::Running {
+            assert!(
+                Instant::now() < deadline,
+                "the reader did not handle the lost host connection"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    assert!(
+        mux.wait_for_terminal_publisher_for_test(Duration::from_secs(10)),
+        "the publisher did not finish"
+    );
+    assert_eq!(
+        surface.presented_directory().as_deref(),
+        Some(dir_text.as_str()),
+        "the terminal whose host was lost kept the directory from before its shell's last report"
+    );
+}
