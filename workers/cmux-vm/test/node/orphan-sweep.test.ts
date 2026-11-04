@@ -92,3 +92,17 @@ it("fails without deleting anything when the ownership lookup fails", async () =
   expect(outcome._tag).toBe("Left");
   expect(p.deletes).toEqual([]);
 });
+
+it("skips a VM a retried create recorded between the listing and its delete", async () => {
+  const p = provider([ours(1), ours(2)]);
+  let calls = 0;
+  // The batch lookup sees no rows; by the time of the per-VM recheck, VM 1 has been recorded.
+  const recorded = (asked: ReadonlyArray<string>) => {
+    calls += 1;
+    const found: ReadonlySet<string> = new Set(calls > 1 ? asked.filter((x) => x === id(1)) : []);
+    return Effect.succeed(found);
+  };
+  const report = await Effect.runPromise(sweepOrphanVms(p.config, { nowMs: NOW, dryRun: false, recorded }));
+  expect(report.deleted).toEqual(["up-2"]);
+  expect(p.deletes).toEqual(["up-2"]);
+});
