@@ -64,7 +64,8 @@ struct KeyResizeCoalescedPressesKeepEveryStepTests {
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         #expect(PaneResize.press("p2", .right, model: rig.model, view: rig.root))
         Self.land(rig)
-        #expect(abs(try Self.edge(rig) - start) < 0.5, "a press and its reverse moved the edge from \(start) to \(try Self.edge(rig))")
+        let landed = try Self.edge(rig)
+        #expect(abs(landed - start) < 0.5, "a press and its reverse moved the edge from \(start) to \(landed)")
         for pane in panes {
             #expect(try await Pin.grids(pane, rig).isEmpty, "\(pane.rawValue): a press and its reverse inside one frame sent a grid")
         }
