@@ -29,7 +29,12 @@ public nonisolated struct CreationHoldLog: Equatable, Sendable {
     /// ``CreationHoldEnd/creationFailed`` when a creation of it failed and ``CreationHoldEnd/focusLanded`` otherwise.
     /// `pageTab`: the page a page hold waited for; ended at its limit, no new page hold opens for it (``pageExpired``).
     /// Logs a hold of `window` that ended `end` with `keys` held keys going on now (`lastAction`: the router's last action).
-    public static func noteEnded(_ end: CreationHoldEnd, window: Int, keys: Int, lastAction: String?) {
+    /// `untyped`: keys for a new workspace's terminal that no terminal could take (``CreationInputBuffer/untypedTerminalKeys``).
+    public static func noteEnded(_ end: CreationHoldEnd, window: Int, keys: Int, lastAction: String?, untyped: Int = 0) {
+        if end == .replyBoundReached {
+            // cmux-ad m12: a creation whose reply never came keeps the person's keys no longer.
+            return logger.notice("creation hold of window \(window, privacy: .public) ended at its reply bound: \(keys, privacy: .public) held key(s) go on now, \(untyped, privacy: .public) for a new terminal had no terminal to go to")
+        }
         guard end == .limitReached else { return }
         // The person's keys for a new terminal waited the whole bound and go on now, each to the terminal it was typed for.
         logger.notice("creation hold of window \(window, privacy: .public) ended at its limit, not on focus: \(keys, privacy: .public) held key(s) go on now; last action \(lastAction ?? "-", privacy: .public)")

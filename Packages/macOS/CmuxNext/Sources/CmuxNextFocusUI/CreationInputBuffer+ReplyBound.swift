@@ -1,4 +1,5 @@
 public import AppKit
+import os
 
 // The hold's own reply bound (cmux-ad m12) and the types its keys are handed on with; split from
 // CreationInputBuffer.swift (its file was over the 400-line cap).
@@ -9,6 +10,9 @@ extension CreationInputBuffer {
     /// ended when their late-reply budget gave up: `NewFrontendBrowserTabRequest.lateReplyBudget` (10 s) plus at most one
     /// 2 s deadline (5b72fdac44^). This is that budget, and it does not follow the request deadline.
     public static let replyWaitBound: Duration = .seconds(10)
+
+    /// The bound that ended a hold (``onBound``).
+    public enum Bound: Sendable { case limit, reply }
 
     /// The terminal a lane's keys are for: its tab, and the machine it is on when that was known.
     public struct HeldLane: Hashable, Sendable {
@@ -48,16 +52,30 @@ extension CreationInputBuffer {
         public init(ticket: Ticket?) { self.ticket = ticket }
     }
 
-    /// Calls `expired` after `limit` unless a creation of this hold still waits for its reply then
+    /// Calls ``onBound`` with ``Bound/limit`` after `limit` unless a creation of this hold still waits for its reply then
     /// (its reply arms the bound again: the coordinator calls this from `resolve`).
-    public func expire(after limit: Duration, _ expired: @escaping @MainActor (CreationInputBuffer) -> Void) {
+    public func expire(after limit: Duration) {
         // task-owner: one-shot bound on this hold; a hold that ended first makes it a no-op
         Task { @MainActor [weak self] in
             // wakeup-allow: one-shot bound on a key hold, so a hold whose terminal never shows ends
             try? await Task.sleep(for: limit)
             guard let self, !hasPendingCreation else { return }
-            expired(self)
+            onBound?(self, .limit)
         }
+    }
+
+    /// Window `window` of the hold is gone: the keys held for a terminal, as runs for each terminal in typing order. A key
+    /// held for no terminal had only that window and goes with it, logged (cmux-ad m12: no other key is dropped).
+    public func takeForClosedWindow(window: Int) -> [([NSEvent], HeldLane)] {
+        var runs: [([NSEvent], HeldLane)] = [], lost = 0
+        for key in take(focused: nil, isShortcut: { _, _ in false }) {
+            if case .type(let events, let lane) = key { runs.append((events, lane)) } else { lost += key.keys.count }
+        }
+        if lost > 0 {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "focus.creation-hold")
+                .notice("creation hold of closed window \(window, privacy: .public): \(lost, privacy: .public) held key(s) for no terminal went with it")
+        }
+        return runs
     }
 
     /// Whether this hold keeps `event`.
@@ -74,7 +92,7 @@ extension CreationInputBuffer {
     /// - `replyLimit`: the longest a creation waiting for its reply keeps the keys (``replyWaitBound``).
     public func holds(_ event: NSEvent, limit: Duration, expiring: Bool, closes: Bool = false, replyLimit: Duration? = nil) -> Bool {
         if closes { return false }
-        guard !hasPendingCreation else { return true }
+        if hasPendingCreation { return !waitedPastReplyBound(replyLimit) }
         if expiring, ContinuousClock.now - (lastReplyAt ?? began) >= limit { return false }
         if holdsCreation { return true }
         return !(isEmpty && !event.modifierFlags.intersection([.command, .control]).isEmpty)
