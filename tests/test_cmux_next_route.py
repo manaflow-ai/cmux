@@ -1260,7 +1260,7 @@ class PushAttribution(unittest.TestCase):
                 {"id": 2, "head_sha": culprit, "status": "completed"}]
         jobs = {1: {"check": "success"}, 2: {"check": "failure"}, 3: {"check": "failure"}}
         writes = []
-        with mock.patch.object(attribution, "run_jobs", side_effect=lambda repo, run_id: jobs[run_id]), \
+        with mock.patch.object(attribution, "run_jobs", side_effect=lambda repo, run_id: attribution.JobVerdicts(jobs[run_id], jobs[run_id])), \
              mock.patch.object(attribution, "gh_api", side_effect=lambda path: {"user": {"login": "alice"}}
                                if path.endswith("/pulls/7") else {"workflow_runs": runs}), \
              mock.patch.object(attribution, "compare_commits", return_value=[culprit, head]), \
@@ -1284,7 +1284,7 @@ class PushAttribution(unittest.TestCase):
             {"jobs": [{"name": "job", "status": "in_progress", "conclusion": "success"}]},
         ):
             with mock.patch.object(attribution, "gh_api", return_value=payload):
-                self.assertNotIn(attribution.run_jobs("o/r", 1).get("job"), ("success", "failure"))
+                self.assertNotIn(attribution.run_jobs("o/r", 1).proof.get("job"), ("success", "failure"))
 
     def test_release_compile_alternatives_preserve_the_active_failure_in_either_order(self):
         import cmux_next_push_attribution as attribution
@@ -1293,7 +1293,9 @@ class PushAttribution(unittest.TestCase):
                   "steps": [{"name": "Release compile", "status": "completed", "conclusion": "failure"}]}
         for jobs in ([skipped, failed], [failed, skipped]):
             with mock.patch.object(attribution, "gh_api", return_value={"jobs": jobs}):
-                self.assertEqual(attribution.failed_jobs(attribution.run_jobs("o/r", 1)), ["Release compile"])
+                got = attribution.run_jobs("o/r", 1)
+                self.assertEqual(attribution.failed_jobs(got), ["Release compile"])
+                self.assertEqual(got.proof, {"Release compile": "failure"})
 
     def test_current_head_conflicting_receipts_cannot_notify_an_exact_culprit(self):
         import cmux_next_push_attribution as attribution
@@ -1302,7 +1304,7 @@ class PushAttribution(unittest.TestCase):
         runs = [{"id": 1, "head_sha": lower, "status": "completed"},
                 {"id": 2, "head_sha": head, "status": "completed"}]
         writes = []
-        with mock.patch.object(attribution, "run_jobs", side_effect=lambda repo, run_id: jobs[run_id]), \
+        with mock.patch.object(attribution, "run_jobs", side_effect=lambda repo, run_id: attribution.JobVerdicts(jobs[run_id], jobs[run_id])), \
              mock.patch.object(attribution, "gh_api", return_value={"workflow_runs": runs}), \
              mock.patch.object(attribution, "compare_commits", return_value=[head]), \
              mock.patch.object(attribution, "pull_requests", return_value=[]), \
@@ -1320,6 +1322,21 @@ class PushAttribution(unittest.TestCase):
         with mock.patch.object(attribution, "gh_api", return_value=payload):
             self.assertEqual(attribution.run_jobs("o/r", 1).get("job"), "failure")
             self.assertNotEqual(attribution.run_jobs("o/r", 1).proof.get("job"), "failure")
+
+    def test_only_completed_check_steps_supply_exact_receipts(self):
+        import cmux_next_push_attribution as attribution
+        for result in ("success", "failure"):
+            with self.subTest(result=result):
+                payload = {"jobs": [{"name": "job", "status": "completed", "conclusion": result,
+                                    "steps": [{"name": "Run the daemon tests", "status": "completed",
+                                               "conclusion": result}]}]}
+                with mock.patch.object(attribution, "gh_api", return_value=payload):
+                    self.assertEqual(attribution.run_jobs("o/r", 1).proof, {"job": result})
+        for name in ("Checkout", "Set up job", "Install test dependencies", "Record the Release compile admission"):
+            payload = {"jobs": [{"name": "job", "status": "completed", "conclusion": "failure",
+                                "steps": [{"name": name, "status": "completed", "conclusion": "failure"}]}]}
+            with mock.patch.object(attribution, "gh_api", return_value=payload):
+                self.assertEqual(attribution.run_jobs("o/r", 1).proof, {"job": ""})
 
     def test_repeated_push_failures_edit_the_shared_status_comment(self):
         import cmux_next_push_attribution as attribution
@@ -1347,7 +1364,7 @@ class PushAttribution(unittest.TestCase):
         def upsert(*args, **kwargs):
             return real_upsert(*args, **kwargs, api=api, sleep=None)
 
-        with mock.patch.object(attribution, "run_jobs", return_value={"check": "failure"}), \
+        with mock.patch.object(attribution, "run_jobs", return_value=attribution.JobVerdicts({"check": "failure"}, {"check": "failure"})), \
              mock.patch.object(attribution, "gh_api", side_effect=lambda path: comments if "/comments" in path else {"workflow_runs": []}), \
              mock.patch.object(attribution, "never_passed", return_value=[]), \
              mock.patch.object(attribution, "last_green", return_value="good"), \
@@ -1376,7 +1393,7 @@ class PushAttribution(unittest.TestCase):
         jobs = {40: {"cmux-next daemon tests": "failure"}, 30: {"cmux-next daemon tests": "success"},
                 20: {"cmux-next daemon tests": "skipped"}}
         ranges = []
-        with mock.patch.object(attribution, "run_jobs", side_effect=lambda repo, run_id: jobs[run_id]), \
+        with mock.patch.object(attribution, "run_jobs", side_effect=lambda repo, run_id: attribution.JobVerdicts(jobs[run_id], jobs[run_id])), \
              mock.patch.object(attribution, "gh_api", return_value={"workflow_runs": runs}), \
              mock.patch.object(attribution, "pull_requests",
                                side_effect=lambda repo, good, head, branch: ranges.append((good, head)) or []):

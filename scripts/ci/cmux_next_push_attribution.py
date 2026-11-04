@@ -51,6 +51,39 @@ SCANNED_RUNS = 40
 MAX_COMMENTED_PRS = 5
 MAX_BISECT_COMMITS = SCANNED_RUNS
 SHA = re.compile(r"[0-9a-f]{40}")
+CHECK_STEP = re.compile(r"\b(tests?|compile|compilation|lint|checks?|verify|validate|crash|generated|exports|tier)\b", re.I)
+INFRA_STEP = re.compile(r"\b(checkout|check out|set up|setup|install|restore|cache|download|upload|fetch|"
+                        r"select xcode|admission|publish|promotion|fingerprint|look for|request)\b", re.I)
+
+
+class JobVerdicts(dict[str, str]):
+    """Legacy range conclusions plus stricter evidence for exact attribution."""
+
+    def __init__(self, jobs: dict[str, str], proof: dict[str, str]):
+        super().__init__(jobs)
+        self.proof = proof
+
+
+def checked_conclusion(job: dict) -> str:
+    """Only a completed check step can prove green/red; setup failures cannot.
+
+    Unknown step names stay unresolved. Range attribution retains the job's
+    original conclusion, so this stricter proof never hides an existing red.
+    """
+    conclusion = job.get("conclusion")
+    if job.get("status") != "completed" or conclusion not in ("success", "failure"):
+        return ""
+    steps = job.get("steps")
+    if not isinstance(steps, list) or not steps:
+        return ""
+    if any(step.get("conclusion") in ("failure", "timed_out", "cancelled")
+           and INFRA_STEP.search(step.get("name") or "") for step in steps):
+        return ""
+    return conclusion if any(
+        step.get("status") == "completed" and step.get("conclusion") == conclusion
+        and CHECK_STEP.search(step.get("name") or "") and not INFRA_STEP.search(step.get("name") or "")
+        for step in steps
+    ) else ""
 
 
 # cmux-next.yml run names end in the commit the run tested: `cmux-next · <sha>` for a push, and
@@ -74,19 +107,25 @@ def gh_api(path: str) -> object:
     return json.loads(output)
 
 
-def run_jobs(repo: str, run_id: int) -> dict[str, str]:
-    """Job name -> conclusion for one run's latest attempt."""
+def run_jobs(repo: str, run_id: int) -> JobVerdicts:
+    """One latest attempt, preserving range failures and separate check proof."""
     payload = gh_api(f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
     jobs = payload["jobs"]
-    if payload.get("total_count", len(jobs)) > len(jobs):
-        return {}  # a truncated job list cannot prove a complete verdict
-    found: dict[str, str] = {}
+    grouped: dict[str, list[dict]] = {}
     for job in jobs:
-        name = job["name"]
-        # A duplicate name or an unfinished job is not a passing/failing receipt.
-        conclusion = job.get("conclusion") or "" if job.get("status") == "completed" else ""
-        found[name] = conclusion if name not in found else ""
-    return found
+        grouped.setdefault(job["name"], []).append(job)
+    found, proof = {}, {}
+    for name, alternatives in grouped.items():
+        active = [job for job in alternatives if job.get("conclusion") != "skipped"]
+        conclusions = {job.get("conclusion") or "" for job in active if job.get("status") == "completed"}
+        # Release compile admission and fallback share a name. The skipped
+        # alternative must not erase the active failure in either API order.
+        found[name] = next((value for value in ("failure", "timed_out", "success") if value in conclusions),
+                           "skipped" if not active else "")
+        proof[name] = checked_conclusion(active[0]) if len(active) == 1 else ""
+    if payload.get("total_count", len(jobs)) > len(jobs):
+        proof = {}  # retain legacy range data, never prove from truncated jobs
+    return JobVerdicts(found, proof)
 
 
 def failed_jobs(jobs: dict[str, str]) -> list[str]:
@@ -286,11 +325,12 @@ def main(argv: list[str]) -> int:
         key=lambda run: run["id"],
         reverse=True,
     )[:SCANNED_RUNS]
-    earlier = [
+    history = [
         (tested_sha(run), run_jobs(args.repo, run["id"]))
         for run in runs
-        if run["id"] < args.run_id and tested_sha(run) != args.sha and run.get("status") == "completed"
+        if run["id"] < args.run_id and run.get("status") == "completed"
     ]
+    earlier = [(sha, jobs) for sha, jobs in history if sha != args.sha]
     long_red = never_passed(failed, earlier)
     if long_red:
         report(f"{', '.join(long_red)} did not pass in the last {SCANNED_RUNS} push runs; no culprit range for it.")
@@ -305,7 +345,8 @@ def main(argv: list[str]) -> int:
         commit_order = compare_commits(args.repo, lower, args.sha) if os.environ.get("NEXT_PUSH_BISECT") != "0" else []
     except (OSError, ValueError, subprocess.SubprocessError, KeyError):
         commit_order = []
-    verdicts = bisect_history(failed, [(args.sha, current_jobs), *earlier], lower, commit_order)
+    evidence = [(args.sha, current_jobs.proof), *[(sha, jobs.proof) for sha, jobs in history]]
+    verdicts = bisect_history(failed, evidence, lower, commit_order)
     exact: dict[int, list[tuple[str, dict]]] = {}
     for job, verdict in verdicts.items():
         report("cmux-next bisect: " + json.dumps({"job": job, "lower": lower, "head": args.sha, **verdict}, sort_keys=True))
