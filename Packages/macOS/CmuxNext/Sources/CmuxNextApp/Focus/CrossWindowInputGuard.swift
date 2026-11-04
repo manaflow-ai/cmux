@@ -2,8 +2,10 @@ import AppKit
 import CmuxNextFocusUI
 
 extension CrossWindowInputGuard {
-    /// The guard over the app's cmux windows: a window belongs to the one that owns it (`WindowManager.owner(of:)`).
-    init(windows: WindowManager) {
-        self.init { [weak windows] window in windows?.owner(of: window)?.state.id }
+    /// `CmuxApplication.crossWindowKeyGuard`: the guard over `router`'s cmux windows (`WindowManager.owner(of:)`).
+    static func drops(keyTypedInto eventWindow: NSWindow?, keyWindow: NSWindow?, router: KeyRouter?) -> Bool {
+        guard let router, let windows = router.services?.windows, !router.newTabInputCoordinator.followsNewWindow else { return false } // New Window's keys follow it
+        let keyGuard = CrossWindowInputGuard { [weak windows] in windows?.owner(of: $0)?.state.id }
+        return keyGuard.dropsAndLogsKey(eventWindow: eventWindow, keyWindow: keyWindow, typedNow: !router.creationInputCoordinator.replaying.on)
     }
 }

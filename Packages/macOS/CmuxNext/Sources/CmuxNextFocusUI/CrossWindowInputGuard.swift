@@ -34,10 +34,11 @@ public struct CrossWindowInputGuard {
         return target != source
     }
 
-    /// ``dropsKey(eventWindow:keyWindow:typedNow:)`` for `event`, logging a drop.
-    public func dropsKey(_ event: NSEvent, keyWindow: NSWindow?, typedNow: Bool) -> Bool {
-        guard dropsKey(eventWindow: event.window, keyWindow: keyWindow, typedNow: typedNow) else { return false }
-        let source = event.window.flatMap(owner) ?? "-"
+    /// ``dropsKey(eventWindow:keyWindow:typedNow:)``, logging a drop: the check `CmuxApplication.sendEvent` runs before AppKit
+    /// delivers a key-down (the app's `CrossWindowInputGuard.drops(keyTypedInto:keyWindow:router:)`).
+    public func dropsAndLogsKey(eventWindow: NSWindow?, keyWindow: NSWindow?, typedNow: Bool) -> Bool {
+        guard dropsKey(eventWindow: eventWindow, keyWindow: keyWindow, typedNow: typedNow) else { return false }
+        let source = eventWindow.flatMap(owner) ?? "-"
         guard let target = keyWindow.flatMap(owner) else {
             Self.logger.error("dropped a held key of window \(source, privacy: .public): a window no cmux window owns is key")
             return true

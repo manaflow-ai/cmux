@@ -42,6 +42,11 @@ import CmuxNextTestSupport
         return Harness(services: services, a: a, b: b)
     }
 
+    /// The app's ``CrossWindowInputGuard`` over `windows` (as `CrossWindowInputGuard.drops(keyTypedInto:keyWindow:router:)` builds it).
+    private static func keyGuard(_ windows: WindowManager) -> CrossWindowInputGuard {
+        CrossWindowInputGuard { [weak windows] in windows?.owner(of: $0)?.state.id }
+    }
+
     // MARK: Clicks and keys act in the window they came from
 
     /// AppKit still names window B key (the app is activating after Cmd-Tab, or the key record is
@@ -89,7 +94,7 @@ import CmuxNextTestSupport
         let harness = try Self.harness()
         defer { harness.close() }
         let shellA = try #require(harness.a.window), shellB = try #require(harness.b.window)
-        let keyGuard = CrossWindowInputGuard(windows: harness.services.windows)
+        let keyGuard = Self.keyGuard(harness.services.windows)
         #expect(keyGuard.dropsKey(eventWindow: shellA, keyWindow: shellB), "a key typed in A reached B")
         #expect(keyGuard.dropsKey(eventWindow: shellB, keyWindow: shellA), "a key typed in B reached A")
         #expect(!keyGuard.dropsKey(eventWindow: shellA, keyWindow: shellA))
@@ -112,7 +117,7 @@ import CmuxNextTestSupport
         let harness = try Self.harness()
         defer { harness.close() }
         let shellA = try #require(harness.a.window)
-        let keyGuard = CrossWindowInputGuard(windows: harness.services.windows)
+        let keyGuard = Self.keyGuard(harness.services.windows)
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 80), styleMask: [.titled, .nonactivatingPanel],
                             backing: .buffered, defer: true)
         panel.isReleasedWhenClosed = false
@@ -135,7 +140,7 @@ import CmuxNextTestSupport
         let harness = try Self.harness()
         defer { harness.close() }
         let shellA = try #require(harness.a.window), shellB = try #require(harness.b.window)
-        let keyGuard = CrossWindowInputGuard(windows: harness.services.windows)
+        let keyGuard = Self.keyGuard(harness.services.windows)
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 80), styleMask: [.titled, .nonactivatingPanel],
                             backing: .buffered, defer: true)
         panel.isReleasedWhenClosed = false
