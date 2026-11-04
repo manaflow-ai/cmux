@@ -37,8 +37,7 @@ export function BackgroundTaskTail({
   return (
     <div className="acpmux-running-tray__tail" data-running={read.running || undefined}>
       <code className="acpmux-running-tray__command">{command.command}</code>
-      {readOutput &&
-        (output ? <pre ref={outputRef}>{output}</pre> : <span>{t("bgTask.state.running")}</span>)}
+      {readOutput && (output ? <pre ref={outputRef}>{output}</pre> : <span>{t("bgTask.state.running")}</span>)}
       {link && (
         <a href={link.url} target="_blank" rel="noreferrer">
           <Icon name="link.external" size={12} row />

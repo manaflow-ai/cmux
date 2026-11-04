@@ -5,11 +5,7 @@
 // real ones agents ran in the background, from the tray in his screenshots and from transcripts.
 import { describe, expect, test } from "bun:test";
 import { setPaneLanguage, translate } from "../src/agent-session/acpmux/i18n";
-import {
-  COMMAND_RULES,
-  commandRead,
-  programWords,
-} from "../src/agent-session/acpmux/session-info/commandRules";
+import { COMMAND_RULES, commandRead, programWords } from "../src/agent-session/acpmux/session-info/commandRules";
 import { backgroundCommands } from "../src/agent-session/acpmux/session-info/processes";
 
 setPaneLanguage("en");
@@ -28,12 +24,16 @@ describe("a background command reads in words", () => {
       "https://github.com/manaflow-ai/cmux/actions/runs/41762593154",
     ],
     [
-      "cd ~/Projects/checkouts/cmux/lane--x && cmux-ci test --setup playwright --timeout 2400 --workflow-ref feat-cmux-next -- \"$(cat s.sh)\"",
+      'cd ~/Projects/checkouts/cmux/lane--x && cmux-ci test --setup playwright --timeout 2400 --workflow-ref feat-cmux-next -- "$(cat s.sh)"',
       "Fleet tests · Playwright",
       "cmux-ci",
     ],
     ['python3 -c "import time; time.sleep(560)"; GH_QUOTA_TIMEOUT=1 gh pr view 1', "Waiting 9m 20s", "python-sleep"],
-    ["cmux-ci run --key sr2c-ctx-34769-$(date +%s) --class light --script x.sh --ref abc", "Fleet run for #34769", "cmux-ci"],
+    [
+      "cmux-ci run --key sr2c-ctx-34769-$(date +%s) --class light --script x.sh --ref abc",
+      "Fleet run for #34769",
+      "cmux-ci",
+    ],
     // From transcripts.
     [
       "glaeda-gh wait run manaflow-ai/cmux/41723867191 --until done --jobs --timeout 5400 > /tmp/wait.log 2>&1; echo exit=$? >> /tmp/wait.log",
@@ -54,28 +54,47 @@ describe("a background command reads in words", () => {
       "https://github.com/manaflow-ai/cmux/pull/34395",
     ],
     ["cd ~/x && gh pr merge 34361 --squash --match-head-commit 73d09e86", "Merging #34361", "gh"],
-    ["gh pr checks 33896 --repo manaflow-ai/cmux --watch", "Waiting on cmux#33896 checks", "gh"],
-    ["timeout 100 gh pr merge 33896 --repo manaflow-ai/cmux --squash", "Merging cmux#33896", "gh"],
+    ["gh pr checks 33896 --repo manaflow-ai/cmux --watch", "Waiting on cmux#33896 checks", "gh", "https://github.com/manaflow-ai/cmux/pull/33896"],
+    ["timeout 100 gh pr merge 33896 --repo manaflow-ai/cmux --squash", "Merging cmux#33896", "gh", "https://github.com/manaflow-ai/cmux/pull/33896"],
     ["gh pr create --base feat-cmux-next --title 'x' --body-file b.md", "Opening a pull request", "gh"],
-    ["S=/tmp/s; cd ~/w && cmux-ci test -- bash -c \"$(cat $S/web-ci.sh)\" > $S/ci5w.log 2>&1", "Fleet tests", "cmux-ci"],
+    ['S=/tmp/s; cd ~/w && cmux-ci test -- bash -c "$(cat $S/web-ci.sh)" > $S/ci5w.log 2>&1', "Fleet tests", "cmux-ci"],
     [
       "cd ~/w && git log --oneline -1 && cmux-ci test -- cargo test -p acpmux --lib -- peer_forward 2>&1 | tail -30",
       "git log",
     ],
-    ["cmux-ci test -- cargo test -p acpmux --lib -- peer_forward 2>&1 | tail -30", "Fleet tests · cargo test acpmux", "cmux-ci"],
+    [
+      "cmux-ci test -- cargo test -p acpmux --lib -- peer_forward 2>&1 | tail -30",
+      "Fleet tests · cargo test acpmux",
+      "cmux-ci",
+    ],
     ["cmux-ci compile-check --app --ref abc", "Fleet compile check", "cmux-ci"],
     ["sleep 690; date -u", "Waiting 11m 30s", "sleep"],
     ["sleep 5m", "Waiting 5m", "sleep"],
-    ["# fg-ok\ncd /tmp/lane && git push -q origin HEAD:grid/sidebar-header > /tmp/push.log 2>&1; echo push=$?", "Pushing grid/sidebar-header", "git-push"],
+    [
+      "# fg-ok\ncd /tmp/lane && git push -q origin HEAD:grid/sidebar-header > /tmp/push.log 2>&1; echo push=$?",
+      "Pushing grid/sidebar-header",
+      "git-push",
+    ],
     ["cd ~/w && git push -q -u origin HEAD 2>&1 | tail -5; git rev-parse HEAD", "Pushing changes", "git-push"],
-    ["cd ~/w && nice cargo test -q -p acpmux --test hub_integration auto_resume 2>&1 | tail -15", "Testing acpmux", "cargo"],
+    [
+      "cd ~/w && nice cargo test -q -p acpmux --test hub_integration auto_resume 2>&1 | tail -15",
+      "Testing acpmux",
+      "cargo",
+    ],
     ["cargo build --release -p cmux-tui", "Building cmux-tui", "cargo"],
-    ["cd ~/w/webviews && CMUX_BROWSER_TESTS=1 timeout 900 bun test test/composer-quiet-chips.test.ts 2>&1 | grep -E pass", "Testing composer-quiet-chips", "bun-test"],
+    [
+      "cd ~/w/webviews && CMUX_BROWSER_TESTS=1 timeout 900 bun test test/composer-quiet-chips.test.ts 2>&1 | grep -E pass",
+      "Testing composer-quiet-chips",
+      "bun-test",
+    ],
     ["xcodebuild -scheme cmux-unit -destination 'platform=macOS' test", "Testing cmux-unit", "xcodebuild"],
     ["xcodebuild -scheme cmux -configuration Debug build", "Building cmux", "xcodebuild"],
     // No rule: the program and its main argument.
     ["cd ~/Projects/cmux && PORT=3000 bun run dev", "bun run dev"],
-    ["python3 scripts/ci/merge_freeze.py check --repo manaflow-ai/cmux --pr 34361 2>&1 | tail -2", "python3 merge_freeze.py"],
+    [
+      "python3 scripts/ci/merge_freeze.py check --repo manaflow-ai/cmux --pr 34361 2>&1 | tail -2",
+      "python3 merge_freeze.py",
+    ],
     ["export CI=1 && make -j8 all", "make"],
     ["env -u FOO ./scripts/reload.sh --tag x", "reload.sh"],
     ["glaeda-gh status run manaflow-ai/cmux/1", "glaeda-gh status"],
@@ -89,7 +108,10 @@ describe("a background command reads in words", () => {
     });
 
   test("the call's own description wins, and the rule still gives the link and icon", () => {
-    const got = read("glaeda-gh wait run manaflow-ai/cmux/41762593154 --until done", "Wait for the PR checks to finish");
+    const got = read(
+      "glaeda-gh wait run manaflow-ai/cmux/41762593154 --until done",
+      "Wait for the PR checks to finish",
+    );
     expect(got.label).toBe("Wait for the PR checks to finish");
     expect(got.link?.url).toBe("https://github.com/manaflow-ai/cmux/actions/runs/41762593154");
     expect(got.icon).toBe("status.inprogress");
@@ -116,10 +138,9 @@ describe("a background command reads in words", () => {
   });
 
   test("the program is cut out of staging, wrappers, redirections and pipes", () => {
-    expect(programWords("cd a && export X=1 && Y=2 timeout -k 5 600 nohup env Z=3 foo 'a b' 2>/dev/null | tail -1")).toEqual([
-      "foo",
-      "a b",
-    ]);
+    expect(
+      programWords("cd a && export X=1 && Y=2 timeout -k 5 600 nohup env Z=3 foo 'a b' 2>/dev/null | tail -1"),
+    ).toEqual(["foo", "a b"]);
     expect(programWords("set -euo pipefail; source env.sh; bar --x")).toEqual(["bar", "--x"]);
     expect(programWords("cd ~/Projects")).toEqual(["cd", "~/Projects"]);
     expect(programWords("")).toEqual([]);
@@ -136,7 +157,7 @@ describe("a background command reads in words", () => {
   test("a long, quote-heavy command reads in one pass", () => {
     const long = `${'echo "a\\"b" '.repeat(5000)}| tail`;
     const started = performance.now();
-    expect(read(long).label).toBe("echo a\"b");
+    expect(read(long).label).toBe('echo a"b');
     expect(performance.now() - started).toBeLessThan(200);
   });
 });

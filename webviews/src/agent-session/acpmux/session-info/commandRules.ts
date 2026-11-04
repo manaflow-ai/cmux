@@ -316,7 +316,11 @@ export const COMMAND_RULES: readonly CommandRule[] = [
     icon: "status.inprogress",
     read: (words) => {
       if (words[1] !== "wait") return undefined;
-      const [target, extra] = positionals(words, 2, new Set(["--until", "--timeout", "--sha", "--rescue-grace", "--author", "--match", "--since", "--contains"]));
+      const [target, extra] = positionals(
+        words,
+        2,
+        new Set(["--until", "--timeout", "--sha", "--rescue-grace", "--author", "--match", "--since", "--contains"]),
+      );
       if (words[2] === "run") {
         const run =
           /^([\w.-]+)\/([\w.-]+)\/(\d+)$/.exec(target ?? "") ??
@@ -373,7 +377,7 @@ export const COMMAND_RULES: readonly CommandRule[] = [
     id: "cmux-ci",
     program: "cmux-ci",
     icon: "cloud",
-    read: (words) => {
+    read: (words): RuleRead | undefined => {
       if (words[1] === "test") {
         const setup = flag(words, "--setup");
         if (setup) return { key: "commandRules.fleetTestsOf", values: { what: titleCase(setup) } };
@@ -381,8 +385,7 @@ export const COMMAND_RULES: readonly CommandRule[] = [
         const inner = dash < 0 ? [] : programWords(words.slice(dash + 1).join(" "));
         const program = programOf(inner);
         // A script run through a shell names nothing worth the line.
-        if (!program || ["bash", "sh", "zsh"].includes(program))
-          return { key: "commandRules.fleetTests" };
+        if (!program || ["bash", "sh", "zsh"].includes(program)) return { key: "commandRules.fleetTests" };
         const detail = inner[1] && !inner[1].startsWith("-") ? `${program} ${inner[1]}` : program;
         const crate = program === "cargo" ? flag(inner, "-p", "--package") : undefined;
         return { key: "commandRules.fleetTestsOf", values: { what: crate ? `${detail} ${crate}` : detail } };
@@ -390,7 +393,9 @@ export const COMMAND_RULES: readonly CommandRule[] = [
       if (words[1] === "run") {
         // A PR number inside the run's key: `sr2c-ctx-34769-$(date +%s)`.
         const pr = /(?:^|[-_/#])(\d{4,6})(?=$|[-_/])/.exec(flag(words, "--key") ?? "")?.[1];
-        return pr ? { key: "commandRules.fleetRunFor", values: { target: `#${pr}` } } : { key: "commandRules.fleetRun" };
+        return pr
+          ? { key: "commandRules.fleetRunFor", values: { target: `#${pr}` } }
+          : { key: "commandRules.fleetRun" };
       }
       if (words[1] === "compile-check") return { key: "commandRules.fleetCompile" };
       return undefined;
@@ -401,10 +406,13 @@ export const COMMAND_RULES: readonly CommandRule[] = [
     id: "sleep",
     program: "sleep",
     icon: "history",
-    read: (words) => waiting(words.slice(1).reduce<number | undefined>((sum, word) => {
-      const seconds = sleepSeconds(word);
-      return seconds === undefined || sum === undefined ? undefined : sum + seconds;
-    }, 0)),
+    read: (words) =>
+      waiting(
+        words.slice(1).reduce<number | undefined>((sum, word) => {
+          const seconds = sleepSeconds(word);
+          return seconds === undefined || sum === undefined ? undefined : sum + seconds;
+        }, 0),
+      ),
   },
   {
     // `python3 -c "import time; time.sleep(560)"`, as agents wait without a shell `sleep`.
@@ -429,8 +437,13 @@ export const COMMAND_RULES: readonly CommandRule[] = [
       const at = words[1] === "-C" ? 3 : 1;
       if (words[at] !== "push") return undefined;
       const args = positionals(words, at, new Set(["-o", "--push-option", "--repo"]));
-      const ref = args[1]?.split(":").pop()?.replace(/^refs\/heads\//, "");
-      return ref && ref !== "HEAD" && !ref.startsWith("+") ? { key: "commandRules.pushingBranch", values: { branch: ref } } : { key: "commandRules.pushing" };
+      const ref = args[1]
+        ?.split(":")
+        .pop()
+        ?.replace(/^refs\/heads\//, "");
+      return ref && ref !== "HEAD" && !ref.startsWith("+")
+        ? { key: "commandRules.pushingBranch", values: { branch: ref } }
+        : { key: "commandRules.pushing" };
     },
   },
   {
@@ -464,9 +477,19 @@ export const COMMAND_RULES: readonly CommandRule[] = [
     icon: "mode.build",
     read: (words) => {
       if (words.includes("-version") || words.includes("-showsdks") || words.includes("-list")) return undefined;
-      const valued = new Set(
-        ["-scheme", "-project", "-workspace", "-destination", "-configuration", "-derivedDataPath", "-only-testing", "-skip-testing", "-sdk", "-resultBundlePath", "-testPlan"],
-      );
+      const valued = new Set([
+        "-scheme",
+        "-project",
+        "-workspace",
+        "-destination",
+        "-configuration",
+        "-derivedDataPath",
+        "-only-testing",
+        "-skip-testing",
+        "-sdk",
+        "-resultBundlePath",
+        "-testPlan",
+      ]);
       const actions = positionals(words, 0, valued);
       return testOrBuild(
         actions.some((action) => action === "test" || action === "test-without-building"),
