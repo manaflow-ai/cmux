@@ -222,6 +222,9 @@ public final class PushReplies {
         guard let payload = response.payload, identifier != UNNotificationDismissActionIdentifier else { return .nothing }
         if identifier == UNNotificationDefaultActionIdentifier {
             // The long look's row, Submit or answer field opened the app with the answer in hand.
+            if let reply = response.handover, response.actionable, reply.mac == payload.mac, !fromOutboxRefused(reply) {
+                return .foreground(reply, open: payload)
+            }
             return .open(payload)
         }
         // Not trusted to act: a button only opens the app (where nothing is sent for it).

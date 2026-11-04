@@ -330,11 +330,17 @@ public struct PushHandover: Sendable {
     /// Leaves `reply` for the app under the notification `requestID`. Text into a terminal is
     /// refused, as the outbox refuses it (PR B security review H2).
     public func put(_ reply: PushReply, requestID: String) throws {
-        // red: not handed over yet
+        if case .text = reply.action, reply.kind == .terminal { throw PushOutbox.Refused() }
+        try store.write(JSONEncoder().encode(reply), account: Self.account(requestID))
     }
 
     /// Takes the reply left for the notification `requestID`, once, while fresh (`PushOutbox.maxAge`).
     public func take(requestID: String, now: Date = Date()) -> PushReply? {
-        nil // red: not handed over yet
+        let account = Self.account(requestID)
+        guard let data = try? store.read(account) else { return nil }
+        store.delete(account)
+        guard let reply = try? JSONDecoder().decode(PushReply.self, from: data),
+              now.timeIntervalSince(reply.createdAt) < PushOutbox.maxAge else { return nil }
+        return reply
     }
 }
