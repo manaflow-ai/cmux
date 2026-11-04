@@ -34,12 +34,14 @@ parser.add_argument("--app", required=True, help="the tagged app bundle")
 parser.add_argument("--tag", required=True)
 parser.add_argument("--prompt", default="")
 parser.add_argument("--agent", default="claude")
-parser.add_argument("--cloud-backend", required=True, choices=("staging", "prod"))
-parser.add_argument("--expected-api-origin", required=True)
+parser.add_argument("--cloud-backend", choices=("staging", "prod"))
+parser.add_argument("--expected-api-origin")
 parser.add_argument("--credentials-file", help="0600 Stack credentials file read by the app")
 parser.add_argument("--evidence", required=True)
 parser.add_argument("--cleanup-machine", default="", help="vm_<hex>: inspect and kill this machine, no chat")
 args = parser.parse_args()
+if not args.cleanup_machine and (not args.cloud_backend or not args.expected_api_origin):
+    parser.error("--cloud-backend and --expected-api-origin are required for a chat proof")
 
 CLI = str(Path(args.app) / "Contents/Resources/bin/cmux")
 ENV = {**os.environ, "CMUX_SOCKET_PATH": f"/tmp/cmux-debug-{args.tag}.sock"}
