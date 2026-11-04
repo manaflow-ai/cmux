@@ -7,31 +7,31 @@
     },
     "evidence": {
       "app": "cmux-ios.xcarchive/Products/Applications/cmux.app",
-      "artifact_sha256": "7dab5f522ba5438d0ad2bcb46d54b957475bfa049a6682a90fa38718c54e0e30",
+      "artifact_sha256": "1c2db66f0886b221a54abe3b9073b262637054e9d94ac0489b054d219e745028",
       "binaries": {
-        "PlugIns/NotificationService.appex/NotificationService": "075bc349fc7de8239caa898763c5860013ebc847218d0e850c60348a8031c658",
-        "cmux": "80460203be3dcb666d782e8c6b245c1ae0c43061d7dabcc2f0398cddad4bad6d"
+        "PlugIns/NotificationService.appex/NotificationService": "53a93233a396a30b2551ad2d0ddd69e2f6a35edf1dd438fcbee291ec728dd968",
+        "cmux": "527fd087c965fcabfa03e7a5fcbbb97483fff38a9614f89225382419b752c367"
       },
-      "cmux_ci_job": "0f10475cf6d7091f56de8376",
-      "source_commit": "61ea34bde1e5fa77a403dbbe0412635110cd0bcc"
+      "cmux_ci_job": "88f465baffd86abba2529c18",
+      "source_commit": "08c2c1cc9c7a6d5a7da9c9c74a321ff95fc3c6d1"
     },
-    "pin_sha256": "4277faf01e59b9af97d2bb9a5ad4b866fc762f20144e21b5e3583b1bf31de58c",
+    "pin_sha256": "4268d3d8d1c7591d71fddea13a108d99161961ae49abd38c21a15fbf51ce4aba",
     "present_owners": {
       "vendored:pkg/dcimgui": 2,
       "vendored:pkg/highway": 11,
       "vendored:pkg/macos": 1,
       "vendored:pkg/simdutf": 200,
-      "zig-lib:include": 13874,
-      "zig-lib:libcxx": 11196,
+      "zig-lib:include": 13886,
+      "zig-lib:libcxx": 11210,
       "zig-lib:std": 3,
       "zig-package:bindings": 1524,
-      "zig-package:freetype": 1563,
-      "zig-package:glslang": 2942,
+      "zig-package:freetype": 1561,
+      "zig-package:glslang": 2976,
       "zig-package:highway": 8,
       "zig-package:imgui": 3591,
       "zig-package:libpng": 449,
       "zig-package:oniguruma": 1047,
-      "zig-package:spirv_cross": 4503,
+      "zig-package:spirv_cross": 4484,
       "zig-package:zlib": 99
     },
     "witness_symbols": [
@@ -44,7 +44,7 @@
       "__ZGRN7simdutf8internalL33available_implementation_pointersE_",
       "__ZGVZN11spirv_cross11CompilerMSL22get_illegal_func_namesEvE18illegal_func_names",
       "__ZN3hwy14DisableTargetsEx",
-      "___anon_1096",
+      "___anon_1128",
       "__dist_code",
       "_decode_gamma",
       "_zig_os_log_with_type"
@@ -146,12 +146,14 @@
     "fttype1.o",
     "ftwinfnt.o",
     "gb18030.o",
+    "ghostty_zcu.o",
     "glslang_c_interface.o",
     "glslang_tab.o",
     "gzclose.o",
     "gzlib.o",
     "gzread.o",
     "gzwrite.o",
+    "highway_zcu.o",
     "imgui.o",
     "imgui_demo.o",
     "imgui_draw.o",
@@ -182,8 +184,6 @@
     "iso8859_8.o",
     "iso8859_9.o",
     "koi8_r.o",
-    "libghostty_zcu.o",
-    "libhighway_zcu.o",
     "limits.o",
     "linkValidate.o",
     "onig_init.o",
@@ -265,9 +265,9 @@
     "zutil.o"
   ],
   "pin": {
-    "ghostty_revision": "9ce9b7d08472f6249d0bc8ce14b7087049613e73",
-    "sha256": "4277faf01e59b9af97d2bb9a5ad4b866fc762f20144e21b5e3583b1bf31de58c",
-    "url": "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-9ce9b7d08472f6249d0bc8ce14b7087049613e73-apple-v6/GhosttyNextKit.xcframework.zip"
+    "ghostty_revision": "a6b9048e90787a723d75bcf5a260614d0aae625f",
+    "sha256": "4268d3d8d1c7591d71fddea13a108d99161961ae49abd38c21a15fbf51ce4aba",
+    "url": "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-a6b9048e90787a723d75bcf5a260614d0aae625f-apple-v6/GhosttyNextKit.xcframework.zip"
   },
   "schema": 1,
   "slice": "ios-arm64",
@@ -285,5 +285,5 @@
     "zig_objc",
     "zigimg"
   ],
-  "zig_version": "0.16.0"
+  "zig_version": "0.17.0"
 }
