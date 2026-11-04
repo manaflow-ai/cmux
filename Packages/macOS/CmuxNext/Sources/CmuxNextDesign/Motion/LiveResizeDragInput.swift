@@ -38,17 +38,12 @@ public final class LiveResizeDragInput {
     /// A drag was applied in the display frame that runs now (since the last frame tick): a drag that comes now waits
     /// for the next tick. A tick starts a display frame; it applies the waiting drag, if any.
     private var appliedThisFrame = false
-    /// `setFrame`s of the resize running now (``applyingFrame(_:)``; one unless AppKit sets the frame again inside it).
-    private var applyingDepth = 0
     private var ticksLeft = 0
     private lazy var client = FrameClient(owner: "LiveResize.drag", isAnimation: false, input: true, scheduler: { [weak self] in
         self?.window.map(FrameScheduler.forWindow) ?? .app
     }) { [weak self] _ in
         self?.tick() ?? false
     }
-
-    /// A `setFrame` of the live resize runs now: what it changes is not final until it returns (`frameApplied` then).
-    public var isApplyingFrame: Bool { applyingDepth > 0 }
 
     /// This live resize applies at most one drag per display frame: `motion.frameOwner.liveResize` read at its first
     /// drag and kept until the release. What else S7 changes in a live resize (``LiveResizePageUpdates``, ``FollowedViews``) follows it.
@@ -108,18 +103,13 @@ public final class LiveResizeDragInput {
 
     /// A `setFrame` of the window in its live resize (`apply`): when this resize's drags wait for the frame tick, the
     /// views another window follows post their frame notices once, after it, with the final geometry (``FollowedViews``);
-    /// then `frameApplied` runs, once, after the outermost `setFrame` returns (``isApplyingFrame`` is false by then).
+    /// then `frameApplied` runs.
     public func applyingFrame(_ apply: () -> Void) {
-        applyingDepth += 1
-        defer {
-            applyingDepth -= 1
-            if applyingDepth == 0 { frameApplied() }
-        }
+        defer { frameApplied() }
         #if DEBUG || CMUX_BENCH_HOOKS
-        // The outermost `setFrame` only: one sample per applied drag.
-        let applied = applyingDepth == 1 ? nextApplied : nil
-        if applyingDepth == 1 { nextApplied = nil }
-        let frame = applyingDepth == 1 ? window.flatMap { probe.frameWillApply(in: $0, eventTime: applied?.eventTime, atTick: applied?.atTick == true) } : nil
+        let applied = nextApplied
+        nextApplied = nil
+        let frame = window.flatMap { probe.frameWillApply(in: $0, eventTime: applied?.eventTime, atTick: applied?.atTick == true) }
         defer { if let frame { probe.frameDidApply(frame) } }
         #endif
         guard isFramed, let window else { return apply() }
