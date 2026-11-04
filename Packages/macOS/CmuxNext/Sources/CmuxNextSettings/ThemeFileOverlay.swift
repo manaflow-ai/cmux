@@ -1,4 +1,5 @@
 public import CmuxNextDesign
+import CmuxNextCompat
 public import Foundation
 
 /// One theme file (`appearance.themeFile`, `~/.config/cmux/themes/<name>.json`) read as a look: a
@@ -52,9 +53,9 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     /// Reads `name`'s file: its text, or nil when there is none. File I/O.
     public static func source(named name: String, configDirectory: URL) -> Result<String, any Error>? {
         let url = ThemeFileSetting.url(named: name, configDirectory: configDirectory)
-        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        guard FileManager.checked.fileExists(atPath: url.path) else { return nil }
         return Result {
-            let data = try Data(contentsOf: url)
+            let data = try Data(blockingContentsOf: url)
             guard data.count <= ThemeFileSetting.maximumBytes else { throw TooLarge() }
             return String(decoding: data, as: UTF8.self)
         }

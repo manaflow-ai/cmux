@@ -99,16 +99,10 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         let options = if descriptor.kind == .theme, let themes {
             Self.themeOptions(current: current?.stringValue, names: themes.names, defaultLabel: descriptor.defaultLabel ?? "",
                               strip: themes.swatches(for:))
-        } else if descriptor.path == ThemeFileSetting.path {
-            // The files in ~/.config/cmux/themes, as the last settings load read them.
-            [SettingOption(value: nil, title: descriptor.defaultLabel ?? "", isCurrent: current == nil)]
-                + settings.themeFileSources.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }.map {
-                    SettingOption(value: .string($0), title: $0, isCurrent: current?.stringValue == $0)
-                }
         } else if isFont {
             settings.recentFonts.options(current: current?.stringValue, families: SettingsPageDomains.fontFamilies, defaultLabel: descriptor.defaultLabel ?? descriptor.title)
         } else {
-            descriptor.paletteOptions(current: current, themeColors: colors)
+            settings.paletteOptions(descriptor, current: current, themeColors: colors)
         }
         let currentOption = options.first(where: \.isCurrent)
         let label = currentOption?.title ?? current?.compactText ?? descriptor.defaultLabel ?? ""
