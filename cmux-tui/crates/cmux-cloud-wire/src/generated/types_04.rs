@@ -5,6 +5,79 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesSsoSessionMaxAgeHours {
+    pub value: i64,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesSsoIdleTimeoutHours {
+    pub value: i64,
+    pub mode: PolicyMode,
+}
+
+wire_enum! {
+    TeamPolicyValuesAgentsAllowedClassesValueItem {
+        Mux = "mux",
+        Agent = "agent",
+        Run = "run",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesAgentsAllowedClasses {
+    pub value: Vec<TeamPolicyValuesAgentsAllowedClassesValueItem>,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesDeviceSettingsValue {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesDeviceSettings {
+    pub value: TeamPolicyValuesDeviceSettingsValue,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyVersion {
+    pub version: i64,
+    pub values: TeamPolicyValues,
+    pub changed: Vec<PolicyKey>,
+    pub actor: Option<String>,
+    pub at: i64,
+    pub reason: Option<String>,
+    pub rollback_of: Option<i64>,
+}
+
+wire_enum! {
+    TeamRole {
+        Owner = "owner",
+        Admin = "admin",
+        Member = "member",
+        Billing = "billing",
+        Guest = "guest",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmAccountUser {
+    pub user: String,
+    pub uid: i64,
+    pub class: SshCertClass,
+    pub principals: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmError {
+    pub code: String,
+    pub message: String,
+    pub at: i64,
+}
+
+pub type TeamVmLeaseId = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamVmRetired {
     pub vm: String,
     pub epoch: i64,

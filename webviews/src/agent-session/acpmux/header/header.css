@@ -54,9 +54,6 @@
    still not open to the right"). The chat keeps 44% of the pane, and at least 320px while the pane has 640px.
    test/agent-pane-changes-placement.test.ts keeps it so. */
 .acpmux-stage{container-type:inline-size}
-.acpmux-reviewing{--acpmux-review-chat:max(44%,min(320px,50%))}
-.acpmux-reviewing>.acpmux-header,.acpmux-reviewing>.acpmux-scroll{margin-right:calc(100% - var(--acpmux-review-chat))}
-.acpmux-reviewing>.acpmux-diff-panel{left:var(--acpmux-review-chat);border-left:.5px solid var(--agent-border);background:var(--agent-page-bg);--ui-enter-distance:100%}
 
 /* Keep status text out of sizing: long translations and error details never move the tools. */
 .acpmux-header-status-slot{--acpmux-header-control-height:26px;position:relative;flex:1 1 0;min-width:0;height:26px}

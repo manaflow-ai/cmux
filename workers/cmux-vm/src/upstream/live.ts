@@ -9,6 +9,7 @@
 import { Effect, Layer, Redacted, Schema } from "effect";
 import { makeUpstreamHttp } from "./live-http.ts";
 import { makeHttpsProxies } from "./live-https-proxies.ts";
+import { makePublicEgress } from "./live-public-egress.ts";
 import { makeRetireVm } from "./live-retire.ts";
 import { makeClientSessions } from "./live-client-sessions.ts";
 import { makeStatFile } from "./live-file-stat.ts";
@@ -215,6 +216,7 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
       );
     })),
     ...makeHttpsProxies(makeUpstreamHttp(config)),
+    ...makePublicEgress(makeUpstreamHttp(config)),
     ...makeRetireVm(makeUpstreamHttp(config)),
     ...makeClientSessions(makeUpstreamHttp(config), base.origin),
     ...makeStatFile(makeUpstreamHttp(config)),

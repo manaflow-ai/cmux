@@ -766,6 +766,7 @@ public final class ConversationViewController: UIViewController {
             // Anything else applying now carries a waiting page with it.
             liveGate.endPageHold()
             applyTranscriptChange(change)
+            if case .live = change { trimAfterArrival() }
         }
     }
 
@@ -1862,6 +1863,15 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         isPinnedToBottom = isNearBottom(tolerance: 44)
         trimHistoryIfResting()
         landHeldPageIfFree()
+    }
+
+    /// Messages arriving while the reader rests at the bottom also bound the
+    /// window: a chat left open never scrolls, so the scroll-end trim alone
+    /// would let it grow without limit. Runs on the next turn, after this
+    /// change lands, since a trim resets the rows.
+    func trimAfterArrival() {
+        guard store.messages.count > ConversationStore.windowTrimThreshold else { return }
+        Task { @MainActor [weak self] in self?.trimHistoryIfResting() }
     }
 
     /// A reader who scrolled back down and rests on the newest message bounds

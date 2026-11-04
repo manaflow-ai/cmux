@@ -93,6 +93,7 @@ pub(super) fn agent_sender(provenance: Option<&Value>, declared: Option<&str>) -
         Some(
             "agent_message"
                 | "session_message"
+                | crate::prompt_provenance::NOTICE_KIND
                 | "task_result"
                 | super::subsessions::PROVENANCE_KIND
                 | super::lane_reports::KIND

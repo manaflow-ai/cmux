@@ -60,6 +60,20 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(AgentPaneSessionInfoModel.decode(["open": true]) == nil)
     }
 
+    /// A short pane's popover lies over the transcript and sends no `foot`: it still gets the glass,
+    /// so the chat and the panel's sections never show through each other (the faint copy of Session
+    /// Info over the transcript). Over the gutter it stands on nothing, as before.
+    @Test func aPanelOverTheChatGetsItsGlassEvenWithoutAFoot() throws {
+        var popover = Self.info()
+        popover["overChat"] = true
+        #expect(AgentPaneSessionInfoPanel.liesOverChat(try Self.model(popover)))
+        var aboveComposer = Self.info()
+        aboveComposer["foot"] = 120
+        #expect(AgentPaneSessionInfoPanel.liesOverChat(try Self.model(aboveComposer)))
+        #expect(!AgentPaneSessionInfoPanel.liesOverChat(try Self.model(Self.info())))
+        #expect(!AgentPaneSessionInfoPanel.liesOverChat(nil))
+    }
+
     @Test func fractionalRowIndentAndRevealRevisionAreAcceptedAndRounded() throws {
         var raw = Self.info()
         raw["reveal"] = ["section": "subagents", "at": 3.6]
@@ -249,6 +263,30 @@ struct AgentPaneNativeSessionInfoTests {
         store.update(try Self.model(two))
         #expect(panel.fittingHeight(forWidth: 320) > one)
         #expect(relayouts > 0)
+    }
+
+    /// Leo (2026-11-03): "i mean there's literally no scrollbar in claude code it's just scrollable". The
+    /// list's scroll view draws no scroller and keeps no width for one, and still scrolls: a list taller
+    /// than the panel moves when the clip view is scrolled.
+    @Test func panelScrollsWithNoScrollbar() throws {
+        func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
+        let store = AgentPaneSessionInfoStore()
+        let panel = AgentPaneSessionInfoPanel(store: store)
+        panel.frame = CGRect(x: 0, y: 0, width: 320, height: 60)
+        var info = Self.info()
+        var section = (info["sections"] as? [[String: Any]])?.first ?? [:]
+        section["rows"] = (0..<40).map { ["id": "r\($0)", "title": "row \($0)", "tone": "running"] }
+        info["sections"] = [section]
+        store.update(try Self.model(info))
+        panel.layoutSubtreeIfNeeded()
+        let scroll = try #require(all(panel).compactMap { $0 as? NSScrollView }.first)
+        #expect(!scroll.hasVerticalScroller)
+        #expect(!scroll.hasHorizontalScroller)
+        #expect(scroll.contentSize.width == scroll.frame.width)
+        let document = try #require(scroll.documentView)
+        #expect(document.frame.height > scroll.contentSize.height)
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: 40))
+        #expect(scroll.contentView.bounds.minY == 40)
     }
 
     /// Over the gutter the content stands on the pane (no card). Over the chat's column (`foot`) the

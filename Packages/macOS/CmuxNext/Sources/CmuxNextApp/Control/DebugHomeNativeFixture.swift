@@ -103,35 +103,18 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             // A click on the first shown link with this prefix (a Chief subagent's `cmux://chief/`).
             let url = view.debugClickLink(prefix: params["prefix"]?.stringValue ?? "https://")
             return .object(["ok": .bool(url != nil), "url": url.map { .string($0) } ?? .null])
+        case "fixture_approval":
+            guard let fixture = shownFixture else { return .object(["error": .string("no mock Home fixture is shown")]) }
+            return .object(["ok": .bool(fixture.debugApproval(result: params["result"]?.stringValue ?? "answered")),
+                            "mock": .bool(true)])
+        case "approval_state":
+            guard let fixture = shownFixture else { return .object(["error": .string("no mock Home fixture is shown")]) }
+            return JSONValue(foundation: fixture.debugApprovalState()) ?? .null
         case "fixture_typing":
             guard let fixture = shownFixture else { return .object(["error": .string("no mock Home fixture is shown")]) }
             return .object(["ok": .bool(fixture.debugTyping(params["on"]?.boolValue ?? true))])
-        case "typing":
-            // The typing bubble's body in window points (bottom-left origin) and the window's size,
-            // for a pixel check of a window snapshot (scripts/cmux-next/home-typing-still.py).
-            guard let r = view.debugTypingBubbleFrame(), let size = view.window?.frame.size else {
-                return .object(["ok": .bool(false), "error": .string("no typing row shows")])
-            }
-            let o = view.debugHostOrigin
-            return .object(["ok": .bool(true), "x": .number(Double(r.minX)), "y": .number(Double(r.minY)), "width": .number(Double(r.width)),
-                            "height": .number(Double(r.height)), "windowWidth": .number(Double(size.width)), "windowHeight": .number(Double(size.height)),
-                            "hostX": .number(Double(o.x)), "hostY": .number(Double(o.y))])
-        case "rows":
-            // The visible rows as drawn, in window points (bottom-left origin), top to bottom, and the
-            // window's size: the half-point pixel check of message rows (home-typing-still.py, home-hidden-messages.py).
-            guard let size = view.window?.frame.size else { return .object(["ok": .bool(false), "error": .string("no window")]) }
-            let o = view.debugHostOrigin
-            let rows: [JSONValue] = view.debugRowFrames().map { r in
-                .object(["kind": .string(r.kind), "key": .string(r.key), "outgoing": .bool(r.outgoing),
-                         "x": .number(Double(r.frame.minX)), "y": .number(Double(r.frame.minY)),
-                         "width": .number(Double(r.frame.width)), "height": .number(Double(r.frame.height)),
-                         "balloon": .object(["x": .number(Double(r.balloon.minX)), "y": .number(Double(r.balloon.minY)),
-                                             "width": .number(Double(r.balloon.width)), "height": .number(Double(r.balloon.height))])])
-            }
-            return .object(["ok": .bool(!rows.isEmpty), "rows": .array(rows), "windowWidth": .number(Double(size.width)),
-                            "scale": .number(Double(view.window?.backingScaleFactor ?? 0)), "trim": .number(Double(view.debugTranscriptWidthTrim)),
-                            "hostRight": .number(Double(view.debugHostFrame.maxX)),
-                            "windowHeight": .number(Double(size.height)), "hostX": .number(Double(o.x)), "hostY": .number(Double(o.y))])
+        case "typing": return JSONValue(foundation: view.debugTypingState()) ?? .null
+        case "rows": return JSONValue(foundation: view.debugRowsState()) ?? .null
         case "resize":
             // Width changes in one main-thread turn (one display frame): the pass counters and rows after each.
             let trims = params["trims"]?.arrayValue?.compactMap(\.doubleValue) ?? []

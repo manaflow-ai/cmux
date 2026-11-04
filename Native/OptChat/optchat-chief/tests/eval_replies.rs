@@ -127,8 +127,7 @@ fn stop_with_an_unanswered_person_message_is_refused_in_the_turn() {
         sp.send(SendCall {
             sign_in: None,
             text: Some("On it.".into()),
-            attachments: Vec::new(),
-            reply_to: None,
+            ..SendCall::default()
         })
     })
     .expect("send answers");

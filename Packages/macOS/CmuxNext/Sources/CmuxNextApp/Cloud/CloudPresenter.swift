@@ -1,7 +1,9 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCloudCredentials
+import CmuxNextCloudUI
 import CmuxNextDesign
 import CmuxNextPages
 import os
@@ -108,8 +110,9 @@ enum CloudPresenter {
 
         let teamID = services.cloud.auth.teamID
         guard let provider = CloudCredentialTransfer.Provider(rawValue: request.provider.rawValue) else { return false }
+        guard await CloudStartChat.loginCopyGate(services).recoveryAllowed(claude: provider == .claude, automatic: request.automatic) else { return false }
         if request.automatic {
-            guard provider == .claude,
+            guard provider == .claude, CloudHarnessLoginChoices.allowsAutomaticCopy(session.harnessLogin, stored: CloudHarnessLoginChoices().load(userID: userID)),
                   await CloudCredentialTransfer.hasCachedLogin(provider: provider, teamID: teamID, userID: userID) else { return false }
         }
         let providerName = provider == .claude ? "Claude" : "Codex"
@@ -141,7 +144,7 @@ enum CloudPresenter {
         let transfer = CloudCredentialTransfer(
             provider: provider, machineID: session.machineID, teamID: teamID,
             userID: userID,
-            allowsCreatorTeamGuest: CloudStartChat.passesHarnessLoginHere,
+            allowsCreatorTeamGuest: CloudCredentialTransfer.allowsCreatorTeamGuest(isDogfoodBuild: DevTools.isEnabled, defaults: .standard),
             openTerminal: { [weak services] line in
                 await services?.openLocalProviderLogin(line) ?? false
             })
@@ -159,7 +162,8 @@ enum CloudPresenter {
                                        currentTeamID: { services.cloud.auth.teamID },
                                        currentUserID: { services.cloud.auth.user?.id },
                                        confirmed: true, refresh: !request.automatic,
-                                       callerOwnsVM: { [cloud = services.cloud, machineID = session.machineID] in try await cloud.callerOwnsVM(machineID) })
+                                       callerOwnsVM: { [cloud = services.cloud, machineID = session.machineID] in try await cloud.callerOwnsVM(machineID) },
+                                       stillAllowed: CloudStartChat.loginCopyGate(services).stillAllowed)
             }
             guard services.cloud.auth.user?.id == userID, services.cloud.auth.teamID == teamID,
                   let (currentTab, _) = services.locateTab(chat, onMachine: request.machineID),
@@ -198,6 +202,14 @@ enum CloudPresenter {
             identifier: firstLoginIdentifier)
         let answer = await CmuxDialogCenter.shared.present(spec, in: .window(window))
         return answer.button == "setUp" && !answer.isDismissal
+    }
+
+    /// The one-time consent (``CloudLoginCopyConsent``): true for yes, false for no or a dismissal,
+    /// nil with no window to show it on (nothing is kept then, so it is asked next time).
+    @MainActor static func confirmLoginCopy(services: AppServices) async -> Bool? {
+        guard let window = services.windows.active?.window else { return nil }
+        let answer = await CmuxDialogCenter.shared.present(CloudLoginCopyConsent.spec, in: .window(window))
+        return answer.button == CloudLoginCopyConsent.accept && !answer.isDismissal
     }
 
     static let codexBrokerDisclosure = String(localized: "cloud.credentialRecovery.codexBroker", defaultValue: "cmux uses Codex sign-in on this Mac when needed; an existing broker login is refreshed without another sign-in. Only short-lived access moves to this owner VM. The refresh token stays on this Mac. Keep cmux running on this Mac to renew Codex access.", table: "CloudCodex", bundle: .module)

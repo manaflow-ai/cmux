@@ -11,6 +11,7 @@ use super::{
     Brain, Engine, Input, PROGRESS_TICK, Phase, Queued, SETTLE_BOUND, Source, answer_entry,
     reply_key_at,
 };
+use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 
 use crate::acpmux::SessionSpec;
@@ -375,7 +376,7 @@ impl Brain {
         let opening: Vec<Item> = items.iter().map(item).collect();
         // The engine of this turn, read now (engine.rs): a change applies
         // from this turn on and is logged as a note after its messages.
-        let engine = self.turn_engine_choice();
+        let engine = self.turn_engine_choice(&items);
         let family = self.family_of(&engine.harness);
         // The cached layout on a Claude harness whose acpmux takes a preset
         // system prompt; else the view and the messages as blocks.
@@ -423,6 +424,30 @@ impl Brain {
             .map(|t| t.key.clone())
             .unwrap_or_default();
         optchat_host::fault("brain:after-turn-log");
+        let posted: Vec<String> = items
+            .iter()
+            .filter_map(|q| match &q.source {
+                Source::Message { id, .. } => self.posted.remove(id),
+                _ => None,
+            })
+            .collect();
+        // Only messages still queued keep their stamp (a retracted one never
+        // reaches a turn).
+        let queued: HashSet<&str> = self
+            .queue
+            .iter()
+            .filter_map(|q| match &q.source {
+                Source::Message { id, .. } => Some(id.as_str()),
+                _ => None,
+            })
+            .collect();
+        self.posted.retain(|id, _| queued.contains(id.as_str()));
+        self.first_words = FirstWords::start(
+            &key,
+            posted.iter().map(String::as_str),
+            std::time::Instant::now(),
+            chrono::Utc::now(),
+        );
         self.set_cursor(self.state.logged_seq);
         if side.is_none() {
             self.set_typing(true);
@@ -452,6 +477,18 @@ impl Brain {
         // (`turn_permission`), with no question to anyone.
         self.turn_ask = items.iter().any(Queued::requires_approval);
         self.last_turn_ask = self.turn_ask;
+        self.turn_relay = if self.turn_ask {
+            super::steer::trusted_relays(&items)
+        } else {
+            None
+        };
+        if let Some(from) = &self.turn_relay {
+            (self.log)(&format!(
+                "turn {key}: a trusted agent's message ({from}): it may tell and spawn this Chief's subagents"
+            ));
+        }
+        // Who this turn speaks for (rights_gate.rs): the hook and the audit.
+        self.begin_turn_people(&items, &key);
         self.turn_denied.clear();
         self.repeat_denials = 0;
         self.interrupt.set_gate(self.turn_ask);
@@ -669,6 +706,16 @@ impl Brain {
                 "retire": retire,
                 "from": kept.as_ref().map(|k| k.seen_end),
             });
+        }
+        if let Some(route) = &self.turn_route {
+            self.trace.emit(
+                "turn.route",
+                serde_json::json!({
+                    "turn": key, "tier": route.tier, "model": route.model,
+                    "effort": route.effort, "reasons": route.reasons,
+                    "family": self.route_family(),
+                }),
+            );
         }
         self.trace_start(
             &key,
@@ -966,9 +1013,12 @@ impl Brain {
                 "turn": key,
                 "first": first,
                 "engine": match self.settings.engine { Engine::Acpmux => "acpmux", Engine::Native(_) => "native" },
-                "harness": self.turn_engine.as_ref().map_or(self.settings.harness.as_str(), |e| e.harness.as_str()),
+                "harness": match self.settings.engine { Engine::Native(_) => "native", Engine::Acpmux => self.turn_engine.as_ref().map_or(self.settings.harness.as_str(), |e| e.harness.as_str()) },
+                "message_keys": self.state.turn.as_ref().map(|p| p.items.iter().filter_map(|i| i.id.clone()).collect::<Vec<_>>()),
                 "model": self.turn_engine.as_ref().and_then(|e| e.model.clone()),
                 "effort": self.turn_engine.as_ref().and_then(|e| e.effort.clone()),
+                "tier": self.turn_route.as_ref().map(|r| r.tier),
+                "route": self.turn_route.as_ref().map(|r| r.reasons.join(",")),
                 "settle_ms": settle_ms,
                 "messages": texts.iter().map(|t| self.trace.text(t)).collect::<Vec<_>>(),
                 // The log ids of the messages (the prompt's last block).
@@ -1027,22 +1077,82 @@ impl Brain {
         }
     }
 
-    fn turn_engine_choice(&mut self) -> crate::engine::TurnEngine {
-        let (engine, unknown) = self.next_engine();
+    fn route_family(&self) -> Option<crate::turn_route::Family> {
+        use crate::turn_route::Family;
+        if matches!(self.settings.engine, super::Engine::Native(_)) {
+            return Some(Family::Native);
+        }
+        match self.family_of(&self.turn_engine.as_ref()?.harness) {
+            crate::acpmux::Family::Claude => Some(Family::Claude),
+            crate::acpmux::Family::Codex => Some(Family::Codex),
+            crate::acpmux::Family::Other => None,
+        }
+    }
+
+    fn route_turn(&mut self, items: &[Queued], engine: &mut crate::engine::TurnEngine, on: bool) {
+        self.turn_route = None;
+        if !on {
+            return;
+        }
+        let Some(family) = self.route_family() else {
+            return;
+        };
+        let table = match crate::turn_route::table() {
+            Ok(table) => table,
+            Err(error) => {
+                (self.log)(&format!("turn routing disabled: {error}"));
+                return;
+            }
+        };
+        let signals = crate::turn_route::TurnSignals {
+            human_text: items
+                .iter()
+                .flat_map(|q| match &q.source {
+                    Source::Message { .. } => vec![q.text.as_str()],
+                    Source::Resume { cut, .. } => cut.iter().map(String::as_str).collect(),
+                    _ => Vec::new(),
+                })
+                .collect(),
+        };
+        let (tier, reasons) = crate::turn_route::classify(&signals);
+        let mut route = crate::turn_route::pick(tier, family, table);
+        route.reasons = reasons;
+        engine.model = Some(route.model.clone());
+        engine.effort = Some(route.effort.clone());
+        self.turn_engine = Some(engine.clone());
+        self.turn_route = Some(route);
+    }
+
+    fn turn_engine_choice(&mut self, items: &[Queued]) -> crate::engine::TurnEngine {
+        let (mut engine, unknown, choice) = self.next_engine();
         if let Some(named) = unknown {
             (self.log)(&format!(
                 "engine.json names harness {named}, which acpmux does not have; this turn runs on {}",
                 engine.harness
             ));
         }
+        self.turn_spawn_engine = Some(engine.clone());
+        // Native turns historically ignore engine.json's model/effort. Keep
+        // their configured defaults unless the opt-in router makes a pick;
+        // receipts must name the same model the API actually receives.
+        if let super::Engine::Native(native) = &self.settings.engine {
+            let (model, effort) = native.defaults();
+            engine.model = Some(model.to_owned());
+            engine.effort = effort.map(str::to_owned);
+        }
         self.turn_engine = Some(engine.clone());
+        self.route_turn(
+            items,
+            &mut engine,
+            choice.turn_routing.as_deref() == Some("auto"),
+        );
         engine
     }
 
-    /// The engine a spawn's subagents take: the running (or last) turn's,
+    /// The engine a spawn's subagents take: the running (or last) turn's configured engine,
     /// with its family when that is not the default harness's.
     pub(super) fn spawn_engine(&self) -> Option<crate::subagents::SpawnEngine> {
-        let engine = self.turn_engine.as_ref()?;
+        let engine = self.turn_spawn_engine.as_ref()?;
         let family = self.family_of(&engine.harness);
         Some(crate::subagents::SpawnEngine {
             harness: engine.harness.clone(),
@@ -1093,10 +1203,13 @@ impl Brain {
             .turn_clock
             .take()
             .map(|t| t.elapsed().as_millis() as u64);
+        // The turn's cost against its people (rights_gate.rs), trace or not.
+        self.end_turn_spend(outcome.stats.cost);
         if !self.trace.is_on() {
             return;
         }
         let s = &outcome.stats;
+        let first_words = self.first_words.ms(key);
         // Who ended a cancelled turn: the Chief itself (`stop`, `sleep`, after
         // it replied by send), the owner, or neither (a lost session).
         let by_chief = self.tool_stopped || self.denial_stopped.is_some();
@@ -1124,6 +1237,8 @@ impl Brain {
                 "harness": self.turn_engine.as_ref().map(|e| e.harness.clone()),
                 "model": self.turn_engine.as_ref().and_then(|e| e.model.clone()),
                 "effort": self.turn_engine.as_ref().and_then(|e| e.effort.clone()),
+                "tier": self.turn_route.as_ref().map(|r| r.tier),
+                "route": self.turn_route.as_ref().map(|r| r.reasons.join(",")),
                 // A turn the Chief or the owner stopped ended as asked: no error.
                 "error": outcome
                     .error
@@ -1142,6 +1257,14 @@ impl Brain {
                 // then the first request's first token.
                 "start_ms": s.start_ms,
                 "ttft_ms": s.ttft_ms,
+                // The model route's share of ttft_ms: the first request's
+                // time to its message_start.
+                "headers_ms": s.headers_ms,
+                // What the person waits for: their message posted (and the
+                // turn's start) to the first reply draft on screen.
+                "first_draft_ms": first_words.first_draft,
+                "posted_to_start_ms": first_words.posted_to_start,
+                "posted_to_first_draft_ms": first_words.posted_to_first_draft,
                 // What answered (harness_gate): the engine panel reads these.
                 "harness_profile": outcome.harness.as_ref().map(|h| h.profile.as_str()),
                 "harness_kind": outcome.harness.as_ref().map(|h| h.kind.as_str()),
@@ -1502,6 +1625,16 @@ pub(super) fn cut_kind(outcome: &TurnOutcome) -> Option<Cut> {
     {
         return Some(Cut::Link);
     }
+    // acpmux gave the turn's `session/new` no answer at all within
+    // `acpmux::SESSION_NEW_DEADLINE` (a harness start that hung, as on
+    // claude-sr2-pipe 2026-11-03): nothing ran, so the turn runs again after
+    // an upstream wait instead of posting a dead turn.
+    if outcome.reply.is_none()
+        && error.starts_with("session/new: ")
+        && error.contains("no answer within")
+    {
+        return Some(Cut::Upstream);
+    }
     if UPSTREAM_TRANSIENT.iter().any(|t| error.contains(t)) {
         return Some(Cut::Upstream);
     }
@@ -1763,6 +1896,7 @@ fn source_name(source: &Source) -> &'static str {
         Source::Child { .. } => "child",
         Source::Spawn(_) => "subagents",
         Source::Note => "note",
+        Source::Peer { .. } => "peer_chief",
         Source::OwnerAction { .. } => "owner_action",
         Source::Resume { .. } => "resume",
     }
@@ -1825,6 +1959,14 @@ fn item(queued: &Queued) -> Item {
         Source::Note => Item {
             images,
             note: true,
+            ..Item::default()
+        },
+        // A cut peer turn resumes under the floor (no person to name: the
+        // rights hook then grants nothing).
+        Source::Peer { .. } => Item {
+            images,
+            note: true,
+            requires_approval: true,
             ..Item::default()
         },
     }
@@ -1897,6 +2039,35 @@ fn ended_turn_text(
 }
 
 #[cfg(test)]
+mod cut_kind_tests {
+    use super::{Cut, cut_kind};
+    use crate::turn::TurnOutcome;
+
+    fn failed(error: &str) -> TurnOutcome {
+        TurnOutcome {
+            error: Some(error.to_owned()),
+            ..TurnOutcome::default()
+        }
+    }
+
+    /// Leo, 2026-11-03: "(turn failed on claude-sr2-pipe: session/new: no
+    /// answer within 200 s)" posted as the Chief's reply.
+    #[test]
+    fn session_new_timeout_runs_again() {
+        let outcome = failed("session/new: no answer within 200 s");
+        assert_eq!(cut_kind(&outcome), Some(Cut::Upstream));
+    }
+
+    #[test]
+    fn a_timeout_after_a_reply_or_elsewhere_still_fails() {
+        let mut replied = failed("session/new: no answer within 200 s");
+        replied.reply = Some("Let me check.".to_owned());
+        assert_eq!(cut_kind(&replied), None);
+        assert_eq!(cut_kind(&failed("session/new: env key refused")), None);
+    }
+}
+
+#[cfg(test)]
 mod ended_turn_text_tests {
     use super::ended_turn_text;
 
@@ -1932,6 +2103,180 @@ mod ended_turn_text_tests {
         assert_eq!(
             ended_turn_text(None, Some("refused".into()), false, true, "x"),
             "(turn refused)"
+        );
+    }
+}
+
+/// The clock of a turn's first visible words (Leo, 2026-11-03: "why is chief
+/// so slow :(" at "Thinking · 13s"): from the turn's start, and from when the
+/// earliest message it answers was posted, to its first reply draft. The
+/// trace's `turn.end` carries them so a nightly is checked against the
+/// target without a screen recording.
+#[derive(Clone, Debug, Default)]
+pub(super) struct FirstWords {
+    turn: String,
+    /// The earliest posted message's `created_at` (the conversation owner's
+    /// clock, the same machine for a local Chief).
+    posted: Option<chrono::DateTime<chrono::Utc>>,
+    started: Option<(std::time::Instant, chrono::DateTime<chrono::Utc>)>,
+    first_draft: Option<(std::time::Instant, chrono::DateTime<chrono::Utc>)>,
+}
+
+/// `FirstWords`' numbers for `turn.end`, in ms (None: not seen).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct FirstWordsMs {
+    /// The turn's start to its first reply draft.
+    pub first_draft: Option<u64>,
+    /// The message posted to the turn's start (the host's queue, catch-up
+    /// after a restart, the settle wait).
+    pub posted_to_start: Option<u64>,
+    /// The message posted to the first reply draft: what the person waits.
+    pub posted_to_first_draft: Option<u64>,
+}
+
+impl FirstWords {
+    /// The clock of `turn`, started now, for messages posted at `posted`
+    /// (RFC 3339; unreadable ones are skipped).
+    pub fn start<'a>(
+        turn: &str,
+        posted: impl IntoIterator<Item = &'a str>,
+        now: std::time::Instant,
+        wall: chrono::DateTime<chrono::Utc>,
+    ) -> FirstWords {
+        let posted = posted
+            .into_iter()
+            .filter_map(|p| chrono::DateTime::parse_from_rfc3339(p).ok())
+            .map(|p| p.with_timezone(&chrono::Utc))
+            .min();
+        FirstWords {
+            turn: turn.to_owned(),
+            posted,
+            started: Some((now, wall)),
+            first_draft: None,
+        }
+    }
+
+    /// A draft of `turn` went out: the first one with text stops the clock.
+    pub fn draft(
+        &mut self,
+        turn: &str,
+        has_text: bool,
+        now: std::time::Instant,
+        wall: chrono::DateTime<chrono::Utc>,
+    ) {
+        if has_text && turn == self.turn && self.started.is_some() && self.first_draft.is_none() {
+            self.first_draft = Some((now, wall));
+        }
+    }
+
+    /// The numbers of `turn` (all None for another turn's clock).
+    pub fn ms(&self, turn: &str) -> FirstWordsMs {
+        if turn != self.turn {
+            return FirstWordsMs::default();
+        }
+        let ms = |d: chrono::TimeDelta| u64::try_from(d.num_milliseconds()).ok();
+        FirstWordsMs {
+            first_draft: self
+                .started
+                .zip(self.first_draft)
+                .map(|((s, _), (d, _))| d.saturating_duration_since(s).as_millis() as u64),
+            posted_to_start: self
+                .posted
+                .zip(self.started)
+                .and_then(|(p, (_, w))| ms(w - p)),
+            posted_to_first_draft: self
+                .posted
+                .zip(self.first_draft)
+                .and_then(|(p, (_, w))| ms(w - p)),
+        }
+    }
+}
+
+#[cfg(test)]
+mod first_words_tests {
+    use super::{FirstWords, FirstWordsMs};
+    use std::time::{Duration, Instant};
+
+    fn at(s: &str) -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::parse_from_rfc3339(s)
+            .unwrap()
+            .with_timezone(&chrono::Utc)
+    }
+
+    #[test]
+    fn posted_to_first_draft_counts_from_the_earliest_message() {
+        let t0 = Instant::now();
+        let mut fw = FirstWords::start(
+            "k",
+            [
+                "2026-11-03T09:00:01.500Z",
+                "2026-11-03T09:00:00.000Z",
+                "bad",
+            ],
+            t0,
+            at("2026-11-03T09:00:02.000Z"),
+        );
+        // A draft with no text, or another turn's, does not stop the clock.
+        fw.draft(
+            "k",
+            false,
+            t0 + Duration::from_millis(100),
+            at("2026-11-03T09:00:02.100Z"),
+        );
+        fw.draft(
+            "other",
+            true,
+            t0 + Duration::from_millis(200),
+            at("2026-11-03T09:00:02.200Z"),
+        );
+        fw.draft(
+            "k",
+            true,
+            t0 + Duration::from_millis(3000),
+            at("2026-11-03T09:00:05.000Z"),
+        );
+        fw.draft(
+            "k",
+            true,
+            t0 + Duration::from_millis(4000),
+            at("2026-11-03T09:00:06.000Z"),
+        );
+        assert_eq!(
+            fw.ms("k"),
+            FirstWordsMs {
+                first_draft: Some(3000),
+                posted_to_start: Some(2000),
+                posted_to_first_draft: Some(5000),
+            }
+        );
+        assert_eq!(fw.ms("other"), FirstWordsMs::default());
+    }
+
+    #[test]
+    fn a_turn_with_no_posted_message_or_no_draft_has_only_what_it_saw() {
+        let t0 = Instant::now();
+        let fw = FirstWords::start("k", [], t0, at("2026-11-03T09:00:02.000Z"));
+        assert_eq!(fw.ms("k"), FirstWordsMs::default());
+        // A message stamped after the start (another clock) gives no number.
+        let mut fw = FirstWords::start(
+            "k",
+            ["2026-11-03T09:00:03.000Z"],
+            t0,
+            at("2026-11-03T09:00:02.000Z"),
+        );
+        fw.draft(
+            "k",
+            true,
+            t0 + Duration::from_millis(500),
+            at("2026-11-03T09:00:02.500Z"),
+        );
+        assert_eq!(
+            fw.ms("k"),
+            FirstWordsMs {
+                first_draft: Some(500),
+                posted_to_start: None,
+                posted_to_first_draft: None,
+            }
         );
     }
 }

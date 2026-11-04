@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 794,
-    "mcp": 709
+    "verbs": 797,
+    "mcp": 712
   },
   "nouns": [
     {
@@ -2031,6 +2031,13 @@
           "mcpTool": "app_home_pin_unpin"
         },
         {
+          "command": "cmux home primary-chief",
+          "title": "Make Primary Chief",
+          "id": "home.setPrimaryChief",
+          "mcp": true,
+          "mcpTool": "app_home_primary_chief"
+        },
+        {
           "command": "cmux home remove-member",
           "title": "Remove from Group…",
           "id": "home.removeMember",
@@ -3712,6 +3719,13 @@
           "mcpTool": "app_share_chat"
         },
         {
+          "command": "cmux share invite",
+          "title": "Invite People to Chat…",
+          "id": "agent.share.invite",
+          "mcp": true,
+          "mcpTool": "app_share_invite"
+        },
+        {
           "command": "cmux share kick",
           "title": "Remove Guest",
           "id": "agent.share.kick",
@@ -3731,6 +3745,13 @@
           "id": "agent.share.revoke",
           "mcp": true,
           "mcpTool": "app_share_revoke"
+        },
+        {
+          "command": "cmux share uninvite",
+          "title": "Remove Invited Person",
+          "id": "agent.share.uninvite",
+          "mcp": true,
+          "mcpTool": "app_share_uninvite"
         }
       ]
     },

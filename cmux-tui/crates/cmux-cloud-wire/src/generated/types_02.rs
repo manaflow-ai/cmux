@@ -4,6 +4,63 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedPrefsPushDelay {
+    pub urgent: Option<i64>,
+    pub high: Option<i64>,
+    pub normal: Option<i64>,
+    pub low: Option<i64>,
+}
+
+wire_enum! {
+    FeedPriority {
+        Low = "low",
+        Normal = "normal",
+        High = "high",
+        Urgent = "urgent",
+    }
+}
+
+wire_enum! {
+    FeedState {
+        Open = "open",
+        Answered = "answered",
+        Cancelled = "cancelled",
+        Expired = "expired",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Grant {
+    pub id: GrantId,
+    pub grantee: String,
+    pub op_classes: Vec<OpClass>,
+    pub approval: GrantApproval,
+    pub expires_at: Option<i64>,
+    pub revoked_at: Option<i64>,
+    pub created_from: GrantCreatedFrom,
+}
+
+wire_enum! {
+    GrantApproval {
+        None = "none",
+        PerCall = "per_call",
+        PerSession = "per_session",
+    }
+}
+
+wire_enum! {
+    GrantCreatedFrom {
+        Install = "install",
+        Ui = "ui",
+        Automation = "automation",
+        StandingRule = "standing_rule",
+    }
+}
+
+/// A server-side grant; tokens carry only its id.
+pub type GrantId = String;
+
 /// A cloud group, minted by TeamDO (grp_ + 20 lowercase hex).
 pub type GroupId = String;
 
@@ -25,6 +82,14 @@ wire_enum! {
 }
 
 pub type GroupWorkspaceId = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Handoff {
+    pub id: String,
+    pub to: String,
+    pub epoch: i64,
+    pub at: i64,
+}
 
 /// Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: "poster"}.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -835,69 +900,5 @@ wire_enum! {
         AutomationDynamicWorkers = "automation.dynamic_workers",
         EgressRequests = "egress.requests",
         ModelSpendUsd = "model.spend_usd",
-    }
-}
-
-pub type NativeDeviceId = String;
-
-pub type NativeMeshId = String;
-
-pub type NativeTenantId = String;
-
-wire_enum! {
-    OpClass {
-        Read = "read",
-        MutateOwn = "mutate-own",
-        MutateShared = "mutate-shared",
-        Execute = "execute",
-        SendExternal = "send-external",
-        Money = "money",
-        Destructive = "destructive",
-        CloudLink = "cloud-link",
-        VmSelf = "vm-self",
-    }
-}
-
-/// A normalized pairing code: 8 Crockford base32 symbols, no hyphen.
-pub type PairingCode = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PairingInfo {
-    pub name: String,
-    pub platform: Platform,
-    pub os_version: String,
-    pub arch: PairingInfoArch,
-    pub cmux_version: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub capabilities: Option<Vec<ServerCapability>>,
-}
-
-wire_enum! {
-    PairingInfoArch {
-        X8664 = "x86_64",
-        Aarch64 = "aarch64",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PairingPreview {
-    pub code: PairingCode,
-    pub info: PairingInfo,
-    pub public_jwk: PublicJwk,
-    pub thumbprint: String,
-    pub country: Option<String>,
-    pub expires_at: i64,
-}
-
-/// user_<id>, agent_<name> or addr_<26> (an invited address).
-pub type ParticipantId = String;
-
-wire_enum! {
-    Platform {
-        Macos = "macos",
-        Ios = "ios",
-        Linux = "linux",
-        Windows = "windows",
-        Web = "web",
     }
 }

@@ -308,6 +308,19 @@ describe("ACL", () => {
     expect(await json(third)).toMatchObject({ budget: "aclApply.perMeshPerMinute", retryAfterSeconds: expect.any(Number) });
   });
 
+  it("commits no version when the apply fails partway, so the same apply sent again completes it", async () => {
+    const { key, meshId } = await meshWithPeers();
+    const rules = [{ src: ["device:*"], dst: ["vm:*"], allow: ["icmp", "tcp:22"] }];
+    h.mesh.failRuleCreates(503);
+    expect((await putAcl(key, meshId, 0, rules)).status).toBe(503);
+    expect(await json(await call(`/v1/meshes/${meshId}/acl`, key))).toMatchObject({ version: 0 });
+    h.mesh.failRuleCreates(null);
+    const retried = await putAcl(key, meshId, 0, rules);
+    expect(retried.status).toBe(200);
+    expect(await json(retried)).toMatchObject({ version: 1, ruleCount: 2 });
+    expect(h.mesh.rules.size).toBe(2);
+  });
+
   it("maps the provider's account rule limit to firewallRule.account", async () => {
     const { key, meshId } = await meshWithPeers();
     h.mesh.failRuleCreates(409);
@@ -337,6 +350,17 @@ describe("ACL", () => {
     expect(allowList).toContain('"port":8080');
     const none = await json(await call(`/v1/devices/${other.deviceId}/peers`, key));
     expect(none["peers"]).toEqual([]);
+  });
+
+  it("deleting a VM takes it out of the mesh, so a later attach still applies the ACL", async () => {
+    const { key, meshId, vm } = await meshWithPeers();
+    await putAcl(key, meshId, 0, [{ src: ["device:*"], dst: ["vm:*"], allow: ["icmp"] }]);
+    expect((await call(`/v1/vms/${vm.vmId}`, key, "DELETE")).status).toBe(204);
+    const next = h.addVm(A);
+    await attach(key, meshId, next.vmId);
+    const destinations = [...h.mesh.rules.values()].map((rule) => rule.destination["vmId"]);
+    expect(destinations).toContain(next.upstreamId);
+    expect(destinations).not.toContain(vm.upstreamId);
   });
 
   it("detaching a VM deletes its rules first", async () => {

@@ -295,10 +295,14 @@ public actor DaemonConnection {
         phase = .connecting
         serial += 1
         let serial = serial
+        // A failed attempt closes what it opened: left open, its reader kept running and the daemon,
+        // which already took the pipelined `subscribe`, streamed events into a gate that never opens.
+        var opened: LineTransport?
         do {
             let endpoint = try await endpointProvider()
             DaemonLaunchTimings.shared.mark("daemon.endpoint_resolved")
             let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge, latency: configuration.requestLatency)
+            opened = transport
             DaemonLaunchTimings.shared.mark("daemon.socket_connected")
             let gate = EventGate()
             let continuation = continuation
@@ -343,6 +347,7 @@ public actor DaemonConnection {
             logger.info("connected to cmux-tui \(identity.session, privacy: .public) pid \(identity.pid) gen \(identity.generation.rawValue, privacy: .public)")
             return identity
         } catch {
+            opened?.close()
             if case .connecting = phase { phase = .waiting }
             throw error
         }

@@ -132,6 +132,16 @@ fn input_surface(
     writer: &MessageWriter,
     id: SurfaceId,
 ) -> anyhow::Result<Arc<crate::Surface>> {
+    if mux.control_clients.input_lane.on() {
+        // R-DAEMON-STATE stage S1: the session's published routes give the terminal `id` routes to now (a respawn,
+        // close or move included) and the client registry's published facts say whether the client types into it.
+        // Neither takes a lock, so nothing is kept and nothing has to be invalidated.
+        let surface = get_surface(mux, id)?;
+        if mux.control_clients.types_into(client, id) {
+            writer.input_lane.mark_person_input();
+        }
+        return Ok(surface);
+    }
     if let Some((surface, can_type)) = mux.control_clients.attached_input_surface(client, id) {
         if can_type {
             writer.input_lane.mark_person_input();

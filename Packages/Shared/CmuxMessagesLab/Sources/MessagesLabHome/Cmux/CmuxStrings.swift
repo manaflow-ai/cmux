@@ -274,4 +274,10 @@ enum CmuxStrings {
     static func chiefCardChoiceSent(_ choice: String) -> String {
         String(format: String(localized: "home.card.choiceSent", defaultValue: "✓ %@ (sent)", table: "CmuxHome", bundle: .module), choice)
     }
+
+    /// A table card's menu item that opens a picture of a cell full size (`alt`: its description).
+    static func tableOpenPicture(_ alt: String) -> String {
+        let name = alt.isEmpty ? String(localized: "home.table.picture", defaultValue: "Picture", table: "CmuxHome", bundle: .module) : alt
+        return String(format: String(localized: "home.table.openPicture", defaultValue: "Open Picture: %@", table: "CmuxHome", bundle: .module), name)
+    }
 }

@@ -449,6 +449,7 @@ fn op_entry(conversation: String, key: String, op: Op) -> OutboxEntry {
         previews_until: None,
         plain_text: None,
         cards: Vec::new(),
+        pending_media: Vec::new(),
     }
 }
 

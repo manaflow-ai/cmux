@@ -274,6 +274,7 @@ fn send_with_sign_in_posts_a_secure_store_card() {
                 site: "linkedin.com".into(),
                 url: Some("https://www.linkedin.com/login".into()),
             }),
+            long: false,
         })
     });
     while !worker.is_finished() {

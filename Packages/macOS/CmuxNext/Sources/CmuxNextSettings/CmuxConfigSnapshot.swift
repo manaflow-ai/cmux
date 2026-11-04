@@ -196,7 +196,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var focusIndicator: FocusIndicator = PaneFocusSettings.focusIndicatorFallback
     /// `focus.inactiveTabStyle`; "fade" when unset or invalid.
     public var inactiveTabStyle: InactiveTabStyle = PaneFocusSettings.inactiveTabStyleFallback
-    /// `window.titlebar`; "minimal" when unset or invalid.
+    /// `window.titlebar`; "standard" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
     /// `window.titlebarButtons`; "hover" when unset or invalid.
     public var titlebarButtons: TitlebarButtonsMode = TitlebarButtonsSetting.fallback
@@ -320,7 +320,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
             return snapshot
         }
         snapshot.retiredKeys = SettingsSchema.retiredKeys.keys.filter { root.value(at: $0.split(separator: ".").map(String.init)) != nil }.sorted()
-        snapshot.diagnostics += Self.chatDiagnostics(root)
+        snapshot.diagnostics += Self.chatDiagnostics(root) + Self.imessageDiagnostics(root)
         let tabBar = SurfaceTabBarParser.parse(root, configDirectory: configDirectory)
         snapshot.tabBar = tabBar.tabBar
         snapshot.commandActions = tabBar.actions

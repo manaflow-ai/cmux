@@ -71,6 +71,7 @@ on:
       - skills/cmux-acpmux/SKILL.md
       - skills/cmux-browser/**
       - skills/cmux-cua/**
+      - skills/cmux-customization/**
       - skills/cmux/SKILL.md
       - .xcode-version
       - schemas/**
@@ -360,6 +361,7 @@ on:
       - skills/cmux-acpmux/SKILL.md
       - skills/cmux-browser/**
       - skills/cmux-cua/**
+      - skills/cmux-customization/**
       - skills/cmux/SKILL.md
       - .xcode-version
       - schemas/**
@@ -1996,6 +1998,7 @@ jobs:
             python3 tests/test_job_input_fingerprint.py
             # Only a pass from this repository's own runs is reused, never a fork's (scripts/ci/job_reuse.py).
             python3 tests/test_job_reuse.py
+            python3 tests/test_rebuild_mirror.py
             # The DEV Release app's key changes with every path that can reach it (dev-release-product).
             python3 tests/test_dev_release_product_key.py
             # A reused DEV Release app is trusted and intact, or the job compiles; DEV lane only.
@@ -2295,6 +2298,7 @@ jobs:
         run: |
           python3 tests/test_test_reds.py
           python3 tests/test_base_red_excuse.py
+          python3 tests/test_web_coalesce.py
 
       # The cmux NEXT DEV update script (an unchanged build is left alone; an
       # update keeps sessions and reopens the app) and the classic session import.
@@ -3446,10 +3450,14 @@ jobs:
       # own under any key.
       - name: Fingerprint this job's inputs
         id: reuse-key
-        if: ${{ vars.CI_NEXT_JOB_REUSE == '1' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ (format('{0}', vars.CI_REBUILD_MIRROR) != '0' || vars.CI_NEXT_JOB_REUSE == '1') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MIRROR_PLAN: ${{ format('{0}', vars.CI_REBUILD_MIRROR) != '0' && format('{0}/ci-rebuild-plan.json', runner.temp) || '' }}
+          REBUILD_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          python3 -I scripts/ci/job_input_fingerprint.py fast-tier-cargo \
+          python3 -I scripts/ci/job_input_fingerprint.py fast-tier-cargo --mirror-plan "$MIRROR_PLAN" \
             --extra "runner=${{ runner.os }}-${{ runner.arch }}" \
             --extra "rustc=$(rustc -Vv | tr '\n' ' ')" \
             --extra "cargo=$(cargo -V)" \
@@ -3459,7 +3467,7 @@ jobs:
 
       - name: Look for a pass on the same inputs
         id: reuse
-        if: ${{ steps.reuse-key.outputs.key != '' && inputs.no_reuse != true }}
+        if: ${{ format('{0}', vars.CI_REBUILD_MIRROR) == '0' && vars.CI_NEXT_JOB_REUSE == '1' && steps.reuse-key.outputs.key != '' && inputs.no_reuse != true }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -3510,6 +3518,42 @@ jobs:
           path: ${{ runner.temp }}/cmux-next-fast-tier-cargo.json
           if-no-files-found: warn
           retention-days: 3
+
+      # Observe the candidate and the full run together. Until the measured
+      # rollout is promoted, no candidate (or whole-tree hit) skips this job.
+      # CI_REBUILD_MIRROR=0 restores the existing whole-tree reuse path.
+      - name: Record rebuild mirror outcome
+        id: rebuild-mirror
+        if: ${{ always() && steps.reuse.outputs.hit != 'true' && steps.reuse-key.outputs.mirror == 'true' }}
+        continue-on-error: true
+        env:
+          JOB_OUTCOME: ${{ job.status }}
+        run: |
+          python3 -I scripts/ci/rebuild_mirror.py finish \
+            --plan "$RUNNER_TEMP/ci-rebuild-plan.json" --outcome "$JOB_OUTCOME" \
+            --execution-receipt "$RUNNER_TEMP/cmux-next-fast-tier-cargo.json" \
+            --output "$RUNNER_TEMP/ci-rebuild-result.json" >> "$GITHUB_OUTPUT"
+
+      - name: Upload rebuild mirror observation
+        if: ${{ always() && steps.reuse.outputs.hit != 'true' && steps.reuse-key.outputs.mirror == 'true' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-rebuild-mirror-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ci-rebuild-result.json
+          if-no-files-found: warn
+          retention-days: 3
+
+      - name: Save observed candidate pass
+        if: ${{ success() && steps.reuse.outputs.hit != 'true' && steps.rebuild-mirror.outputs.key != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.rebuild-mirror.outputs.key }}
+          path: ${{ runner.temp }}/ci-rebuild-result.json
+          if-no-files-found: error
+          retention-days: 3
+          overwrite: true
 
       # A pass records itself for the next run on the same inputs: an artifact named after
       # the key, which every pull request and the base can list (scripts/ci/job_reuse.py
@@ -3873,6 +3917,7 @@ jobs:
       # Control tests use tight request deadlines and run in their own process so
       # they do not compete with the other MainActor-isolated suites.
       - name: Run package tests (changed suites first, then selected targets)
+        id: broad-tests
         if: ${{ (env.SWIFT_TARGETS != '') && steps.reuse.outputs.hit != 'true' }}
         timeout-minutes: 40
         working-directory: Packages/macOS/CmuxNext
@@ -3948,13 +3993,32 @@ jobs:
           broad_status=0
           if CMUX_NEXT_TUI_TREE_PATH="$tree_path" python3 ../../../scripts/cmux-next/swift-test-shards.py run --targets "$SWIFT_TARGETS" \
               --exclude CmuxNextControlTests --wrapper ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh \
-              --deadline "$deadline" -- ${priority_skip[@]+"${priority_skip[@]}"} --skip BranchStateResourcesTests \
+              --deadline "$deadline" --spill "$RUNNER_TEMP/cmux-next-spilled-shards.json" \
+              -- ${priority_skip[@]+"${priority_skip[@]}"} --skip BranchStateResourcesTests \
               --skip CloudBringBackTests --skip CommitBoundaryAppKitTests ${heavy_skip[@]+"${heavy_skip[@]}"}; then
             :
           else
             broad_status=$?
           fi
           (( priority_status == 0 && broad_status == 0 ))
+
+      # The shards the broad pass had no time for. Each shard there started with the time left to
+      # the pass's deadline, so one slow shard cut the next ones short: in run 41665450504 shard 13
+      # took 867 s and shards 14 and 15 were killed at a 60 s limit, 0 of 447 finished tests red,
+      # and a cut-short run is never a base red. A shard with under its floor left (450 s, the p90
+      # of 28 measured shards; swift-test-shards.py SHARD_FLOOR_SECONDS) is spilled here and runs
+      # with a deadline of its own. It runs after a red broad pass too, so its verdict is not lost.
+      - name: Run package test shards the broad pass spilled
+        if: ${{ (!cancelled() && (steps.broad-tests.outcome == 'success' || steps.broad-tests.outcome == 'failure')) && steps.reuse.outputs.hit != 'true' }}
+        timeout-minutes: 30
+        working-directory: Packages/macOS/CmuxNext
+        env:
+          SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "1"
+        run: |
+          set -euo pipefail
+          deadline=$(( $(date +%s) + 1680 ))
+          python3 ../../../scripts/cmux-next/swift-test-shards.py spilled --from "$RUNNER_TEMP/cmux-next-spilled-shards.json" \
+            --wrapper ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --deadline "$deadline"
 
       # Cloud bring-back round trips launch two daemons and mutate shared
       # AppKit/registry state. Run each case in a fresh process so a prior

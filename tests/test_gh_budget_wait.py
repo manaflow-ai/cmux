@@ -401,9 +401,10 @@ class WorkflowTests(unittest.TestCase):
 
     def test_the_attestation_reserves_budget_and_its_retry_shares_the_ledger(self) -> None:
         job = self.jobs["attest-nightly-remote-daemon"]
-        # A quota wait never holds a Mac: the Linux runner set, as every Linux nightly job
-        # (test_nightly_trusted_routing).
+        # The all-nightly reservation (an owned nightly-only mini) first, then the Linux runner set,
+        # as route-visual-gate-nightly (test_nightly_trusted_routing); never a hosted or pooled Mac.
         self.assertNotIn("macos", job["runs-on"])
+        self.assertIn("vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro'", job["runs-on"])
         self.assertIn("blacksmith-32vcpu-ubuntu-2404", job["runs-on"])
         self.assertEqual(job["needs"], ["build-nightly-remote-daemon"])
         self.assertGreaterEqual(int(job["timeout-minutes"]), 65)
