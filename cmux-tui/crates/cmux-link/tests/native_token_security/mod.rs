@@ -312,7 +312,10 @@ fn native_token_receiver_refuses_ambiguous_stale_and_cross_mesh_snapshots() {
                 }
                 p.peers.push(other);
             }
-            "long_lease" => p.expires_at_ms += 1,
+            "long_lease" => {
+                p.expires_at_ms =
+                    p.checked_at_ms + cmux_link::native_token::MAX_POLICY_LEASE_MS + 1;
+            }
             "delayed" => p.request_started -= Duration::from_secs(30),
             "future" => p.checked_at_ms += 1,
             "device" => p.peers[0].binding.device = "dev_invalid".into(),

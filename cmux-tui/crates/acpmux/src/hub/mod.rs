@@ -78,6 +78,7 @@ mod health_view;
 mod held_asks;
 pub(super) mod idle;
 mod idle_census;
+mod person_prompt_at;
 pub(crate) use idle::SessionAtWork;
 mod tool_start;
 pub(crate) use idle_census::LaunchServers;
@@ -143,6 +144,7 @@ pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_k
 mod profile_respawn;
 mod resolve;
 mod route_switch;
+mod stale_host_respawn;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
@@ -670,8 +672,10 @@ pub struct Hub {
     pub(super) idle_wake: Arc<Notify>,
     pub(super) idle_reaper: AtomicBool,
     /// The clocks at the last gap check, and how many gaps were seen (`resume.rs`).
-    pub(super) resume_watch: StdMutex<crate::resume::ResumeWatch>,
+    pub(super) resume_watch: Arc<resume::ResumeState>,
     pub(super) resumes: tokio::sync::watch::Sender<u64>,
+    /// When a person last prompted a chat here, Unix ms, 0 for never (`person_prompt_at.rs`).
+    pub(super) person_prompts: tokio::sync::watch::Sender<u64>,
     /// Set when `shutdown_all` starts: the idle reaper stops for good.
     pub(super) stopping: AtomicBool,
     /// Held by one idle reaper pass; shutdown waits for it after `stopping`.
@@ -952,6 +956,7 @@ impl Hub {
             idle_reaper: AtomicBool::new(false),
             resume_watch: resume::new_watch(),
             resumes: tokio::sync::watch::channel(0).0,
+            person_prompts: tokio::sync::watch::channel(0).0,
             stopping: AtomicBool::new(false),
             idle_pass: Mutex::new(()),
             pool: Arc::new(pool::PoolState::new()),
@@ -1046,7 +1051,6 @@ impl Hub {
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
             if !loading {
-                hub.watch_transfers();
                 hub.watch_orphans();
                 hub.bg_notify_resume();
             }
@@ -1331,6 +1335,8 @@ impl Hub {
             team_information: Default::default(),
             queue_moved: Notify::new(),
             moving: StdMutex::new(moving),
+            ownership_epoch: AtomicU64::new(0),
+            ownership_epoch_valid: AtomicBool::new(true),
             transfer_authority: StdMutex::new(Some((0, false))),
             restored: StdMutex::new(Vec::new()),
             inbox_digests: StdMutex::new(HashMap::new()),
