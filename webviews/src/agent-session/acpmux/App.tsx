@@ -180,10 +180,8 @@ import { usePickerCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
 import { applySwitch, browserSwitchClock, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { NewChatPrewarm, type PrewarmTarget } from "./newChatPrewarm";
-<<<<<<< ours
 import { harnessModeName, highestMode } from "./harnessModes";
 import { CloudTypingPrewarm } from "./cloudTypingPrewarm";
->>>>>>> theirs
 import { harnessProfiles } from "./harnessProfiles";
 import { setStartModeSource } from "./startMode";
 import { setPromptSurfaces } from "./surfaces/promptSurface";
