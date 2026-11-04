@@ -3,8 +3,8 @@
 // showed one escaped JSON line with the host's injected `<in-app-browser-context>` in it. Now a
 // run of the same MCP tool is one line that says what it did to what ("Sent 4 messages to
 // Coordination hub", the thread's id resolved to its title from another call's output), a call
-// opens to its request and response pretty-printed, nested JSON strings parsed, and internal
-// context blocks never reach the transcript.
+// opens to its useful result first, with the original request and response one Raw click away.
+// Nested JSON strings are parsed and internal context blocks never reach the transcript.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -103,6 +103,10 @@ async function render(items: AcpmuxActivity[]) {
 
 const labels = () => [...host.querySelectorAll(".cv-tool__text")].map((node) => node.textContent?.trim());
 const toggles = () => [...host.querySelectorAll<HTMLButtonElement>("button.cv-tool")];
+const rawToggles = () =>
+  [...host.querySelectorAll<HTMLButtonElement>("button.cv-subsession__toggle")].filter(
+    (button) => button.textContent?.trim() === "Raw",
+  );
 const click = async (button: HTMLButtonElement) =>
   act(async () => {
     button.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
@@ -126,19 +130,30 @@ for (const [harness, call] of [
     expect(host.textContent).not.toContain("schemaVersion");
   });
 
-  test(`${harness}: an opened MCP call shows its request and response pretty-printed, without internal context`, async () => {
+  test(`${harness}: an opened MCP call shows useful results before its original request and response`, async () => {
     await render([call("r1", "read_thread", { threadId: THREAD }, readOutput)]);
     await click(toggles()[0]!);
-    const blocks = [...host.querySelectorAll(".cv-mcp-call__body, .cv-tool-output")].map(
+    expect(host.textContent).toContain("Coordination hub");
+    expect(host.textContent).toContain("ship it");
+    expect(host.textContent).not.toContain('"threadId"');
+    expect(host.textContent).not.toContain('"schemaVersion"');
+    expect(host.querySelector(".cv-mcp-call__name")).toBeNull();
+    expect(rawToggles()).toHaveLength(1);
+    expect(rawToggles()[0]!.getAttribute("aria-expanded")).toBe("false");
+
+    await click(rawToggles()[0]!);
+    const original = host.querySelector(".cv-subsession__raw .cv-mcp-call")!;
+    const blocks = [...original.querySelectorAll(".cv-mcp-call__body, .cv-tool-output")].map(
       (node) => node.textContent ?? "",
     );
     expect(blocks).toHaveLength(2);
     expect(blocks[0]).toBe(`{\n  "threadId": "${THREAD}"\n}`);
-    // The text block's JSON string is parsed, not shown escaped.
+    // One Raw click exposes both original parts, with nested JSON parsed instead of escaped.
     expect(blocks[1]).toContain('"schemaVersion": 1');
     expect(blocks[1]).toContain('"title": "Coordination hub"');
     expect(blocks[1]).toContain('"preview": "ship it"');
     expect(blocks[1]).not.toContain('\\"');
+    expect(rawToggles()).toHaveLength(1);
     expect(host.textContent).not.toContain("in-app-browser-context");
     expect(host.textContent).not.toContain("ambient UI state");
   });
@@ -159,12 +174,18 @@ for (const [harness, call] of [
       await click(toggles()[0]!);
       const details = host.querySelector(".cv-mcp-call")!;
       expect(details.textContent).toContain("blocked by hook");
-      expect(details.textContent).toContain(THREAD);
+      expect(details.textContent).not.toContain(THREAD);
       expect(details.textContent).not.toContain("PreToolUse");
       expect(details.textContent).not.toContain("guard.sh");
       expect(details.textContent).not.toContain("Blocked:");
       if (reason) expect(details.textContent).toContain(reason);
       else expect(details.querySelector(".cv-tool-output")).toBeNull();
+      await click(rawToggles()[0]!);
+      expect(details.textContent).toContain(THREAD);
+      expect(details.textContent).not.toContain("PreToolUse");
+      expect(details.textContent).not.toContain("guard.sh");
+      expect(details.textContent).not.toContain("Blocked:");
+      if (reason) expect(details.textContent).toContain(reason);
       const { activityText } = await import("../src/agent-session/acpmux/conversation/chatFind");
       expect(activityText(item)).not.toContain("PreToolUse");
       expect(activityText(item)).not.toContain("guard.sh");
@@ -199,7 +220,7 @@ for (const [harness, call] of [
     expect(menuPartAt(host.querySelector(".cv-tool-output-card"))?.output).toBe(text);
   });
 
-  test(`${harness}: a send group opens to one row per call, each opening to its own request`, async () => {
+  test(`${harness}: a send group opens to one row per call, each with its own request behind Raw`, async () => {
     await render([
       call("s1", "send_message", { threadId: THREAD, message: "one" }, "{}"),
       call("s2", "send_message", { threadId: THREAD, message: "two" }, "{}"),
@@ -209,7 +230,10 @@ for (const [harness, call] of [
     await click(toggles()[0]!);
     expect(labels()).toEqual(["Sent 2 messages", "Sent a message", "Sent a message"]);
     await click(toggles()[2]!);
-    const blocks = [...host.querySelectorAll(".cv-mcp-call__body, .cv-tool-output")].map(
+    expect(host.textContent).not.toContain('"message"');
+    expect(rawToggles()).toHaveLength(1);
+    await click(rawToggles()[0]!);
+    const blocks = [...host.querySelectorAll(".cv-subsession__raw .cv-mcp-call__body")].map(
       (node) => node.textContent ?? "",
     );
     expect(blocks[0]).toContain('"message": "two"');
@@ -317,4 +341,36 @@ test("three running MCP calls show no spinner, header or rows", async () => {
   expect(host.querySelectorAll(".cv-spinner")).toHaveLength(0);
   await render([items[0]!]);
   expect(host.querySelectorAll(".cv-spinner")).toHaveLength(0);
+});
+
+test("the exported MCP details expose request and response after one existing consumer Raw click", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { McpCallDetails } = await import("../src/agent-session/acpmux/conversation/McpCallRows");
+  const { RawToggle } = await import("../src/agent-session/acpmux/conversation/SentMessageLine");
+  const { mcpCall } = await import("../src/agent-session/acpmux/conversation/mcpCalls");
+  const item = claudeCall("raw-consumer", "read_thread", { threadId: THREAD }, readOutput);
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <RawToggle>
+        <McpCallDetails
+          id="existing-raw-consumer"
+          call={mcpCall(item.tool!)!}
+          raw={item.tool!.title}
+          output={item.tool!.output}
+          tool={item.tool}
+          strip={false}
+          reveal={0}
+        />
+      </RawToggle>,
+    ),
+  );
+  expect(rawToggles()).toHaveLength(1);
+  expect(host.textContent).not.toContain('"threadId"');
+  await click(rawToggles()[0]!);
+  expect(host.textContent).toContain(`"threadId": "${THREAD}"`);
+  expect(host.textContent).toContain('"preview": "ship it"');
+  expect(rawToggles()).toHaveLength(1);
+  expect(host.querySelectorAll(".cv-mcp-call")).toHaveLength(1);
 });

@@ -1,7 +1,7 @@
 // MCP calls open to useful values, output, diffs or captures. Request/response plumbing stays
 // available behind Raw, including when Find reveals a match in the original call.
 import { useFindReveal } from "./chatFind";
-import { memo, type ReactNode, useContext, useEffect, useId, useMemo, useState } from "react";
+import { memo, type ReactNode, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { stripsEnvelopeImages, toolImages } from "../toolImages";
@@ -148,26 +148,43 @@ export const McpCallRow = memo(function McpCallRow({ item }: { item: AcpmuxActiv
   // An MCP server's error is often JSON: its message, in one line (toolFailure.ts).
   const failure = useMemo(() => (tool.status === "failed" ? toolFailure(tool) : undefined), [tool]);
   const summary = usefulMcpResponse(outcome?.summary);
-  const hasArgs = call.args != null && (typeof call.args === "object"
-    ? Object.keys(call.args).some((key) => key !== "description")
-    : String(call.args).trim().length > 0);
+  const hasArgs =
+    call.args != null &&
+    (typeof call.args === "object"
+      ? Object.keys(call.args).some((key) => key !== "description")
+      : String(call.args).trim().length > 0);
   const hasOutput = !isMcpLifecycleOutput(tool.output);
-  const expandable = Boolean(exec || hasArgs || hasOutput || images.length || video || failure || tool.diffs?.length);
+  const hasDetails = Boolean(exec || hasArgs || hasOutput || images.length || video || failure || tool.diffs?.length);
+  const labelRef = useRef<HTMLSpanElement>(null);
+  const [clipped, setClipped] = useState(false);
+  const expandable = hasDetails || clipped;
+  // An empty step is inert unless its one-line description needs room to be read.
+  useLayoutEffect(() => {
+    const node = labelRef.current;
+    if (hasDetails || open || !node) return;
+    const measure = () => setClipped(node.clientWidth > 0 && node.scrollWidth > node.clientWidth);
+    measure();
+    const Observer = node.ownerDocument.defaultView?.ResizeObserver;
+    if (!Observer) return;
+    const observer = new Observer(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasDetails, open, label, expandable]);
   const Row = expandable ? "button" : "div";
   return (
     <>
       <Row
         type={expandable ? "button" : undefined}
-        className={`cv-tool${expandable ? " is-toggle" : ""}${running ? " is-live" : " is-strong"}`}
+        className={`cv-tool${expandable ? " is-toggle is-whole-open" : ""}${running ? " is-live" : " is-strong"}`}
         aria-expanded={expandable ? open : undefined}
-        aria-controls={expandable && open ? detailsId : undefined}
+        aria-controls={hasDetails && open ? detailsId : undefined}
         ref={fold.headerRef}
         onClick={expandable ? fold.toggle : undefined}
       >
         <span className="cv-tool__icon">
           <ToolGroup size={16} strokeWidth={1.2} />
         </span>
-        <span className="cv-tool__text" data-find-skip>
+        <span ref={labelRef} className="cv-tool__text" data-find-skip>
           <ToolLabel text={label} />
           {failure ? (
             <span className="cv-tool__failed"> {failureWord(t, failure)}</span>
@@ -183,21 +200,23 @@ export const McpCallRow = memo(function McpCallRow({ item }: { item: AcpmuxActiv
             <ApprovedMark />
           </span>
         )}
-        {expandable && <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />}
+        {expandable && (
+          <ChevronRight
+            size={14}
+            strokeWidth={1.2}
+            className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
+          />
+        )}
       </Row>
       <ToolFailureCause failure={failure} />
       {video && <VideoFramesCard video={video} />}
-      {expandable && fold.present && (
+      {hasDetails && fold.present && (
         <div {...fold.bodyProps}>
           {images.length > 0 && <ToolImages sources={images} />}
           {exec && failure?.kind !== "hook" ? (
             <CmuxExecDetails id={detailsId} tool={tool} call={call} raw={raw} reveal={reveal} />
           ) : (
-            <McpCallDetails
+            <UsefulMcpCallDetails
               id={detailsId}
               call={call}
               raw={raw}
@@ -240,6 +259,80 @@ function requestPresentation(request: string, alternatives: Readonly<Record<stri
 /// The opened call: its request as a tight block, then its response in the same readable body as
 /// other tool outputs (ToolOutputBody.tsx: rendered Markdown or Raw, all lines on request); a part
 /// with nothing in it is left out. A sub-session card's Raw shows the same.
+function UsefulMcpCallDetails({
+  id,
+  call,
+  raw,
+  output,
+  tool,
+  strip,
+  reveal,
+  requestFindAlternatives = {},
+}: {
+  id: string;
+  call: McpCall;
+  raw: string;
+  output?: string;
+  /// The original call distinguishes a hook refusal from output that merely quotes one.
+  tool?: NonNullable<AcpmuxActivity["tool"]>;
+  /// Whether the call's strip shows its envelope's images, which its response then leaves out.
+  strip: boolean;
+  reveal: number;
+  /// Maps string arguments to their rendered data-find-primary identity.
+  requestFindAlternatives?: Readonly<Record<string, string>>;
+}) {
+  const t = useT();
+  const failure = useMemo(() => (tool ? toolFailure(tool) : undefined), [tool]);
+  const blocked = failure?.kind === "hook";
+  const shownOutput = blocked ? failure.output : output;
+  const original = useMemo(() => mcpOutputResult(shownOutput, strip, call.tool), [shownOutput, strip, call.tool]);
+  const useful = useMemo(
+    () => usefulMcpResponse(original?.text) ?? (failure ? original?.text : undefined),
+    [original, failure],
+  );
+  const response = useMemo(() => mcpOutputResult(useful, false, call.tool), [useful, call.tool]);
+  const primary = useMemo(() => usefulMcpRequest(call.args), [call]);
+  const files = useMemo(() => (tool?.diffs?.length ? toolFiles([tool]) : []), [tool]);
+  const [rawOpen, setRawOpen] = useState(reveal > 0);
+  useEffect(() => {
+    if (reveal > 0) setRawOpen(true);
+  }, [reveal]);
+  return (
+    <div id={id} className="cv-mcp-call" ref={menuPartRef({ output: original?.text })}>
+      <div data-find-skip={rawOpen || undefined}>
+        {blocked && (
+          <div className="cv-mcp-call__head" data-find-skip>
+            {t("tools.blockedByHook")}
+          </div>
+        )}
+        {files.map((file) => (
+          <EditDiff key={file.path} file={file} />
+        ))}
+        {primary.command ? (
+          <ShellBlock command={primary.command} output={useful} exitCode={tool?.exitCode} reveal={reveal} />
+        ) : (
+          <>
+            {primary.context && <pre className="cv-mcp-call__body selectable">{primary.context}</pre>}
+            {response && <ToolOutput result={response} reveal={reveal} />}
+          </>
+        )}
+      </div>
+      <RawToggle open={rawOpen} onOpenChange={setRawOpen}>
+        <McpCallDetails
+          id={`${id}-raw`}
+          call={call}
+          raw={raw}
+          output={output}
+          tool={tool}
+          strip={strip}
+          reveal={reveal}
+          requestFindAlternatives={requestFindAlternatives}
+        />
+      </RawToggle>
+    </div>
+  );
+}
+
 export function McpCallDetails({
   id,
   call,
@@ -267,46 +360,31 @@ export function McpCallDetails({
   const failure = useMemo(() => (tool ? toolFailure(tool) : undefined), [tool]);
   const blocked = failure?.kind === "hook";
   const shownOutput = blocked ? failure.output : output;
-  const original = useMemo(() => mcpOutputResult(shownOutput, strip, call.tool), [shownOutput, strip, call.tool]);
-  const useful = useMemo(() => usefulMcpResponse(original?.text) ?? (failure ? original?.text : undefined), [original, failure]);
-  const response = useMemo(() => mcpOutputResult(useful, false, call.tool), [useful, call.tool]);
-  const primary = useMemo(() => usefulMcpRequest(call.args), [call]);
-  const files = useMemo(() => tool?.diffs?.length ? toolFiles([tool]) : [], [tool]);
-  const [rawOpen, setRawOpen] = useState(reveal > 0);
-  useEffect(() => { if (reveal > 0) setRawOpen(true); }, [reveal]);
+  const response = useMemo(() => mcpOutputResult(shownOutput, strip, call.tool), [shownOutput, strip, call.tool]);
   const requestBox = useMoreBelow<HTMLPreElement>(request);
   return (
-    <div id={id} className="cv-mcp-call" ref={menuPartRef({ output: original?.text })}>
-      <div data-find-skip={rawOpen || undefined}>
-        {files.map((file) => <EditDiff key={file.path} file={file} />)}
-        {primary.command ? (
-          <ShellBlock command={primary.command} output={useful} exitCode={tool?.exitCode} reveal={reveal} />
-        ) : (
-          <>
-            {primary.context && <pre className="cv-mcp-call__body selectable">{primary.context}</pre>}
-            {response && <ToolOutput result={response} reveal={reveal} />}
-          </>
-        )}
-      </div>
-      <RawToggle open={rawOpen} onOpenChange={setRawOpen}>
-        <code className="cv-mcp-call__name selectable" data-find-skip>{raw}</code>
-        {request && (
-          <div className="cv-mcp-call__part">
-            <div className="cv-mcp-call__head" data-find-skip>{t("tools.mcp.request")}</div>
-            <pre ref={requestBox} className="cv-mcp-call__body selectable">
-              {requestPresentation(request, requestFindAlternatives)}
-            </pre>
+    <div id={id} className="cv-mcp-call" ref={menuPartRef({ output: response?.text })}>
+      <code className="cv-mcp-call__name selectable" data-find-skip>
+        {raw}
+      </code>
+      {request && (
+        <div className="cv-mcp-call__part">
+          <div className="cv-mcp-call__head" data-find-skip>
+            {t("tools.mcp.request")}
           </div>
-        )}
-        {original && (
-          <div className="cv-mcp-call__part">
-            <div className="cv-mcp-call__head" data-find-skip>
-              {blocked ? t("tools.blockedByHook") : t("tools.mcp.response")}
-            </div>
-            <ToolOutput result={original} reveal={reveal} />
+          <pre ref={requestBox} className="cv-mcp-call__body selectable">
+            {requestPresentation(request, requestFindAlternatives)}
+          </pre>
+        </div>
+      )}
+      {(response || blocked) && (
+        <div className="cv-mcp-call__part">
+          <div className="cv-mcp-call__head" data-find-skip>
+            {blocked ? t("tools.blockedByHook") : t("tools.mcp.response")}
           </div>
-        )}
-      </RawToggle>
+          {response && <ToolOutput result={response} reveal={reveal} />}
+        </div>
+      )}
     </div>
   );
 }

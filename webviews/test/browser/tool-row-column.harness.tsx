@@ -75,10 +75,15 @@ function App() {
   const width = Number(params.get("width") ?? 760);
   const look = params.get("look");
   const working = params.get("working") === "1";
-  const projected = params.get("fixture") === "mixed" ? turnView(
-    mixedToolTurnFixture(working), new Set(["worked-mixed-prompt"]),
-    { agentFamily: params.get("harness") ?? "claude", working, liveRuns: true, lineBelow: true },
-  ).find((row) => row.kind === "activity") : undefined;
+  const projected =
+    params.get("fixture") === "mixed"
+      ? turnView(mixedToolTurnFixture(working), new Set(["worked-mixed-prompt"]), {
+          agentFamily: params.get("harness") ?? "claude",
+          working,
+          liveRuns: true,
+          lineBelow: true,
+        }).find((row) => row.kind === "activity")
+      : undefined;
   if (look) document.documentElement.dataset.toolStepsLook = look;
   if (params.get("fixture") === "script") return <CmuxExecGallery look="after" mode={theme} />;
   return (
@@ -96,9 +101,11 @@ function App() {
         } as CSSProperties
       }
     >
-      {projected && <div data-fixture-mixed>
-        <ToolRows row={projected} sessionId="mixed-fixture" />
-      </div>}
+      {projected && (
+        <div data-fixture-mixed>
+          <ToolRows row={projected} sessionId="mixed-fixture" />
+        </div>
+      )}
       <div className="acpmux-row" style={{ position: "relative", left: 0, right: 0, width: "100%" }}>
         <div className="cv-tools" data-fixture-column>
           <ToolRow item={lone} />

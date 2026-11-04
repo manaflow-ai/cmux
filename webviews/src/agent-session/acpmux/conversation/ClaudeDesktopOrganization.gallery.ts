@@ -109,7 +109,10 @@ const openRun: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-steps"), { capMs: 10_000 });
 };
 
-const variant = (look: "shared" | "guide" | "card" | "tree" | "zebra" | "ios-sheet", note: string): AgentPaneVariant => ({
+const variant = (
+  look: "shared" | "guide" | "card" | "tree" | "zebra" | "ios-sheet",
+  note: string,
+): AgentPaneVariant => ({
   note,
   snapshot: chat(turn(), { title: "Stop retrying client errors" }),
   ...(look === "ios-sheet" ? {} : { documentAttributes: { "tool-steps-look": look } }),
@@ -119,7 +122,12 @@ const variant = (look: "shared" | "guide" | "card" | "tree" | "zebra" | "ios-she
 function mixedVariant(harness: "claude" | "codex", working: boolean): AgentPaneVariant {
   return {
     note: `${harness}, ${working ? "live" : "finished"}: raw turn rows project through the app into mixed steps, with discovery noise omitted.`,
-    snapshot: chat(mixedToolTurnFixture(working), { title: "Mixed tool steps", harness, model: harness === "codex" ? "gpt-6-astra" : "claude-opus-5-5", isWorking: working }),
+    snapshot: chat(mixedToolTurnFixture(working), {
+      title: "Mixed tool steps",
+      harness,
+      model: harness === "codex" ? "gpt-6-astra" : "claude-opus-5-5",
+      isWorking: working,
+    }),
     play: async (ctx) => {
       await ctx.waitFor(() => ctx.document.querySelector(".cv-worked, .cv-tool.is-run"), { capMs: 10_000 });
       const worked = ctx.document.querySelector(".cv-worked");

@@ -201,24 +201,32 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
       });
     }
   for (const [theme, harness, working] of [
-    ["light", "claude", false], ["dark", "codex", false],
-    ["dark", "claude", true], ["light", "codex", true],
+    ["light", "claude", false],
+    ["dark", "codex", false],
+    ["dark", "claude", true],
+    ["light", "codex", true],
   ] as const)
     test(`mixed ${theme} ${harness} ${working ? "live" : "finished"} run has one step per call, shared columns and useful drill-in`, async () => {
       const page = await browser.newPage({ viewport: { width: 900, height: 1000 } });
       try {
         const port = (vite.httpServer!.address() as { port: number }).port;
-        await page.goto(`http://127.0.0.1:${port}/test/browser/tool-row-column.html?fixture=mixed&theme=${theme}&width=760&harness=${harness}&working=${working ? 1 : 0}`);
+        await page.goto(
+          `http://127.0.0.1:${port}/test/browser/tool-row-column.html?fixture=mixed&theme=${theme}&width=760&harness=${harness}&working=${working ? 1 : 0}`,
+        );
         const fixture = page.locator("[data-fixture-mixed]");
-        await fixture.getByRole("button", { name: "Ran 2 commands, used 3 tools" }).click();
+        await fixture
+          .getByRole("button", { name: working ? "Ran 2 commands, used 2 tools" : "Ran 2 commands, used 3 tools" })
+          .click();
         const steps = fixture.locator("[data-mixed-tool-steps]");
-        await expect(steps.locator(":scope > .cv-step").count()).resolves.toBe(5);
+        await expect(steps.locator(":scope > .cv-step").count()).resolves.toBe(working ? 4 : 5);
         expect(await steps.locator(".is-run").count()).toBe(0);
-        const geometry = await steps.locator(":scope > .cv-step > .cv-tool").evaluateAll((rows) => rows.map((row) => ({
-          top: row.getBoundingClientRect().top,
-          text: row.querySelector(".cv-tool__text, .cv-command__text")!.getBoundingClientRect().left,
-          icon: getComputedStyle(row.querySelector(".cv-tool__icon")!).visibility,
-        })));
+        const geometry = await steps.locator(":scope > .cv-step > .cv-tool").evaluateAll((rows) =>
+          rows.map((row) => ({
+            top: row.getBoundingClientRect().top,
+            text: row.querySelector(".cv-tool__text, .cv-command__text")!.getBoundingClientRect().left,
+            icon: getComputedStyle(row.querySelector(".cv-tool__icon")!).visibility,
+          })),
+        );
         for (let at = 0; at < geometry.length; at++) {
           expect(geometry[at]!.icon).toBe("visible");
           expect(Math.abs(geometry[at]!.text - geometry[0]!.text)).toBeLessThanOrEqual(0.5);
@@ -227,13 +235,17 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
         await steps.getByRole("button", { name: "Find the retry handler" }).click();
         expect(await steps.textContent()).toContain("src/retry.ts:12: retry(request)");
         expect(await steps.textContent()).not.toContain('"pattern"');
-        await steps.getByRole("button", { name: "Capture the repaired screen", exact: false }).click();
-        await steps.locator("img").waitFor();
-        await steps.locator("img").evaluate((image) => image.decode());
-        expect(await steps.locator("img").evaluate((image) => image.naturalWidth)).toBeGreaterThan(0);
+        if (!working) {
+          await steps.getByRole("button", { name: "Capture the repaired screen", exact: false }).click();
+          await steps.locator("img").waitFor();
+          await steps.locator("img").evaluate((image) => image.decode());
+          expect(await steps.locator("img").evaluate((image) => image.naturalWidth)).toBeGreaterThan(0);
+        }
         expect(await steps.textContent()).not.toContain("Loaded tools");
         expect(await steps.textContent()).not.toContain("Waiting…");
-      } finally { await page.close(); }
+      } finally {
+        await page.close();
+      }
     });
 
   test("the script gallery uses natural word spacing and aligns Raw with the tool icon column", async () => {

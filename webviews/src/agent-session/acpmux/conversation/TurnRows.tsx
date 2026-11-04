@@ -221,7 +221,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
   // Keep the original transcript for copy/export and reveal discovery calls when Find names them.
   const revealing = reveal && isRevealRow(row, reveal);
   const items = useMemo(
-    () => revealing ? row.items : row.items?.filter((item) => !isToolDiscoveryNoise(item.tool)),
+    () => (revealing ? row.items : row.items?.filter((item) => !isToolDiscoveryNoise(item.tool))),
     [row.items, revealing],
   );
   const groups = useMemo(() => toolGroups(items ?? []), [items]);
@@ -229,18 +229,20 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
   const stretches = useMemo(() => runStretches({ foldRun }, groups), [foldRun, groups]);
   const thoughts = useMemo(() => thoughtIds(groups), [groups]);
   const nodes = stretches.map((stretch) => {
-    const drawn = !stretch.fold && stretch.groups.map((group, offset) => {
-      const at = stretch.from + offset;
-      return groupNode(
-        group,
-        at,
-        row.id,
-        row.at,
-        row.live === true && at === groups.length - 1,
-        row.foldRun === true && !stretch.fold,
-        thoughts[at],
-      );
-    });
+    const drawn =
+      !stretch.fold &&
+      stretch.groups.map((group, offset) => {
+        const at = stretch.from + offset;
+        return groupNode(
+          group,
+          at,
+          row.id,
+          row.at,
+          row.live === true && at === groups.length - 1,
+          row.foldRun === true && !stretch.fold,
+          thoughts[at],
+        );
+      });
     if (!stretch.fold) return drawn;
     // The first stretch keeps the run's own key, so a run that grew a card keeps its open state.
     const first = stretch.items.find((item) => item.tool)?.tool?.id;

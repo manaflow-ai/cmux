@@ -340,7 +340,12 @@ test("a failed step of an opened command group opens to its command, Exit code 1
 test("one mixed run exposes individual steps and drills into useful MCP detail without JSON plumbing", async () => {
   const { mixedToolRunFixture } = await import("./mixedToolRunFixture");
   const row: AcpmuxRow = {
-    id: "mixed-sheet", kind: "activity", at: 1, version: 1, settled: true, foldRun: true,
+    id: "mixed-sheet",
+    kind: "activity",
+    at: 1,
+    version: 1,
+    settled: true,
+    foldRun: true,
     items: mixedToolRunFixture(),
   };
   const container = await render(<ToolRows row={row} sessionId="mixed-sheet" />);
@@ -354,18 +359,22 @@ test("one mixed run exposes individual steps and drills into useful MCP detail w
   expect(steps.querySelectorAll(".is-run")).toHaveLength(0);
   expect(steps.textContent).not.toContain("Loaded tools");
   expect(steps.textContent).toContain("Find the retry handler");
-  const grep = [...steps.querySelectorAll<HTMLButtonElement>(".cv-tool")]
-    .find((button) => button.textContent?.includes("Find the retry handler"))!;
+  const grep = [...steps.querySelectorAll<HTMLButtonElement>(".cv-tool")].find((button) =>
+    button.textContent?.includes("Find the retry handler"),
+  )!;
   await act(async () => grep.click());
   expect(steps.textContent).toContain("src/retry.ts:12: retry(request)");
   expect(steps.textContent).not.toContain('"pattern"');
   expect(steps.textContent).not.toContain("mcp__repo__grep");
-  const raw = [...steps.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.startsWith("Raw"))!;
+  const raw = [...steps.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+    button.textContent?.startsWith("Raw"),
+  )!;
   await act(async () => raw.click());
   expect(steps.textContent).toContain('"pattern"');
   expect(steps.textContent).toContain("mcp__repo__grep");
-  const waiting = [...steps.querySelectorAll<HTMLElement>(".cv-tool")]
-    .find((node) => node.textContent?.includes("Read the retry context"))!;
+  const waiting = [...steps.querySelectorAll<HTMLElement>(".cv-tool")].find((node) =>
+    node.textContent?.includes("Read the retry context"),
+  )!;
   expect(waiting.tagName).toBe("DIV");
   expect(waiting.hasAttribute("aria-expanded")).toBe(false);
   expect(waiting.parentElement?.querySelector(".cv-mcp-call")).toBeNull();
@@ -377,8 +386,12 @@ for (const agentFamily of ["claude", "codex"])
     test(`${agentFamily} ${working ? "live" : "finished"} turn projects mixed calls into one folded run`, async () => {
       const { mixedToolTurnFixture } = await import("./mixedToolRunFixture");
       const { turnView } = await import("./turns");
-      const projected = turnView(mixedToolTurnFixture(working), new Set(["worked-mixed-prompt"]),
-        { agentFamily, working, liveRuns: true, lineBelow: true });
+      const projected = turnView(mixedToolTurnFixture(working), new Set(["worked-mixed-prompt"]), {
+        agentFamily,
+        working,
+        liveRuns: true,
+        lineBelow: true,
+      });
       const work = projected.find((row) => row.kind === "activity")!;
       expect(work).toBeDefined();
       expect(work.foldRun).toBe(true);
@@ -386,5 +399,7 @@ for (const agentFamily of ["claude", "codex"])
       const header = container.querySelector<HTMLButtonElement>("button.cv-tool")!;
       expect(header.getAttribute("aria-expanded")).toBe("false");
       await act(async () => header.click());
-      expect(container.querySelectorAll("[data-mixed-tool-steps] > .cv-step")).toHaveLength(5);
+      // A live turn keeps its latest call on the continuous status line until the next step.
+      expect(container.querySelectorAll("[data-mixed-tool-steps] > .cv-step")).toHaveLength(working ? 4 : 5);
+      if (working) expect(projected.some((row) => row.doing?.includes("Capture the repaired screen"))).toBe(true);
     });

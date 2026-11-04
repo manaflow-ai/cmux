@@ -9,27 +9,44 @@ import { ToolRow } from "./ToolRow";
 import { InStep } from "./ToolFailureCause";
 import { isQuietThought } from "./thoughts";
 
-const RunStep = memo(function RunStep({ item, thoughtId, lead }: {
-  item: AcpmuxActivity;
-  thoughtId: string;
-  lead: boolean;
-}) {
-  if (!item.tool && item.kind !== "note" && isQuietThought(item)) return null;
-  return (
-    <div className={item.tool ? "cv-step" : `cv-step is-thought${lead ? " is-lead" : ""}`}>
-      {item.tool ? (
-        mcpCall(item.tool) ? <McpCallRow item={item} /> :
-        item.tool.kind === "execute" && item.tool.command ? <CommandRow item={item} /> :
-        <ToolRow item={item} />
-      ) : item.kind === "note" ? <p className="cv-tool-note">{item.text}</p> :
-        <StepThought id={thoughtId} item={item} lead={lead} />}
-    </div>
-  );
-}, (a, b) => a.thoughtId === b.thoughtId && a.lead === b.lead &&
-  (a.item === b.item || (!a.item.tool && !b.item.tool && a.item.kind === b.item.kind &&
-    a.item.text === b.item.text && a.item.startedAt === b.item.startedAt && a.item.endedAt === b.item.endedAt)));
+const RunStep = memo(
+  function RunStep({ item, thoughtId, lead }: { item: AcpmuxActivity; thoughtId: string; lead: boolean }) {
+    if (!item.tool && item.kind !== "note" && isQuietThought(item)) return null;
+    return (
+      <div className={item.tool ? "cv-step" : `cv-step is-thought${lead ? " is-lead" : ""}`}>
+        {item.tool ? (
+          mcpCall(item.tool) ? (
+            <McpCallRow item={item} />
+          ) : item.tool.kind === "execute" && item.tool.command ? (
+            <CommandRow item={item} />
+          ) : (
+            <ToolRow item={item} />
+          )
+        ) : item.kind === "note" ? (
+          <p className="cv-tool-note">{item.text}</p>
+        ) : (
+          <StepThought id={thoughtId} item={item} lead={lead} />
+        )}
+      </div>
+    );
+  },
+  (a, b) =>
+    a.thoughtId === b.thoughtId &&
+    a.lead === b.lead &&
+    (a.item === b.item ||
+      (!a.item.tool &&
+        !b.item.tool &&
+        a.item.kind === b.item.kind &&
+        a.item.text === b.item.text &&
+        a.item.startedAt === b.item.startedAt &&
+        a.item.endedAt === b.item.endedAt)),
+);
 
-export const ToolRunSteps = memo(function ToolRunSteps({ items, rowId, thoughtsBefore }: {
+export const ToolRunSteps = memo(function ToolRunSteps({
+  items,
+  rowId,
+  thoughtsBefore,
+}: {
   items: readonly AcpmuxActivity[];
   rowId: string;
   thoughtsBefore: number;
