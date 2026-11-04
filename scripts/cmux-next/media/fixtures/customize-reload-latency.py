@@ -9,8 +9,11 @@ text, the way an editor saves, and then reads the main window as the window
 server composited it (`debug.window_snapshot`) until its pixels change. The
 time from the end of the write to the first changed snapshot is one sample;
 a snapshot takes a few tens of milliseconds, so each sample is an upper bound
-by up to one snapshot. It prints p50, p95 and max, and writes them as JSON
-next to the folder.
+by up to one snapshot. It prints p50, p95 and max, and writes them as
+`reload-latency.json` beside this script, never inside the watched folder's
+own tree: under a tour that tree is the run's work directory, which the tour
+removes when it ends, so the numbers would go with it. `CMUX_RELOAD_LATENCY_OUT`
+names another folder for it.
 """
 
 from __future__ import annotations
@@ -90,7 +93,7 @@ def percentile(values: list[float], p: float) -> float:
 def main() -> int:
     folder = Path(os.environ["CMUX_CUSTOMIZE_DIR"])
     sock = os.environ["CMUX_SOCKET_PATH"]
-    png = folder.parent / "reload-probe.png"
+    png = folder.parent / "reload-probe.png"  # scratch: it goes with the work directory
     folder.mkdir(parents=True, exist_ok=True)
     sys.stdout.write("\033[?25l")  # no blinking cursor in the window's pixels
     sys.stdout.flush()
@@ -99,6 +102,12 @@ def main() -> int:
     finally:
         sys.stdout.write("\033[?25h")
         sys.stdout.flush()
+
+
+def result_path() -> Path:
+    """Where the numbers are kept: a folder that outlives the watched one."""
+    out = os.environ.get("CMUX_RELOAD_LATENCY_OUT")
+    return (Path(out) if out else Path(__file__).resolve().parent) / "reload-latency.json"
 
 
 def measure(folder: Path, sock: str, png: Path) -> int:
@@ -135,12 +144,15 @@ def measure(folder: Path, sock: str, png: Path) -> int:
               "p95_ms": round(percentile(samples, 0.95)), "max_ms": round(max(samples)),
               "min_ms": round(min(samples)), "snapshot_ms": round(statistics.median(snaps)),
               "samples_ms": [round(s) for s in samples]}
-    (folder.parent / "reload-latency.json").write_text(json.dumps(result), encoding="utf-8")
+    out = result_path()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(result), encoding="utf-8")
     print("\033[2J\033[H")
     print(f"save to pixels, {result['rounds']} saves of main.js")
     print(f"p50 {result['p50_ms']} ms   p95 {result['p95_ms']} ms   max {result['max_ms']} ms   min {result['min_ms']} ms")
     print(f"one window snapshot: {result['snapshot_ms']} ms (each sample is at most this much late)")
     print("samples: " + " ".join(str(s) for s in result["samples_ms"]))
+    print(f"numbers: {out}")
     return 0
 
 

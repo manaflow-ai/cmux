@@ -21,6 +21,21 @@ mod apps {
         &after[start..start + len]
     }
 
+    /// The names in the one `globalThis.__cmuxAppExports = { ... }` object.
+    ///
+    /// Read as names, not as text: a substring search finds `render` in `renderPane`, so a
+    /// manifest naming an export the script never hands over would pass.
+    fn exported_names(script: &str) -> Vec<&str> {
+        let open = "globalThis.__cmuxAppExports = {";
+        let start = script.find(open).expect("exports") + open.len();
+        let len = script[start..].find('}').expect("the exports object is closed");
+        script[start..start + len]
+            .split(',')
+            .map(|entry| entry.split(':').next().unwrap_or("").trim())
+            .filter(|name| !name.is_empty())
+            .collect()
+    }
+
     #[test]
     fn the_documented_customize_app_is_a_valid_package() {
         let doc_path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -48,13 +63,13 @@ mod apps {
             Some(&serde_json::json!("bottom"))
         );
 
-        let exports = &script[script.find("globalThis.__cmuxAppExports = {").expect("exports")..];
+        let exported = exported_names(&script);
         for interface in ["cmux.section/1", "cmux.session.info.section/1"] {
             let export = manifest["implements"][interface]["export"]
                 .as_str()
                 .unwrap_or_else(|| panic!("{interface} has no export"));
             assert!(script.contains(&format!("function {export}(")), "{export} is not defined");
-            assert!(exports.contains(export), "{export} is not exported");
+            assert!(exported.contains(&export), "{export} is not exported, {exported:?} is");
         }
         assert!(!script.contains("\nexport "), "main.js is a classic script");
         let _ = std::fs::remove_dir_all(dir.parent().unwrap());
@@ -83,10 +98,7 @@ mod apps {
         assert_eq!(manifest["id"], "local/customize");
         let export = manifest["implements"]["cmux.section/1"]["export"].as_str().expect("export");
         assert!(script.contains(&format!("function {export}(")), "{export} is not defined");
-        assert!(
-            script.contains(&format!("__cmuxAppExports = {{ {export} }}")),
-            "{export} is not exported"
-        );
+        assert_eq!(exported_names(&script), [export], "the template exports just its one view");
         for piece in ["Panel(", "Toggle(", "Slider(", "Row(", "Button(", "Menu(", "cmux.toast("] {
             assert!(script.contains(piece), "the template uses {piece}");
         }
@@ -122,8 +134,7 @@ mod apps {
                 1,
                 "{name}: one exports object"
             );
-            let exports =
-                &script[script.find("globalThis.__cmuxAppExports = {").expect("exports")..];
+            let exported = exported_names(&script);
             let implements = manifest["implements"].as_object().expect("implements");
             assert!(implements.contains_key("cmux.section/1"), "{name} has a sidebar section");
             for (interface, entry) in implements {
@@ -133,7 +144,15 @@ mod apps {
                     script.contains(&format!("function {export}(")),
                     "{name}: {export} is not defined"
                 );
-                assert!(exports.contains(export), "{name}: {export} is not exported");
+                assert!(
+                    exported.contains(&export),
+                    "{name}: {export} is not exported, {exported:?} is"
+                );
+            }
+            let named: Vec<&str> =
+                implements.values().filter_map(|entry| entry["export"].as_str()).collect();
+            for export in &exported {
+                assert!(named.contains(export), "{name}: {export} is exported but implements nothing");
             }
             assert!(
                 !script.contains("\nexport ") && !script.contains("\nimport "),

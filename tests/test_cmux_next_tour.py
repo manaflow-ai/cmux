@@ -9,6 +9,7 @@ import json
 import os
 import plistlib
 import re
+import shlex
 import shutil
 import signal
 import stat
@@ -447,10 +448,24 @@ class AppWindowCaptureTests(unittest.TestCase):
         with self.assertRaisesRegex(tour.TourError, "`customize` must be true or false"):
             tour.load_tour(self.tour)
         self.tour.write_text(json.dumps({"title": "Demo", "customize": True, "steps": [
-            {"title": "Copy", "cmux": ["terminal", "write", "--text", "cp \"{repo}\"/a ."]}]}), encoding="utf-8")
+            {"title": "Copy", "cmux": ["terminal", "write", "--text", "cp {repo}/a ."]},
+            {"title": "Import", "cmux": ["browser", "import", "--from", "{repo}/fixture"]}]}), encoding="utf-8")
         loaded = tour.load_tour(self.tour)
         self.assertTrue(loaded["customize"])
-        self.assertEqual(loaded["steps"][0]["cmux"], ["terminal", "write", "--text", f'cp "{ROOT}"/a .'])
+        # Typed into a shell: quoted, so a checkout path with a space stays one word.
+        self.assertEqual(loaded["steps"][0]["cmux"],
+                         ["terminal", "write", "--text", f"cp {shlex.quote(str(ROOT))}/a ."])
+        # An argv word is handed over as it is; the shell never sees it.
+        self.assertEqual(loaded["steps"][1]["cmux"], ["browser", "import", "--from", f"{ROOT}/fixture"])
+
+    def test_repo_in_typed_text_is_quoted_and_the_tour_must_not_quote_it(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        quoted = tour.fill_repo(["terminal", "write", "--text", "cp {repo}/a ."], "/tmp/my checkout", "t")
+        self.assertEqual(quoted, ["terminal", "write", "--text", "cp '/tmp/my checkout'/a ."])
+        for text in ("cp \"{repo}\"/a .", "cp '{repo}'/a ."):
+            with self.assertRaisesRegex(tour.TourError, "drop the quotes"):
+                tour.fill_repo(["terminal", "write", "--text", text], "/tmp/checkout", "t")
 
     def test_display_must_be_true_or_false(self) -> None:
         self.tour.write_text(json.dumps({"title": "Demo", "steps": [
