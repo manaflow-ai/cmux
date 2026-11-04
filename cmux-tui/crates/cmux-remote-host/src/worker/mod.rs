@@ -33,6 +33,7 @@
 
 pub mod admission;
 pub mod broker;
+pub mod discovery;
 pub mod driver;
 pub mod target_guard;
 
@@ -51,6 +52,7 @@ use crate::config::{ComputerUseConfig, Mode};
 use crate::platform::{PeerFacts, ProcessStamp};
 use crate::policy;
 use admission::{AdmissionConfig, Refusal};
+use discovery::Enumerator;
 use broker::{Broker, GrantSink, Outcome};
 use driver::{CallError, Ceiling, Driver, DriverSession, Residual, ResidualAuthority, SessionMode, SessionSpec};
 use target_guard::TargetResolver;
@@ -62,6 +64,8 @@ const ASK_TTL_SECONDS: u64 = 8 * 3600;
 const IDLE_TTL_SECONDS: u64 = 30 * 60;
 /// Upstream's longest session (bounded boxes set up once use it).
 const MAX_TTL_SECONDS: u64 = 24 * 3600;
+/// Red commit only: discovery off, so the new tests fail.
+const RED_STUB: bool = true;
 const OUTSIDE_MANIFEST: &str = "bounded_resource_outside_manifest";
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -90,7 +94,7 @@ struct Labels {
 type BuiltSession = ((u64, u64), Arc<dyn DriverSession>);
 
 /// One admitted connection.
-pub(crate) struct Session {
+pub struct Session {
     id: String,
     labels: Mutex<Labels>,
     /// Apps this session may use beyond the saved list.
@@ -104,7 +108,22 @@ pub(crate) struct Session {
 }
 
 impl Session {
-    async fn close(&self) {
+    fn new(id: String) -> Self {
+        Self {
+            id,
+            labels: Mutex::new(Labels::default()),
+            grants: Mutex::new(Vec::new()),
+            credits: Mutex::new(Vec::new()),
+            version: AtomicU64::new(0),
+            handle: tokio::sync::Mutex::new(None),
+        }
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub async fn close(&self) {
         if let Some((_, handle)) = self.handle.lock().await.take() {
             handle.close();
         }
@@ -120,6 +139,10 @@ pub struct Worker {
     tools: OnceLock<Vec<String>>,
     /// Apps in the owner's bounded manifest (set once at configure).
     owner_apps: OnceLock<Vec<Target>>,
+    /// Whether the owner's bounded manifest grants desktop display observation.
+    owner_display: OnceLock<bool>,
+    /// The desktop as the worker lists it before an app is allowed (D21).
+    discovery: Arc<dyn Enumerator>,
     manifest_dir: PathBuf,
     client: String,
     machine: String,
@@ -260,10 +283,20 @@ struct LiveResolver<'a> {
 #[async_trait]
 impl TargetResolver for LiveResolver<'_> {
     async fn app_for_pid(&self, pid: u32) -> Option<Target> {
-        target_of_pid(pid)
+        let discovery = Arc::clone(&self.worker.discovery);
+        tokio::task::spawn_blocking(move || discovery.app_for_pid(pid)).await.ok().flatten().map(|app| app.target())
     }
 
     async fn app_for_window(&self, window_id: u32) -> Option<Target> {
+        // The worker's own window list first: under ask and bounded upstream refuses an unscoped list.
+        let discovery = Arc::clone(&self.worker.discovery);
+        let listed = tokio::task::spawn_blocking(move || discovery::pid_of_window(&*discovery, u64::from(window_id)))
+            .await
+            .ok()
+            .flatten();
+        if let Some(pid) = listed.filter(|_| !RED_STUB) {
+            return self.app_for_pid(pid).await;
+        }
         let handle = self.worker.handle(self.session).await.ok()?;
         let windows = handle.call("list_windows", json!({})).await.ok()?;
         target_of_pid(pid_of_window(&windows, u64::from(window_id))?)
@@ -319,6 +352,11 @@ fn merged_manifest(owner: &Value, apps: &[Target]) -> Value {
         list.extend(extra.iter().cloned());
     }
     merged
+}
+
+/// Whether an owner's manifest grants desktop display observation (upstream then answers discovery).
+fn manifest_grants_display(manifest: &Value) -> bool {
+    manifest.pointer("/resources/desktop/display").and_then(Value::as_bool) == Some(true)
 }
 
 fn apps_of_manifest(manifest: &Value) -> Vec<Target> {
@@ -494,12 +532,15 @@ impl Worker {
     /// One `tools/call`: resolve and check every app the call names
     /// ([`target_guard`], the macOS `CuaTargetGuard`), ask for each app outside
     /// the session before any of it runs, then run it in the session's upstream session.
-    pub(crate) async fn call(&self, session: &Session, tool: &str, arguments: Value) -> Result<Value, CallError> {
+    pub async fn call(&self, session: &Session, tool: &str, arguments: Value) -> Result<Value, CallError> {
         if policy::OPAQUE_TOOLS.contains(&tool) {
             return Err(CallError::new("tool_refused", format!("{tool} is not available through cmux")));
         }
         let resolver = LiveResolver { worker: self, session };
         let checked = target_guard::check(tool, &arguments, &resolver, &self.allow_terminals()).await?;
+        if let Some(answer) = self.discover(session, tool, &arguments, &checked.targets).await {
+            return answer;
+        }
         // An action with no resolvable target (screen coordinates, the focused window) could
         // land on a never-allowed app (a terminal): refused in every mode. Ask and bounded
         // sessions also have upstream's display grant off, so this only adds the check to
@@ -528,6 +569,63 @@ impl Worker {
             return self.call_with(session, &once, tool, &arguments).await;
         }
         result
+    }
+
+    /// Discovery before approval (D21, [`discovery`]): under ask, and under bounded
+    /// when the owner's manifest does not grant the display, the worker answers
+    /// `list_apps` and `list_windows` itself with metadata only, except
+    /// `list_windows` of an app this session may use, which upstream answers
+    /// with titles. None: upstream answers.
+    async fn discover(
+        &self,
+        session: &Session,
+        tool: &str,
+        arguments: &Value,
+        targets: &[Target],
+    ) -> Option<Result<Value, CallError>> {
+        if RED_STUB {
+            return None;
+        }
+        if tool != "list_apps" && tool != "list_windows" {
+            return None;
+        }
+        match self.mode().ok()? {
+            Mode::Ask => {}
+            Mode::Bounded if !self.owner_display.get().copied().unwrap_or(false) => {}
+            _ => return None,
+        }
+        let pid = arguments.get("pid").and_then(Value::as_u64).and_then(|pid| u32::try_from(pid).ok());
+        let scope = match (tool, pid, targets) {
+            ("list_apps", _, []) => None,
+            ("list_windows", None, []) => None,
+            ("list_windows", Some(pid), [target]) if !self.allowed(session, target) => Some(pid),
+            _ => return None,
+        };
+        let enumerator = Arc::clone(&self.discovery);
+        let terminals = self.allow_terminals();
+        let apps = tool == "list_apps";
+        let answer = tokio::task::spawn_blocking(move || {
+            if apps { discovery::list_apps(&*enumerator, &terminals) } else { discovery::list_windows(&*enumerator, &terminals, scope) }
+        })
+        .await
+        .map_err(|error| CallError::new("discovery_failed", error.to_string()));
+        Some(answer)
+    }
+
+    /// A session outside any connection (tests and the live check); `close` ends it.
+    pub fn open_session(&self, id: &str) -> Arc<Session> {
+        let session = Arc::new(Session::new(id.to_owned()));
+        lock(&self.sessions).insert(session.id.clone(), Arc::clone(&session));
+        session
+    }
+
+    /// What "Allow for This Session" does to `session` (the broker's grant sink).
+    pub fn allow_for_session(&self, session: &Session, target: Target) {
+        let mut grants = lock(&session.grants);
+        if !grants.iter().any(|granted| granted.key() == target.key()) {
+            grants.push(target);
+            session.version.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Whether the driver's own inventory declares `tool` read only (never the caller's word).
@@ -601,15 +699,7 @@ pub async fn serve_session<S: AsyncRead + AsyncWrite + Unpin>(worker: Arc<Worker
         return;
     };
     let id = format!("cu-{}", crate::wire::hex(&random[..8]));
-    let session = Arc::new(Session {
-        id: id.clone(),
-        labels: Mutex::new(Labels::default()),
-        grants: Mutex::new(Vec::new()),
-        credits: Mutex::new(Vec::new()),
-        version: AtomicU64::new(0),
-        handle: tokio::sync::Mutex::new(None),
-    });
-    lock(&worker.sessions).insert(id.clone(), Arc::clone(&session));
+    let session = worker.open_session(&id);
     let hello = json!({"ok": true, "protocol": PROTOCOL, "capabilities": [CAPABILITY]});
     if writer.write_all(&crate::wire::encode(&hello)).await.is_ok() {
         while let Ok(Some(request)) = crate::wire::read_object(&mut reader).await {
@@ -820,37 +910,15 @@ async fn configure(message: &Value, layout_dir: &Path, state_dir: &Path, to_host
     crate::platform::make_private_dir(&manifest_dir)?;
     let worker = Arc::new_cyclic(|weak: &std::sync::Weak<Worker>| {
         let (driver, driver_state) = make_driver(&config, state_dir, Arc::new(Residuals(weak.clone())));
-        Worker {
-            owner_apps: OnceLock::new(),
-            config,
-            driver,
-            driver_state,
-            tools: OnceLock::new(),
-            manifest_dir,
-            client: text("client"),
-            machine: if text("machine").is_empty() { crate::platform::machine_name() } else { text("machine") },
-            saved: Mutex::new(Vec::new()),
-            saved_generation: AtomicU64::new(0),
-            sessions: Mutex::new(HashMap::new()),
-            next_session: AtomicU64::new(1),
-            broker: OnceLock::new(),
-            admission: Mutex::new(AdmissionConfig { acpmux_hashes: hashes, daemons: Default::default(), secret }),
-            acpmux_socket: message.get("acpmux_socket").and_then(Value::as_str).map(PathBuf::from),
-        }
+        let mut worker = Worker::assemble(config, driver, driver_state, discovery::live(), manifest_dir);
+        worker.client = text("client");
+        worker.machine = if text("machine").is_empty() { crate::platform::machine_name() } else { text("machine") };
+        worker.admission = Mutex::new(AdmissionConfig { acpmux_hashes: hashes, daemons: Default::default(), secret });
+        worker.acpmux_socket = message.get("acpmux_socket").and_then(Value::as_str).map(PathBuf::from);
+        worker
     });
     let _ = worker.broker.set(Broker::new(to_host.clone(), Arc::new(Sink(Arc::downgrade(&worker)))));
-    // The inventory and the owner's apps, once (`tools` and `owner_apps` are fixed for the worker's life).
-    let tools: Vec<String> = worker
-        .driver
-        .tools()
-        .await
-        .ok()
-        .and_then(|tools| tools.as_array().map(|tools| tools.iter().filter_map(|tool| tool["name"].as_str().map(str::to_owned)).collect()))
-        .unwrap_or_default();
-    let tools: Vec<String> = tools.into_iter().filter(|name| !policy::OPAQUE_TOOLS.contains(&name.as_str())).collect();
-    let owner_apps = if worker.mode() == Ok(Mode::Bounded) { worker.owner_manifest().map(|manifest| apps_of_manifest(&manifest)).unwrap_or_default() } else { Vec::new() };
-    let _ = worker.tools.set(tools);
-    let _ = worker.owner_apps.set(owner_apps);
+    worker.load_fixed().await;
     serve(&worker, &socket, layout_dir)?;
     let mode = worker.mode().map(Mode::as_str).unwrap_or("invalid");
     let _ = to_host.send(json!({
@@ -858,6 +926,67 @@ async fn configure(message: &Value, layout_dir: &Path, state_dir: &Path, to_host
         "socket": socket.display().to_string(), "mode": mode, "driver": worker.driver_state,
     }));
     Ok(worker)
+}
+
+impl Worker {
+    fn assemble(
+        config: Result<ComputerUseConfig, String>,
+        driver: Arc<dyn Driver>,
+        driver_state: String,
+        discovery: Arc<dyn Enumerator>,
+        manifest_dir: PathBuf,
+    ) -> Worker {
+        Worker {
+            owner_apps: OnceLock::new(),
+            owner_display: OnceLock::new(),
+            discovery,
+            config,
+            driver,
+            driver_state,
+            tools: OnceLock::new(),
+            manifest_dir,
+            client: String::new(),
+            machine: String::new(),
+            saved: Mutex::new(Vec::new()),
+            saved_generation: AtomicU64::new(0),
+            sessions: Mutex::new(HashMap::new()),
+            next_session: AtomicU64::new(1),
+            broker: OnceLock::new(),
+            admission: Mutex::new(AdmissionConfig::default()),
+            acpmux_socket: None,
+        }
+    }
+
+    /// The inventory and the owner's manifest facts, once (fixed for the worker's life).
+    async fn load_fixed(&self) {
+        let tools: Vec<String> = self
+            .driver
+            .tools()
+            .await
+            .ok()
+            .and_then(|tools| tools.as_array().map(|tools| tools.iter().filter_map(|tool| tool["name"].as_str().map(str::to_owned)).collect()))
+            .unwrap_or_default();
+        let tools: Vec<String> = tools.into_iter().filter(|name| !policy::OPAQUE_TOOLS.contains(&name.as_str())).collect();
+        let owner = if self.mode() == Ok(Mode::Bounded) { self.owner_manifest().ok() } else { None };
+        let _ = self.tools.set(tools);
+        let _ = self.owner_apps.set(owner.as_ref().map(apps_of_manifest).unwrap_or_default());
+        let _ = self.owner_display.set(owner.as_ref().is_some_and(manifest_grants_display));
+    }
+
+    /// A worker with no host link and no socket (tests and the live check):
+    /// nobody can answer a question, so an app outside a session is refused
+    /// `approval_unavailable`.
+    pub async fn detached(
+        config: Result<ComputerUseConfig, String>,
+        driver: Arc<dyn Driver>,
+        discovery: Arc<dyn Enumerator>,
+        manifest_dir: PathBuf,
+    ) -> Result<Arc<Worker>, String> {
+        crate::platform::make_private_dir(&manifest_dir)?;
+        let worker = Arc::new(Worker::assemble(config, driver, "ready".into(), discovery, manifest_dir));
+        worker.load_fixed().await;
+        Ok(worker)
+    }
 }
 
 /// Accepts on the worker's socket; identity is checked at accept.

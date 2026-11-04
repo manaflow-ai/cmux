@@ -52,6 +52,9 @@ libc = "0.2"
 [target.'cfg(target_os = "linux")'.dependencies]
 # polkit (org.freedesktop.PolicyKit1) on the system bus; the same zbus major as upstream.
 zbus = { version = "5", default-features = false, features = ["tokio"] }
+# Discovery before approval (src/worker/discovery.rs): the X11 client list and pids, the same
+# version upstream's Linux driver uses; the pure-Rust connection, no libxcb.
+x11rb = { version = "0.13", default-features = false, features = ["res"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [

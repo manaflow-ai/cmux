@@ -76,6 +76,10 @@ public final class ComputerUseSessions: AgentSessionProviding {
     let gate: ConsentGate
     let targetGuard: CuaTargetGuard
     let manifests: ManifestStore
+    /// Discovery before approval (D21): metadata-only `list_apps` / `list_windows`.
+    let discovery: DesktopDiscovery
+    /// The `bounded` owner's manifest apps and display grant (nil: unreadable as JSON, or not bounded).
+    let ownerManifest: OwnerManifestFacts?
     /// Monotonic seconds, for the session lifetime and idle limits.
     let clock: @Sendable () -> TimeInterval
     private let inventoryCache = OSAllocatedUnfairLock<Data?>(initialState: nil)
@@ -92,7 +96,10 @@ public final class ComputerUseSessions: AgentSessionProviding {
 
     init(driver: any CuaDriverSessionFactory, configuration: ComputerUseConfiguration, broker: AppApprovalBroker,
          gate: ConsentGate, targetGuard: CuaTargetGuard, manifests: ManifestStore,
+         desktop: any DesktopEnumerating = MacDesktopEnumerator(),
          clock: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+        self.discovery = DesktopDiscovery(enumerator: desktop, policy: targetGuard.policy)
+        self.ownerManifest = configuration.mode == .bounded ? OwnerManifestFacts(path: configuration.ownerManifestPath) : nil
         self.driver = driver
         self.configuration = configuration
         self.broker = broker
@@ -127,6 +134,9 @@ public final class ComputerUseSessions: AgentSessionProviding {
 
 /// One admitted connection's agent session.
 final class AgentSession: AgentSessionServing {
+    /// Red commit only: discovery off, so the new tests fail.
+    static let redStub = true
+
     /// One upstream handle, destroyed when the last call using it ends
     /// after it is replaced, or when the session closes.
     final class Handle: Sendable {
@@ -182,9 +192,11 @@ final class AgentSession: AgentSessionServing {
     func invoke(name: String, arguments: Data) async throws -> Data {
         let checked = try await owner.targetGuard.resolve(name: name, arguments: arguments)
         var once: [ApprovalApp] = []
-        if owner.configuration.mode == .ask, let risk = ReviewedTools.risk[name] {
+        let ask = owner.configuration.mode == .ask
+        if ask, ReviewedTools.risk[name] != nil { expireIfNeeded() }
+        let discovery = discoveryCall(name: name, arguments: checked.arguments, targets: checked.targets)
+        if discovery == nil, ask, let risk = ReviewedTools.risk[name] {
             // An unreviewed tool is refused by upstream whatever the manifest says: nothing to ask.
-            expireIfNeeded()
             for target in checked.targets {
                 let app = ApprovalApp(bundleID: target.bundleID, name: target.name)
                 if try await approve(app, tool: name, risk: risk) { once.append(app) }
@@ -194,8 +206,36 @@ final class AgentSession: AgentSessionServing {
         _ = try owner.inventory()
         let requirement = await owner.gate.requirement(for: name) { try self.owner.inventory() }
         try await owner.gate.admit(name, requirement: requirement)
+        if let discovery { return owner.discovery.answer(discovery) }
         let handle = try handle(extra: once)
         return try await handle.session.invoke(name: name, arguments: checked.arguments)
+    }
+
+    /// The discovery call the worker answers itself (D21), or nil when
+    /// upstream answers: always under standard and unrestricted, under
+    /// bounded when the owner's manifest grants the display or cannot be
+    /// read, and for `list_windows` of an app this session may use.
+    private func discoveryCall(name: String, arguments: Data, targets: [CuaTargetIdentity]) -> DesktopDiscovery.Call? {
+        guard !Self.redStub, name == "list_apps" || name == "list_windows" else { return nil }
+        let granted: (CuaTargetIdentity) -> Bool
+        switch owner.configuration.mode {
+        case .ask:
+            let keys = Set(owner.broker.allowedApps(id).map(\.key))
+            granted = { keys.contains(ApprovalApp(bundleID: $0.bundleID, name: $0.name).key) }
+        case .bounded:
+            guard let manifest = owner.ownerManifest, !manifest.display else { return nil }
+            granted = { manifest.bundleIDs.contains($0.bundleID.lowercased()) }
+        case .standard, .unrestricted:
+            return nil
+        }
+        let object = HelperWire.object(arguments) ?? [:]
+        let pid = (object["pid"] as? NSNumber).flatMap { Int32(exactly: $0.int64Value) }
+        switch (name, pid, targets.count) {
+        case ("list_apps", _, 0): return .apps
+        case ("list_windows", nil, 0): return .windows(pid: nil)
+        case ("list_windows", let pid?, 1) where !granted(targets[0]): return .windows(pid: pid)
+        default: return nil
+        }
     }
 
     /// Asks until `app` is allowed for this call. True when it is allowed

@@ -172,7 +172,7 @@ import Testing
         defer { fixture.cleanUp() }
         let session = try fixture.sessions.openSession()
         _ = try await session.invoke(name: "list_apps", arguments: Data("{}".utf8))
-        #expect(fixture.driver.created()[0].session.invoked == ["list_apps"])
+        #expect(fixture.driver.created()[0].session.invoked.isEmpty, "the worker answers discovery under ask (D21)")
         #expect(fixture.host.sent.withLock { $0.isEmpty })
         session.close()
     }
@@ -295,8 +295,9 @@ final class SessionFixture: Sendable {
     let store: ManifestStore
     let scheduler: AppApprovalBrokerTests.ManualScheduler
 
-    init(mode: ComputerUseMode) throws {
+    init(mode: ComputerUseMode, ownerManifest: Data? = nil, desktop: FakeDesktop = FakeDesktop()) throws {
         let store = try Self.store()
+        let ownerPath = try ownerManifest.map { try store.write($0, name: "owner.json") }
         let driver = FakeDriver()
         let host = AppApprovalBrokerTests.FakeHost()
         let consent = MachineConsentTests.ScriptedAuthority()
@@ -314,10 +315,11 @@ final class SessionFixture: Sendable {
         self.broker = broker
         link = host.attach(to: broker)
         sessions = ComputerUseSessions(
-            driver: driver, configuration: ComputerUseConfiguration(mode: mode, client: "c", machine: "m"),
+            driver: driver,
+            configuration: ComputerUseConfiguration(mode: mode, ownerManifestPath: ownerPath, client: "c", machine: "m"),
             broker: broker, gate: ConsentGate(authority: consent),
             targetGuard: CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver()), manifests: store,
-            clock: { uptime.withLock { $0 } })
+            desktop: desktop, clock: { uptime.withLock { $0 } })
     }
 
     static func store() throws -> ManifestStore {
@@ -340,6 +342,8 @@ final class SessionFixture: Sendable {
             switch pid {
             case 100: CuaTargetIdentity(bundleID: "com.apple.Terminal", name: "Terminal")
             case 102: CuaTargetIdentity(bundleID: "com.apple.TextEdit", name: "TextEdit")
+            case 103: CuaTargetIdentity(bundleID: "com.apple.Safari", name: "Safari")
+            case 104: CuaTargetIdentity(bundleID: "com.1password.1password", name: "1Password")
             default: nil
             }
         }
