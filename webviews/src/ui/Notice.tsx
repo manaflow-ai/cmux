@@ -228,7 +228,7 @@ function NoticeCheckmark({ label, checked, onCheckedChange, hint }: NoticeCheck)
         onCheckedChange={(next) => onCheckedChange(next)}
       >
         <Checkbox.Indicator className="ui-notice-check-mark">
-          <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">
+          <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
             <path
               d="M2.5 6.2 4.9 8.6 9.5 3.6"
               fill="none"
