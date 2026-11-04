@@ -3,7 +3,14 @@
 use super::*;
 
 impl Mux {
+    #[track_caller]
     pub(crate) fn publish_resource_event(&self) {
+        // It publishes pending directories, which take the workspace registry: every caller holds
+        // no registry, connection or state lock here, whether or not a directory waits (#32408).
+        crate::lock_rank::HeldRank::check(
+            crate::lock_rank::LockRank::WorkspaceRegistry,
+            "workspace.registry",
+        );
         self.publish_journal_event();
         // A terminal's first cwd report can precede its registration, and its
         // shell may then stay quiet. Each committed graph change is where such
@@ -13,6 +20,7 @@ impl Mux {
 
     pub(crate) fn publish_journal_event(&self) {
         self.journal_kernel.notify_commit();
+        self.journal_maintenance_control.note_change();
         let mut epoch = self.journal_event_epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
         self.journal_event_changed.notify_all();
@@ -230,6 +238,14 @@ impl Mux {
         self.workspace_registry.stats().snapshot()
     }
 
+    /// The registry and state locks by site (`server-stats` `locks`).
+    pub fn lock_detail_stats(&self) -> crate::diagnostics::LocksSnapshot {
+        crate::diagnostics::LocksSnapshot {
+            registry: self.workspace_registry.stats().detail(),
+            state: self.state.stats().detail(),
+        }
+    }
+
     /// Journal writer metrics, `None` for ephemeral sessions without a
     /// durable journal.
     pub fn journal_writer_stats(&self) -> Option<crate::diagnostics::JournalWriterSnapshot> {
@@ -253,6 +269,7 @@ impl Mux {
         let mut snapshot = self.registry_connection.write_path_stats().snapshot();
         (snapshot.wal_commits, snapshot.wal_synced_commits) =
             self.registry_connection.durability_counts();
+        snapshot.registry_wal_frame_bytes = self.registry_connection.wal_frame_bytes();
         snapshot
     }
 

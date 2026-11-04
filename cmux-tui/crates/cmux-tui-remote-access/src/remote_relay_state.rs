@@ -7,11 +7,15 @@
 //! server without a pairing record and an install without a good check own
 //! nothing and may open no stream.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 pub use cmux_link::stamp::LinkPeer;
+use cmux_tui_util::published::{PublishGuard, Published};
+
+/// The verified link peer of each remote connection, by client id.
+pub type PeerRecords = BTreeMap<u64, LinkPeer>;
 
 /// Last good check older than this: new streams of the install are refused.
 pub const REFUSE_NEW_STREAMS_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
@@ -38,6 +42,13 @@ pub trait PairingRecords: Send + Sync {
 /// The time source of the revocation limits, injected so tests can move it.
 pub trait RevocationClock: Send + Sync {
     fn now(&self) -> Instant;
+    /// Wall time sampled after `now`, for conservative conversion of a signed Unix timestamp.
+    fn unix_time_ms(&self) -> Option<u64> {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .and_then(|age| u64::try_from(age.as_millis()).ok())
+    }
 }
 
 struct MonotonicClock;
@@ -61,7 +72,7 @@ pub enum StreamPolicy {
 
 #[derive(Debug, Clone, Copy)]
 enum InstallCheck {
-    Good(Instant),
+    Good { at: Instant, issued_at_ms: Option<u64> },
     Revoked,
 }
 
@@ -86,8 +97,43 @@ impl Revocation {
     /// The control plane confirmed `install` now.
     pub fn record_good_check(&mut self, install: &str) {
         if !matches!(self.checks.get(install), Some(InstallCheck::Revoked)) {
-            self.checks.insert(install.to_string(), InstallCheck::Good(self.clock.now()));
+            self.checks.insert(
+                install.to_string(),
+                InstallCheck::Good {
+                    at: self.clock.now(),
+                    issued_at_ms: self.clock.unix_time_ms(),
+                },
+            );
         }
+    }
+
+    /// Record an accepted token's signed issue time, never its delivery time.
+    /// Missing, future or unrepresentable times and final revocation fail closed.
+    /// Reordered or repeated tokens cannot move a newer check or renew a deadline.
+    pub fn record_good_check_at(&mut self, install: &str, issued_at_ms: u64) -> bool {
+        let now = self.clock.now();
+        let Some(age) = self.clock.unix_time_ms().and_then(|wall| wall.checked_sub(issued_at_ms))
+        else {
+            return false;
+        };
+        let Some(at) = now.checked_sub(Duration::from_millis(age)) else { return false };
+        if issued_at_ms == 0 {
+            return false;
+        }
+        match self.checks.get(install) {
+            Some(InstallCheck::Revoked) => return false,
+            Some(InstallCheck::Good { at: previous, issued_at_ms: issued })
+                if *previous >= at || issued.is_some_and(|issued| issued >= issued_at_ms) =>
+            {
+                return true;
+            }
+            _ => {}
+        }
+        self.checks.insert(
+            install.to_string(),
+            InstallCheck::Good { at, issued_at_ms: Some(issued_at_ms) },
+        );
+        true
     }
 
     /// The control plane said `install` is revoked. Revocation is final.
@@ -99,7 +145,7 @@ impl Revocation {
     #[cfg(any(test, feature = "test-support"))]
     pub fn good_check_time(&self, install: &str) -> Option<Instant> {
         match self.checks.get(install) {
-            Some(InstallCheck::Good(at)) => Some(*at),
+            Some(InstallCheck::Good { at, .. }) => Some(*at),
             _ => None,
         }
     }
@@ -109,7 +155,7 @@ impl Revocation {
     pub fn policy(&self, install: &str) -> StreamPolicy {
         match self.checks.get(install) {
             None | Some(InstallCheck::Revoked) => StreamPolicy::Close,
-            Some(InstallCheck::Good(at)) => {
+            Some(InstallCheck::Good { at, .. }) => {
                 let age = self.clock.now().saturating_duration_since(*at);
                 if age > CLOSE_STREAMS_AFTER {
                     StreamPolicy::Close
@@ -183,17 +229,46 @@ pub fn lock_checked<T>(
 /// The remote-relay state on the conversation host.
 #[derive(Default)]
 pub struct RemoteRelayState {
-    /// The verified link peer of each remote connection (memory only).
-    pub peers: Mutex<BTreeMap<u64, LinkPeer>>,
+    /// The verified link peer of each remote connection (memory only). Every line of every connection asks for its
+    /// record (the remote-client check, the request's actor), so with publishing on (R-DAEMON-STATE stage S1) a
+    /// reader loads the published copy and never waits for a bind, a disconnect or a revocation sweep.
+    pub peers: Published<PeerRecords, PeerRecords>,
+    /// Connections whose peer stamp was produced after the Cloud control
+    /// plane accepted a link token.  A caller-supplied capability is not
+    /// authority; Cloud mobile uses this authenticated admission bit.
+    pub cloud_token_clients: Mutex<BTreeSet<u64>>,
     pub pairing: Mutex<Option<Arc<dyn PairingRecords>>>,
     pub revocation: Mutex<Revocation>,
 }
 
 impl RemoteRelayState {
+    /// The state of a daemon whose stage S1 switch (R-DAEMON-STATE) is `publish_peers`: on, the peer records are
+    /// published and [`Self::peer_checked`] never takes their lock.
+    pub fn new(publish_peers: bool) -> Self {
+        Self {
+            peers: Published::new(PeerRecords::new(), PeerRecords::clone, publish_peers),
+            ..Self::default()
+        }
+    }
+
+    /// The peer records, locked for a change or for a read of more than one record; an error when a panic poisoned
+    /// them (callers fail closed).
+    pub fn peers_checked(
+        &self,
+    ) -> Result<PublishGuard<'_, PeerRecords, PeerRecords>, RelayStateError> {
+        self.peers.lock().map_err(|_| RelayStateError::Poisoned(RelayLock::Peers))
+    }
+
     /// The peer record of `client`; an error when the peers lock is
-    /// poisoned (callers fail closed).
+    /// poisoned (callers fail closed). With publishing on, the published
+    /// records: the newest finished bind or removal, no wait.
     pub fn peer_checked(&self, client: u64) -> Result<Option<LinkPeer>, RelayStateError> {
-        Ok(lock_checked(&self.peers, RelayLock::Peers)?.get(&client).cloned())
+        if self.peers.publishing() {
+            let peers =
+                self.peers.load().map_err(|_| RelayStateError::Poisoned(RelayLock::Peers))?;
+            return Ok(peers.get(&client).cloned());
+        }
+        Ok(self.peers_checked()?.get(&client).cloned())
     }
 
     /// The peer record of `client` (tests). A poisoned peers lock gives
@@ -212,7 +287,7 @@ impl RemoteRelayState {
 
     /// The remote connections of `install`.
     pub fn clients_of(&self, install: &str) -> Result<Vec<u64>, RelayStateError> {
-        let peers = lock_checked(&self.peers, RelayLock::Peers)?;
+        let peers = self.peers_checked()?;
         Ok(peers.iter().filter(|(_, peer)| peer.install == install).map(|(c, _)| *c).collect())
     }
 
@@ -224,3 +299,7 @@ impl RemoteRelayState {
         self.peers.lock().unwrap_or_else(PoisonError::into_inner).keys().copied().collect()
     }
 }
+
+#[cfg(test)]
+#[path = "remote_relay_token_time_tests.rs"]
+mod token_issue_time;

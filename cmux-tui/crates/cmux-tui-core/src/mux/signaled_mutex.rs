@@ -4,7 +4,6 @@
 
 use std::ops::{Deref, DerefMut};
 use std::sync::{Condvar, LockResult, Mutex, MutexGuard, PoisonError};
-#[cfg(test)]
 use std::sync::{TryLockError, TryLockResult};
 use std::time::Instant;
 
@@ -42,11 +41,13 @@ impl<T> SignaledMutex<T> {
         waited_from: Instant,
         blocker: Option<crate::diagnostics::LockSite>,
     ) -> SignaledMutexGuard<'a, T> {
-        self.stats.acquired(site, waited_from.elapsed(), blocker);
+        let waited = waited_from.elapsed();
+        self.stats.acquired(site, waited, blocker);
         SignaledMutexGuard {
             value: Some(value),
             owner: self,
             site,
+            waited,
             acquired_at: Instant::now(),
             _rank: HeldRank::record(LockRank::WorkspaceRegistry, REGISTRY_LOCK_NAME),
         }
@@ -160,6 +161,7 @@ pub(crate) struct SignaledMutexGuard<'a, T> {
     value: Option<MutexGuard<'a, T>>,
     owner: &'a SignaledMutex<T>,
     site: crate::diagnostics::LockSite,
+    waited: std::time::Duration,
     acquired_at: Instant,
     /// Lock rank `WorkspaceRegistry` (crate::lock_rank), released after the
     /// lock.
@@ -187,7 +189,7 @@ impl<T> Drop for SignaledMutexGuard<'_, T> {
         // Clear holder attribution before the inner mutex is released, so a
         // waiter that acquires next can never have its holder record erased
         // by this older unlock.
-        self.owner.stats.released(self.site, self.acquired_at.elapsed());
+        self.owner.stats.released(self.site, self.acquired_at.elapsed(), self.waited);
         drop(self.value.take());
         let mut epoch = self.owner.release_epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
@@ -206,33 +208,106 @@ impl<T> Drop for SignaledMutexGuard<'_, T> {
 /// The mux state mutex. It counts holds per thread (`note_state_lock`) so
 /// the registry connection lock can assert it is never first taken while
 /// this thread holds state (lock order: registry -> connection -> state).
-pub(crate) struct StateMutex(Mutex<State>);
+/// Its acquisitions feed hold and wait telemetry by `#[track_caller]` site
+/// (`server-stats` `locks.state`), as the registry's do.
+pub(crate) struct StateMutex {
+    value: Mutex<State>,
+    stats: crate::diagnostics::LockStats,
+    /// The routing tables of the last finished change (R-DAEMON-STATE stage S1): a guard that changed them publishes
+    /// them when it drops, under the lock, so `Mux::surface` reads them with one atomic load and never waits.
+    routes: arc_swap::ArcSwap<crate::route_table::RouteSnapshot>,
+    /// Whether guards publish `routes` (the stage S1 switch). Off, `routes` holds no table of the state, so a route
+    /// write never copies a table a snapshot shares. Read and written only under the lock.
+    publish_routes: std::sync::atomic::AtomicBool,
+}
 
 /// A held mux state lock.
 pub(crate) struct StateGuard<'a> {
+    /// Dropped after `Drop::drop` records the release (fields drop after
+    /// the body), so the release is recorded while the lock is held.
     guard: MutexGuard<'a, State>,
+    stats: &'a crate::diagnostics::LockStats,
+    /// The mutex, for `Drop::drop` to publish the routing tables when they changed (R-DAEMON-STATE stage S1).
+    owner: &'a StateMutex,
+    site: crate::diagnostics::LockSite,
+    waited: std::time::Duration,
+    acquired_at: Instant,
     /// Lock rank `MuxState` (crate::lock_rank), released after the lock.
     _rank: HeldRank,
+    /// The routing snapshot this guard replaced. It drops after `guard` (fields drop in order), so the tables and
+    /// surfaces it may hold last are freed after the lock is released, never under it.
+    retired: Option<std::sync::Arc<crate::route_table::RouteSnapshot>>,
+    /// Whether this thread was already unwinding when it took the lock, as `std::sync::MutexGuard` records it.
+    panicking_at_lock: bool,
 }
 
-impl StateGuard<'_> {
-    fn new(guard: MutexGuard<'_, State>) -> StateGuard<'_> {
-        // A request thread may hold state while it waits for a writer
-        // receipt: the writer must never take state (counted in release).
+impl<'a> StateGuard<'a> {
+    fn new(
+        guard: MutexGuard<'a, State>,
+        owner: &'a StateMutex,
+        site: crate::diagnostics::LockSite,
+        waited_from: Instant,
+        blocker: Option<crate::diagnostics::LockSite>,
+    ) -> StateGuard<'a> {
+        let stats = &owner.stats;
+        // The journal writer must never take state (counted in release):
+        // the lock order puts it after the writer's rank.
         let on_writer = crate::workspace_registry::registry_connection::in_journal_writer_commit();
         if on_writer {
             crate::diagnostics::writer_took_registry_lock();
         }
         debug_assert!(!on_writer, "the journal writer took the mux state lock");
         crate::workspace_registry::registry_connection::note_state_lock(true);
-        StateGuard { guard, _rank: HeldRank::record(LockRank::MuxState, STATE_LOCK_NAME) }
+        #[cfg(test)]
+        STATE_LOCKS_TAKEN.with(|taken| taken.set(taken.get() + 1));
+        let waited = waited_from.elapsed();
+        stats.acquired(site, waited, blocker);
+        StateGuard {
+            guard,
+            stats,
+            owner,
+            site,
+            waited,
+            acquired_at: Instant::now(),
+            _rank: HeldRank::record(LockRank::MuxState, STATE_LOCK_NAME),
+            retired: None,
+            panicking_at_lock: std::thread::panicking(),
+        }
     }
 }
 
 const STATE_LOCK_NAME: &str = "mux.state";
 
+#[cfg(test)]
+thread_local! {
+    static STATE_LOCKS_TAKEN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// How many times this thread has taken the mux state lock (test hook): a test proves a path never takes the session
+/// lock by counting, with no timing (TYPING UNDER LOAD F4).
+#[cfg(test)]
+pub(crate) fn state_locks_taken_on_this_thread() -> u64 {
+    STATE_LOCKS_TAKEN.with(std::cell::Cell::get)
+}
+
 impl Drop for StateGuard<'_> {
     fn drop(&mut self) {
+        // Publish the routing tables a change replaced, while the lock is still held, so publications follow the
+        // order of the changes (R-DAEMON-STATE stage S1). A guard that changed no route compares three pointers. A
+        // panic that began while this guard held the lock cut its change short: the `MutexGuard` field poisons the
+        // mutex right after this (the same test std makes), and the half-made tables are never published.
+        let owner = self.owner;
+        let cut_short = std::thread::panicking() && !self.panicking_at_lock;
+        if !cut_short
+            && owner.publish_routes.load(std::sync::atomic::Ordering::Relaxed)
+            && !owner.routes.load().is_current(&self.guard)
+        {
+            let published = std::sync::Arc::new(crate::route_table::RouteSnapshot::of(&self.guard));
+            self.retired = Some(owner.routes.swap(published));
+        }
+        // Record the release while the lock is still held, so the next
+        // holder's record is never erased by this older unlock.
+        self.stats.released(self.site, self.acquired_at.elapsed(), self.waited);
         crate::workspace_registry::registry_connection::note_state_lock(false);
     }
 }
@@ -252,47 +327,93 @@ impl DerefMut for StateGuard<'_> {
 }
 
 impl StateMutex {
-    pub(crate) fn new(state: State) -> Self {
-        Self(Mutex::new(state))
+    /// `publish_routes` is the mux's stage S1 switch (R-DAEMON-STATE).
+    pub(crate) fn new(state: State, publish_routes: bool) -> Self {
+        let routes = arc_swap::ArcSwap::from_pointee(if publish_routes {
+            crate::route_table::RouteSnapshot::of(&state)
+        } else {
+            crate::route_table::RouteSnapshot::default()
+        });
+        Self {
+            value: Mutex::new(state),
+            stats: crate::diagnostics::LockStats::new(),
+            routes,
+            publish_routes: std::sync::atomic::AtomicBool::new(publish_routes),
+        }
+    }
+
+    /// Turns route publication on or off (tests); on, the current tables are published first, under the lock.
+    #[cfg(test)]
+    pub(crate) fn set_route_publishing_for_test(&self, on: bool) {
+        let state = self.value.lock().unwrap_or_else(PoisonError::into_inner);
+        let snapshot = if on {
+            crate::route_table::RouteSnapshot::of(&state)
+        } else {
+            crate::route_table::RouteSnapshot::default()
+        };
+        self.routes.store(std::sync::Arc::new(snapshot));
+        self.publish_routes.store(on, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether a writer panicked while it held the session state.
+    pub(crate) fn is_poisoned(&self) -> bool {
+        self.value.is_poisoned()
+    }
+
+    /// The routing tables as of the last finished change: one atomic load, never a wait (R-DAEMON-STATE stage S1).
+    pub(crate) fn routes(
+        &self,
+    ) -> arc_swap::Guard<std::sync::Arc<crate::route_table::RouteSnapshot>> {
+        self.routes.load()
+    }
+
+    /// Hold and wait telemetry by site (`server-stats` `locks.state`).
+    pub(crate) fn stats(&self) -> &crate::diagnostics::LockStats {
+        &self.stats
     }
 
     #[track_caller]
     pub(crate) fn lock(&self) -> LockResult<StateGuard<'_>> {
         HeldRank::check(LockRank::MuxState, STATE_LOCK_NAME);
-        match self.0.lock() {
-            Ok(guard) => Ok(StateGuard::new(guard)),
-            Err(poison) => Err(PoisonError::new(StateGuard::new(poison.into_inner()))),
+        let site = std::panic::Location::caller();
+        let waited_from = Instant::now();
+        let blocker = self.stats.wait_started();
+        match self.value.lock() {
+            Ok(guard) => Ok(StateGuard::new(guard, self, site, waited_from, blocker)),
+            Err(poison) => Err(PoisonError::new(StateGuard::new(
+                poison.into_inner(),
+                self,
+                site,
+                waited_from,
+                blocker,
+            ))),
         }
     }
 
-    #[cfg(test)]
+    /// The state lock if it is free now (the accept loop, which never waits
+    /// for it). A try cannot deadlock, so it skips the rank check `lock` makes.
+    #[track_caller]
     pub(crate) fn try_lock(&self) -> TryLockResult<StateGuard<'_>> {
-        match self.0.try_lock() {
-            Ok(guard) => Ok(StateGuard::new(guard)),
+        let site = std::panic::Location::caller();
+        let waited_from = Instant::now();
+        match self.value.try_lock() {
+            Ok(guard) => Ok(StateGuard::new(guard, self, site, waited_from, None)),
             Err(TryLockError::WouldBlock) => Err(TryLockError::WouldBlock),
-            Err(TryLockError::Poisoned(poison)) => {
-                Err(TryLockError::Poisoned(PoisonError::new(StateGuard::new(poison.into_inner()))))
-            }
+            Err(TryLockError::Poisoned(poison)) => Err(TryLockError::Poisoned(PoisonError::new(
+                StateGuard::new(poison.into_inner(), self, site, waited_from, None),
+            ))),
         }
     }
 }
 
 /// The state lock plus a hold of the registry connection taken before it.
-/// Fields drop in order: state first, then the connection.
+/// Fields drop in order: state first, then the connection. A flow never
+/// waits for a journal writer receipt while it holds one: it drops it first
+/// (the writer needs the connection, and state readers must not queue
+/// behind the disk).
 pub(crate) struct PinnedState<'a> {
     state: StateGuard<'a>,
-    /// `None` after [`PinnedState::unpin`].
-    _connection: Option<RegistryConnectionPin>,
-}
-
-impl PinnedState<'_> {
-    /// Release the connection pin and keep state: the flow is about to wait
-    /// for a journal writer receipt, and the writer needs the connection
-    /// (the writer takes neither the registry nor state). After this the
-    /// flow must not touch the connection while it holds state.
-    pub(crate) fn unpin(&mut self) {
-        self._connection = None;
-    }
+    _connection: RegistryConnectionPin,
 }
 
 impl Deref for PinnedState<'_> {
@@ -310,6 +431,16 @@ impl DerefMut for PinnedState<'_> {
 }
 
 impl Mux {
+    /// The test hook a state mutation runs after the part that reads the
+    /// session (`set_state_commit_after_apply_hook_for_test`); nothing
+    /// outside tests.
+    pub(crate) fn run_state_commit_after_apply_hook(&self) {
+        #[cfg(test)]
+        if let Some(hook) = self.state_commit_after_apply.lock().unwrap().clone() {
+            hook();
+        }
+    }
+
     /// Lock state for a flow that holds `registry` and touches its database
     /// while state is held. The connection lock is taken first (see the
     /// module docs); registry methods called meanwhile re-enter it.
@@ -317,20 +448,28 @@ impl Mux {
     /// It first settles the receipts of earlier indeterminate registry
     /// commits that arrived since (cx-g1fa.3): their state updates and
     /// revisions land before this flow reads state.
+    #[track_caller]
     pub(crate) fn lock_state_pinned(
         &self,
         registry: &WorkspaceRegistry,
     ) -> LockResult<PinnedState<'_>> {
-        let connection = Some(registry.connection.pin());
+        // Wait for the answers of earlier indeterminate commits before the
+        // pin: the writer needs the connection to commit and answer, so a
+        // wait under the pin could only run out. The caller holds the
+        // registry, so no new indeterminate commit appears after this. A
+        // commit still unanswered stays; the flow's own prepare refuses to
+        // build on it (`drain_unsettled` without waiting).
+        let _ = registry.connection.drain_unsettled();
+        let connection = registry.connection.pin();
         let (mut pinned, poisoned) = match self.state.lock() {
             Ok(state) => (PinnedState { state, _connection: connection }, false),
             Err(poison) => {
                 (PinnedState { state: poison.into_inner(), _connection: connection }, true)
             }
         };
-        // Non-blocking: with the pin held the writer cannot commit, so an
-        // unanswered one stays for a later holder; the prepare paths wait
-        // for it (drain_unsettled) before they build on it.
+        // Non-blocking: the answers that can arrive were taken before the
+        // pin; one still unanswered stays for a later holder, and the
+        // prepare paths refuse to build on it (drain_unsettled).
         self.settle_registry_receipts(registry, &mut pinned.state);
         if poisoned { Err(PoisonError::new(pinned)) } else { Ok(pinned) }
     }

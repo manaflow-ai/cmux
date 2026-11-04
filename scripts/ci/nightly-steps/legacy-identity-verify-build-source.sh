@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # nightly.yml verify-nightly-identity-legacy: "Check out the build's own source for the bundle checks". Moved out of the workflow to keep
 # nightly.yml under GitHub's workflow file size limit; the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# The license check compares the app with its own source tree, as in the
+# signing job: the copied build can be older than this run's commit.
 set -euo pipefail
 [[ "$BUILD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "invalid build commit '$BUILD_SHA'" >&2; exit 1; }
 # A depth flag only in an already-shallow checkout: in a full clone it would make every worktree shallow.

@@ -21,6 +21,11 @@ extension AgentPaneModel {
         String(localized: "agentPane.error.openPreview", defaultValue: "The page could not be opened.", bundle: .module)
     }
 
+    /// The system screen capture could not start, or ended with an error and wrote no image.
+    static var captureFailedMessage: String {
+        String(localized: "agentPane.error.capture", defaultValue: "The screen capture failed.", bundle: .module)
+    }
+
     /// The host's acpmux socket refused a page frame or could not connect (AgentPaneTransport).
     static var transportFailedMessage: String {
         String(localized: "agentPane.error.transport", defaultValue: "The app refused the agent connection.", bundle: .module)
@@ -105,6 +110,24 @@ extension AgentPaneView {
         String(localized: "agentPane.sessionInfo.needsFocus", defaultValue: "Opening Session Info requires focus.", bundle: .module)
     }
 
+    /// Why a page command's palette row (``AgentPageCommand``, its title) is greyed out: the focused
+    /// chat does not offer it now.
+    static func pageCommandUnavailable(_ title: String) -> String {
+        String(format: String(localized: "agentPane.pageCommand.unavailable", defaultValue: "%@ isn't available in this chat.",
+                              bundle: .module), title)
+    }
+
+    /// A greyed palette row's subtitle for a page command the focused chat does not offer now: the
+    /// row already shows its title, so the subtitle does not repeat it.
+    static var pageCommandUnavailableHere: String {
+        String(localized: "agentPane.pageCommand.unavailableHere", defaultValue: "Not available in this chat.", bundle: .module)
+    }
+
+    /// Shown when automation would run a page command (its title) without an explicit focus request.
+    static func pageCommandNeedsFocus(_ title: String) -> String {
+        String(format: String(localized: "agentPane.pageCommand.needsFocus", defaultValue: "%@ requires focus.", bundle: .module), title)
+    }
+
     /// Shown when Toggle Session Info runs with Session Info turned off in Settings.
     static var sessionInfoOff: String {
         String(localized: "agentPane.sessionInfo.off", defaultValue: "Session Info is turned off in Settings.", bundle: .module)
@@ -154,10 +177,40 @@ extension AgentPaneView {
                               bundle: .module), peer, reason)
     }
 
-    /// An always-allow (or an answer with notes) for a peer's prompt: only a one-time allow counts.
+    /// An Always allow for a peer's prompt: only a one-time allow counts from this Mac.
     static var peerApprovalsOnceOnly: String {
-        String(localized: "agentPane.peerApprovals.onceOnly.title", defaultValue: "Only a one-time Allow works from this Mac",
+        String(localized: "agentPane.peerApprovals.alwaysOff.title",
+               defaultValue: "Always allow isn't available from this Mac; Allow once and Deny work.", bundle: .module)
+    }
+
+    /// An answer with notes for a peer's prompt: this Mac signs none.
+    static var peerApprovalsNotes: String {
+        String(localized: "agentPane.peerApprovals.notes.title",
+               defaultValue: "Answers with notes aren't available from this Mac; Allow once and Deny work.", bundle: .module)
+    }
+
+    /// An Allow once for a peer's prompt that did not come from a click (a key).
+    static var peerApprovalsNotClicked: String {
+        String(localized: "agentPane.peerApprovals.notClicked.title",
+               defaultValue: "Click Allow once to answer this from this Mac.", bundle: .module)
+    }
+
+    /// This Mac's approver key could not sign a peer's Allow once.
+    static var peerApprovalsNoKeyTitle: String {
+        String(localized: "agentPane.peerApprovals.noKey.title", defaultValue: "This Mac couldn't sign that Allow once",
                bundle: .module)
+    }
+
+    static var peerApprovalsNoKeyDetail: String {
+        String(localized: "agentPane.peerApprovals.noKey.detail",
+               defaultValue: "Its approval key isn't available. Enroll this Mac on the other machine, then choose Allow once again.",
+               bundle: .module)
+    }
+
+    /// A peer's prompt this Mac had no record of when the person answered: the ask is still open.
+    static var peerApprovalsNotRecorded: String {
+        String(localized: "agentPane.peerApprovals.notRecorded.title",
+               defaultValue: "This Mac hadn't received that request yet. Choose Allow once again.", bundle: .module)
     }
 
     static func remoteApprovalsRestartFailed(_ machine: String, _ failure: AgentPaneRemoteApprovals.Failure) -> String {
@@ -223,7 +276,7 @@ extension AgentPaneHostError {
         case .daemonRestarting:
             String(localized: "agentPane.error.daemonRestarting", defaultValue: "acpmux is restarting on the new version. This chat connects when it is back.", bundle: .module)
         case .daemonStopped:
-            String(localized: "agentPane.error.daemonStopped", defaultValue: "acpmux is not running. Open a new agent chat to start it.", bundle: .module)
+            String(localized: "agentPane.error.daemonStopped", defaultValue: "acpmux stopped.", bundle: .module)
         case .chiefStopped:
             String(localized: "agentPane.error.chiefStopped", defaultValue: "The Chief is not running. Reopen cmux and open Home to start it.", bundle: .module)
         case .chiefStarting:

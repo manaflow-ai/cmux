@@ -14,6 +14,7 @@
 //   member. Membership is not a revocation receipt: a departed member's VPC
 //   tunnel/publication/session can outlive the directory update.
 // - unknown (null): the row has no usable billing owner.
+import type { VmTeamMemberLookup } from "./teamDirectory";
 import type { VmPrincipalRow } from "./vmPrincipalContract";
 
 export type VmGuestKind = "owner" | "team";
@@ -37,16 +38,41 @@ export function resolveVmGuestKind(row: VmGuestKindRow): VmGuestKind | null {
 
 /**
  * The kind the attach endpoint tells the signed-in caller (`vmKind`). The Mac
- * app gives up the local sandbox for its own session only on `owner`, so this
- * is stricter than resolveVmGuestKind: `owner` only for a machine on the
- * caller's own personal account (owner_team_id is the caller's user id) that
- * the caller created. Every Stack team is `team`, even while the caller is its
- * only member, and so is a machine the caller reaches but did not create. A
- * row with no usable billing owner is null. Ids compare exactly. Computed per
- * request, never stored.
+ * app gives up the local sandbox for its own session only on `owner`: the
+ * caller created the machine and still belongs to its owner team, regardless
+ * of that team's member count. Personal-account machines need no team lookup.
+ *
+ * A different caller, a missing team, a creator who left the team, or a member
+ * list that was not read, failed or timed out gets `team`. A row with no usable
+ * billing owner is null. Ids compare exactly. Computed per request, never stored.
+ * This caller-specific answer does not change teammates' existing access or
+ * the guest-wide kind returned by resolveVmGuestKind.
  */
-export function vmKindForCaller(row: VmGuestKindRow, callerUserId: string): VmGuestKind | null {
+export function vmKindForCaller(
+  row: VmGuestKindRow,
+  callerUserId: string,
+  members?: VmTeamMemberLookup,
+): VmGuestKind | null {
   if (!row.ownerTeamId.trim()) return null;
   // Exact ids, no trimming: a padded id is not the caller.
-  return callerUserId !== "" && row.ownerTeamId === callerUserId && row.userId === callerUserId ? "owner" : "team";
+  if (callerUserId === "" || row.userId !== callerUserId) return "team";
+  if (row.ownerTeamId === callerUserId) return "owner";
+  return members !== undefined && callerIsMember(members, callerUserId) ? "owner" : "team";
+}
+
+/**
+ * True when vmKindForCaller's answer depends on the owner team's member list:
+ * a machine the caller created on a Stack team. Every other row is answered
+ * without asking Stack.
+ */
+export function vmKindForCallerNeedsMembers(row: VmGuestKindRow, callerUserId: string): boolean {
+  return row.ownerTeamId.trim() !== ""
+    && callerUserId !== ""
+    && row.userId === callerUserId
+    && row.ownerTeamId !== callerUserId;
+}
+
+function callerIsMember(lookup: VmTeamMemberLookup, callerUserId: string): boolean {
+  if ("error" in lookup || lookup.memberIds === null) return false;
+  return lookup.memberIds.includes(callerUserId);
 }

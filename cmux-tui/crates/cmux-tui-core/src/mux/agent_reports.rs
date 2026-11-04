@@ -117,6 +117,7 @@ impl Mux {
     /// publish its upsert or delete. Hook reports carry the agent's native
     /// session id into `extra.agent_session_id`.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn commit_agent_report(
         &self,
         target: AgentReportTarget<'_>,
@@ -451,12 +452,14 @@ impl Mux {
         Ok((commit, Some(agent)))
     }
 
+    #[track_caller]
     pub fn list_agents(
         &self,
         surface: Option<SurfaceId>,
         state: Option<AgentState>,
     ) -> Vec<AgentRecord> {
-        let entries = self.agent_roster.lock().unwrap().roster.entries.clone();
+        let entries =
+            self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner).roster.entries.clone();
         let agent_session_ids = self
             .agent_records
             .lock()

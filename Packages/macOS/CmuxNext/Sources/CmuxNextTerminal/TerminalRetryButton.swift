@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// (cx-wwtam; it still retries by itself): a re-attach now. A click or a key in
 /// the terminal does the same; the button says so where it can be seen.
 /// Styled like ``TerminalRestartButton``.
-final class TerminalRetryButton: NSButton {
+final class TerminalRetryButton: ClickableButton {
     var onRetry: (@MainActor () -> Void)?
 
     init() {

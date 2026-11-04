@@ -69,11 +69,18 @@ class LatestAcpmux(unittest.TestCase):
     def test_the_pre_latest_check_runs_only_where_latest_is_published(self) -> None:
         # Off main the post-publish check covers the same immutable manifests,
         # so the pre-latest one only added 75 s to every feat-cmux-next publish.
-        steps = {s.get("name"): s for s in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["publish"]["steps"]}
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        steps = {s.get("name"): s for s in jobs["publish"]["steps"]}
         before = steps["Verify immutable Unix manifests before latest publish"]
         self.assertEqual(before.get("if"), steps["Publish rolling latest artifacts"].get("if"))
         after = steps["Verify published Unix manifests"]
-        self.assertNotIn("if", after)
+        # The first pass's read-back runs in verify-publish, beside the tree;
+        # the Windows pass (publish-windows, the same steps) keeps it.
+        self.assertEqual(after.get("if"), "env.CMUX_TUI_PUBLISH_PASS != 'unix'")
+        beside = {s.get("name"): s for s in jobs["verify-publish"]["steps"]}["Verify published Unix manifests"]
+        self.assertEqual(beside["run"], after["run"])
+        self.assertNotIn("if", beside)
+        self.assertEqual(jobs["verify-publish"]["needs"], "publish")
 
         def calls(run: str) -> dict[str, set[str]]:
             found: dict[str, set[str]] = {}
@@ -88,6 +95,45 @@ class LatestAcpmux(unittest.TestCase):
             with self.subTest(manifest=url):
                 self.assertIn(url, after_calls)
                 self.assertLessEqual(checks, after_calls[url])
+
+    def test_the_first_pass_checks_its_kept_copy_as_the_read_back_does(self) -> None:
+        # publish-tree no longer waits for the read-back through files.cmux.com,
+        # so publish itself checks each commit manifest it published or kept,
+        # with every check the read-back makes, against the bytes it holds.
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        steps = jobs["publish"]["steps"]
+        names = [s.get("name") for s in steps]
+        kept = steps[names.index("Verify the kept Unix manifests")]
+        self.assertEqual(kept.get("if"), "env.CMUX_TUI_PUBLISH_PASS == 'unix'")
+        self.assertGreater(names.index("Verify the kept Unix manifests"), names.index("Upload to R2"))
+        self.assertNotIn("continue-on-error", kept)
+
+        def calls(run: str, source: str) -> dict[str, set[str]]:
+            found: dict[str, set[str]] = {}
+            for call in run.replace("\\\n", " ").split("verify_published_manifest.py")[1:]:
+                match = re.search(rf'--{source} "?([^"\s?]+)', call)
+                if not match:
+                    continue
+                prefix = match.group(1).split("/")[-2] if source == "manifest-url" else match.group(1).split("/")[-2]
+                found[prefix] = set(re.findall(r"--(?:require|forbid)-artifact \S+|--require-provenance|--machine-manifest", call))
+            return found
+
+        read_back = {k: v for k, v in calls(steps[names.index("Verify published Unix manifests")]["run"], "manifest-url").items()
+                     if k == "$GITHUB_SHA"}
+        self.assertTrue(read_back)
+        local = calls(kept["run"], "manifest-file")
+        self.assertEqual(set(local), {"cmux-tui", "cmux-relay", "chatmux-relay"})
+        sha_calls = [c for c in steps[names.index("Verify published Unix manifests")]["run"].replace("\\\n", " ").split("verify_published_manifest.py")[1:]
+                     if '/$GITHUB_SHA/manifest.json' in c]
+        for call in sha_calls:
+            prefix = re.search(r'files\.cmux\.com/([a-z-]+)/\$GITHUB_SHA/manifest\.json', call).group(1)
+            if prefix == "cmux-tui-windows":
+                continue
+            checks = set(re.findall(r"--(?:require|forbid)-artifact \S+|--require-provenance|--machine-manifest", call))
+            with self.subTest(prefix=prefix):
+                self.assertLessEqual(checks, local[prefix])
+                self.assertIn(f"--artifact-directory assets/{prefix}", kept["run"].replace("\\\n", " "))
+
 
 if __name__ == "__main__":
     unittest.main()

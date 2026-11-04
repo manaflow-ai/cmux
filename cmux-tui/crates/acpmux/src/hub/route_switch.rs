@@ -94,6 +94,7 @@ impl Hub {
             return Ok(None);
         }
         let home = route.file.account_home.clone().map(PathBuf::from);
+        let name = route.name();
         let before = route_account::home_var(&family).and_then(|var| env.get(var).cloned());
         let fam = family.clone();
         let route_env = tokio::task::spawn_blocking(move || routes::env_for(&route, &fam, &state))
@@ -101,6 +102,7 @@ impl Hub {
             .map_err(|e| RpcError::internal(e.to_string()))?
             .map_err(|e| route_error(&e))?;
         routes::apply(env, &route_env);
+        env.insert(routes::NAME_KEY.into(), name);
         // A home the profile pins (a Chief turn's, a claude-sr profile's) is
         // only replaced by a route picked for this chat or profile.
         let pinned = before.is_some() && !matches!(scope, "chat" | "profile");
@@ -194,6 +196,11 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
     ) -> Result<(), RpcError> {
+        // A shutdown began: no agent starts here any more, and the one it left running is the
+        // next daemon's to adopt (`shutdown.rs`). The binding is written; nothing moved yet.
+        if self.shutting_down() {
+            return Err(super::shutdown::shutting_down_error());
+        }
         session.route_switch.store(false, Ordering::SeqCst);
         if session.child.lock().await.is_none() {
             return Ok(());
@@ -231,9 +238,15 @@ impl Hub {
         let outcomes = futures::future::join_all(live.map(|session| async move {
             // The turn lock is held through a turn and its route-switch
             // restart (`turns.rs`, `hosts.rs`); holding it, no turn starts
-            // meanwhile.
+            // meanwhile. An open permission prompt is never cut either (the
+            // restart's `detach_child` would cancel it): that session restarts
+            // after its next turn, as `restart_unproven` waits for one.
             let idle = || {
-                if session.turn().is_none() { session.turn_lock.try_lock().ok() } else { None }
+                if session.turn().is_none() && session.pending_permissions().is_empty() {
+                    session.turn_lock.try_lock().ok()
+                } else {
+                    None
+                }
             };
             let mut turn = idle();
             if turn.is_none() {
@@ -306,7 +319,7 @@ pub struct HarnessRestarts {
 /// `cmux.chief`, or named `optchat-…`, or of an `optchat-compact-…` preset
 /// harness (the app's `AcpmuxSessionCensus.isChief`). Update Everything
 /// never counts or restarts one; only a caller naming it in `sessions` does.
-fn is_chief(meta: &SessionMeta) -> bool {
+pub(super) fn is_chief(meta: &SessionMeta) -> bool {
     live_tags(meta).get("cmux.chief").is_some()
         || meta.name.starts_with("optchat-")
         || meta.harness.starts_with("optchat-compact-")

@@ -406,7 +406,7 @@ Ja, cmux er gratis at bruge. Kildekoden er tilgængelig på [GitHub](https://git
 
 ### Hvordan kan jeg støtte cmux?
 
-cmux er gratis og open source og vil altid være det. Hvis du vil støtte udviklingen og få tidlig adgang til det, der kommer, herunder cmux AI, iOS-appen og Cloud VM'er, så tjek [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
+cmux er gratis og open source og vil altid være det.
 
 ### Jeg har et funktionsønske eller har fundet en fejl?
 
@@ -445,19 +445,6 @@ Måder at deltage:
   <strong>WeChat:</strong> Scan QR-koden for at blive en del af fællesskabet.<br />
   <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat-QR-kode til at blive en del af cmux-fællesskabet" width="240" />
 </p>
-
-## Founder's Edition
-
-cmux er gratis, open source og vil altid være det. Hvis du gerne vil støtte udviklingen og få tidlig adgang til det, der kommer:
-
-**[Få Founder's Edition](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **Prioriterede funktionsønsker og fejlrettelser**
-- **Tidlig adgang: cmux AI der giver dig kontekst om hvert workspace, fane og panel**
-- **Tidlig adgang: iOS-app med terminaler synkroniseret mellem desktop og telefon**
-- **Tidlig adgang: Cloud VM'er**
-- **Tidlig adgang: Stemmetilstand**
-- **Min personlige iMessage/WhatsApp**
 
 ## Licens
 

@@ -17,7 +17,7 @@ extension AddDeviceServices {
         AddDeviceServices(
             list: { [weak services] in
                 #if DEBUG
-                if let fixture = DebugAddDevice.listing { return fixture.devices }
+                if let fixture = services?.debugFixtures.addDevice { return fixture.devices }
                 #endif
                 return await services?.devices.read()
             },
@@ -33,15 +33,17 @@ extension AddDeviceServices {
             enterCode: { [weak services] in _ = services?.registry.perform("server.addServer") },
             // Signed out, New Cloud Machine is refused: sign-in starts instead (the agent pane's same fallback).
             newCloudMachine: { [weak services] in
-                guard let registry = services?.registry, !registry.perform("newCloudMachine") else { return }
-                _ = registry.perform("palette.auth.signIn")
+                _ = services?.registry.perform("newCloudMachine")
             },
             copy: { CloudPresenter.copy($0) },
+            installTailscale: {
+                if let url = URL(string: "https://tailscale.com/download/mac") { NSWorkspace.shared.openInBackground(url) }
+            },
             // Labs labs.machineJoin: read at each opening, so the switch takes effect on the next one.
             machineJoin: { [weak services] in
                 guard let services, services.settings?.snapshot.machineJoin == true else { return nil }
                 #if DEBUG
-                if let fixture = DebugAddDevice.listing?.join { return fixture }
+                if let fixture = services.debugFixtures.addDevice?.join { return fixture }
                 #endif
                 return MachineJoinService.app(services)
             },
@@ -66,7 +68,9 @@ extension DeviceDirectory {
                                    // acpmux refuses an on from a connection that is not the person.
                                    if on, !line.isPerson { return false }
                                    return await line.call("_acpmux/pair_set", ["id": id, "fullAccess": on]) != nil
-                               })
+                               },
+                               // A removed peer's SSH machine leaves the sidebar too (HQ #4877 break 8).
+                               peerRemoved: { [weak services] peer in await services?.ssh.forgetMachines(reachingPeer: peer) })
     }
 }
 

@@ -16,8 +16,12 @@ final class MacSession {
     let link: LinkController
     let workspaces: WorkspaceSync
     let acpmux = AcpmuxHub()
+    /// Separate ACP clients: VM-local session ids never collide with this Mac's.
+    var cloudChats: [String: CloudChatRelay] = [:]
     let feed: LiveFeed
     let terminalFeed: TerminalFeed
+    /// The Mac app's own Feed requests (held PRs, sign-ins, consent cards).
+    let needsYou: MacNeedsYouFeed
     /// Workspace and tab changes on this Mac.
     let creation: LiveWorkspaceCreationBackend
 
@@ -33,6 +37,10 @@ final class MacSession {
     /// overtake `auth`) wait for it (review m6), and Retry re-runs a refused one (M2).
     var pairingGate: (link: any MacLink, passed: Task<Bool, Never>)?
     var pairingState: LinkPairing.State = .idle
+    /// The phone's own next pairing attempt after a refusal (``LinkPairing/retryDelay(after:attempt:)``),
+    /// and how many ran since this Mac last paired.
+    var pairingRetry: Task<Void, Never>?
+    var pairingRetries = 0
     /// Terminal tabs of this Mac handed out, reattached on every new link.
     var terminals: [WeakTerminal] = []
     /// Whether this Mac's terminal tabs say it is offline (termfix-r13 D4).
@@ -42,6 +50,7 @@ final class MacSession {
     var offlineTask: Task<Void, Never>?
     /// Why the chat (acpmux) channel failed on the current link, shown in the status line.
     var chatsError: String?
+    var daemonError: String?
     var workspacesTimeout: Task<Void, Never>?
     /// The link fed this Mac's data and connection state (cleared when it closes).
     var fedData = false
@@ -60,6 +69,7 @@ final class MacSession {
         feed = LiveFeed(store: feedStore, hub: nil, place: { _ in nil })
         feed.macID = macID.isEmpty ? nil : macID
         terminalFeed = TerminalFeed(store: feedStore)
+        needsYou = MacNeedsYouFeed(store: feedStore)
         creation = LiveWorkspaceCreationBackend(sync: workspaces, link: link, acpmux: nil)
         feed.hub = acpmux
         feed.terminal = terminalFeed
@@ -71,7 +81,7 @@ final class MacSession {
         guard let tree else { return nil }
         for workspace in tree.workspaces + tree.homeWorkspaces {
             for tab in workspace.tabs where tree.agentTabs[tab.id]?.session == sessionID {
-                return LiveFeed.Place(workspaceID: workspace.id, tabID: tab.id, workspaceTitle: workspace.title)
+                return LiveFeed.Place(workspaceID: workspace.id, tabID: tab.id, workspaceTitle: workspace.title, tabTitle: tab.title)
             }
         }
         return nil

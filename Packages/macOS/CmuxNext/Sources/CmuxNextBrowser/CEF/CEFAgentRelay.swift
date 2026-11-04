@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// What a raw DevTools send did (`cmux_shim_devtools_send`).
@@ -102,12 +103,22 @@ public final class CEFAgentRelay {
     // MARK: Tab lifetime (CEFTab)
 
     func deliver(_ json: String) {
-        // Reads the stream and always returns false, so a relayed agent that
-        // subscribed to page lifecycle events still sees them.
-        _ = firstPaint?.handle(json)
-        if media?.handle(json) == true { return }
-        if verification?.handle(json) == true { return }
-        if designMode?.handle(json) == true { return }
+        // The method comes from the message's first bytes; only the bridges
+        // of that method look further (NIGHTLY 2026-10-29: five whole-message
+        // scans per message were most of the main thread's idle time).
+        let head = DevToolsMessageHead(json: json)
+        switch head.method {
+        case "Page.lifecycleEvent":
+            // Reads the stream and always returns false, so a relayed agent that
+            // subscribed to page lifecycle events still sees them.
+            _ = firstPaint?.handle(head)
+        case "Runtime.bindingCalled":
+            if media?.handle(head) == true { return }
+            if verification?.handle(head) == true { return }
+            if designMode?.handle(head) == true { return }
+        default:
+            break
+        }
         sink?(json)
     }
 

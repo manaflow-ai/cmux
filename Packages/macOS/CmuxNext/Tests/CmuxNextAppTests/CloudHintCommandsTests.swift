@@ -1,5 +1,6 @@
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextCloudUI
 import Foundation
 import Testing
 
@@ -78,12 +79,5 @@ struct CloudHintCommandsTests {
         #expect(CloudMoveStrings.moveFailed("REASON.").hasSuffix("REASON."))
         #expect(CloudBringBackStrings.failed("REASON.").hasSuffix("REASON."))
         #expect(CloudStrings.progressFailed("REASON.").hasSuffix("REASON."))
-    }
-
-    /// An upload refusal names the limits the app enforces, from the same constants.
-    @Test func anUploadRefusalNamesTheLimits() {
-        let size = { (bytes: Int) in ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .binary) }
-        #expect(CloudUploadStrings.refused.contains(size(CloudUploads.maximumFileBytes)), "\(CloudUploadStrings.refused)")
-        #expect(CloudUploadStrings.refused.contains(size(CloudUploads.maximumTotalBytes)), "\(CloudUploadStrings.refused)")
     }
 }

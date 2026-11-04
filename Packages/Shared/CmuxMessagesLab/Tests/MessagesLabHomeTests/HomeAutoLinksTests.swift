@@ -61,6 +61,19 @@ import Testing
         #expect(found.map(\.1) == [url])
     }
 
+    /// cmux#25572: a bare GitHub pull request, issue, commit or run URL shows by its short name
+    /// and opens the URL; any other GitHub page (a sign-in page) still shows as written.
+    @Test func aBareGitHubURLShowsItsShortName() {
+        let pr = "https://github.com/manaflow-ai/cmux/pull/25572"
+        let issue = "https://github.com/manaflow-ai/cmux/issues/123#issuecomment-9"
+        let commit = "https://github.com/manaflow-ai/cmux/commit/184cb2f77473f0123456789abcdef0123456789a"
+        let run = "https://github.com/manaflow-ai/cmux/actions/runs/39221907733"
+        let found = links("PR \(pr), issue \(issue), commit \(commit) and run \(run).")
+        #expect(found.map(\.0) == ["#25572", "#123", "184cb2f", "run 39221907733"])
+        #expect(found.map(\.1) == [pr, issue, commit, run])
+        #expect(links("https://github.com/manaflow-ai/cmux").map(\.0) == ["https://github.com/manaflow-ai/cmux"])
+    }
+
     @Test func aMarkdownCmuxLinkKeepsItsName() {
         let url = "cmux://workspace/ws_9166682ee2857086e345b3aa42e54cda"
         let found = links("See [Chief · tab audio toggles](\(url)).")

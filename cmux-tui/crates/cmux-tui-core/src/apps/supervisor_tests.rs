@@ -242,7 +242,7 @@ fn write_app(root: &Path, dir: &str, id: &str, scopes: Value) {
     let mut manifest = json!({
         "manifestVersion": 2, "id": id, "name": "Demo", "version": "1.0.0", "description": "d",
         "engines": { "cmux": "^2.0" }, "runtime": { "main": "dist/main.js" }, "catalog": "catalog.json",
-        "implements": { "cmux.section/1": { "export": "render", "title": "Demo" }, "cmux.status/1": { "export": "renderFail" }, "cmux.palette.scope/1": { "export": "renderLive" } },
+        "implements": { "cmux.section/1": { "export": "render", "title": "Demo" }, "cmux.session.info.section/1": { "export": "renderSession", "title": "Session", "symbol": "info.circle", "options": { "maxRows": 8 } }, "cmux.status/1": { "export": "renderFail" }, "cmux.palette.scope/1": { "export": "renderLive" } },
         "scopes": scopes, "files": ["dist/", "catalog.json"]
     });
     if !id.starts_with("local/") {
@@ -431,6 +431,31 @@ fn list_shows_available_apps_and_installs_need_a_user() {
     assert_eq!(
         f.set("k2", "cmux/demo", Origin::User, |o| o.installed = Some(true)).unwrap(),
         record
+    );
+}
+
+#[test]
+fn session_info_panels_lists_only_visible_installed_apps() {
+    let f = fixture();
+    let empty =
+        f.supervisor.store_call(CLIENT, "apps.panels.list", json!({}), Origin::Script).unwrap();
+    assert_eq!(empty["panels"], json!([]));
+
+    f.install("cmux/demo");
+    let listed =
+        f.supervisor.store_call(CLIENT, "apps.panels.list", json!({}), Origin::Script).unwrap();
+    assert_eq!(
+        listed["panels"][0],
+        json!({
+            "app": "cmux/demo", "section": "cmux.session.info.section/1", "title": "Session",
+            "symbol": "info.circle", "maxRows": 8
+        })
+    );
+
+    f.set("hide", "cmux/demo", Origin::User, |op| op.hidden = Some(true)).unwrap();
+    assert_eq!(
+        f.supervisor.store_call(CLIENT, "apps.panels.list", json!({}), Origin::Script).unwrap()["panels"],
+        json!([])
     );
 }
 
@@ -962,6 +987,8 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
 
 #[path = "supervisor_inventory_demand_tests.rs"]
 mod inventory_demand;
+#[path = "supervisor_local_reload_tests.rs"]
+mod local_reload;
 #[path = "supervisor_provider_tests.rs"]
 mod provider_channel;
 #[path = "supervisor_server_tests.rs"]

@@ -113,6 +113,37 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
             Err(exit_code) => return exit_code,
         }
     }
+    // Raw operation requests intentionally keep their private wire contract:
+    // the first frame is the caller's request, so they cannot opt into the
+    // public conversation-tab projection.
+    if matches!(&plan.operation, WireOperation::Typed(_))
+        && let Err(failure) = super::tab_capabilities::negotiate(&mut reader)
+    {
+        let reason = match &failure {
+            super::resolve::Failure::Transport(message) => retry::Failure::from_read_error(message),
+            super::resolve::Failure::Refused => retry::Failure::Dropped,
+            _ => retry::Failure::Other,
+        };
+        if tries.may_retry_before_send(reason) {
+            return retry::AGAIN;
+        }
+        let code = match failure {
+            super::resolve::Failure::Resource(mut error) => {
+                if matches!(global.output, OutputMode::Quiet | OutputMode::Human) {
+                    localize_operation_error(&plan, &mut error);
+                }
+                print_operation_error(&error, global.output)
+            }
+            super::resolve::Failure::Refused => {
+                transport_failure(global.output, "session.busy", hints::session_busy(), true)
+            }
+            failure => failure.report(global.output),
+        };
+        if tries.sent_before() {
+            key_report.finish(global.output);
+        }
+        return code;
+    }
     // The caller's terminal belongs to the session its environment names; an
     // explicit route targets that session's current workspace.
     let caller_route = global.socket.is_none() && global.session.is_none();
@@ -367,6 +398,9 @@ fn require_server_capability(
                 true,
             )
         })?;
+    if response.get("type").and_then(Value::as_str) == Some("refused") {
+        return Err(transport_failure(global.output, "session.busy", hints::session_busy(), true));
+    }
     if response.get("id").and_then(Value::as_str) != Some(request_id.as_str())
         || response.get("ok").and_then(Value::as_bool) != Some(true)
     {
@@ -573,6 +607,18 @@ fn run_response(
                             }
                         };
                     }
+                    // `--machine <Cloud machine> workspace list`: the app lists its workspaces.
+                    #[cfg(unix)]
+                    if let Some(listed) = super::cloud_workspaces::for_machine(global, plan, &error)
+                    {
+                        return match listed {
+                            Ok(result) => {
+                                key_report.succeeded();
+                                print_result(global, plan, result)
+                            }
+                            Err(error) => print_operation_error(&error, global.output),
+                        };
+                    }
                     if matches!(global.output, OutputMode::Quiet | OutputMode::Human) {
                         localize_operation_error(plan, &mut error);
                     }
@@ -606,6 +652,10 @@ fn run_response(
                             global,
                             super::cloud_machines::merge(global, result),
                         ),
+                        // The app's Cloud machines' workspaces join the daemon's list.
+                        WireOperation::Typed(
+                            cmux_tui_core::resource::ResourceOperation::WorkspaceList,
+                        ) => super::cloud_workspaces::merge(global, result),
                         _ => result,
                     };
                     let result = agent_roster::with_terminals(reader, plan, result);
@@ -734,7 +784,7 @@ fn run_response(
 /// Whether a write that failed because the session closed the socket met
 /// the refusal line a session at its connection limit sends before closing
 /// (`type: "refused"`), so the error says "busy", not "broken pipe".
-fn refused_at_connect(
+pub(super) fn refused_at_connect(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
     error: &io::Error,
 ) -> bool {
@@ -825,6 +875,12 @@ fn success_exit_code(plan: &RequestPlan, result: &Value) -> i32 {
 fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a, Value> {
     if let Some(roster) = agent_roster::human_view(plan, result) {
         return roster;
+    }
+    if matches!(
+        &plan.operation,
+        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::SettingsList)
+    ) {
+        return std::borrow::Cow::Owned(super::command::settings_human_rows(result));
     }
     let personal = matches!(
         &plan.operation,

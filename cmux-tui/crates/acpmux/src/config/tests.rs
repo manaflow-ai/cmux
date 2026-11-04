@@ -13,6 +13,27 @@ fn cli_session_resource_settings_are_config_values() {
 }
 
 #[test]
+fn cli_permission_settings_are_config_values() {
+    let mut config = Config::default();
+    config.set("permissions.default", "yolo").unwrap();
+    assert_eq!(config.default_permission_mode.as_deref(), Some("fullAccess"));
+    config.set("defaultPermissionMode", "ask").unwrap();
+    assert_eq!(config.default_permission_mode.as_deref(), Some("ask"));
+    config.set("permissions.codex", "standard").unwrap();
+    assert_eq!(config.defaults["codex"].permission_mode.as_deref(), Some("standard"));
+    config.set("defaults.claude.permissionMode", "full-access").unwrap();
+    assert_eq!(config.defaults["claude"].permission_mode.as_deref(), Some("fullAccess"));
+    assert!(config.set("permissions.default", "sometimes").is_err());
+    config.set("permissions.codex", "default").unwrap();
+    assert!(!config.defaults.contains_key("codex"), "an emptied entry is dropped");
+    config.set("permissions.default", "default").unwrap();
+    assert_eq!(config.default_permission_mode, None);
+    // The resource keys still go through the same verb.
+    config.set("session.memory_mb", "6144").unwrap();
+    assert_eq!(config.session.memory_mb, Some(6144));
+}
+
+#[test]
 fn session_task_caps_are_typed_config_values() {
     let mut config = Config::default();
     config.set_session_resource("session.tasks_max", "8192").unwrap();
@@ -29,6 +50,23 @@ fn session_task_caps_are_typed_config_values() {
     config.set_session_resource("session.tasks_max", "default").unwrap();
     assert_eq!(config.session.tasks_max, None);
     assert!(config.set_session_resource("session.tasks_max", "lots").is_err());
+}
+
+#[test]
+fn cli_session_cpu_class_is_a_config_value() {
+    use crate::cpu_class::CpuClass;
+    let mut config = Config::default();
+    config.set_session_resource("session.cpu_class", "normal").unwrap();
+    assert_eq!(config.session.cpu_class, Some(CpuClass::Normal));
+    let saved = serde_json::to_value(&config).unwrap();
+    assert_eq!(saved["session"]["cpuClass"], "normal");
+    let loaded: Config = serde_json::from_value(saved).unwrap();
+    assert_eq!(loaded.session.cpu_class, Some(CpuClass::Normal));
+    config.set_session_resource("session.cpu-class", "Background").unwrap();
+    assert_eq!(config.session.cpu_class, Some(CpuClass::Background));
+    assert!(config.set_session_resource("session.cpu_class", "utility").is_err());
+    config.set_session_resource("session.cpu_class", "default").unwrap();
+    assert_eq!(config.session.cpu_class, None);
 }
 
 fn prof(kind: HarnessKind, argv: &[&str]) -> HarnessProfile {
@@ -330,4 +368,20 @@ fn the_model_router_setting_is_read_from_the_settings_document() {
         Some("deepseek/deepseek-v4-pro")
     );
     assert_eq!(super::discover::cmux_router_model_in(&serde_json::json!({})), None);
+}
+
+/// Every Claude Code profile reads Claude's store, whatever family it declares (`claude-sr2`),
+/// so adopt finds its chats there; other profiles keep their family.
+#[test]
+fn a_claude_code_profile_of_its_own_family_reads_the_claude_store() {
+    let mut sr2 = prof(HarnessKind::ClaudeStdio, &["sr2", "claude2"]);
+    sr2.family = Some("claude-sr2".into());
+    assert_eq!(derive_family("claude-sr2", &sr2), "claude-sr2");
+    assert_eq!(store_family("claude-sr2", &sr2), "claude");
+    assert_eq!(store_family("claude", &prof(HarnessKind::ClaudeStdio, &["claude"])), "claude");
+    let codex = prof(HarnessKind::Acp, &["codex-acp"]);
+    assert_eq!(store_family("codex", &codex), "codex");
+    let mut pi = prof(HarnessKind::Acp, &["pi-acp"]);
+    pi.family = Some("pi".into());
+    assert_eq!(store_family("pi", &pi), "pi");
 }

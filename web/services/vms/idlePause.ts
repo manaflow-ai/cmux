@@ -37,9 +37,21 @@ import { CMUX_TUI_PORT, cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector } from "./dri
 /**
  * Minutes of idleness before a machine without its own setting pauses. The
  * single switch for the default: 0 turns auto-pause off for every machine that
- * has not chosen a value. Leo, 2026-10-21: on, 30 minutes.
+ * has not chosen a value. Leo, 2026-10-21: on, 30 minutes. Leo, 2026-10-30:
+ * "we're saying no auto pausing of the freestyle vms for now": Off.
  */
-export const VM_IDLE_PAUSE_DEFAULT_MINUTES = 30;
+export const VM_IDLE_PAUSE_DEFAULT_MINUTES = 0;
+
+/**
+ * The kill switch for idle auto-pause, off unless the deployment sets
+ * `CMUX_VM_IDLE_AUTO_PAUSE=on`. Off, the `vm-idle-pause` cron probes and
+ * pauses no machine, not even one that chose a timeout (Leo, 2026-10-30:
+ * "we're saying no auto pausing of the freestyle vms for now"). Pause Machine
+ * and Resume are not affected.
+ */
+export function vmIdleAutoPauseEnabled(env: Readonly<Record<string, string | undefined>> = process.env): boolean {
+  return env.CMUX_VM_IDLE_AUTO_PAUSE === "on";
+}
 
 /** The per-machine choices, in minutes; 0 is Off. */
 export const VM_IDLE_PAUSE_CHOICES = [0, 15, 30, 60, 120] as const;

@@ -10,7 +10,8 @@ scripts/smoke-signed-app-cli.sh uses), drives it only through the bundled
 
     manifest.json   steps with their command, status, output and screenshot
     shots/NN-*.png  one screenshot per step (a failed step is captured too)
-    frames/*.jpg    the window about twice a second, for the video
+    capture.mov    continuous window-only video at up to 60 fps
+    frames/*.jpg    fastest available stills when no native video route works
 
 A tour is a JSON file with a `title` and `steps`, and optionally `settings`:
 the cmux-next.json the app launches with (`CMUX_NEXT_CONFIG_FILE`), a private
@@ -32,6 +33,9 @@ settings. A step has a `title` and optionally:
     expect    app debug RPC postcondition: {"method": "debug.layers",
               "fields": {"field": expected_value}}; mismatches fail required
               steps and make optional steps unavailable
+    capture   fixture geometry RPC {"method": ..., "params": {...}, "scale": 2,
+              "menu": false}; reads top-left window-point `capture` bounds after
+              settling, crops the composited snapshot, and verifies real 2x pixels
 
 Screenshots are the DEV app's own drawing of its main window
 (`debug.window_snapshot`, which needs no grant), child windows it owns
@@ -59,10 +63,12 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
+import math
 import os
 from pathlib import Path
 import plistlib
 import re
+import selectors
 import shutil
 import signal
 import socket
@@ -73,31 +79,39 @@ import threading
 import time
 from typing import Any
 
-STEP_KEYS = {"title", "cmux", "rpc", "daemon", "wait", "shot", "display", "optional", "expect", "windows"}
+MAX_SECONDS = 300
+
+STEP_KEYS = {"title", "cmux", "rpc", "daemon", "wait", "shot", "display", "optional", "expect", "windows", "capture"}
 # Other windows a step shoots beside the main one (floating panels, popovers,
 # sheets), at most this many, each at least this big in points.
 MAX_OTHER_WINDOWS = 4
 MIN_OTHER_WINDOW = (40, 24)
 # All of a step's other-window shots share this many seconds.
 OTHER_WINDOWS_BUDGET = 20.0
-TOUR_KEYS = {"title", "steps", "settings"}
+TOUR_KEYS = {"title", "steps", "settings", "env"}
+# A directional focus right after a pane close (focus_after_close).
+DIRECTIONAL_FOCUS = {"focusLeft", "focusRight", "focusUp", "focusDown"}
+# Focus moves that open no pane, so they never undo a close (ActionCatalog+Focus.swift).
+FOCUS_MOVES = DIRECTIONAL_FOCUS | {
+    "focusPreviousPane", "focusNextPane", "focusPaneByNumber", "pane.focus", "column.focusLeft",
+    "column.focusRight", "focusHistoryBack", "focusHistoryForward", "focusHistoryLast"}
+PANE_CLOSES = {"closePane", "pane.closeOthers"}
 DEFAULT_WAIT = 1.5
 STEP_TIMEOUT = 20.0
 POSTCONDITION_TIMEOUT = 2.0
 SOCKET_TIMEOUT = 60.0
 # --stop: seconds a bundle's processes get after SIGTERM before SIGKILL.
 STOP_GRACE = 10.0
-FRAME_INTERVAL = 0.5
+FRAME_INTERVAL = 1 / 60
 # Five minutes of frames; a tour that runs longer keeps its screenshots but its
 # video stops here, so a stuck step cannot fill the runner's disk.
-MAX_FRAMES = 600
+MAX_FRAMES = 60 * MAX_SECONDS
 WINDOW_TIMEOUT = 20.0
 # A window snapshot paints each shown page too, so it can take a few seconds.
 SNAPSHOT_TIMEOUT = 20.0
 APP_WINDOW_MODE = "app window (debug.window_snapshot)"
-# Each app-window frame is a main-thread snapshot of the app being recorded:
-# fewer of them keep its motion from stalling on the capture.
-APP_WINDOW_FRAME_INTERVAL = 1.0
+# Still-only routes run sequentially, limited by their capture latency (at most 60 Hz).
+APP_WINDOW_FRAME_INTERVAL = FRAME_INTERVAL
 # scripts/release-media/host_agent.py on main looks in the same places.
 HELPER_CANDIDATES = (Path.home() / "Applications/CuaSshScreenCapture.app",
                      Path("/Applications/CuaSshScreenCapture.app"))
@@ -105,7 +119,7 @@ HELPER_CANDIDATES = (Path.home() / "Applications/CuaSshScreenCapture.app",
 MAX_STEPS = 30
 READ_ONLY_POSTCONDITION_METHODS = {
     "debug.layers", "debug.surfaces", "debug.focus", "debug.window_list", "debug.windows",
-    "debug.pane_chrome", "debug.notifications", "debug.themes",
+    "debug.pane_chrome", "debug.notifications", "debug.themes", "debug.dialog",
 }
 # The tour's shells read these rc files, never the runner account's, whose `%n@%m` prompt names the CI
 # Mac. A DEBUG app launched with CMUX_CAPTURE_SHELL_HOME (as a PR capture slot is) starts its terminals'
@@ -145,6 +159,10 @@ def load_tour(path: Path) -> dict[str, Any]:
         raise TourError(f"{path}: `steps` must be a non-empty list")
     if "settings" in data and not isinstance(data["settings"], dict):
         raise TourError(f"{path}: `settings` must be an object (the cmux-next.json the app launches with)")
+    env = data.get("env", {})
+    if (not isinstance(env, dict) or not all(isinstance(key, str) and key.startswith("CMUX_NEXT_") and isinstance(value, str)
+                                             for key, value in env.items())):
+        raise TourError(f"{path}: `env` maps CMUX_NEXT_* names to strings ({{repo}} is the checkout)")
     if len(steps) > MAX_STEPS:
         raise TourError(f"{path}: {len(steps)} steps; split tours past {MAX_STEPS}")
     for number, step in enumerate(steps, 1):
@@ -169,6 +187,15 @@ def load_tour(path: Path) -> dict[str, Any]:
             raise TourError(f"{where}: `rpc` must be {{\"method\": name, \"params\": object}}")
         if step.get("daemon") and command is None:
             raise TourError(f"{where}: `daemon` needs a `cmux` command")
+        capture = step.get("capture")
+        if capture is not None:
+            if (not isinstance(capture, dict) or set(capture) - {"method", "params", "scale", "menu"}
+                    or not isinstance(capture.get("method"), str) or not capture["method"].strip()
+                    or not isinstance(capture.get("params", {}), dict)
+                    or type(capture.get("scale")) is not int or capture["scale"] != 2
+                    or not isinstance(capture.get("menu", False), bool)
+                    or step.get("display") or step.get("shot") is False):
+                raise TourError(f"{where}: `capture` requires a geometry RPC, scale 2 and an app-window shot")
         wait = step.get("wait", DEFAULT_WAIT)
         if isinstance(wait, bool) or not isinstance(wait, (int, float)) or not 0 <= wait <= 30:
             raise TourError(f"{where}: `wait` must be 0 to 30 seconds")
@@ -186,7 +213,46 @@ def load_tour(path: Path) -> dict[str, Any]:
             if (not isinstance(expect.get("fields"), dict) or not expect["fields"]
                     or not all(isinstance(field, str) and field for field in expect["fields"])):
                 raise TourError(f"{where}: `expect.fields` must be a non-empty object of field names")
-    return {"name": slug(path.stem), "title": data["title"].strip(), "steps": steps, "settings": data.get("settings")}
+    focus_after_close(path, steps)
+    # Launch environment for fixture seams (a fixture browser-import home); {repo} is this checkout.
+    repo = str(Path(__file__).resolve().parents[3])
+    launch_env = {key: value.replace("{repo}", repo) for key, value in env.items()}
+    return {"name": slug(path.stem), "title": data["title"].strip(), "steps": steps, "settings": data.get("settings"),
+            "env": launch_env}
+
+
+def _action(step: dict[str, Any]) -> str | None:
+    """The action id a `cmux action run ID ...` step runs, else None."""
+    command = step.get("cmux") or []
+    return command[2] if len(command) >= 3 and command[:2] == ["action", "run"] else None
+
+
+def _keeps_panes(step: dict[str, Any]) -> bool:
+    """A step that opens no pane: a wait, a setting, a tunable, or a focus move."""
+    command, rpc = step.get("cmux"), step.get("rpc")
+    if command is None and rpc is None:
+        return True
+    if rpc is not None:
+        return command is None and rpc["method"] == "debug.tunables"
+    action = _action(step)
+    return command[0] == "settings" or action in FOCUS_MOVES
+
+
+def focus_after_close(path: Path, steps: list[dict[str, Any]]) -> None:
+    """A directional focus is refused when the last step that changed the panes closed one: the close
+    leaves the focus on a neighbour, and when it left one pane the move fails with "no pane left of
+    the focused pane", which fails the whole capture (#27839's main-pane tour)."""
+    for number, step in enumerate(steps, 1):
+        if _action(step) not in DIRECTIONAL_FOCUS:
+            continue
+        for earlier in reversed(steps[:number - 1]):
+            if _action(earlier) in PANE_CLOSES:
+                raise TourError(
+                    f"{path}: step {number} runs {_action(step)} after {_action(earlier)} with no pane opened "
+                    "between: the close already focused a neighbour, and with one pane left the move fails. "
+                    "Drop the step, or focus a pane by number (focusPaneByNumber)")
+            if not _keeps_panes(earlier):
+                break
 
 
 def command_line(argv: list[str]) -> str:
@@ -417,6 +483,63 @@ def frame_interval(mode: str) -> float:
     return APP_WINDOW_FRAME_INTERVAL if mode == APP_WINDOW_MODE else FRAME_INTERVAL
 
 
+class WindowVideo:
+    def __init__(self, session, pid: int | None, directory: Path, scratch: Path):
+        self.session, self.pid = session, pid
+        self.path = directory / "capture.mov"
+        self.scratch = scratch
+        self.process = None
+        self.log = None
+        self.reason = ""
+        self.log_path = self.scratch / "record-window.log"
+
+    def start(self) -> bool:
+        if sys.platform != "darwin" or self.pid is None:
+            self.reason = "ScreenCaptureKit requires macOS and an app PID"
+            return False
+        binary = self.scratch / "record-window"
+        source = Path(__file__).with_name("record-window.swift")
+        try:
+            built = subprocess.run(["xcrun", "swiftc", "-parse-as-library", str(source), "-o", str(binary)],
+                                   capture_output=True, text=True, timeout=120)
+            if built.returncode:
+                self.reason = "ScreenCaptureKit helper unavailable: " + built.stderr[-500:]
+                return False
+            # Both existing console routes can have different Screen Recording grants.
+            for mode, prefix in self.session.capture_routes:
+                self.path.unlink(missing_ok=True)
+                self.log = self.log_path.open("w+")
+                self.process = subprocess.Popen(prefix + [str(binary), str(self.pid), str(self.path)],
+                                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.log,
+                                                text=True)
+                with selectors.DefaultSelector() as ready:
+                    ready.register(self.process.stdout, selectors.EVENT_READ)
+                    if ready.select(timeout=30) and self.process.stdout.readline().strip() == "READY":
+                        return True
+                self.stop()
+                self.reason = f"ScreenCaptureKit unavailable through {mode}: " + self.log_path.read_text()[-500:].strip()
+        except (OSError, subprocess.SubprocessError) as error:
+            self.reason = str(error)
+            self.stop()
+        self.path.unlink(missing_ok=True)
+        return False
+
+    def stop(self) -> bool:
+        if self.process is None:
+            return False
+        process, self.process = self.process, None
+        try:
+            process.communicate(input="\n", timeout=20)
+        except (OSError, subprocess.TimeoutExpired):
+            process.kill()
+            process.communicate()
+        finally:
+            if self.log:
+                self.log.close()
+                self.log = None
+        return process.returncode == 0 and self.path.is_file() and self.path.stat().st_size > 0
+
+
 class Recorder(threading.Thread):
     """Frames of the app's window about every `interval` seconds, tagged with the step."""
 
@@ -430,9 +553,12 @@ class Recorder(threading.Thread):
         self.stopping = threading.Event()
         self.lock = threading.Lock()
         self.interval = frame_interval(screen.mode)
+        self.started = 0.0
+        self.elapsed = 0.0
 
     def run(self) -> None:
-        while not self.stopping.is_set():
+        self.started = time.monotonic()
+        while not self.stopping.is_set() and time.monotonic() - self.started < MAX_SECONDS:
             started = time.monotonic()
             with self.lock:
                 if self.stopping.is_set():
@@ -449,13 +575,15 @@ class Recorder(threading.Thread):
                 if problem:
                     self.error = problem
                 else:
-                    self.frames.append({"file": f"frames/{path.name}", "step": self.step})
+                    self.frames.append({"file": f"frames/{path.name}", "step": self.step,
+                                        "time": started - self.started})
             self.stopping.wait(max(0.0, self.interval - (time.monotonic() - started)))
 
     def stop(self) -> list[dict[str, Any]]:
         """Stop recording; the frames kept, which nothing appends to afterwards."""
         with self.lock:
             self.stopping.set()
+            self.elapsed = min(MAX_SECONDS, time.monotonic() - self.started) if self.started else 0.0
             frames = list(self.frames)
         if self.is_alive():
             # A capture in flight is bounded (60 s for the helper); its frame is dropped.
@@ -472,8 +600,13 @@ class App:
     """One launch of the app on a private socket, driven through its bundled CLI."""
 
     def __init__(self, app_path: Path, session: Session, workdir: Path, *, fresh_state: bool = False,
-                 settings: dict[str, Any] | None = None) -> None:
+                 settings: dict[str, Any] | None = None, launch_env: dict[str, str] | None = None,
+                 launch_args: list[str] | None = None) -> None:
         self.app_path = app_path
+        # Extra environment knobs and app arguments for one launch (the nightly
+        # visual gate's states launch with --showcase, for example).
+        self.launch_env = dict(launch_env or {})
+        self.launch_args = list(launch_args or [])
         self.session = session
         self.fresh_state = fresh_state
         self.cli_path = app_path / "Contents/Resources/bin/cmux"
@@ -546,7 +679,9 @@ class App:
                  f"CMUX_CAPTURE_SHELL_HOME={self.write_shell_home()}"]
         if self.settings_path:
             knobs.append(f"CMUX_NEXT_CONFIG_FILE={self.settings_path}")
-        argv = self.session.prefix + ["env", *knobs, str(self.executable), "-ApplePersistenceIgnoreState", "YES"]
+        knobs += [f"{key}={value}" for key, value in sorted(self.launch_env.items())]
+        argv = self.session.prefix + ["env", *knobs, str(self.executable), "-ApplePersistenceIgnoreState", "YES",
+                                      *self.launch_args]
         with self.log_path.open("wb") as log:
             self.process = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT,
                                             env=self.environment(), start_new_session=True)
@@ -783,6 +918,79 @@ def shoot_other_windows(app: App, main_shot: Path) -> tuple[list[dict[str, Any]]
     return shots, "; ".join(problems)[:500] or None
 
 
+def step_label(result: dict[str, Any]) -> str:
+    """A step's status as reports show it: "unchecked" for an ok step whose shot no `expect` checked."""
+    if result.get("status") == "ok" and result.get("shot") and result.get("checked") is False:
+        return "unchecked"
+    return str(result.get("status", ""))
+
+
+def png_size(path: Path) -> tuple[int, int]:
+    """Read pixel dimensions without adding an image-library dependency to capture hosts."""
+    with path.open("rb") as image:
+        header = image.read(24)
+    if len(header) != 24 or header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
+        raise TourError("capture is not a PNG with dimensions")
+    return int.from_bytes(header[16:20], "big"), int.from_bytes(header[20:24], "big")
+
+
+def capture_fixture(app: App, path: Path, config: dict[str, Any]) -> str | None:
+    """Crop only fixture-owned bounds; never upscale or silently omit a native menu.
+
+    Geometry comes from the fixture after its menu has opened: `capture` is an
+    integral top-left rectangle in window points; `window` is the full window's
+    point size. A menu capture additionally requires `menuVisible` and a window
+    server composite that includes a floating window. Failed evidence is deleted.
+    """
+    raw = path.with_name(path.stem + "-raw.png")
+    try:
+        geometry = app.request(config["method"], config.get("params", {}))
+        if not isinstance(geometry, dict) or geometry.get("error"):
+            raise TourError(f"fixture geometry unavailable: {geometry}")
+        rect, window = geometry.get("capture"), geometry.get("window")
+        if not isinstance(rect, dict) or not isinstance(window, dict):
+            raise TourError("fixture omitted capture/window geometry")
+        values = [rect.get(key) for key in ("x", "y", "width", "height")]
+        values += [window.get(key) for key in ("width", "height")]
+        if any(type(v) not in (int, float) or not math.isfinite(v) or int(v) != v for v in values):
+            raise TourError("fixture capture geometry must use finite integral window points")
+        x, y, width, height, full_width, full_height = map(int, values)
+        if (min(x, y) < 0 or min(width, height, full_width, full_height) <= 0
+                or max(full_width, full_height) > 16384
+                or x + width > full_width or y + height > full_height):
+            raise TourError("fixture capture is outside the window bounds")
+        if geometry.get("scale") != 2:
+            raise TourError("fixture did not request 2x capture")
+        menu = config.get("menu", False)
+        if menu and geometry.get("menuVisible") is not True:
+            raise TourError("fixture menu is not visible")
+        raw.unlink(missing_ok=True)
+        snapshot = app.request("debug.window_snapshot", {"kind": "main", "path": str(raw), "webviews": False},
+                               timeout=SNAPSHOT_TIMEOUT)
+        if not isinstance(snapshot, dict) or snapshot.get("error"):
+            raise TourError(f"composited snapshot unavailable: {snapshot}")
+        if menu and (snapshot.get("method") != "composited"
+                     or not isinstance(snapshot.get("floating_windows"), int)
+                     or snapshot["floating_windows"] < 1):
+            raise TourError("snapshot did not include the native menu overlay")
+        pixels = png_size(raw)
+        if pixels != (full_width * 2, full_height * 2):
+            raise TourError(f"expected a true 2x snapshot {(full_width * 2, full_height * 2)}, got {pixels}; no upscaling")
+        done = subprocess.run(["sips", "--cropToHeightWidth", str(height * 2), str(width * 2),
+                               "--cropOffset", str(y * 2), str(x * 2), str(raw), "--out", str(path)],
+                              capture_output=True, text=True, timeout=30)
+        if done.returncode:
+            raise TourError((done.stderr or done.stdout).strip() or "sips crop failed")
+        if png_size(path) != (width * 2, height * 2):
+            raise TourError("cropped image dimensions do not match the fixture's 2x bounds")
+        return None
+    except (OSError, ValueError, TourError, subprocess.SubprocessError) as error:
+        path.unlink(missing_ok=True)
+        return str(error)
+    finally:
+        raw.unlink(missing_ok=True)
+
+
 def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: Path) -> dict[str, Any]:
     started = time.monotonic()
     result: dict[str, Any] = {"index": index, "title": step["title"], "status": "ok"}
@@ -823,6 +1031,9 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
         "status": postcondition_status,
         "detail": postcondition_detail,
     }
+    # Whether an `expect` read the app's state and matched it. A step without one reports "ok" once
+    # it ran, whatever its shot shows, so its shot is unchecked (see `step_label`).
+    result["checked"] = postcondition_status == "passed"
     if postcondition_status in ("failed", "unavailable"):
         result["status"] = postcondition_status
         result["detail"] = (result.get("detail", "") + " " + postcondition_detail).strip()
@@ -835,12 +1046,18 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
     if step.get("shot", True) or result["status"] == "failed":
         suffix = "-failed" if result["status"] == "failed" else ""
         path = shots / f"{index:02d}-{slug(step['title'])}{suffix}.png"
-        problem = display_capture(app, screen, path) if step.get("display") else screen.capture(path)
+        if step.get("capture"):
+            problem = capture_fixture(app, path, step["capture"])
+        else:
+            problem = display_capture(app, screen, path) if step.get("display") else screen.capture(path)
         if problem:
             result["shot_error"] = problem
+            if step.get("capture"):
+                result["status"] = "unavailable" if step.get("optional") else "failed"
+                result["detail"] = problem
         else:
             result["shot"] = f"shots/{path.name}"
-            if screen.app and step.get("windows", not step.get("display")):
+            if screen.app and step.get("windows", not step.get("display") and not step.get("capture")):
                 windows, problem = shoot_other_windows(app, path)
                 if windows:
                     result["windows"] = windows
@@ -858,9 +1075,12 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
     shots = session.shareable(directory / "shots")
     frames = session.shareable(directory / "frames")
     workdir = Path(tempfile.mkdtemp(prefix="cmux-tour.", dir="/tmp"))
-    app = App(app_path, session, workdir, fresh_state=fresh_state, settings=tour.get("settings"))
+    app = App(app_path, session, workdir, fresh_state=fresh_state, settings=tour.get("settings"),
+              launch_env=tour.get("env"))
     screen = Screen(session, session.shareable(workdir / "raw"), app)
     recorder = Recorder(screen, frames)
+    video = WindowVideo(session, None, session.shareable(directory), screen.scratch)
+    video_started = False
     manifest: dict[str, Any] = {"name": tour["name"], "title": tour["title"], "steps": [], "frames": [],
                                 "frame_interval": recorder.interval, "console_user": session.user,
                                 "capture_mode": screen.mode}
@@ -892,12 +1112,19 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
         if screen.rect is None:
             manifest["frames_error"] = f"no app window on screen within {WINDOW_TIMEOUT:.0f}s"
         else:
-            recorder.start()
+            video.pid = app.pid()
+            video_started = video.start()
+            if video_started:
+                manifest["video_mode"] = "ScreenCaptureKit window, requested 60 fps"
+            else:
+                manifest["video_fallback"] = video.reason
+                print(f"[{tour['name']}] still-only video fallback: {video.reason}", flush=True)
+                recorder.start()
         for index, step in enumerate(tour["steps"], 1):
             recorder.step = index
             result = run_step(app, screen, step, index, shots)
             manifest["steps"].append(result)
-            print(f"[{tour['name']}] {index:02d} {result['status']:<11} {step['title']}"
+            print(f"[{tour['name']}] {index:02d} {step_label(result):<11} {step['title']}"
                   + (f": {result['detail']}" if result.get("detail") else ""), flush=True)
             if not app.alive():
                 manifest["error"] = "the app exited during the tour: " + app.log_tail()
@@ -910,9 +1137,19 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
         # whatever was behind it on the shared console.
         with recorder.lock:
             recorder.stopping.set()
+        # Finalize video while its window still exists. Never capture what is behind a closed app.
+        video_ok = video.stop()
+        if video_started:
+            if video_ok:
+                manifest["video"] = "capture.mov"
+            else:
+                manifest["frames_error"] = "window video could not be finalized"
+        manifest["frames"] = recorder.stop() if recorder.ident else []
+        if manifest["frames"] and recorder.elapsed:
+            manifest["frame_interval"] = recorder.elapsed / len(manifest["frames"])
+            manifest["capture_fps"] = len(manifest["frames"]) / recorder.elapsed
         # Then the app: a leftover app or daemon would serve the next run on this Mac.
         app.stop()
-        manifest["frames"] = recorder.stop() if recorder.ident else []
         if recorder.error and not manifest["frames"]:
             manifest.setdefault("frames_error", recorder.error)
         manifest["capture_rect"] = screen.rect

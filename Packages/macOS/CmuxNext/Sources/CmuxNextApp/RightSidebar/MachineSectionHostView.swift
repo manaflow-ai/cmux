@@ -2,14 +2,14 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextServer
-import SwiftUI
 
-/// Hosts the Machines section: follows the machine registry and each machine's last check, opens a
-/// workspace on a machine through `workspace.newOnMachine` and Add Device through `device.add`. With
-/// Labs `labs.machineJoin` on it also lists the machines that joined with a one-line token, read
-/// when the section is made and each time it shows (never on a timer), with Check, Rotate and Revoke.
+/// Hosts the Machines section (``MachineSectionView``, AppKit): follows the machine registry, each
+/// machine's last check and the section's layout tunable, opens a workspace on a machine through
+/// `workspace.newOnMachine` and Add Device through `device.add`. With Labs `labs.machineJoin` on it
+/// also lists the machines that joined with a one-line token, read when the section is made and each
+/// time it shows (never on a timer), with Check, Rotate and Revoke.
 final class MachineSectionHostView: NSView, RightSidebarRefreshing {
-    let model = MachineSectionModel()
+    let section: MachineSectionView
     private let machines: MachineRegistry
     private let health: MachineHealthStore
     private let joined: JoinedMachineStore
@@ -23,26 +23,29 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
         machines = services.machines
         health = services.machineHealth
         joined = services.joinedMachines
-        super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
         let registry = services.registry
-        let joined = self.joined
-        let hosting = NSHostingView(rootView: MachineSectionListView(model: model, newWorkspace: { id in
+        section = MachineSectionView(actions: MachineSectionView.Actions(newWorkspace: { id in
             registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string(id)]))
-        }, addMachine: { registry.perform("device.add") }, joinedStore: joined,
-        joinedMenu: { machine, row in Self.joinedMenu(machine, rowID: row.id, registry: registry) }))
-        hosting.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(hosting)
+        }, addMachine: { registry.perform("device.add") }, newWorkspaceMenuItem: { id in
+            registry.makeContextMenuItem(for: "workspace.newOnMachine", in: .machineSection, arguments: ["machine": .string(id)])
+        }, joinedMenu: { machine, row in Self.joinedMenu(machine, rowID: row.id, registry: registry) }))
+        super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
+        section.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(section)
         NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: bottomAnchor),
+            section.leadingAnchor.constraint(equalTo: leadingAnchor),
+            section.trailingAnchor.constraint(equalTo: trailingAnchor),
+            section.topAnchor.constraint(equalTo: topAnchor),
+            section.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         refresh()
-        let machines = self.machines, health = self.health
+        let machines = self.machines, health = self.health, joined = self.joined
         observation = Task { [weak self] in
-            for await rows in ObservationStream({ MachineSectionModel.rows(machines, health: health, joined: joined) }) {
-                self?.model.update(rows)
+            for await (rows, style, state) in ObservationStream({
+                (MachineSectionRow.rows(machines, health: health, joined: joined), ServerTunables.machinesStyle.value,
+                 MachineSectionView.JoinedRowState(joined))
+            }) {
+                self?.section.update(rows, style: style, joined: state)
             }
         }
         // task-owner: follows the switch for the section's life; deinit cancels it. Its first value
@@ -72,7 +75,8 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     }
 
     func refresh() {
-        model.update(MachineSectionModel.rows(machines, health: health, joined: joined))
+        section.update(MachineSectionRow.rows(machines, health: health, joined: joined), style: ServerTunables.machinesStyle.value,
+                       joined: MachineSectionView.JoinedRowState(joined))
         let joined = self.joined
         joinedRead?.cancel()
         // task-owner: one list read per show; the next show or deinit cancels it.

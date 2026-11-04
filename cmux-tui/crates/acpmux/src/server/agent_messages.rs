@@ -7,11 +7,20 @@
 //!   runaway guard paused that `sessionId` is in (`hub/agent_pairs.rs`); `peerSessionId` only
 //!   picks one of them. Only a connection that proved the person key (`hub/person.rs`) on this
 //!   machine (the unix socket or the app, `remote_guard.rs` refusing Web and Peer first).
-//! - The person's own prompt into a chat resumes that chat's pairs too ([`person_prompt`]).
+//! - The person's own prompt into a chat resumes that chat's pairs too ([`person_prompt`]),
+//!   except those a taken-over chat holds.
+//! - `_acpmux/agent_hold {sessionId, held}`: the person takes a managed chat over, so its
+//!   manager's messages wait, or hands it back, which delivers them (`hub/agent_hold.rs`). The
+//!   person on this machine only, as `agent_pair_resume`.
 //!
 //! And `_acpmux/retry {sessionId, subagentId?}` ([`retry`]): the chat's failed last turn, retried
 //! now (`hub/auto_resume/retry_turn.rs`), or with `subagentId` that failed subagent, resumed now
 //! (`hub/subagent_retry_manual.rs`). It may reach a peer's chat (`peer_forward.rs`).
+//!
+//! And `_acpmux/inbox_digest {sessionId, dryRun?}` ([`inbox_digest`]): the agent messages waiting
+//! in the chat's queue go in as one digest (`hub/inbox_digest.rs`). The unix socket only, from
+//! the person or the chat's own agent (its proven caller token); never from another session's
+//! agent.
 
 use super::{Conn, Origin, session_key, str_param};
 use crate::hub::{Hub, Session};
@@ -24,7 +33,8 @@ fn local_person(conn: &Conn) -> bool {
     conn.is_person() && !conn.origin.web_class()
 }
 
-/// `_acpmux/prompt_withdraw`, `_acpmux/agent_pair_resume` or `_acpmux/retry`.
+/// `_acpmux/prompt_withdraw`, `_acpmux/agent_pair_resume`, `_acpmux/retry` or
+/// `_acpmux/inbox_digest`.
 pub(super) async fn handle(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -34,6 +44,9 @@ pub(super) async fn handle(
     if m == method::MUX_RETRY {
         return retry(hub, conn, params).await;
     }
+    if m == method::MUX_INBOX_DIGEST {
+        return inbox_digest(hub, conn, params).await;
+    }
     if m == method::MUX_PROMPT_WITHDRAW {
         // The unix socket only; `remote_guard.rs` refuses every other origin first.
         if conn.origin != Origin::Local {
@@ -42,14 +55,45 @@ pub(super) async fn handle(
         let s = hub.resolve(session_key(params)?)?;
         return hub.prompt_withdraw(&s, params).await;
     }
-    // An agent may not resume its own pair.
+    // An agent may not resume its own pair, nor take a chat over or hand it back.
     if !local_person(conn) {
         return Err(Hub::agent_pair_resume_refused());
     }
     let s = hub.resolve(session_key(params)?)?;
+    if m == method::MUX_AGENT_HOLD {
+        let held = params
+            .get("held")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| RpcError::invalid_params("`held` (a boolean) is required"))?;
+        // The held messages come back with the logs (`restore_queue`).
+        hub.pair_peer_logs(&s).await;
+        hub.wait_logs().await;
+        return hub.agent_hold(&s, held);
+    }
     // The pairs come back with the logs (`restore_queue`): resume what they restored.
     hub.wait_logs().await;
     Ok(hub.agent_pair_resume(&s.id, str_param(params, "peerSessionId")))
+}
+
+/// `_acpmux/inbox_digest`: the unix socket only (`remote_guard.rs` refuses every other origin
+/// first), and never for another session's agent. A connection that says it runs in a session
+/// proves it with that session's caller token (one this run issued) and drains only that
+/// session's inbox; one that names no session is trusted as the socket trusts it for every queue
+/// change (`hub/inbox_digest.rs` module docs).
+async fn inbox_digest(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value, RpcError> {
+    if conn.origin != Origin::Local {
+        return Err(Hub::inbox_digest_origin_refused());
+    }
+    let s = hub.resolve(session_key(params)?)?;
+    // A token this run did not issue proves no session, the one it names included.
+    if conn.unproven_caller.get().is_some() && !conn.is_person() {
+        return Err(Hub::inbox_digest_caller_not_proven());
+    }
+    if conn.caller().is_some_and(|id| id != s.id) {
+        return Err(Hub::inbox_digest_other_agent());
+    }
+    let dry_run = params.get("dryRun").and_then(Value::as_bool).unwrap_or(false);
+    hub.inbox_digest(&s, &conn.label(), dry_run).await
 }
 
 /// `_acpmux/retry`: under the caller's rules, as a prompt it sent (its control, the trust gate

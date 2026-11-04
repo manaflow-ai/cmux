@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture chat titles.
-// The Inspector's Subagents card names how many of the chats this chat's agent started run a turn
-// at once (acpmux `subsessionLimits.maxRunning`): "Running 2 / 16 max", "1 queued" while some wait
+// Session Info's Subagents card names how many of the chats this chat's agent started run a turn
+// at once (acpmux `subsessionLimits.maxRunning`): "Started chats: 2 of 16 at once", "1 queued" while some wait
 // for a slot, and − / + that set the chat's own limit one lower or higher, 1 to 1000, through
 // `_acpmux/subsession/limits` (Leo, 2026-10-21: "increase or decrease subagent amounts ad hoc").
 // The number moves at once and acpmux's answer then holds; an acpmux without the limit draws
@@ -11,9 +11,9 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { ChatInspector } from "../src/agent-session/acpmux/inspector/ChatInspector";
-import { SubagentLimitStepper } from "../src/agent-session/acpmux/inspector/SubagentLimitStepper";
-import { resetInspectorState } from "../src/agent-session/acpmux/inspector/inspectorState";
+import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { SubagentLimitStepper } from "../src/agent-session/acpmux/session-info/SubagentLimitStepper";
+import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import type { SubsessionLimits } from "../src/agent-session/acpmux/model";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
 import { startedSessions, type StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
@@ -43,14 +43,14 @@ beforeEach(() => {
   };
   for (const key of Object.keys(replacements)) saved.set(key, scope[key]);
   Object.assign(scope, replacements);
-  resetInspectorState();
+  resetSessionInfoState();
   host = dom.window.document.getElementById("root")!;
 });
 
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
-  resetInspectorState();
+  resetSessionInfoState();
   dom.window.close();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
@@ -120,7 +120,7 @@ test("the counts are the started chats' live states, a chat waiting for a slot q
   expect(startedSessions(entries, "parent").map((each) => each.waitsForSlot)).toEqual([true, undefined]);
 });
 
-test("it reads Running N / M max with the queued count, and draws nothing without the limit", async () => {
+test("it reads Started chats: N of M at once with the queued count, and draws nothing without the limit", async () => {
   await render(<SubagentLimitStepper limits={undefined} />);
   expect(host.querySelector(".acpmux-subagent-limit")).toBeNull();
   await render(
@@ -130,14 +130,14 @@ test("it reads Running N / M max with the queued count, and draws nothing withou
       onSet={async () => undefined}
     />,
   );
-  expect(line()).toBe("Running 1 / 16 max · 1 queued");
+  expect(line()).toBe("Started chats: 1 of 16 at once · 1 queued");
   expect(button(/Lower the running limit to 15/)).toBeDefined();
   expect(button(/Raise the running limit to 17/)).toBeDefined();
   // Not the chat's own limit: nothing to reset.
   expect(button(/inherited/)).toBeUndefined();
   // Without a way to set it, it only reads.
   await render(<SubagentLimitStepper limits={{ maxRunning: 16 }} />);
-  expect(line()).toBe("Running 0 / 16 max");
+  expect(line()).toBe("Started chats: 0 of 16 at once");
   expect(host.querySelectorAll("button").length).toBe(0);
 });
 
@@ -152,13 +152,13 @@ test("− and + send max ∓ 1 for the chat, move at once and clamp to 1..1000",
   await click(button(/Raise/));
   expect(sent).toEqual([17]);
   // Optimistic: the number moved before acpmux answered.
-  expect(line()).toBe("Running 0 / 17 max");
+  expect(line()).toBe("Started chats: 0 of 17 at once");
   await click(button(/Raise/));
   expect(sent).toEqual([17, 18]);
   // acpmux's answer wins: its limit replaces the asked one.
   await render(<SubagentLimitStepper limits={{ maxRunning: 18, maxRunningSource: "session" }} onSet={onSet} />);
   await act(async () => answer?.());
-  expect(line()).toBe("Running 0 / 18 max");
+  expect(line()).toBe("Started chats: 0 of 18 at once");
   await click(button(/Lower/));
   expect(sent.at(-1)).toBe(17);
   // Reset drops the chat's own limit.
@@ -185,13 +185,13 @@ test("an earlier click's reply keeps the newer click's value, so the next + buil
   // The first reply lands: acpmux now says 17, but 18 is still asked.
   await render(<SubagentLimitStepper limits={{ maxRunning: 17, maxRunningSource: "session" }} onSet={onSet} />);
   await act(async () => answers[0]?.());
-  expect(line()).toBe("Running 0 / 18 max");
+  expect(line()).toBe("Started chats: 0 of 18 at once");
   await click(button(/Raise/));
   expect(sent).toEqual([17, 18, 19]);
-  expect(line()).toBe("Running 0 / 19 max");
+  expect(line()).toBe("Started chats: 0 of 19 at once");
   // A limit that is none of the asked ones (another client) replaces the ask.
   await render(<SubagentLimitStepper limits={{ maxRunning: 40, maxRunningSource: "session" }} onSet={onSet} />);
-  expect(line()).toBe("Running 0 / 40 max");
+  expect(line()).toBe("Started chats: 0 of 40 at once");
 });
 
 test("a refused change goes back to acpmux's limit and says so", async () => {
@@ -203,7 +203,7 @@ test("a refused change goes back to acpmux's limit and says so", async () => {
     />,
   );
   await click(button(/Raise/));
-  expect(line()).toBe("Running 0 / 4 max");
+  expect(line()).toBe("Started chats: 0 of 4 at once");
   expect(host.querySelector(".acpmux-subagent-limit__refused")?.textContent).toBe("Couldn't change the limit");
   // Another chat's line says nothing of it.
   await render(<SubagentLimitStepper chatId="chat-2" limits={{ maxRunning: 4 }} onSet={async () => undefined} />);
@@ -214,17 +214,17 @@ test("a value asked for one chat never shows on another", async () => {
   const onSet = () => new Promise<void>(() => undefined);
   await render(<SubagentLimitStepper chatId="chat-1" limits={{ maxRunning: 16 }} onSet={onSet} />);
   await click(button(/Raise/));
-  expect(line()).toBe("Running 0 / 17 max");
+  expect(line()).toBe("Started chats: 0 of 17 at once");
   // The pane switched chats while acpmux had not answered: the other chat's own limit shows.
   await render(<SubagentLimitStepper chatId="chat-2" limits={{ maxRunning: 16 }} onSet={onSet} />);
-  expect(line()).toBe("Running 0 / 16 max");
+  expect(line()).toBe("Started chats: 0 of 16 at once");
 });
 
 test("Subagents shows a set limit before the agent starts a chat, and sets it for that chat", async () => {
   const sent: [string, number | null][] = [];
   // Never used, at acpmux's default: no Subagents card.
   await render(
-    <ChatInspector
+    <SessionInfo
       summary={{ sessionId: "chat-1", subsessionLimits: { maxRunning: 16, maxRunningSource: "default" } }}
       onSetRunningLimit={async (sessionId, value) => void sent.push([sessionId, value])}
     />,
@@ -232,28 +232,28 @@ test("Subagents shows a set limit before the agent starts a chat, and sets it fo
   expect(host.querySelector(".acpmux-subagent-limit")).toBeNull();
   // At the default but with a chat it started: the card and its limit show.
   await render(
-    <ChatInspector
+    <SessionInfo
       summary={{ sessionId: "chat-1", subsessionLimits: { maxRunning: 16, maxRunningSource: "default" } }}
       sessions={[child("kid", "running")]}
       onSetRunningLimit={async (sessionId, value) => void sent.push([sessionId, value])}
     />,
   );
-  expect(line()).toBe("Running 1 / 16 max");
+  expect(line()).toBe("Started chats: 1 of 16 at once");
   // No chats yet, but the settings set the limit: the card shows only the limit.
   await render(
-    <ChatInspector
+    <SessionInfo
       summary={{ sessionId: "chat-1", subsessionLimits: { maxRunning: 16, maxRunningSource: "settings" } }}
       onSetRunningLimit={async (sessionId, value) => void sent.push([sessionId, value])}
     />,
   );
-  expect(line()).toBe("Running 0 / 16 max");
+  expect(line()).toBe("Started chats: 0 of 16 at once");
   // No avatar row with nothing in it.
-  expect(host.querySelector(".acpmux-chat-inspector-avatars")).toBeNull();
+  expect(host.querySelector(".acpmux-session-info-avatars")).toBeNull();
   await click(button(/Lower/));
   expect(sent).toEqual([["chat-1", 15]]);
   // A chat on another machine: its acpmux takes the limit only from its own person, so it only reads.
   await render(
-    <ChatInspector
+    <SessionInfo
       summary={{
         sessionId: "chat-1",
         peer: "build-01",
@@ -262,9 +262,9 @@ test("Subagents shows a set limit before the agent starts a chat, and sets it fo
       onSetRunningLimit={async (sessionId, value) => void sent.push([sessionId, value])}
     />,
   );
-  expect(line()).toBe("Running 0 / 16 max");
+  expect(line()).toBe("Started chats: 0 of 16 at once");
   expect(host.querySelectorAll(".acpmux-subagent-limit button").length).toBe(0);
   // An acpmux without the limit and no chats: no Subagents at all.
-  await render(<ChatInspector summary={{ sessionId: "chat-1" }} />);
+  await render(<SessionInfo summary={{ sessionId: "chat-1" }} />);
   expect(host.querySelector(".acpmux-subagent-limit")).toBeNull();
 });

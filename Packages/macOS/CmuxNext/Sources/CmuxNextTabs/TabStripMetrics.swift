@@ -57,6 +57,8 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// Vertical distance outside the strip that hands a dragged tab to the drag session.
     public var tearOffDistance: CGFloat
 
+    /// Every pill's corner radius (`Metrics.tabCornerRadius`): concentric with the card
+    /// corner the strip sits in; the strip's + and a tab's hover card share it.
     public var cornerRadius: CGFloat
     /// Corner of the close button's hover and pressed fill: Helium's rounded
     /// rect (`TabCloseButton` `kCornerRadius`, 4), not Chrome's circle.
@@ -80,6 +82,8 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var showsSeparators: Bool
     public var separatorHeight: CGFloat
     public var separatorOpacity: CGFloat
+    /// Whether a line ends the pinned group (`tabs.pinnedDivider`), in ``pinnedGroupGap``.
+    public var showsPinnedDivider: Bool
     /// A group chip's icon: the tab icon size, inset inside the pill's height.
     public var groupChipIconSize: CGFloat { max(0, min(iconSize, groupChipHeight - 2 * Metrics.space1)) }
     /// Between a group chip's icon and its name or count.
@@ -94,6 +98,14 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var faviconCloseWidth: CGFloat {
         2 * tabBackgroundInset + contentLeadingInset + iconSize + titleCloseSpacing + closeButtonSize + contentTrailingInset
     }
+
+    /// Title room a crowded tab keeps beyond ``faviconCloseWidth``: about four characters of its title,
+    /// faded, at rest (Lawrence msg 19596: 26 tabs showed "…" alone, "not very helpful"). The default
+    /// minimum tab width is the sum (`MetricTunables.tabMinInactiveWidth`).
+    public static let crowdedTitleRoom: CGFloat = 24
+
+    /// The default narrowest inactive tab: the favicon, the close button and ``crowdedTitleRoom``.
+    public var crowdedMinimumWidth: CGFloat { faviconCloseWidth + Self.crowdedTitleRoom }
 
     /// Vertical inset of tabs inside the strip.
     public var stripVerticalPadding: CGFloat { max(0, (stripHeight - tabHeight) / 2) }
@@ -160,7 +172,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         scrollFadeWidth = TabTunables.scrollFadeWidth.value
         tabBackgroundInset = Metrics.tabBackgroundInset
         tearOffDistance = TabTunables.tearOffDistance.value
-        cornerRadius = Metrics.itemCornerRadius
+        cornerRadius = Metrics.tabCornerRadius
         closeCornerRadius = Metrics.space2
         groupChipOuterInset = Metrics.space1
         groupChipPadding = TabTunables.groupChipPadding.value
@@ -172,6 +184,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         showsSeparators = TabTunables.separators.value
         separatorHeight = TabTunables.separatorHeight.value
         separatorOpacity = TabTunables.separatorOpacity.value
+        showsPinnedDivider = TabTunables.pinnedDivider.value
     }
 
     /// Token-derived metrics for the current density.

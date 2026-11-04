@@ -16,7 +16,8 @@ public import Foundation
 ///
 /// The values never cross a daemon link: the person's delivery writes them to the machine, and its
 /// shells and agents read them from the file.
-public enum SSHMachineSecrets {
+public struct SSHMachineSecrets {
+    public init() {}
     /// The machine's folder for the receiver and its ticket, as a remote shell expands it.
     public static let directory = "$HOME/.cmux/machine-config"
     public static let receiverPath = directory + "/receive-secrets"

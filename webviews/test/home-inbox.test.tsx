@@ -13,6 +13,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxPermission } from "../src/agent-session/acpmux/model";
 import type { HomeInboxOutcome } from "../src/agent-session/acpmux/HomeInbox";
 import type { NeedsYouItem, WatchedAsk } from "../src/agent-session/acpmux/needsYou/model";
+import type { AttentionTab } from "../src/agent-session/acpmux/needsYou/attentionTabs";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -132,7 +133,15 @@ type Sent = {
   settle(outcome: HomeInboxOutcome | "refused"): void;
 };
 
-async function mount({ shortcuts }: { shortcuts?: boolean } = {}) {
+async function mount({
+  shortcuts,
+  tabs = [],
+  onOpen,
+}: {
+  shortcuts?: boolean;
+  tabs?: AttentionTab[];
+  onOpen?: (item: NeedsYouItem) => void;
+} = {}) {
   const host = dom.window.document.createElement("div");
   dom.window.document.body.append(host);
   const root = createRoot(host);
@@ -144,7 +153,9 @@ async function mount({ shortcuts }: { shortcuts?: boolean } = {}) {
         sessions={sessions}
         currentId="home"
         asks={asks}
+        tabs={tabs}
         onSelect={(id) => opened.push(id)}
+        onOpen={onOpen}
         shortcuts={shortcuts}
         onAnswer={(item, choice) =>
           new Promise<HomeInboxOutcome>((resolve, reject) =>
@@ -176,6 +187,31 @@ async function mount({ shortcuts }: { shortcuts?: boolean } = {}) {
     });
   return { host, sent, opened, rows, rowOf, click, event, settle, unmount: () => act(async () => root.unmount()) };
 }
+
+test("a marked tab in Home opens through its tab action", async () => {
+  const opened: NeedsYouItem[] = [];
+  const inbox = await mount({
+    tabs: [
+      {
+        tabId: "tab-login",
+        reason: "Confirm demo access",
+        workspaceTitle: "Demo workspace",
+        tabTitle: "Sign in",
+        atMs: Date.now(),
+      },
+    ],
+    onOpen: (item) => {
+      opened.push(item);
+    },
+  });
+  const row = inbox.rowOf("Confirm demo access");
+  expect(row.getAttribute("data-kind")).toBe("tab");
+  await act(async () => (row.querySelector(".acpmux-home-inbox-open") as HTMLElement).click());
+  expect(opened).toHaveLength(1);
+  expect(opened[0]).toMatchObject({ kind: "tab", tabId: "tab-login", sessionId: "" });
+  expect(inbox.opened).toEqual([]);
+  await inbox.unmount();
+});
 
 const allow = translate("permission.allowOnce");
 const deny = translate("permission.deny");

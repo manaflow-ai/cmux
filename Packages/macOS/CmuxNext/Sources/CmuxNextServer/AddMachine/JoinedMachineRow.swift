@@ -18,7 +18,7 @@ public nonisolated enum JoinedMachineAction: String, CaseIterable, Sendable {
     }
 }
 
-/// A joined machine's row in the Machines section (AppKit; the SwiftUI section embeds it): its name
+/// A joined machine's row in the Machines section (``MachineSectionView``): its kind's icon, its name
 /// with the last Check's mark, its state and who made its line, and the app's more button
 /// (`OverflowButton`) that shows on hover. The button's hover fill covers the button alone, never
 /// the row, and it stays shown and lit while its menu is open. The menu opens on the press with no
@@ -41,6 +41,8 @@ final class JoinedMachineRowView: NSView {
         /// The app also connects to it, so New Workspace can open one there.
         var isLinked: Bool
         var isConnected: Bool
+        /// The row's icon: its kind's (the link's for a linked machine, else the joined kind's).
+        var icon: IconName
 
         init(row: MachineSectionRow, machine: JoinedMachine, busy: Bool, failed: JoinedMachineChange?, menuOpen: Bool) {
             id = machine.id
@@ -53,6 +55,7 @@ final class JoinedMachineRowView: NSView {
             self.menuOpen = menuOpen
             isLinked = row.isLinked
             isConnected = row.isConnected
+            icon = row.kind.icon
         }
     }
 
@@ -82,7 +85,6 @@ final class JoinedMachineRowView: NSView {
 
     init() {
         super.init(frame: NSRect(x: 0, y: 0, width: 240, height: JoinedMachineMetrics.rowHeight))
-        icon.image = NSImage.icon(.machineRemote, size: Metrics.iconSize)
         name.font = Typography.body
         name.lineBreakMode = .byTruncatingTail
         caption.font = Typography.caption
@@ -94,10 +96,21 @@ final class JoinedMachineRowView: NSView {
         add.target = self
         add.action = #selector(newWorkspace)
         add.setAccessibilityLabel(AddMachineStrings.newWorkspace)
+        // The workspace action is hover chrome: keep the row quiet until the pointer or its menu
+        // asks for an action, matching the ordinary machine row.
+        add.alphaValue = 0
         more.pressMenu = { [weak self] in self?.actions.menu() }
         // A menu's tracking swallows the exit: read the pointer again once it closes.
         let present = more.presentMenu
         more.presentMenu = { [weak self] menu, button in
+            self?.heldOpen = true
+            self?.more.showsMenu = true
+            self?.reveal()
+            defer {
+                self?.heldOpen = false
+                self?.more.showsMenu = false
+                self?.reveal()
+            }
             present(menu, button)
             self?.pointerHover?.refresh()
         }
@@ -121,6 +134,7 @@ final class JoinedMachineRowView: NSView {
         self.actions = actions
         guard snapshot != self.snapshot else { return }
         self.snapshot = snapshot
+        icon.image = NSImage.icon(snapshot.icon, size: Metrics.iconSize)
         name.stringValue = snapshot.name
         caption.stringValue = snapshot.caption
         more.label = JoinedMachineStrings.more(snapshot.name)
@@ -179,6 +193,9 @@ final class JoinedMachineRowView: NSView {
 
     @objc private func newWorkspace() { actions.newWorkspace() }
 
+    /// The row's text as shown: its name, then its caption (tests and the section's `shownLines`).
+    var shownText: String { [name.stringValue, caption.stringValue].filter { !$0.isEmpty }.joined(separator: " · ") }
+
     /// `PointerHover`'s answer (tests set it as a pointer would).
     func setHovered(_ on: Bool) {
         guard on != hovered else { return }
@@ -193,6 +210,7 @@ final class JoinedMachineRowView: NSView {
         spinner.spin(busy)
         more.isHidden = busy
         more.alphaValue = hovered || heldOpen ? 1 : 0
+        add.alphaValue = hovered || heldOpen ? 1 : 0
     }
 
     private func applyColors() {

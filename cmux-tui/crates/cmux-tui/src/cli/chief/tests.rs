@@ -12,6 +12,9 @@ use super::render::wrap;
 use super::turn::TurnWatch;
 use super::{Args, parse_args};
 
+#[path = "attachment_tests.rs"]
+mod attachment_tests;
+
 const CONV: &str = "conv_01J0000000000000000000000A";
 
 fn strings(args: &[&str]) -> Vec<String> {
@@ -71,6 +74,77 @@ fn args_select_pipe_text_timeout_and_history() {
     assert!(parse_args(&strings(&["--timeout", "soon"])).is_err());
     assert!(parse_args(&strings(&["--bogus"])).is_err());
     assert_eq!(parse_args(&strings(&["--history", "9000"])).unwrap().history, 500);
+}
+
+#[test]
+fn an_agents_prompt_names_its_sender_and_a_persons_none() {
+    use cmux_conversation::agent_sender::AgentSender;
+    let parsed = parse_args(&strings(&[
+        "-p", "hi", "--from", "lane-a", "--class", "question", "--thread", "t1",
+    ]))
+    .unwrap();
+    let want = AgentSender::new("lane-a", Some("question"), Some("t1"));
+    let session = |name: &'static str| {
+        move |key: &str| (key == "ACPMUX_SESSION_NAME").then(|| name.to_owned())
+    };
+    let none = |_: &str| None::<String>;
+    let host = || Some("mini-7.local".to_owned());
+    assert_eq!(parsed.sender(&none, &host), want);
+    // `--from` wins over the acpmux session this runs in.
+    assert_eq!(parsed.sender(&session("other"), &host), want);
+    let plain = parse_args(&strings(&["-p", "hi"])).unwrap();
+    assert_eq!(plain.sender(&session("lane-b"), &host), AgentSender::new("lane-b", None, None));
+    // The person at a terminal: no acpmux session and no coding agent, no sender.
+    assert_eq!(plain.sender(&none, &host), None);
+    assert_eq!(plain.sender(&session(""), &host), None);
+    // A Claude Code terminal outside acpmux is that Claude, on this machine (u19922).
+    let claude = |key: &str| match key {
+        "CLAUDECODE" => Some("1".to_owned()),
+        "CLAUDE_CODE_SESSION_ID" => Some("9d1c0e7a-1111".to_owned()),
+        _ => None,
+    };
+    // The chat shows it as Claude Code › its session on this machine (u20190).
+    assert_eq!(
+        plain.sender(&claude, &host),
+        AgentSender::new("claude-9d1c0e7a@mini-7", None, None)
+            .map(|s| s.with_display("Claude Code", Some("9d1c0e7a@mini-7")))
+    );
+}
+
+#[test]
+fn a_prompt_goes_to_the_chief_it_names() {
+    let to = parse_args(&strings(&["-p", "hi", "--chief", "Codex Chief"])).unwrap();
+    assert_eq!(to.target.chat.as_deref(), Some("Codex Chief"));
+    assert_eq!(to.chief, None);
+    let alias = parse_args(&strings(&["-p", "hi", "--to", "muse"])).unwrap();
+    assert_eq!(alias.target.chat.as_deref(), Some("muse"));
+    assert!(parse_args(&strings(&["-p", "hi", "--to", "a", "--chat", "b"])).is_err());
+    // With engine the flag still names the Chief to change.
+    let engine = parse_args(&strings(&["engine", "--chief", "agent_7"])).unwrap();
+    assert_eq!((engine.chief.as_deref(), engine.target.chat), (Some("agent_7"), None));
+}
+
+#[test]
+fn a_chat_is_named_by_its_chiefs_name_or_id() {
+    use super::backend::Owner;
+    let chat = |id: &str, title: &str, chief: &str| {
+        json!({"id": id, "title": title,
+            "participants": [{"id": "user_local", "kind": "person"}, {"id": chief, "kind": "agent"}]})
+    };
+    let chats = vec![
+        chat("conv_A", "Chief", "agent_mux"),
+        chat("conv_B", "Codex Chief", "agent_01CODEX"),
+        chat("conv_C", "Muse Chief", "agent_01MUSE"),
+    ];
+    let id = |wanted: Option<&str>| {
+        super::pick_chat(&chats, wanted, Owner::Local)
+            .map(|c| c["id"].as_str().unwrap_or_default().to_owned())
+    };
+    assert_eq!(id(Some("codex")).as_deref(), Ok("conv_B"));
+    assert_eq!(id(Some("Muse Chief")).as_deref(), Ok("conv_C"));
+    assert_eq!(id(Some("agent_01CODEX")).as_deref(), Ok("conv_B"));
+    assert_eq!(id(Some("conv_C")).as_deref(), Ok("conv_C"));
+    assert!(id(Some("Austin")).is_err());
 }
 
 #[test]
@@ -736,4 +810,21 @@ fn chat_rows_name_the_chief_and_unread() {
     let line = chat_row_text(1, &row);
     assert!(line.starts_with("*  1  "), "{line}");
     assert!(line.contains("#9  unread 3"), "{line}");
+}
+
+/// `cmux chief primary CHIEF` runs the app's `home primary-chief` with the Chief (the same path as
+/// Chief Settings' Primary row and the `/primary` text); no Chief, or two, is a usage error.
+#[test]
+fn chief_primary_runs_the_home_action_with_the_chief() {
+    use super::primary::{ACTION, action_args};
+    assert_eq!(ACTION, "home primary-chief");
+    assert_eq!(action_args(&strings(&["muse"])), Ok(Some(strings(&["--chief", "muse"]))));
+    assert_eq!(
+        action_args(&strings(&["agent_7J78"])),
+        Ok(Some(strings(&["--chief", "agent_7J78"])))
+    );
+    assert_eq!(action_args(&strings(&["--help"])), Ok(None));
+    assert!(action_args(&strings(&[])).is_err());
+    assert!(action_args(&strings(&["muse", "codex"])).is_err());
+    assert!(action_args(&strings(&["--force"])).is_err());
 }

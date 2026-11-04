@@ -1,3 +1,4 @@
+import { artifactRuntimePlugin } from "./artifactRuntimePlugin.mjs";
 // Bundles the React agent pane (src/agent-session/acpmux) for the app with the React
 // Compiler on, the same compiler the Vite dev server runs (vite.config.ts).
 //
@@ -75,8 +76,8 @@ const result = await build({
       }
     : { outfile }),
   plugins: cssInputsOnly
-    ? [tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })]
-    : [reactCompiler, tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })],
+    ? [artifactRuntimePlugin(), tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })]
+    : [reactCompiler, artifactRuntimePlugin(), tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })],
   metafile: Boolean(cssInputsFile),
 });
 if (cssInputsFile) {

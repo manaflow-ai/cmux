@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import Foundation

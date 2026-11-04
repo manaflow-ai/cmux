@@ -2,7 +2,8 @@
 // A shared chat for `debug.agent_pane seed_rows` with `fixture: "shared"`, so a capture of the real
 // app shows chat multiplayer (Leo, 2026-10-26: "we can still do the regular chat multiplayer"):
 // each teammate's prompt under their face and name, who answered an ask, who else has the chat
-// open in the header and who types over the composer. The rows replace the transcript; the
+// open in the header and who types over the composer, and a link guest's prompt the owner
+// approved, under "<name> (guest)". The rows replace the transcript; the
 // presence goes to the live faces (LivePresence.tsx) for the chat on screen, until the chat's own
 // acpmux says otherwise (a presence notification, a switch).
 import type { AcpmuxRow } from "../model";
@@ -11,6 +12,8 @@ import type { ChatPresence, Participant } from "./participants";
 const ANA: Participant = { id: "tailnet:ana@example.com", name: "Ana Ruiz" };
 const SAM: Participant = { id: "tailnet:sam@example.com", name: "Sam Okafor" };
 const MEI: Participant = { id: "tailnet:mei@example.com", name: "Mei Lin" };
+/// A link guest (Share with Guest), whose held prompt the owner approved.
+const GUEST: Participant = { id: "guest:shared-share.shared-guest", name: "Sam" };
 
 export const SHARED_PRESENCE: ChatPresence = { viewing: [ANA, SAM, MEI], typing: [ANA] };
 
@@ -54,6 +57,15 @@ export function sharedRows(at: number): AcpmuxRow[] {
       durationMs: 42_000,
       toolCount: 0,
       seq: 11,
+      status: "completed",
+    }),
+    row("guest", 900_000, { kind: "user", text: "Hi, this is Sam. What does this repo do?", seq: 12, author: GUEST }),
+    row("guest-answer", 960_000, { kind: "assistant", text: "It uploads build artifacts and retries on failure." }),
+    row("guest-summary", 960_000, {
+      kind: "turnSummary",
+      durationMs: 42_000,
+      toolCount: 0,
+      seq: 14,
       status: "completed",
     }),
   ];

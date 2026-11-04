@@ -11,8 +11,9 @@
 //!   user's own servers stay).
 //! - Skills: Claude Code gets a session-only plugin named `cmux`
 //!   (`--plugin-dir`) whose skills are `cmux:cmux-browser`,
-//!   `cmux:cmux-cua` and `cmux:acpmux` (the acpmux CLI guide, for driving
-//!   sessions from a shell). The skill text is compiled in from `skills/` and
+//!   `cmux:cmux-cua`, `cmux:cmux-customization` (settings, and a view of the
+//!   person's own that an agent writes as the customize app) and
+//!   `cmux:acpmux` (the acpmux CLI guide, for driving sessions from a shell). The skill text is compiled in from `skills/` and
 //!   written once per content hash under `<ACPMUX_HOME>/agent-tools/`.
 //!   Only the skill descriptions reach the prompt (progressive disclosure).
 //!   `cmux-cua` is model-invocable: its description claims tasks in a
@@ -109,7 +110,8 @@ pub const CHIEF_TURN_TOOLS: &str = "agents_snapshot,agents_workspace_create,\
     agents_workspace_select,agents_terminal_split,agents_terminal_focus,agents_tab_select,\
     agents_dialog_list,agents_dialog_answer,agents_events,agents_wait,render,\
     agents_terminal_list,agents_terminal_send,agents_chat_send,agents_chat_read,\
-    agents_chat_state";
+    agents_chat_state,acpmux_send,acpmux_ls,acpmux_last,acpmux_info,\
+    acpmux_inbox_read,acpmux_inbox_reply";
 /// What every agent chat is told about asking the person, in the cmux MCP
 /// server's `instructions` (`cmux mcp serve`, both modes). Chats start in
 /// Full access (`hub/policy_mode.rs`), and an agent there asked Leo a
@@ -206,6 +208,19 @@ const SKILL_FILES: &[(&str, &str)] = &[
         include_str!("../../../../skills/cmux-browser/templates/form-automation.sh"),
     ),
     ("cmux-cua/SKILL.md", include_str!("../../../../skills/cmux-cua/SKILL.md")),
+    ("cmux-customization/SKILL.md", include_str!("../../../../skills/cmux-customization/SKILL.md")),
+    (
+        "cmux-customization/references/examples.md",
+        include_str!("../../../../skills/cmux-customization/references/examples.md"),
+    ),
+    (
+        "cmux-customization/references/local-app-views.md",
+        include_str!("../../../../skills/cmux-customization/references/local-app-views.md"),
+    ),
+    (
+        "cmux-customization/references/viewer-types.md",
+        include_str!("../../../../skills/cmux-customization/references/viewer-types.md"),
+    ),
     ("acpmux/SKILL.md", include_str!("../skills/acpmux/SKILL.md")),
 ];
 
@@ -587,6 +602,26 @@ fn resolve_with_cua_helper(
             env: vec![],
         });
     }
+    if crate::cloud_repo_mcp::is_cloud_machine()
+        && let Some(acpmux) = &inputs.acpmux
+    {
+        // Cloud repository tools run on Cloud machines only. They forward
+        // the session caller token to the daemon action bridge.
+        servers.push(McpServer {
+            name: crate::cloud_repo_mcp::SERVER_NAME.into(),
+            command: acpmux.exe.clone(),
+            args: acpmux.args_lossy(&["repo-mcp"]),
+            env: executable("cmux")
+                .map(|path| ("CMUX_BIN".into(), path.to_string_lossy().into_owned()))
+                .into_iter()
+                .chain(
+                    std::env::var("CMUX_SOCKET_PATH")
+                        .ok()
+                        .map(|path| ("CMUX_SOCKET_PATH".into(), path)),
+                )
+                .collect(),
+        });
+    }
     if let Some(acpmux) = &inputs.acpmux {
         // announce, rules and ack (`forum_mcp.rs`, hq#2570): acts as the
         // session with its caller token, like the sub-session server.
@@ -660,7 +695,10 @@ impl AgentTools {
             if server.name == "cmux-cua" {
                 server.env.push((CUA_SCOPE_ENV.to_owned(), scope.clone()));
             }
-            if server.name == "cmux"
+            // The `acpmux` server gets the list too: folded, `cmux` filters its
+            // tools by the same names; standalone (cmux off or missing, so no
+            // fold) the server's own filter is the only one (`acpmux_mcp::allowed`).
+            if (server.name == "cmux" || server.name == crate::acpmux_mcp::SERVER_NAME)
                 && let Some(tools) = tools
             {
                 server.env.push((MCP_TOOLS_ENV.to_owned(), tools.clone()));
@@ -706,6 +744,21 @@ impl AgentTools {
     /// an allowlisted env to a stdio MCP server (Codex does).
     pub fn for_session(mut self, session_id: &str) -> Self {
         for server in &mut self.servers {
+            // What survives the env reset below: the Cloud repo route, and the
+            // `acpmux` server's tool allowlist (`scoped`), its only filter when
+            // there is no `cmux` server to fold into.
+            let kept: Vec<_> = server
+                .env
+                .iter()
+                .filter(|(k, _)| match server.name.as_str() {
+                    crate::cloud_repo_mcp::SERVER_NAME => {
+                        matches!(k.as_str(), "CMUX_BIN" | "CMUX_SOCKET_PATH")
+                    }
+                    crate::acpmux_mcp::SERVER_NAME => k == MCP_TOOLS_ENV,
+                    _ => false,
+                })
+                .cloned()
+                .collect();
             server.env.retain(|(k, _)| k != AGENT_SESSION_ENV);
             if server.name == "cmux" || server.name == MEMORY_SERVER_NAME {
                 server.env.push((AGENT_SESSION_ENV.to_owned(), session_id.to_owned()));
@@ -713,13 +766,18 @@ impl AgentTools {
             let session_env = match server.name.as_str() {
                 crate::secret_mcp::SERVER_NAME => Some(crate::secret_mcp::SESSION_ENV),
                 crate::offer_mcp::SERVER_NAME => Some(crate::offer_mcp::SESSION_ENV),
+                crate::cloud_repo_mcp::SERVER_NAME => Some(crate::cloud_repo_mcp::SESSION_ENV),
                 _ => None,
             };
-            if let Some(key) = session_env {
+            if session_env.is_some() {
                 let socket = crate::config::socket_path().to_string_lossy().into_owned();
                 server.env = vec![
-                    (key.to_owned(), session_id.to_owned()),
+                    (
+                        session_env.unwrap_or(crate::subsession_mcp::SESSION_ENV).to_owned(),
+                        session_id.to_owned(),
+                    ),
                     ("ACPMUX_SOCKET".to_owned(), socket),
+                    ("ACPMUX_HOME".to_owned(), home_env()),
                 ];
             }
             // The sub-session server acts as the session: its caller token
@@ -729,11 +787,16 @@ impl AgentTools {
             if server.name == crate::subsession_mcp::SERVER_NAME
                 || server.name == crate::forum_mcp::SERVER_NAME
                 || server.name == crate::acpmux_mcp::SERVER_NAME
+                || server.name == crate::cloud_repo_mcp::SERVER_NAME
             {
                 let socket = crate::config::socket_path().to_string_lossy().into_owned();
                 server.env = vec![
-                    (crate::subsession_mcp::SESSION_ENV.to_owned(), session_id.to_owned()),
+                    (
+                        session_env.unwrap_or(crate::subsession_mcp::SESSION_ENV).to_owned(),
+                        session_id.to_owned(),
+                    ),
                     ("ACPMUX_SOCKET".to_owned(), socket),
+                    ("ACPMUX_HOME".to_owned(), home_env()),
                 ];
                 server.env.extend(
                     crate::hub::person::caller_env(session_id)
@@ -741,6 +804,10 @@ impl AgentTools {
                         .map(|(k, v)| (k.to_owned(), v)),
                 );
             }
+            if server.name == crate::cloud_repo_mcp::SERVER_NAME {
+                server.env.push(("ACPMUX_SESSION_ID".to_owned(), session_id.to_owned()));
+            }
+            server.env.extend(kept);
         }
         self
     }
@@ -894,6 +961,8 @@ impl AgentTools {
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    // A request during a lost home's shutdown never makes it again (`config::mark_home_lost`).
+    crate::config::refuse_lost_home(path)?;
     let dir = path.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
@@ -913,6 +982,7 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
 /// Windows: the folder and the file owner-only (`owner_only.rs`).
 #[cfg(windows)]
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    crate::config::refuse_lost_home(path)?;
     let dir = path.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
     crate::owner_only::create_dir_all(dir)?;
     crate::owner_only::restrict(dir)?;
@@ -967,6 +1037,7 @@ fn materialize(state_dir: &Path) -> anyhow::Result<PathBuf> {
     if dir.join(".claude-plugin/plugin.json").is_file() {
         return Ok(dir);
     }
+    crate::config::refuse_lost_home(state_dir)?;
     std::fs::create_dir_all(state_dir)?;
     let tmp = state_dir.join(format!(".tmp-{}", uuid::Uuid::now_v7()));
     let manifest = json!({
@@ -1010,11 +1081,21 @@ fn bg_hooks() -> String {
     let mut words = vec![this.exe.to_string_lossy().into_owned()];
     let home = crate::config::home().to_string_lossy().into_owned();
     words.extend(this.args_lossy(&[crate::bg_hook::HOOK_ARG, home.as_str()]));
+    json!({"hooks": {"PreToolUse": [{"matcher": "Bash",
+        "hooks": [{"type": "command", "command": hook_command(&words), "timeout": 10}]}]}})
+    .to_string()
+}
+
+/// The hook's shell command: `words` quoted, then `|| true`. Claude Code blocks the tool call
+/// when a PreToolUse hook exits 2, and the hook only ever turns a call away through the JSON it
+/// prints on success, so a failure (a binary that is gone, or one that does not know
+/// `__bg-hook`, such as the cmux CLI, whose usage errors exit 2) lets the call run instead of
+/// refusing every Bash call of the chat (gcp-codex-swarm-09, 2026-11-02:
+/// `unknown resource scope "__bg-hook"` on each call).
+pub(crate) fn hook_command(words: &[String]) -> String {
     let quoted: Vec<String> =
         words.iter().map(|w| format!("'{}'", w.replace('\'', "'\\''"))).collect();
-    json!({"hooks": {"PreToolUse": [{"matcher": "Bash",
-        "hooks": [{"type": "command", "command": quoted.join(" "), "timeout": 10}]}]}})
-    .to_string()
+    format!("{} || true", quoted.join(" "))
 }
 
 /// The signed helper's own `cmux-cua` (`<app>/Contents/Library/cmux Computer
@@ -1031,3 +1112,10 @@ fn nested_cua_helper(inputs: &Inputs) -> Option<PathBuf> {
 #[cfg(all(test, unix))]
 #[path = "agent_tools_tests.rs"]
 mod tests;
+
+/// The daemon's home, next to every `ACPMUX_SOCKET` a server gets: a socket pairs only with an
+/// explicit home (`config::autostart_refusal`), so the server's command starts no daemon in
+/// another home for it.
+fn home_env() -> String {
+    crate::config::home().to_string_lossy().into_owned()
+}

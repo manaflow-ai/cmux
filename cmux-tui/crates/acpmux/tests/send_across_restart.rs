@@ -82,8 +82,12 @@ impl Drop for CustomDaemon {
 }
 
 fn start_custom_daemon(dir: &Path, extra: &[&str]) -> CustomDaemon {
+    start_custom_daemon_on(dir, "127.0.0.1:0", extra)
+}
+
+fn start_custom_daemon_on(dir: &Path, listen: &str, extra: &[&str]) -> CustomDaemon {
     let mut child = daemon_env::command(dir, daemon_env::Agents::StandIn, &[])
-        .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
+        .args(["daemon", "run", "--listen", listen, "--ready-fd", "1", "--log", "warn"])
         .args(extra)
         .env("ACPMUX_HOME", dir)
         .env("ACPMUX_LOGIN_ENV", "0")
@@ -443,6 +447,31 @@ fn daemon_lock_holder_exits_with_systemd_prevented_status() {
     daemon.stop();
     assert_eq!(second.status.code(), Some(75), "{}", text(&second));
     drop(_shutdown);
+}
+
+/// `--insecure-network-listen` opts one run in to a network address; config.json does not keep
+/// it. A restart would save the address and start a daemon that refuses it, leaving none: the
+/// restart refuses before stopping the daemon, and config.json is unchanged.
+#[test]
+fn cli_daemon_restart_refuses_a_network_listen_opted_in_only_for_this_run() {
+    let dir = scratch("cli-restart-network");
+    let _daemon = start_custom_daemon_on(&dir, "0.0.0.0:0", &["--insecure-network-listen"]);
+    let _shutdown = Shutdown(&dir);
+    let before: serde_json::Value =
+        serde_json::from_slice(&cli(&dir, &["--json", "daemon", "status"]).stdout).unwrap();
+    let listen = before["listen"].as_str().expect("network listen").to_owned();
+    assert!(listen.starts_with("0.0.0.0:"), "{before}");
+
+    let saved = fs::read(dir.join("config.json")).unwrap();
+    let restarted = cli(&dir, &["--json", "daemon", "restart"]);
+    assert!(!restarted.status.success(), "restart unexpectedly succeeded");
+    assert!(text(&restarted).contains("--insecure-network-listen"), "{}", text(&restarted));
+    assert_eq!(fs::read(dir.join("config.json")).unwrap(), saved);
+    let after: serde_json::Value =
+        serde_json::from_slice(&cli(&dir, &["--json", "daemon", "status"]).stdout)
+            .expect("the daemon still runs");
+    assert_eq!(after["pid"], before["pid"]);
+    assert_eq!(after["listen"], listen);
 }
 
 #[test]

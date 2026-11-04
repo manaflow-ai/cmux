@@ -186,7 +186,9 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
       scroller.scrollTop += line.getBoundingClientRect().top - scroller.getBoundingClientRect().top - down;
     }, y);
 
-  test("the message opened at the latest row stays on its pixel and grows down in a fold", async () => {
+  test("the message opened at the latest row keeps the bottom and pushes the text up", async () => {
+    // At the very bottom, what opens pushes the text above it up (Leo, 2026-11-02: "YOU EXPAND UP
+    // WHILE YOUR SCCROLL IS AT THE VERY BOTTOM ... JUST THAT CASE"); away from it, it grows down.
     const page = await open("no-preference");
     await show(page, [...done, received]);
     await settle(page);
@@ -197,21 +199,19 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
 
     const opened = await clickAndWatch(page);
     expect(await expanded(page)).toBe("true");
-    expect(opened.folded).toBe(true);
-    expect(steps(opened.heights)).toBeGreaterThan(2);
-    expect(opened.moved).toBeLessThanOrEqual(1);
     await settle(page);
-    expect(Math.abs((await probedTop(page)) - opened.top)).toBeLessThanOrEqual(1);
-    // The card opened below the line, past the view's end: the view stopped following.
-    expect(await atLatest(page)).toBe(false);
+    expect(await probedTop(page)).toBeLessThan(opened.top - 1);
+    expect(await atLatest(page)).toBe(true);
     await page.close();
   });
 
   test("the message and its Details open and close in place, away from the end", async () => {
     const page = await open("no-preference");
-    await show(page, [...done, received, after]);
+    // Two more turns under the reply, so the line 40px down the view is well away from the end.
+    await show(page, [...done, received, after, ...turn(8), ...turn(9)]);
     await settle(page);
     await lineAt(page, 40);
+    expect(await atLatest(page)).toBe(false);
     await settle(page);
     await probe(page, LINE);
 
@@ -245,15 +245,18 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
     await page.close();
   });
 
-  test("the sender's name on the line toggles without becoming a gap selection", async () => {
+  // The name sits before the line's toggle, outside it (Leo, 2026-10-29: "make the left side
+  // identifier like it was before and you can click it to go to that session"); this sender is no
+  // chat, so the name opens nothing, and the line's toggle opens and closes the message.
+  test("the sender's name and the line's toggle never become a gap selection", async () => {
     const page = await open("reduce");
     try {
       await show(page, [...done, received, after]);
       await settle(page);
       await lineAt(page, 100);
       await settle(page);
-      // The name is part of the line's toggle (no chip of its own since the line became a DisclosureRow).
-      const chip = page.locator('[data-row-id="msg"] .cv-disclosure__toggle .cv-received__from');
+      const chip = page.locator('[data-row-id="msg"] .cv-received__sender .cv-received__from');
+      const toggle = page.locator('[data-row-id="msg"] .cv-disclosure__toggle');
       await chip.evaluate((node) => {
         node.addEventListener("pointerdown", (event) => {
           document.body.dataset.senderPressPrevented = String(event.defaultPrevented);
@@ -264,6 +267,10 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
       });
       for (const open of [true, false]) {
         await chip.click({ position: { x: 2, y: 2 } });
+        expect(await page.locator('[data-row-id="msg"] .cv-received').getAttribute("data-open")).toBe(
+          open ? null : "true",
+        );
+        await toggle.click({ position: { x: 2, y: 2 } });
         expect(await page.locator('[data-row-id="msg"] .cv-received').getAttribute("data-open")).toBe(
           open ? "true" : null,
         );

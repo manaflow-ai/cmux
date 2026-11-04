@@ -24,7 +24,7 @@ use cmux_chat_index::{AdapterKind, IndexedChat, Resume};
 use serde_json::{Value, json};
 
 use crate::adopt::HarnessHomes;
-use crate::config::{Config, HarnessKind, derive_family};
+use crate::config::{Config, HarnessKind, derive_family, store_family};
 use cmux_json::JsonSet as _;
 
 /// A configured profile and the harness stores it resumes from.
@@ -48,12 +48,15 @@ pub fn store_profiles(config: &Config, homes: &HarnessHomes) -> Vec<StoreProfile
         .iter()
         .filter(|(_, profile)| profile.kind != HarnessKind::Terminal)
         .filter_map(|(name, profile)| {
-            let family = derive_family(name, profile);
+            // Any Claude Code profile (`claude-sr2`) reads Claude's store and can adopt from it.
+            let family = store_family(name, profile);
             if family != "claude" && family != "codex" && family != "opencode" {
                 return None;
             }
+            // Its spawn env: the defaults of its own family (`config::defaults_for`).
+            let own = derive_family(name, profile);
             let layers = [
-                config.defaults.get(&family).map_or(&none, |d| &d.env),
+                config.defaults.get(&own).map_or(&none, |d| &d.env),
                 config.defaults.get(name).map_or(&none, |d| &d.env),
                 &profile.env,
             ];

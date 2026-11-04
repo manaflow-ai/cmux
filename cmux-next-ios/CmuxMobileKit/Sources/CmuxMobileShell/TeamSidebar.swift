@@ -42,7 +42,7 @@ struct TeamSidebar: View {
                     }
                     if store.teams.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("No teams yet. Create one to share Macs and workspaces.")
+                            Text("No teams. Create one to share Macs and workspaces.")
                                 .font(theme.type.rowSubtitle)
                                 .foregroundStyle(theme.colors.label2)
                             PrimaryCapsule("Create team", systemImage: "plus", size: .inline) { creatingTeam = true }
@@ -69,6 +69,7 @@ struct TeamSidebar: View {
                 .textInputAutocapitalization(.never)
             Button("Cancel", role: .cancel) { newTeamName = "" }
             Button("Create") { shell.createTeam(named: newTeamName); newTeamName = "" }
+                .keyboardShortcut(.defaultAction)
         } message: {
             Text("Teams share Macs and workspaces.")
         }
@@ -78,6 +79,7 @@ struct TeamSidebar: View {
                 .keyboardType(.URL)
             Button("Cancel", role: .cancel) { inviteLink = "" }
             Button("Join") { shell.joinTeam(inviteLink: inviteLink); inviteLink = "" }
+                .keyboardShortcut(.defaultAction)
         }
     }
 

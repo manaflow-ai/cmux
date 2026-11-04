@@ -29,6 +29,49 @@ impl Brain {
                 self.agents_up = true;
                 self.reap_closed_compactor_sessions(&sessions);
                 self.reconcile_spawns(&sessions);
+                // Every saved pending request, even on a previously completed
+                // run, must still have its acpmux session after a reconnect.
+                let missing: Vec<String> = self
+                    .state
+                    .spawns
+                    .values()
+                    .flat_map(|r| &r.subs)
+                    .filter(|s| {
+                        s.peer.is_none()
+                            && s.permission.is_some()
+                            && !sessions
+                                .iter()
+                                .any(|session| Some(&session.session_id) == s.session_id.as_ref())
+                    })
+                    .map(|s| s.id.clone())
+                    .collect();
+                for id in &missing {
+                    self.cancel_home_approval(id);
+                    if let Some(sub) = self.state.sub_mut(id) {
+                        sub.permission = None;
+                    }
+                }
+                if !missing.is_empty() {
+                    // Persist the cleared request and deliver its terminal card now.
+                    self.save();
+                    self.flush_outbox();
+                }
+                self.reconcile_home_approvals();
+                // Restore the watchdog for every hidden pending request with
+                // no Allow button: a delivered Home card or a workspace waits.
+                let pending: Vec<String> = self
+                    .state
+                    .spawns
+                    .values()
+                    .flat_map(|r| &r.subs)
+                    .filter(|s| s.permission.is_some())
+                    .map(|s| s.id.clone())
+                    .collect();
+                for id in pending {
+                    self.rewatch_permission(&id);
+                }
+                let sessions_listed: Vec<String> =
+                    sessions.iter().map(|s| s.name.clone()).collect();
                 // Only the Chief's own children: the compactor and turn
                 // sessions come and go by the thousand.
                 self.sessions = sessions
@@ -41,6 +84,7 @@ impl Brain {
                         let _ = self.agents.end_session(&id);
                     }
                 }
+                self.ensure_chief_inbox(&sessions_listed);
                 self.adopt_orphans(false);
                 self.reconcile_children();
                 self.maybe_start_turn();
@@ -271,6 +315,9 @@ impl Brain {
             self.orphan_wait = None;
             return;
         }
+        // A person's message that came before the agent link was back (a
+        // restart) does not wait for it either (`queue_in`).
+        let force = force || self.queue.iter().any(super::Queued::is_owner_message);
         let orphans = std::mem::take(&mut self.state.orphans);
         let mut gone = Vec::new();
         let mut running = false;
@@ -444,33 +491,80 @@ impl Brain {
 }
 
 /// The final reply of every turn that ended in `events`, oldest first (a
-/// failed turn's error included), and the seq of the last turn end.
+/// failed turn's error included), and the seq of the last turn end. A turn's
+/// final reply is its words after its last tool call (the last words it said,
+/// when it ended on a tool call): the folder's turn text glues every progress
+/// line of the run together with no break, which put whole runs in report
+/// bubbles (Leo, 2026-10-31).
 pub(super) fn ended_replies(events: &[AcpmuxEvent]) -> (Vec<String>, Option<u64>, bool) {
     let mut folder = TurnFolder::default();
     let mut replies = Vec::new();
     let mut last_end = None;
     let mut cancelled = false;
+    // Byte offsets into the running turn's text where its tool calls fell.
+    let mut cuts: Vec<usize> = Vec::new();
     for event in events {
         // A turn the user stopped (`session/cancel`) ends with stopReason cancelled.
         let stopped = event.kind == "turn_end"
             && event.msg.get("stopReason").and_then(Value::as_str) == Some("cancelled");
+        if is_own_tool_call(event)
+            && let Some(turn) = folder.running()
+            && cuts.last() != Some(&turn.text.len())
+        {
+            cuts.push(turn.text.len());
+        }
         for output in folder.apply(event) {
-            if let TurnOutput::Ended { turn, seq, error } = output {
-                last_end = Some(seq);
-                cancelled = stopped || crate::fold::is_cancelled(error.as_deref());
-                let text = turn.text.trim();
-                let reply = match error {
-                    Some(error) if text.is_empty() => format!("(turn failed: {error})"),
-                    Some(error) => format!("{text}\n\n(turn failed: {error})"),
-                    None => text.to_owned(),
-                };
-                if !reply.is_empty() {
-                    replies.push(reply);
+            match output {
+                TurnOutput::Started { .. } => cuts.clear(),
+                TurnOutput::Ended { turn, seq, error } => {
+                    last_end = Some(seq);
+                    cancelled = stopped || crate::fold::is_cancelled(error.as_deref());
+                    let text = final_words(&turn.text, &cuts);
+                    cuts.clear();
+                    let reply = match error {
+                        Some(error) if text.is_empty() => format!("(turn failed: {error})"),
+                        Some(error) => format!("{text}\n\n(turn failed: {error})"),
+                        None => text.to_owned(),
+                    };
+                    if !reply.is_empty() {
+                        replies.push(reply);
+                    }
                 }
+                _ => {}
             }
         }
     }
     (replies, last_end, cancelled)
+}
+
+/// A tool call of the session itself; a Task subagent's (`<acp>/<toolu>`
+/// session, or `_meta.acpmux.subagent`) is not the turn's.
+fn is_own_tool_call(event: &AcpmuxEvent) -> bool {
+    let params = event.msg.get("params");
+    event.kind == "tool_call"
+        && !params
+            .and_then(|p| p.get("sessionId"))
+            .and_then(Value::as_str)
+            .is_some_and(|id| id.contains('/'))
+        && params
+            .and_then(|p| p.pointer("/_meta/acpmux/subagent"))
+            .is_none()
+}
+
+/// The last non-empty segment of `text` split at `cuts`, trimmed.
+fn final_words<'a>(text: &'a str, cuts: &[usize]) -> &'a str {
+    let mut end = text.len();
+    for &cut in cuts.iter().rev() {
+        if cut > end || !text.is_char_boundary(cut) {
+            continue;
+        }
+        let segment = text[cut..end].trim();
+        if !segment.is_empty() {
+            return segment;
+        }
+        end = cut;
+    }
+    text[..end].trim()
 }
 
 /// A subagent's report, its replies since its floor: the last one, and when
@@ -540,4 +634,108 @@ pub(super) fn permission_text(name: &str, request: &Value) -> String {
         "[{name}] asks permission: {title}{input}\nOptions: {options}\nNobody can allow it: only the person's cmux app allows, and {name} has no tab there. Deny it with `chief agents deny {name}`, or tell it what to do instead; the host denies it after {} s.",
         crate::approval::PERMISSION_WAIT.as_secs()
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn ev(seq: u64, dir: &str, kind: &str, msg: Value) -> AcpmuxEvent {
+        serde_json::from_value(json!({"seq": seq, "at": seq, "dir": dir, "kind": kind, "msg": msg}))
+            .unwrap()
+    }
+
+    fn update(seq: u64, kind: &str, session: &str, mut update: Value) -> AcpmuxEvent {
+        update["sessionUpdate"] = json!(kind);
+        ev(
+            seq,
+            "in",
+            kind,
+            json!({"method": "session/update", "params": {"sessionId": session, "update": update}}),
+        )
+    }
+
+    fn say(seq: u64, text: &str) -> AcpmuxEvent {
+        update(
+            seq,
+            "agent_message_chunk",
+            "s1",
+            json!({"content": {"type": "text", "text": text}}),
+        )
+    }
+
+    fn tool(seq: u64, session: &str, id: &str) -> AcpmuxEvent {
+        update(
+            seq,
+            "tool_call",
+            session,
+            json!({"toolCallId": id, "title": "Bash", "rawInput": {"command": "ls"}}),
+        )
+    }
+
+    fn start(seq: u64) -> AcpmuxEvent {
+        ev(seq, "mux", "turn_started", json!({}))
+    }
+
+    fn end(seq: u64) -> AcpmuxEvent {
+        ev(seq, "mux", "turn_end", json!({"stopReason": "end_turn"}))
+    }
+
+    /// Leo, 2026-10-31, on an `a28 → Chief` bubble that held the whole run
+    /// glued together ("...skills.Measured: hooks..."): a report is the
+    /// subagent's final reply, not every progress line of its turn.
+    #[test]
+    fn a_report_is_the_reply_after_the_last_tool_call() {
+        let events = vec![
+            start(1),
+            say(2, "Reading the hook config."),
+            tool(3, "s1", "t1"),
+            say(4, "Measured: hooks add 40 ms."),
+            tool(5, "s1", "t2"),
+            say(6, "Landed #30079 as a57fc4b."),
+            end(7),
+        ];
+        let (replies, last_end, _) = ended_replies(&events);
+        assert_eq!(last_end, Some(7));
+        assert_eq!(replies, vec!["Landed #30079 as a57fc4b.".to_owned()]);
+    }
+
+    /// A turn that ends on a tool call reports its last words, never the run.
+    #[test]
+    fn a_turn_ending_on_a_tool_call_reports_its_last_words() {
+        let events = vec![
+            start(1),
+            say(2, "Checking CI."),
+            tool(3, "s1", "t1"),
+            say(4, "All green; merged."),
+            tool(5, "s1", "t2"),
+            end(6),
+        ];
+        let (replies, _, _) = ended_replies(&events);
+        assert_eq!(replies, vec!["All green; merged.".to_owned()]);
+    }
+
+    /// A Task subagent's own tool calls (`<acp>/<toolu>` sessions) do not
+    /// split the reply.
+    #[test]
+    fn an_inner_subagent_tool_call_does_not_split_the_reply() {
+        let events = vec![
+            start(1),
+            say(2, "Done: "),
+            tool(3, "s1/toolu_1", "t1"),
+            say(4, "landed."),
+            end(5),
+        ];
+        let (replies, _, _) = ended_replies(&events);
+        assert_eq!(replies, vec!["Done: landed.".to_owned()]);
+    }
+
+    /// One reply with no tool calls stays whole.
+    #[test]
+    fn a_reply_with_no_tool_calls_stays_whole() {
+        let events = vec![start(1), say(2, "Line one.\n\nLine two."), end(3)];
+        let (replies, _, _) = ended_replies(&events);
+        assert_eq!(replies, vec!["Line one.\n\nLine two.".to_owned()]);
+    }
 }

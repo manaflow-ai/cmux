@@ -61,7 +61,7 @@ public final class WebKitDriver: DriverCallHandler {
         case "frame.contentFrame": return try await frameContentFrame(params)
         case "frame.ownerBox": return try await frameOwnerBox(params)
         case "frame.evaluate":
-            let timeout = try params.optionalNumber("timeoutMs").flatMap { $0 > 0 ? Duration.milliseconds(Int64($0)) : nil }
+            let timeout = try params.optionalNumber("timeoutMs").flatMap { $0 > 0 ? DriverParams.duration(milliseconds: $0) : nil }
             return try await CallDeadline.run(timeout, what: "frame.evaluate") { () throws(DriverError) in try await self.frameEvaluate(params) }
         case "input.mouse": return try await inputMouse(params)
         case "input.key":

@@ -133,6 +133,11 @@ impl Watches {
         json!({"watches": inner.saved.watches.values().map(Watch::status).collect::<Vec<_>>(),
             "deliveries": inner.saved.pending.values().map(|d| hub.outbox.get(&d.id).unwrap_or_else(|| d.clone()).status()).collect::<Vec<_>>()})
     }
+    /// No watch and no message one owes (`Hub::in_use`).
+    pub(crate) fn is_empty(&self) -> bool {
+        let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        inner.saved.watches.is_empty() && inner.saved.pending.is_empty()
+    }
     pub fn remove(&self, id: &str) -> Result<bool, RpcError> {
         self.change(|s| s.watches.remove(id).is_some())
     }
@@ -245,7 +250,7 @@ fn commit(
                 "_meta": {"acpmux": {"promptId": id, "resend": true, "steer": true,
                     "watchId": w.id, "watchDone": resolved}}});
             saved.pending.insert(id.clone(), Delivery { id, target: w.to.clone(), request,
-                caller: w.caller.clone(), state: State::Queued, attempts: 0, error: None,
+                caller: w.caller.clone(), state: State::Queued, attempts: 0, never_sent: false, relay_post: None, error: None,
                 accepted: None, created_at: now, updated_at: now });
         }
     })

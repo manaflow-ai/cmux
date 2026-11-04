@@ -13,7 +13,7 @@ enum SidebarNavigation {
     /// leaves its row out), else its row.
     /// `creationRow` is the row of the Cloud creation the window shows
     /// (cx-lu8f): selected in place of the workspace under it. `home` is the
-    /// docked Home's workspace (`HomeService.dockedHomeID`): the Home item
+    /// docked Home's workspace (`HomeService.dockedHomeID(in:)`, its own per window): the Home item
     /// stands for it (cx-ebm.59.5), and the Channels entry while `channels`
     /// (its dock shows Channels, cx-frn2y).
     static func selectedItem(page: TopPageRoute?, workspace: String?, creationRow: String? = nil, layout: SidebarLayoutDocument,
@@ -52,7 +52,7 @@ enum SidebarNavigation {
         selectedItem(page: window.state.page, workspace: window.state.workspaceID,
                      creationRow: window.state.cloudCreation.flatMap { services.cloud.creations.creation($0)?.rowID }, layout: window.sidebar.model.layout,
                      room: window.state.profileID.rawValue, refs: WorkspaceLayoutRefs(machines: services.machines),
-                     home: services.home.dockedHomeID, channels: services.home.dockShowsChannels)
+                     home: services.home.dockedHomeID(in: window.state), channels: services.home.dockShowsChannels)
     }
 
     /// Selects `item` as a click does: a top item runs (its page opens), a

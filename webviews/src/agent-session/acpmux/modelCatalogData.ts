@@ -1,6 +1,7 @@
 import { isDefaultChoice } from "./defaultChoice";
 import { isModelRouterKind } from "./routerKinds";
 import bundledCatalog from "../../../../web/data/model-catalog/snapshot.json";
+import currentFamilies from "../../../../web/data/model-catalog/current-families.json";
 import { agentName } from "./agents";
 import type { AcpmuxSnapshot } from "./model";
 import { agentKey } from "../shared/agentKey";
@@ -79,6 +80,21 @@ export type ModelUserLayer = {
   harnesses?: Record<string, { hidden?: boolean; name?: string; order?: number; defaultModel?: string }>;
   overrides?: Record<string, Partial<HarnessModel> & { hidden?: boolean }>;
 };
+
+// Identity-only rows are useful in the bundled/offline catalog, but a connected account's
+// probed list is authoritative. Keep these IDs sourced from the same family file so a feed lag
+// cannot make an unverified release appear selectable for a live account.
+const currentFamilyIds = new Set(
+  Object.values(currentFamilies)
+    .flat()
+    .map((model) => model.id),
+);
+const isIdentityOnlyCurrentModel = (model: HarnessModel) =>
+  currentFamilyIds.has(model.id) &&
+  model.ref === undefined &&
+  model.efforts === undefined &&
+  model.fast === undefined &&
+  model.aliases === undefined;
 
 export type PickerModel = {
   id: string;
@@ -390,20 +406,24 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
     members.find((entry) => entry.id === harness.id) ??
     members[0];
   const probed = chosen?.models ?? [];
-  const listed = harness.modelSource === "catalog" ? harness.models : [];
   const live = session?.harness !== undefined && chosen?.id === session.harness ? session.configOptions : undefined;
+  const runs = chosen?.id === session?.harness ? runningModel(session, live) : undefined;
+  const listed =
+    harness.modelSource === "catalog"
+      ? harness.models.filter((model) => includeCatalogIdentity(model, chosen, runs, harness.id, join))
+      : [];
   const reported = reportedNames(probed, live);
   const hiddenReleases = hiddenReleaseIds(harness.id, harness.id, reported, join);
   const models: PickerModel[] = listed.map((model) => listedModel(model, harness.id, probed, join));
   for (const probe of probed) {
+    if (!includeReportedIdentity(probe, chosen, harness.id, runs, join)) continue;
     if (listed.some((model) => model.id === probe.id)) continue;
     if (isHiddenByUser(harness.id, probe.id, join)) continue;
     if (hiddenReleases.has(probe.id)) continue;
     models.push(probedModel(probe, harness.id, join));
   }
-  addSessionModels(models, live, harness.id, listed, join, hiddenReleases);
+  addSessionModels(models, live, harness.id, listed, join, probed, hiddenReleases);
   const releases = models.filter((model) => listed.some((pinned) => pinned.id === model.id));
-  const runs = chosen?.id === session?.harness ? runningModel(session, live) : undefined;
   const offered = foldAliases(models, releases, runs, reported, join, (release, alias) =>
     aliasRow(listed, release, alias, harness.id, probed, join),
   );
@@ -431,6 +451,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
 
 function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   const live = entry.id === join.session?.harness ? join.session.configOptions : undefined;
+  const runs = entry.id === join.session?.harness ? runningModel(join.session, live) : undefined;
   // A profile of a catalogued agent ("claude-sr2" is Claude Code) runs that agent's releases: they
   // name the release its session pins, and the aliases the agent names as one fold into it.
   const key = agentKey(familyOf(entry));
@@ -443,15 +464,21 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   // is not one of this profile's releases (applyUserLayer drops it so from its own harness).
   const listed = (kin?.models ?? []).filter(
     (model) =>
+      includeCatalogIdentity(model, entry, runs, kin?.id ?? entry.id, join) &&
       ![...(model.aliases ?? []), model.id].some((id) => isHiddenByUser(entry.id, id, join)) &&
       ![...reported].some(([id, name]) => isHiddenByUser(entry.id, id, join) && namesRelease(name, model, join)),
   );
   const models = entry.models
+    .filter((probe) => includeReportedIdentity(probe, entry, kin?.id ?? entry.id, runs, join))
     .filter((probe) => !isHiddenByUser(entry.id, probe.id, join) && !hiddenReleases.has(probe.id))
-    .map((probe) => probedModel(probe, entry.id, join));
-  addSessionModels(models, live, entry.id, listed, join, hiddenReleases);
+    .map((probe) => probedModel(probe, entry.id, join, kin?.id));
+  for (const model of listed) {
+    if (![model.id, ...(model.aliases ?? [])].some((id) => userDeclaresModel(id, entry.id, kin?.id ?? entry.id, join)))
+      continue;
+    if (!models.some((row) => row.id === model.id)) models.push(listedModel(model, entry.id, entry.models, join));
+  }
+  addSessionModels(models, live, entry.id, listed, join, entry.models, hiddenReleases, kin?.id);
   const releases = listed.map((model) => listedModel(model, entry.id, entry.models, join));
-  const runs = entry.id === join.session?.harness ? runningModel(join.session, live) : undefined;
   const offered = kin
     ? foldAliases(models, releases, runs, reported, join, (release, alias) =>
         aliasRow(listed, release, alias, entry.id, entry.models, join),
@@ -654,7 +681,9 @@ function addSessionModels(
   harnessId: string,
   listed: HarnessModel[],
   join: Join,
+  probed: AcpmuxModel[],
   hiddenReleases: Set<string> = new Set(),
+  identityHarnessId = harnessId,
 ): void {
   const option = options?.find((candidate) => candidate.category === "model" || candidate.id === "model");
   if (!option) return;
@@ -668,10 +697,16 @@ function addSessionModels(
     if (isHiddenByUser(harnessId, choice.id, join)) continue;
     if (hiddenReleases.has(choice.id)) continue;
     const pinned = listed.find((model) => model.id === choice.id);
+    const probe = probed.find((model) => model.id === choice.id);
     models.push(
       pinned
-        ? pickerModel(layeredModel(pinned, harnessId, undefined, join), join.catalog)
-        : probedModel({ id: choice.id, name: choice.name } as AcpmuxModel, harnessId, join),
+        ? pickerModel(layeredModel(pinned, harnessId, probe, join), join.catalog, probe?.unavailable)
+        : probedModel(
+            { ...probe, id: choice.id, name: choice.name ?? probe?.name },
+            harnessId,
+            join,
+            identityHarnessId,
+          ),
     );
   }
 }
@@ -709,19 +744,74 @@ function pickerModel(model: HarnessModel & { own?: Own }, catalog: ModelCatalog,
 
 /** A model acpmux probed that the catalog does not list: described by its ref ("provider/model",
  *  as OpenCode and Pi report it) when the catalog knows it, else by the name the harness gave. */
-function probedModel(probe: AcpmuxModel, harnessId: string, join: Join): PickerModel {
+function probedModel(probe: AcpmuxModel, harnessId: string, join: Join, identityHarnessId = harnessId): PickerModel {
   const info = join.catalog.models[probe.id];
   const provider = probe.id.includes("/") ? probe.id.slice(0, probe.id.indexOf("/")) : undefined;
-  const name = info?.name ?? probe.name ?? probe.id;
+  const catalogModel = catalogIdentity(probe.id, identityHarnessId, join);
+  const name = info?.name ?? catalogModel?.name ?? probe.name ?? probe.id;
   const base: HarnessModel = {
     id: probe.id,
-    ...(info ? { ref: probe.id } : {}),
+    ...(catalogModel?.ref ? { ref: catalogModel.ref } : info ? { ref: probe.id } : {}),
     name,
-    shortName: name,
-    ...(provider ? { provider } : {}),
-    ...(info?.family ? { family: info.family } : {}),
+    shortName: catalogModel?.shortName || name,
+    ...(catalogModel?.family || info?.family ? { family: catalogModel?.family || info?.family } : {}),
+    ...(catalogModel?.provider || provider ? { provider: catalogModel?.provider || provider } : {}),
   };
   return pickerModel(layeredModel(base, harnessId, probe, join), join.catalog, probe.unavailable);
+}
+
+/** Once a profile is present, its models own availability. With no profile, the catalog remains
+ * an offline fallback; the session's running model remains reachable through an empty probe. */
+function includeCatalogIdentity(
+  model: HarnessModel,
+  profile: AcpmuxHarness | undefined,
+  runs: string | undefined,
+  harnessId: string,
+  join: Join,
+): boolean {
+  if (!isIdentityOnlyCurrentModel(model)) return true;
+  if (model.id === runs) return true;
+  if (userDeclaresModel(model.id, profile?.id, harnessId, join)) return true;
+  return profile === undefined;
+}
+
+/** User overrides also add models; their explicit entries outrank fallback availability. */
+function userDeclaresModel(id: string, profileId: string | undefined, harnessId: string, join: Join): boolean {
+  const scopes = ["*", harnessId, ...(profileId ? [profileId] : [])];
+  return scopes.some((scope) => {
+    const override = join.overrides[`${scope}/${id}`];
+    return override !== undefined && override.hidden !== true;
+  });
+}
+
+/** Recover identity metadata even when the host's catalog predates the daemon's bundle.
+ * A newer catalog's real metadata wins; missing metadata never verifies account availability. */
+function catalogIdentity(id: string, harnessId: string, join: Join): HarnessModel | undefined {
+  const model = [join.sourceCatalog, BUNDLED_MODEL_CATALOG]
+    .map((catalog) =>
+      catalog.harnesses.find((harness) => harness.id === harnessId)?.models.find((row) => row.id === id),
+    )
+    .find((row) => row !== undefined);
+  return model && isIdentityOnlyCurrentModel(model) ? model : undefined;
+}
+
+/** The daemon also returns curated fallback rows when a probe has no answer. Only its
+ * reported menu, an explicit profile declaration, or the running session verifies those IDs. */
+function includeReportedIdentity(
+  probe: AcpmuxModel,
+  profile: AcpmuxHarness | undefined,
+  harnessId: string,
+  runs: string | undefined,
+  join: Join,
+): boolean {
+  return (
+    !probe.curated ||
+    probe.declared === true ||
+    userDeclaresModel(probe.id, profile?.id, harnessId, join) ||
+    probe.id === runs ||
+    profile?.topModels?.includes(probe.id) === true ||
+    catalogIdentity(probe.id, harnessId, join) === undefined
+  );
 }
 
 function isHiddenByUser(harnessId: string, modelId: string, join: Join): boolean {

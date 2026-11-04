@@ -32,7 +32,7 @@
 //! missing or cannot make a scope (no user manager, as in a container), the
 //! harness starts as before; that answer is asked once per `systemd-run` and
 //! limits. macOS gets the process-group half of the valve on the holder track
-//! (cx-t2sqm.3).
+//! (cx-t2sqm.3); its harnesses run at background CPU class once started (`cpu_class.rs`).
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
 use std::collections::BTreeMap;

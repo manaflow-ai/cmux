@@ -145,6 +145,7 @@ impl Mux {
     /// Report an agent state for a selected terminal resource and reconcile
     /// any durable hook projections waiting for that terminal.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn commit_resource_mutation_plan(
         &self,
         mutation: &WorkspaceMutation,
