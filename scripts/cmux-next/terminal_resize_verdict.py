@@ -12,12 +12,31 @@ already proved that the drag moves the divider and that a terminal's full_resize
 needs only a counted frame and laid-out views.
 """
 
+# A terminal's full rebuilds for a new grid (GhosttyNextKit render counters): `full_resize` when the drawn grid changes
+# size, `full_swap` when the reflow preview starts or ends. A held grid (a key resize, a drag's release) draws its new
+# size through the preview, so it counts as a swap: job b5834b1d on cmux24 had full_resize 0 and full_swap equal to the
+# grids sent in every keys round.
+RESIZE_COUNTERS = ("full_resize", "full_swap")
+
 # Layouts that drag a divider through ``measure``.
 DRAG_LAYOUTS = ("light", "stress")
 # Layouts that time a split's resized terminals (``split_resize``).
 SPLIT_LAYOUTS = ("split-resize", "split-resize-stress")
 # Layouts that press Ctrl-Shift-L and Ctrl-Shift-H (``measure_keys``): every round resizes terminals and draws them.
 KEY_LAYOUTS = ("keys", "keys-stress")
+
+
+def rebuilds(counters):
+    """A terminal's full rebuilds for a new grid so far (``RESIZE_COUNTERS``)."""
+    return sum(int(counters.get(key, 0)) for key in RESIZE_COUNTERS)
+
+
+def resized(before, after):
+    """The terminals of `after` (bench-terminal-resize.py `surfaces()` rows, paired with `before` by id) whose full
+    rebuilds for a new grid grew: each one resized at least once in between."""
+    by_id = {row["id"]: row for row in before}
+    return sum(1 for row in after
+               if row["id"] in by_id and rebuilds(row["counters"]) > rebuilds(by_id[row["id"]]["counters"]))
 
 
 def problems(result):

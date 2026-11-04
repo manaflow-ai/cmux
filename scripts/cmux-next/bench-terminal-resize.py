@@ -42,7 +42,8 @@ missed = an interval over 1.5 refresh periods), main-thread time in Ghostty's di
 (`debug.terminal_display`: before G1 each pass drew on main with the previous size's cells and waited
 for the GPU), and the render counters of every resized terminal (`debug.surfaces`): frames drawn by
 the main thread, fresh frames presented in the commit of their size, late passes (GhosttyNextKit with
-G1; absent before), full rebuilds. After the drag every terminal's drawn, fitted and owner grids must
+G1; absent before), full rebuilds. A terminal resized when its full rebuilds for a new grid grew
+(terminal_resize_verdict.resized: full_resize, or full_swap when the reflow preview drew the new size). After the drag every terminal's drawn, fitted and owner grids must
 agree. Prints one JSON summary per layout and writes OUT/terminal-resize.json; the summary says what to
 compare. Exits non-zero, after writing the report, when a layout measured nothing (terminal_resize_verdict.py:
 a layout error or a failed probe, a drag or key resize in which no terminal resized, no frame was counted or no
@@ -201,13 +202,6 @@ FRAME_KEYS = ("frames", "refresh_ms", "p50_ms", "p95_ms", "p99_ms", "max_ms", "m
               "main_max_ms", "main_total_ms", "main_over_8_3_ms", "view_layouts", "view_layouts_max")
 
 
-def resized_count(before, after):
-    """Terminals whose Ghostty full_resize counter (a full rebuild for a new grid) grew from `before` to `after`."""
-    by_id = {b["id"]: b for b in before}
-    return sum(1 for a in after if a["id"] in by_id and
-               int(a["counters"].get("full_resize", 0)) > int(by_id[a["id"]]["counters"].get("full_resize", 0)))
-
-
 def frame_numbers(frames):
     """A round's `debug.frames` numbers (with the main-thread p99 the reply lacks), and its raw per-frame arrays for
     the arms' pooled distributions (dropped from the report once pooled)."""
@@ -244,13 +238,11 @@ def set_arm(arm):
 
 
 def finish(result):
-    """Pools each arm's rounds (`arms`, with --ab) and drops the rounds' raw arrays from the report."""
-    rounds = result.get("rounds") or []
+    """Pools each arm's rounds (`arms`, with --ab). Each round keeps its raw per-frame arrays (`raw`: intervals_ms,
+    main_ms, motion_main_ms), so a reader can place the slow frames in the spring."""
     if opts.ab:
         result["ab"] = opts.ab
-        result["arms"] = arms.summaries(rounds)
-    for entry in rounds:
-        entry.pop("raw", None)
+        result["arms"] = arms.summaries(result.get("rounds") or [])
     return result
 
 
@@ -270,14 +262,20 @@ def probe(name, x0, y0, refresh_s, middle):
         drag(moved_to, y0, refresh_s, [(x0 - moved_to) / steps] * steps)
         time.sleep(1.0)  # bench script: the release's grids land
     moved = None if moved_to is None else round(moved_to - x0, 1)
-    resized = resized_count(before, after)
+    resized = terminal_resize_verdict.resized(before, after)
+    # The fact the counters must match: a terminal beside the divider fits a new grid after the drag.
+    by_id = {row["id"]: row for row in before}
+    regridded = sum(1 for row in after if row["id"] in by_id and row["fit"] != by_id[row["id"]]["fit"])
     found = []
     if moved is None or moved > -opts.probe_pt / 2:
         found.append(f"the probe drag did not move the divider (moved {moved} pt of -{opts.probe_pt:g})")
-    if not resized:
-        found.append("no terminal's full_resize grew at the probe's release")
-    result = {"layout": name, "moved_pt": moved, "resized_terminals": resized, "terminals": len(after),
-              "ok": not found, "problems": found}
+    if not regridded:
+        found.append("no terminal fits a new grid after the probe drag")
+    elif not resized:
+        found.append(f"{regridded} terminal(s) fit a new grid but no render counter counted it "
+                     f"({' and '.join(terminal_resize_verdict.RESIZE_COUNTERS)} unchanged)")
+    result = {"layout": name, "moved_pt": moved, "regridded_terminals": regridded, "resized_terminals": resized,
+              "terminals": len(after), "ok": not found, "problems": found}
     print(f"TERMINAL-RESIZE-PROBE {json.dumps(result)}", flush=True)
     return result
 
@@ -317,9 +315,9 @@ def measure(name):
             time.sleep(1.0)  # bench script: the drag's last grid lands at the owner
             after = surfaces()
             numbers, raw = frame_numbers(frames)
-            # Resized in the drag: a full rebuild for a new grid (the drag ends where it began, so start and end
-            # grids match; a build that holds terminals through the drag resizes none).
-            entry.update({"terminals": len(after), "resized_terminals": resized_count(before, after), "frames": numbers,
+            # Resized in the drag: a full rebuild for a new grid, a resize or a reflow preview's swap (the drag ends
+            # where it began, so start and end grids match; a build that holds terminals through the drag resizes none).
+            entry.update({"terminals": len(after), "resized_terminals": terminal_resize_verdict.resized(before, after), "frames": numbers,
                           "main_ms": arms.distribution(raw["main_ms"]), "raw": raw, "display": display,
                           "counters": counter_delta(before, after), "unsettled_after": unsettled(after)})
             rounds.append(entry)
@@ -361,7 +359,7 @@ def measure_keys(name):
             time.sleep(1.0)  # bench script: the last press's frames and grids land
             after = surfaces()
             numbers, raw = frame_numbers(frames)
-            entry.update({"terminals": len(after), "resized_terminals": resized_count(before, after), "frames": numbers,
+            entry.update({"terminals": len(after), "resized_terminals": terminal_resize_verdict.resized(before, after), "frames": numbers,
                           "interval_ms": arms.distribution(raw["intervals_ms"]), "main_ms": arms.distribution(raw["main_ms"]),
                           "motion_main_ms": arms.distribution(raw["motion_main_ms"]), "raw": raw, "presses": presses,
                           "display": display, "counters": counter_delta(before, after), "unsettled_after": unsettled(after)})
