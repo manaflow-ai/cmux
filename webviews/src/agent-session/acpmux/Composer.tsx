@@ -340,6 +340,9 @@ type Props = {
   /// The person edited the prompt of a chat that has a session: the pane tells acpmux it types
   /// (multiplayer). A draft coming back is not an edit.
   onTyping?(text: string, sessionId?: string): void;
+  /// The person edited the prompt, in any chat (one with no session yet too): the pane wakes a
+  /// paused Cloud machine as they type (cloudWake.ts `cloudTypingWakes`).
+  onEdit?(text: string): void;
   /** The person took the agent's suggested next prompt into the field (Tab, Right-arrow): acpmux
    * counts it taken (`suggestion_gate.rs`). */
   onSuggestionTaken?(): void;
@@ -468,6 +471,7 @@ export function Composer({
   onCmuxCommand,
   onUnsentDraft,
   onTyping,
+  onEdit,
   onSuggestionTaken,
   keptAttachments,
   onImportFile,
@@ -1921,6 +1925,7 @@ export function Composer({
     // One change per key: what the field does after it (normalizing) is not another.
     typedAt.current = Number.NEGATIVE_INFINITY;
     if (sessionId && value.trim()) onTyping?.(value, sessionId);
+    if (value.trim()) onEdit?.(value);
   };
   promptCaret.current = setCaret;
   promptKeyDown.current = (event) => {
