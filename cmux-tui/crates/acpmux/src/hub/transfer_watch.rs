@@ -197,6 +197,20 @@ impl Hub {
                 return false;
             }
         };
+        // A durable transfer_out from an older daemon can outlive its bundle directory (for
+        // example, a crash between the event and export). There is no target to query in that
+        // case, so abort the fenced move rather than leaving the chat frozen forever.
+        if !dir.is_dir() {
+            if let Err(error) = self.transfer_abort_with_epoch(
+                session,
+                transfer_id,
+                Some("missing_bundle"),
+                Some(epoch),
+            ) {
+                tracing::warn!(session = %session.id, transfer_id, "aborting move with missing bundle: {}", error.message);
+            }
+            return true;
+        }
         {
             let _pages = PAGES.lock().unwrap_or_else(|e| e.into_inner());
             if fully_read(dir) == Some(false) {

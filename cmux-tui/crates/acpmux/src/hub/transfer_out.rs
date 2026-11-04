@@ -339,11 +339,23 @@ impl Hub {
         // Fence every prior owner before any bundle bytes are exposed. The marker is persisted
         // below so a daemon restart restores the same epoch while this move is in flight.
         let epoch = session.bump_ownership_epoch();
+        // Persist the fencing marker before the durable transfer_out record. If the daemon dies
+        // after transfer_out is appended, startup can then always recover the epoch that fenced
+        // this move instead of leaving a frozen chat with an unmarked transfer directory.
+        let dir = transfers_dir().join(&transfer_id);
+        if let Err(error) = std::fs::create_dir_all(&dir)
+            .and_then(|()| std::fs::write(dir.join("epoch"), epoch.to_string()))
+        {
+            self.end_move(session);
+            let _ = std::fs::remove_dir_all(&dir);
+            return Err(RpcError::internal(format!("transfer: epoch marker: {error}")));
+        }
         // The continuation of a turn the move stops (`restart_resume.rs`, `Cut::Move`): logged
         // before the Stop, which would leave the turn none, so the bundle's queue carries it and
         // the turn goes on where the chat lands. A move that does not happen queues it here.
         let mut carried: Option<String> = None;
         let unfreeze = |e: RpcError, carried: Option<&str>| {
+            let _ = std::fs::remove_dir_all(&dir);
             self.end_move(session);
             if let Some(id) = carried {
                 self.queue_carried(session, id);
@@ -406,37 +418,31 @@ impl Hub {
             None,
         );
         if !logged {
+            let _ = std::fs::remove_dir_all(&dir);
             drop(guard);
             return Err(unfreeze(
                 transfer_error("store", "could not durably record transfer_out"),
                 carried,
             ));
         }
-        let dir = transfers_dir().join(&transfer_id);
-        // Publish the epoch marker before export creates the nested bundle. If the daemon dies
-        // after transfer_out is durable, restart/watch still has the fencing value to use.
-        let marker = std::fs::create_dir_all(&dir)
-            .and_then(|()| std::fs::write(dir.join("epoch"), epoch.to_string()))
-            .map_err(|e| RpcError::internal(format!("transfer: epoch marker: {e}")));
-        let made = marker.and_then(|()| {
-            self.export(session, &dir)
-                .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
-                .and_then(|bundle| {
-                    // Check exactly what the target will restore, even if the live queue changed.
-                    let approved_waiting = self.held_prompts(&bundle)?;
-                    // A prompt the owner approved that still waits goes only to a receiver whose own
-                    // `initialize` listed queue approval, which only the move's client sees (it holds
-                    // the connection that sends the bundle, `cli/run/transfer.rs`): a client that
-                    // does not say it checks that is refused (review of #28859).
-                    if !approved_waiting.is_empty() && !gates_receiver {
-                        let why = "the move's client does not check that its receiver approves";
-                        return Err(approved_prompts_error(json!(approved_waiting), why));
-                    }
-                    let files = bundle_files(&bundle)
-                        .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))?;
-                    Ok((files, approved_waiting))
-                })
-        });
+        let made = self
+            .export(session, &dir)
+            .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
+            .and_then(|bundle| {
+                // Check exactly what the target will restore, even if the live queue changed.
+                let approved_waiting = self.held_prompts(&bundle)?;
+                // A prompt the owner approved that still waits goes only to a receiver whose own
+                // `initialize` listed queue approval, which only the move's client sees (it holds
+                // the connection that sends the bundle, `cli/run/transfer.rs`): a client that
+                // does not say it checks that is refused (review of #28859).
+                if !approved_waiting.is_empty() && !gates_receiver {
+                    let why = "the move's client does not check that its receiver approves";
+                    return Err(approved_prompts_error(json!(approved_waiting), why));
+                }
+                let files = bundle_files(&bundle)
+                    .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))?;
+                Ok((files, approved_waiting))
+            });
         drop(guard);
         let (files, approved_waiting) = match made {
             Ok(made) => made,
