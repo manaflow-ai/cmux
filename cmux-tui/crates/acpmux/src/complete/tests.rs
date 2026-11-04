@@ -69,7 +69,7 @@ fn recipes_by_harness() {
 
 #[test]
 fn gemini_and_terminal_harnesses_are_unsupported() {
-    let gemini = profile(HarnessKind::Acp, &["/bin/gemini", "--experimental-acp"]);
+    let gemini = profile(HarnessKind::Acp, &["/bin/gemini", "--acp"]);
     let err = recipe_for("gemini", &gemini).unwrap_err();
     assert_eq!(err.reason(), "complete.unsupported_harness");
     let term = profile(HarnessKind::Terminal, &["/bin/aider"]);

@@ -66,6 +66,26 @@ function projectHarness(override: HarnessOverride, providers: Map<string, FeedPr
     .map(({ model, provider }) => harnessModel(override, model, provider, providers))
     .filter((model) => !override.models?.[model.id]?.hidden)
     .sort(byGroupThenNewest(override, listed));
+  // A provider that does not publish through models.dev can still expose a
+  // small, identity-only model list in the override. Keep these entries
+  // capability-free until the harness reports live ACP options, while
+  // retaining the normal feed override behavior for every other row.
+  const staticModels = Object.entries(override.models ?? {})
+    .filter(([, value]) => typeof value.name === "string" && typeof value.shortName === "string")
+    .map(([id, value]) => ({
+      id,
+      name: value.name!,
+      shortName: value.shortName!,
+      ...(value.family ? { family: value.family } : {}),
+      ...(value.provider ? { provider: value.provider } : {}),
+      ...(value.efforts ? { efforts: value.efforts } : {}),
+      ...(value.defaultEffort ? { defaultEffort: value.defaultEffort } : {}),
+      ...(value.fast !== undefined ? { fast: value.fast } : {}),
+      ...(value.aliases ? { aliases: value.aliases } : {}),
+      ...(value.status ? { status: value.status } : {}),
+    } satisfies HarnessModel))
+    .filter((model) => !models.some((existing) => existing.id === model.id));
+  models.push(...staticModels);
   addFamilyAliases(override, models, listed);
   const defaultModel = models.some((model) => model.id === override.defaultModel)
     ? override.defaultModel

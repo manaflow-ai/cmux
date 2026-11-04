@@ -150,6 +150,21 @@ export const HARNESS_OVERRIDES: HarnessOverride[] = [
     shortNamePrefix: "Gemini ",
     familyNames: { "gemini-pro": "Pro", "gemini-flash": "Flash", "gemini-flash-lite": "Flash Lite" },
   },
+  {
+    // Muse publishes model ids through its own ACP config options rather than
+    // the public models.dev feed. Identity-only rows keep these official Meta
+    // models selectable before a Muse session supplies live options.
+    id: "muse", docsUrl: "https://dev.meta.ai/docs/models",
+    name: "Muse Code", brand: "meta", families: ["muse"], modelSource: "catalog",
+    defaultModel: "muse-spark-1.3",
+    familyNames: { "muse-spark": "Spark" },
+    models: {
+      "muse-spark-1.3": { name: "Muse Spark 1.3", shortName: "Spark 1.3", family: "Spark", provider: "meta" },
+      "muse-spark-1.3-contributor": { name: "Muse Spark 1.3 Contributor", shortName: "Spark 1.3 Contributor", family: "Spark", provider: "meta" },
+      "muse-spark-1.2": { name: "Muse Spark 1.2", shortName: "Spark 1.2", family: "Spark", provider: "meta" },
+      "muse-spark-1.1": { name: "Muse Spark 1.1", shortName: "Spark 1.1", family: "Spark", provider: "meta" },
+    },
+  },
   // Every other harness acpmux runs (discover.rs), so the picker lists them installed or not (Leo
   // 2026-10-26: "show all harnesses, all models (pi, opencode, prime intellect, etc…)").
   { id: "prime", docsUrl: "https://github.com/PrimeIntellect-ai/prime-agent", name: "Prime Intellect", brand: "prime", families: ["prime"], modelSource: "probe" },

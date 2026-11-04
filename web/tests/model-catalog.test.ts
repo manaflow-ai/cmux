@@ -37,6 +37,7 @@ describe("projectCatalog", () => {
       ["pi", "Pi", "pi", "probe"],
       ["vercel-ai-gateway", "Vercel AI Gateway", "vercel", "catalog"],
       ["gemini", "Gemini CLI", "gemini", "catalog"],
+      ["muse", "Muse Code", "meta", "catalog"],
       ["prime", "Prime Intellect", "prime", "probe"],
       ["omp", "oh-my-pi", "omp", "probe"],
       ["grok", "Grok", "grok", "probe"],
@@ -86,6 +87,18 @@ describe("projectCatalog", () => {
       fast: true,
     });
     expect(codex.defaultModel).toBe("gpt-6.1-sol");
+  });
+
+  test("Muse keeps identity-only rows when the public feed has no provider models", () => {
+    const muse = harness(catalog, "muse");
+    expect(muse.defaultModel).toBe("muse-spark-1.3");
+    expect(muse.models.map((model) => model.id)).toEqual([
+      "muse-spark-1.3",
+      "muse-spark-1.3-contributor",
+      "muse-spark-1.2",
+      "muse-spark-1.1",
+    ]);
+    expect(muse.models.every((model) => model.efforts === undefined && model.ref === undefined)).toBe(true);
   });
 
   test("probe harnesses carry no list; their models are described by ref", () => {
@@ -199,6 +212,7 @@ describe("the checked-in catalog", () => {
       "pi",
       "vercel-ai-gateway",
       "gemini",
+      "muse",
       "prime",
       "omp",
       "grok",
@@ -223,6 +237,18 @@ describe("the checked-in catalog", () => {
       expect(id).not.toMatch(/(tts|image|embedding|latest|live|customtools|computer-use)/);
     }
     expect(gemini.models.every((model) => model.efforts === undefined && model.ref === `google/${model.id}`)).toBe(true);
+  });
+
+  test("Muse offers official Spark models before its ACP live options arrive", () => {
+    const muse = harness(bundledSnapshot(), "muse");
+    expect(muse.defaultModel).toBe("muse-spark-1.3");
+    expect(muse.models.map((model) => model.id)).toEqual([
+      "muse-spark-1.3",
+      "muse-spark-1.3-contributor",
+      "muse-spark-1.2",
+      "muse-spark-1.1",
+    ]);
+    expect(muse.models.every((model) => model.efforts === undefined)).toBe(true);
   });
 
   // cx-jqkx: each aliased Claude family's newest model carries the alias Claude Code resolves to it

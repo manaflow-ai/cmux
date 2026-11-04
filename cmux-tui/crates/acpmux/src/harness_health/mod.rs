@@ -167,6 +167,10 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
         "codex" => "codex login",
         "claude" => "claude auth login",
         "gemini" => "gemini",
+        // Muse's official CLI owns browser/API-key sign-in. The ACP adapter
+        // starts that CLI, so keep the same command available to both health
+        // cards and `cmux harness login muse`.
+        "muse" => "muse login",
         "opencode" => "opencode auth login",
         "unii" => "unii login",
         "hermes" => "hermes model",
@@ -706,6 +710,11 @@ mod tests {
     #[test]
     fn hermes_signs_in_with_hermes_model() {
         assert_eq!(super::builtin_login("hermes"), Some("hermes model"));
+    }
+
+    #[test]
+    fn muse_signs_in_with_the_official_cli() {
+        assert_eq!(super::builtin_login("muse"), Some("muse login"));
     }
 
     #[test]

@@ -21,6 +21,10 @@ export const INSTALL_COMMANDS: Readonly<Record<string, string>> = {
   // No tty here: never ask to start Codex or to remove another install.
   codex: npmOrNative("@openai/codex", "curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh"),
   opencode: npmOrNative("opencode-ai", "curl -fsSL https://opencode.ai/install | bash"),
+  gemini: npmOrNative("@google/gemini-cli", "brew install gemini-cli"),
+  // Muse's CLI is the provider; muse-acp is the pinned ACP bridge that lets
+  // cmux use its plans, permissions and usage events in the transcript.
+  muse: "/bin/sh -c 'curl -fsSL https://dev.meta.ai/install.sh | sh && cargo install --git https://github.com/manaflow-ai/cmux-muse-acp --locked muse-acp'",
 };
 
 export type HarnessRow = {

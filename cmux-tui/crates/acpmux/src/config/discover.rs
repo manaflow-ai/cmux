@@ -357,7 +357,7 @@ pub fn discover_harnesses_from(
                 "prime-agent" => (HarnessKind::Acp, vec![path, "--mode".into(), "acp".into()]),
                 "grok" => (HarnessKind::Acp, vec![path, "agent".into(), "stdio".into()]),
                 "cursor-agent" | "hermes" => (HarnessKind::Acp, vec![path, "acp".into()]),
-                "gemini" => (HarnessKind::Acp, vec![path, "--experimental-acp".into()]),
+                "gemini" => (HarnessKind::Acp, vec![path, "--acp".into()]),
                 "opencode" | "opencode2" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "dsh" => (HarnessKind::Acp, vec![path, "--profile".into(), "acp".into()]),
                 _ => (HarnessKind::Acp, vec![path]),

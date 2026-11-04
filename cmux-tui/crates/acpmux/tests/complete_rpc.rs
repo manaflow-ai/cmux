@@ -110,7 +110,7 @@ async fn complete_is_unix_socket_only_and_runs_headless() {
         "gemini".into(),
         HarnessProfile {
             kind: HarnessKind::Acp,
-            argv: vec!["/bin/gemini".into(), "--experimental-acp".into()],
+            argv: vec!["/bin/gemini".into(), "--acp".into()],
             ..fake_claude(&root, "unused", "")
         },
     );

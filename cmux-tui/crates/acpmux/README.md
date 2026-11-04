@@ -888,7 +888,7 @@ Muse Code through the [cmux-muse-acp](https://github.com/manaflow-ai/cmux-muse-a
       "description": "oh-my-pi with the local models"
     },
     "gemini-flash": {
-      "argv": ["gemini", "--experimental-acp", "--model", "${model}"],   // model as a spawn argument
+      "argv": ["gemini", "--acp", "--model", "${model}"],   // model as a spawn argument
       "family": "gemini",
       "models": ["gemini-2.5-flash", "gemini-2.5-pro"],
       "model": "gemini-2.5-flash"

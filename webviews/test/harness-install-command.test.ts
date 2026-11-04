@@ -26,6 +26,8 @@ function run(command: string, withNpm: boolean): { code: number; log: string[] }
     chmodSync(join(dir, name), 0o755);
   };
   stub("curl", `echo "curl $*" >> "${log}"; echo 'echo installer'`);
+  stub("brew", `echo "brew $*" >> "${log}"`);
+  stub("cargo", `echo "cargo $*" >> "${log}"`);
   // Only builtins: PATH holds nothing but these stubs.
   stub("bash", `IFS= read -r script; echo "bash <$script>" >> "${log}"`);
   stub("sh", `IFS= read -r script; echo "sh <$script> CODEX_NON_INTERACTIVE=$CODEX_NON_INTERACTIVE" >> "${log}"`);
@@ -51,10 +53,35 @@ test("without npm, Install runs each vendor's own installer", () => {
     code: 0,
     log: ["curl -fsSL https://opencode.ai/install", "bash <echo installer>"],
   });
+  expect(run(INSTALL_COMMANDS.gemini!, false)).toEqual({
+    code: 0,
+    log: ["brew install gemini-cli"],
+  });
+  expect(run(INSTALL_COMMANDS.muse!, false)).toEqual({
+    code: 0,
+    log: [
+      "curl -fsSL https://dev.meta.ai/install.sh",
+      "sh <echo installer>",
+      "cargo install --git https://github.com/manaflow-ai/cmux-muse-acp --locked muse-acp",
+    ],
+  });
 });
 
 test("with npm, Install keeps npm, and never also runs a vendor installer", () => {
   expect(run(INSTALL_COMMANDS.claude!, true)).toEqual({ code: 0, log: ["npm install -g @anthropic-ai/claude-code"] });
   expect(run(INSTALL_COMMANDS.codex!, true)).toEqual({ code: 0, log: ["npm install -g @openai/codex"] });
   expect(run(INSTALL_COMMANDS.opencode!, true)).toEqual({ code: 0, log: ["npm install -g opencode-ai"] });
+  // Muse uses its official installer; Gemini keeps npm when it is available.
+  expect(run(INSTALL_COMMANDS.gemini!, true)).toEqual({
+    code: 0,
+    log: ["npm install -g @google/gemini-cli"],
+  });
+  expect(run(INSTALL_COMMANDS.muse!, true)).toEqual({
+    code: 0,
+    log: [
+      "curl -fsSL https://dev.meta.ai/install.sh",
+      "sh <echo installer>",
+      "cargo install --git https://github.com/manaflow-ai/cmux-muse-acp --locked muse-acp",
+    ],
+  });
 });

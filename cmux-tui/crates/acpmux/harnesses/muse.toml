@@ -24,7 +24,9 @@ resume = true
 [auth]
 login = "muse login"
 docs = "https://dev.meta.ai/docs/muse-code"
-check = ["muse-acp", "--version"]
+# `usage` is Muse's documented non-interactive subscription/account check. The
+# adapter's version is installation evidence only, not sign-in evidence.
+check = ["muse", "usage"]
 
 [sessions]
 adapter = "muse"

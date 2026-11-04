@@ -5,7 +5,7 @@ name = "Gemini CLI"
 icon = "gemini"
 protocol = "acp"
 command = "gemini"
-args = ["--experimental-acp"]
+args = ["--acp"]
 
 [capabilities]
 permission_modes = true
