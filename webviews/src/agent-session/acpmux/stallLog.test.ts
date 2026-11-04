@@ -305,3 +305,33 @@ test("a slow stall read whose record already came live keeps the connection: the
     run.done();
   }
 });
+
+test("a Stop whose check came due while the pane was hidden runs it once the pane shows, and the chat stops stopping", async () => {
+  const run = await stalledStream({ deafOn: "cancel" });
+  const visibility = Object.getOwnPropertyDescriptor(dom.window.document, "visibilityState");
+  let state: "hidden" | "visible" = "visible";
+  Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, get: () => state });
+  try {
+    void run.client.send("long job").catch(() => undefined);
+    expect(await settle(() => run.snapshot()?.isWorking === true, 10_000)).toBe(true);
+    await run.client.cancel();
+    state = "hidden";
+    dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
+    // The check comes due (30 ms) while hidden: it is owed, nothing ran, the pane keeps its connection.
+    expect(await settle(() => (run.client as unknown as { stopStallOwed?: string }).stopStallOwed !== undefined)).toBe(
+      true,
+    );
+    expect(run.sockets()).toBe(1);
+    expect(run.snapshot()?.stopping).toBe(true);
+    state = "visible";
+    dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
+    expect(await settle(() => run.sockets() > 1, 10_000)).toBe(true);
+    expect(await settle(() => run.snapshot()?.connection === "connected" && run.snapshot()?.stopping !== true)).toBe(
+      true,
+    );
+  } finally {
+    if (visibility) Object.defineProperty(dom.window.document, "visibilityState", visibility);
+    else delete (dom.window.document as unknown as Record<string, unknown>).visibilityState;
+    run.done();
+  }
+});

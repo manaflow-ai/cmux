@@ -3569,6 +3569,9 @@ export class AcpmuxDirectClient {
   private endedSocket?: WebSocket;
   /// Runs the stall check when a Stop's turn has not ended in `stallTiming.stopMs` (`cancel`).
   private stopStallTimer?: ReturnType<typeof setTimeout>;
+  /// The chat whose Stop check came due while the page was hidden (`checkStall` skips a hidden
+  /// page): it runs when the page shows again (`showChanged`), so a hidden pane's Stop still ends.
+  private stopStallOwed?: string;
   /// A send to the shown chat went slow, or its Stop did not end the turn: when acpmux holds a
   /// transcript record after the pane's last one that it wrote a while ago, the pane missed the
   /// chat's events (its stream stopped while the socket stayed open, as after acpmux was replaced
@@ -3861,7 +3864,12 @@ export class AcpmuxDirectClient {
     const sessionId = this.selectedSessionId;
     if (!sessionId || this.closed) return;
     this.syncView();
-    if (pageShown()) this.markSeen(sessionId);
+    if (!pageShown()) return;
+    this.markSeen(sessionId);
+    const owed = this.stopStallOwed;
+    this.stopStallOwed = undefined;
+    if (owed === sessionId && this.stoppingAfterSeq !== undefined && this.workingNow())
+      this.checkStall(sessionId, "stop");
   };
 
   /// Brings acpmux's view of the selected chat up to the page's. acpmux handles each request on
@@ -8045,9 +8053,12 @@ export class AcpmuxDirectClient {
       // acpmux ends a turn that ignores Stop itself (cancel again at 10 s, end it at 15 s). Still
       // stopping after that, the pane may have missed the end: it checks (`checkStall`).
       if (this.stopStallTimer !== undefined) clearTimeout(this.stopStallTimer);
+      this.stopStallOwed = undefined;
       this.stopStallTimer = setTimeout(() => {
         this.stopStallTimer = undefined;
-        if (this.stoppingAfterSeq !== undefined && this.workingNow()) this.checkStall(sessionId, "stop");
+        if (this.stoppingAfterSeq === undefined || !this.workingNow()) return;
+        if (pageShown()) this.checkStall(sessionId, "stop");
+        else this.stopStallOwed = sessionId;
       }, stallTiming.stopMs);
       this.emit();
     }
@@ -10201,6 +10212,7 @@ export class AcpmuxDirectClient {
     clearTimeout(this.hiddenDraw);
     clearTimeout(this.stopStallTimer);
     this.stopStallTimer = undefined;
+    this.stopStallOwed = undefined;
     this.frameRequest?.cancel?.();
     this.frameRequest = undefined;
     this.cancelTrustStart?.();
