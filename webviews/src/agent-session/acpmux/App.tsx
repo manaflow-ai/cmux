@@ -720,6 +720,7 @@ import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { useSideSessions } from "./aside/sideSessions";
 import { BtwNotes, type BtwRow as InlineBtwRow } from "./aside/btwNotes";
+import { liveLineLast } from "./conversation/liveLineLast";
 import { BtwAside } from "./aside/BtwAside";
 import { askBtwQuestion } from "./btwCapability";
 import { isFastModeOption } from "./heldOptions";
@@ -7486,7 +7487,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const merged = mergeInboxNotices(turnRowsShown);
     const shown = people.length ? [...merged, ...people] : merged;
     const rows = group ? [...shown, group] : shown;
-    return childRows ? rows : btwNotes.rows(rows, snapshot.sessionId, btwSnapshot);
+    // What arrived mid-turn (the waiting group, a guest's prompt, an aside) draws above the running
+    // turn's live line, which stays the last row (conversation/liveLineLast.ts).
+    return childRows ? rows : liveLineLast(btwNotes.rows(rows, snapshot.sessionId, btwSnapshot));
   }, [chatPresentation, childRows, turnRowsShown, queuedRows, btwNotes, btwSnapshot, snapshot.sessionId]);
   // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
   // offers Trust folder while the folder is not trusted, and its Retry waits while the folder's

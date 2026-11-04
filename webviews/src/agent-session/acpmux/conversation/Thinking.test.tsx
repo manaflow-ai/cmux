@@ -70,3 +70,31 @@ test("a send in flight names who it goes to, on either live line", () => {
   expect(container.textContent).not.toContain("acpmux send");
   expect(container.querySelector(".cv-worked__glyph")).toBeNull();
 });
+
+// Leo, 2026-11-03: the live line under "Sent a message, finished 3 background tasks, ran 5 commands"
+// sat under that row's text with an empty icon slot, so it read as the row's second line. It draws a
+// still glyph of what it names in the rows' icon column (liveLineLead.experiment.ts `mark`).
+test("the live line leads with a still glyph in the rows' icon column", () => {
+  const mark = (node: Element | null) => node?.querySelector(".cv-worked__mark svg") ?? null;
+  act(() => root!.render(<Thinking since={Date.now()} below />));
+  const line = container.querySelector(".cv-worked--live");
+  expect(line?.classList.contains("has-mark")).toBe(true);
+  expect(mark(line)).not.toBeNull();
+  // It is still, never a spinner: the words shimmer.
+  expect(container.querySelector(".cv-spinner")).toBeNull();
+  // The glyph sits before the words, so they keep the rows' text column.
+  expect(line?.firstElementChild?.classList.contains("cv-worked__mark")).toBe(true);
+  act(() => root!.render(<Thinking since={Date.now()} doing="bun test" doingShell below />));
+  expect(mark(container.querySelector(".cv-worked--live"))).not.toBeNull();
+});
+
+test("the slot arm keeps the earlier empty slot", () => {
+  globalThis.cmuxExperiments = { "live-line-lead": "slot" };
+  try {
+    act(() => root!.render(<Thinking since={Date.now()} below />));
+    expect(container.querySelector(".cv-worked__mark")).toBeNull();
+    expect(container.querySelector(".cv-worked--live")?.classList.contains("has-mark")).toBe(false);
+  } finally {
+    globalThis.cmuxExperiments = {};
+  }
+});

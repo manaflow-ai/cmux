@@ -12,8 +12,9 @@ import { useContext, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { usePaneLanguage, useT } from "../i18n";
 import { agentStartLook } from "./agentStart.experiment";
+import { liveLineLead } from "./liveLineLead.experiment";
 import { liveLineTokens } from "./liveLineTokens.experiment";
-import { Spinner } from "./icons";
+import { Bot, Clock, Envelope, MultiTool, Pencil, Spinner, TerminalSquare } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { ShimmerText } from "./ShimmerText";
@@ -216,14 +217,38 @@ export function Thinking({
         {startLook === "spinner" && <Spinner size={14} loading />}
       </div>
     );
+  // Where the line starts (liveLineLead.experiment.ts): by default a still glyph of what it names in
+  // the rows' icon column, so it reads as a row of its own and never as a second line hung under the
+  // row above (Leo, 2026-11-03). The glyph never moves: the shimmer stays the only working sign.
+  const leadLook = experimentArm(liveLineLead);
+  const Glyph =
+    leadLook !== "mark" || waiting
+      ? undefined
+      : sending
+        ? Envelope
+        : doingShell
+          ? TerminalSquare
+          : doing !== undefined
+            ? MultiTool
+            : waitsOnAgents
+              ? Bot
+              : writing
+                ? Pencil
+                : Clock;
   return (
-    // `cv-worked--live`: its words start on the icon rows' text column (conversation.css), its icon
-    // slot empty (`data-lead-slot`: gallery/invariants.ts reads its lead edge from the box, not the words).
+    // `cv-worked--live`: its words start on the icon rows' text column (conversation.css), after its
+    // glyph in the icon slot, or an empty slot in the `slot` look (`data-lead-slot`: gallery/invariants.ts
+    // reads its lead edge from the box, not the words); `is-flush` starts them on the icon column.
     <div
-      className={`cv-worked cv-worked--live${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`}
+      className={`cv-worked cv-worked--live${Glyph ? " has-mark" : ""}${leadLook === "flush" ? " is-flush" : ""}${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`}
       data-find-skip
       data-lead-slot
     >
+      {Glyph && (
+        <span className="cv-worked__mark" aria-hidden="true">
+          <Glyph />
+        </span>
+      )}
       {waiting ? (
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
           {t(WAITING_LABEL[waiting])}

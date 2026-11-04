@@ -177,8 +177,8 @@ await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
         "step-to-prose": less(diff(at(sends.at(-1)), at(short[0]))),
         "prose-to-step": diff(at(short.at(-1)), at(commands[0])),
         "run-to-step": diff(at(commands.at(-1)), at(inboxes[1])),
-        "step-to-live": diff(at(inboxes[1]), at(live)),
-        "live-to-step": diff(at(live), at(waiting)),
+        "step-to-waiting": diff(at(inboxes[1]), at(waiting)),
+        "step-to-live": diff(at(waiting), at(live)),
       };
 
       const bubbleElement = holding("Hand the three polish lanes")?.closest<HTMLElement>(".cv-user__bubble");

@@ -261,8 +261,8 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
       const sent = byText(/^Sent to/m) ?? document.querySelector('[data-row-id="received-sent"]') ?? undefined;
       const gaps: Record<string, number | null> = {
         "work-to-subagent": diff(head(byText(/Sent a message/)), head(byClass("acpmux-subagentDone"))),
-        "subagent-to-live": diff(head(byClass("acpmux-subagentDone")), head(live)),
-        "live-to-waiting": diff(head(live), head(byClass("acpmux-pendingMessages"))),
+        "subagent-to-waiting": diff(head(byClass("acpmux-subagentDone")), head(byClass("acpmux-pendingMessages"))),
+        "waiting-to-live": diff(head(byClass("acpmux-pendingMessages")), head(live)),
         "reply-footer-to-received":
           footer && footer.height > 0 ? diff((footer.top + footer.bottom) / 2, head(received)) : null,
         "received-to-sent": after(received, diff(head(received), head(sent))),

@@ -215,8 +215,8 @@ const peerLines = () => {
 
 /// Leo's 2026-11-03 04:44Z captures ("this is pretty bad spacing and formatting" / "i thought we made
 /// this stuff smaller"), the bottom of a running Claude Code turn, two ways. `working-bottom`: its
-/// work folded to "Sent a message, ran 3 commands, used 3 tools", a subagent that finished, the live
-/// "Thinking" line and "1 message from 1 session" waiting. `reply-received`: a finished reply, then
+/// work folded to "Sent a message, ran 3 commands, used 3 tools", a subagent that finished, "1 message
+/// from 1 session" waiting and the live "Thinking" line under it, the turn's last row. `reply-received`: a finished reply, then
 /// another machine's lane's message, the turn it started sending a message on, and "Thinking". Every
 /// one of those status rows sits on the tool rows' 22 pitch, 16 from the prose around them
 /// (design/transcript-spacing.md rules 3 and 4); transcript-spacing-kinds.test.ts measures them
@@ -486,7 +486,7 @@ export default agentPaneEntry({
       ),
     },
     "working-bottom": {
-      note: 'Leo\'s 2026-11-03 capture, the bottom of a running turn: "Sent a message, ran 3 commands, used 3 tools", a finished subagent, "Thinking" and "1 message from 1 session", each on the 22 pitch.',
+      note: 'Leo\'s 2026-11-03 capture, the bottom of a running turn: "Sent a message, ran 3 commands, used 3 tools", a finished subagent, "1 message from 1 session" that came in mid-turn, then the live "Thinking" line, always last, each on the 22 pitch.',
       snapshot: workingBottom(),
     },
     "reply-received": {
