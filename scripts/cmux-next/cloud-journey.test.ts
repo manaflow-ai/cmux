@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readEnvFile, resolveBackend, scrub, summaryMarkdown } from "./cloud-journey";
+import { newReds, readEnvFile, resolveBackend, scrub, summaryMarkdown } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("backend names map to the cmux API Worker of each environment", () => {
@@ -28,5 +28,16 @@ describe("cloud journey", () => {
     expect(md.startsWith("FAIL")).toBe(true);
     expect(md).toContain("| **FAIL** | reply | 5 | x |");
     expect(md).toContain("a\\|b");
+  });
+
+  test("newReds: only steps the deploy turned red", () => {
+    const st = (step: string, status: "pass" | "fail" | "skip") => ({ step, status, ms: 1, detail: "" });
+    const before = [st("health", "pass"), st("create machine", "pass"), st("running (status)", "fail")];
+    const after = [st("health", "fail"), st("create machine", "pass"), st("running (status)", "fail")];
+    // running (status) was already red before the deploy (a known bug): not a rollback.
+    expect(newReds(before, after).map((s) => s.step)).toEqual(["health"]);
+    expect(newReds(before, [st("health", "pass"), st("running (status)", "fail")])).toEqual([]);
+    // No baseline: every failed step counts.
+    expect(newReds(null, after).map((s) => s.step)).toEqual(["health", "running (status)"]);
   });
 });
