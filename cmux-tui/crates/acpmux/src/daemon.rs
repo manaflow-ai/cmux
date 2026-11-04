@@ -1993,13 +1993,13 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<(std::fs::F
         }
     }
     let mut child = tokio::process::Command::from(cmd).spawn().context("spawn acpmux daemon")?;
+    let child_pid = child.id().unwrap_or_default();
     // A lock-race loser exits promptly. Reap it even when its CLI caller keeps
     // running (stdio/TUI); dropping std::process::Child left a zombie per retry.
     // This async wait never holds runtime teardown open or kills the winner.
     tokio::spawn(async move {
         let _ = child.wait().await;
     });
-    let child_pid = child.id().unwrap_or_default();
     // Close this process's copy so end of file means the daemon closed it.
     drop(writer);
     if let (Some(key), Some((ours, theirs))) = (key, pair) {
