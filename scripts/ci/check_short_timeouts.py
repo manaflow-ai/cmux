@@ -10,6 +10,7 @@ timeout fix lands.
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
 import re
 import subprocess
@@ -91,7 +92,7 @@ def _strip_rust_test_modules(masked: str) -> str:
 
 def _value(number: str, unit: str) -> float:
     value = float(number.replace("_", ""))
-    return value * (1000 if unit in {"milliseconds", "millis"} else 1000)
+    return value if unit in {"milliseconds", "millis"} else value * 1000
 
 
 def _commented(lines: list[str], line: int) -> bool:
@@ -115,35 +116,39 @@ def scan_source(text: str, rel: str) -> list[dict]:
     if rel.endswith(".rs"):
         masked = _strip_rust_test_modules(masked)
     lines = masked.splitlines()
+    line_starts = [0]
+    line_starts.extend(index + 1 for index, char in enumerate(masked) if char == "\n")
     hits: list[dict] = []
 
     for index, line in enumerate(lines):
         raw = raw_lines[index] if index < len(raw_lines) else ""
         if rel.endswith(".swift"):
-            for match in SWIFT_DURATION.finditer(line):
-                # Argument labels and the literal commonly wrap across a few
-                # lines in Swift call sites; keep the window narrow enough to
-                # avoid treating an unrelated duration as a timeout.
-                context = "\n".join(lines[max(0, index - 3) : index + 1])
-                if not SWIFT_DEADLINE_WORD.search(context):
-                    continue
-                if _value(match.group(2), match.group(1)) < FLOOR_MS:
-                    _hit(hits, "swift-duration", index + 1, raw, raw_lines)
             for match in SWIFT_TIMEOUT_INTERVAL.finditer(line):
                 if float(match.group(1).replace("_", "")) * 1000 < FLOOR_MS:
                     _hit(hits, "swift-timeoutInterval", index + 1, raw, raw_lines)
             for _ in SWIFT_SOCKET_TIMEOUT.finditer(line):
                 _hit(hits, "swift-socket-timeout", index + 1, raw, raw_lines)
-        elif rel.endswith(".rs"):
-            for match in RUST_DURATION.finditer(line):
-                value = _value(match.group(2), match.group(1))
-                context = "\n".join(lines[max(0, index - 3) : min(len(lines), index + 4)])
-                if value < FLOOR_MS and (RUST_CONST_NAME.search(context) or RUST_TIMEOUT_CALL.search(context)):
-                    _hit(hits, "rust-duration", index + 1, raw, raw_lines)
         else:
-            for match in TS_HARD_TIMEOUT.finditer(line):
-                if float(match.group(1).replace("_", "")) < FLOOR_MS:
-                    _hit(hits, "ts-hard-timeout", index + 1, raw, raw_lines)
+            if not rel.endswith(".rs"):
+                for match in TS_HARD_TIMEOUT.finditer(line):
+                    if float(match.group(1).replace("_", "")) < FLOOR_MS:
+                        _hit(hits, "ts-hard-timeout", index + 1, raw, raw_lines)
+
+    if rel.endswith(".swift"):
+        for match in SWIFT_DURATION.finditer(masked):
+            index = bisect.bisect_right(line_starts, match.start()) - 1
+            context = "\n".join(lines[max(0, index - 3) : index + 1])
+            if SWIFT_DEADLINE_WORD.search(context) and _value(match.group(2), match.group(1)) < FLOOR_MS:
+                raw = raw_lines[index] if index < len(raw_lines) else ""
+                _hit(hits, "swift-duration", index + 1, raw, raw_lines)
+    elif rel.endswith(".rs"):
+        for match in RUST_DURATION.finditer(masked):
+            index = bisect.bisect_right(line_starts, match.start()) - 1
+            value = _value(match.group(2), match.group(1))
+            context = "\n".join(lines[max(0, index - 3) : min(len(lines), index + 4)])
+            if value < FLOOR_MS and (RUST_CONST_NAME.search(context) or RUST_TIMEOUT_CALL.search(context)):
+                raw = raw_lines[index] if index < len(raw_lines) else ""
+                _hit(hits, "rust-duration", index + 1, raw, raw_lines)
     return hits
 
 

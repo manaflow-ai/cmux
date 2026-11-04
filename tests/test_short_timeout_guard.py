@@ -45,6 +45,15 @@ class ShortTimeoutGuardTests(unittest.TestCase):
             with self.subTest(annotated=annotated):
                 self.assertEqual(guard.scan_source(annotated, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Request.swift"), [])
 
+        multiline = "func request() { call(\n  deadline: .milliseconds(1200)\n) }\n"
+        self.assertEqual(
+            [(hit["pattern"], hit["line"]) for hit in guard.scan_source(
+                multiline,
+                "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Request.swift",
+            )],
+            [("swift-duration", 2)],
+        )
+
     def test_other_language_patterns_and_test_module_exclusion(self) -> None:
         swift = "request.timeoutInterval = 2\nsetsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &value)\n"
         self.assertEqual(
@@ -55,11 +64,12 @@ class ShortTimeoutGuardTests(unittest.TestCase):
         rust = (
             "const START_BUDGET: Duration = Duration::from_secs(2);\n"
             "async_fn.timeout(Duration::from_millis(10)).await;\n"
+            "const SHORT_MILLIS: Duration = Duration::from_millis(1200);\n"
             "#[cfg(test)] mod tests { const TEST_TIMEOUT: Duration = Duration::from_secs(1); }\n"
         )
         self.assertEqual(
             [hit["pattern"] for hit in guard.scan_source(rust, "cmux-tui/crates/acpmux/src/hub/start.rs")],
-            ["rust-duration", "rust-duration"],
+            ["rust-duration", "rust-duration", "rust-duration"],
         )
 
         ts = "const deadline = performance.now() + 2_000;\nconst timeoutMs = 30_000;\n"
