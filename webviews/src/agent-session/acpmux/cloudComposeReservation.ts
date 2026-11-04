@@ -123,7 +123,13 @@ export function reservedCloudCall(
         .catch(() => undefined);
       if (!(await reservation.ready(reservationKey))) {
         const { reservationKey: _reservationKey, gestureTicket: _gestureTicket, ...ordinary } = params;
-        return call(method, ordinary);
+        // The native gesture was already consumed to obtain this ticket. Keep it on the
+        // ordinary Send fallback so a failed or unavailable reservation cannot turn into a
+        // second gesture check (and gesture_required) in native hand-off.
+        return call(method, {
+          ...ordinary,
+          ...(typeof ticket === "string" ? { gestureTicket: ticket } : {}),
+        });
       }
       return call(method, {
         ...params,

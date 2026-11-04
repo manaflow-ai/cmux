@@ -104,7 +104,7 @@ test("a failed speculative request falls back to an ordinary Send without retryi
   expect(h.calls).toEqual([
     ["transport.gesture", { intent: { method: "cloud.startChat", params: { key: "send-1" } } }],
     ["cloud.reserve", { composeKey: "compose-1" }],
-    ["cloud.startChat", { task: "hello", key: "send-1" }],
+    ["cloud.startChat", { task: "hello", key: "send-1", gestureTicket: "ticket-1" }],
   ]);
 });
 
