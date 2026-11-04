@@ -77,6 +77,23 @@ fn a_persistent_session_with_a_poisoned_state_still_shuts_down() {
     }));
     assert!(mux.state.is_poisoned(), "the session state is poisoned");
 
+    // The output store's writer holds a handle during its pass: take the last handle, so the drop (and any panic in
+    // it) runs here, inside catch_unwind, not on the writer's thread (#35279 review).
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut handle = mux;
+    let mux = loop {
+        match Arc::try_unwrap(handle) {
+            Ok(mux) => break mux,
+            Err(shared) => {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "another handle to the mux stayed for 5 s"
+                );
+                handle = shared;
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+    };
     let dropped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(mux)));
     assert!(dropped.is_ok(), "the shutdown of a session with a poisoned state panicked");
     let _ = std::fs::remove_dir_all(&root);
