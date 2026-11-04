@@ -182,6 +182,11 @@ class CandidateInputs(unittest.TestCase):
                 evidence.write_text(json.dumps(changed))
                 eligible, _ = mirror.verify_evidence(str(self.root), "HEAD", "release-compile", evidence)
                 self.assertFalse(eligible)
+        for timestamp in ("2020-01-01T00:00:00Z", "2026-11-04T00:00:00"):
+            with self.subTest(timestamp=timestamp):
+                evidence.write_text(json.dumps(dict(base, measured_at=timestamp)))
+                eligible, _ = mirror.verify_evidence(str(self.root), "HEAD", "release-compile", evidence)
+                self.assertFalse(eligible)
 
     def test_pr_job_keeps_both_actions_head_and_built_merge_commit(self):
         plan = self.root / "plan.json"

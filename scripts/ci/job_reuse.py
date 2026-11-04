@@ -52,6 +52,11 @@ def pick(artifacts: list[dict], key: str, repository_id: str,
         if (repository is not None and str(repository) != repository_id) or \
                 (head_repository is not None and str(head_repository) != repository_id):
             continue
+        if trusted_event is None and (repository is None or head_repository is None):
+            # Preserve the legacy lookup's fail-closed repository boundary;
+            # only the narrowed planner path may fill omitted fields from the
+            # authoritative run endpoint below.
+            continue
         if trusted_branch is not None and run.get("head_branch") not in (None, trusted_branch):
             continue
         # The artifact-list response commonly omits ``event`` (and can omit

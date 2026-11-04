@@ -9,6 +9,7 @@ not proofs: production full runs must validate them before any enforcement.
 from __future__ import annotations
 
 import argparse
+import datetime
 import hashlib
 import json
 import os
@@ -211,8 +212,18 @@ def verify_evidence(root: str, rev: str, job: str, evidence: Path | None = None,
             return False, "evidence false-skip rate is not zero"
         if int(value.get("complete", 0)) <= 0:
             return False, "evidence has no complete observations"
-        if not value.get("measured_at"):
+        measured_at = str(value.get("measured_at") or "")
+        if not measured_at:
             return False, "evidence has no measurement timestamp"
+        try:
+            stamp = datetime.datetime.fromisoformat(measured_at.replace("Z", "+00:00"))
+            if stamp.tzinfo is None:
+                return False, "evidence timestamp has no timezone"
+            age = time.time() - stamp.timestamp()
+        except ValueError:
+            return False, "evidence timestamp is not ISO-8601"
+        if age < -300 or age > 7 * 86400:
+            return False, "evidence timestamp is stale"
         return True, "eligible"
     except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError) as error:
         return False, f"evidence unavailable: {error}"
