@@ -340,6 +340,9 @@ type Props = {
   /// The person edited the prompt of a chat that has a session: the pane tells acpmux it types
   /// (multiplayer). A draft coming back is not an edit.
   onTyping?(text: string, sessionId?: string): void;
+  /** The person took the agent's suggested next prompt into the field (Tab, Right-arrow): acpmux
+   * counts it taken (`suggestion_gate.rs`). */
+  onSuggestionTaken?(): void;
   /// Where the host keeps the chat's unsent chips, so they come back when the chat shows again.
   keptAttachments?: KeptAttachments;
   /// Reads a transcript chosen by the cmux-owned `/import` command.
@@ -465,6 +468,7 @@ export function Composer({
   onCmuxCommand,
   onUnsentDraft,
   onTyping,
+  onSuggestionTaken,
   keptAttachments,
   onImportFile,
   importSandboxed,
@@ -1707,6 +1711,7 @@ export function Composer({
     // empty while it shows, so the caret is at its end.
     if (suggested && plain && (event.key === "Tab" || (agentSuggestion && event.key === "ArrowRight"))) {
       event.preventDefault();
+      if (agentSuggested) onSuggestionTaken?.();
       if (field.current) field.current.type(suggested);
       else {
         setText(suggested);

@@ -664,7 +664,7 @@ class Excusing(unittest.TestCase):
                 self.assertNotIn(f"repos/{REPO}/actions/runs/3000/jobs?filter=latest&per_page=100", self.gh.routes)
 
     def coalesced_setup(self, newest_green: bool, yielded: bool = False):
-        # cmux-next-web.yml runs its web checks at most once every 15 minutes (web_coalesce.py): a push whose
+        # cmux-next-web.yml runs its web checks at most once every 30 minutes (web_coalesce.py): a push whose
         # pending coalesce job a newer push replaced ends cancelled, its coalesce job cancelled and its web job
         # skipped. Such runs sit ahead of the run that covered them.
         name = "web / Web tests (1/4)"

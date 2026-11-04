@@ -24,12 +24,17 @@ pub(super) enum Entry {
         mode: u32,
     },
     Dir,
-    /// A symlink or special file.
+    Link,
+    /// A special file.
     Other,
 }
 
 fn c_name(name: &str) -> io::Result<CString> {
     CString::new(name).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))
+}
+
+fn c_name_text(text: &str) -> io::Result<CString> {
+    CString::new(text).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))
 }
 
 /// A `mode_t` (u16 on macOS, u32 on Linux) as u32.
@@ -97,6 +102,7 @@ impl Dir {
                     Entry::File { mode: widen(stat.st_mode & 0o7777) }
                 }
                 libc::S_IFDIR => Entry::Dir,
+                libc::S_IFLNK => Entry::Link,
                 _ => Entry::Other,
             }),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Entry::Missing),
@@ -152,6 +158,35 @@ impl Dir {
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error),
         }
+    }
+
+    /// The text of the symlink `name` (never followed).
+    pub(super) fn read_link(&self, name: &str) -> io::Result<String> {
+        let c = c_name(name)?;
+        let mut buffer = vec![0u8; 4096];
+        // SAFETY: a valid descriptor, C string and buffer of that length.
+        let read = unsafe {
+            libc::readlinkat(
+                self.0.as_raw_fd(),
+                c.as_ptr(),
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+            )
+        };
+        let read = usize::try_from(read).map_err(|_| io::Error::last_os_error())?;
+        if read >= buffer.len() {
+            return Err(io::Error::from_raw_os_error(libc::ENAMETOOLONG));
+        }
+        buffer.truncate(read);
+        String::from_utf8(buffer).map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
+    }
+
+    /// Makes the symlink `name` with `text`; `AlreadyExists` when anything
+    /// is there.
+    fn symlink(&self, name: &str, text: &str) -> io::Result<()> {
+        let (c, text) = (c_name(name)?, c_name_text(text)?);
+        // SAFETY: a valid descriptor and C strings.
+        check(unsafe { libc::symlinkat(text.as_ptr(), self.0.as_raw_fd(), c.as_ptr()) }).map(drop)
     }
 
     fn mkdir(&self, name: &str) -> io::Result<()> {
@@ -233,6 +268,8 @@ enum Undo {
     Placed { relative: String, aside: Option<Aside>, placed: Option<(u64, u64)> },
     /// A file this pull deleted, moved aside.
     Removed { relative: String, aside: Aside },
+    /// A symlink this pull removed (moved aside), with its text.
+    RemovedLink { relative: String, aside: Aside, text: String },
 }
 
 /// Where a file moved aside sits: the staging folder, or (on another file
@@ -278,7 +315,9 @@ impl Transaction {
             Entry::Missing if expected.is_some() => return Err(Changed(relative.into()).into()),
             Entry::Missing => None,
             Entry::File { .. } => Some(self.take(&dir, &name, relative, expected)?),
-            Entry::Dir | Entry::Other => bail!("{relative} here is not a regular file"),
+            Entry::Dir | Entry::Link | Entry::Other => {
+                bail!("{relative} here is not a regular file")
+            }
         };
         if let Err(error) = self.place(staged, &dir, &name, relative) {
             if let Some(aside) = aside
@@ -307,6 +346,65 @@ impl Transaction {
         Ok(())
     }
 
+    /// Makes the symlink `relative` with `text`, making missing folders;
+    /// nothing may be there (one made meanwhile is [`Changed`]).
+    pub(super) fn link(&mut self, relative: &str, text: &str) -> anyhow::Result<()> {
+        let (dir, name) = self.folder_for(relative)?;
+        match dir.symlink(&name, text) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                return Err(Changed(relative.into()).into());
+            }
+            Err(error) => {
+                return Err(anyhow::Error::from(error).context(format!("cannot make {relative}")));
+            }
+        }
+        let placed = dir.inode(&name).ok().flatten();
+        self.undo.push(Undo::Placed { relative: relative.into(), aside: None, placed });
+        Ok(())
+    }
+
+    /// Removes the symlink at `relative` (moved aside until the pull ends),
+    /// once it is checked to still have `text`; one with another text, or
+    /// anything else there, is [`Changed`]. Nothing when it is gone.
+    pub(super) fn remove_link(&mut self, relative: &str, text: &str) -> anyhow::Result<()> {
+        let Some((dir, name)) = parent_of(&self.root, relative)? else {
+            return Err(Changed(relative.into()).into());
+        };
+        match dir.entry(&name)? {
+            Entry::Link => {}
+            _ => return Err(Changed(relative.into()).into()),
+        }
+        let aside =
+            self.move_aside(&dir, &name).with_context(|| format!("cannot move {relative}"))?;
+        let from = if aside.in_staging { &self.staging } else { &dir };
+        let found = match from.read_link(&aside.name) {
+            Ok(found) => found,
+            // Not a symlink any more (saved over since the look): back it goes
+            // as it is, or it stays aside for roll back.
+            Err(error) => {
+                if self.put_back(&dir, &name, &aside).is_err() {
+                    self.undo.push(Undo::Removed { relative: relative.into(), aside });
+                }
+                return Err(anyhow::Error::from(error).context(Changed(relative.into())));
+            }
+        };
+        if found == text {
+            self.undo.push(Undo::RemovedLink {
+                relative: relative.into(),
+                aside,
+                text: text.into(),
+            });
+            self.deleted.push(relative.to_string());
+            return Ok(());
+        }
+        // Not the one planned: back it goes, or it stays aside for roll back.
+        if self.put_back_link(&dir, &name, &aside, &found).is_err() {
+            self.undo.push(Undo::RemovedLink { relative: relative.into(), aside, text: found });
+        }
+        Err(Changed(relative.into()).into())
+    }
+
     /// Puts back everything this pull changed, newest first. The error
     /// names what could not be put back (it stays in the staging folder or
     /// next to its file).
@@ -327,6 +425,9 @@ impl Transaction {
                 Undo::Removed { relative, aside } => {
                     self.at(relative).and_then(|(dir, name)| self.put_back(&dir, &name, aside))
                 }
+                Undo::RemovedLink { relative, aside, text } => self
+                    .at(relative)
+                    .and_then(|(dir, name)| self.put_back_link(&dir, &name, aside, text)),
                 Undo::MadeDir { folder } => {
                     self.at(folder).and_then(|(parent, name)| parent.unlink(&name, true))
                 }
@@ -335,6 +436,7 @@ impl Transaction {
                 left.push(match undo {
                     Undo::Placed { relative, .. }
                     | Undo::Removed { relative, .. }
+                    | Undo::RemovedLink { relative, .. }
                     | Undo::MadeDir { folder: relative } => relative,
                 });
             }
@@ -347,7 +449,8 @@ impl Transaction {
     pub(super) fn finish(mut self) {
         for undo in std::mem::take(&mut self.undo) {
             if let Undo::Placed { relative, aside: Some(aside), .. }
-            | Undo::Removed { relative, aside } = undo
+            | Undo::Removed { relative, aside }
+            | Undo::RemovedLink { relative, aside, .. } = undo
                 && !aside.in_staging
                 && let Ok((dir, _)) = self.at(&relative)
             {
@@ -464,6 +567,15 @@ impl Transaction {
         link_new(from, &aside.name, dir, name)
     }
 
+    /// Puts a symlink moved aside back at `name` (made again with its
+    /// text, never over anything there), then drops the aside.
+    fn put_back_link(&self, dir: &Dir, name: &str, aside: &Aside, text: &str) -> io::Result<()> {
+        dir.symlink(name, text)?;
+        let from = if aside.in_staging { &self.staging } else { dir };
+        let _ = from.unlink(&aside.name, false);
+        Ok(())
+    }
+
     /// Moves the staged file to `name` in `dir`, never over a file there.
     fn place(&self, staged: &str, dir: &Dir, name: &str, relative: &str) -> anyhow::Result<()> {
         let placed = match link_new(&self.staging, staged, dir, name) {
@@ -568,5 +680,32 @@ mod tests {
         assert_eq!(std::fs::read_to_string(root.join("a.txt")).unwrap(), "edited\n");
         assert_eq!(std::fs::read_to_string(root.join("b.txt")).unwrap(), "edited\n");
         assert_eq!(std::fs::read_to_string(root.join("c.txt")).unwrap(), "made here\n");
+    }
+
+    /// A symlink made, replaced or removed by a pull is put back exactly by
+    /// a roll back, and one that changed after the plan stays.
+    #[test]
+    fn symlinks_are_placed_and_put_back_and_a_changed_one_stays() {
+        let top = tempfile::tempdir().unwrap();
+        let (root, staging) = (top.path().join("root"), top.path().join("staging"));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(&staging).unwrap();
+        std::os::unix::fs::symlink("src", root.join("old")).unwrap();
+        std::os::unix::fs::symlink("edited", root.join("mine")).unwrap();
+
+        let mut transaction = Transaction::new(&root, &staging).unwrap();
+        transaction.remove_link("old", "src").unwrap();
+        transaction.link("old", "src/a").unwrap();
+        transaction.link("deep/new", "../src").unwrap();
+        assert_eq!(std::fs::read_link(root.join("old")).unwrap(), Path::new("src/a"));
+        assert_eq!(std::fs::read_link(root.join("deep/new")).unwrap(), Path::new("../src"));
+        let error = transaction.remove_link("mine", "planned").unwrap_err();
+        assert!(error.downcast_ref::<Changed>().is_some(), "{error:#}");
+        assert_eq!(std::fs::read_link(root.join("mine")).unwrap(), Path::new("edited"));
+        transaction.roll_back().unwrap();
+
+        assert_eq!(std::fs::read_link(root.join("old")).unwrap(), Path::new("src"));
+        assert!(!root.join("deep").exists());
+        assert_eq!(std::fs::read_link(root.join("mine")).unwrap(), Path::new("edited"));
     }
 }

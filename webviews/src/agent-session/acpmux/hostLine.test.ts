@@ -109,3 +109,32 @@ test("every HostUnavailableLine in the pane is worded by hostLineText", () => {
   }
   expect(source).toMatch(/const hostWords = hostLineText\(/);
 });
+
+// Cloud machines pause on their own when idle and between tool calls (cmux-platform
+// docs/agent-turn-sleep.md): a paused or resuming machine is never "Can't reach", however long.
+test("a Cloud machine the account says sleeps is never said to be unreachable", () => {
+  const asleep = (peer: string | undefined) => peer === "<host>";
+  expect(hostErrorShows(unreachable("reconnecting"), 10 * PEER_LINK_DEADLINE_MS, asleep)).toBe(false);
+  expect(hostErrorShows(unreachable("offline"), 10 * PEER_LINK_DEADLINE_MS, asleep)).toBe(false);
+  expect(hostErrorShows(unreachable("offline"), PEER_LINK_DEADLINE_MS, () => false)).toBe(true);
+});
+
+test("cloudMachineAsleep: paused and starting stages sleep, ready and failed do not, twins never", async () => {
+  const { cloudMachineAsleep } = await import("./cloudMachines");
+  const list = [
+    { id: "a", name: "Box", stage: "paused" },
+    { id: "b", name: "boot", stage: "connecting" },
+    { id: "c", name: "up", stage: "ready" },
+    { id: "d", name: "bad", stage: "failed" },
+    { id: "e", name: "twin", stage: "paused" },
+    { id: "f", name: "twin", stage: "paused" },
+  ];
+  expect(["box", "boot", "up", "bad", "twin", undefined].map((name) => cloudMachineAsleep(name, list))).toEqual([
+    true,
+    true,
+    false,
+    false,
+    false,
+    false,
+  ]);
+});

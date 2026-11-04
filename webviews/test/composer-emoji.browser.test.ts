@@ -124,7 +124,8 @@ await requireBrowserLane("composer-emoji.browser.test.ts", async () => {
     test(`play ${variant} passes`, async () => {
       const page = await stage(variant);
       const play = await page.evaluate(() => document.documentElement.dataset.galleryPlay ?? "");
-      if (play === "fail") console.log(variant, JSON.stringify(await page.evaluate(() => window.cmuxGalleryPlayReport)));
+      if (play === "fail")
+        console.log(variant, JSON.stringify(await page.evaluate(() => window.cmuxGalleryPlayReport)));
       expect(play).not.toBe("fail");
       expect(await page.evaluate(() => document.documentElement.dataset.galleryReady)).not.toBe("error");
       if (variant === "arrow-return") expect((await read(page)).text).toContain("Ship it 🧸");

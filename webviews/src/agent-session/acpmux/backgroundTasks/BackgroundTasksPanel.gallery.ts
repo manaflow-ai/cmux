@@ -146,10 +146,33 @@ const noStrayEdges = (ctx: PlayContext) => {
       .filter((part) => part !== "none" && part.includes("inset"));
   const panel = ctx.document.querySelector(".acpmux-bg");
   // Only a top rule (0 offset across, a positive offset down) may part a docked panel from the side panel.
-  const left = lines(panel).filter((part) => !/(^|\s)0px\s+[1-9][\d.]*px\s+0px/.test(part.replace(/^.*?\)\s*/, "")));
+  const left = lines(panel).filter((part) => {
+    // A 2x webview resolves the hairline token to 0.5px; it is still only a top rule.
+    const offsets = part
+      .replace(/^.*?\)\s*/, "")
+      .match(/-?[\d.]+px/g)
+      ?.map(Number.parseFloat);
+    return !(offsets?.[0] === 0 && offsets[1] > 0 && offsets[2] === 0 && offsets[3] === 0);
+  });
   if (left.length > 0) throw new Error(`the panel draws an edge of its own: ${left.join(", ")}`);
   const head = lines(ctx.document.querySelector(".acpmux-bg__head"));
   if (head.length > 0) throw new Error(`the panel's header draws a rule under it: ${head.join(", ")}`);
+};
+// The system migration keeps independent Stop slots on the compact control track.
+const systemControls = (ctx: PlayContext) => {
+  const view = ctx.document.defaultView!;
+  const panel = ctx.document.querySelector(".acpmux-bg")!;
+  const compact = Number.parseFloat(view.getComputedStyle(panel).getPropertyValue("--ds-control-compact"));
+  if (!Number.isFinite(compact)) throw new Error("the compact control token resolves to a length");
+  for (const slot of panel.querySelectorAll<HTMLElement>(".acpmux-bg__stop-slot")) {
+    const box = slot.getBoundingClientRect();
+    if (Math.abs(box.width - compact) > 0.5 || Math.abs(box.height - compact) > 0.5)
+      throw new Error("Stop's reserved slot stays on the compact control token");
+  }
+  for (const button of panel.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")) {
+    if (view.getComputedStyle(button).cursor !== "default")
+      throw new Error("Background tasks actions retain the native arrow cursor");
+  }
 };
 const openDocument = async (ctx: PlayContext) => {
   await ctx.click({ role: "button", name: "Open preview" });
@@ -222,6 +245,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await openPanel(ctx);
         noStrayEdges(ctx);
+        systemControls(ctx);
       },
     },
     sections: {

@@ -72,10 +72,10 @@ mod fork_transcript_auth;
 pub mod forum;
 pub(crate) mod full_access_bound;
 mod handoff;
-mod held_asks;
 mod harness_view;
 mod harness_watch;
 mod health_view;
+mod held_asks;
 pub(super) mod idle;
 mod idle_census;
 pub(crate) use idle_census::LaunchServers;
@@ -255,6 +255,7 @@ mod usage_view;
 pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
 mod background_cause;
 pub mod background_turn;
+mod wrap_up_offer;
 #[cfg(feature = "sim")]
 mod sim_startup;
 #[cfg(all(test, unix))]
