@@ -688,7 +688,7 @@ final class AppServices {
             bookmarks.attach(entry)
             onboarding.browserImportOffer.attach(entry)
             attachMachineBadgeMenu(entry)
-            entry.chrome.onContentFullscreenChange = { [weak self, weak entry] on in
+            entry.state.onContentFullscreenChange = { [weak self, weak entry] on in
                 if let entry { self?.pageContentFullscreenChanged(entry, on: on) }
             }
         }
