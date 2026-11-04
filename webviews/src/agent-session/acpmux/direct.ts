@@ -139,6 +139,7 @@ import { RowUpdates } from "./rowUpdates";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
 import { STALL_CHECK_MS, stallLine } from "./stallLog";
+import { hostTurn, hostTurnState } from "./hostTurnState";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -4642,6 +4643,9 @@ export class AcpmuxDirectClient {
       latest !== undefined &&
       (latest.seq === undefined || typeof detail.lastSeq !== "number" || latest.seq >= detail.lastSeq);
     if (latestIsNew) this.summary = { ...this.summary, ...latest.session };
+    // The page's records may open a turn whose end never reached them, or miss the start of one
+    // acpmux runs on: the summary read with them says (hostTurnState.ts).
+    this.settleTurnWithHost();
     this.queue = mergeQueue(
       this.queue,
       (latestIsNew ? latest?.session.queue : detail.queue) ?? [],
@@ -4790,6 +4794,8 @@ export class AcpmuxDirectClient {
     if (this.readAheadAt.has(session.sessionId)) this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
+      // Built when sent, after the record it follows: it settles the turn the records folded.
+      this.settleTurnWithHost();
       // A harness restart or a new conversation names a new native root without a rebuild: the
       // fold learns it now, or a record naming it as a parent would not repair its child. One
       // that records already folded named (a retired root, too) drew rows that are now wrong:
@@ -6766,6 +6772,38 @@ export class AcpmuxDirectClient {
           compaction: { ...row.compaction, state: "failed", inferred: true },
         });
       }
+  }
+
+  /// The pane's open turn follows the one acpmux holds (hostTurnState.ts). One acpmux no longer
+  /// runs closes; one it runs that the pane holds closed, and never saw end, opens again: a
+  /// restart that adopted the running host goes on with the same turn and logs no new start.
+  private settleTurnWithHost(): void {
+    if (this.replayThrough !== undefined) return;
+    const state = hostTurnState(this.summary);
+    if (state === "ended" && this.turnOpen) {
+      this.hostEndedTurn();
+      return;
+    }
+    const turn = hostTurn(this.summary);
+    if (state !== "runs" || this.turnOpen || !turn) return;
+    if (turn.turnId !== undefined && this.endedTurns.has(turn.turnId)) return;
+    this.turnOpen = true;
+    if (turn.turnId !== undefined) this.runningTurnId = turn.turnId;
+    if (!this.rows.has("typing")) this.rows.set("typing", { id: "typing", version: 1, at: Date.now(), kind: "typing" });
+  }
+
+  /// acpmux holds no turn while the pane still holds one open: its end never reached the pane.
+  /// The turn closes as its end would, with no summary row: no Stop, no typing dots. A late end
+  /// record still settles it (`turn_end`, `turn_result`).
+  private hostEndedTurn(): void {
+    this.turnOpen = false;
+    this.turnPrompt = undefined;
+    this.turnTokens = undefined;
+    this.turnTokenSplit = undefined;
+    this.endAssistantSegment();
+    this.streamingActivity = undefined;
+    this.rows.delete("typing");
+    this.rows.delete(TURN_RETRY);
   }
 
   /// A retry of the running turn's model request (`turn_retrying`): the `TURN_RETRY` row holds it,
