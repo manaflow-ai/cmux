@@ -27,7 +27,6 @@ const PERSON_KINDS: [&str; 4] = ["tui", "web", "mac", "frontend"];
 
 #[derive(Default)]
 struct State {
-    user_input_ms: Option<u64>,
     agent_action_ms: Option<u64>,
     subscribers: BTreeMap<u64, MessageWriter>,
     dirty: bool,
@@ -42,8 +41,7 @@ struct State {
 struct Shared {
     state: Mutex<State>,
     wake: Condvar,
-    /// A person's last input time in Unix milliseconds (0: none) on the lock-free arm; `State::user_input_ms` stays
-    /// `None` there.
+    /// A person's last input time in Unix milliseconds (0: none).
     user_input_ms: AtomicU64,
     /// Whether the stream has subscribers; written under `state`'s lock.
     subscribed: AtomicBool,
@@ -52,21 +50,15 @@ struct Shared {
 }
 
 impl Shared {
-    /// A person's last input time from either arm.
-    fn user_input_ms(&self, state: &State) -> Option<u64> {
-        let atomic = Some(self.user_input_ms.load(Ordering::SeqCst)).filter(|ms| *ms != 0);
-        match (state.user_input_ms, atomic) {
-            (Some(locked), Some(atomic)) => Some(locked.max(atomic)),
-            (locked, atomic) => locked.or(atomic),
-        }
+    /// A person's last input time.
+    fn user_input_ms(&self) -> Option<u64> {
+        Some(self.user_input_ms.load(Ordering::SeqCst)).filter(|ms| *ms != 0)
     }
 }
 
 #[derive(Default)]
 pub(crate) struct ActivityStream {
     shared: Arc<Shared>,
-    /// The mux's stage S1 switch: a person's key notes its input time with no lock.
-    lock_free: AtomicBool,
 }
 
 fn now_ms() -> u64 {
@@ -74,24 +66,9 @@ fn now_ms() -> u64 {
 }
 
 impl ActivityStream {
-    /// A stream whose person input notes take no lock when `lock_free` (the mux's stage S1 switch).
-    pub(crate) fn new(lock_free: bool) -> Self {
-        Self { shared: Arc::default(), lock_free: AtomicBool::new(lock_free) }
-    }
-
-    /// Turns stage S1 on or off (tests).
-    #[cfg(test)]
-    pub(crate) fn set_lock_free_for_test(&self, on: bool) {
-        self.lock_free.store(on, Ordering::Relaxed);
-    }
-
-    /// Input from a person's attached client (callers filter unattached one-shot sends). On the lock-free arm the
-    /// time is an atomic; only while a subscriber exists does a key take the lock, once per event the worker sends.
+    /// Input from a person's attached client (callers filter unattached one-shot sends). The time is an atomic; only
+    /// while a subscriber exists does a key take the lock, once per event the worker sends.
     pub(crate) fn note_user_input(&self) {
-        if !self.lock_free.load(Ordering::Relaxed) {
-            self.update(|state| state.user_input_ms = Some(now_ms()));
-            return;
-        }
         // SeqCst: either this key sees the subscriber, or the subscriber's first snapshot sees this time. A key
         // preempted after its clock read never moves the time back.
         self.shared.user_input_ms.fetch_max(now_ms(), Ordering::SeqCst);
@@ -117,8 +94,7 @@ impl ActivityStream {
     /// The last person's input time, in Unix milliseconds (tests).
     #[cfg(test)]
     pub(crate) fn user_input_ms_for_test(&self) -> Option<u64> {
-        let state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
-        self.shared.user_input_ms(&state)
+        self.shared.user_input_ms()
     }
 
     /// Mux events that change the counts or mean an agent acted.
@@ -166,7 +142,7 @@ impl ActivityStream {
                     .name("cmux-activity".into())
                     .spawn(move || run_worker(shared))?;
             }
-            (self.shared.user_input_ms(&state), state.agent_action_ms)
+            (self.shared.user_input_ms(), state.agent_action_ms)
         };
         Ok(json!({ "activity": snapshot(mux, times) }))
     }
@@ -273,7 +249,7 @@ fn next_due(shared: &Shared) -> Option<Due> {
     shared.wake_pending.store(false, Ordering::SeqCst);
     state.last_emit = Some(Instant::now());
     let writers = state.subscribers.iter().map(|(c, w)| (*c, w.clone())).collect();
-    Some((writers, (shared.user_input_ms(&state), state.agent_action_ms), state.mux.clone()))
+    Some((writers, (shared.user_input_ms(), state.agent_action_ms), state.mux.clone()))
 }
 
 fn run_worker(shared: Arc<Shared>) {

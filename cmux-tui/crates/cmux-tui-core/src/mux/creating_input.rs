@@ -128,13 +128,12 @@ impl Mux {
     pub(crate) fn begin_creating_input(&self, terminal_id: &str) -> Option<u64> {
         let inputs = &self.creating_inputs;
         // The live check and the insert are one step under the creating lock. The check reads the
-        // session state (lane off, or a poisoned state; lock order: creating, then state) or, on the
-        // input lane, the published routes of the last finished change: a commit still in progress has
-        // not made the id live, as when the old path takes the state before that commit, so every
-        // answer is one the old path can give. On both arms the read ends before the insert, so a
-        // commit can make the id live in between; the entry is then written to the live terminal in
-        // order, by the creation's finish or by the next input on another path
-        // (`wait_for_creating_input_flush`), or given back, as any queue.
+        // published routes of the last finished change (or, on a poisoned state, the session state;
+        // lock order: creating, then state): a commit still in progress has not made the id live, as
+        // when a reader takes the state before that commit, so every answer is one the session state
+        // can give. The read ends before the insert, so a commit can make the id live in between; the
+        // entry is then written to the live terminal in order, by the creation's finish or by the next
+        // input on another path (`wait_for_creating_input_flush`), or given back, as any queue.
         let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
         if terminals.contains_key(terminal_id)
             || self.live_surface_for_terminal(terminal_id).is_some()
@@ -213,7 +212,7 @@ impl Mux {
         // No terminal is creating, so no queue can be ahead of this input: the count says so with no lock
         // (R-DAEMON-STATE stage S1). A queue of this surface's terminal was added before the terminal went live,
         // and the count drops to zero only after the last queue was written (Release, read here with Acquire).
-        if self.control_clients.input_lane.on() && inputs.creating.load(Ordering::Acquire) == 0 {
+        if inputs.creating.load(Ordering::Acquire) == 0 {
             return;
         }
         let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
@@ -376,26 +375,24 @@ impl Mux {
     }
 
     /// The live terminal surface whose host id is `terminal_id`. The creating-input lock's holders call it under
-    /// that lock; on the input lane (R-DAEMON-STATE stage S1) it reads the routes of the last finished change, so no
-    /// holder waits for the session lock under it and a key that takes it never waits behind one. A commit publishes
-    /// its routes before it releases the session lock, and a queue is removed only after its terminal is live, so the
-    /// creation checks give the answers they gave under the session lock.
+    /// that lock; it reads the routes of the last finished change (R-DAEMON-STATE stage S1), so no holder waits for
+    /// the session lock under it and a key that takes it never waits behind one. A commit publishes its routes before
+    /// it releases the session lock, and a queue is removed only after its terminal is live, so the creation checks
+    /// give the answers they gave under the session lock.
     ///
-    /// On the lane, the creating-input lock is a leaf only while the state is not poisoned: on a poisoned state this
-    /// takes the session lock under it (creating, then state), as the old path always does. So no code may take the
-    /// creating-input lock while it holds the session lock.
+    /// The creating-input lock is a leaf only while the state is not poisoned: on a poisoned state this takes the
+    /// session lock under it (creating, then state). So no code may take the creating-input lock while it holds the
+    /// session lock.
     #[track_caller]
     fn live_surface_for_terminal(&self, terminal_id: &str) -> Option<Arc<Surface>> {
         // As `Mux::surface`: the routes are loaded before the poison check (poison never clears), so routes used here
-        // come from a change that finished before any panic, and a poisoned state takes the old read. Unlike
-        // `Mux::surface`'s, this old read recovers the poison: the creation checks answer from the state, as the old
-        // path did (a create whose commit panicked has its terminal in the state, and the routes lack it until a later
-        // change that recovers the poison publishes them).
-        if self.control_clients.input_lane.on() {
-            let routes = self.state.routes();
-            if !self.state.is_poisoned() {
-                return routes.live_terminal(terminal_id);
-            }
+        // come from a change that finished before any panic, and a poisoned state takes the locked read. Unlike
+        // `Mux::surface`'s, this locked read recovers the poison: the creation checks answer from the state (a create
+        // whose commit panicked has its terminal in the state, and the routes lack it until a later change that
+        // recovers the poison publishes them).
+        let routes = self.state.routes();
+        if !self.state.is_poisoned() {
+            return routes.live_terminal(terminal_id);
         }
         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         crate::route_table::live_terminal(

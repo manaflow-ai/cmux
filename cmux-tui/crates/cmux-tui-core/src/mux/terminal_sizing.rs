@@ -48,7 +48,7 @@ impl Mux {
     pub(crate) fn note_terminal_input(&self, surface: &Surface, client: u64) {
         // The key's view is the terminal's settled newest: the note would change nothing, so the key takes no sizing
         // lock (R-DAEMON-STATE stage S1, mux/sizing_fast_path.rs).
-        if self.control_clients.input_lane.on() && surface.skips_sizing_note(client) {
+        if surface.skips_sizing_note(client) {
             self.activity.note_user_input();
             return;
         }
@@ -87,16 +87,12 @@ impl Mux {
         // a key can change, so a key does not re-expand it: that asks for the terminal's workspace default, which
         // reads the session lock (TYPING FIX 2).
         self.mutate_terminal_sizing_keeping_participants(runtime, |_, sizing| {
-            let publishing = sizing.terminal_sizing.publishing();
             let entry = sizing.terminal_sizing.get_mut(&runtime)?;
             if entry.members.get(&id).is_none_or(|member| member.client != client) {
                 return None;
             }
-            // The key's terminal may be a respawn of the entry's runtime: its fast path follows it (stage S1 only;
-            // with the switch off nothing is published).
-            if publishing {
-                entry.follow_runtime_of(runtime, surface);
-            }
+            // The key's terminal may be a respawn of the entry's runtime: its fast path follows it.
+            entry.follow_runtime_of(runtime, surface);
             let changed = entry.engine.note_activity(&id);
             sizing.note_size_state(runtime, changed);
             Some(changed)
@@ -539,9 +535,9 @@ impl Mux {
         runtime: SurfaceId,
         placement: SurfaceId,
     ) -> &'a mut TerminalSizingEntry {
-        // The surface is looked up only to make the entry: with the switch off the lookup takes the session lock,
-        // under the sizing lock (#34261 review 2). A respawn's new runtime is followed by its first key's sizing
-        // note (`note_terminal_activity_of`), which holds the surface already.
+        // The surface is looked up only to make the entry: a lookup on every access took the session lock under the
+        // sizing lock (#34261 review 2). A respawn's new runtime is followed by its first key's sizing note
+        // (`note_terminal_activity_of`), which holds the surface already.
         if !sizing.terminal_sizing.contains_key(&runtime) {
             let surface = self.surface(placement).or_else(|| self.surface(runtime));
             let (cols, rows) = surface.as_ref().map_or((80, 24), |surface| surface.size());

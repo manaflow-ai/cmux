@@ -341,9 +341,6 @@ pub(crate) struct StateMutex {
     /// The routing tables of the last finished change (R-DAEMON-STATE stage S1): a guard that changed them publishes
     /// them when it drops, under the lock, so `Mux::surface` reads them with one atomic load and never waits.
     routes: arc_swap::ArcSwap<crate::route_table::RouteSnapshot>,
-    /// Whether guards publish `routes` (the stage S1 switch). Off, `routes` holds no table of the state, so a route
-    /// write never copies a table a snapshot shares. Read and written only under the lock.
-    publish_routes: std::sync::atomic::AtomicBool,
 }
 
 /// A held mux state lock.
@@ -423,10 +420,7 @@ impl Drop for StateGuard<'_> {
         // mutex right after this (the same test std makes), and the half-made tables are never published.
         let owner = self.owner;
         let cut_short = std::thread::panicking() && !self.panicking_at_lock;
-        if !cut_short
-            && owner.publish_routes.load(Ordering::Relaxed)
-            && !owner.routes.load().is_current(&self.guard)
-        {
+        if !cut_short && !owner.routes.load().is_current(&self.guard) {
             let published = std::sync::Arc::new(crate::route_table::RouteSnapshot::of(&self.guard));
             self.retired = Some(owner.routes.swap(published));
         }
@@ -452,32 +446,9 @@ impl DerefMut for StateGuard<'_> {
 }
 
 impl StateMutex {
-    /// `publish_routes` is the mux's stage S1 switch (R-DAEMON-STATE).
-    pub(crate) fn new(state: State, publish_routes: bool) -> Self {
-        let routes = arc_swap::ArcSwap::from_pointee(if publish_routes {
-            crate::route_table::RouteSnapshot::of(&state)
-        } else {
-            crate::route_table::RouteSnapshot::default()
-        });
-        Self {
-            value: Mutex::new(state),
-            stats: crate::diagnostics::LockStats::new(),
-            routes,
-            publish_routes: std::sync::atomic::AtomicBool::new(publish_routes),
-        }
-    }
-
-    /// Turns route publication on or off (tests); on, the current tables are published first, under the lock.
-    #[cfg(test)]
-    pub(crate) fn set_route_publishing_for_test(&self, on: bool) {
-        let state = self.value.lock().unwrap_or_else(PoisonError::into_inner);
-        let snapshot = if on {
-            crate::route_table::RouteSnapshot::of(&state)
-        } else {
-            crate::route_table::RouteSnapshot::default()
-        };
-        self.routes.store(std::sync::Arc::new(snapshot));
-        self.publish_routes.store(on, Ordering::Relaxed);
+    pub(crate) fn new(state: State) -> Self {
+        let routes = arc_swap::ArcSwap::from_pointee(crate::route_table::RouteSnapshot::of(&state));
+        Self { value: Mutex::new(state), stats: crate::diagnostics::LockStats::new(), routes }
     }
 
     /// Whether a writer panicked while it held the session state.

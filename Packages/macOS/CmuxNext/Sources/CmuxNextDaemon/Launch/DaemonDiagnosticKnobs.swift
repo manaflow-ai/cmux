@@ -14,16 +14,14 @@ public import Foundation
 /// ```
 public nonisolated struct DaemonDiagnosticKnobs: Sendable, Equatable {
     /// App launch knob to daemon variable: key-press flow marks (scripts/cmux-next/trace.py), the
-    /// create-path debug timing marks, the terminal host model (`holder`: the install's one holder
-    /// instead of a host process per terminal; scripts/cmux-next/holder-dogfood.py, default off), and
-    /// the R-DAEMON-STATE stage switches (stage S1's input lane is on by default and `0` keeps its old
-    /// path for one nightly; a switch is deleted with its old path when the stage passes;
-    /// handoff/rewrites/R-DAEMON-STATE/DESIGN.md section 3).
+    /// create-path debug timing marks, and the terminal host model (`holder`: the install's one holder
+    /// instead of a host process per terminal; scripts/cmux-next/holder-dogfood.py, default off). An
+    /// R-DAEMON-STATE stage switch goes here while its stage runs and is deleted with the stage's old
+    /// path (handoff/rewrites/R-DAEMON-STATE/DESIGN.md section 3); no stage switch is open now.
     public static let names: [(app: String, daemon: String)] = [
         ("CMUX_NEXT_TRACE_FLOWS", "CMUX_TRACE_FLOWS"),
         ("CMUX_NEXT_TUI_DEBUG_SPANS", "CMUX_TUI_DEBUG_SPANS"),
         ("CMUX_NEXT_TUI_TERMINAL_HOST_MODEL", "CMUX_TUI_TERMINAL_HOST_MODEL"),
-        ("CMUX_NEXT_TUI_RDS_INPUT", "CMUX_TUI_RDS_INPUT"),
     ]
 
     /// The daemon variables to set, from the knobs present and non-empty in the app's environment.

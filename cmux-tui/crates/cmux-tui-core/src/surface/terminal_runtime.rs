@@ -80,7 +80,7 @@ impl PtyTerminalRuntime {
     }
 
     /// The reader will install no host connection now (it ended, gave the host up, or the owner detaches the
-    /// terminal): input that waits out a lost connection fails now, as the old path's write failed then.
+    /// terminal): input that waits out a lost connection fails now.
     pub(super) fn reader_gave_up(&self) {
         self.stream_progress.notify();
         // The input port's writer waits on its own route epoch, not on the stream (#35082 review 2).
@@ -88,12 +88,12 @@ impl PtyTerminalRuntime {
     }
 
     /// The reader shut the current host connection down and keeps retrying (`Failed`): input is refused until a
-    /// replacement connection is installed ([`Self::replace_runtime`] publishes its route), as the old path's write
-    /// to the shut connection failed. Takes the held runtime so it is ordered with every replacement.
+    /// replacement connection is installed ([`Self::replace_runtime`] publishes its route). Takes the held runtime so
+    /// it is ordered with every replacement.
     #[cfg(any(unix, windows))]
     pub(super) fn input_route_failed(&self, _runtime: &PtyRuntime) {
         self.input_route.store(Some(Arc::new(input_port::InputRoute::Failed)));
-        // A port writer waiting for a reconnect fails its frame now, as the old path's write failed then.
+        // A port writer waiting for a reconnect fails its frame now.
         self.input_port.route_changed();
     }
 }
@@ -357,8 +357,8 @@ pub struct PtyTerminalRuntime {
     /// The view a key may skip its sizing note for, published by the terminal's sizing entry (R-DAEMON-STATE stage
     /// S1, `mux::sizing_fast_path`); shared by every view of the terminal.
     pub(super) sizing_fast_path: crate::mux::sizing_fast_path::SizingFastPathSlot,
-    /// The terminal's input port: on the input lane, interactive input to a hosted terminal goes through it
-    /// (R-DAEMON-STATE stage S1 step 6, `surface::input_port`).
+    /// The terminal's input port: interactive input to a hosted terminal goes through it (R-DAEMON-STATE stage S1
+    /// step 6, `surface::input_port`).
     #[cfg(any(unix, windows))]
     pub(super) input_port: input_port::InputPort,
     /// Where the port writes: the current host connection, the exited final screen, or `None` (not hosted).

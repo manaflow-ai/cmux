@@ -202,11 +202,6 @@ impl Mux {
         let launch_identity = crate::launch_credential::LaunchIdentity::load(
             registry.session_journal_database_path().as_deref().and_then(Path::parent),
         );
-        // One stage S1 switch for the mux (R-DAEMON-STATE): on, the values a person's key reads are published (the
-        // state's routes, the client registry's facts, the link peers, the host proxy authors) and the surface
-        // admission budget reserves with atomics.
-        let input_lane = crate::rds_switch::InputLaneSwitch::from_env();
-        let lane_on = input_lane.on();
         let mux = Arc::new(Mux {
             launch_identity,
             registry_connection: registry.connection.clone(),
@@ -218,7 +213,7 @@ impl Mux {
             registry_identity,
             resource_projection_stats,
             started_at: Instant::now(),
-            state: signaled_mutex::StateMutex::new(state, lane_on),
+            state: signaled_mutex::StateMutex::new(state),
             subscribers: MuxEventBroadcaster::default(),
             config_reload: Mutex::new(ConfigReloadState::default()),
             config_reload_changed: Condvar::new(),
@@ -232,16 +227,10 @@ impl Mux {
             workspace_lifecycles: Mutex::new(HashMap::new()),
             pending_workspace_surfaces: Mutex::new(HashMap::new()),
             client_sizing_lifecycle: Mutex::new(()),
-            client_sizing: sizing_fast_path::SizingMutex::new(
-                ClientSizingState::default(),
-                lane_on,
-            ),
+            client_sizing: sizing_fast_path::SizingMutex::new(ClientSizingState::default()),
             client_focus_memory: Mutex::new(Vec::new()),
             last_reported_focus: Mutex::new(None),
-            conversations: crate::conversation_store::ConversationHost {
-                remote: crate::remote_relay_state::RemoteRelayState::new(lane_on),
-                ..Default::default()
-            },
+            conversations: Default::default(),
             chiefs: Default::default(),
             cloud: Default::default(),
             history_search: OnceLock::new(),
@@ -420,12 +409,12 @@ impl Mux {
             exit_settles: Arc::default(),
             terminal_respawns: terminal_respawn::TerminalRespawns::from_env(),
             daemon_shutdown_waker: Mutex::new(None),
-            control_clients: crate::server::ClientRegistry::new(input_lane),
+            control_clients: crate::server::ClientRegistry::new(),
             #[cfg(unix)]
             agent_transfers: Default::default(),
             #[cfg(unix)]
             access_requests: Default::default(),
-            activity: crate::server::activity::ActivityStream::new(lane_on),
+            activity: Default::default(),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             idle_close_waker: Mutex::new(None),
             pty_reclaim_forced: AtomicBool::new(false),
@@ -444,9 +433,7 @@ impl Mux {
             #[cfg(unix)]
             image_pastes: crate::image_paste::ImagePasteStore::default(),
             history: crate::history_ops::HistoryHost::default(),
-            surface_operation_admission: Arc::new(
-                crate::server::ServerSurfaceOperationAdmission::new(lane_on),
-            ),
+            surface_operation_admission: Arc::default(),
             pairing: PairingBroker::new(),
             #[cfg(test)]
             test_surface_runtime,

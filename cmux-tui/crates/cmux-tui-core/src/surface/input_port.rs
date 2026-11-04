@@ -6,27 +6,25 @@
 //! input, a cell-pixel change waiting for its acknowledgement) held both for its whole write, so the key waited
 //! behind it, and a host that did not read its socket stalled the connection's dispatcher.
 //!
-//! With the stage switch on (`CMUX_TUI_RDS_INPUT`), interactive input to a hosted terminal (keys and pastes:
-//! `Surface::write_bytes`, `Surface::write_paste`) goes to the terminal's port instead: one queue per terminal,
-//! drained in order by the terminal's own writer thread. The request returns once the port took the bytes; it takes
-//! neither the runtime lock nor the host writer.
+//! Interactive input to a hosted terminal (keys and pastes: `Surface::write_bytes`, `Surface::write_paste`) goes to
+//! the terminal's port instead: one queue per terminal, drained in order by the terminal's own writer thread. The
+//! request returns once the port took the bytes; it takes neither the runtime lock nor the host writer.
 //!
 //! - The writer writes on the route of the terminal's current host connection, which the terminal publishes each
 //!   time the connection changes (`PtyTerminalRuntime::replace_runtime`), so it never takes the runtime lock either.
-//! - A lost host connection is retried as `write_bytes` did (cx-6so.49): the writer waits until the terminal
-//!   publishes another route ([`InputPort::route_changed`]) and writes to it, until the frame's own deadline,
-//!   `HOST_INPUT_RECONNECT_WAIT` after the port took it. The old path's deadline started at the write call, so writes
-//!   queued behind a host that does not come back fail together, and a later loss gives its writes their own wait.
-//!   When no route will come (the reader ended or gave the host up, or the owner detaches the terminal),
-//!   [`InputPort::reconnect_ended`] ends the wait at once and the frame fails then, as the old path's write did.
+//! - A lost host connection is retried (cx-6so.49): the writer waits until the terminal publishes another route
+//!   ([`InputPort::route_changed`]) and writes to it, until the frame's own deadline, `HOST_INPUT_RECONNECT_WAIT`
+//!   after the port took it, so writes queued behind a host that does not come back fail together, and a later loss
+//!   gives its writes their own wait. When no route will come (the reader ended or gave the host up, or the owner
+//!   detaches the terminal), [`InputPort::reconnect_ended`] ends the wait at once and the frame fails then.
 //! - The port lock is a leaf: no holder of it waits for another lock. So the runtime lock's holders (a route
 //!   publication, a detach, the order barrier's callers) may take it.
 //! - A full port refuses at once with a typed error: nothing is dropped silently and nothing waits. Each queued
 //!   frame counts its bookkeeping too ([`PORT_FRAME_COST`]), so many tiny frames cannot grow the queue without bound.
 //! - A connection the reader shut down (`Failed`, it keeps retrying: [`InputRoute::Failed`]) or a reader that ended
-//!   takes no input: the write is refused at once, as the old path's write failed then
-//!   (`Surface::enqueue_on_input_port`). A replacement's route is accepted as soon as it is installed. While a lost
-//!   connection is still `Reconnecting`, input is accepted and the writer waits for the reconnect.
+//!   takes no input: the write is refused at once (`Surface::enqueue_on_input_port`). A replacement's route is
+//!   accepted as soon as it is installed. While a lost connection is still `Reconnecting`, input is accepted and the
+//!   writer waits for the reconnect.
 //! - Only the person's keys answer when the port took them ([`InputReply::Accepted`]); a key the port then could not
 //!   write (the host is gone and no new one came) is lost, as a failed write was before, and the port logs it. Every
 //!   other write waits for its frame's result ([`InputPort::write`]), at most [`INPUT_WRITE_REPLY_WAIT`]: a wait that
@@ -89,7 +87,7 @@ pub(crate) enum InputRoute {
     /// The host exited and the terminal keeps its final screen: input is dropped, as `write_bytes` drops it.
     Exited,
     /// The reader shut the host connection down and keeps retrying (`Failed`): input is refused until a
-    /// replacement is installed, as the old path's write to the shut connection failed.
+    /// replacement is installed.
     Failed,
 }
 
@@ -146,7 +144,7 @@ impl FrameWaiter {
 
 /// What a write to a hosted terminal's input port answers (S1.6b): the person's keys return when the port took them;
 /// every other writer (a script's `send`, a resource input effect, the creating-input flush, an image paste) waits
-/// for its frame's write, so its error reaches it as on the old path.
+/// for its frame's write, so its error reaches it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum InputReply {
     /// The port took the bytes; nothing waits (the person's keys).
@@ -159,7 +157,7 @@ struct PortFrame {
     kind: MessageKind,
     bytes: Vec<u8>,
     /// The end of this frame's wait for a lost connection to come back: `HOST_INPUT_RECONNECT_WAIT` after the port
-    /// took it, as the old path's write waited from its call.
+    /// took it.
     reconnect_by: Instant,
     /// The waiting writer of an [`InputReply::Written`] write; dropped unanswered when the frame is dropped.
     waiter: Option<FrameWaiter>,
@@ -312,8 +310,8 @@ impl InputPort {
         self.enqueue_frame(terminal, kind, bytes, None)
     }
 
-    /// [`Self::enqueue`] for a writer that waits for its frame's result ([`InputReply::Written`]), as the old path's
-    /// caller waited for its write, at most [`Self::reply_wait`]. A wait that ends before the port's writer took the
+    /// [`Self::enqueue`] for a writer that waits for its frame's result ([`InputReply::Written`]), at most
+    /// [`Self::reply_wait`]. A wait that ends before the port's writer took the
     /// frame cancels it: the error says not written, and it never is. One that ends during its write answers the
     /// write's result if it ended meanwhile, else [`InputMayBeWritten`].
     pub(crate) fn write(
@@ -373,8 +371,7 @@ impl InputPort {
     }
 
     /// The terminal will install no host connection for now (its reader ended or gave the host up, or its owner
-    /// detaches it): a writer waiting for a reconnect checks again at once and fails its frame, as the old path's
-    /// write failed then (#35082 review 2).
+    /// detaches it): a writer waiting for a reconnect checks again at once and fails its frame (#35082 review 2).
     pub(crate) fn reconnect_ended(&self) {
         let mut state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.route_epoch = state.route_epoch.wrapping_add(1);
@@ -635,9 +632,12 @@ fn wait_for_route(shared: &PortShared, observed: u64, deadline: Instant) -> bool
     published
 }
 
-/// One frame on the terminal's current host connection, across a lost connection: the rule of
-/// `Surface::send_hosted_input`, on the port's thread, reading the published route instead of the runtime lock. The
-/// frame waits for a reconnect until its own deadline (`PortFrame::reconnect_by`).
+/// One frame on the terminal's current host connection, across a lost connection (cx-6so.49), on the port's thread,
+/// reading the published route instead of the runtime lock. A host that died or whose stream broke has a dead
+/// connection until the surface reader installs the reconnected or replacement host; a send in that window fails
+/// although the shell lives, so it waits for the next route and is sent again to it, until the frame's own deadline
+/// (`PortFrame::reconnect_by`) or until no route will come. A frame that failed with a lost connection never reached
+/// a live reader, so the retry cannot duplicate it.
 fn write_with_reconnect(
     shared: &PortShared,
     runtime: &PtyTerminalRuntime,

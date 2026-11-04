@@ -41,16 +41,13 @@ pub(crate) type SizingFastPathSlot = Arc<ArcSwapOption<SizingFastPath>>;
 #[derive(Default)]
 pub(in crate::mux) struct SizingEntries {
     map: HashMap<SurfaceId, TerminalSizingEntry>,
-    /// Entries read or written since the guard last published; only while publishing.
+    /// Entries read or written since the guard last published.
     touched: std::cell::RefCell<Vec<SurfaceId>>,
-    publishing: bool,
 }
 
 impl SizingEntries {
     fn mark(&self, runtime: SurfaceId) {
-        if self.publishing {
-            self.touched.borrow_mut().push(runtime);
-        }
+        self.touched.borrow_mut().push(runtime);
     }
 
     pub(in crate::mux) fn get(&self, runtime: &SurfaceId) -> Option<&TerminalSizingEntry> {
@@ -78,17 +75,10 @@ impl SizingEntries {
     /// Removes the entry; a removed entry publishes nothing, so its terminal's keys take the slow path.
     pub(in crate::mux) fn remove(&mut self, runtime: &SurfaceId) -> Option<TerminalSizingEntry> {
         let removed = self.map.remove(runtime);
-        if self.publishing
-            && let Some(slot) = removed.as_ref().and_then(|entry| entry.fast_path_slot.as_ref())
-        {
+        if let Some(slot) = removed.as_ref().and_then(|entry| entry.fast_path_slot.as_ref()) {
             slot.store(None);
         }
         removed
-    }
-
-    /// Whether the entries publish their fast paths (the mux's stage S1 switch).
-    pub(in crate::mux) fn publishing(&self) -> bool {
-        self.publishing
     }
 
     pub(in crate::mux) fn contains_key(&self, runtime: &SurfaceId) -> bool {
@@ -124,18 +114,6 @@ impl SizingEntries {
                 slot.store(published.map(Arc::new));
             }
         }
-    }
-
-    /// Turns publishing on or off (tests); every entry publishes, or clears, at once.
-    #[cfg(test)]
-    fn set_publishing(&mut self, on: bool) {
-        self.publishing = on;
-        for entry in self.map.values() {
-            if let Some(slot) = entry.fast_path_slot.as_ref() {
-                slot.store(if on { entry.fast_path().map(Arc::new) } else { None });
-            }
-        }
-        self.touched.borrow_mut().clear();
     }
 }
 
@@ -201,15 +179,13 @@ impl TerminalSizingEntry {
     }
 }
 
-/// `Mux::client_sizing`: the sizing state behind its mutex, whose guard republishes the entries it touched. Whether
-/// it publishes is the mux's stage S1 switch, kept with the entries under the lock.
+/// `Mux::client_sizing`: the sizing state behind its mutex, whose guard republishes the entries it touched.
 pub(in crate::mux) struct SizingMutex {
     value: Mutex<ClientSizingState>,
 }
 
 impl SizingMutex {
-    pub(in crate::mux) fn new(mut state: ClientSizingState, publishing: bool) -> Self {
-        state.terminal_sizing.publishing = publishing;
+    pub(in crate::mux) fn new(state: ClientSizingState) -> Self {
         Self { value: Mutex::new(state) }
     }
 
@@ -218,13 +194,6 @@ impl SizingMutex {
             Ok(guard) => Ok(SizingGuard::new(guard)),
             Err(poison) => Err(PoisonError::new(SizingGuard::new(poison.into_inner()))),
         }
-    }
-
-    /// Turns stage S1 on or off for the sizing (tests).
-    #[cfg(test)]
-    pub(in crate::mux) fn set_publishing_for_test(&self, on: bool) {
-        let mut guard = self.value.lock().unwrap_or_else(PoisonError::into_inner);
-        guard.terminal_sizing.set_publishing(on);
     }
 }
 
@@ -257,12 +226,10 @@ impl DerefMut for SizingGuard<'_> {
 
 impl Drop for SizingGuard<'_> {
     fn drop(&mut self) {
-        if self.guard.terminal_sizing.publishing {
-            // A panic that began while this guard held the lock cut its change short: the marked entries publish
-            // nothing, so their keys take the slow path. A later holder that recovers the poison republishes what it
-            // touches (the settled and member checks still apply to what it sees).
-            let cut_short = std::thread::panicking() && !self.panicking_at_lock;
-            self.guard.terminal_sizing.publish_marked(cut_short);
-        }
+        // A panic that began while this guard held the lock cut its change short: the marked entries publish
+        // nothing, so their keys take the slow path. A later holder that recovers the poison republishes what it
+        // touches (the settled and member checks still apply to what it sees).
+        let cut_short = std::thread::panicking() && !self.panicking_at_lock;
+        self.guard.terminal_sizing.publish_marked(cut_short);
     }
 }

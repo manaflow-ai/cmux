@@ -103,11 +103,6 @@ pub(super) struct AttachedSurface {
     pub(super) geometry_lease: Option<String>,
     /// Leases of `terminal.attach read_only` views: they watch and never size.
     pub(super) read_only_leases: HashSet<String>,
-    /// The terminal this client's keys go to, kept from its first key (`cmd_terminal_io::input_surface`): no session
-    /// lock on the typing path. Kept with the route generation of its id at the lookup (`route_table`): a respawn,
-    /// close, move or other change of that id's route makes the next key look it up again. Goes with this record at
-    /// the last detach and at disconnect.
-    pub(super) input: (Weak<crate::Surface>, u64),
 }
 
 impl AttachedSurface {
@@ -368,9 +363,6 @@ pub(crate) struct ClientRegistry {
     /// Every connection's record. A change publishes the [`ClientFacts`] projection, which a connection's
     /// own line and key paths read without this lock (R-DAEMON-STATE stage S1).
     pub(super) state: crate::published::Published<ClientRegistryState, ClientFacts>,
-    /// R-DAEMON-STATE stage S1 (`CMUX_TUI_RDS_INPUT`): the line and key paths read [`ClientFacts`] and the
-    /// session's published routes instead of taking the registry and session locks.
-    pub(crate) input_lane: crate::rds_switch::InputLaneSwitch,
     /// Who created each live incognito workspace (incognito_orphans.rs).
     pub(super) incognito_creators: super::incognito_orphans::IncognitoCreators,
 }
@@ -411,9 +403,7 @@ fn validate_resource_client_label(
 }
 
 impl ClientRegistry {
-    /// `input_lane` is the mux's stage S1 switch (R-DAEMON-STATE): on, the registry publishes [`ClientFacts`].
-    pub(crate) fn new(input_lane: crate::rds_switch::InputLaneSwitch) -> Self {
-        let publishing = input_lane.on();
+    pub(crate) fn new() -> Self {
         Self {
             detach_waker: Mutex::new(None),
             client_presence_observers: Mutex::new(Vec::new()),
@@ -426,7 +416,7 @@ impl ClientRegistry {
             browser_runtimes: Default::default(),
             size_leases: Default::default(),
             #[cfg(unix)]
-            agent_sessions: agent_session_attach::AgentSessions::new(publishing),
+            agent_sessions: Default::default(),
             snapshot_viewers: Default::default(),
             apps: crate::apps::AppsSlot::default(),
             scripts: crate::scripts::ScriptsSlot::default(),
@@ -445,9 +435,7 @@ impl ClientRegistry {
             state: crate::published::Published::new(
                 ClientRegistryState::default(),
                 ClientFacts::of,
-                publishing,
             ),
-            input_lane,
             incognito_creators: Default::default(),
         }
     }
@@ -520,32 +508,12 @@ impl ClientRegistry {
         self.state.lock().recover_poison().daemon_handoff.is_some()
     }
 
-    /// Turns stage S1 on or off for this registry (tests): the switch, and the publications it reads (the facts, the
-    /// proxy authors). Only part of the stage: tests call `Mux::set_input_lane_for_test`, which also publishes the
-    /// session's routes and the link peers and switches the admission budget.
-    #[cfg(test)]
-    pub(crate) fn set_input_lane_for_test(&self, on: bool) {
-        self.state.set_publishing_for_test(on);
-        #[cfg(unix)]
-        self.agent_sessions.set_publishing_for_test(on);
-        self.input_lane.set_for_test(on);
-    }
-
     pub(crate) fn daemon_handoff_in_progress(&self) -> bool {
-        if self.input_lane.on() {
-            return self.state.load().recover_poison().handoff.is_some();
-        }
-        self.state.lock().recover_poison().daemon_handoff.is_some()
+        self.state.load().recover_poison().handoff.is_some()
     }
 
     pub(crate) fn daemon_handoff_committed(&self) -> bool {
-        if self.input_lane.on() {
-            return self.state.load().recover_poison().handoff == Some(true);
-        }
-        matches!(
-            self.state.lock().recover_poison().daemon_handoff,
-            Some(DaemonHandoffReservation::Committed(_))
-        )
+        self.state.load().recover_poison().handoff == Some(true)
     }
 
     pub(super) fn install_resource_stream(
