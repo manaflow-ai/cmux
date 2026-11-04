@@ -131,6 +131,7 @@ pub(crate) fn classify_command(argv: &[String], label: &str) -> Runs {
 }
 
 /// The leaf family `profile` runs, when it runs exactly one known agent.
+#[cfg(test)]
 pub(crate) fn leaf_family(name: &str, profile: &HarnessProfile) -> Option<String> {
     match classify(name, profile) {
         Runs::Agent(family) => Some(family),
