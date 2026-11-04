@@ -11606,6 +11606,35 @@
         "ty": "string"
       }
     },
+    "request:set-layout-sizes": {
+      "/transaction": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/values": {
+        "ty": "array",
+        "required": true
+      },
+      "/values/*": {
+        "ty": "untagged_union|object"
+      },
+      "/values/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/values/*/ratio": {
+        "ty": "float32",
+        "required": true
+      },
+      "/values/*/split": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/values/*/width": {
+        "ty": "float32",
+        "required": true
+      }
+    },
     "request:set-personal-terminal": {
       "/session_id": {
         "ty": "string",
@@ -20670,6 +20699,7 @@
         "ty": "string"
       }
     },
+    "response:set-layout-sizes": {},
     "response:set-personal-terminal": {
       "/data": {
         "ty": "json",

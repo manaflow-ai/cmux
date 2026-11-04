@@ -120,8 +120,11 @@ extension BrowserChromeView {
     }
 
     public override func setFrameSize(_ newSize: NSSize) {
-        let widthChanged = newSize.width != frame.width
+        let widthChanged = newSize.width != frame.width, grew = frame.size == .zero && newSize != .zero
         super.setFrameSize(newSize)
+        // A relaunch's restored tab: its chrome made at zero and sized in the pass that shows it drew its toolbar empty
+        // for a frame (address bar and buttons at 0x0), then filled in. Its constraints are solved now, in that pass.
+        if grew, window != nil { layoutSubtreeIfNeeded() }
         guard widthChanged else { return }
         // A popup hangs off a toolbar button that moves or collapses now.
         extensionToolbar.hidePopups()
@@ -135,6 +138,7 @@ extension BrowserChromeView {
         else {
             updateColors()
             renderPrompt()
+            if frame.size != .zero, toolbar.frame.size == .zero { layoutSubtreeIfNeeded() } // sized before it had a window
         }
         headerBandReattachIfInstalled()
         syncPageOverlays()

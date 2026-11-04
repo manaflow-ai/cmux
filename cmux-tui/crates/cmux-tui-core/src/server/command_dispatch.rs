@@ -456,6 +456,9 @@ fn dispatch_command(
         Command::SetViewportPaneWidth { pane, width, transaction } => {
             cmd_panes::set_viewport_pane_width(mux, client, actor, pane, width, transaction)
         }
+        Command::SetLayoutSizes { values, transaction } => {
+            cmd_panes::set_layout_sizes(mux, client, actor, values, transaction)
+        }
         Command::SetColumnDock { pane, dock, edge, mode, role, permanent, pinned, transaction } => {
             cmd_panes::set_column_dock(
                 mux,

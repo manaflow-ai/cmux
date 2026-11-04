@@ -20,6 +20,18 @@
           ]
         },
         {
+          "key": "agentPane.composerRing",
+          "title": "Composer Ring",
+          "help": "What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them.",
+          "kind": "choice",
+          "default": "context",
+          "group": "Agent Chat",
+          "values": [
+            "context",
+            "planUsage"
+          ]
+        },
+        {
           "key": "agentPane.editedFiles.maxRows",
           "title": "Edited Files Shown",
           "help": "",
@@ -1507,7 +1519,7 @@
           "title": "Titlebar",
           "help": "Minimal has no titlebar strip; the top row moves the window.",
           "kind": "choice",
-          "default": "standard",
+          "default": "minimal",
           "group": "Window",
           "values": [
             "minimal",
@@ -6003,7 +6015,7 @@
           "title": "Let Agents Start Cloud Sessions Without Asking",
           "help": "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Cloud Workspaces"
         },
         {

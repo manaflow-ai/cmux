@@ -6,7 +6,7 @@ import { UpstreamClient, type UpstreamError } from "../upstream/client.ts";
 import { withOwnedVm } from "./common.ts";
 
 const onUpstream = (error: UpstreamError) =>
-  error.status === 404 ? vmNotFound() : unavailable();
+  error.status === 404 ? vmNotFound() : unavailable(error);
 
 export const getVmPublicEgress = (vmId: string) =>
   withOwnedVm(vmId, "vm:network", "read", (_caller, vm, proofs) => Effect.gen(function* () {
