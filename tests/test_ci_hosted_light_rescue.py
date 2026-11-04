@@ -287,7 +287,7 @@ class Sweep(unittest.TestCase):
         fake.calls.clear()
         rescue.sweep(fake, ["pr-checks.yml"], now=NOW + dt.timedelta(seconds=60), dry_run=True, scan_state=cursor,
                      clock=lambda: 60, sleep=lambda _: None)
-        self.assertEqual(first, 4)
+        self.assertEqual(first, 2)
         self.assertEqual(sum(call[0] == "runs" for call in fake.calls), 0)
 
     def test_non_stalled_job_verdict_is_cached_but_stalled_verdict_is_read_again(self):
@@ -299,6 +299,22 @@ class Sweep(unittest.TestCase):
         rescue.sweep(fake, ["pr-checks.yml"], now=NOW + dt.timedelta(seconds=30), dry_run=True, scan_state=cursor,
                      clock=lambda: 30, sleep=lambda _: None)
         self.assertEqual(fake.job_reads[7], first_reads)
+
+    def test_same_sequence_reduces_discovery_and_non_stalled_job_reads(self):
+        rows = [run(index) for index in range(1, 41)]
+        fake = Fake({"pr-checks.yml": rows}, {
+            item["id"]: [job("build", status="in_progress", runner_id=7)] for item in rows})
+        cursor = rescue.ScanState()
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW, dry_run=True, scan_state=cursor,
+                     clock=lambda: 0, sleep=lambda _: None)
+        first_discovery = sum(call[0] == "runs" for call in fake.calls)
+        first_jobs = sum(fake.job_reads.values())
+        fake.calls.clear()
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW + dt.timedelta(seconds=60), dry_run=True, scan_state=cursor,
+                     clock=lambda: 60, sleep=lambda _: None)
+        self.assertEqual((first_discovery, first_jobs), (2, 40))
+        self.assertEqual(sum(call[0] == "runs" for call in fake.calls), 0)
+        self.assertEqual(sum(fake.job_reads.values()), 40)
 
     def test_an_overflow_listing_page_finds_a_candidate_past_the_first_100_runs(self):
         gated = [run(100 + index) for index in range(101)]
@@ -663,6 +679,17 @@ class RecoverCancelled(unittest.TestCase):
         self.assertEqual(client.pending_cancellations(NOW), {9})
         history.rescue_jobs.assert_called_once_with(
             NOW - rescue.WINDOW, events=("schedule", "workflow_dispatch"), titles=("owned-pool-sweeper",))
+
+    def test_unrelated_history_cap_does_not_hide_newest_owned_settlement(self):
+        import owned_pool_rescue
+        client = rescue.GitHub("workflow-token", "o/r")
+        history = mock.Mock()
+        client.history = history
+        history.rescue_jobs.return_value = [20, 10]
+        history.job_marks.side_effect = [
+            owned_pool_rescue.cancel_marks([f"{rescue.LIGHT_CANCEL_SETTLED} run 7 attempt 1"]),
+            owned_pool_rescue.cancel_marks([f"{rescue.LIGHT_CANCEL_SENT} run 7 attempt 1"])]
+        self.assertEqual(client.pending_cancellations(NOW), set())
 
     def test_an_incomplete_journal_cannot_authorize_a_recovery(self):
         client = rescue.GitHub("workflow-token", "o/r")
