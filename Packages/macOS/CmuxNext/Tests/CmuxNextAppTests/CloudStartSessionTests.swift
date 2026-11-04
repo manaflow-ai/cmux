@@ -2,14 +2,18 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextCloudCredentials
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDesign
+import CmuxNextSettings
 import Foundation
 import Testing
 
 /// `cmux cloud start-session` (Lawrence: "start new VMs from acp chat"): its arguments are checked
-/// before anything starts, an agent's run asks in its own chat, and every failure names the machine
+/// before anything starts, an agent's run asks nobody by default and, with
+/// `cloud.agentsStartWithoutAsking` off, asks in its own chat, and every failure names the machine
 /// and the agent and gives the command to run next.
 @MainActor @Suite(.serialized)
 struct CloudStartSessionTests {
@@ -20,6 +24,19 @@ struct CloudStartSessionTests {
     }
 
     static let account: [String?] = ["user-1", "team-1"]
+
+    /// The person turned `cloud.agentsStartWithoutAsking` off (it is on by default): an agent's run asks first.
+    static func askingFirst(_ services: AppServices) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-start-ask-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("cmux.json")
+        try Data(#"{"cloud":{"agentsStartWithoutAsking":false}}"#.utf8).write(to: url)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await settings.reload()
+        services.settings = settings
+        try #require(!CloudAgentStartSetting().delegated(in: settings.snapshot.root))
+    }
 
     static let asked = CloudStartSession.Request(machineID: "vm-x", name: nil, agent: "claude", cwd: nil).asked(machine: "dev")
 
@@ -49,9 +66,9 @@ struct CloudStartSessionTests {
 
     @Test func theRequestTakesTheTargetNameAgentAndFolder() throws {
         let request = try CloudStartSession.request(Self.invocation(target: "vm-a", ["agent": .string(" codex "), "name": .string(" dev "), "cwd": .string("/home/cmux/work/app")]))
-        #expect(request == CloudStartSession.Request(machineID: "vm-a", name: "dev", agent: "codex", cwd: "/home/cmux/work/app"))
+        #expect(request == CloudStartSession.Request(machineID: "vm-a", name: "dev", agent: "codex", cwd: "/home/cmux/work/app", login: .init(byPerson: false, headless: true)))
         let bare = try CloudStartSession.request(Self.invocation(["agent": .string("claude"), "name": .string(""), "cwd": .string("")]))
-        #expect(bare == CloudStartSession.Request(machineID: nil, name: nil, agent: "claude", cwd: nil))
+        #expect(bare == CloudStartSession.Request(machineID: nil, name: nil, agent: "claude", cwd: nil, login: .init(byPerson: false, headless: true)))
     }
 
     @Test(arguments: ["", "Claude Code", "-rf", "claude;rm", String(repeating: "a", count: 65)])
@@ -61,11 +78,50 @@ struct CloudStartSessionTests {
         }
     }
 
+    /// `--login` is the person's when no agent asks; only the palette may show the first-login confirm.
+    @Test func theLoginFlagIsReadWithWhoGaveIt() throws {
+        let terminal = try CloudStartSession.request(Self.invocation(["agent": .string("claude"), "login": .string(" Machine ")]))
+        #expect(terminal.login == CloudHarnessLoginAsk(requested: .machine, byPerson: false, headless: true), "an agent in a terminal looks like the person")
+        #expect(terminal.command.hasSuffix(" --login machine"), "the command asked again keeps the flag")
+        let none = try CloudStartSession.request(Self.invocation(target: "m-1", ["agent": .string("claude"), "login": .string("none")]))
+        let pass = try CloudStartSession.request(Self.invocation(target: "m-1", ["agent": .string("claude"), "login": .string("pass")]))
+        #expect(CloudStartRunKey(none, caller: nil, account: []) != CloudStartRunKey(pass, caller: nil, account: []), "a --login none run never joins a pass run")
+        let agent = try CloudStartSession.request(Self.invocation(["agent": .string("claude"), "login": .string("pass")], agent: "chat-1"))
+        #expect(agent.login == CloudHarnessLoginAsk(requested: .pass, byPerson: false, headless: true))
+        var homeChat = Self.invocation(["agent": .string("claude"), "login": .string("pass")])
+        homeChat.callerHomeChat = true
+        #expect(try CloudStartSession.request(homeChat).login.byPerson == false, "the Home chat is an agent")
+        var socket = Self.invocation(["agent": .string("claude"), "login": .string("pass")], origin: .user)
+        socket.viaControlSocket = true
+        #expect(try CloudStartSession.request(socket).login == CloudHarnessLoginAsk(requested: .pass, byPerson: false, headless: true), "the control socket claiming user is automation, and shows no prompt")
+        for origin in [ActionOrigin.mcp, .script, .page, .remote] {
+            #expect(try CloudStartSession.request(Self.invocation(["agent": .string("claude"), "login": .string("pass")], origin: origin)).login.byPerson == false)
+        }
+        let palette = try CloudStartSession.request(Self.invocation(["agent": .string("claude")], origin: .user))
+        #expect(palette.login == CloudHarnessLoginAsk(requested: nil, byPerson: true, headless: false))
+        #expect(throws: ActionFailure(message: CloudStartSessionStrings.loginInvalid)) {
+            try CloudStartSession.request(Self.invocation(["agent": .string("claude"), "login": .string("yes")]))
+        }
+    }
+
     @Test(arguments: ["work", "~/work", "/a\u{7}b"])
     func aFolderThatIsNoAbsolutePathIsRefused(cwd: String) {
         #expect(throws: ActionFailure(message: CloudStartSessionStrings.cwdInvalid)) {
             try CloudStartSession.request(Self.invocation(["agent": .string("claude"), "cwd": .string(cwd)]))
         }
+    }
+
+    /// A terminal's or a script's start (the CLI `cmux cloud start-chat` runs `cloud start-session`)
+    /// creates its machine as the person's would, never waiting on the "Create a Cloud machine?" card,
+    /// unless the person turned `cloud.agentsStartWithoutAsking` off.
+    @Test func aCLIStartCreatesWithoutTheCardUnlessThePersonTurnedAskingOn() {
+        for origin in [ActionOrigin.cli, .script, .remote] {
+            #expect(CloudStartSession.startsAsPerson(Self.invocation(["agent": .string("claude")], origin: origin), delegated: true),
+                    "a \(origin) start would wait on the create card")
+            #expect(!CloudStartSession.startsAsPerson(Self.invocation(["agent": .string("claude")], origin: origin), delegated: false),
+                    "asking turned on, a \(origin) start still asks")
+        }
+        #expect(CloudStartSession.startsAsPerson(Self.invocation(["agent": .string("claude")], origin: .user), delegated: false), "the person's own run never asks")
     }
 
     // MARK: Refusals before anything starts
@@ -77,8 +133,9 @@ struct CloudStartSessionTests {
         #expect(refusal?.contains("cmux cloud start-session --target machine:<id> --agent claude") == true)
     }
 
-    @Test func anAgentOutsideAChatIsRefusedBeforeAnyCard() throws {
+    @Test func anAgentOutsideAChatIsRefusedBeforeAnyCard() async throws {
         let f = Self.fixture()
+        try await Self.askingFirst(f.services)
         let refusal = try Self.refusal(f.services, Self.invocation(target: f.session.machineID, ["agent": .string("claude")], agent: "session-not-here"))
         let byID = CloudStartSession.Request(machineID: f.session.machineID, name: nil, agent: "claude", cwd: nil)
         #expect(refusal == CloudStartSessionStrings.notInChat(byID.asked(machine: f.session.machine.title)))
@@ -120,6 +177,7 @@ struct CloudStartSessionTests {
     /// while it asks (``CloudService``'s account observer) refuses the run and clears the card.
     @Test func anAccountChangeWhileTheAgentsCardAsksRefusesAndClearsIt() async throws {
         let f = Self.fixture()
+        try await Self.askingFirst(f.services)
         var chat = TabSnapshot(surface: SurfaceID(rawValue: 8), kind: .conversation, cwd: nil)
         chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "registry:\(f.session.machineID)", session: "asking-session", harness: "claude"))
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [chat])])

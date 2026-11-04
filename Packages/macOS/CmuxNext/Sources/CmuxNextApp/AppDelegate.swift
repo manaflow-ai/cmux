@@ -569,6 +569,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         // A Dock click in an update relaunch's startup: the user chose cmux.
         services?.input.endRelaunchBehind("dock click", activating: true)
+        // A Dock click or an open of the running app under CMUX_NEXT_NO_ACTIVATE=1: the user chose
+        // cmux, so its activation is not handed back (https://github.com/manaflow-ai/cmux/issues/34575).
+        services?.input.noteReopenRequested()
         guard let services, !hasVisibleWindows || services.background.isBackground else { return true }
         services.windows.reopenOrCreateWindow()
         return false

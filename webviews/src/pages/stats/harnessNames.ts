@@ -8,6 +8,7 @@ const NAMES: Record<string, string> = {
   cursor: "Cursor",
   droid: "Droid",
   gemini: "Gemini CLI",
+  muse: "Muse Code",
   goose: "Goose",
   grok: "Grok",
   kilo: "Kilo",

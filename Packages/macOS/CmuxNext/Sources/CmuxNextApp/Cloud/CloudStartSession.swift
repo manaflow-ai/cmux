@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudCredentials
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
@@ -15,12 +16,14 @@ import Foundation
 /// machine's daemon, with this app's key when the machine takes it (``AgentTabRemoteHost/startNow``).
 /// The chat's tab stays in the machine's first workspace, so the person can open it.
 ///
-/// An agent's run (the cmux MCP server, or a shell naming its chat) never starts anything itself:
-/// like an agent's Move to Cloud (``CloudMoveAsks``), it asks the person with a card in its own chat
-/// (Start, Not now), and only the person's Start (on the card, or `cmux agents dialog answer` from
-/// their own terminal, ``CloudAskDialogs``) starts the machine and the session. The run answers
-/// `pending` with the dialog's id as soon as the card shows; the same command again waits for the
-/// answer. The person may delegate it (`cloud.agentsStartWithoutAsking`): then nothing is asked.
+/// An agent's run (the cmux MCP server, or a shell naming its chat) starts the machine and the
+/// session as the person's own would, asking nobody (`cloud.agentsStartWithoutAsking`, on by
+/// default; Leo, 2026-11-03: "shouldn't have needed to ask me"). Only the Cloud plan's own limits
+/// refuse it (the server's answer to the create). With that setting off, it asks the person with a
+/// card in its own chat (Start, Not now) like an agent's Move to Cloud (``CloudMoveAsks``), and only
+/// the person's Start (on the card, or `cmux agents dialog answer` from their own terminal,
+/// ``CloudAskDialogs``) starts it; the run then answers `pending` with the dialog's id as soon as
+/// the card shows, and the same command again waits for the answer.
 @MainActor
 struct CloudStartSession {
     static let action: ActionID = "cloudStartSession"
@@ -34,6 +37,7 @@ struct CloudStartSession {
         var agent: String
         /// A folder on the machine; nil starts in the workspace's folder there.
         var cwd: String?
+        var login = CloudHarnessLoginAsk() // `--login` and whether a prompt may show (+Login); not in ``command``
 
         /// The command that asks for this again, every word as the shell reads it back.
         var command: String {
@@ -41,6 +45,7 @@ struct CloudStartSession {
             if let machineID { words.append("--target machine:" + CloudStartSession.shellQuoted(machineID)) } else { words.append("--name " + CloudStartSession.shellQuoted(name ?? "")) }
             words.append("--agent " + agent)
             if let cwd { words.append("--cwd " + CloudStartSession.shellQuoted(cwd)) }
+            if let choice = login.requested { words.append("--login " + choice.rawValue) }
             return words.joined(separator: " ")
         }
 
@@ -64,16 +69,36 @@ struct CloudStartSession {
             CloudHandlers.result("start cloud session", context) {
                 try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services), forgotten: Self.forgotten(request, services)) {
                     // A person's gesture only as the outermost run's origin says (a script's nested run is not one).
-                    try await start.run(request, invocation, context, account: key.account, byPerson: CloudHandlers.origin(of: invocation) == .user)
+                    let delegated = CloudAgentStartSetting().delegated(in: services.settings?.snapshot.root ?? .object([:]))
+                    return try await start.run(request, invocation, context, account: key.account, byPerson: Self.startsAsPerson(invocation, delegated: delegated))
                 }
             }
         }
+    }
+
+    /// Whether a run that is not an agent chat's (a terminal's or a script's `cmux cloud start-session`,
+    /// and `cmux cloud start-chat` through it) starts as the person's Start would: their gesture, or
+    /// any run while they let agents start Cloud sessions without asking (`cloud.agentsStartWithoutAsking`,
+    /// on by default), since an agent in a terminal looks like the person there. Then its machine is
+    /// created with no "Create a Cloud machine?" card, as an agent chat's run already is (``agentAsk``),
+    /// instead of waiting on a card nobody sees until the run answers pending. Leo, 2026-11-04, on that
+    /// card: "it had this prompt idk if we want that".
+    static func startsAsPerson(_ invocation: ActionInvocation, delegated: Bool) -> Bool {
+        CloudHandlers.origin(of: invocation) == .user || !CloudStartCore().agentAsksFirst(delegated: delegated)
     }
 
     /// Whether the run is an agent's: a cmux MCP run (by its outermost caller, ``ActionRunScope``),
     /// or one naming the agent chat that sent it.
     static func isAgent(_ invocation: ActionInvocation) -> Bool {
         CloudMoveAsks.isAgent(invocation) || CloudHandlers.origin(of: invocation) == .mcp
+    }
+
+    /// Whether the run is the person's own, the only kind whose `--login` is kept or counts as their
+    /// consent: a gesture in this app (``ActionInvocation/isPersonsOwnRun``, so never the control
+    /// socket claiming `user`). A CLI run is never one: an agent in a terminal looks like the person
+    /// there, so a terminal's `--login pass` counts only when the person chose pass in cmux.
+    static func isPersons(_ invocation: ActionInvocation) -> Bool {
+        CloudHandlers.origin(of: invocation) == .user && invocation.isPersonsOwnRun
     }
 
     /// An agent's run: a card in its own chat, and only the person's Start starts anything.
@@ -190,7 +215,9 @@ struct CloudStartSession {
         }
         let machineID = invocation.target.flatMap { $0.kind == .machine ? $0.id : nil }
         let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespaces)
-        return Request(machineID: machineID, name: name?.isEmpty == false ? name : nil, agent: agent, cwd: cwd)
+        let login: CloudHarnessLoginAsk
+        do { login = try .init(word: invocation["login"]?.stringValue, agent: !isPersons(invocation), prompts: isPersons(invocation)) } catch { throw ActionFailure(message: CloudStartSessionStrings.loginInvalid) }
+        return Request(machineID: machineID, name: name?.isEmpty == false ? name : nil, agent: agent, cwd: cwd, login: login)
     }
 
     /// Takes or creates the machine, connects, opens the chat's tab there and starts the session.
@@ -208,7 +235,8 @@ struct CloudStartSession {
         try still(name)
         try await connected(session, request, account: account, byPerson: byPerson)
         try still(name)
-        try await passHarnessLogin(session, agent: agent) { try still(name) }
+        try await passHarnessLogin(session, agent: agent, login: request.login) { try still(name) }
+        if let refusal = session.harnessLogin?.refusal { throw ActionFailure(message: CloudStartSessionStrings.loginRefused(refusal, request.asked(machine: name))) }
         guard let host = AgentTabStore.registryHost(of: session.daemon) else {
             throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
         }
@@ -402,8 +430,8 @@ struct CloudStartSession {
 
     /// The machine takes the person's harness login before the session starts, as a composer start's does (+Login).
     /// The login may wait on a confirm: `still` checks the asking account after it, as after every wait.
-    func passHarnessLogin(_ session: CloudMachineSession, agent: String, still: () throws -> Void) async throws {
-        _ = await CloudStartChat(services: services).passHarnessLogin(harness: agent, machine: session, codexPrompt: false) // a scripted run never waits on a device code
+    func passHarnessLogin(_ session: CloudMachineSession, agent: String, login: CloudHarnessLoginAsk = .init(), still: () throws -> Void) async throws {
+        _ = await CloudStartChat(services: services).passHarnessLogin(harness: agent, machine: session, codexPrompt: false, ask: login) // a scripted run never waits on a device code
         try still()
     }
     /// How long a machine has to come up (Move to Cloud's own wait).
@@ -414,6 +442,6 @@ extension CloudStartRunKey {
     /// The run of `request` asked by chat `caller` (nil: a person's or a script's) in `account`.
     init(_ request: CloudStartSession.Request, caller: String?, account: [String?]) {
         self.init(machine: request.machineID.map { "id:" + $0 } ?? "name:" + (request.name ?? ""), agent: request.agent, cwd: request.cwd,
-                  caller: caller, account: account)
+                  caller: caller, account: account, login: request.login.requested?.rawValue)
     }
 }

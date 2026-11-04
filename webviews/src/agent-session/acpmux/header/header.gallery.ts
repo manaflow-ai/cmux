@@ -30,6 +30,34 @@ const inTabRowConnected: Play = async (ctx) => {
     throw new Error("The chat header repeated the composer location");
 };
 
+// A longer chat for the one-tab row: enough rows to scroll some under the row.
+const longer = [
+  ...Array.from({ length: 6 }, (_, n) => [
+    user(`Step ${n + 1}: tighten the retry policy for the fetch helper`, 30 - n * 3),
+    assistant(
+      "Done. GETs retry three times with jittered backoff; POSTs retry only with an idempotency key. The tests cover both paths.",
+      29 - n * 3,
+    ),
+  ]).flat(),
+  summary(9, { status: "completed" }),
+];
+
+// A pane with one tab (header/tabRow.ts `soloTab`): the transcript runs up under the row, which floats over it.
+// `blur` sets the light blur under the tools; `scroll` moves rows under the row (0: at rest, the first message
+// where it was below the row).
+const soloTab =
+  (blur: number | undefined, scroll: number): Play =>
+  async (ctx) => {
+    const { setTabRow } = await import("./tabRow");
+    setTabRow({ height: 38, trailingInset: 0, soloTab: true });
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-stage[data-solo-tab] > .acpmux-scroll .acpmux-row"));
+    const stage = ctx.document.querySelector<HTMLElement>(".acpmux-stage")!;
+    if (blur !== undefined) stage.style.setProperty("--acpmux-solo-blur", `${blur}px`);
+    const scroller = ctx.document.querySelector<HTMLElement>(".acpmux-stage > .acpmux-scroll")!;
+    scroller.scrollTop = scroll;
+    await ctx.waitFor(() => scroll === 0 || scroller.hasAttribute("data-fade-top"));
+  };
+
 const sessionInfo =
   (placement: "overlay" | "push", open: boolean): Play =>
   async (ctx) => {
@@ -115,6 +143,26 @@ export default agentPaneEntry({
       note: "The header shares the pane's tab row: only its tools, no title (the tab names the chat) and no extra location row.",
       snapshot: chat(finished),
       play: inTabRowConnected,
+    },
+    "solo-tab-rest": {
+      note: "One tab in the pane: no band under the row. At rest the first message sits where it did below the row.",
+      snapshot: chat(longer),
+      play: soloTab(undefined, 0),
+    },
+    "solo-tab-blur": {
+      note: "Chosen: one tab, scrolled. Rows run up under the tools, fading out across the row under a light 6px blur; the tools stay legible.",
+      snapshot: chat(longer),
+      play: soloTab(undefined, 90),
+    },
+    "solo-tab-fade-only": {
+      note: "Alternative: the fade alone, no blur. Text under the tools stays sharp and reads as clutter behind them.",
+      snapshot: chat(longer),
+      play: soloTab(0, 90),
+    },
+    "solo-tab-blur-strong": {
+      note: "Alternative: a 14px blur. Smears the row into a frosted band, which brings back the band this removes.",
+      snapshot: chat(longer),
+      play: soloTab(14, 90),
     },
     "tab-row-disconnected": {
       // A dropped socket the pane is asking for again is quiet (paneHeader `hostRecovering`), so the

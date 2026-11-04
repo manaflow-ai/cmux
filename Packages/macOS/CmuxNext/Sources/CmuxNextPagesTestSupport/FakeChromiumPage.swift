@@ -22,7 +22,7 @@ public final class FakeChromiumPage: PageChromiumPage {
     /// The handler the host sets for the page's events.
     public var onEvent: ((PageChromiumEvent) -> Void)?
     /// The answerer the host sets for the page's dynamic paths.
-    public var resources: (@MainActor (URL) async -> PageChromiumResponse)?
+    public var resources: (@MainActor (URL, String?) async -> PageChromiumResponse)?
     /// The holes the host last asked for, in ``contentView``'s coordinates.
     public var occlusionRects: [CGRect] = []
     /// Every DevTools call, in order.

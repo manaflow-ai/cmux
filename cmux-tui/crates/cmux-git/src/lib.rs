@@ -11,6 +11,8 @@
 //! enums; callers map them to their wire errors.
 
 pub mod diff;
+#[cfg(unix)]
+pub mod native_hook;
 pub mod parse;
 pub mod refs;
 mod repository;

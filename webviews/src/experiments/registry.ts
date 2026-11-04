@@ -32,14 +32,18 @@ import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmu
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
+import { trayKindLineLook } from "../agent-session/acpmux/subagents/trayKindLine.experiment";
 import { trayHeadKindsLook } from "../agent-session/acpmux/subagents/trayHeadKinds.experiment";
 import { trayOpenLook } from "../agent-session/acpmux/subagents/trayOpen.experiment";
 import { failedLineLook } from "../agent-session/acpmux/subagents/failedLine.experiment";
+import { doneReportLook } from "../agent-session/acpmux/subagents/doneReport.experiment";
 import { traySurfaceLook } from "../agent-session/acpmux/subagents/traySurface.experiment";
 import { chatSwitchMotion } from "../agent-session/acpmux/chatSwitch.experiment";
 import { liveBackground } from "../ui/liveBackground/liveBackground.experiment";
 import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
 import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLook.experiment";
+import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experiment";
+import { planUsageLook } from "../agent-session/acpmux/planUsageLook.experiment";
 import { emojiShortcodeLook } from "../agent-session/acpmux/emojiShortcodeLook.experiment";
 import { fileKindIcon } from "../agent-session/acpmux/chips/fileKindIcon.experiment";
 import type { Experiment } from "./experiment";
@@ -81,13 +85,17 @@ export const EXPERIMENTS: readonly Experiment[] = [
   trayHeadLook,
   trayFoldHeadLook,
   trayHeadKindsLook,
+  trayKindLineLook,
   trayOpenLook,
   failedLineLook,
+  doneReportLook,
   traySurfaceLook,
   chatSwitchMotion,
   liveBackground,
   composerPlusCommands,
   promptSuggestionLook,
+  contextRingLook,
+  planUsageLook,
   emojiShortcodeLook,
 ];
 
