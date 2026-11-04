@@ -27,7 +27,9 @@ struct AgentPaneTabSessionScopeTests {
             "jsonrpc": "2.0", "id": 10, "method": "_acpmux/race/list",
             "params": ["parent": "race-parent"],
         ]
-        #expect(AcpmuxPaneMethods.decideFrame(Self.json(frame), isFirst: false) != nil)
+        if case .failure = AcpmuxPaneMethods.decideFrame(Self.json(frame), isFirst: false) {
+            Issue.record("race request was refused by the native relay")
+        }
         #expect(AgentPaneTransport.sessionRefusal(frame, sessions: sessions) == nil)
         var outside = frame
         outside["params"] = ["parent": "other"]
