@@ -36,6 +36,16 @@ fn asserted(origin: Origin, auth: ConnAuth, m: &str, params: &Value) -> bool {
         && params.pointer("/_meta/acpmux/raceOwner/method").and_then(Value::as_str) == Some(m)
 }
 
+/// Only the owning person's connection or the exact validated one-hop assertion can
+/// authorize worktrees for a peer-created parent. Request body flags confer no authority.
+pub(super) fn owner_authorized(conn: &Conn, m: &str, params: &Value) -> bool {
+    (conn.is_person()
+        && matches!(conn.origin, Origin::Local | Origin::LocalApp)
+        && crate::server::remote_guard::control_of(conn.origin, conn.auth, params)
+            == Control::Local)
+        || asserted(conn.origin, conn.auth, m, params)
+}
+
 pub(super) fn parent(
     hub: &Hub,
     conn: &Conn,

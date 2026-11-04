@@ -55,6 +55,10 @@ pub struct Race {
     /// A persisted origin restriction: resumption must not turn a Web request into a local one.
     #[serde(default)]
     pub local: bool,
+    /// Worktree authorization from the owning person, persisted for race recovery.
+    /// This is derived by the server from connection proof, never a request body field.
+    #[serde(default)]
+    pub owner_authorized: bool,
 }
 
 impl Race {
@@ -110,6 +114,7 @@ impl Hub {
         targets: Vec<Target>,
         reviewer: Target,
         local: bool,
+        owner_authorized: bool,
     ) -> Result<Value, RpcError> {
         if std::env::var_os("ACPMUX_DISABLE_RACES").is_some() {
             return Err(RpcError::invalid_params(
@@ -157,6 +162,7 @@ impl Hub {
             created_at: now,
             updated_at: now,
             local,
+            owner_authorized,
         };
         {
             let mut meta = parent.meta.lock().unwrap_or_else(|e| e.into_inner());
@@ -235,6 +241,7 @@ impl Hub {
                 effort: target.effort.clone(),
                 worktree: true,
                 local: race.local,
+                owner_authorized_race: race.owner_authorized,
                 ..Default::default()
             },
         ))
@@ -723,6 +730,13 @@ mod tests {
         let restored: Race = serde_json::from_value(serde_json::to_value(&race).unwrap()).unwrap();
         assert_eq!(restored.parent, "parent");
         assert!(!restored.local); // Old records never gain local authority.
+        assert!(!restored.owner_authorized); // Nor the new worktree authorization.
+        let mut authorized = race.clone();
+        authorized.owner_authorized = true;
+        let resumed: Race =
+            serde_json::from_value(serde_json::to_value(&authorized).unwrap()).unwrap();
+        assert!(resumed.owner_authorized);
+        assert_eq!(resumed.parent, authorized.parent);
         let names: Vec<_> =
             ["c1", "c2", "review"].into_iter().map(|c| child_name(&race.id, c)).collect();
         assert!(names.iter().all(|n| n.len() <= 40));

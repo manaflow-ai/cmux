@@ -240,6 +240,10 @@ pub struct StartRequest {
     /// Work in a new git worktree of the folder's repository
     /// (`subsession_worktree.rs`) instead of the folder itself.
     pub worktree: bool,
+    /// Internal race capability, derived from the owning person's authenticated request.
+    /// Never populated from ordinary sub-session RPC fields. A peer-origin parent still
+    /// owns a real folder on this daemon; its owner may explicitly race there.
+    pub(crate) owner_authorized_race: bool,
     /// `_meta.acpmux.forceAdmit` (`acpmux new --parent --force-admit`):
     /// admitted past this host's refusal, logged (`admission.rs`).
     pub force_admit: bool,
@@ -602,7 +606,8 @@ impl Hub {
         // Its worktree is made, and its harness spawns, only in the very folder checked.
         let (cwd, worktree) = if req.worktree {
             folder.still_here()?;
-            let mut kept = self.subsession_worktree(pm, &folder, &short).await?;
+            let mut kept =
+                self.subsession_worktree(pm, &folder, &short, req.owner_authorized_race).await?;
             kept.source_decided = decided;
             let start = super::subsession_guard::CheckedFolder::resolve(&kept.made.cwd)?;
             // The folder resolved is in the worktree just made, not one that took its place.
@@ -703,12 +708,14 @@ impl Hub {
 
     /// A new worktree of `folder`'s repository for a sub-session named
     /// `name` (`subsession_worktree.rs`), made off the async runtime. Only
-    /// on this machine: a remote parent's folder is not here.
+    /// on this machine. A peer-created session's remote origin remains restricted unless
+    /// the owning person explicitly authorized this race on the daemon that owns it.
     async fn subsession_worktree(
         &self,
         pm: &SessionMeta,
         checked: &super::subsession_guard::CheckedFolder,
         name: &str,
+        owner_authorized_race: bool,
     ) -> Result<KeptWorktree, RpcError> {
         let folder: &Path = checked;
         let refuse = |why: String| {
@@ -718,7 +725,7 @@ impl Hub {
                 json!({"cwd": folder}),
             )
         };
-        if pm.remote_origin {
+        if pm.remote_origin && !owner_authorized_race {
             return Err(refuse("this session runs on another machine".into()));
         }
         let (folder2, held, name2) = (folder.to_path_buf(), checked.held(), name.to_owned());

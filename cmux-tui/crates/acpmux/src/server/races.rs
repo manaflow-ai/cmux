@@ -48,6 +48,7 @@ async fn handle(
                 candidates,
                 reviewer,
                 local,
+                peer::owner_authorized(conn, m, params),
             )
             .await
         }
