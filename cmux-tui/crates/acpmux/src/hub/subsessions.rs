@@ -1100,52 +1100,107 @@ impl Hub {
         self.reply_between(s, last.saturating_sub(4000), last)
     }
 
+    /// The session's last agent message for a model race. Races send the full
+    /// reviewer response to the verdict parser, so it is masked but never
+    /// truncated.
+    pub(crate) fn last_reply_unbounded(&self, s: &Session) -> Option<String> {
+        let last = s.meta().last_seq;
+        self.reply_between_with_limit(s, last.saturating_sub(4000), last, None)
+    }
+
     /// [`Hub::last_reply`] among the records after `after` up to `upto` only (the last 4000 of
     /// them): one turn's reply, read after later turns began (the Cloud hand-off reports,
     /// `daemon/cloud_handoff.rs`).
     pub fn reply_between(&self, s: &Session, after: u64, upto: u64) -> Option<String> {
+        self.reply_between_with_limit(s, after, upto, Some(MAX_REPLY_CHARS))
+    }
+
+    fn reply_between_with_limit(
+        &self,
+        s: &Session,
+        after: u64,
+        upto: u64,
+        max_chars: Option<usize>,
+    ) -> Option<String> {
         let after = after.max(upto.saturating_sub(4000));
         let count = usize::try_from(upto.saturating_sub(after)).unwrap_or(4000);
         let events = self.events(&s.id, after, count).ok()?;
-        let mut reply = String::new();
-        let mut open = false;
-        for e in events.into_iter().take_while(|e| e.seq <= upto) {
-            if e.dir == "mux" && matches!(e.kind.as_str(), "turn_started" | "user_message") {
-                open = false;
-                continue;
-            }
-            let update = e.dir == "in"
-                && !e.kind.ends_with(".replay")
-                && e.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
-                && e.msg.pointer("/params/_meta/acpmux/subagent").is_none();
-            if !update {
-                continue;
-            }
-            match e.kind.as_str() {
-                "agent_message_chunk" => {
-                    if !open {
-                        reply.clear();
-                        open = true;
-                    }
-                    let chunk = e.msg.pointer("/params/update/content/text");
-                    reply.push_str(chunk.and_then(Value::as_str).unwrap_or_default());
+        masked_reply(&events, upto, max_chars)
+    }
+}
+
+/// Extract and mask one turn's agent reply. `max_chars` is only applied to the
+/// normal session summary path; race callers pass `None` so a reviewer result
+/// remains valid JSON even when it is longer than the summary cap.
+fn masked_reply(
+    events: &[crate::store::EventRecord],
+    upto: u64,
+    max_chars: Option<usize>,
+) -> Option<String> {
+    let mut reply = String::new();
+    let mut open = false;
+    for e in events.iter().take_while(|e| e.seq <= upto) {
+        if e.dir == "mux" && matches!(e.kind.as_str(), "turn_started" | "user_message") {
+            open = false;
+            continue;
+        }
+        let update = e.dir == "in"
+            && !e.kind.ends_with(".replay")
+            && e.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
+            && e.msg.pointer("/params/_meta/acpmux/subagent").is_none();
+        if !update {
+            continue;
+        }
+        match e.kind.as_str() {
+            "agent_message_chunk" => {
+                if !open {
+                    reply.clear();
+                    open = true;
                 }
-                "tool_call" | "tool_call_update" | "agent_thought_chunk" | "plan" => open = false,
-                _ => {}
+                let chunk = e.msg.pointer("/params/update/content/text");
+                reply.push_str(chunk.and_then(Value::as_str).unwrap_or_default());
             }
+            "tool_call" | "tool_call_update" | "agent_thought_chunk" | "plan" => open = false,
+            _ => {}
         }
-        let reply = reply.trim();
-        if reply.is_empty() {
-            return None;
-        }
-        // Mask before the cut: a cut through a secret leaves a head the
-        // scanner no longer recognizes, and that head would go out unmasked.
-        let masked = crate::secret_scan::mask(reply);
-        let mut cut: String = masked.chars().take(MAX_REPLY_CHARS).collect();
-        if masked.chars().count() > MAX_REPLY_CHARS {
+    }
+    let reply = reply.trim();
+    if reply.is_empty() {
+        return None;
+    }
+    // Mask before the cut: a cut through a secret leaves a head the
+    // scanner no longer recognizes, and that head would go out unmasked.
+    let masked = crate::secret_scan::mask(reply);
+    if let Some(max_chars) = max_chars {
+        let mut cut: String = masked.chars().take(max_chars).collect();
+        if masked.chars().count() > max_chars {
             cut.push('…');
         }
-        Some(cut)
+        return Some(cut);
+    }
+    Some(masked)
+}
+
+#[cfg(test)]
+mod reply_tests {
+    use super::*;
+
+    #[test]
+    fn unbounded_reply_keeps_long_reviewer_text() {
+        let text = "x".repeat(MAX_REPLY_CHARS + 128);
+        let events = vec![crate::store::EventRecord {
+            seq: 1,
+            at: 0,
+            dir: "in".into(),
+            kind: "agent_message_chunk".into(),
+            msg: json!({
+                "method": method::SESSION_UPDATE,
+                "params": {"update": {"content": {"text": text}}}
+            }),
+            host_seq: None,
+        }];
+        assert_eq!(masked_reply(&events, 1, None).unwrap(), text);
+        assert!(masked_reply(&events, 1, Some(MAX_REPLY_CHARS)).unwrap().ends_with('…'));
     }
 }
 

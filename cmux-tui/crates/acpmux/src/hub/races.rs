@@ -197,8 +197,7 @@ impl Hub {
             }
             if let Err(error) = hub.run_race(&parent, &id, recover).await {
                 let _ = hub.race_update(&parent, &id, |r| {
-                    r.state = "failed".into();
-                    r.reason = Some(crate::secret_scan::mask(&error.message));
+                    fail_race(r, &error.message);
                 });
             }
             hub.races_running.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
@@ -278,7 +277,7 @@ impl Hub {
                     match result {
                         Ok((child, started)) => {
                             let updated = self.race_update(parent, id, |r| {
-                                let c = &mut r.candidates[index];
+                                let Some(c) = r.candidates.get_mut(index) else { return };
                                 c.session_id = Some(child.id.clone());
                                 c.cwd = Some(child.read_meta(|m| m.cwd.clone()));
                                 c.turn_id = started["turnId"].as_str().map(str::to_owned);
@@ -290,10 +289,15 @@ impl Hub {
                             })?;
                             if !updated.active() { self.subsession_stop(&child, true).await?; }
                         }
-                        Err(error) => { self.race_update(parent, id, |r| {
-                            r.candidates[index].state = "failed".into();
-                            r.candidates[index].error = Some(crate::secret_scan::mask(&error.message));
-                        })?; }
+                        Err(error) => {
+                            self.race_update(parent, id, |r| {
+                                if let Some(candidate) = r.candidates.get_mut(index) {
+                                    candidate.state = "failed".into();
+                                    candidate.error =
+                                        Some(crate::secret_scan::mask(&error.message));
+                                }
+                            })?;
+                        }
                     }
                     Ok::<(), RpcError>(())
                 }});
@@ -312,15 +316,17 @@ impl Hub {
                     let child = self.race_owned_child(parent, candidate.session_id.as_deref())?;
                     if let Some((completed, error)) = outcome(&child, candidate.turn_id.as_deref())
                     {
-                        finished.push((index, completed, error, self.last_reply(&child)));
+                        finished.push((index, completed, error, self.last_reply_unbounded(&child)));
                     }
                 }
                 if !finished.is_empty() {
                     self.race_update(parent, id, |r| {
                         for (i, ok, error, reply) in finished {
-                            r.candidates[i].state = if ok { "completed" } else { "failed" }.into();
-                            r.candidates[i].error = error;
-                            r.candidates[i].reply = reply;
+                            if let Some(candidate) = r.candidates.get_mut(i) {
+                                candidate.state = if ok { "completed" } else { "failed" }.into();
+                                candidate.error = error;
+                                candidate.reply = reply;
+                            }
                         }
                     })?;
                 }
@@ -404,7 +410,7 @@ impl Hub {
                         error.unwrap_or_else(|| "review failed; candidates retained".into()),
                     ));
                 }
-                let reply = self.last_reply(&reviewer).unwrap_or_default();
+                let reply = self.last_reply_unbounded(&reviewer).unwrap_or_default();
                 let (winner, reason) = verdict(&race, &reply)?;
                 // Stop losers first. A cleanup failure never reports the race as completed.
                 for candidate in &race.candidates {
@@ -416,16 +422,14 @@ impl Hub {
                     }
                 }
                 self.subsession_stop(&reviewer, true).await?;
-                self.race_update(parent, id, |r| {
-                    r.state = "completed".into();
-                    r.winner_id = Some(winner.clone());
-                    r.reason = Some(reason);
-                    for c in &mut r.candidates {
-                        if c.id != winner && c.session_id.is_some() {
-                            c.state = "discarded".into();
-                        }
-                    }
-                })?;
+                // Cancellation can win while the loser/reviewer cleanup awaits. Re-read the
+                // durable state before recording a winner, and keep the transition guarded in
+                // the same lock as race cancellation.
+                let current = self.race_get(parent, id)?;
+                if !current.active() {
+                    return Ok(());
+                }
+                self.race_update(parent, id, |r| complete_race(r, &winner, &reason))?;
                 return Ok(());
             }
             wait_transition(&mut events, &parent.id).await?;
@@ -486,6 +490,28 @@ impl Hub {
             }
         }
         Ok(json!(race))
+    }
+}
+
+fn fail_race(race: &mut Race, error: &str) {
+    if !race.active() {
+        return;
+    }
+    race.state = "failed".into();
+    race.reason = Some(crate::secret_scan::mask(error));
+}
+
+fn complete_race(race: &mut Race, winner: &str, reason: &str) {
+    if !race.active() {
+        return;
+    }
+    race.state = "completed".into();
+    race.winner_id = Some(winner.to_owned());
+    race.reason = Some(reason.to_owned());
+    for candidate in &mut race.candidates {
+        if candidate.id != winner && candidate.session_id.is_some() {
+            candidate.state = "discarded".into();
+        }
     }
 }
 
@@ -699,5 +725,18 @@ mod tests {
         assert!(names.iter().all(|n| n.len() <= 40));
         assert_ne!(names[0], names[1]);
         assert_ne!(names[0], names[2]);
+    }
+
+    #[test]
+    fn cancellation_wins_over_late_terminal_transitions() {
+        let mut cancelled = race();
+        cancelled.state = "cancelled".into();
+        complete_race(&mut cancelled, "c1", "reviewed");
+        assert_eq!(cancelled.state, "cancelled");
+        assert_eq!(cancelled.winner_id, None);
+
+        fail_race(&mut cancelled, "review failed");
+        assert_eq!(cancelled.state, "cancelled");
+        assert_eq!(cancelled.reason, None);
     }
 }
