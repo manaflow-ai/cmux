@@ -224,3 +224,101 @@ fn the_replay_never_writes_an_older_image_over_session_json() {
     let name = store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).map(|meta| meta.name);
     assert_eq!(name.as_deref(), Some("three"), "the replay wrote an older image over a newer one");
 }
+
+// ---------------------------------------------------------------- folders handed out of the store
+
+/// Code outside the store moves chat folders directly (`hub/transfer_in.rs` puts the live folder
+/// aside and installs a transferred chat in its place). The image the store holds for the old
+/// folder must never land in the new one: not in a read, not at the checkpoint, not in a replay.
+#[test]
+fn a_folder_replaced_outside_the_store_keeps_its_own_metadata() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(55);
+    let store = open(home.path(), &journal);
+    store.save(&meta(CHAT, "old", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.save(&meta(CHAT, "old-renamed", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    // A transfer's swap: the live folder aside, the transferred chat in its place.
+    let sessions = home.path().join("sessions");
+    std::fs::rename(sessions.join(CHAT), sessions.join(format!(".{CHAT}.replacement-backup")))
+        .unwrap_or_else(|e| panic!("{e}"));
+    std::fs::create_dir(sessions.join(CHAT)).unwrap_or_else(|e| panic!("{e}"));
+    let transferred =
+        serde_json::to_vec_pretty(&meta(CHAT, "transferred", 0)).unwrap_or_else(|e| panic!("{e}"));
+    std::fs::write(sessions.join(CHAT).join("session.json"), transferred)
+        .unwrap_or_else(|e| panic!("{e}"));
+    let name = |store: &dyn Store| {
+        store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).map(|meta| meta.name)
+    };
+    assert_eq!(
+        name(store.as_ref()).as_deref(),
+        Some("transferred"),
+        "a read saw the old folder's image"
+    );
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let on_disk = session_json(home.path(), CHAT).map(|value| value["name"].clone());
+    assert_eq!(
+        on_disk,
+        Some(json!("transferred")),
+        "the checkpoint wrote the old image into the new folder"
+    );
+    let crashed = journal.restart(Crash::Process);
+    drop(store);
+    let store = open(home.path(), &crashed);
+    assert_eq!(
+        name(store.as_ref()).as_deref(),
+        Some("transferred"),
+        "the replay wrote the old image into the new folder"
+    );
+}
+
+/// `session_dir` hands the chat's folder to code that reads its files directly: its
+/// `session.json` is current then.
+#[test]
+fn session_dir_hands_out_a_folder_whose_metadata_is_written() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(56);
+    let store = open(home.path(), &journal);
+    store.save(&meta(CHAT, "before", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.save(&meta(CHAT, "after", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    let dir = store.session_dir(CHAT).unwrap_or_else(|| panic!("no session folder"));
+    let bytes = std::fs::read(dir.join("session.json")).unwrap_or_else(|e| panic!("{e}"));
+    let value: Value = serde_json::from_slice(&bytes).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(value["name"], json!("after"), "session_dir handed out a stale session.json");
+}
+
+/// `flush_session` makes the chat's log and metadata durable on disk (`Store::flush_session`).
+#[test]
+fn flush_session_writes_the_chats_metadata() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(57);
+    let store = open(home.path(), &journal);
+    store.save(&meta(CHAT, "before", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.save(&meta(CHAT, "after", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush_session(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
+    let on_disk = session_json(home.path(), CHAT).map(|value| value["name"].clone());
+    assert_eq!(on_disk, Some(json!("after")), "flush_session left the metadata in memory");
+}
+
+/// A folder that code outside the store removed is not made again by the checkpoint (S2's rule:
+/// recovery and projection never make a folder that is gone).
+#[test]
+fn the_checkpoint_never_makes_a_folder_removed_outside_the_store_again() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(58);
+    let store = open(home.path(), &journal);
+    store.save(&meta(CHAT, "chat", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.save(&meta(CHAT, "renamed", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    let dir = home.path().join("sessions").join(CHAT);
+    std::fs::remove_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(!dir.exists(), "the checkpoint made a removed folder again");
+    assert!(
+        store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).is_none(),
+        "a removed chat still reads"
+    );
+}
