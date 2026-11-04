@@ -14,7 +14,9 @@
 //! The machine's `.git` never comes back as files: its branch and staged
 //! changes take the git leg ([`super::git_back`]). New files of the machine
 //! come back, except ones this working copy's ignore rules match, untracked
-//! `.env*` files, symlinks and special files. Outside git every file of the
+//! `.env*` files, special files and symlinks that do not stay inside the
+//! folder by their own text ([`super::links`]): those are named as skipped.
+//! A symlink comes back as a symlink, its text its content. Outside git every file of the
 //! machine's folder counts.
 //!
 //! The machine is not trusted. The base is the copy of the push's record
@@ -48,10 +50,12 @@ use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
 use super::git_back::{self, GitPlan};
+use super::history::{self, Held};
 use super::local::{self, GitDirs};
 use super::place::{self, Dir, Entry, Expected, Transaction};
 use super::remote::{self, Remote};
-use super::{Manifest, Pushed, base, names};
+use super::skips::Skips;
+use super::{Linked, Manifest, Pushed, base, links, names};
 
 /// What a pull did, or the paths that stopped it.
 pub(super) enum Pulled {
@@ -68,7 +72,9 @@ enum Side {
         sha256: String,
         permissions: u32,
     },
-    /// A folder, symlink or special file.
+    /// A symlink, by its text.
+    Link(String),
+    /// A folder, special file, or a symlink that is not synced.
     Other,
 }
 
@@ -82,8 +88,12 @@ enum Step {
         sha256: String,
     },
     Delete,
+    /// The machine's symlink replaces what is here: its text.
+    Link(String),
     /// Both sides already agree; only the manifest moves.
     Settle(Option<Pushed>),
+    /// Both sides have this symlink.
+    SettleLink(String),
 }
 
 struct Planned {
@@ -93,17 +103,19 @@ struct Planned {
 }
 
 pub(super) fn pull(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Result<Pulled> {
-    pull_kept(socket, local, remote_root, &|_| true)
+    pull_kept(socket, local, remote_root, &|_| true, true)
 }
 
 /// A pull that also leaves on the machine (and counts as skipped) every new
 /// file of the machine `keep_new` refuses, by its path relative to the
-/// folder: `cmux link access` never takes secret files back.
+/// folder: `cmux link access` never takes secret files back. Without
+/// `links_ok` a symlink is never made here (that copy pushed files only).
 pub(super) fn pull_kept(
     socket: &Path,
     local: &Path,
     remote_root: &str,
     keep_new: &dyn Fn(&str) -> bool,
+    links_ok: bool,
 ) -> anyhow::Result<Pulled> {
     let local =
         std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
@@ -122,6 +134,8 @@ pub(super) fn pull_kept(
     let hooks = if git.is_some() { hook_folders(&local)? } else { Vec::new() };
     let MachineFiles { found, mut skipped, mut fenced } =
         machine_files(&mut remote, remote_root, &local, git.is_some(), &manifest, &hooks)?;
+    let mut skips = Skips::new(&local);
+    let mut symlinks_served = true;
     // A repository here in a folder the push sent, whether or not the
     // machine still lists it: nothing in it is deleted.
     for dir in pushed_folders(&manifest) {
@@ -142,17 +156,92 @@ pub(super) fn pull_kept(
         .filter(|path| is_tree_path(path))
         .filter(|path| !fenced.iter().any(|folder| names::folded_within(path, folder)))
         .collect();
+    paths.extend(
+        manifest
+            .links
+            .keys()
+            .filter(|path| is_tree_path(path))
+            .filter(|path| !fenced.iter().any(|folder| names::folded_within(path, folder))),
+    );
     paths.extend(found.keys());
+    // Every symlink of the machine's, read once: a text is checked through
+    // these and this Mac's own, so a chain of links never climbs out.
+    let mut machine_links: BTreeMap<String, Option<String>> = BTreeMap::new();
+    if links_ok {
+        for (relative, kind) in &found {
+            if matches!(kind, Found::Link) {
+                let target = format!("{remote_root}/{relative}");
+                let text = machine_link(&mut remote, &target, &mut symlinks_served)?;
+                machine_links.insert(relative.clone(), text);
+            }
+        }
+    }
+    // Looked up as this Mac's disk compares names: `d/UP` is `d/up` here.
+    let mut folded_links: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (relative, text) in &machine_links {
+        if let Some(text) = text {
+            folded_links.entry(names::folded_path(relative)).or_default().push(text.clone());
+        }
+    }
+    let links_at = |path: &str| -> Vec<String> {
+        let mut texts: Vec<String> =
+            folded_links.get(&names::folded_path(path)).cloned().unwrap_or_default();
+        let here = local.join(path);
+        if std::fs::symlink_metadata(&here).is_ok_and(|meta| meta.file_type().is_symlink())
+            && let Some(text) =
+                std::fs::read_link(&here).ok().and_then(|text| text.to_str().map(str::to_string))
+        {
+            texts.push(text);
+        }
+        texts
+    };
     for relative in paths {
         let base = manifest.files.get(relative);
-        let pushed_side = base.map_or(Side::Missing, |pushed| Side::File {
-            sha256: pushed.sha256.clone(),
-            permissions: pushed.permissions,
-        });
+        let pushed_link = manifest.links.get(relative);
+        let pushed_side = match (base, pushed_link) {
+            (Some(pushed), _) => {
+                Side::File { sha256: pushed.sha256.clone(), permissions: pushed.permissions }
+            }
+            (None, Some(linked)) => Side::Link(linked.target.clone()),
+            (None, None) => Side::Missing,
+        };
+        // This Mac's own text of a link the push wrote relative.
+        let pushed_here = match pushed_link.and_then(|linked| linked.here.clone()) {
+            Some(text) if base.is_none() => Side::Link(text),
+            _ => pushed_side.clone(),
+        };
         let target = format!("{remote_root}/{relative}");
         let (machine, staged) = match found.get(relative) {
             None => (Side::Missing, None),
             Some(Found::Other) => (Side::Other, None),
+            Some(Found::Link) if !links_ok => (Side::Other, None),
+            // A link at a hooks folder or above one would hand git hooks
+            // the machine chose.
+            Some(Found::Link)
+                if hooks.iter().any(|folder| {
+                    names::folded_path(folder) == names::folded_path(relative)
+                        || names::folded_path(folder)
+                            .starts_with(&format!("{}/", names::folded_path(relative)))
+                }) =>
+            {
+                skips.note(relative, super::skips::Why::SymlinkIntoRepository);
+                continue;
+            }
+            Some(Found::Link) => match machine_links.get(relative).cloned().flatten() {
+                // Only a text that stays inside, through every link on its
+                // way on either side, comes back.
+                Some(text)
+                    if links::resolve(links::parent_of(relative), &text).is_some()
+                        && links::reaches_inside(links::parent_of(relative), &text, &links_at) =>
+                {
+                    (Side::Link(text), None)
+                }
+                Some(text) => {
+                    skips.note(relative, links::refused(&text));
+                    continue;
+                }
+                None => (Side::Other, None),
+            },
             Some(Found::File(revision)) => {
                 if base.is_some_and(|pushed| Some(&pushed.revision) == revision.as_ref()) {
                     unchanged += 1;
@@ -168,14 +257,18 @@ pub(super) fn pull_kept(
             unchanged += 1;
             continue;
         }
-        if base.is_none() && (is_new_and_kept_out(relative, &machine) || !keep_new(relative)) {
+        let new = base.is_none() && pushed_link.is_none();
+        if new && (is_new_and_kept_out(relative, &machine) || !keep_new(relative)) {
             skipped += 1;
             continue;
         }
         let here = local_side(&root, relative)?;
         let step = if here == machine {
-            Step::Settle(staged.map(|staged| staged.pushed()))
-        } else if here != pushed_side {
+            match &machine {
+                Side::Link(text) => Step::SettleLink(text.clone()),
+                _ => Step::Settle(staged.map(|staged| staged.pushed())),
+            }
+        } else if here != pushed_here {
             conflicts.push(relative.clone());
             continue;
         } else {
@@ -187,6 +280,7 @@ pub(super) fn pull_kept(
                     staged: staged.name,
                 },
                 (Side::Missing, _) => Step::Delete,
+                (Side::Link(text), _) => Step::Link(text),
                 _ => {
                     conflicts.push(relative.clone());
                     continue;
@@ -226,6 +320,32 @@ pub(super) fn pull_kept(
         plan.fetch(&local)?;
     }
 
+    // What this pull changes here, before and after, for the snapshots
+    // `cmux link sync undo` puts back ([`history`]). This Mac's files keep
+    // their blobs before they are replaced or deleted.
+    let changing: Vec<(String, Option<Held>, Option<Held>)> = planned
+        .iter()
+        .filter(|step| !matches!(step.step, Step::Settle(_) | Step::SettleLink(_)))
+        .map(|step| (step.relative.clone(), held(&step.local), held_after(&step.step)))
+        .collect();
+    let snapshots = !changing.is_empty() || git_plan.is_some();
+    let before = if snapshots {
+        for (relative, now, _) in &changing {
+            if let Some(Held::File { sha256, .. }) = now {
+                history::keep_blob(&root, relative, sha256);
+            }
+        }
+        let paths = history::on_top(
+            &local,
+            remote_root,
+            &manifest,
+            changing.iter().map(|(relative, now, _)| (relative.clone(), now.clone())),
+        );
+        Some((paths, history::git_now(&local)))
+    } else {
+        None
+    };
+
     let mut next = manifest;
     let mut transaction = Transaction::new(&local, &staging.0)?;
     let applied = apply(&mut transaction, &staging, planned, &mut next);
@@ -238,6 +358,48 @@ pub(super) fn pull_kept(
         Err(error) => return undone(transaction, &staging, error),
     };
     transaction.finish();
+    if let Some((paths, git_before)) = before {
+        let mut after = paths.clone();
+        for (relative, _, then) in &changing {
+            if !history::is_worktree_path(relative) {
+                continue;
+            }
+            match then {
+                Some(held) => {
+                    if let Held::File { sha256, .. } = held {
+                        history::keep_blob(&root, relative, sha256);
+                    }
+                    after.insert(relative.clone(), held.clone());
+                }
+                None => {
+                    after.remove(relative);
+                }
+            }
+        }
+        // A snapshot that could not be kept never undoes the pull.
+        let touched: BTreeSet<String> =
+            changing.iter().map(|(relative, _, _)| relative.clone()).collect();
+        let git_after = history::git_now(&local);
+        let _ = history::record(
+            &local,
+            remote_root,
+            "before_pull",
+            paths,
+            git_before,
+            None,
+            history::Changed::default(),
+        );
+        let _ = history::record(
+            &local,
+            remote_root,
+            "pull",
+            after,
+            git_after,
+            None,
+            history::Changed { paths: touched, git: git_plan.is_some() },
+        );
+    }
+    let (skipped_files, skipped_counts) = skips.json();
     let head = git_plan.as_ref().and_then(|plan| plan.settled.head.clone());
     if let Some(plan) = git_plan {
         next.git = Some(plan.settled);
@@ -255,7 +417,9 @@ pub(super) fn pull_kept(
         "written": written,
         "deleted": deleted,
         "unchanged": unchanged,
-        "skipped": skipped,
+        "skipped": skipped + skips.total(),
+        "skipped_files": skipped_files,
+        "skipped_counts": skipped_counts,
         "bytes": bytes,
         "fast_forwarded": fast_forwarded,
         "head": head,
@@ -298,27 +462,75 @@ fn apply(
         match step.step {
             Step::Write { staged, permissions, revision, sha256 } => {
                 bytes += std::fs::metadata(staging.0.join(&staged))?.len();
+                if let Side::Link(text) = &step.local {
+                    transaction.remove_link(&step.relative, text)?;
+                }
                 transaction.write(&step.relative, &staged, expected(&step.local).as_ref())?;
                 written += 1;
+                next.links.remove(&step.relative);
                 next.files.insert(step.relative, Pushed { sha256, permissions, revision });
             }
             Step::Delete => {
-                let Some(expected) = expected(&step.local) else {
-                    bail!("{} here is not a file", step.relative);
-                };
-                transaction.delete(&step.relative, &expected)?;
+                match (&step.local, expected(&step.local)) {
+                    (Side::Link(text), _) => transaction.remove_link(&step.relative, text)?,
+                    (_, Some(expected)) => transaction.delete(&step.relative, &expected)?,
+                    (_, None) => bail!("{} here is not a file", step.relative),
+                }
                 deleted += 1;
                 next.files.remove(&step.relative);
+                next.links.remove(&step.relative);
+            }
+            Step::Link(text) => {
+                match (&step.local, expected(&step.local)) {
+                    (Side::Link(old), _) => transaction.remove_link(&step.relative, old)?,
+                    (_, Some(expected)) => transaction.delete(&step.relative, &expected)?,
+                    (_, None) => {}
+                }
+                transaction.link(&step.relative, &text)?;
+                written += 1;
+                next.files.remove(&step.relative);
+                next.links.insert(step.relative, Linked { target: text, here: None });
             }
             Step::Settle(Some(pushed)) => {
+                next.links.remove(&step.relative);
                 next.files.insert(step.relative, pushed);
             }
             Step::Settle(None) => {
                 next.files.remove(&step.relative);
+                next.links.remove(&step.relative);
+            }
+            Step::SettleLink(text) => {
+                next.files.remove(&step.relative);
+                next.links.insert(step.relative, Linked { target: text, here: None });
             }
         }
     }
     Ok((written, deleted, bytes))
+}
+
+/// One side's path as a snapshot holds it.
+fn held(side: &Side) -> Option<Held> {
+    match side {
+        Side::File { sha256, permissions } => {
+            Some(Held::File { sha256: sha256.clone(), permissions: *permissions })
+        }
+        Side::Link(text) => Some(Held::Link { text: text.clone() }),
+        Side::Missing | Side::Other => None,
+    }
+}
+
+/// What a step leaves here.
+fn held_after(step: &Step) -> Option<Held> {
+    match step {
+        Step::Write { sha256, permissions, .. } => {
+            Some(Held::File { sha256: sha256.clone(), permissions: *permissions })
+        }
+        Step::Link(text) | Step::SettleLink(text) => Some(Held::Link { text: text.clone() }),
+        Step::Settle(Some(pushed)) => {
+            Some(Held::File { sha256: pushed.sha256.clone(), permissions: pushed.permissions })
+        }
+        Step::Delete | Step::Settle(None) => None,
+    }
 }
 
 /// What this Mac's file must still be when it is replaced or deleted.
@@ -327,7 +539,7 @@ fn expected(side: &Side) -> Option<Expected> {
         Side::File { sha256, permissions } => {
             Some(Expected { sha256: sha256.clone(), permissions: *permissions })
         }
-        Side::Missing | Side::Other => None,
+        Side::Missing | Side::Link(_) | Side::Other => None,
     }
 }
 
@@ -340,16 +552,38 @@ fn is_tree_path(relative: &str) -> bool {
 }
 
 /// A new file of the machine that does not come back: an `.env*` file
-/// (shared only on purpose) or a symlink or special file.
+/// (shared only on purpose) or a special file or symlink that is not synced
+/// (a synced symlink was checked to stay inside the folder).
 fn is_new_and_kept_out(relative: &str, machine: &Side) -> bool {
     let name = relative.rsplit('/').next().unwrap_or_default();
-    name.starts_with(".env") || !matches!(machine, Side::File { .. })
+    name.starts_with(".env") || !matches!(machine, Side::File { .. } | Side::Link(_))
+}
+
+/// The text of the machine's symlink at `target`; None once the machine
+/// shows it has no `fs-symlink-v1` (its symlinks then stay, as before).
+fn machine_link(
+    remote: &mut Remote,
+    target: &str,
+    served: &mut bool,
+) -> anyhow::Result<Option<String>> {
+    if !*served {
+        return Ok(None);
+    }
+    match remote.readlink(target) {
+        Ok(text) => Ok(text),
+        Err(error) if remote::refusal_code(&error).is_some() => {
+            *served &= !remote::lacks_symlinks(&error);
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 /// What the machine's listing says about a path.
 enum Found {
     /// A regular file, with its revision.
     File(Option<String>),
+    Link,
     Other,
 }
 
@@ -432,6 +666,7 @@ fn machine_files(
                 match entry.kind.as_str() {
                     "dir" => children.push((relative, true, Found::Other)),
                     "file" => children.push((relative, false, Found::File(entry.revision))),
+                    "symlink" => children.push((relative, false, Found::Link)),
                     _ => children.push((relative, false, Found::Other)),
                 }
             }
@@ -577,6 +812,8 @@ fn local_side(root: &Dir, relative: &str) -> anyhow::Result<Side> {
                 permissions: local::permissions_of(mode),
             })
         }
+        // A text that is not UTF-8 is never synced.
+        Entry::Link => Ok(dir.read_link(&name).map_or(Side::Other, Side::Link)),
         Entry::Dir | Entry::Other => Ok(Side::Other),
     }
 }
@@ -601,10 +838,10 @@ impl Staged {
 
 /// This pull's own folder, removed when the pull ends, unless it holds a
 /// file a failed pull could not put back (or the pull panicked).
-struct Staging(PathBuf, std::cell::Cell<u64>, std::cell::Cell<bool>);
+pub(super) struct Staging(pub(super) PathBuf, std::cell::Cell<u64>, std::cell::Cell<bool>);
 
 impl Staging {
-    fn make(parent: &Path) -> anyhow::Result<Self> {
+    pub(super) fn make(parent: &Path) -> anyhow::Result<Self> {
         // A name of its own: a folder a failed pull kept is never reused.
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -618,8 +855,41 @@ impl Staging {
     }
 
     /// Keeps the folder when the pull ends.
-    fn keep(&self) {
+    pub(super) fn keep(&self) {
         self.2.set(true);
+    }
+
+    /// Copies this Mac's blob at `blob` here with `permissions`, checked
+    /// against `sha256`; its name here.
+    pub(super) fn copy_in(
+        &self,
+        blob: &Path,
+        sha256: &str,
+        permissions: u32,
+    ) -> anyhow::Result<String> {
+        let number = self.1.get() + 1;
+        self.1.set(number);
+        let name = format!("file-{number}");
+        let path = self.0.join(&name);
+        let mut source = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(blob)
+            .with_context(|| format!("cannot read {}", blob.display()))?;
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&path)?;
+        let mut out = Hashing { file, hasher: Sha256::new() };
+        std::io::copy(&mut source, &mut out)?;
+        if hex(&out.hasher.finalize()) != sha256 {
+            bail!("{} is not the file it names", blob.display());
+        }
+        out.file.set_permissions(std::fs::Permissions::from_mode(permissions))?;
+        out.file.sync_all()?;
+        Ok(name)
     }
 
     /// Copies the machine's file at `target` here, with its hash, synced

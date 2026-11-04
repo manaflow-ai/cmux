@@ -220,10 +220,18 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 case let .row(row):
                     // Plain values: SwiftUI skips the rows that did not change.
                     // The list-row traits outside the Equatable view, where List sees them.
-                    HomeListRow(model: rowModel(row, stamp: stamp), open: open, feed: feed, delete: askToDelete)
+                    let model = rowModel(row, stamp: stamp)
+                    HomeListRow(model: model, open: open, feed: feed, delete: askToDelete)
                         .equatable()
                         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
                         .listRowBackground(theme.colors.bg.color)
+                        // Trailing only, as Workspaces' rows: a rightward swipe belongs to the
+                        // team drawer, and while these are open it closes them instead
+                        // (SidebarContainer finds the slid List row, RowSwipeActions).
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            HomeRowSwipeButtons(swipe: HomeRowSwipe(isPinned: model.isPinned, isUnread: model.isUnread),
+                                                id: model.id, feed: feed)
+                        }
                 case .cloud:
                     sessionRow(sources.cloud, name: primaryName, tag: chiefTag(main: true, place: String(localized: "Cloud")),
                                stamp: stamp, identifier: "home.chief", place: .cloud) { cloudTileMenu }
@@ -396,6 +404,17 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .buttonStyle(.plain)
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
         .listRowBackground(theme.colors.bg.color)
+        // Trailing only, as every Home row (the drawer keeps the rightward swipe).
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if chief.conversationID != nil {
+                Button(chief.isMuted ? "Show Alerts" : "Hide Alerts", systemImage: chief.isMuted ? "bell" : "bell.slash") {
+                    theme.haptics.selection()
+                    chief.setMuted(!chief.isMuted)
+                }
+                .tint(.indigo)
+                .accessibilityIdentifier("\(identifier).swipe.alerts")
+            }
+        }
         .contextMenu { menu() }
         .accessibilityIdentifier(identifier)
     }
@@ -570,6 +589,54 @@ struct HomeListRow: View, Equatable {
                         delete: delete)
         }
         .accessibilityIdentifier(model.isMacChief ? "home.chief.mac" : "home.row.\(model.id)")
+    }
+}
+
+/// A Home row's trailing swipe actions, the Mac's list-state actions of its
+/// row menu (``HomeRowMenu``): Read or Unread outermost, then Pin or Unpin.
+/// As on Workspaces' rows they are trailing only and a full swipe runs none
+/// (`allowsFullSwipe: false`): the rightward swipe stays the team drawer's,
+/// and closes the actions first while they are open.
+struct HomeRowSwipe: Equatable {
+    enum Action: Hashable {
+        case markRead, markUnread, pin, unpin
+    }
+
+    /// Outermost (the row's trailing edge) first, as `.swipeActions` lays them out.
+    let actions: [Action]
+
+    init(isPinned: Bool, isUnread: Bool) {
+        actions = [isUnread ? .markRead : .markUnread, isPinned ? .unpin : .pin]
+    }
+}
+
+/// The buttons of ``HomeRowSwipe`` for one row.
+struct HomeRowSwipeButtons: View {
+    let swipe: HomeRowSwipe
+    let id: String
+    let feed: MacHomeFeed
+
+    var body: some View {
+        ForEach(swipe.actions, id: \.self) { action in
+            switch action {
+            case .markRead:
+                Button("Read", systemImage: "message") { feed.markRead(id) }
+                    .tint(.blue)
+                    .accessibilityIdentifier("home.row.swipe.read")
+            case .markUnread:
+                Button("Unread", systemImage: "message.badge") { feed.setMarkedUnread(true, id) }
+                    .tint(.blue)
+                    .accessibilityIdentifier("home.row.swipe.unread")
+            case .pin, .unpin:
+                let pin = action == .pin
+                Button(pin ? "Pin" : "Unpin", systemImage: pin ? "pin" : "pin.slash") {
+                    theme.haptics.selection()
+                    feed.setPinned(pin, id)
+                }
+                .tint(.orange)
+                .accessibilityIdentifier(pin ? "home.row.swipe.pin" : "home.row.swipe.unpin")
+            }
+        }
     }
 }
 
