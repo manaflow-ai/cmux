@@ -74,7 +74,27 @@ fn live_tick(line: &str) -> bool {
 /// after an update or cold relaunch (manaflow-ai/cmuxterm-hq#6338).
 #[tokio::test]
 async fn a_chat_attached_right_after_a_restart_with_a_gap_gets_the_streaming_turn_live() {
-    let mut daemon = Daemon::new("stgapa", "approve-all");
+    attached_after_a_gap_gets_the_turn_live("stgapa", false).await;
+}
+
+/// As the relaunch after an app update: the bundle that held the daemon's binary is replaced (the
+/// old file renamed aside, a copy put back, the old one deleted, `replace_bundle` in the bench)
+/// while the agent streams, the old daemon stops, and the next starts from the new file.
+#[tokio::test]
+async fn a_chat_attached_after_an_update_replaced_the_binary_gets_the_streaming_turn_live() {
+    attached_after_a_gap_gets_the_turn_live("stgapu", true).await;
+}
+
+async fn attached_after_a_gap_gets_the_turn_live(tag: &str, update: bool) {
+    let mut daemon = Daemon::new(tag, "approve-all");
+    let copy = daemon.home.join("bin").join("acpmux");
+    if update {
+        daemon.sigterm();
+        std::fs::create_dir_all(copy.parent().unwrap()).unwrap();
+        std::fs::copy(daemon_env::bin(), &copy).unwrap();
+        daemon.exe = copy.clone();
+        daemon.start();
+    }
     let session = new_session(&daemon).await;
     let mut client = daemon.rpc().await;
     client
@@ -84,6 +104,12 @@ async fn a_chat_attached_right_after_a_restart_with_a_gap_gets_the_streaming_tur
         )
         .await;
     daemon.wait_event(&session, "tick5", |e| chunk(e, "tick5 "));
+    if update {
+        let aside = copy.with_extension("replaced");
+        std::fs::rename(&copy, &aside).unwrap();
+        std::fs::copy(&aside, &copy).unwrap();
+        std::fs::remove_file(&aside).unwrap();
+    }
     daemon.sigterm();
     drop(client);
     std::thread::sleep(Duration::from_secs(3));
