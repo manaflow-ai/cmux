@@ -47,6 +47,14 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
         await engine.history(beforeSeq: beforeSeq, limit: limit)
     }
 
+    #if DEBUG
+    /// DEBUG (demo `chief-flood`): Chief posts `count` replies back to back, as a Chief that
+    /// keeps working while its chat stays open does.
+    public func debugFlood(_ count: Int) async {
+        await engine.flood(count)
+    }
+    #endif
+
     public func send(_ draft: ConversationOutgoingDraft) async throws -> ConversationMessage {
         await engine.send(draft)
     }
@@ -154,6 +162,20 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
                 messages.append(message)
             }
         }
+
+        #if DEBUG
+        func flood(_ count: Int) {
+            for _ in 0..<count {
+                let seq = headSeq + 1
+                let reply = ConversationMessage(
+                    id: "msg_local_\(seq)", seq: seq, clientMessageID: "chief-\(seq)", senderID: identity.chiefID,
+                    sentAt: Date(), text: "\(seq). The fleet build passed and the tag is published."
+                )
+                store(reply)
+                emit(reply)
+            }
+        }
+        #endif
 
         func upload(_ attachment: ConversationAttachment) -> ConversationAttachment {
             let stored = ConversationAttachment(

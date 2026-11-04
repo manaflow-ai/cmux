@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-feed", "retry-terminal", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-armed", "large-preview", "large-preview-low-space"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-feed", "retry-terminal", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-flood", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-armed", "large-preview", "large-preview-low-space"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -73,6 +73,7 @@ struct DemoDriver {
             // Opens Chief and leaves it to real touches (verify/imsg-parity.sh).
             shell.tab = .home
             shell.homePath.append(ChiefRoute())
+        case "chief-flood": await chiefFlood()
         case "ws-terminal": await workspaceTerminal()
         case "ws-terminal-idle":
             // The zsh tab of a workspace, as the app shows it (TabsKit chrome), and nothing scripted after.
@@ -165,6 +166,30 @@ struct DemoDriver {
         case "kbd-feed":
             shell.tab = .feed
         default: break
+        }
+    }
+
+    /// Chief keeps replying while its chat stays open at the bottom (the loaded-window bound,
+    /// ConversationStore.windowTrimThreshold): 32 batches of 50 replies, each shown with the
+    /// count of messages the conversation holds loaded. A UI test screenshots each batch.
+    private func chiefFlood() async {
+        let hook = ChiefDemoHook.shared
+        shell.tab = .home
+        shell.homePath.append(ChiefRoute())
+        await pause(3.0)
+        var arrived = 0
+        hook.showStatus("Chief replies arrived: 0\nMessages loaded: \(hook.loadedCount ?? 0)\nbatch 0")
+        for batch in 1...32 {
+            guard await hook.flood(50) else {
+                hook.showStatus("no mock Chief open")
+                return
+            }
+            arrived += 50
+            await pause(0.9)
+            let loaded = hook.loadedCount ?? 0
+            let over = loaded > 1500 ? "  OVER 1500" : ""
+            hook.showStatus("Chief replies arrived: \(arrived)\nMessages loaded: \(loaded)\(over)\nbatch \(batch)")
+            demoLog.notice("CHIEF_FLOOD batch=\(batch) arrived=\(arrived) loaded=\(loaded)")
         }
     }
 
