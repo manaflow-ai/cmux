@@ -96,16 +96,6 @@ nonisolated final class SurfaceBridge: Sendable {
         return MainActor.assumeIsolated { keySlots.dispatchingKeyFlow } // main-proof: guarded by Thread.isMainThread above
     }
 
-    /// Ghostty wrote `bytes` (`io_write_cb`, on the thread that made the write): one on the main thread
-    /// (a key, a paste, a report) reaches the session's echo predictions (``PredictiveEchoSlot/written(_:by:)``).
-    func wrote(_ bytes: Data) {
-        guard Thread.isMainThread else { return }
-        MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread above
-            guard let view else { return }
-            input.predictions.written(bytes, by: view)
-        }
-    }
-
     /// The surface's ``GhosttyActionMailbox``: its state actions apply once per frame of its target's
     /// window, to the target that shows it then; while nobody sees the target's tab they wait for it to show.
     @MainActor var actionMailbox: GhosttyActionMailbox {
@@ -208,8 +198,6 @@ nonisolated struct TerminalInputSink: Sendable {
     /// The session's surfaces to the typing probe (``TypingLatencyProbe``): the same across a surface
     /// swap, like the input order.
     let typingSurface: TypingLatencyProbe.SurfaceKey
-    /// The session's echo predictions, shared by its surfaces like the input order (``PredictiveEchoSlot``).
-    let predictions = PredictiveEchoSlot()
 
     init(lane: TerminalInputLane, typingSurface: TypingLatencyProbe.SurfaceKey) {
         self.lane = lane
@@ -257,6 +245,5 @@ nonisolated func ghosttyIOWrite(_ userdata: UnsafeMutableRawPointer?, _ bytes: U
     TypingLatencyProbe.shared.inputWritten(on: bridge.input.typingSurface)
     // SAFETY: as above.
     let data = unsafe Data(bytes: bytes, count: Int(length))
-    bridge.wrote(data)
     bridge.input.send(data, keyFlow: bridge.dispatchingKeyFlow)
 }

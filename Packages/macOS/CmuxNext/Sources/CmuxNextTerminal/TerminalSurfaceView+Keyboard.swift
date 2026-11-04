@@ -144,10 +144,9 @@ extension TerminalSurfaceView {
 
     // MARK: Sending
 
-    /// The key-down being dispatched changed what this terminal shows: echo prediction takes its bytes, and the app's
-    /// delegate tells the scheduler a frame is expected (``TerminalSessionDelegate/terminalSessionTookKey(_:)``).
+    /// The key-down being dispatched changed what this terminal shows: the app's delegate tells the main-thread
+    /// scheduler a frame is expected (``TerminalSessionDelegate/terminalSessionTookKey(_:)``).
     func noteKeyTaken() {
-        bridgeObject.input.predictions.keyTaken(by: self)
         if let session { session.delegate?.terminalSessionTookKey(session) }
     }
 
