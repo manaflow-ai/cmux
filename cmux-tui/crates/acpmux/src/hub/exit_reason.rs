@@ -17,6 +17,20 @@ pub(super) fn explains_exit(line: &str) -> bool {
     !is_wrapper_exit_line(line)
 }
 
+/// Claude Code's line when `--resume <id>` names a conversation its store does not hold.
+const NO_CONVERSATION: &str = "No conversation found with session ID:";
+
+/// Whether the agent's last stderr lines say Claude has no stored conversation `sid`: its
+/// `--resume` of the chat's own conversation failed, so a resume can never succeed again.
+pub(super) fn no_conversation_found(tail: &[String], sid: &str) -> bool {
+    !sid.is_empty()
+        && tail.iter().any(|line| {
+            line.trim()
+                .strip_prefix(NO_CONVERSATION)
+                .is_some_and(|rest| rest.trim() == sid)
+        })
+}
+
 /// `<program>: exit status <n>`, as Go's `exec.ExitError` prints it.
 fn is_wrapper_exit_line(line: &str) -> bool {
     let Some((program, rest)) = line.split_once(": exit status ") else {
@@ -30,7 +44,20 @@ fn is_wrapper_exit_line(line: &str) -> bool {
 
 #[cfg(test)]
 mod explains_exit_tests {
-    use super::explains_exit;
+    use super::{explains_exit, no_conversation_found};
+
+    /// 2026-11-03, "iOS composer shortcuts": every resume of a transcript reduced to metadata
+    /// failed with this line; only the chat's own id marks its conversation lost.
+    #[test]
+    fn no_conversation_found_names_only_the_chats_own_conversation() {
+        let sid = "01a18f31-1961-72d1-899f-fe573366dd3f";
+        let tail = vec![format!("No conversation found with session ID: {sid}")];
+        assert!(no_conversation_found(&tail, sid));
+        assert!(!no_conversation_found(&tail, "01a18f31-0000-0000-0000-000000000000"));
+        assert!(!no_conversation_found(&tail, ""));
+        let other = vec!["proxy down".to_owned(), "subrouter: exit status 1".to_owned()];
+        assert!(!no_conversation_found(&other, sid));
+    }
 
     #[test]
     fn a_wrapper_exit_line_does_not_hide_the_real_error() {

@@ -1010,7 +1010,8 @@ impl Hub {
             // A chat woken from hibernation had no turn when it hibernated (`idle.rs` keeps one
             // with turns but none stored awake), so it has nothing to restore: it starts fresh
             // with no row and no restored transcript. (The prompt waking it is counted already.)
-            let untouched = self.waking(session);
+            // A conversation whose stored transcript is lost had turns, woken or not: it gets them.
+            let untouched = self.waking(session) && meta.claude_unstored;
             if !untouched {
                 self.append(
                     session,
@@ -1023,6 +1024,7 @@ impl Hub {
                 let mut m = session.meta.lock().unwrap();
                 m.set_agent_session_id(None, "claude");
                 m.claude_unstored = false;
+                m.claude_conversation_lost = false;
             }
             if !untouched {
                 session.rehydrate.store(true, Ordering::SeqCst);

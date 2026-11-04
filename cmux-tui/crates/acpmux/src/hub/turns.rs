@@ -1419,6 +1419,25 @@ impl Hub {
                 let agent = session.meta().harness;
                 e.message = format!("{} ({agent}): {last}", e.message);
             }
+            // Claude found no stored conversation to resume: the next start (the automatic
+            // continuation, a Retry, the next prompt) begins a fresh one with the restored
+            // transcript, instead of each failing the same way (`claude_resume_refusal`).
+            let lost = {
+                let mut m = session.meta.lock().unwrap();
+                let lost = m.family.as_deref() == Some("claude")
+                    && !m.claude_conversation_lost
+                    && m.agent_session_id
+                        .as_deref()
+                        .is_some_and(|sid| super::exit_reason::no_conversation_found(&tail, sid));
+                if lost {
+                    m.claude_conversation_lost = true;
+                }
+                lost
+            };
+            if lost {
+                tracing::info!(session = %session.id, "Claude has no stored conversation to resume: the next start begins a fresh one");
+                self.save_meta(session);
+            }
         }
         // A harness that reported a terminal error in-band (Codex
         // `_meta.codex.error` without willRetry) and then ended the turn

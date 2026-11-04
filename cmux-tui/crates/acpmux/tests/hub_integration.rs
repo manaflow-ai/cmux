@@ -1693,6 +1693,8 @@ mod preset_args;
 mod bg_tasks;
 #[path = "hub_integration/claude_failover.rs"]
 mod claude_failover;
+#[path = "hub_integration/claude_lost_transcript.rs"]
+mod claude_lost_transcript;
 #[path = "hub_integration/failover_unstartable.rs"]
 mod failover_unstartable;
 #[path = "hub_integration/lifecycle_fixes.rs"]

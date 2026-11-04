@@ -301,6 +301,12 @@ pub struct SessionMeta {
     /// with "No conversation found with session ID".
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub claude_unstored: bool,
+    /// Claude answered a `--resume` of this chat's conversation with "No conversation found with
+    /// session ID" (its transcript is gone from the store). The next start begins a fresh
+    /// conversation with the restored transcript instead of failing the same way at every retry
+    /// (2026-11-03: "Claude Code quit before it finished this turn." four times under one prompt).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub claude_conversation_lost: bool,
     /// When (Unix ms) the idle exit hibernated its agent, 0 when no start woke it since
     /// (`hub/idle.rs`): after a restart, opening it wakes it and its wake draws no row, as
     /// before the restart, and the wake's log says how long it slept.

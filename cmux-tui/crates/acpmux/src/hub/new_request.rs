@@ -129,12 +129,18 @@ pub(super) fn claude_resume_refusal(
     if meta.claude_unstored {
         return Some("never finished a turn");
     }
+    // Claude said so when the last start resumed it (`turns.rs`).
+    if meta.claude_conversation_lost {
+        return Some("is gone from its Claude store");
+    }
+    let store = meta.claude_store(&profile.env);
     let ran_elsewhere = meta.claude_profile.as_deref().is_some_and(|p| p != meta.harness);
-    if ran_elsewhere {
-        let store = meta.claude_store(&profile.env);
-        if !crate::adopt::claude_session_exists(&store, sid) {
-            return Some("is not in this profile's Claude store");
-        }
+    if ran_elsewhere && !crate::adopt::claude_session_exists(&store, sid) {
+        return Some("is not in this profile's Claude store");
+    }
+    // Its file is there but holds no conversation, only the metadata a process writes at exit.
+    if crate::adopt::claude_transcript_is_empty(&store, sid) {
+        return Some("has no messages in its Claude store");
     }
     None
 }
