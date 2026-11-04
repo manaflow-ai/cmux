@@ -162,6 +162,11 @@ export async function makeHarness(options: HarnessOptions = {}) {
       Effect.sync(() =>
         Option.fromNullable(resources.find((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId && live(row))),
       ),
+    findMany: (tenantId, kind, cmuxIds) =>
+      Effect.sync(() => {
+        const wanted = new Set(cmuxIds);
+        return new Map(resources.filter((row) => row.tenantId === tenantId && row.kind === kind && wanted.has(row.cmuxId) && live(row)).map((row) => [row.cmuxId, row] as const));
+      }),
     record: (resource) => Effect.gen(function* () {
       if (resource.kind === "mesh" && meshRecordFault.before > 0) { meshRecordFault.before--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected before commit" })); }
       if (resource.kind === "vm" && recordFault.before > 0) { recordFault.before--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected before commit" })); }

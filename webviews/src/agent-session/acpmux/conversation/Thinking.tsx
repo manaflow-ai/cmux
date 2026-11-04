@@ -21,6 +21,7 @@ import { formatDuration } from "./turns";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 import { compactTokens, hasTokens, tokenDetail, TurnTokens } from "./TurnTokens";
 import { verbLeads } from "./ToolVerb";
+import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";
 import { useTicking, WorkingCountsContext, workingParts } from "./WorkingFor";
 import type { AcpmuxTurnRetry } from "../model";
 import type { Translate } from "../i18n";
@@ -97,7 +98,8 @@ export function liveLead(label: string, leads: boolean, call: boolean): { lead: 
 /// reports them), the call in flight ("Running bun test 13s", or what it says it does, "Run the
 /// web tests 13s"), the latest finished step until the next starts (`done`, "Ran grep … 15s"), or
 /// "Writing a command 9s" while the agent still writes the command (`draft`). With no call it names
-/// what the turn does instead: "Waiting on 2 subagents", "Writing", else "Thinking" (`liveState`).
+/// what the turn does instead: "Waiting on 2 subagents", "Writing", else "Thinking" (`liveState`), or
+/// the turn's verb ("Pondering 18s") where the pane gives verbs (thinkingVerbs.ts).
 /// One clock and one token count for all of them, the turn's, so the line just keeps going: "Using
 /// repo: repo grep 3m 2s · 47.4K tokens", as Claude Code desktop's live line reads, with no mark
 /// before it: the shimmer is its only working sign (Leo, 2026-11-03: "we don't want the claude
@@ -123,6 +125,7 @@ export function Thinking({
   thoughtMs,
   turnTotal = false,
   untimed = false,
+  verbKey,
   quietKey,
   quietAt,
   below = false,
@@ -155,6 +158,8 @@ export function Thinking({
   /// finished step's own time when it has one, so no wait reads as that long a think or call.
   turnTotal?: boolean;
   untimed?: boolean;
+  /// The turn the line belongs to (its prompt's row id): picks the turn's verb (thinkingVerbs.ts).
+  verbKey?: string;
   quietKey?: string;
   /// When the reply `quietKey` names was written (turns.ts `codexLiveTurn`): a reply already
   /// still past WRITING_MS when the line mounts reads "Thinking" at once.
@@ -182,6 +187,8 @@ export function Thinking({
   const stillWriting = !useQuiet(liveState === "writing" ? quietKey : undefined, WRITING_MS, quietAt, now);
   const sendName = useSubsessionInfo(sendSession)?.name ?? sendTo;
   const waitsOnAgents = liveState === "subagents" && liveAgents > 0;
+  // The turn's playful verb in place of "Thinking", when the pane gives some (thinkingVerbs.ts).
+  const verb = thinkingVerb(useContext(ThinkingVerbsContext), verbKey);
   const writing = liveState === "writing" && stillWriting;
   const label =
     doing === undefined
@@ -189,7 +196,7 @@ export function Thinking({
         ? t("turn.live.waitingOnSubagents", { n: liveAgents })
         : writing
           ? t("turn.live.writing")
-          : t("thinking")
+          : (verb ?? t("thinking"))
       : sendName !== undefined
         ? t("send.sending", { target: sendName })
         : doingShell
