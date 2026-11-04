@@ -1,4 +1,5 @@
 """gh-merge-green excuses a red check only when the base branch's latest completed run has the same failures."""
+import base64
 import copy
 import importlib.util
 import json
@@ -1452,6 +1453,111 @@ class RollupsFromNeeds(unittest.TestCase):
                         unittest.mock.patch.object(excuse, "_ROLLUPS", None), \
                         self.assertRaisesRegex(excuse.Refused, "no rollup red is excused"):
                     excuse.is_aggregate("ci-status")
+
+
+HQ = "manaflow-ai/cmuxterm-hq"
+SKILLS_YML = """
+on: {pull_request: {}}
+jobs:
+  scope: {name: Skill test scope, runs-on: x, steps: []}
+  tests-policy: {name: Skill policy tests, needs: scope, runs-on: x, steps: []}
+  tests-fleet: {name: Fleet tests, needs: scope, runs-on: x, steps: []}
+  tests: {name: Skill documentation tests, needs: [scope, tests-policy, tests-fleet], if: always(), runs-on: x, steps: []}
+  other: {name: Other check, runs-on: x, steps: []}
+"""
+SKILL_DOCS = "Skill documentation tests"
+
+
+class HQGitHub(FakeGitHub):
+    """FakeGitHub's runs as cmuxterm-hq's (base main), and HQ's skills-tests.yml at main from the contents API."""
+
+    def __init__(self):
+        super().__init__()
+        self.workflows = {"skills-tests.yml": SKILLS_YML}
+        for job_id in (1, 2):
+            self.jobs[job_id]["name"] = "Skill test scope"
+        self.jobs[3] = {"id": 3, "run_id": 10, "head_sha": HEAD, "name": SKILL_DOCS, "status": "completed",
+                        "conclusion": "failure", "steps": [{"name": "All parallel skill shards passed",
+                                                            "conclusion": "failure"}]}
+
+    def json(self, route, *, paginate=False):
+        prefix = f"repos/{HQ}/contents/.github/workflows/"
+        if route.startswith(prefix):
+            self.routes.append(route)
+            file, _, query = route[len(prefix):].partition("?")
+            assert query == "ref=main", route
+            if file not in self.workflows:
+                raise excuse.Refused(f"GitHub evidence request failed: 404 {file}")
+            return {"encoding": "base64", "content": base64.b64encode(self.workflows[file].encode()).decode()}
+        assert route.startswith(f"repos/{HQ}/"), route
+        route = route.replace(HQ, REPO).replace("branch=main", "branch=feat-cmux-next")
+        route = route.replace("/compare/main...", "/compare/feat-cmux-next...")
+        return super().json(route, paginate=paginate)
+
+
+class OtherRepoRollups(unittest.TestCase):
+    """Another repo's rollups (OTHER_REPO_ROLLUPS) come from its own workflows at the base, not from this checkout's:
+    cmuxterm-hq's Skill documentation tests only reports its shards (hq#7038, hq#7039)."""
+
+    def setUp(self):
+        self.gh = HQGitHub()
+        patch = unittest.mock.patch.object(excuse, "_REPO_ROLLUPS", {})
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def judge(self, runs=(10,)):
+        return excuse.judge(HQ, "main", HEAD, list(runs), self.gh)
+
+    def test_the_summary_is_judged_by_its_failed_shards(self):
+        lines = "\n".join(self.judge())
+        self.assertIn("'Skill test scope'", lines)
+        self.assertNotIn(SKILL_DOCS, lines)
+        self.assertIn(f"repos/{HQ}/contents/.github/workflows/skills-tests.yml?ref=main", self.gh.routes)
+        self.assertEqual(set(excuse.rollups(HQ)["run"][SKILL_DOCS]["under"]), {"scope", "tests-policy", "tests-fleet"})
+
+    def test_one_unexcused_shard_keeps_the_summary_red(self):
+        # Every failed job of the run is judged: the base fails the scope shard but not the policy shard.
+        self.gh.jobs[4] = failed_job(4, 10, HEAD, name="Skill policy tests")
+        self.gh.logs[4] = log("Skill policy tests", TEST_STEP, "##[error]warm sources: ui-climb.yml:test")
+        self.gh.jobs[5] = dict(failed_job(5, 20, BASE_SHA, name="Skill policy tests"), conclusion="success")
+        with self.assertRaisesRegex(excuse.Refused, "'Skill policy tests'"):
+            self.judge()
+
+    def test_a_red_summary_with_failed_jobs_only_outside_its_needs_blocks(self):
+        for job_id in (1, 2):
+            self.gh.jobs[job_id]["name"] = "Other check"
+        with self.assertRaisesRegex(excuse.Refused, "no failed job under its needs"):
+            self.judge()
+
+    def test_the_summary_alone_blocks(self):
+        self.gh.jobs[1]["conclusion"] = "success"
+        with self.assertRaisesRegex(excuse.Refused, "no failed job"):
+            self.judge()
+
+    def test_this_checkouts_rollups_are_not_another_repos(self):
+        # ci-status is a cmux rollup, not an HQ one: an HQ job of that name is judged as itself.
+        self.judge()
+        self.assertFalse(excuse.is_aggregate("ci-status", HQ))
+        self.assertTrue(excuse.is_aggregate("ci-status"))
+        self.assertFalse(excuse.is_aggregate(SKILL_DOCS))
+
+    def test_unreadable_workflows_refuse_every_rollup(self):
+        for workflows, said in (({}, "unreadable"),
+                                ({"skills-tests.yml": SKILLS_YML.replace("tests: {name", "summary: {name")},
+                                 "no job tests")):
+            with self.subTest(said), unittest.mock.patch.object(excuse, "_REPO_ROLLUPS", {}):
+                self.gh.workflows = workflows
+                with self.assertRaisesRegex(excuse.Refused, f"{HQ} rollups at main: .*{said}.*no rollup red is excused"):
+                    self.judge()
+
+    def test_a_repo_with_no_rollups_named_judges_every_job_as_itself(self):
+        self.assertEqual(excuse.rollups("manaflow-ai/other"), excuse.NO_ROLLUPS)
+        excuse.load_rollups("manaflow-ai/other", "main", self.gh)
+        self.assertEqual(self.gh.routes, [])
+
+    def test_rollups_not_read_are_refused(self):
+        with self.assertRaisesRegex(excuse.Refused, "not read from its workflows"):
+            excuse.rollups(HQ)
 
 
 class CrashIsNeverABaseRed(unittest.TestCase):
