@@ -153,19 +153,49 @@ struct FrontendBrowserTabLinkDownTests {
         #expect(took < .seconds(6), "the create waited \(took) for a link that came back 1.5 s after the drop")
     }
 
-    /// The daemon dies with the create in flight (no reply) and is back 1.5 s later: the create sees the connection still
-    /// ready on its closed transport, waits for the reconnect and goes out once on the new link. It never sends again in a
-    /// loop on the closed transport (the connection's request probe counts each send the transport failed).
+    /// The daemon dies with the create in flight (no reply) and is back 1.5 s later: the create goes out once on the new
+    /// link, and only its first send failed (the connection's request probe counts each send the transport failed). End to
+    /// end, this order is a race: the transport fails the create before it posts the connection's close hop, and either
+    /// can take the connection's next turn (the next test fixes the order the review of #35885 found).
     @Test func aCreateInFlightWhenTheLinkDropsGoesOnceWhenTheLinkIsBack() async throws {
         let (outcome, took, creates, failedSends) = try await Self.withLink("drop", deadline: .seconds(10)) { link in
             let (outcome, took) = await Self.timedCreate(on: link)
             return (outcome, took, await link.creates(), link.probe.snapshot().errors)
         }
-        #expect(failedSends <= 2, "the create was sent \(failedSends) times on a closed transport, not once")
+        #expect(failedSends == 1, "the create failed \(failedSends) sends, not only the one the drop cut")
         let created = try outcome.get()
         #expect(creates == 1, "the create reached the daemon's next run \(String(describing: creates)) times, not once")
         #expect(created.surface == SurfaceID(rawValue: 40))
         #expect(took < .seconds(6), "the create waited \(took) for a link that came back 1.5 s after the drop")
+    }
+
+    /// The transport closed in the connection's own turn, before its close hop could run (the order of a create the drop
+    /// failed before the hop, or the heartbeat's close): the create on that turn sees the connection still ready on the
+    /// closed transport. It ends that ready phase itself, waits for the reconnect, and goes out once when the link is back
+    /// (review of #35885: it sent again at once in a loop that kept the hop out, until its deadline).
+    @Test func aCreateOnATransportClosedBeforeTheConnectionKnewWaitsForTheReconnect() async throws {
+        let (outcome, took, creates, failedSends) = try await Self.withLink("back", deadline: .seconds(10)) { link in
+            let started = ContinuousClock.now
+            let outcome = await Self.closeThenCreate(on: link.connection, link: link)
+            let took = ContinuousClock.now - started
+            return (outcome, took, await link.creates(), link.probe.snapshot().errors)
+        }
+        #expect(failedSends == 1, "the create was sent \(failedSends) times on the closed transport, not once")
+        let created = try outcome.get()
+        #expect(creates == 1, "the create reached the daemon's next run \(String(describing: creates)) times, not once")
+        #expect(created.surface == SurfaceID(rawValue: 40))
+        #expect(took < .seconds(6), "the create waited \(took) for a link that came back 1.5 s after the close")
+    }
+
+    /// In one turn of `connection`: its transport closes (it fails what is pending and ends the daemon's run; the close hop
+    /// it posts waits for this turn), then the create starts on that turn.
+    private static func closeThenCreate(on connection: isolated DaemonConnection, link: Link) async -> Outcome {
+        connection.ready?.transport.close()
+        do {
+            return .success(try await link.create())
+        } catch {
+            return .failure(error)
+        }
     }
 
     /// A create cancelled while it waits for the link ends at once, and never goes out when the link is back.
