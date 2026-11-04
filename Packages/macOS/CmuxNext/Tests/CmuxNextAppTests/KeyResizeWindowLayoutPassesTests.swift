@@ -32,11 +32,84 @@ struct KeyResizeWindowLayoutPassesTests {
         for sub in view.subviews { needingLayout(sub, into: &found) }
     }
 
-    /// One window layout pass the way the display cycle runs it; 1 when it laid out a view.
+    /// One window layout pass the way the display cycle runs it, for the window and then its child windows (the overlay
+    /// host panel); the number of windows it laid out a view in.
     static func windowPass(_ window: NSWindow) -> Int {
         let before = LayoutPassGuard.shared.windowLayoutPasses
         window.layoutIfNeeded()
+        for child in window.childWindows ?? [] { child.layoutIfNeeded() }
         return LayoutPassGuard.shared.windowLayoutPasses - before
+    }
+
+    /// Views needing layout in `window`'s child windows (the overlay host panel), prefixed with the window class.
+    static func childNeeds(_ window: NSWindow) -> [String] {
+        var found: [String] = []
+        for child in window.childWindows ?? [] {
+            guard let frame = child.contentView?.superview ?? child.contentView else { continue }
+            var here: [String] = []
+            needingLayout(frame, into: &here)
+            found += here.map { "\(type(of: child)): \($0)" }
+        }
+        return found
+    }
+
+    static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
+
+    /// Page mode as in the app with a Chromium page: a shown ShellWindow with a page child window, so the layout's
+    /// overlay plane lives in the overlay host panel (`WindowOverlayLayer.placement == .overlayWindow`). Each spring frame:
+    /// at most one layout pass per window, and after it no view of the panel needs layout.
+    @Test(.enabled("page mode needs a window on screen") { await Self.hasDisplay() }, arguments: [false, true])
+    func aColumnKeysSpringFrameInPageModeLaysTheOverlayPanelOutOnce(reverse: Bool) throws {
+        LayoutPassGuard.shared.install()
+        let rig = Ground.Rig(Ground.column(Ground.pair), focused: "p2")
+        defer { rig.close() }
+        let shell = ShellWindow(contentRect: NSRect(x: 200, y: 200, width: 1200, height: 800), styleMask: [.titled, .resizable],
+                                backing: .buffered, defer: false)
+        shell.isReleasedWhenClosed = false
+        rig.window.contentView = nil
+        shell.contentView = rig.root
+        shell.orderFrontRegardless()
+        rig.root.layoutSubtreeIfNeeded()
+        rig.root.driver.isManual = true
+        let page = NSWindow(contentRect: shell.frame.insetBy(dx: 300, dy: 200), styleMask: [.borderless], backing: .buffered, defer: false)
+        page.isReleasedWhenClosed = false
+        shell.addChildWindow(page, ordered: .above)
+        shell.overlayLayer.evaluate()
+        defer {
+            shell.removeChildWindow(page)
+            page.close()
+            shell.close()
+        }
+        try #require(shell.overlayLayer.placement == .overlayWindow, "the page did not put the window in page mode")
+        Self.drainMainTurns()
+        _ = Self.windowPass(shell)
+        let keys: [LayoutDirection] = reverse ? [.right, .left, .right] : [.left, .right, .left]
+        var extra: [String] = [], frames = 0, passes: [Int] = []
+        for (index, key) in keys.enumerated() {
+            #expect(PaneResize.press("p2", key, model: rig.model, view: rig.root))
+            passes.append(Self.windowPass(shell))
+            Self.drainMainTurns()
+            var moving = true, frame = 0
+            while moving, frame < 240 {
+                moving = rig.root.advanceFrame(1.0 / 120)
+                let first = Self.windowPass(shell)
+                let work = rig.afterCommit
+                rig.afterCommit.removeAll()
+                for item in work { item() }
+                Self.drainMainTurns()
+                let needs = Self.childNeeds(shell)
+                let second = Self.windowPass(shell)
+                if frame < 3 || second > 0 || !needs.isEmpty {
+                    let line = "press \(index) frame \(frame) (moving \(moving)): windows laid out \(first), again \(second), panel needs \(needs.prefix(4))"
+                    if second > 0 || !needs.isEmpty { extra.append(line) }
+                    print("S1B-WINDOW-LAYOUT page \(line)")
+                }
+                frame += 1
+                frames += 1
+            }
+        }
+        print("S1B-WINDOW-LAYOUT page reverse \(reverse) key turn windows \(passes), frames \(frames), extra \(extra.count)")
+        #expect(extra.isEmpty, "\(extra.count) of \(frames) spring frames laid a window out again: \(extra.prefix(4))")
     }
 
     /// The main turns queued by now (blocks, main-queue work, main-actor tasks), with no wait.
