@@ -21,6 +21,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 import time
@@ -36,7 +37,8 @@ args = parser.parse_args()
 
 CLI = str(Path(args.app) / "Contents/Resources/bin/cmux")
 ENV = {**os.environ, "CMUX_SOCKET_PATH": f"/tmp/cmux-debug-{args.tag}.sock"}
-BROWSER_PROOF_URL = "https://example.com/"
+BROWSER_PROOF_NONCE = secrets.token_hex(8)
+BROWSER_PROOF_URL = f"https://example.com/?cmux_browser_proof={BROWSER_PROOF_NONCE}"
 BROWSER_PROOF_MARKER = "CLOUD_BROWSER_PROOF_OK"
 BROWSER_PROOF_REPLY = f"{BROWSER_PROOF_MARKER} title=Example Domain h1=Example Domain"
 BROWSER_PROOF_PROMPT = f"""This is an automated Cloud browser proof. Use the browser available on this Cloud machine; do not answer from memory. Navigate to {BROWSER_PROOF_URL} with the `agent-browser` command (or the browser tool exposed by the harness), take a snapshot, and read the page title and its main heading. Only after those browser actions succeed, reply on one line in this exact form: {BROWSER_PROOF_REPLY}. If the browser is unavailable, say so and do not emit the marker.
