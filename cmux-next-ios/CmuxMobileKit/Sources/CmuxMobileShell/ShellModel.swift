@@ -176,6 +176,11 @@ final class ShellModel {
             theme.haptics.error()
             shellLog.error("\(what, privacy: .public): \(message, privacy: .public)")
         }
+        creator.onGroupFailure = { [weak self] _, what, message in
+            self?.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: what)
+            theme.haptics.error()
+            shellLog.error("\(what, privacy: .public): \(message, privacy: .public)")
+        }
     }
 
     /// Shows `workspace` in place of the one on screen (the Chats list's Open in New Workspace).
