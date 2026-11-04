@@ -2,6 +2,8 @@
 // becomes a Ghostty theme file in the person's themes folder, or a theme file they pick is copied
 // there. Either one is then picked as the terminal theme. A name in use asks inline before replacing.
 import { useState, type FormEvent } from "react";
+import { Button } from "../../../ui/Button";
+import { Input } from "../../../ui/Input";
 import type { WireError } from "../ops";
 import { useStore } from "../context";
 import { t } from "../strings";
@@ -88,7 +90,7 @@ export function ThemeFiles({
     <div className="theme-files" data-theme-files="">
       {prompt?.kind === "name" ? (
         <form className="theme-files-row" onSubmit={submit} data-theme-files-prompt="name">
-          <input
+          <Input
             className="field"
             aria-label={t("settingsPage.theme.file.name")}
             ref={focusOnMount}
@@ -96,10 +98,10 @@ export function ThemeFiles({
             value={prompt.value}
             onChange={(event) => setPrompt({ kind: "name", value: event.target.value })}
           />
-          <button type="submit" className="button" disabled={busy || prompt.value.trim() === ""}>
+          <Button type="submit" className="button" disabled={busy || prompt.value.trim() === ""}>
             {t("settingsPage.theme.file.save")}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             className="button"
             onClick={() => {
@@ -108,26 +110,27 @@ export function ThemeFiles({
             }}
           >
             {t("settingsPage.cancel")}
-          </button>
+          </Button>
         </form>
       ) : prompt?.kind === "replace" ? (
         <div className="theme-files-row" data-theme-files-prompt="replace">
           <span>{t("settingsPage.theme.file.replace", prompt.name)}</span>
-          <button
+          <Button
+            danger
             type="button"
             className="button danger"
             disabled={busy}
             onClick={() => void run(async () => finish(await prompt.again(prompt.details)(true), prompt.again))}
           >
             {t("settingsPage.theme.file.replaceButton")}
-          </button>
-          <button type="button" className="button" onClick={() => setPrompt(null)}>
+          </Button>
+          <Button type="button" className="button" onClick={() => setPrompt(null)}>
             {t("settingsPage.cancel")}
-          </button>
+          </Button>
         </div>
       ) : (
         <div className="theme-files-row">
-          <button
+          <Button
             type="button"
             className="button"
             disabled={disabled || busy || !canSave}
@@ -138,8 +141,8 @@ export function ThemeFiles({
             }}
           >
             {t("settingsPage.theme.file.saveAs")}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             className="button"
             disabled={disabled || busy}
@@ -147,7 +150,7 @@ export function ThemeFiles({
             onClick={importFile}
           >
             {t("settingsPage.theme.file.import")}
-          </button>
+          </Button>
         </div>
       )}
       {error && (

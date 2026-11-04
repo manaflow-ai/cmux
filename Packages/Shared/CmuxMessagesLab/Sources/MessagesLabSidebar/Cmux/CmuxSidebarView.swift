@@ -314,6 +314,13 @@ public final class CmuxSidebarView: NSView {
         set { controller.filter = newValue ? .unread : .all }
     }
 
+    /// The empty list's Show All was clicked: the filter is off (``unreadOnly`` is false) and the
+    /// host's own filter controls follow.
+    public var onShowAll: (() -> Void)? {
+        get { controller.onShowAll }
+        set { controller.onShowAll = newValue }
+    }
+
     /// Ends a search: the field empties and the list shows every conversation again.
     public func clearSearch() {
         guard !controller.searchField.stringValue.isEmpty else { return }
