@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """One GitHub issue per stability signature (plans/cmux-next/chrome-parity/p10-stability.md, task 004).
 
-The stability lab (stability-lab.py collect) turns crash, sanitizer and hang artifacts into signatures with
+Crash, sanitizer and hang artifacts become signatures with
 crash_signature.py ({kind, process, exception, frames[3], hash12}). This script keeps exactly one issue per hash12,
 as ClusterFuzz files one bug per crash state (src/clusterfuzz/_internal/issue_management/issue_filer.py) and closes it
 only after its progression task stops reproducing the crash on newer builds
