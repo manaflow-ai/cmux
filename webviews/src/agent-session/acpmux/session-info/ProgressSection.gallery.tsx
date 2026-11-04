@@ -31,13 +31,22 @@ function GalleryProgress({ statuses, ended = false, live = false }: Props) {
   const now = live ? tick(done) : statuses;
   const plan = now && { entries: STEPS.map((content, index) => ({ content, status: now[index]! })), ended };
   return (
-    <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%" }}>
+    <div
+      className="acpmux-shell"
+      style={{ position: "relative", display: "flex", justifyContent: "flex-end", height: "100%" }}
+    >
       {live && (
-        <button type="button" data-gallery-tick onClick={() => setDone((at) => Math.min(STEPS.length, at + 1))}>
+        <button
+          type="button"
+          data-gallery-tick
+          // Left of the panel, in the room the narrowest panel (260px) leaves, so the panel never covers it.
+          style={{ position: "absolute", left: 8, top: 8 }}
+          onClick={() => setDone((at) => Math.min(STEPS.length, at + 1))}
+        >
           Tick
         </button>
       )}
-      <SessionInfoPanel width={320} placement="overlay">
+      <SessionInfoPanel width={260} placement="overlay">
         <SessionInfo machineName="Studio" plan={plan} sections={DEFAULT_SECTIONS} more />
       </SessionInfoPanel>
     </div>
@@ -76,7 +85,7 @@ export default componentEntry<Props>({
   area: "Agent pane",
   pane: true,
   height: 360,
-  widths: { narrow: 320, normal: 420 },
+  widths: { narrow: 360, normal: 420 },
   covers: [
     "agent-session/acpmux/session-info/ProgressSection.tsx",
     "agent-session/acpmux/session-info/SessionInfo.tsx",
