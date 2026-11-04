@@ -25,7 +25,6 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding {
     /// The pane's own background and tint (`PaneContentView+Backdrop`).
     let backdropState = PaneBackdropState()
     private var paneBackgroundsObservation: Task<Void, Never>?
-    private var loneTabObservation: Task<Void, Never>?
     let contentHost = PaneContentAreaView()
     private(set) weak var content: NSView?
     /// Explicitly observed ownership: first-paint holds can change this without a tab-store update.
@@ -133,9 +132,6 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding {
                 self?.refreshBandHeight()
             }
         }
-        loneTabObservation = Task { [weak self] in // a lone tab gives a chat the whole row (layout)
-            for await _ in ObservationStream({ stripModel.hasLoneTab }) { self?.needsLayout = true }
-        }
         paneBackgroundsObservation = Task { [weak self] in
             for await _ in ObservationStream({ DesignSettings.shared.paneBackgrounds }) { self?.paintPaneBackdrop() }
         }
@@ -160,7 +156,6 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding {
             tokenObservation?.cancel()
             placementObservation?.cancel()
             paneBackgroundsObservation?.cancel()
-            loneTabObservation?.cancel()
             agentTagObservation?.cancel()
         }
     }
@@ -177,8 +172,9 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding {
         toolbar?.view.isHidden = shown <= 0
         let tools = toolbarWidth(shown: shown), room = bounds.width - tools, row = onTop && !isBandActive && !hidesStrip && hostsContent && shown > 0 ? content as? PaneTabRowSharing : nil
         let held = contentHost.isHolding, rowContent = (held ? tabRow.offered : row?.fitsTabRow(room: room) == true) ? row : nil, rowTools = held ? tabRow.tools : rowContent?.tabRowWidth(room: room) ?? 0
-        let loneTab = rowTools > 0 && rowContent?.tabRowTakesLoneTab == true && stripView.model.hasLoneTab // TabStripModel.hasLoneTab
-        stripView.isHidden = shown <= 0 || loneTab
+        // The strip shows at every tab count, one included: a lone tab hidden left the top of the pane bare and
+        // undraggable (Leo 2026-11-03: "i think that's just too alien of a look"; it replaced #33132).
+        stripView.isHidden = shown <= 0
         if !held { tabRow = (rowContent != nil, rowTools) }
         if !isBandActive {
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - tools - rowTools, height: shown)
@@ -224,7 +220,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding {
         }
         if !contentHost.isHolding { layoutParked() }
         layoutAgentTag()
-        if hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, tabs: !loneTab, toolbar: toolbar?.view, in: self) } else { toolbar?.view.paintTabRowHole(nil) }
+        if hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, toolbar: toolbar?.view, in: self) } else { toolbar?.view.paintTabRowHole(nil) }
         if contentHost.takeEndedHold() || hostChanged && !contentHost.isHolding { onResize?() }
     }
 

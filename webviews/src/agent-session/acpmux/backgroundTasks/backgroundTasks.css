@@ -396,3 +396,20 @@
     transition: none !important;
   }
 }
+
+/* ---------- Its own tab in the right column (backgroundPane.ts) ---------- */
+/* The page is the chat's Background tasks tab: the panel alone fills the tab under the native tab
+   row; the chat's own column and its other panels stay mounted but out of sight. */
+.acpmux-shell[data-background-pane] > :not(.acpmux-bg) {
+  display: none;
+}
+.acpmux-shell[data-background-pane] > .acpmux-bg {
+  position: relative;
+  inset: auto;
+  flex: 1 1 auto;
+  width: auto;
+  height: auto;
+  margin: var(--acpmux-bg-top) 0 0;
+  max-height: calc(100% - var(--acpmux-bg-top));
+  box-shadow: none;
+}
