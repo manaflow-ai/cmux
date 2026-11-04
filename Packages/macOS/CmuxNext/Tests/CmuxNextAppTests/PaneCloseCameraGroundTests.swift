@@ -61,11 +61,26 @@ struct PaneCloseCameraGroundTests {
         }
     }
 
-    /// Two last-row closes in a row where the second makes the rows fit (Codex review, round 2): four 400-permille rows
-    /// scrolled to the fourth, the fourth closes, and six frames later the third. The two rows left fit the column, so its
-    /// scroll goes and the second row springs to its rest; the first closing pane rides the second, which collapses onto
-    /// that rest, and must collapse with it (it knows where the second rests), not keep the ground it showed for the landing
-    /// to take away.
+    /// Two last-column closes in a row past the strip's end (Codex review, round 2): four 0.3-wide columns (new columns
+    /// keep their width), the camera at the end on the fourth, the fourth closes, and six frames later the third. The strip
+    /// fits after the first close and leaves an empty end after the second. The fourth closing pane rides the third, a
+    /// closing pane: it must collapse onto where the third rests (in the strip, beside the second column), not keep the
+    /// ground it showed in the strip's empty end for the landing to take away in one frame.
+    @Test func twoLastColumnClosesInARowLeaveNoGroundPastTheStrip() throws {
+        let rig = Rig(ColumnCloseScrollMotionTests.columns(4, width: 0.3), focused: "p4")
+        defer { rig.close() }
+        let screen = try rig.screen
+        try #require(screen.scroll.value > 100, "SETUP: the camera does not show the fourth column (offset \(screen.scroll.value))")
+        try Self.check(rig, closing: ["p4", "p3"], vertical: false) {
+            try #require(screen.hasMotion, "SETUP: the close does not move the strip")
+        }
+    }
+
+    /// Two last-row closes in a row where the second makes the rows fit (Codex review, round 2; a guard: rows that fit fill
+    /// their column, so the frozen edge of the old code was already at its rest): four 400-permille rows scrolled to the
+    /// fourth, the fourth closes, and six frames later the third. The two rows left fit the column, so its scroll goes; the
+    /// first closing pane rides the second, which collapses onto the second row's rest, and leaves no ground for the
+    /// landing.
     @Test func aSecondLastRowCloseThatMakesTheRowsFitLeavesNoGround() throws {
         let rig = Rig(ColumnCloseScrollMotionTests.rows([400, 400, 400, 400]), focused: "p4")
         defer { rig.close() }
