@@ -307,7 +307,7 @@ class ViewerStoreLifecycleTests(unittest.TestCase):
         workspace_b, surface_b = str(uuid.uuid4()), str(uuid.uuid4())
         self.server.workspace_surfaces[workspace_a] = surface_a
         self.server.workspace_surfaces[workspace_b] = surface_b
-        self.set_surface_owner(surface_a)
+        self.set_surface_owner(str(uuid.uuid4()), surface_a)
         older, _ = self.viewer(workspace_a, surface_a)
         newer, _ = self.viewer(workspace_b, surface_b)
         older.run("attached")
@@ -334,6 +334,10 @@ class ViewerStoreLifecycleTests(unittest.TestCase):
         pane_surface = str(uuid.uuid4())
         viewer, attachment = self.viewer(self.worker_workspace, pane_surface)
         viewer.run("attached")
+        state = json.loads(self.state_path.read_text())
+        state.setdefault("activeSessionsBySurface", {})[self.worker_surface] = {
+            "sessionId": self.worker_session, "updatedAt": time.time()}
+        self.state_path.write_text(json.dumps(state))
         marker_dir = self.state_path.parent / "claude-viewer-closed"
         marker_dir.mkdir(mode=0o700, exist_ok=True)
         (marker_dir / attachment.lower()).write_text("")
