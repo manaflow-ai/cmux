@@ -41,6 +41,7 @@
     "ci-web.yml:web-instant-navigation": {"class": "webview", "warm": ["actions-cache"]},
     "ci-web.yml:web-typecheck": {"class": "webview", "warm": ["actions-cache"]},
     "ci.yml:dogfood-build": {"class": "mac-build", "warm": [], "exempt": "cold: a build script from a clean tree; no warm source wired yet"},
+    "cloud-chat-proof.yml:proof": {"class": "mac-build", "warm": [], "exempt": "cold: a tagged reload.sh build into a fresh DerivedData on an ephemeral Mac that holds the dev stack pair; no shared cache is read in a secret-bearing job"},
     "cloud-devbox-image-rebake.yml:rebake": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "cloud-vm-env-audit.yml:audit": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "cloud-vm-guest-install.yml:guest-install": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},

@@ -61,7 +61,7 @@ public enum HomeAgentFoldStyle: Int, CaseIterable, Sendable {
     /// What the variant does, one sentence, for the playground's caption.
     public var caption: String {
         switch self {
-        case .current: "The shipped line: chevron, muted label, the agents as gray chips."
+        case .current: "The shipped look: one pill per agent (an agents row); a note keeps the caption line."
         case .avatarStack: "Overlapping agent avatars (initials on a color from the agent's id), then the label."
         case .centeredCaption: "Centered like iMessage's \"Today 5:13 PM\": bold label, then the agents, no chevron."
         case .statusDots: "Each agent with a dot for its state: blue told, green reported, red stopped."
@@ -144,6 +144,7 @@ public enum HomeAgentFoldStyle: Int, CaseIterable, Sendable {
     func height(_ p: HomeAgentFoldRowProvider.Payload) -> CGFloat {
         if let spacing { return spacing.height }
         if let pillShape, p.role != "note" { return HomeAgentPills(p, shape: pillShape, width: .greatestFiniteMagnitude).height }
+        if self == .current, HomeAgentFoldRowProvider.drawsPills(p) { return HomeAgentPills(p, shape: .pill, width: .greatestFiniteMagnitude).height }
         guard p.role != "note" else { return HomeAgentFoldRowProvider.height }
         switch self {
         case .twoLine: return p.open || p.latest == nil ? HomeAgentFoldRowProvider.height : 38
@@ -165,7 +166,11 @@ public enum HomeAgentFoldStyle: Int, CaseIterable, Sendable {
         let peersText = HomeAgentMessageRow.peerPreview(p.peers, separator: ", ")
         switch self {
         case .current:
-            HomeAgentFoldLine(p, width: rect.width).draw(ctx, at: rect.origin)
+            if HomeAgentFoldRowProvider.drawsPills(p) {
+                HomeAgentPills(p, shape: .pill, width: rect.width).draw(ctx, origin: rect.origin)
+            } else {
+                HomeAgentFoldLine(p, width: rect.width).draw(ctx, at: rect.origin)
+            }
         case .avatarStack:
             var x = x0 + 10
             if !p.open {
