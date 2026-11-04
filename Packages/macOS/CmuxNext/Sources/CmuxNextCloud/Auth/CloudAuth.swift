@@ -221,9 +221,11 @@ public final class CloudAuth {
             apiBaseURL: configuration.apiBaseURL.absoluteString
         )
         // A session adopted from cmux NIGHTLY is NIGHTLY's own: a sign-out here leaves it alive on the server.
-        let importing = tokenStore as? ImportingTokenStore
-        let keepsServerSession: (@Sendable (String) async -> Bool)? = importing.map { store in
-            { refreshToken in await store.isShared(refreshToken: refreshToken) }
+        var keepsServerSession: (@Sendable (String) async -> Bool)?
+        if let importing = tokenStore as? ImportingTokenStore {
+            keepsServerSession = { (refreshToken: String) async -> Bool in
+                await importing.isShared(refreshToken: refreshToken)
+            }
         }
         return StackAuthClient(config: config, tokenStore: .custom(tokenStore),
                                baseURL: configuration.stackBaseURL.absoluteString, noAutomaticPrefetch: true,
