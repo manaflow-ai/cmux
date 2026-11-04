@@ -52,9 +52,10 @@ struct HomeAgentMessages {
     ///
     /// Two or more messages one Chief sent or got after the same row fold into one row that names
     /// their agents (``HomeAgentMessageRow/Kind/fold(count:peers:expanded:)``); a group in `expanded`
-    /// keeps that row first and shows every message after it. A lone message shows as itself.
+    /// keeps that row first and shows every message after it. `seen` is each agent's newest report time the
+    /// person opened (``HomeStore/markAgentSeen(_:in:)``): a pill whose report is newer shows the unread dot.
     func inserting(into items: [TranscriptItem], summary: ConversationSummary?,
-                   expanded: Set<String> = []) -> [TranscriptItem] {
+                   expanded: Set<String> = [], seen: [String: Date] = [:]) -> [TranscriptItem] {
         guard !runs.isEmpty else { return items }
         var byKey: [IdempotencyKey: Int] = [:]
         var byMessageID: [MessageID: Int] = [:]
@@ -94,7 +95,7 @@ struct HomeAgentMessages {
             // Stable sorting keeps the run's numeric step sequence when fragments
             // share a timestamp; their opaque IDs are not a chronological key.
             let messages = (after[index] ?? []).sorted { $0.createdAt < $1.createdAt }
-            return [item] + Self.folded(messages, expanded: expanded)
+            return [item] + Self.folded(messages, expanded: expanded, seen: seen)
         }
     }
 
@@ -111,7 +112,7 @@ struct HomeAgentMessages {
     /// told or heard from after that row (user 2026-11-03, msg 19960), status notes included (they stop
     /// the agent's pill), so a lone task is a pill too and five "stopped without a report" notes are no
     /// second row.
-    private static func folded(_ messages: [TranscriptItem], expanded: Set<String>) -> [TranscriptItem] {
+    private static func folded(_ messages: [TranscriptItem], expanded: Set<String>, seen: [String: Date]) -> [TranscriptItem] {
         guard !messages.isEmpty else { return messages }
         var groups: [String] = []
         var byGroup: [String: [TranscriptItem]] = [:]
@@ -120,17 +121,19 @@ struct HomeAgentMessages {
             if byGroup[group] == nil { groups.append(group) }
             byGroup[group, default: []].append(message)
         }
-        return groups.flatMap { fold(byGroup[$0] ?? [], group: $0, expanded: expanded) }
+        return groups.flatMap { fold(byGroup[$0] ?? [], group: $0, expanded: expanded, seen: seen) }
     }
 
     /// One agents row for `members`, then every member in order when the group is open.
     ///
     /// Each agent, first-seen order: its state is its newest member's (the Chief's message: told; a
     /// report: reported; a status note: stopped); its title is the Chief's first message to it.
-    private static func fold(_ members: [TranscriptItem], group: String, expanded: Set<String>) -> [TranscriptItem] {
+    private static func fold(_ members: [TranscriptItem], group: String, expanded: Set<String>,
+                             seen: [String: Date]) -> [TranscriptItem] {
         guard let first = members.first else { return [] }
         var peers: [String] = [], seenPeers: Set<String> = []
         var states: [String: HomeAgentMessageRow.PeerState] = [:], latest: String?, titles: [String: String] = [:]
+        var reportedAt: [String: Date] = [:]
         for member in members {
             let peer: String
             switch member.agentMessage?.kind {
@@ -138,6 +141,7 @@ struct HomeAgentMessages {
                 peer = outgoing ? to : from
                 states[peer] = outgoing ? .told : .reported
                 if outgoing, titles[peer] == nil { titles[peer] = HomeAgentMessageRow.title(of: text) }
+                if !outgoing { reportedAt[peer] = member.createdAt }
                 latest = text
             case let .note(notePeer, _, text)?:
                 peer = notePeer
@@ -158,6 +162,30 @@ struct HomeAgentMessages {
         fold.agentMessage?.peerStates = peers.map { states[$0] ?? .told }
         fold.agentMessage?.latest = latest
         fold.agentMessage?.peerTitles = peers.map { titles[$0] ?? $0 }
+        fold.agentMessage?.peerUnread = peers.map { peer in
+            guard states[peer] == .reported, let at = reportedAt[peer] else { return false }
+            return seen[peer].map { $0 < at } ?? true
+        }
         return open ? [fold] + members : [fold]
+    }
+
+    /// `peer`'s chat with the Chief over every run of the conversation (``HomeAgentThread``), or nil
+    /// when no run has a message with it. `items` are the conversation's own rows: the Chief's link
+    /// to the agent's session comes from its words there.
+    func thread(peer: String, in items: [TranscriptItem]) -> HomeAgentThread? {
+        let messages = runs.values.flatMap { run in run.messages.filter { $0.peer == peer } }
+            .sorted { ($0.date, $0.sequence, $0.id) < ($1.date, $1.sequence, $1.id) }
+        guard let first = messages.first, let last = messages.last else { return nil }
+        let task = messages.first(where: \.outgoing)
+        let entries = messages.filter { $0.id != task?.id }
+            .map { HomeAgentThread.Entry(id: $0.id, outgoing: $0.outgoing, text: $0.text, date: $0.date) }
+        let state: HomeAgentMessageRow.PeerState = last.outgoing ? .told
+            : HomeAgentMessageRow.statusNote(last.text) != nil ? .stopped : .reported
+        let chief = items.lazy.filter { !$0.isReadOnly }.map(\.plainText)
+        return HomeAgentThread(
+            peer: peer, title: task.flatMap { HomeAgentMessageRow.title(of: $0.text) } ?? peer, state: state, task: task?.text,
+            entries: entries, startedAt: first.date, endedAt: state == .told ? nil : last.date,
+            newestReportAt: messages.last(where: { !$0.outgoing })?.date,
+            workspaceLink: HomeAgentThread.workspaceLink(for: peer, in: chief))
     }
 }
