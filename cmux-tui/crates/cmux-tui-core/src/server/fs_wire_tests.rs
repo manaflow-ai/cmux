@@ -253,6 +253,13 @@ fn the_contract_request_lines_get_the_answer_shapes_cmux_cloud_reads() {
     );
 }
 
+/// Sends `line` and `body` on one dial and returns what the daemon answered.
+/// The daemon may refuse a write stream before it has read all of `body`
+/// (a deflate stream past its `decoded_size`, a failed disk write): it
+/// answers and closes, and the rest of `body` then meets a closed socket.
+/// A client stops sending there and reads the answer, so this does too.
+/// Whether that happens depends on the socket buffer (a few KiB on macOS,
+/// a few hundred on Linux), not on the daemon.
 fn routed(home: &Home, line: &str, body: &[u8]) -> (Option<()>, Vec<u8>) {
     let (daemon_side, mut client) = UnixStream::pair().unwrap();
     client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
@@ -263,8 +270,16 @@ fn routed(home: &Home, line: &str, body: &[u8]) -> (Option<()>, Vec<u8>) {
     let mut sent = home.map(line).into_bytes();
     sent.push(b'\n');
     sent.extend_from_slice(body);
-    client.write_all(&sent).unwrap();
-    client.shutdown(std::net::Shutdown::Write).unwrap();
+    match client.write_all(&sent) {
+        Ok(()) => client.shutdown(std::net::Shutdown::Write).unwrap(),
+        Err(error) => assert!(
+            matches!(
+                error.kind(),
+                std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+            ),
+            "only a daemon that already answered and closed stops the body: {error}"
+        ),
+    }
     let mut output = Vec::new();
     let _ = client.read_to_end(&mut output);
     (daemon.join().unwrap(), output)
