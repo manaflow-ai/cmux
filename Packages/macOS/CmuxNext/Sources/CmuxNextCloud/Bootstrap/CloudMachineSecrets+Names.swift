@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 extension CloudMachineSecrets {
     /// The names `index` (``index(from:)``) holds values for, each once and sorted, whatever their
