@@ -2,6 +2,7 @@
 public import Darwin
 public import Foundation
 import CmuxNextCompat
+public import CmuxNextSettings
 
 /// Starts Computer Use as cmux Remote's worker (docs/cmux-remote.md). The App implements it
 /// over the daemon (`remote-host-app`) and cmux Remote's app socket. The returned channel is
