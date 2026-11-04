@@ -179,13 +179,13 @@ struct DemoDriver {
         await pause(3.0)
         var arrived = 0
         hook.showStatus("Chief replies arrived: 0\nMessages loaded: \(hook.loadedCount ?? 0)\nbatch 0")
-        for batch in 1...32 {
+        for batch in 1...ChiefDemoHook.floodBatches {
             guard await hook.flood(50) else {
                 hook.showStatus("no mock Chief open")
                 return
             }
             arrived += 50
-            await pause(0.9)
+            await pause(1.2)
             let loaded = hook.loadedCount ?? 0
             let over = loaded > 1500 ? "  OVER 1500" : ""
             hook.showStatus("Chief replies arrived: \(arrived)\nMessages loaded: \(loaded)\(over)\nbatch \(batch)")
