@@ -30,14 +30,16 @@ extension DividerDrag {
             SharedEdgeMotion.Influence(kind, caught: caughtGeometry, probe: geometry($0), axis: caught.axis)
         }).first
         if caught.catches, influence == nil { return turnSharedEdgesOff() }
-        // A caught value the layout clamps cannot put the line where it shows: its spring would go on under a still
-        // pointer. Such a press takes the drag from before S2B.
+        // The caught value, laid out as the screen will (on its pixel grid), must put the line's rest place where it
+        // shows from its anchor, within the shared-edge tolerance: a value the layout clamps (an extent under a minimum,
+        // past the ratio range) or rounds further would leave the line springing under a still pointer. Such a press
+        // takes the drag from before S2B.
         if caught.catches {
-            let restGeometry = ScreenGeometry.compute(layout, viewport: viewport, style: style, scale: 0)
-            guard let from = SharedEdgeMotion.Influence.target(kind, in: restGeometry),
-                  let to = SharedEdgeMotion.Influence.target(kind, in: caughtGeometry) else { return turnSharedEdgesOff() }
-            let moved = caught.axis == .horizontal ? to.minX - from.minX : to.minY - from.minY
-            if abs(moved - caught.lineMove) > 1 { return turnSharedEdgesOff() } // the rest layout is on the pixel grid, this one not
+            let installed = ScreenGeometry.compute(caught.value.applied(to: layout), viewport: viewport, style: style, scale: screen.scale)
+            guard let rest = SharedEdgeMotion.Influence.target(kind, in: screen.baseGeometry),
+                  let now = SharedEdgeMotion.Influence.target(kind, in: installed) else { return turnSharedEdgesOff() }
+            let moved = caught.axis == .horizontal ? now.minX - rest.minX : now.minY - rest.minY
+            if abs(moved - caught.lineMove) >= 0.5 { return turnSharedEdgesOff() }
         }
         // No pane may show a negative size later in this drag (rule C keeps each edge's spring leftover): checked on
         // every pane, after the catch this press makes, along its spring's whole path.
