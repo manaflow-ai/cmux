@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import http.client
 import json
 import os
 from pathlib import Path
@@ -99,9 +100,13 @@ def _api(token: str, submission_id: str) -> tuple[int, dict]:
     except urllib.error.HTTPError as error:
         try:
             body = json.loads(error.read() or b"{}")
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, OSError):
             body = {}
         return error.code, body
+    except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError, json.JSONDecodeError, UnicodeDecodeError) as error:
+        # No answer from Apple (network, time-out, a body that is not JSON):
+        # the caller reports a failed query (exit 3), never a verdict.
+        return 0, {"error": f"{type(error).__name__}: {error}"}
 
 
 def _state_value(path: Path, wanted: str) -> str:
@@ -138,8 +143,9 @@ def main(argv: list[str] | None = None) -> int:
         encoding="utf-8",
     )
     if status_code != 200 or not status:
+        # 3: the query failed (network, HTTP); Apple's answer is unknown.
         print(f"notarization status query failed for {submission_id} (HTTP {status_code})", file=sys.stderr)
-        return 1
+        return 3
     print(f"status={status}")
     if status == "Accepted":
         return 0

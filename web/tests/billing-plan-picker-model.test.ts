@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { personalPlanCards, sharedUnavailableReason, teamPlanCards } from "../dashboard-app/screens/billing/plan-model";
 
 const summary = (cards: ReturnType<typeof personalPlanCards>) =>
-  cards.map((card) => `${card.id}${card.current ? "*" : ""}:${card.action.kind}${"plan" in card.action ? `/${card.action.plan}` : ""}${"reason" in card.action ? `/${card.action.reason}` : ""}`);
+  cards.map((card) => `${card.id}${card.current ? "*" : ""}:${card.action.kind}${"plan" in card.action ? `/${card.action.plan}` : ""}${"reason" in card.action ? `/${card.action.reason}` : ""}${"keepsPro" in card.action && card.action.keepsPro ? "/keepsPro" : ""}`);
 
 describe("personal plan picker", () => {
   test("a Free user upgrades to any paid plan through checkout", () => {
@@ -49,12 +49,57 @@ describe("personal plan picker", () => {
     }))).toEqual(["free:unavailable/cancelScheduled", "pro*:resume", "max:unavailable/cancelScheduled"]);
   });
 
-  test("granted Pro has nothing to change", () => {
+  test("granted Pro can buy Max through checkout but cannot cancel the grant", () => {
     expect(summary(personalPlanCards({ planId: "pro", isPro: true, subscription: null, goPlanEnabled: false }))).toEqual([
-      "free:unavailable/granted",
+      "free:unavailable/grantedNoCancel",
       "pro*:current",
-      "max:unavailable/granted",
+      "max:checkout/max",
     ]);
+  });
+
+  // Founder's Edition is a one-time purchase of Pro for life: there is no
+  // subscription to switch or cancel, but Max can be bought on top of it.
+  test("a lifetime Founder buys Max through checkout and has nothing to cancel", () => {
+    expect(summary(personalPlanCards({
+      planId: "pro", isPro: true, subscription: null, foundersEdition: true, goPlanEnabled: true,
+    }))).toEqual(["free:unavailable/foundersLifetime", "pro*:current", "max:checkout/max"]);
+  });
+
+  // Leaving Max returns a founder to their lifetime Pro: the Max subscription
+  // ends instead of moving onto a paid Pro price.
+  test("a Founder on Max returns to Pro by ending the Max subscription", () => {
+    expect(summary(personalPlanCards({
+      planId: "max", isPro: true, subscription: { plan: "max", cancelAtPeriodEnd: false }, foundersEdition: true, goPlanEnabled: false,
+    }))).toEqual(["free:unavailable/foundersLifetime", "pro:cancel/keepsPro", "max*:current"]);
+  });
+
+  test("a Founder on a past-due Max can still end it", () => {
+    expect(summary(personalPlanCards({
+      planId: "max", isPro: true, subscription: { plan: "max", cancelAtPeriodEnd: false, status: "past_due" }, foundersEdition: true, goPlanEnabled: false,
+    }))).toEqual(["free:unavailable/foundersLifetime", "pro:cancel/keepsPro", "max*:current"]);
+  });
+
+  test("a Founder who also pays for Pro can upgrade it or end it and keep Pro", () => {
+    expect(summary(personalPlanCards({
+      planId: "pro", isPro: true, subscription: { plan: "pro", cancelAtPeriodEnd: false }, foundersEdition: true, goPlanEnabled: false,
+    }))).toEqual(["free:cancel/keepsPro", "pro*:current", "max:switch/max"]);
+  });
+
+  test("granted Max has nothing to change", () => {
+    expect(summary(personalPlanCards({ planId: "max", isPro: true, subscription: null, goPlanEnabled: false }))).toEqual([
+      "free:unavailable/granted",
+      "pro:unavailable/granted",
+      "max*:current",
+    ]);
+  });
+
+  test("a past-due subscriber fixes the payment before any switch", () => {
+    expect(summary(personalPlanCards({
+      planId: "pro",
+      isPro: true,
+      subscription: { plan: "pro", cancelAtPeriodEnd: false, status: "past_due" },
+      goPlanEnabled: false,
+    }))).toEqual(["free:cancel", "pro*:current", "max:unavailable/paymentFailed"]);
   });
 });
 
@@ -86,7 +131,7 @@ describe("a reason every other card shares", () => {
   test("shows once when all other cards are unavailable for the same reason", () => {
     const cancelling = personalPlanCards({ planId: "pro", isPro: true, subscription: { plan: "pro", cancelAtPeriodEnd: true }, goPlanEnabled: false });
     expect(sharedUnavailableReason(cancelling)).toBe("cancelScheduled");
-    const granted = personalPlanCards({ planId: "pro", isPro: true, subscription: null, goPlanEnabled: false });
+    const granted = personalPlanCards({ planId: "max", isPro: true, subscription: null, goPlanEnabled: false });
     expect(sharedUnavailableReason(granted)).toBe("granted");
   });
 

@@ -1057,6 +1057,7 @@ struct RestorableAgentSessionIndex: Sendable {
 
     struct Entry: Sendable {
         let snapshot: SessionRestorableAgentSnapshot
+        let stableSurfaceId: UUID?
         let lifecycle: AgentHibernationLifecycleState?
         let updatedAt: TimeInterval
         /// Unlike an empty process ID set, this distinguishes an exited recorded process from no PID evidence.
@@ -1078,6 +1079,7 @@ struct RestorableAgentSessionIndex: Sendable {
         /// have persisted PID evidence can opt in explicitly.
         init(
             snapshot: SessionRestorableAgentSnapshot,
+            stableSurfaceId: UUID? = nil,
             lifecycle: AgentHibernationLifecycleState?,
             updatedAt: TimeInterval,
             processLiveness: RestorableAgentProcessLiveness,
@@ -1092,6 +1094,7 @@ struct RestorableAgentSessionIndex: Sendable {
             containsUnrelatedProcess: Bool
         ) {
             self.snapshot = snapshot
+            self.stableSurfaceId = stableSurfaceId
             self.lifecycle = lifecycle
             self.updatedAt = updatedAt
             self.processLiveness = processLiveness
@@ -1197,6 +1200,8 @@ struct RestorableAgentSessionIndex: Sendable {
     /// the map safe to carry into a cached copy marked incomplete.
     let claudeTranscriptPathsBySessionWithoutTranscript: [String: [String]]
     private let candidatesByPanelId: [UUID: [(PanelKey, Entry)]]
+    private let candidatesByStableSurfaceId: [UUID: [(PanelKey, Entry)]]
+    private let boundedAmbiguousStableSurfaceIds: Set<UUID>
     private let entriesByPanelId: [UUID: Entry]
     private let ambiguousPanelIds: Set<UUID>
     private let equalRankAmbiguousPanelIds: Set<UUID>
@@ -1557,6 +1562,7 @@ struct RestorableAgentSessionIndex: Sendable {
     func entryForStablePanel(
         workspaceId: UUID,
         panelId: UUID,
+        stableSurfaceId: UUID? = nil,
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -1567,9 +1573,21 @@ struct RestorableAgentSessionIndex: Sendable {
         },
         revalidateProcessEvidence: Bool = true
     ) -> Entry? {
-        let candidates = candidatesByPanelId[panelId] ?? []
-        guard !candidates.isEmpty else { return nil }
+        // Current runtime evidence wins. Consult durable stable ownership only
+        // when the restored runtime panel has no matching hook record.
         guard !boundedAmbiguousPanelIds.contains(panelId) else { return nil }
+        let runtimeCandidates = (candidatesByPanelId[panelId] ?? []).filter { _, entry in
+            stableSurfaceId == nil || entry.stableSurfaceId == nil || entry.stableSurfaceId == stableSurfaceId
+        }
+        let usesStableIdentity = runtimeCandidates.isEmpty && stableSurfaceId != nil
+        let candidates = usesStableIdentity
+            ? (stableSurfaceId.flatMap { candidatesByStableSurfaceId[$0] } ?? [])
+            : runtimeCandidates
+        guard !candidates.isEmpty else { return nil }
+        if usesStableIdentity {
+            guard let stableSurfaceId,
+                  !boundedAmbiguousStableSurfaceIds.contains(stableSurfaceId) else { return nil }
+        }
 
         let candidatesWithEvidence = candidates.map { key, entry in
             (
@@ -1595,7 +1613,9 @@ struct RestorableAgentSessionIndex: Sendable {
                 (revalidateProcessEvidence || $0.entry.hasRecordedProcessID)
         }
         guard !hasUncertainCandidate else { return nil }
-        if let exact = liveCandidates.first(where: { $0.key.workspaceId == workspaceId }) {
+        if let exact = liveCandidates.first(where: {
+            $0.key == PanelKey(workspaceId: workspaceId, panelId: panelId)
+        }) {
             return exact.entry
         }
         if liveCandidates.count == 1 {
@@ -1603,17 +1623,27 @@ struct RestorableAgentSessionIndex: Sendable {
         }
         // Multiple current owners cannot be resolved by a stable panel UUID.
         // Do not let a stale exact-owner record or a cached timestamp pick one.
-        guard liveCandidates.isEmpty,
-              !ambiguousPanelIds.contains(panelId),
-              !equalRankAmbiguousPanelIds.contains(panelId) else {
+        guard liveCandidates.isEmpty else { return nil }
+        if !usesStableIdentity,
+           ambiguousPanelIds.contains(panelId) || equalRankAmbiguousPanelIds.contains(panelId) {
             return nil
         }
-
-        return candidates
-            .map(\.1)
-            .max { lhs, rhs in
-                Self.shouldPreferStablePanelEntry(rhs, over: lhs)
-            }
+        guard let selected = candidates.map(\.1).max(by: { lhs, rhs in
+            Self.shouldPreferStablePanelEntry(rhs, over: lhs)
+        }) else { return nil }
+        // Equal-ranked durable owners are ambiguous; dictionary iteration must
+        // never choose a random checkpoint after an app restart. The session
+        // identity tie-breaker is not a rank, so compare ranking fields only.
+        let selectedLivenessRank = Self.stablePanelLivenessRank(selected)
+        let selectedHasLiveProcess = Self.entryHasLiveProcess(selected)
+        guard candidates.filter({ _, entry in
+            Self.stablePanelLivenessRank(entry) == selectedLivenessRank &&
+                Self.entryHasLiveProcess(entry) == selectedHasLiveProcess &&
+                entry.updatedAt == selected.updatedAt
+        }).count == 1 else {
+            return nil
+        }
+        return selected
     }
 
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
@@ -1769,6 +1799,7 @@ struct RestorableAgentSessionIndex: Sendable {
 
             revalidatedEntries[key] = Entry(
                 snapshot: entry.snapshot,
+                stableSurfaceId: entry.stableSurfaceId,
                 lifecycle: entry.lifecycle,
                 updatedAt: entry.updatedAt,
                 processLiveness: processLiveness,
@@ -2319,6 +2350,18 @@ struct RestorableAgentSessionIndex: Sendable {
                     )
                 }
                 let liveProcessID = processObservation.processID
+                let savedSnapshot: SessionRestorableAgentSnapshot = {
+                    guard kind == .claude else { return snapshot }
+                    var savedSnapshot = snapshot
+                    savedSnapshot.launchCommand = claudeLaunchCommandNamingConfigDirectory(
+                        snapshot.launchCommand,
+                        liveProcessEnvironment: liveProcessID == nil ? nil : currentProcessArguments?.environment,
+                        transcriptPath: effectiveRecord.transcriptPath,
+                        homeDirectory: homeDirectory,
+                        fileManager: fileManager
+                    )
+                    return savedSnapshot
+                }()
                 let liveProcessIdentities: [Int: AgentPIDProcessIdentity]
                 if let liveProcessID,
                    let currentProcessIdentity,
@@ -2352,7 +2395,8 @@ struct RestorableAgentSessionIndex: Sendable {
                 if let liveProcessID, let hookScope {
                     let processIDs = hookScope.processIDs.union([liveProcessID])
                     entry = Entry(
-                        snapshot: snapshot,
+                        snapshot: savedSnapshot,
+                        stableSurfaceId: effectiveRecord.stableSurfaceId.flatMap(UUID.init(uuidString:)),
                         lifecycle: effectiveRecord.agentLifecycle,
                         updatedAt: effectiveRecord.updatedAt,
                         processLiveness: processObservation.liveness,
@@ -2374,7 +2418,8 @@ struct RestorableAgentSessionIndex: Sendable {
                     )
                 } else {
                     entry = Entry(
-                        snapshot: snapshot,
+                        snapshot: savedSnapshot,
+                        stableSurfaceId: effectiveRecord.stableSurfaceId.flatMap(UUID.init(uuidString:)),
                         lifecycle: effectiveRecord.agentLifecycle,
                         updatedAt: effectiveRecord.updatedAt,
                         processLiveness: processObservation.liveness,
@@ -2436,6 +2481,7 @@ struct RestorableAgentSessionIndex: Sendable {
         func processDetectedEntry(
             key: PanelKey,
             snapshot: SessionRestorableAgentSnapshot,
+            hookStableSurfaceId: UUID?,
             lifecycle: AgentHibernationLifecycleState?,
             updatedAt: TimeInterval,
             detected: ProcessDetectedSnapshotEntry
@@ -2451,7 +2497,12 @@ struct RestorableAgentSessionIndex: Sendable {
                 processIdentityProvider: processIdentityProvider
             )
             return Entry(
-                snapshot: snapshot, lifecycle: lifecycle, updatedAt: updatedAt,
+                snapshot: snapshot,
+                // The live process environment wins; a reused hook entry keeps
+                // its verified ID when that environment does not carry one.
+                stableSurfaceId: snapshot.launchCommand?.environment?["CMUX_STABLE_SURFACE_ID"]
+                    .flatMap(UUID.init(uuidString:)) ?? hookStableSurfaceId,
+                lifecycle: lifecycle, updatedAt: updatedAt,
                 processLiveness: .running,
                 hasRecordedProcessID: true,
                 processIDs: detected.processIDs,
@@ -2503,7 +2554,7 @@ struct RestorableAgentSessionIndex: Sendable {
                    detected: detected,
                    processIdentityProvider: processIdentityProvider
                ) {
-                resolved[key] = processDetectedEntry(key: key, snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: panelCandidate.snapshot, hookStableSurfaceId: panelCandidate.stableSurfaceId, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
             } else if detected.sessionIDSource == .forkParentFallback,
                       Self.forkParentFallbackMustYield(kind: detected.snapshot.kind, toExisting: resolved[key]) {
                 // A nested fork process inside another agent's pane must not displace
@@ -2515,7 +2566,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 // cwd. Prefer the hook-store identity for this stable panel/surface while still carrying
                 // live process evidence for the restored panel. The workspace UUID can rotate during
                 // session restore, but the surface id is intentionally reused on the normal restore path.
-                resolved[key] = processDetectedEntry(key: key, snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: panelCandidate.snapshot, hookStableSurfaceId: panelCandidate.stableSurfaceId, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
             } else if let existing = Self.matchingHookEntry(
                 for: detected.snapshot,
                 resolved: resolved[key],
@@ -2524,9 +2575,9 @@ struct RestorableAgentSessionIndex: Sendable {
                     SessionKey(kind: detected.snapshot.kind, sessionId: detected.snapshot.sessionId)
                 ]
             ) {
-                resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, lifecycle: existing.lifecycle, updatedAt: existing.updatedAt, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, hookStableSurfaceId: existing.stableSurfaceId, lifecycle: existing.lifecycle, updatedAt: existing.updatedAt, detected: detected)
             } else {
-                resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, lifecycle: nil, updatedAt: 0, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, hookStableSurfaceId: nil, lifecycle: nil, updatedAt: 0, detected: detected)
             }
         }
 
@@ -2847,11 +2898,93 @@ struct RestorableAgentSessionIndex: Sendable {
         normalizedNonEmptyValue(rawValue)
     }
 
+    /// Names the `CLAUDE_CONFIG_DIR` a Claude session ran with when its launch
+    /// capture lost it (a sanitizer-rejected capture or an older record), so
+    /// restore does not fall back to the app's environment and reopen the
+    /// session under the wrong account. The config directory holding the
+    /// transcript comes first, since it stays the same after the process
+    /// exits; the verified live process's own environment covers a record
+    /// without a transcript path. The default `~/.claude` is never written:
+    /// Claude reads its login from a different place when the variable is set,
+    /// so naming the default would restore a default-account session logged out.
+    private static func claudeLaunchCommandNamingConfigDirectory(
+        _ launchCommand: AgentLaunchCommandSnapshot?,
+        liveProcessEnvironment: [String: String]?,
+        transcriptPath: String?,
+        homeDirectory: String,
+        fileManager: FileManager
+    ) -> AgentLaunchCommandSnapshot? {
+        guard normalizedNonEmptyValue(launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) == nil else {
+            return launchCommand
+        }
+        let defaultConfigDirectory = ((homeDirectory as NSString).appendingPathComponent(".claude") as NSString)
+            .standardizingPath
+        let configDirectory: String?
+        if let transcriptPath = normalizedNonEmptyValue(transcriptPath) {
+            configDirectory = ClaudeConfigDirectoryPath.configDirectory(ofTranscriptPath: transcriptPath)
+                .flatMap { $0 == defaultConfigDirectory ? nil : $0 }
+        } else {
+            configDirectory = normalizedNonEmptyValue(liveProcessEnvironment?["CLAUDE_CONFIG_DIR"])
+        }
+        guard let configDirectory else { return launchCommand }
+        // A record whose capture was dropped as untrusted still restores
+        // through the bare resume verb; it keeps the account as an argv-less
+        // capture, the shape the hook writes when no argv was available.
+        var savedLaunchCommand = launchCommand ?? claudeAccountOnlyLaunchCommand(environment: [:])
+        var environment = savedLaunchCommand.environment ?? [:]
+        environment["CLAUDE_CONFIG_DIR"] = ClaudeConfigDirectoryPath.preferredPath(
+            configDirectory,
+            fileManager: fileManager,
+            homeDirectory: homeDirectory
+        )
+        savedLaunchCommand.environment = environment
+        return savedLaunchCommand
+    }
+
+    /// The launch capture a restored session keeps from its hook record: the
+    /// trusted capture, and for Claude the account a dropped or missing capture
+    /// would otherwise lose. Crash recovery reopens sessions by this same rule.
+    static func restorableLaunchCommand(
+        _ launchCommand: AgentLaunchCommandSnapshot?,
+        kind: RestorableAgentKind,
+        transcriptPath: String?,
+        homeDirectory: String,
+        fileManager: FileManager = .default
+    ) -> AgentLaunchCommandSnapshot? {
+        let trusted = trustedLaunchCommand(launchCommand, kind: kind)
+        guard kind == .claude else { return trusted }
+        return claudeLaunchCommandNamingConfigDirectory(
+            trusted,
+            liveProcessEnvironment: nil,
+            transcriptPath: transcriptPath,
+            homeDirectory: homeDirectory,
+            fileManager: fileManager
+        )
+    }
+
+    /// Claude's account selection: the config directory and the secure-storage
+    /// directory its login lives under.
+    private static let claudeAccountEnvironmentKeys = ["CLAUDE_CONFIG_DIR", "CLAUDE_SECURESTORAGE_CONFIG_DIR"]
+
+    /// An argv-less Claude capture that carries only the account. It resumes
+    /// through the bare `claude` verb, exactly as a record without a capture.
+    private static func claudeAccountOnlyLaunchCommand(environment: [String: String]) -> AgentLaunchCommandSnapshot {
+        AgentLaunchCommandSnapshot(
+            rejectedOn: .argvUnavailable,
+            launcher: RestorableAgentKind.claude.rawValue,
+            environment: environment.isEmpty ? nil : environment,
+            source: "environment"
+        )
+    }
+
     /// Drops launch captures that cannot describe this agent kind: a capture
     /// inherited from a different agent's session (codex started under claude
     /// carries claude's `CMUX_AGENT_LAUNCH_*`) or the hook dispatch shell's own
     /// argv. Resume/fork then fall back to the kind's bare verbs instead of
     /// rendering the foreign binary. Existing poisoned records heal on load.
+    /// A dropped Claude capture keeps its account: the hook recorded its own
+    /// process's environment, so `CLAUDE_CONFIG_DIR` there is the session's
+    /// even when the argv beside it described another process.
     private static func trustedLaunchCommand(
         _ launchCommand: AgentLaunchCommandSnapshot?,
         kind: RestorableAgentKind
@@ -2859,7 +2992,11 @@ struct RestorableAgentSessionIndex: Sendable {
         guard let launchCommand else { return nil }
         guard AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: kind.rawValue),
               !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
-            return nil
+            guard kind == .claude else { return nil }
+            let account = (launchCommand.environment ?? [:]).filter { key, value in
+                claudeAccountEnvironmentKeys.contains(key) && normalizedNonEmptyValue(value) != nil
+            }
+            return account.isEmpty ? nil : claudeAccountOnlyLaunchCommand(environment: account)
         }
         return launchCommand
     }
@@ -3893,6 +4030,24 @@ struct RestorableAgentSessionIndex: Sendable {
             )
         }
         self.candidatesByPanelId = candidatesByPanelId
+        var candidatesByStableSurfaceId: [UUID: [(PanelKey, Entry)]] = [:]
+        var boundedAmbiguousStableSurfaceIds: Set<UUID> = []
+        for (key, entry) in entriesByPanel {
+            guard let stableSurfaceId = entry.stableSurfaceId,
+                  !boundedAmbiguousStableSurfaceIds.contains(stableSurfaceId) else {
+                continue
+            }
+            var candidates = candidatesByStableSurfaceId[stableSurfaceId, default: []]
+            if candidates.count == Self.maximumStablePanelCandidates {
+                boundedAmbiguousStableSurfaceIds.insert(stableSurfaceId)
+                candidatesByStableSurfaceId.removeValue(forKey: stableSurfaceId)
+                continue
+            }
+            candidates.append((key, entry))
+            candidatesByStableSurfaceId[stableSurfaceId] = candidates
+        }
+        self.candidatesByStableSurfaceId = candidatesByStableSurfaceId
+        self.boundedAmbiguousStableSurfaceIds = boundedAmbiguousStableSurfaceIds
         self.entriesByPanelId = entriesByPanelId
         self.ambiguousPanelIds = ambiguousPanelIds
         self.equalRankAmbiguousPanelIds = equalRankAmbiguousPanelIds

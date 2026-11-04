@@ -124,7 +124,9 @@ extension Workspace {
     /// single-panel branch did exactly that).
     func applyAutomaticTitle(_ title: String) {
         guard self.title != title else { return }
-        self.title = title
+        withAutomaticTitleMutation {
+            self.title = title
+        }
         sidebarProcessTitleObservation.processTitleDidChange()
     }
 

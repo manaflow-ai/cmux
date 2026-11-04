@@ -345,6 +345,9 @@ PYSTATE
   cat "$TMP_DIR/notary-log.json"
   verify_ticket_contents_cover_slices "$TMP_DIR/notary-log.json" "$HELPER_PATH"
   "$XCRUN_TOOL" stapler staple "$HELPER_PATH"
+  # The ticket is written with this script's 077 umask; the shipped helper
+  # must be readable by every user.
+  [ ! -e "$HELPER_PATH/Contents/CodeResources" ] || chmod 0644 "$HELPER_PATH/Contents/CodeResources"
   "$XCRUN_TOOL" stapler validate "$HELPER_PATH"
   verify_stapled_ticket_covers_slices "$HELPER_PATH"
   "$CODESIGN_TOOL" --verify --strict --verbose=2 "$HELPER_PATH"
@@ -368,8 +371,14 @@ PYSTATE
 
   # Stapling the nested app changes the host's resource seal. Re-sign only the
   # outer app: re-signing nested code here would discard the helper's ticket.
-  CMUX_SIGN_MODE=main-only \
-    "$SIGN_BUNDLE_TOOL" "$APP_PATH" "$APP_ENTITLEMENTS" "$SIGNING_IDENTITY"
+  # This script's state writers set umask 077; the re-signed host seal must be
+  # readable by every user.
+  (
+    umask 022
+    CMUX_SIGN_MODE=main-only \
+      "$SIGN_BUNDLE_TOOL" "$APP_PATH" "$APP_ENTITLEMENTS" "$SIGNING_IDENTITY"
+  )
+  [ ! -e "$APP_PATH/Contents/_CodeSignature/CodeResources" ] || chmod 0644 "$APP_PATH/Contents/_CodeSignature/CodeResources"
   "$CODESIGN_TOOL" --verify --deep --strict --verbose=2 "$APP_PATH"
   "$XCRUN_TOOL" stapler validate "$HELPER_PATH"
   verify_stapled_ticket_covers_slices "$HELPER_PATH"

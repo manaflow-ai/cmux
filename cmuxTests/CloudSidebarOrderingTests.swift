@@ -192,7 +192,10 @@ struct CloudSidebarOrderingTests {
         let folder = try #require(CloudTreeNodeBuilder.flattened(fixture.nodes()).first { $0.id == fixture.folderID("ws_2") })
         let menu = try #require(fixture.coordinator.contextMenu(forRow: outline.row(forItem: folder)))
         let pin = try #require(menu.items.first { $0.title == String(localized: "cloudTree.menu.pin", defaultValue: "Pin") })
-        _ = fixture.catalog.replaceResources([fixture.snapshot().resources[0]], on: fixture.machine, from: fixture.provider)
+        let remainingInfo = try #require(fixture.snapshot(titles: ["cmux1"]).machines.first)
+        _ = fixture.catalog.replaceResources(
+            [fixture.snapshot().resources[0]], on: fixture.machine, info: remainingInfo, from: fixture.provider
+        )
         #expect(NSApp.sendAction(try #require(pin.action), to: pin.target, from: pin))
         #expect(fixture.catalog.sidebarOrganization.state.groups.isEmpty)
     }

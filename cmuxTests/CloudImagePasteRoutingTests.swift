@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCloud
+import CmuxCloudImagePaste
 import CmuxTerminal
 import CmuxCore
 import CmuxSurfaceCatalogModel
@@ -242,6 +243,65 @@ struct CloudImagePasteRoutingTests {
             let urls = [URL(fileURLWithPath: path)]
             #expect(TerminalImageTransferPlanner.plan(fileURLs: urls, target: .cloud) == .pasteCloudImages(urls))
         }
+    }
+
+    /// A composer submit restores its draft when an upload fails, so the upload
+    /// must leave the draft's image in place for the retry. A direct terminal
+    /// paste has no draft and still removes its temporary file.
+    @Test @MainActor
+    func failedComposerUploadKeepsTheDraftImageForRetry() async throws {
+        let surface = TerminalSurface(
+            tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil, workingDirectory: nil
+        )
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cloud-image-retry-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let png = Data([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10])
+        let draftImage = directory.appendingPathComponent("draft.png")
+        let pastedImage = directory.appendingPathComponent("pasted.png")
+        try png.write(to: draftImage)
+        try png.write(to: pastedImage)
+        let pasteboard = GhosttyApp.terminalPasteboard
+        pasteboard.debugRegisterOwnedTemporaryImageFile(draftImage)
+        pasteboard.debugRegisterOwnedTemporaryImageFile(pastedImage)
+        defer { pasteboard.cleanupTransferredTemporaryImageFiles([draftImage, pastedImage]) }
+
+        await #expect(throws: CloudImagePasteError.unavailable) {
+            try await surface.pasteCloudImages([draftImage], cleansUpTransferredFiles: false)
+        }
+        #expect(FileManager.default.fileExists(atPath: draftImage.path))
+        #expect(pasteboard.isOwnedTemporaryImageFile(draftImage))
+        #expect(throws: CloudImagePasteError.unavailable) {
+            try surface.validateCloudImagesForSubmit([draftImage])
+        }
+        #expect(FileManager.default.fileExists(atPath: draftImage.path))
+
+        await #expect(throws: CloudImagePasteError.unavailable) {
+            try await surface.pasteCloudImages([pastedImage])
+        }
+        #expect(!FileManager.default.fileExists(atPath: pastedImage.path))
+    }
+
+    /// The composer refuses an image Cloud cannot send when it is attached,
+    /// with the reason upload would have given at submit.
+    @Test @MainActor
+    func composerRefusesUnsendableCloudImagesWhenAttached() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cloud-image-attach-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let png = directory.appendingPathComponent("ok.png")
+        try Data([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10]).write(to: png)
+        let mislabeled = directory.appendingPathComponent("vector.png")
+        try Data("<svg/>".utf8).write(to: mislabeled)
+
+        #expect(TextBoxInputContainer.cloudComposerImageRefusal(for: [png]) == nil)
+        #expect(TextBoxInputContainer.cloudComposerImageRefusal(for: [png, mislabeled]) == .unsupportedType)
+        #expect(TextBoxInputContainer.cloudComposerImageRefusal(
+            for: [directory.appendingPathComponent("gone.png")]
+        ) == .storage)
     }
 
     @Test

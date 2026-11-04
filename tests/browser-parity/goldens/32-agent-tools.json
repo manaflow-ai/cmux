@@ -209,6 +209,24 @@
         "acTL"
       ]
     },
+    "policy-goto": "page.goto: PEER/aria.html is blocked: not in session.allowedDomains (http://localhost)",
+    "policy-fetch": "fetch: PEER/api/data is blocked: not in session.allowedDomains (http://localhost)",
+    "policy-tabs-open": "tabs.open: PEER/aria.html is blocked: not in session.allowedDomains (http://localhost)",
+    "policy-subresources": [
+      "loaded",
+      "blocked"
+    ],
+    "policy-after-link": [
+      "PRIMARY/agent-tools.html?peer=PEER",
+      [
+        "before PEER/aria.html",
+        "before PEER/api/data",
+        "cancelled PEER/aria.html?linked"
+      ]
+    ],
+    "policy-prohibited": "page.goto: PEER/aria.html is blocked: prohibited by http://127.0.0.1 (session.prohibitedDomains)",
+    "policy-ip": "page.goto: PEER/aria.html is blocked: IP addresses are blocked (session.blockIPAddresses)",
+    "policy-locked": "session.allowedDomains: the domain policy is locked for this session",
     "secret-status": "Signed in as ada with key <secret:key> (password 13 chars, otp 0 digits)",
     "secret-snapshot": [
       "title: Agent Tools <secret:key>",
@@ -243,31 +261,14 @@
         }
       ]
     ],
-    "secret-frame-refused": "locator.fill: secret \"key\" may not be typed into PEER; its domains are localhost",
+    "secret-frame-refused": "refused",
     "secret-keyboard-refused": "keyboard.type: a secret is typed into an element, so its domain can be checked: use locator.fill(secret(name)) or locator.type(secret(name))",
     "secret-fetch-text": false,
-    "output:10": "typed <secret:key> and <secret:pw>\nError: failed with <secret:key>",
-    "policy-goto": "page.goto: PEER/aria.html is blocked: not in session.allowedDomains (http://localhost)",
-    "policy-fetch": "fetch: PEER/api/data is blocked: not in session.allowedDomains (http://localhost)",
-    "policy-tabs-open": "tabs.open: PEER/aria.html is blocked: not in session.allowedDomains (http://localhost)",
-    "policy-subresources": [
-      "loaded",
-      "blocked"
-    ],
-    "policy-after-link": [
-      "PRIMARY/agent-tools.html?peer=PEER",
-      [
-        "before PEER/aria.html",
-        "before PEER/api/data",
-        "cancelled PEER/aria.html?linked"
-      ]
-    ],
-    "policy-prohibited": "page.goto: PEER/aria.html is blocked: prohibited by http://127.0.0.1 (session.prohibitedDomains)",
-    "policy-ip": "page.goto: PEER/aria.html is blocked: IP addresses are blocked (session.blockIPAddresses)",
-    "policy-locked": "session.allowedDomains: the domain policy is locked for this session",
+    "output:11": "typed <secret:key> and <secret:pw>\nError: failed with <secret:key>",
     "secret-screenshot": {
       "maskedLikeAnySecret": true,
       "textHidden": true,
+      "deletedStaysMasked": true,
       "restored": true
     },
     "secret-screenshot-concurrent": {

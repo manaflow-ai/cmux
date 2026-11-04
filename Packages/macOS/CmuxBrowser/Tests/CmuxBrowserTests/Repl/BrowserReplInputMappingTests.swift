@@ -40,7 +40,7 @@ struct BrowserReplKeyStrokeTests {
 
     @Test("Playwright keys resolve to the AppKit event WebKit receives", arguments: cases)
     func resolvesKey(_ testCase: Case) throws {
-        let stroke = try #require(BrowserReplKeyStroke.resolve(
+        let stroke = try #require(try BrowserReplKeyStroke.resolve(
             key: testCase.key,
             code: testCase.code,
             text: testCase.text,
@@ -56,7 +56,7 @@ struct BrowserReplKeyStrokeTests {
 
     @Test("Modifier keys carry their own flag and no characters")
     func modifierKey() throws {
-        let stroke = try #require(BrowserReplKeyStroke.resolve(key: "Shift", code: "ShiftLeft", text: nil, modifiers: ["Shift"]))
+        let stroke = try #require(try BrowserReplKeyStroke.resolve(key: "Shift", code: "ShiftLeft", text: nil, modifiers: ["Shift"]))
         #expect(stroke.keyCode == 56)
         #expect(stroke.modifierKey == .shift)
         #expect(stroke.characters.isEmpty)
@@ -64,8 +64,8 @@ struct BrowserReplKeyStrokeTests {
     }
 
     @Test("Keys with no macOS virtual key fall back to text insertion")
-    func unmappedKey() {
-        #expect(BrowserReplKeyStroke.resolve(key: "é", code: "", text: "é", modifiers: []) == nil)
+    func unmappedKey() throws {
+        #expect(try BrowserReplKeyStroke.resolve(key: "é", code: "", text: "é", modifiers: []) == nil)
     }
 
     @Test("Unknown modifier names are ignored")
@@ -113,4 +113,12 @@ struct BrowserReplMouseStateTests {
         )
         #expect(zoomed == CGPoint(x: 200, y: 520))
     }
+}
+
+/// The REPL is untrusted, so a wheel call's deltas are whatever it sends:
+/// any finite number (the runtime's own check is not a guard), or not a
+/// number at all. Building the event must never trap the app.
+@Suite("Browser REPL wheel deltas")
+struct BrowserReplWheelDeltaTests {
+
 }

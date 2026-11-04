@@ -40,6 +40,7 @@ struct SettingsRowAnchorResolutionTests {
         "app.commandPaletteSearchesAllSurfaces",
         "app.confirmQuit",
         "app.equalizeSplitsOnCreate",
+        "app.equalizeSplitsOnDividerDoubleClick",
         "app.focusPaneOnFirstClick",
         "app.focusHistoryIncludesPanesAndTabs",
         "app.globalFontMagnification",
@@ -61,8 +62,14 @@ struct SettingsRowAnchorResolutionTests {
         "app.warnBeforeClosingTabXButton",
         "app.warnBeforeClosingWindow",
         "app.warnBeforeClosingWorkspace",
+        "app.alwaysConfirmWorkspaceClose",
         "app.workspaceInheritWorkingDirectory",
         "agentMessages.enabled",
+        "chief.dangerouslySkipPermissions",
+        "chief.effort",
+        "chief.enabled",
+        "chief.harness",
+        "chief.model",
         "automation.agentAutoResume",
         "automation.claudeBinaryPath",
         "automation.claudeCodeIntegration",
@@ -184,6 +191,7 @@ struct SettingsRowAnchorResolutionTests {
         "workspaceColors.notificationBadgeColor",
         "workspaceColors.selectionColor",
         "workspaceColors.subtleSelection",
+        "workspaceColors.unselectedFillOpacity",
     ]
 
     /// Searchable rows anchored with an explicit `settingsSearchAnchors`

@@ -83,6 +83,31 @@ import SwiftUI
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == created.panelID)
     }
 
+    /// A sidebar drop of a browser, display or port opens a pane for that link.
+    /// It starts blank while it connects, but it is not a new tab to type into:
+    /// focusing it must not select the address bar and open its suggestions.
+    @Test(arguments: [false, true])
+    func browserPaneOpenedForASidebarResourceDoesNotFocusTheAddressBar(split: Bool) throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId).id.uuidString
+        let destination: SurfaceDestination = split
+            ? .split(workspaceID: workspace.id, paneID: paneID, direction: .right)
+            : .tab(workspaceID: workspace.id, paneID: paneID, index: nil)
+
+        let created = try SurfacePaneFactory.makeBrowserPane(url: nil, at: destination, focus: true)
+        let browser = try #require(SurfacePaneFactory.browserPanel(panelID: created.panelID, in: created.workspaceID))
+        // The display caller relies on the factory itself focusing the new pane.
+        #expect(workspace.focusedPanelId == created.panelID)
+        #expect(browser.pendingAddressBarFocusRequestId == nil)
+
+        // The drop handler focuses the pane again once it is created.
+        SurfacePaneFactory.focus(panelID: created.panelID, in: created.workspaceID)
+        #expect(workspace.focusedPanelId == created.panelID)
+        #expect(browser.pendingAddressBarFocusRequestId == nil)
+    }
+
     /// Opening a sidebar resource splits the focused pane. When split admission
     /// has no room left, the factory reports `noSpace` and the sidebar gesture
     /// opens the resource as a tab in that pane instead of failing with
@@ -148,6 +173,21 @@ import SwiftUI
         pointerView.activateContainerFocusFromPointerDown()
         #expect(workspace.focusedPanelId == cloudPanel.id)
         #expect(workspace.isFocusedTerminalInputSurface(cloudPanel.id))
+
+        // Middle-click uses GhosttyNSView's separate AppKit path, which runs
+        // convergeFocusForMiddleMouseDown(). It must make the same eager
+        // convergence before its portal callback can rebind, and release the
+        // reparent guard that would otherwise suppress that focus. A synthesized
+        // otherMouseDown crashes in this windowless harness, so the test drives
+        // the convergence step directly.
+        workspace.focusPanel(localPanelID)
+        let hostedView = cloudPanel.surface.hostedView
+        hostedView.suppressReparentFocus()
+        #expect(hostedView.isSuppressingReparentFocusForLayoutFollowUp())
+        pointerView.convergeFocusForMiddleMouseDown()
+        #expect(workspace.focusedPanelId == cloudPanel.id)
+        #expect(workspace.isFocusedTerminalInputSurface(cloudPanel.id))
+        #expect(!hostedView.isSuppressingReparentFocusForLayoutFollowUp())
 
         workspace.focusPanel(localPanelID)
         #expect(workspace.focusedPanelId == localPanelID)
@@ -788,6 +828,62 @@ import SwiftUI
         #expect(workspace.focusedPanelId == created.panelID)
         let selectedSurface = try #require(workspace.bonsplitController.selectedTab(inPane: paneID)?.id)
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == created.panelID)
+    }
+
+    /// New Display opens its pane at the click, before the guest answers. In a
+    /// workspace bound to that Cloud machine the pane is a display reservation,
+    /// not a new Cloud browser: it must not start a daemon browser that
+    /// replaces the display's projection or shows "Cloud browsers are unavailable".
+    @Test("New Display reserves its pane without starting a Cloud browser")
+    func newDisplayReservedPaneIsNotACloudBrowser() async throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let machineID = "new-display-\(UUID().uuidString)"
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: machineID, isBase: false, remoteWorkspaceID: "ws-display")
+        let started = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        let coordinator = CloudDisplayCoordinator { command, _ in
+            guard command.contains("\"$path\" create --request-id ") else {
+                return .init(exitCode: 0, stdout: #"{"version":1,"canCreate":true,"displays":[]}"#, stderr: "")
+            }
+            started.resolve(true)
+            _ = await release.result
+            return .init(exitCode: 1, stdout: "", stderr: "released")
+        }
+        var summary = VMSummary(id: machineID, provider: "freestyle", status: "running",
+            image: "cmux-devbox", createdAt: 0, base: nil)
+        summary.kind = .desktop
+        summary.addressIPv4 = "10.0.0.7"
+        let catalog = SurfaceCatalog.shared
+        let provider = CmuxTuiSurfaceProvider(
+            summary: summary,
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            catalog: catalog,
+            displayCoordinator: coordinator
+        )
+        catalog.register(provider)
+        defer { catalog.unregister(machine: provider.machine) }
+        let before = Set(workspace.panels.keys)
+
+        let creation = Task {
+            try await catalog.createDisplay(on: provider.machine, into: .workspace(id: workspace.id, placement: .split))
+        }
+        Task {
+            _ = await creation.result
+            started.resolve(false)
+        }
+        try #require(await started.result == true, "creation must reach the guest helper")
+
+        let reservedID = try #require(workspace.panels.keys.first { !before.contains($0) })
+        let reserved = try #require(workspace.browserPanel(for: reservedID))
+        #expect(workspace.pendingCloudBrowserPanelIDs.isEmpty)
+        #expect(workspace.cloudBrowserCreationTasks.isEmpty)
+        #expect(reserved.cloudAccess.unavailable == nil)
+        #expect(reserved.cloudAccess.starting == String(localized: "cloud.display.starting", defaultValue: "Starting display…"))
+
+        release.resolve(true)
+        _ = await creation.result
     }
 
     @Test("Cloud resource drop hands keyboard ownership to its first pane")

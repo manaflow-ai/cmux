@@ -8,7 +8,7 @@ import Testing
 @testable import cmux
 #endif
 
-extension SidebarWorkspaceSnapshotRefreshPolicyTests {
+extension SidebarWorkspaceSnapshotTests {
     @MainActor
     @Test func workspaceAgentSpinnerFeatureFlagDefaultsOff() throws {
         let definition = try #require(CmuxFeatureFlags.allFlags.first {
@@ -23,29 +23,6 @@ extension SidebarWorkspaceSnapshotRefreshPolicyTests {
         let flags = CmuxFeatureFlags(defaults: defaults, remoteFlagValueProvider: { _ in nil })
 
         #expect(!flags.effectiveValue(for: definition))
-    }
-
-    @Test func contextMenuAgentActivityChangeUpdatesDisplayedSpinnerImmediately() {
-        let current = Self.snapshot(
-            latestConversationMessage: "old message",
-            activeCodingAgentCount: 0
-        )
-        let next = Self.snapshot(
-            latestConversationMessage: "new message",
-            activeCodingAgentCount: 1
-        )
-
-        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
-            current: current,
-            next: next,
-            force: false,
-            contextMenuVisible: true
-        )
-
-        #expect(decision.workspaceSnapshotStorage?.activeCodingAgentCount == 1)
-        #expect(decision.workspaceSnapshotStorage?.latestConversationMessage == "old message")
-        #expect(decision.pendingWorkspaceSnapshot == next)
-        #expect(decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
     @Test func presentationKeyChangesWhenAgentActivityVisibilityChanges() {

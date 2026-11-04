@@ -305,14 +305,12 @@ fn semantic_kind(
         ("antigravity" | "hermes-agent", "sessionend" | "onsessionend") => "agent.turn.completed",
         ("opencode", "sessioncreated") => "agent.session.started",
         ("opencode", "sessionidle") => "agent.turn.completed",
-        (
-            "opencode",
-            "sessionexecutionsucceeded" | "sessionexecutioninterrupted",
-        ) => "agent.turn.completed",
-        (
-            "opencode",
-            "sessionexecutionfailed" | "sessionnextstepfailed" | "sessionerror",
-        ) => "agent.error.reported",
+        ("opencode", "sessionexecutionsucceeded" | "sessionexecutioninterrupted") => {
+            "agent.turn.completed"
+        }
+        ("opencode", "sessionexecutionfailed" | "sessionnextstepfailed" | "sessionerror") => {
+            "agent.error.reported"
+        }
         ("opencode", "sessiondeleted") => "agent.session.ended",
         (_, event) if is_child_spawn(event) => "agent.child.spawned",
         (_, event) if is_child_completion(event) => "agent.child.completed",

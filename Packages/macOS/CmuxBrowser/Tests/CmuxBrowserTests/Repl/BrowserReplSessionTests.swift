@@ -72,7 +72,7 @@ struct BrowserReplSessionTests {
     ) -> BrowserReplSession {
         BrowserReplSession(
             id: "test-\(UUID().uuidString)",
-            cwd: cwd ?? FileManager.default.temporaryDirectory.path,
+            cwd: cwd ?? browserReplTestWorkingDirectory,
             bundle: BrowserReplRuntimeBundle(
                 replScripts: [.init(name: "stub.js", source: stubRuntime)],
                 agentScripts: []
@@ -169,6 +169,7 @@ struct BrowserReplSessionTests {
         driver.emit("download.finished", #"{"targetId":"t1","downloadId":"d1","path":\#(quoted(file.path))}"#)
         let after = await session.evaluate(
             code: """
+            await call("tabs.list"); // a driver result follows the events before it
             console.log(lastEvent[0], fs('readFile', { path: \(quoted(file.path)) }));
             """
         )

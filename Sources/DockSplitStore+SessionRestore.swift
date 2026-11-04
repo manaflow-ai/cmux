@@ -3,6 +3,7 @@ import CMUXAgentLaunch
 import CmuxTerminal
 import CmuxTerminalCore
 import CmuxWorkspaces
+import CmuxHomeCore
 import Foundation
 
 extension DockSplitStore {
@@ -238,6 +239,20 @@ extension DockSplitStore {
                 inPane: paneId,
                 excludingStableIdentities: excludingStableIdentities
             )
+        case .chief:
+            guard let chiefSnapshot = snapshot.chief else { return nil }
+            let panel = ChiefPanel(
+                id: panels[snapshot.id] == nil ? snapshot.id : UUID(),
+                conversationID: chiefSnapshot.conversationID.map(ConversationID.init(rawValue:))
+            )
+            guard attachSessionRestoredPanel(panel, snapshot: snapshot, inPane: paneId) != nil else {
+                return nil
+            }
+            if let stableSurfaceId = snapshot.stableSurfaceId,
+               !excludingStableIdentities.contains(stableSurfaceId) {
+                panel.adoptStableSurfaceId(stableSurfaceId)
+            }
+            return panel.id
         default:
             return nil
         }
@@ -528,6 +543,9 @@ extension DockSplitStore {
             tmuxStartCommand: restoredTmuxStartCommand,
             initialInput: initialInput,
             additionalEnvironment: replayEnvironment,
+            stableSurfaceId: snapshot.stableSurfaceId.flatMap {
+                excludingStableIdentities.contains($0) ? nil : $0
+            },
             focusPlacement: .rightSidebarDock,
             isRemoteTerminal: terminalSnapshot.isRemoteTerminal == true,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
@@ -547,6 +565,7 @@ extension DockSplitStore {
             panelId: terminal.id,
             internallySeededInput: initialInput
         )
+        terminal.restoreRecovery.restore(from: terminalSnapshot.restoreRecovery)
         if willRunAgentInput {
             // Keep the typed resume selector so the shell-state handler can
             // replay it if the login shell drops the typeahead.
@@ -608,7 +627,7 @@ extension DockSplitStore {
             )
         }
         if deferredAgentResumeAdmission {
-            terminal.restoreRecovery.state = .checking
+            terminal.restoreRecovery.markCheckingPreservingFailure()
             deferAgentResumeRestore(
                 panelId: terminal.id,
                 restore: DeferredAgentResumeRestore(
@@ -760,6 +779,7 @@ extension DockSplitStore {
             title: title,
             hasCustomTitle: snapshot.customTitle != nil,
             icon: panel.displayIcon,
+            iconAsset: panel is ChiefPanel ? ChiefPanel.iconAssetName : nil,
             kind: Self.surfaceKind(for: panel),
             isDirty: panel.isDirty,
             showsNotificationBadge: snapshot.isManuallyUnread,

@@ -5222,11 +5222,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertEqual(params["kind"] as? String, "antigravity")
             XCTAssertEqual(params["checkpoint_id"] as? String, scenario.sessionId)
             XCTAssertEqual(params["auto_resume"] as? Bool, true)
-            XCTAssertEqual(
-                params["command"] as? String,
-                "cd -- '\(workspace.path)' 2>/dev/null || [ ! -d '\(workspace.path)' ] && '\(scenario.executable)' '--conversation' '\(scenario.sessionId)' '--sandbox' 'danger-full-access' '--add-dir' '/tmp/extra repo'"
-            )
-            XCTAssertEqual(params["environment"] as? [String: String], scenario.expectedEnvironment)
+            let resumeCommand = try XCTUnwrap(params["command"] as? String)
+            XCTAssertTrue(resumeCommand.contains("/bin/sh -c"), resumeCommand)
+            XCTAssertTrue(resumeCommand.contains("CMUX_AGY_WRAPPER_SHIM"), resumeCommand)
+            XCTAssertTrue(resumeCommand.contains(scenario.executable), resumeCommand)
+            var expectedResumeEnvironment = scenario.expectedEnvironment ?? [:]
+            expectedResumeEnvironment["CMUX_CUSTOM_ANTIGRAVITY_PATH"] = scenario.executable
+            XCTAssertEqual(params["environment"] as? [String: String], expectedResumeEnvironment)
             XCTAssertFalse(
                 state.commands.contains { command in
                     self.jsonObject(command)?["method"] as? String == "surface.resume.clear"

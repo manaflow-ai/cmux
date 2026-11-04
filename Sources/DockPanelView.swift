@@ -157,6 +157,7 @@ struct DockPanelView: View {
 struct DockEmptyPaneView: View {
     let onNewTerminal: () -> Void
     let onNewBrowser: () -> Void
+    let onNewChief: () -> Void
     @State private var browserAvailable = BrowserAvailabilitySettings.isEnabled()
 
     var body: some View {
@@ -181,6 +182,12 @@ struct DockEmptyPaneView: View {
                             systemImage: "globe"
                         )
                     }
+                }
+                Button(action: onNewChief) {
+                    Label(
+                        String(localized: "dock.action.newChief", defaultValue: "New Chief"),
+                        systemImage: "bubble.left.and.bubble.right"
+                    )
                 }
             }
             .buttonStyle(.bordered)

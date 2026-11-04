@@ -199,7 +199,7 @@ extension View {
 }
 
 private struct SidebarImmediateObservationState: Equatable {
-    let customTitle: String?
+    let titleRevision: UInt64
     let customDescription: String?
     let isPinned: Bool
     let isMuted: Bool
@@ -253,12 +253,16 @@ extension Workspace {
         // Combine exposes up to four-way convenience publishers. Compose the
         // extra fields explicitly so adding a row-affecting property does not
         // require a non-existent ``CombineLatest5`` specialization.
-        let workspaceFields = Publishers.CombineLatest4(
-            $customTitle,
+        // `setCustomTitle` writes customTitle before title. Observing
+        // `$customTitle` here would forward a leading event while title still
+        // has its old value, so the committed title publisher is the single
+        // rename invalidation source.
+        let workspaceFields = Publishers.CombineLatest3(
+            sidebarTitleDidChangePublisher,
             $customDescription,
-            $isPinned,
-            $customColor
+            $isPinned
         )
+        .combineLatest($customColor)
         .combineLatest($isMuted)
         let conversationFields = Publishers.CombineLatest4(
             $latestConversationMessage,
@@ -279,11 +283,11 @@ extension Workspace {
             .combineLatest(conversationFields, todoFields)
             .map { workspaceFields, conversationFields, todoFields in
                 SidebarImmediateObservationState(
-                    customTitle: workspaceFields.0.0,
-                    customDescription: workspaceFields.0.1,
-                    isPinned: workspaceFields.0.2,
+                    titleRevision: workspaceFields.0.0.0,
+                    customDescription: workspaceFields.0.0.1,
+                    isPinned: workspaceFields.0.0.2,
                     isMuted: workspaceFields.1,
-                    customColor: workspaceFields.0.3,
+                    customColor: workspaceFields.0.1,
                     latestConversationMessage: conversationFields.0,
                     latestSubmittedMessage: conversationFields.1,
                     latestSubmittedAt: conversationFields.2,

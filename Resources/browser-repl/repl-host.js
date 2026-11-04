@@ -7,6 +7,13 @@
 (function (root) {
   "use strict";
   const ns = (root.CmuxBrowserRepl = root.CmuxBrowserRepl || {});
+  // Taken before any cell runs, so a cell that replaces the global Error
+  // does not change how the runtime reads a stack.
+  const StackError = Error;
+  // The owner of the code running now where the engine's stacks cannot
+  // tell (async-owner.js); absent, or inactive, where they can.
+  const asyncOwner = ns.asyncOwner && ns.asyncOwner.active ? ns.asyncOwner : null;
+  const trackedOwner = () => (asyncOwner ? asyncOwner.tracker.owner() : undefined);
 
   function acornApi() {
     const acorn = root.acorn || (ns.vendor && ns.vendor.acorn);
@@ -106,13 +113,39 @@
     return { source: hoisted.join("\n") + (hoisted.length ? "\n" : "") + out, names: [...new Set(names)] };
   }
 
+  // Output reaches the caller's terminal, and page text (titles, names,
+  // values, URLs, error messages) is in it, so every printed line passes
+  // here: C0 controls but newline and tab, DEL and C1 controls print as
+  // visible escapes (`\u001b`), which no terminal interprets. A CRLF is a
+  // newline; a lone CR, which could overwrite a printed line, is escaped.
+  // The escapes are JSON's (`\r`, `\b`, `\f`, else `\u00xx`), so the native
+  // session still masks a registered secret that holds a control character
+  // (it masks a value's JSON-escaped form too).
+  const CONTROLS = /\r\n|[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
+  const SHORT_ESCAPES = { "\r": "\\r", "\b": "\\b", "\f": "\\f" };
+  // The most characters one print keeps, in the output and its spill
+  // file: it is cut before it is escaped, encoded or written, so one huge
+  // string cannot make those copies.
+  const MAX_PRINT_CHARS = 16000000;
+
+  function printable(text) {
+    let s = String(text);
+    const given = s.length;
+    if (given > MAX_PRINT_CHARS) s = s.slice(0, MAX_PRINT_CHARS);
+    s = s.replace(CONTROLS, (c) => (c === "\r\n" ? "\n" : SHORT_ESCAPES[c] || "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0")));
+    // Escapes can make it longer again.
+    if (given <= MAX_PRINT_CHARS && s.length <= MAX_PRINT_CHARS) return s;
+    const count = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return `${s.slice(0, MAX_PRINT_CHARS)}…\n# this print was cut after ${count(MAX_PRINT_CHARS)} characters (${count(given)} were given)`;
+  }
+
   function formatError(e) {
     if (!e) return "Error: undefined";
     if (e instanceof Error) {
       const name = e.name || "Error";
-      return `${name}: ${e.message}`;
+      return printable(`${name}: ${e.message}`);
     }
-    return String(e);
+    return printable(String(e));
   }
 
   // Creates a REPL session. `globals` are merged into the scope; a global
@@ -124,21 +157,77 @@
         Object.defineProperty(scope, key, Object.getOwnPropertyDescriptor(g, key));
       }
     }
+    // Which cell's code runs now. Each cell body runs as a function named
+    // __cmuxCell<seq>, which the stack names in every engine, also after an
+    // await resumes it, and the engines' async stacks name it under an
+    // async function the cell awaits. The cell's sequence number is the
+    // token its leftover work carries: once the app cancelled the cell
+    // (it timed out), that work is refused host and driver calls
+    // (isCancelledWork) and its page listeners are dropped. Agent code can
+    // change what a stack shows; this keeps a cell's own stale work from
+    // acting late, it is not a guard (the app cancels the cell's timers,
+    // fetches and driver calls itself).
+    let cellSeq = 0;
+    const cancelledSeqs = new Set();
+    const CELL_FRAME = /__cmuxCell(\d+)\b/g;
+    // The cells whose bodies are on the stack now, innermost first.
+    function cellsOnStack() {
+      const limit = StackError.stackTraceLimit;
+      let stack = "";
+      try {
+        StackError.stackTraceLimit = Infinity;
+        stack = String(new StackError().stack || "");
+      } catch {
+        // A non-writable limit: read the stack as it is.
+        stack = String(new StackError().stack || "");
+      } finally {
+        try {
+          StackError.stackTraceLimit = limit;
+        } catch {}
+      }
+      return Array.from(stack.matchAll(CELL_FRAME), (m) => Number(m[1]));
+    }
+    // Where the engine's stacks do not name a resumed async function's
+    // callers, the owner async-owner.js tracks stands in for them: the
+    // cell object whose code (or an async function it called) runs now.
+    const ownCells = new WeakSet();
+    const tracked = () => {
+      const owner = trackedOwner();
+      return owner && ownCells.has(owner) ? owner : undefined;
+    };
+    const runningOnStack = (seqs) => !!running && running.seq !== undefined && (seqs.includes(running.seq) || tracked() === running);
+    // Whether the code running now is a cancelled cell's leftover work: a
+    // cancelled cell's body is on the stack (or owns it) and the running
+    // cell's is not (a function the cancelled cell defined still works for
+    // the cell that calls it).
+    function isCancelledWork() {
+      if (!cancelledSeqs.size) return false;
+      const seqs = cellsOnStack();
+      if (runningOnStack(seqs)) return false;
+      const owner = tracked();
+      return seqs.some((seq) => cancelledSeqs.has(seq)) || (!!owner && cancelledSeqs.has(owner.seq));
+    }
+    // The cell whose code runs now (the running cell when its body is on
+    // the stack, else the innermost cell there), or undefined outside every
+    // cell (a timer or listener callback).
+    function ownerOnStack() {
+      const seqs = cellsOnStack();
+      if (runningOnStack(seqs)) return running.seq;
+      const owner = tracked();
+      return seqs.length ? seqs[0] : owner && owner.seq;
+    }
     // The console a cell's code sees. Once the cell is cancelled, output its
     // own leftover work prints later (a timer, a listener, an await that
     // resumes) is dropped, so it never lands in another cell. A function
     // the cancelled cell defined still prints when the running cell calls
-    // it: the running cell's body is then on the stack. Each cell body runs
-    // as a function named __cmuxCell<seq>, which the stack names in every
-    // engine, also after an await resumes it.
-    let cellSeq = 0;
+    // it: the running cell's body is then on the stack.
     function cellConsole(cell) {
       const base = scope.console;
       if (!base || typeof base !== "object") return base;
       const prints = () => {
         if (!cell.cancelled) return true;
         if (!running || running === cell || running.seq === undefined) return false;
-        return String(new Error().stack || "").includes(`__cmuxCell${running.seq}`);
+        return runningOnStack(cellsOnStack());
       };
       return new Proxy(base, {
         get(target, key) {
@@ -151,8 +240,14 @@
     async function run(code, cell) {
       const started = host.now ? host.now() : Date.now();
       let rewritten;
+      let instrumented = false;
       try {
-        rewritten = rewriteTopLevel(code);
+        // Where the engine needs it, the cell's async code carries its
+        // owner (async-owner.js); its top level uses the token the cell's
+        // function declares below.
+        let source = code;
+        if (asyncOwner) ({ source, instrumented } = asyncOwner.prepareCell(code));
+        rewritten = rewriteTopLevel(source);
       } catch (e) {
         return { ok: false, error: `SyntaxError: ${e.message}`, ms: 0 };
       }
@@ -171,7 +266,9 @@
         // else resolves through the scope.
         const owner = cell || {};
         owner.seq = ++cellSeq;
-        fn = new Function("__cmuxScope", "__cmuxConsole", `return async function () { let __cmuxLast; with (__cmuxScope) { await (async function __cmuxCell${owner.seq}(console) {\n${rewritten.source}\n})(__cmuxConsole); } return __cmuxLast; };`)(scope, cellConsole(owner));
+        ownCells.add(owner);
+        const body = instrumented ? `const __cmuxK=__cmuxT.begin(__cmuxOwner);try{\n${rewritten.source}\n}finally{__cmuxT.leave(__cmuxK)}` : `\n${rewritten.source}\n`;
+        fn = new Function("__cmuxScope", "__cmuxConsole", "__cmuxT", "__cmuxOwner", `return async function () { let __cmuxLast; with (__cmuxScope) { await (async function __cmuxCell${owner.seq}(console) {${body}})(__cmuxConsole); } return __cmuxLast; };`)(scope, cellConsole(owner), asyncOwner && asyncOwner.tracker, owner);
       } catch (e) {
         return { ok: false, error: `SyntaxError: ${e.message}`, ms: 0 };
       }
@@ -204,6 +301,9 @@
     }
     return {
       scope,
+      isCancelledWork,
+      ownerOnStack,
+      isCancelledCell: (seq) => cancelledSeqs.has(seq),
       // `id` names the cell for cancel().
       evaluate(code, { id } = {}) {
         return new Promise((resolve) => {
@@ -226,12 +326,14 @@
       },
       // Ends the running cell now (the app calls this when a cell times
       // out): its evaluate() result is { ok: false, error: message } and the
-      // next cell starts. Work the cell already scheduled is not undone.
+      // next cell starts. The app cancels the cell's timers, fetches and
+      // driver calls itself.
       // With an `id`, only that cell is cancelled: a late cancel for a cell
       // that already ended never ends the next one.
       cancel(message, id) {
         if (!running || (id !== undefined && running.id !== id)) return false;
         running.cancelled = true;
+        if (running.seq !== undefined) cancelledSeqs.add(running.seq);
         running.finish({ ok: false, error: String(message), cancelled: true, ms: 0 });
         return true;
       },
@@ -313,7 +415,7 @@
     };
     return {
       print(level, text) {
-        text = String(text);
+        text = printable(text);
         total += text.length + 1;
         if (!file) {
           if (shown + text.length + 1 <= headCap) {
@@ -367,16 +469,67 @@
   // `evaluate(code, { maxOutput })` caps what one call prints (above).
   function createBrowserRepl({ host, driver }) {
     const core = ns.core;
-    const session = new core.Session({ driver, host });
     let gate = null;
-    // Everything the runtime prints goes through the current call's gate.
-    // The native session masks registered secrets in output, files and
-    // errors (BrowserReplBoundary).
-    const gatedHost = Object.create(host, {
-      print: { value: (level, text) => (gate ? gate.print(level, text) : host.print(level, text)) },
+    // Everything the runtime prints goes through the current call's gate,
+    // its own error reports (an event listener that threw) too. The native
+    // session masks registered secrets in output, files and errors
+    // (BrowserReplBoundary) and bounds what reaches it past the gate.
+    const gatedPrint = (level, text) => (gate ? gate.print(level, text) : host.print(level, printable(text)));
+    // A cancelled cell's leftover work (an await that resumes after its
+    // timeout) is refused every host and driver call, so it acts neither
+    // under a later cell nor between cells (createReplSession).
+    let isCancelledWork = () => false;
+    const cancelledError = (what) => {
+      const e = new Error(`${what}: cancelled because the cell that started this work timed out; it does not run in a later cell`);
+      e.code = "cancelled";
+      return e;
+    };
+    const guarded = {};
+    for (const name of ["setTimeout", "fsOp", "secrets", "policy", "readResource"]) {
+      if (typeof host[name] !== "function") continue;
+      guarded[name] = {
+        value: (...args) => {
+          if (isCancelledWork()) throw cancelledError(name === "fsOp" ? "fs" : name);
+          return host[name](...args);
+        },
+      };
+    }
+    if (typeof host.fetch === "function") {
+      guarded.fetch = { value: (...args) => (isCancelledWork() ? Promise.reject(cancelledError("fetch")) : host.fetch(...args)) };
+    }
+    // The raw host and driver stay in this closure. Agent code reaches only
+    // these frozen copies, whose prototype is Object.prototype, so a
+    // cancelled cell cannot call a raw capability around the check
+    // (Object.getPrototypeOf on a wrapper finds nothing callable).
+    // Members come from the raw object and its own prototypes (a wrapped
+    // host inherits its base's), each bound to the raw object as a call
+    // through the old wrapper resolved them.
+    const ownSurface = (raw, overrides) => {
+      const descriptors = {};
+      for (let o = raw; o && o !== Object.prototype; o = Object.getPrototypeOf(o)) {
+        for (const [name, d] of Object.entries(Object.getOwnPropertyDescriptors(o))) {
+          if (name in descriptors || name === "constructor") continue;
+          if (d.get || d.set) descriptors[name] = { get: d.get ? () => d.get.call(raw) : undefined, enumerable: d.enumerable };
+          else descriptors[name] = { value: typeof d.value === "function" ? d.value.bind(raw) : d.value, enumerable: d.enumerable };
+        }
+      }
+      return Object.freeze(Object.defineProperties({}, { ...descriptors, ...overrides }));
+    };
+    const gatedHost = ownSurface(host, {
+      print: { value: gatedPrint, enumerable: true },
+      console: { value: Object.freeze({ error: (text) => gatedPrint("error", text) }), enumerable: true },
+      ...guarded,
     });
+    const guardedDriver = ownSurface(driver, {
+      call: { value: (method, params) => (isCancelledWork() ? Promise.reject(cancelledError(method)) : driver.call(method, params)), enumerable: true },
+    });
+    const session = new core.Session({ driver: guardedDriver, host: gatedHost });
     const api = ns.api.createGlobals(session, gatedHost);
     const repl = createReplSession({ host: gatedHost, globals: [timerGlobals(gatedHost, api.importModule), api.globals] });
+    isCancelledWork = repl.isCancelledWork;
+    // A page listener belongs to the cell that registered it; a cancelled
+    // cell's listeners are dropped instead of run.
+    session.listenerOwnership = { owner: repl.ownerOnStack, isCancelled: repl.isCancelledCell };
     return {
       session,
       api,
@@ -442,7 +595,12 @@
     const listeners = new Map();
     let nextCall = 1;
     let nextTimer = 1;
+    // Each entry from the app starts as no cell's code (async-owner.js).
+    const fromApp = () => {
+      if (asyncOwner) asyncOwner.tracker.reset();
+    };
     root.__cmuxHostOnResult = (id, errorJSON, resultJSON) => {
+      fromApp();
       const p = pending.get(id);
       if (!p) return;
       pending.delete(id);
@@ -454,12 +612,14 @@
       } else p.resolve(resultJSON === null || resultJSON === undefined ? undefined : JSON.parse(resultJSON));
     };
     root.__cmuxHostOnTimer = (id) => {
+      fromApp();
       const t = timers.get(id);
       if (!t) return;
       timers.delete(id);
       t();
     };
     root.__cmuxHostOnEvent = (name, payloadJSON) => {
+      fromApp();
       const payload = payloadJSON ? JSON.parse(payloadJSON) : {};
       for (const h of listeners.get(name) || []) h(payload);
     };
@@ -492,8 +652,8 @@
         native.clearTimer(id);
       },
       now: () => Date.now(),
-      print: (level, text) => native.print(level, text),
-      readResource: (relativePath) => native.readResource(relativePath),
+      print: (level, text) => native.print(level, printable(text)),
+      readResource: (relativePath) => hostCall(native.readResource, "read", { path: String(relativePath) }),
       fsOp(op, args) {
         const r = JSON.parse(native.fs(op, JSON.stringify(args)));
         if (r.error) {
@@ -519,7 +679,7 @@
         return { url: r.url, status: r.status, statusText: r.statusText, headers: Object.fromEntries(r.headers || []), base64: r.bodyBase64 || "", redirected: r.redirected };
       },
     };
-    host.console = Object.freeze({ error: (text) => native.print("error", text) });
+    host.console = Object.freeze({ error: (text) => native.print("error", printable(text)) });
     Object.freeze(host);
     const driver = {
       call: (method, params) => callAsync((id) => native.driverCall(id, method, JSON.stringify(params || {}))),
@@ -533,14 +693,24 @@
     Object.freeze(driver);
     let repl = null;
     // `optionsJSON` (optional): { "maxOutput": characters, 0 for no limit }.
-    root.__cmuxReplEval = async (code, optionsJSON) => {
+    const evaluateCell = async (code, optionsJSON) => {
       if (!repl) repl = createBrowserRepl({ host, driver });
       const options = typeof optionsJSON === "string" && optionsJSON ? JSON.parse(optionsJSON) : {};
       const r = await repl.evaluate(code, { maxOutput: options.maxOutput, id: options.evalId });
       if (!r.ok) throw r.exception || new Error(r.error);
       return undefined;
     };
-    root.__cmuxReplCancel = (message, evalId) => (repl ? repl.cancel(message, evalId === null ? undefined : evalId) : false);
+    root.__cmuxReplEval = (code, optionsJSON) => {
+      fromApp();
+      return evaluateCell(code, optionsJSON);
+    };
+    // `timerIds`: the timers the app cancelled with the cell; their
+    // callbacks go, so a fire already queued for one runs nothing.
+    root.__cmuxReplCancel = (message, evalId, timerIds) => {
+      fromApp();
+      for (const id of Array.isArray(timerIds) ? timerIds : []) timers.delete(id);
+      return repl ? repl.cancel(message, evalId === null ? undefined : evalId) : false;
+    };
     root.__cmuxFormatError = (e) => formatError(e);
     // The app takes these entry points and deletes the globals before any
     // cell runs, so a cell cannot call them (work they start would belong
@@ -549,6 +719,6 @@
     delete root.CmuxBrowserRepl;
   }
 
-  ns.replHost = { timerDelay, rewriteTopLevel, createReplSession, createBrowserRepl, createOutputGate, DEFAULT_MAX_OUTPUT, HARD_MAX_OUTPUT, formatError, installNativeHost };
+  ns.replHost = { timerDelay, printable, rewriteTopLevel, createReplSession, createBrowserRepl, createOutputGate, DEFAULT_MAX_OUTPUT, HARD_MAX_OUTPUT, formatError, installNativeHost };
   installNativeHost();
 })(typeof globalThis !== "undefined" ? globalThis : this);

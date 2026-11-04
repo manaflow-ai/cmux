@@ -1722,10 +1722,15 @@ final class SessionPersistenceTests: XCTestCase {
         )
         XCTAssertEqual(agent.kind, .custom("antigravity"))
         XCTAssertEqual(agent.sessionId, "antigravity-conversation-123")
-        XCTAssertEqual(
-            agent.resumeCommand,
-            "cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ] && '/usr/local/bin/agy' '--conversation' 'antigravity-conversation-123' '--sandbox' 'danger-full-access'"
-        )
+        let resumeCommand = try XCTUnwrap(agent.resumeCommand)
+        XCTAssertTrue(resumeCommand.contains("CMUX_AGY_WRAPPER_SHIM"), resumeCommand)
+        XCTAssertTrue(resumeCommand.contains("/usr/local/bin/agy"), resumeCommand)
+        let escapedConversation = "'--conversation' 'antigravity-conversation-123'"
+            .replacingOccurrences(of: "'", with: "'\\''")
+        let escapedSandbox = "'--sandbox' 'danger-full-access'"
+            .replacingOccurrences(of: "'", with: "'\\''")
+        XCTAssertTrue(resumeCommand.contains(escapedConversation), resumeCommand)
+        XCTAssertTrue(resumeCommand.contains(escapedSandbox), resumeCommand)
     }
 
     @MainActor
@@ -7634,6 +7639,17 @@ extension SessionPersistenceTests {
             processName: "ssh",
             processPath: "/usr/bin/ssh",
             arguments: ["ssh", "tinybox", "uname", "-a"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingRejectsForcedTTYRemoteCommand() {
+        let binding = TerminalSSHSessionDetector.resumeBinding(
+            processName: "ssh",
+            processPath: "/usr/bin/ssh",
+            arguments: ["ssh", "-tt", "tinybox", "tmux", "new-session"],
             environment: [:]
         )
 

@@ -69,7 +69,7 @@
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> ينشئ مساحة عمل لجهاز بعيد. تُوجَّه أجزاء المتصفح عبر الشبكة البعيدة بحيث يعمل localhost مباشرة. اسحب صورة إلى جلسة بعيدة لرفعها عبر scp.
+<code>cmux ssh user@remote</code> ينشئ مساحة عمل لجهاز بعيد. مرّر <code>--command 'omp "investigate auth"'</code> لتشغيل أمر أولي مرة واحدة في أول طرفية بعيدة لها. تُوجَّه أجزاء المتصفح عبر الشبكة البعيدة بحيث يعمل localhost مباشرة. اسحب صورة إلى جلسة بعيدة لرفعها عبر scp.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -119,6 +119,25 @@ brew upgrade --cask cmux
 ```
 
 عند التشغيل الأول، قد يطلب منك macOS تأكيد فتح تطبيق من مطور معروف. انقر **فتح** للمتابعة.
+
+### الإكمال التلقائي في الصدفة
+
+تثبّت حزمة Homebrew الإكمال التلقائي لـ zsh وbash وfish. ابدأ صدفة جديدة بعد التثبيت. إذا لم يعمل، فتأكد من أن أدلة الإكمال الخاصة بـ Homebrew مضبوطة في صدفتك (راجع [توثيق الإكمال التلقائي في Homebrew](https://docs.brew.sh/Shell-Completion)).
+
+إذا ثبّت cmux بطريقة أخرى، فأضف السطر المناسب إلى ملف بدء تشغيل صدفتك، ثم ابدأ صدفة جديدة:
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
 
 ## لماذا cmux؟
 
@@ -365,7 +384,7 @@ tmux هو مُضاعِف طرفية يعمل داخل أي طرفية. أما cm
 
 ### كيف يمكنني دعم cmux؟
 
-cmux مجاني ومفتوح المصدر، وسيظل كذلك دائمًا. إذا كنت ترغب في دعم التطوير والحصول على وصول مبكر لما هو قادم، بما في ذلك cmux AI وتطبيق iOS وCloud VMs، فاطّلع على [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
+cmux مجاني ومفتوح المصدر، وسيظل كذلك دائمًا. إذا كنت ترغب في دعم التطوير والحصول على وصول مبكر لما هو قادم، بما في ذلك cmux AI وتطبيق iOS وCloud VMs، فاطّلع على [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro).
 
 ### لدي طلب ميزة أو وجدت خطأ؟
 
@@ -405,18 +424,11 @@ cmux مجاني ومفتوح المصدر، وسيظل كذلك دائمًا. إ
   <img src="./docs/assets/wechat-community-qr.jpg" alt="رمز QR على WeChat للانضمام إلى مجتمع cmux" width="240" />
 </p>
 
-## إصدار المؤسسين
+## cmux Pro
 
 cmux مجاني ومفتوح المصدر وسيظل كذلك دائمًا. إذا كنت ترغب في دعم التطوير والحصول على وصول مبكر لما هو قادم:
 
-**[احصل على إصدار المؤسسين](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **أولوية لطلبات الميزات/إصلاح الأخطاء**
-- **وصول مبكر: ذكاء اصطناعي لـ cmux يمنحك سياقًا عن كل مساحة عمل وعلامة تبويب ولوحة**
-- **وصول مبكر: تطبيق iOS مع مزامنة الطرفيات بين سطح المكتب والهاتف**
-- **وصول مبكر: أجهزة افتراضية سحابية**
-- **وصول مبكر: وضع الصوت**
-- **iMessage/WhatsApp الشخصي الخاص بي**
+**[احصل على cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## الرخصة
 

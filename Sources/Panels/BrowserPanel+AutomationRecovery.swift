@@ -102,9 +102,12 @@ extension BrowserPanel {
         ]
     }
 
+    /// - Parameter fileReadAccessURL: For a file URL, the directory to grant
+    ///   the page read access to (a browser REPL session's pinned root).
     func beginAutomationNavigation(
         to targetURL: URL,
-        recordTypedNavigation: Bool
+        recordTypedNavigation: Bool,
+        fileReadAccessURL: URL? = nil
     ) -> BrowserAutomationNavigationTicket {
         takeBrowserDialogOwnership(.automation)
         let ticket = automationNavigationCoordinator.begin(
@@ -116,6 +119,7 @@ extension BrowserPanel {
         navigate(
             to: targetURL,
             recordTypedNavigation: recordTypedNavigation,
+            fileReadAccessURL: fileReadAccessURL,
             onNavigationStarted: { [weak self] navigation in
                 self?.automationNavigationCoordinator.didStart(
                     ticket,

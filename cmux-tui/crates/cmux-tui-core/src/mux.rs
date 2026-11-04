@@ -3948,7 +3948,15 @@ impl Mux {
         let has_restored_placements = restored_public_id.as_ref().is_some_and(|public_id| {
             !state.placements_of_content(&ContentPublicId::Terminal(public_id.clone())).is_empty()
         });
-        if is_template_terminal(&terminal) && !has_restored_placements {
+        // A template that this registry already published has a durable
+        // public terminal id. If its tab was closed it is detached, and it is
+        // restored detached below like any other terminal: placing its
+        // identity-less runtime here would leave a tab slot with no durable
+        // identity, fail every later resource projection, and stop the
+        // session from creating terminals.
+        let template_first_adoption = is_template_terminal(&terminal)
+            && registry.terminal_resource_id(terminal_id)?.is_none();
+        if template_first_adoption && !has_restored_placements {
             // Cloud snapshot template, first adoption: its builder's placement
             // was wiped with the builder's registry, so it gets a new one here.
             // The template marker stays on the durable row, so a later daemon
@@ -5927,6 +5935,10 @@ impl Mux {
 
     fn publish_resource_event(&self) {
         self.publish_journal_event();
+        // A terminal's first cwd report can precede its registration, and its
+        // shell may then stay quiet. Each committed graph change is where such
+        // a terminal can join the graph, so publish whatever report waited.
+        self.publish_pending_terminal_directories();
     }
 
     fn publish_journal_event(&self) {

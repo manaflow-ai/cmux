@@ -98,6 +98,32 @@ export const shortcutCategories: ShortcutCategory[] = [
         },
       },
       {
+        id: "openChief",
+        combos: [["⌘", "⇧", "C"]],
+        description: {
+          en: "Open Chief",
+          ja: "Chiefを開く",
+          "zh-CN": "打开 Chief",
+          "zh-TW": "打開 Chief",
+          ko: "Chief 열기",
+          de: "Chief öffnen",
+          es: "Abrir Chief",
+          fr: "Ouvrir Chief",
+          it: "Apri Chief",
+          da: "Åbn Chief",
+          pl: "Otwórz Chief",
+          ru: "Открыть Chief",
+          bs: "Otvori Chief",
+          ar: "فتح Chief",
+          no: "Åpne Chief",
+          "pt-BR": "Abrir Chief",
+          th: "เปิด Chief",
+          tr: "Chief'i aç",
+          km: "បើក Chief",
+          uk: "Відкрити Chief",
+        },
+      },
+      {
         id: "commandPaletteNext",
         combos: [["⌃", "N"]],
         description: { en: "Command palette next result", ja: "コマンドパレットの次の結果" },
@@ -282,9 +308,12 @@ export const shortcutCategories: ShortcutCategory[] = [
       },
       {
         id: "focusSidebar",
-        combos: [["⌃", "⌘", "E"]],
+        combos: [],
         description: { en: "Focus the workspace sidebar", ja: "ワークスペースサイドバーにフォーカス" },
-        note: { en: "↑/↓ select workspaces; Return or Esc returns to the terminal", ja: "↑/↓でワークスペースを選択、ReturnまたはEscでターミナルに戻る" },
+        note: {
+          en: "unbound by default; ↑/↓ select workspaces; Return or Esc returns to the terminal",
+          ja: "デフォルトでは未割り当て。↑/↓でワークスペースを選択、ReturnまたはEscでターミナルに戻る",
+        },
       },
       {
         id: "showWindowHints",
@@ -498,7 +527,7 @@ export const shortcutCategories: ShortcutCategory[] = [
           ja: "デフォルトでは未割り当て。Ghostty の goto_split:next のキーバインドでも循環できます（Focus Forward が同じキーを使っていない場合）",
         },
       },
-      { id: "focusPaneByNumber", combos: [["⌃", "⌘", "1…9"]], description: { en: "Focus pane 1…9", ja: "ペイン1…9にフォーカス" } },
+      { id: "focusPaneByNumber", combos: [], description: { en: "Focus pane 1…9", ja: "ペイン1…9にフォーカス" }, note: { en: "unbound by default", ja: "デフォルトでは未割り当て" } },
       { id: "splitRight", combos: [["⌘", "D"]], description: { en: "Split right", ja: "右に分割" } },
       { id: "splitDown", combos: [["⌘", "⇧", "D"]], description: { en: "Split down", ja: "下に分割" } },
       {
@@ -934,3 +963,11 @@ export const shortcutCategories: ShortcutCategory[] = [
     ],
   },
 ];
+
+export function shortcutComboText(id: string, comboIndex = 0): string {
+  for (const category of shortcutCategories) {
+    const combo = category.shortcuts.find((shortcut) => shortcut.id === id)?.combos[comboIndex];
+    if (combo) return combo.join("");
+  }
+  throw new Error(`Unknown default shortcut: ${id}`);
+}

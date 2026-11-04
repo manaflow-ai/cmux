@@ -1,3 +1,4 @@
+import CmuxBrowser
 import Foundation
 
 @MainActor
@@ -15,6 +16,9 @@ final class DiffViewerSessionTrustRegistry {
         }
         pruneExpiredSessionsLocked(now: now)
         liveHTTPSessions[token] = session
+        // Browser REPL sessions may not read what this server serves (local
+        // files), in any tab and whatever their domain policy.
+        BrowserReplFileSandbox.registerAppServedOrigin(of: url)
         return true
     }
 
@@ -53,8 +57,16 @@ final class DiffViewerSessionTrustRegistry {
     }
 
     private func pruneExpiredSessionsLocked(now: Date) {
+        let before = liveHTTPSessions
         liveHTTPSessions = liveHTTPSessions.filter {
             now.timeIntervalSince($0.value.lastAuthenticatedActivityAt) <= maxSessionAge
+        }
+        for (token, session) in before where liveHTTPSessions[token] == nil {
+            let stillServed = liveHTTPSessions.values.contains {
+                $0.scheme == session.scheme && $0.host == session.host && $0.port == session.port
+            }
+            guard !stillServed, let url = URL(string: "\(session.scheme)://\(session.host):\(session.port)/") else { continue }
+            BrowserReplFileSandbox.unregisterAppServedOrigin(of: url)
         }
     }
 }

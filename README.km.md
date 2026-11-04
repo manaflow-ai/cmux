@@ -69,7 +69,7 @@
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> បង្កើត workspace សម្រាប់ម៉ាស៊ីនពីចម្ងាយ។ ផ្ទាំងកម្មវិធីរុករកធ្វើដំណើរឆ្លងកាត់បណ្តាញពីចម្ងាយ ដូច្នេះ localhost ដំណើរការបានយ៉ាងស្រួល។ អូសរូបភាពចូលទៅក្នុង session ពីចម្ងាយ ដើម្បីផ្ទុកឡើងតាមរយៈ scp។
+<code>cmux ssh user@remote</code> បង្កើត workspace សម្រាប់ម៉ាស៊ីនពីចម្ងាយ។ បញ្ជូន <code>--command 'omp "investigate auth"'</code> ដើម្បីដំណើរការពាក្យបញ្ជាដំបូងម្តង នៅក្នុងស្ថានីយពីចម្ងាយដំបូងរបស់វា។ ផ្ទាំងកម្មវិធីរុករកធ្វើដំណើរឆ្លងកាត់បណ្តាញពីចម្ងាយ ដូច្នេះ localhost ដំណើរការបានយ៉ាងស្រួល។ អូសរូបភាពចូលទៅក្នុង session ពីចម្ងាយ ដើម្បីផ្ទុកឡើងតាមរយៈ scp។
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -119,6 +119,25 @@ brew upgrade --cask cmux
 ```
 
 នៅពេលបើកលើកដំបូង macOS អាចសុំឱ្យអ្នកបញ្ជាក់ការបើកកម្មវិធីពីអ្នកអភិវឌ្ឍន៍ដែលបានកំណត់អត្តសញ្ញាណ។ ចុច **Open** ដើម្បីបន្ត។
+
+### ការបំពេញស្វ័យប្រវត្តិក្នុង Shell
+
+Homebrew cask ដំឡើងការបំពេញស្វ័យប្រវត្តិសម្រាប់ zsh, bash និង fish។ សូមចាប់ផ្តើម shell ថ្មីបន្ទាប់ពីដំឡើង។ ប្រសិនបើវាមិនផ្ទុក សូមពិនិត្យថាថតការបំពេញរបស់ Homebrew ត្រូវបានភ្ជាប់ជាមួយ shell របស់អ្នក (មើល [ឯកសារបំពេញស្វ័យប្រវត្តិ Shell របស់ Homebrew](https://docs.brew.sh/Shell-Completion))។
+
+ប្រសិនបើអ្នកបានដំឡើង cmux តាមវិធីផ្សេង សូមបន្ថែមបន្ទាត់ដែលត្រូវគ្នាទៅក្នុងឯកសារចាប់ផ្តើម shell របស់អ្នក រួចចាប់ផ្តើម shell ថ្មី៖
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
 
 ## ហេតុអ្វីបានជា cmux?
 
@@ -365,7 +384,7 @@ tmux គឺ​ជា terminal multiplexer ដែល​ដំណើរ​កា�
 
 ### តើ​ខ្ញុំ​អាច​គាំទ្រ cmux យ៉ាង​ដូចម្ដេច?
 
-cmux ឥត​គិត​ថ្លៃ​និង open source ហើយ​នឹង​នៅ​តែ​បែប​នេះ​ជានិច្ច។ ប្រសិន​បើ​អ្នក​ចង់​គាំទ្រ​ការ​អភិវឌ្ឍ​និង​ទទួល​បាន​ការ​ចូល​ដំណើរ​ការ​មុន​គេ​ចំពោះ​អ្វី​ដែល​នឹង​មក​ដល់ រួម​ទាំង cmux AI, កម្មវិធី iOS និង Cloud VMs សូម​មើល [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition)។
+cmux ឥត​គិត​ថ្លៃ​និង open source ហើយ​នឹង​នៅ​តែ​បែប​នេះ​ជានិច្ច។ ប្រសិន​បើ​អ្នក​ចង់​គាំទ្រ​ការ​អភិវឌ្ឍ​និង​ទទួល​បាន​ការ​ចូល​ដំណើរ​ការ​មុន​គេ​ចំពោះ​អ្វី​ដែល​នឹង​មក​ដល់ រួម​ទាំង cmux AI, កម្មវិធី iOS និង Cloud VMs សូម​មើល [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)។
 
 ### ខ្ញុំ​មាន​សំណើ​មុខងារ ឬ​រក​ឃើញ​កំហុស?
 
@@ -405,18 +424,11 @@ cmux ឥត​គិត​ថ្លៃ​និង open source ហើយ​ន�
   <img src="./docs/assets/wechat-community-qr.jpg" alt="កូដ QR WeChat សម្រាប់ចូលរួមសហគមន៍ cmux" width="240" />
 </p>
 
-## Founder's Edition
+## cmux Pro
 
 cmux គឺឥតគិតថ្លៃ បើកប្រភពកូដ និងនឹងនៅតែជានិច្ច។ ប្រសិនបើអ្នកចង់គាំទ្រការអភិវឌ្ឍន៍ និងទទួលបានសិទ្ធិចូលប្រើមុនគេចំពោះអ្វីដែលនឹងមកដល់បន្ទាប់៖
 
-**[Get Founder's Edition](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **សំណើមុខងារ/ការជួសជុលកំហុសដែលត្រូវផ្តល់អាទិភាព**
-- **សិទ្ធិចូលប្រើមុនគេ៖ cmux AI ដែលផ្តល់ឱ្យអ្នកនូវបរិបទនៅលើគ្រប់ workspace, tab និង panel**
-- **សិទ្ធិចូលប្រើមុនគេ៖ កម្មវិធី iOS ដែលមាន terminals បានធ្វើសមកាលកម្មរវាងកុំព្យូទ័រ និងទូរស័ព្ទ**
-- **សិទ្ធិចូលប្រើមុនគេ៖ Cloud VMs**
-- **សិទ្ធិចូលប្រើមុនគេ៖ របៀបសំឡេង (Voice mode)**
-- **iMessage/WhatsApp ផ្ទាល់ខ្លួនរបស់ខ្ញុំ**
+**[Get cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## អាជ្ញាបណ្ណ
 

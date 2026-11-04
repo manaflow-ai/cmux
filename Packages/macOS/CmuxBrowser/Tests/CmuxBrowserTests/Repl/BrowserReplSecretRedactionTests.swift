@@ -12,7 +12,7 @@ struct BrowserReplSecretRedactionTests {
     /// RFC 6238's test key, base32.
     private static let totpSeed = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
 
-    private func makeSession(_ driver: ScriptedPageDriver, cwd: String = FileManager.default.temporaryDirectory.path) -> BrowserReplSession? {
+    private func makeSession(_ driver: any BrowserReplDriver, cwd: String = browserReplTestWorkingDirectory) -> BrowserReplSession? {
         guard let bundle = try? browserReplRepositoryBundle() else { return nil }
         return BrowserReplSession(id: "redaction-\(UUID().uuidString)", cwd: cwd, bundle: bundle, driver: driver)
     }
@@ -37,7 +37,10 @@ struct BrowserReplSecretRedactionTests {
         await page.goto("https://example.com/login");
         const read = await page.evaluate(() => 1);
         console.log(JSON.stringify(read).split("").join(" "));
-        console.log(read.text.includes("<secret:otp>"), String(read.number).includes("<secret:otp>"));
+        // A code read as a number is masked when it keeps its six digits; one
+        // with a leading zero reads as a shorter number, which masking by shape
+        // leaves (masking every shorter number would mask every small number).
+        console.log(read.text.includes("<secret:otp>"), String(read.number).includes("<secret:otp>") || (typeof read.number === "number" && String(read.number).length < 6));
         await page.screenshot().catch(() => {});
         """)
         let output = result?.lines.map(\.text).joined(separator: "\n") ?? ""
@@ -76,12 +79,15 @@ struct BrowserReplSecretRedactionTests {
         #expect(output.contains("masked true 255 128"), "\(output)")
     }
 
+    /// The source itself is refused to `fs` (r19 entry#1); a copy made
+    /// outside the session is read masked.
     @Test("fs.readFile returns a loaded secret's value masked, from text and from bytes")
     func readFileIsRedacted() async throws {
         let work = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-redaction-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: work) }
         try Data(#"{"example.com":{"pw":"\#(Self.value)"}}"#.utf8).write(to: work.appendingPathComponent("secrets.json"))
+        try Data(#"{"example.com":{"pw":"\#(Self.value)"}}"#.utf8).write(to: work.appendingPathComponent("notes.json"))
         var blob = Data([0xff, 0x00])
         blob.append(Data(Self.value.utf8))
         blob.append(Data([0x80]))
@@ -91,7 +97,7 @@ struct BrowserReplSecretRedactionTests {
         let result = await run(session, """
         const fs = await import("node:fs");
         secrets.load("./secrets.json");
-        const text = fs.readFileSync("./secrets.json", "utf8");
+        const text = fs.readFileSync("./notes.json", "utf8");
         console.log(text.split("").join(" "));
         const bytes = fs.readFileSync("./blob.bin");
         const latin = Array.from(bytes, (b) => String.fromCharCode(b)).join("");
@@ -107,4 +113,73 @@ struct BrowserReplSecretRedactionTests {
     private func currentCode() -> String {
         BrowserReplSecretStore.totp(key: BrowserReplSecretStore.base32Decode(Self.totpSeed) ?? Data(), time: Date().timeIntervalSince1970)
     }
+}
+
+/// A page driver whose app reports a secret another session typed into a
+/// tab this session reaches (``BrowserReplTypedSecrets``).
+private final class TypedSecretsPageDriver: BrowserReplDriver, @unchecked Sendable {
+    private let page = ScriptedPageDriver()
+    private let typed: BrowserReplSecretStore
+
+    init(typed: BrowserReplSecretStore) {
+        self.typed = typed
+    }
+
+    var capabilities: [String] { page.capabilities }
+
+    func call(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
+        await page.call(method: method, paramsJSON: paramsJSON)
+    }
+
+    func attach(eventSink: @escaping BrowserReplDriverEventSink) {}
+    func detach() {}
+
+    func typedSecretRedaction() -> BrowserReplSecretStore? { typed }
+}
+
+/// A page driver that holds `tab.screenshot` until a secret is typed;
+/// meanwhile page reads answer "capturing".
+private final class HeldCaptureDriver: BrowserReplDriver, @unchecked Sendable {
+    let page = ScriptedPageDriver()
+    private let lock = NSLock()
+    private var released = false
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    var capabilities: [String] { page.capabilities }
+
+    func call(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
+        switch method {
+        case "tab.screenshot":
+            page.pageValue = "capturing"
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                lock.lock()
+                if released {
+                    lock.unlock()
+                    continuation.resume()
+                } else {
+                    releaseWaiters.append(continuation)
+                    lock.unlock()
+                }
+            }
+            return await page.call(method: method, paramsJSON: paramsJSON)
+        case "input.insertText":
+            let result = await page.call(method: method, paramsJSON: paramsJSON)
+            if JSONSerialization.browserReplObject(paramsJSON)["secretName"] != nil { release() }
+            return result
+        default:
+            return await page.call(method: method, paramsJSON: paramsJSON)
+        }
+    }
+
+    private func release() {
+        let waiters: [CheckedContinuation<Void, Never>] = lock.withLock {
+            released = true
+            defer { releaseWaiters.removeAll() }
+            return releaseWaiters
+        }
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func attach(eventSink: @escaping BrowserReplDriverEventSink) {}
+    func detach() {}
 }

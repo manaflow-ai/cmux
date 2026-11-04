@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import CmuxCloud
 import CmuxFoundation
 import CmuxSettings
@@ -19,6 +20,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var catalog: SurfaceCatalog?
     private var providers: [String: CmuxTuiSurfaceProvider] = [:]
     let links: CloudMachineLinkManager
+    let sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
     /// The app's one WireGuard hub for private-network machines; nil when no cmux-tui
     /// client is bundled (then no link can be made at all).
     nonisolated let wireGuardHub: CloudWireGuardHub?
@@ -99,6 +101,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var isFeatureSuspended = false
     init(
         links: CloudMachineLinkManager,
+        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore? = nil,
         wireGuardHub: CloudWireGuardHub? = nil,
         isCloudEnabled: @escaping @MainActor () -> Bool = { true },
         allowsBackgroundWork: @escaping @MainActor () -> Bool = { true },
@@ -115,6 +118,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         notificationCenter: NotificationCenter = .default
     ) {
         self.links = links
+        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore ?? SSHClipboardWriteTrustStore(defaults: .standard)
         self.wireGuardHub = wireGuardHub
         self.isCloudEnabled = isCloudEnabled
         self.allowsBackgroundWork = allowsBackgroundWork
@@ -179,8 +183,9 @@ final class CmuxTuiSurfaceProviderRegistry {
         guard !isRetired, generation == refreshGeneration, scope == creationScope,
               providers[receipt.id] == nil else { return nil }
         let provider = CmuxTuiSurfaceProvider(
-            summary: receipt, fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope,
+            summary: .cloud(receipt), fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope,
             ownerTeamID: ownerTeamID, links: links, catalog: catalog,
+            sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
             portForwards: portForwards, portAccessStore: portAccess
         )
         providers[receipt.id] = provider
@@ -555,7 +560,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                 guard let loss = CloudMachineAccessLoss(error: error) else { continue }
                 if let provider = providers[target.id] {
                     provider.noteAccessLost(loss)
-                } else if loss.isMachineScoped {
+                } else if Self.endsRestoredMachine(loss) {
                     // No provider ever reached this machine; its restored
                     // panes leave like any machine outside the user's reach.
                     adoptedOwnerTeams[target.id] = nil
@@ -577,7 +582,8 @@ final class CmuxTuiSurfaceProviderRegistry {
             // No selected-team file-access scope: the file explorer stays
             // limited to the selected team's machines.
             let provider = CmuxTuiSurfaceProvider(
-                summary: summary, ownerTeamID: target.team, links: links, catalog: catalog,
+                summary: .cloud(summary), ownerTeamID: target.team, links: links, catalog: catalog,
+                sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
                 portForwards: portForwards, portAccessStore: portAccess
             )
             providers[summary.id] = provider
@@ -810,8 +816,9 @@ final class CmuxTuiSurfaceProviderRegistry {
                 await links.setOwnerTeam(pageTeamID, for: summary.id)
                 guard generation == refreshGeneration else { return nil }
                 let provider = CmuxTuiSurfaceProvider(
-                    summary: summary, fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope,
+                    summary: .cloud(summary), fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope,
                     ownerTeamID: pageTeamID, links: links, catalog: catalog,
+                    sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
                     portForwards: portForwards, portAccessStore: portAccess
                 )
                 providers[summary.id] = provider
@@ -821,23 +828,60 @@ final class CmuxTuiSurfaceProviderRegistry {
         return page.vms.compactMap { providers[$0.id] }
     }
 
+    /// Whether `loss` proves that a machine no provider has reached yet is out
+    /// of the user's reach, so its restored panes may leave. Leaving erases the
+    /// panes' saved links to their remote terminals.
+    ///
+    /// A `404 vm_not_found` is no proof: the server answers it for a deleted
+    /// machine and for a read made with a team that does not own the machine,
+    /// or with an incomplete team list. Those panes stay restoring and are
+    /// read again on the next refresh
+    /// (https://github.com/manaflow-ai/cmux/issues/21820).
+    nonisolated static func endsRestoredMachine(_ loss: CloudMachineAccessLoss) -> Bool {
+        loss.isMachineScoped && loss != .notFound
+    }
+
+    /// Access is gone: the restored panes leave instead of reconnecting
+    /// through a provider built from persisted metadata.
+    private func endRestoredMachine(_ machineID: String) {
+        adoptedOwnerTeams[machineID] = nil
+        unregisterMachine(machineID)
+    }
+
     private func registerPendingRestoredMachines(pageTeamID: String?, generation: UInt64) async {
         guard let catalog else { return }
         for machineID in catalog.pendingRestoredMachineIDs where providers[machineID] == nil {
             let info = catalog.machineInfo(for: .cloud(machineID))
-            guard let ownerTeamID = adoptedOwnerTeams[machineID] ?? pageTeamID,
+            guard var ownerTeamID = adoptedOwnerTeams[machineID] ?? pageTeamID,
                   !ownerTeamID.isEmpty,
                   !isRetired, generation == refreshGeneration,
                   isCloudEnabled(), !Task.isCancelled else { continue }
             let fetchedSummary: VMSummary?
             do {
                 fetchedSummary = try await loadMachineStatus(machineID, ownerTeamID)
-            } catch let error where CloudMachineAccessLoss(error: error)?.isMachineScoped == true {
+            } catch let error where CloudMachineAccessLoss(error: error) == .notFound {
                 guard !isRetired, generation == refreshGeneration else { return }
-                // Access is gone: the restored panes leave instead of reconnecting
-                // through a provider built from persisted metadata.
-                adoptedOwnerTeams[machineID] = nil
-                unregisterMachine(machineID)
+                // The saved team may be a guess: a legacy pane adopts the
+                // selected team. The selected team's read can still find it.
+                guard let pageTeamID, !pageTeamID.isEmpty, pageTeamID != ownerTeamID else { continue }
+                do {
+                    let summary = try await loadMachineStatus(machineID, pageTeamID)
+                    guard !isRetired, generation == refreshGeneration else { return }
+                    adoptedOwnerTeams[machineID] = pageTeamID
+                    ownerTeamID = pageTeamID
+                    fetchedSummary = summary
+                } catch {
+                    guard !isRetired, generation == refreshGeneration else { return }
+                    // The same rule as the saved team's read: only a definite
+                    // loss ends the panes; another 404 keeps them restoring.
+                    if CloudMachineAccessLoss(error: error).map(Self.endsRestoredMachine) == true {
+                        endRestoredMachine(machineID)
+                    }
+                    continue
+                }
+            } catch let error where CloudMachineAccessLoss(error: error).map(Self.endsRestoredMachine) == true {
+                guard !isRetired, generation == refreshGeneration else { return }
+                endRestoredMachine(machineID)
                 continue
             } catch {
                 fetchedSummary = nil
@@ -858,9 +902,10 @@ final class CmuxTuiSurfaceProviderRegistry {
             // A status read can omit the address; keep the restored route.
             if summary.addressIPv4 == nil { summary.addressIPv4 = address }
             let provider = CmuxTuiSurfaceProvider(
-                summary: summary,
+                summary: .cloud(summary),
                 fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope,
                 ownerTeamID: ownerTeamID, links: links, catalog: catalog,
+                sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
                 portForwards: portForwards, portAccessStore: portAccess
             )
             providers[machineID] = provider

@@ -115,6 +115,26 @@ if command -v zstd >/dev/null 2>&1; then
   echo "PASS: padded archives restore without decompressor SIGPIPE"
 fi
 
+# DerivedData seeds and compilation caches repeat content far apart (module
+# copies, duplicated objects). Saves use a 128 MiB window (--long=27), which
+# shrank real seeds by 27% and the compilation cache by 33%, and which a plain
+# `zstd -d` still reads without --long or --memory.
+if command -v zstd >/dev/null 2>&1; then
+  mkdir -p "$WORK/far/x"
+  head -c 6000000 /dev/urandom > "$WORK/far/a.bin"
+  head -c 4000000 /dev/urandom > "$WORK/far/x/gap.bin"
+  cp "$WORK/far/a.bin" "$WORK/far/x/z.bin"
+  output_of save "$WORK/far" far-one >/dev/null
+  size="$(wc -c < "$NS/objects/far-one.tar.zst")"
+  (( size < 11000000 )) || fail "repeats 10 MB apart must compress once, archive is $size bytes"
+  zstd -q -t "$NS/objects/far-one.tar.zst" || fail "a plain zstd must read the long-window archive"
+  rm -rf "$WORK/dst"
+  out="$(output_of restore "$WORK/dst" far-one)"
+  grep -q '^cache-hit=true$' <<<"$out" || fail "a long-window archive must restore, got: $out"
+  diff -r "$WORK/far" "$WORK/dst" >/dev/null || fail "long-window archive contents differ"
+  echo "PASS: saves find repeats beyond the default window and restore with plain zstd"
+fi
+
 before="$(ls -l "$NS/objects/")"
 output_of save "$WORK/src" family-tool-one >/dev/null
 grep -q "already exists" "$WORK/log" || fail "saving an existing key must be skipped"

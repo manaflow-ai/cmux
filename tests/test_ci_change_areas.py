@@ -706,6 +706,15 @@ def test_operational_ci_helpers_skip_product_areas() -> None:
         assert_areas([path], macos=False, web=False)
 
 
+def test_merge_gate_policy_changes_skip_native_compile() -> None:
+    for path in (
+        "scripts/gh-merge-green",
+        "scripts/ci/vercel_merge_gate.py",
+        "scripts/tests/test_vercel_merge_gate.py",
+    ):
+        assert_areas([path], macos=False, web=False)
+
+
 def test_web_subarea_router_keeps_web_without_macos() -> None:
     # Editing the ci-web.yml subarea router must still run web validation --
     # the helper lists itself in ALL_SUBAREA_INPUTS -- but never a Mac.
@@ -962,7 +971,8 @@ def test_website_only_does_not_run_agent_session_resource_check() -> None:
 
 
 def test_review_rules_skip_app_builds_but_preserve_unknown_and_mixed_inputs() -> None:
-    paths = [".coderabbit.yaml", ".greptile/rules.md",
+    paths = [".coderabbit.yaml", ".greptile/rules.md", ".greptile/files.json",
+             ".cursor/BUGBOT.md", "REVIEW.md",
              ".github/review-bot-rules/user-facing-errors.md"]
     for changed in [[path] for path in paths] + [paths]:
         assert module.classify_files(changed) == module.ChangeAreas(
@@ -2701,6 +2711,14 @@ def test_helper_ci_macos_runs_selects_the_lanes_of_its_jobs() -> None:
         "      - run: echo\n", "      - run: echo\n      - run: python3 scripts/ci/helper.py\n",
     )
     assert helper_areas(released) == areas(macos=True, cli=True, release_build=True)
+
+
+def test_helper_named_only_in_the_warm_sources_table_is_not_run() -> None:
+    # The table describes which helper wires each warm source; nothing executes it.
+    table = {".github/warm-sources.json": '{"sources": {"x": {"what": "scripts/ci/helper.py keeps it"}}}\n'}
+    assert helper_areas(table) == areas()
+    # Any other unplaced file that names the helper still fails open.
+    assert helper_areas({".github/other.json": '{"run": "scripts/ci/helper.py"}\n'}) is None
 
 
 def test_helper_named_only_in_comments_docstrings_or_routing_tables_is_not_run() -> None:
@@ -5877,7 +5895,7 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "node_product_cache.py seed" in admission
     assert "app_host_test_products.py stamp" in admission
     assert "framework_root=\"$(dirname \"$framework_source\")\"" in admission
-    assert "rsync -aL \"$framework_root/\" \"$products/PackageFrameworks/\"" in admission
+    assert "rsync -aL --no-times \"$framework_root/\" \"$products/PackageFrameworks/\"" in admission
 
     app_host = workflow_job_block("app-host-unit-tests", MACOS_WORKFLOW)
     assert "      - macos-compile-admission" in app_host

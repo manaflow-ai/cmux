@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import CmuxCloudBannerCore
 import CmuxCloud
 import Foundation
@@ -7,6 +8,7 @@ import CmuxTerminalSharing
 import CmuxFoundation
 import CmuxPanes
 import CmuxTerminalCore
+import CmuxGit
 import CmuxSidebar
 import CmuxSettings
 import CmuxWorkspaces
@@ -321,7 +323,9 @@ class GhosttyApp {
                 }
             )
             return TerminalSurfaceViewFactory(
-                imageTransferPreparation: preparationService
+                imageTransferPreparation: preparationService,
+                sshClipboardWriteTrustStore: AppDelegate.shared?.sshClipboardWriteTrustStore
+                    ?? SSHClipboardWriteTrustStore(defaults: .standard)
             )
         }(),
         spawnPolicy: TerminalSurfaceSpawnPolicyBridge(),
@@ -3823,6 +3827,8 @@ extension TerminalSurface {
 // MARK: - Ghostty Surface View
 
 class GhosttyNSView: NSView, NSUserInterfaceValidations {
+    /// The app-owned SSH clipboard policy used by this terminal's context menu.
+    let sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
     /// Returns whether a screen transition left the terminal runtime at a
     /// different backing scale than the window now uses. AppKit can update a
     /// view's layer during a display move without delivering
@@ -4204,7 +4210,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var textEditingGestureConsumedKeyUps: Set<UInt16> = []
     /// The alternate-screen state read on the last gesture press, reused by its
     /// auto-repeats so a held chord does not serialize the viewport per repeat.
-    private var textEditingGestureAlternateScreenAtPress: (keyCode: UInt16, onAlternateScreen: Bool)?
+    private var textEditingGestureAlternateScreenAtPress: (keyCode: UInt16, onAlternateScreen: Bool?)?
     private var imeConsumedKeyUps: Set<UInt16> = []
     private var manualNamedKeyConsumedKeyUps: Set<UInt16> = []
     /// Deferred native input actions retain their authored order until the
@@ -4373,6 +4379,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override init(frame frameRect: NSRect) {
+        sshClipboardWriteTrustStore = AppDelegate.shared?.sshClipboardWriteTrustStore
+            ?? SSHClipboardWriteTrustStore(defaults: .standard)
         imageTransferPreparation = nil
         super.init(frame: frameRect)
         setup()
@@ -4380,14 +4388,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     init(
         frame frameRect: NSRect,
-        imageTransferPreparation: TerminalImageTransferPreparationService
+        imageTransferPreparation: TerminalImageTransferPreparationService,
+        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore? = nil
     ) {
+        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore
+            ?? AppDelegate.shared?.sshClipboardWriteTrustStore
+            ?? SSHClipboardWriteTrustStore(defaults: .standard)
         self.imageTransferPreparation = imageTransferPreparation
         super.init(frame: frameRect)
         setup()
     }
 
     required init?(coder: NSCoder) {
+        sshClipboardWriteTrustStore = AppDelegate.shared?.sshClipboardWriteTrustStore
+            ?? SSHClipboardWriteTrustStore(defaults: .standard)
         imageTransferPreparation = nil
         super.init(coder: coder)
         setup()
@@ -6631,16 +6645,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // has resolved with the mode on, and why an auto-repeat reuses the
         // answer from the press that started it.
         if !textEditingGesturesInFullScreenApps {
-            let onAlternateScreen: Bool
-            if event.isARepeat,
-               let cached = textEditingGestureAlternateScreenAtPress,
-               cached.keyCode == event.keyCode {
-                onAlternateScreen = cached.onAlternateScreen
-            } else {
-                onAlternateScreen = terminalSurface?.isAlternateScreenActive() == true
-                textEditingGestureAlternateScreenAtPress = (event.keyCode, onAlternateScreen)
+            let onAlternateScreen = alternateScreenActiveAtKeyPress(event) {
+                terminalSurface?.isAlternateScreenActive() == true
             }
-            guard !onAlternateScreen else { return false }
+            guard onAlternateScreen != true else { return false }
         }
         guard
             let chordKeyCode = Self.textEditingChordKeyCodes[chord.letter],
@@ -6668,6 +6676,52 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // here cannot double-write.
         guard chord.modifier == .option else { return false }
         return performBindingAction("esc:\(chord.letter)")
+    }
+
+    /// Reads the screen mode once per held text-editing key, avoiding repeated viewport exports.
+    /// `nil` is an unreadable screen, cached like any other answer.
+    func alternateScreenActiveAtKeyPress(_ event: NSEvent, read: () -> Bool?) -> Bool? {
+        if event.isARepeat,
+           let cached = textEditingGestureAlternateScreenAtPress,
+           cached.keyCode == event.keyCode {
+            return cached.onAlternateScreen
+        }
+        let active = read()
+        textEditingGestureAlternateScreenAtPress = (event.keyCode, active)
+        return active
+    }
+
+    /// Replays Cmd+Z at a shell prompt as the line editor's undo key.
+    ///
+    /// - Returns: `true` when the keystroke became line-editor undo and must
+    ///   not reach the terminal as the original keystroke.
+    private func handleLineEditorUndoIfNeeded(_ event: NSEvent, surface: ghostty_surface_t) -> Bool {
+        let flags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        let isUndoChord = flags == [.command] && event.cmuxIsUndoRedoCommandEquivalent
+        let keystroke = TerminalLineEditorUndo(
+            isUndoChord: isUndoChord,
+            // A pending sequence or key table also owns the next keystroke.
+            hasGhosttyBinding: isUndoChord && (!keySequence.isEmpty || !keyTables.isEmpty
+                || ghosttyBindingFlags(for: event, surface: surface) != nil),
+            isComposing: hasMarkedText(),
+            keyboardCopyModeActive: keyboardCopyModeActive
+        )
+        guard keystroke.shouldReplay(
+            isAlternateScreenActive: {
+                // Fail closed: without a live surface or a readable export,
+                // the screen may be a full-screen application's.
+                alternateScreenActiveAtKeyPress(event) {
+                    terminalSurface?.alternateScreenStateIfReadable()
+                }
+            }
+        ) else { return false }
+        if let terminalSurface, terminalSurface.ioMode != .exec {
+            // Keep undo behind transport-owned keys already waiting in the lane.
+            return terminalSurface.enqueueManualInputBytes(Data([0x1f]))
+        }
+        return performBindingAction(TerminalLineEditorUndo.bindingAction)
     }
 
     private func handleKeyboardCopyModeIfNeeded(_ event: NSEvent, surface: ghostty_surface_t) -> Bool {
@@ -7407,6 +7461,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
             terminalSurface?.didAcceptExplicitInput()
             keyboardCopyModeConsumedKeyUps.insert(event.keyCode)
+            return
+        }
+        if handleLineEditorUndoIfNeeded(event, surface: surface) {
+            terminalSurface?.didAcceptExplicitInput()
             return
         }
         if handleTextEditingGestureIfNeeded(event, surface: surface) {
@@ -9178,6 +9236,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
             return nil
         case .none:
+            attemptGitHubReferenceOpen(at: resolvedPoint, runtimeOutcome: runtimeOutcome)
 #if DEBUG
             if let resolution = resolvedPath {
                 var payload: [String: Any] = [
@@ -9267,6 +9326,90 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: resolution.path))
         return resolution
+    }
+
+    /// Opens the GitHub issue, pull request, or commit named under the pointer
+    /// when no local path resolved there.
+    ///
+    /// Only a release the terminal runtime left alone is ours to interpret, so a
+    /// click ghostty already handled never reaches GitHub.
+    ///
+    /// Resolving the pane's repository reads git, so this reports nothing back
+    /// to the release router: the release is over well before a slug is known.
+    /// The click is still the user's, so opening a moment later is what they
+    /// asked for. `owner/repo#123` names its own repository and skips the lookup
+    /// entirely.
+    private func attemptGitHubReferenceOpen(
+        at point: NSPoint?,
+        runtimeOutcome: TerminalCommandClickReleaseRouter.RuntimeOutcome
+    ) {
+        guard runtimeOutcome == .unhandled, let point else { return }
+        guard let termSurface = terminalSurface,
+              let workspace = termSurface.owningWorkspace(),
+              let panel = wordPathSnapshotTerminalPanel(
+                  workspace: workspace,
+                  terminalSurface: termSurface
+              ),
+              let snapshot = visibleWordPathSnapshot(at: point, panel: panel) else { return }
+
+        let line = snapshot.line
+        let column = snapshot.column
+        let policy = TerminalGitHubReferenceClickPolicy()
+
+        switch policy.decision(runtimeOutcome: runtimeOutcome, inVisibleLine: line, column: column) {
+        case .ignore:
+            return
+        case .open(let reference):
+            openGitHubReference(reference)
+            return
+        case .resolveRepository:
+            break
+        }
+
+        guard let cwd = resolvedWordPathWorkingDirectory(
+            workspace: workspace,
+            terminalSurface: termSurface
+        ) else { return }
+
+        // The pane the click landed in, captured now. A portal can detach the
+        // runtime and a pane can be reassigned while git is being read, and
+        // opening the link against whatever pane this view points at by then
+        // would split the wrong one.
+        let clickedPanelId = termSurface.id
+        let clickedWorkspaceId = tabId
+
+        Task { @MainActor [weak self] in
+            let slug = await GitHubRepositorySlugCache.shared.slug(forDirectory: cwd)
+            guard let self,
+                  self.terminalSurface?.id == clickedPanelId,
+                  self.tabId == clickedWorkspaceId,
+                  case .open(let reference) = policy.decision(
+                      inVisibleLine: line,
+                      column: column,
+                      repositorySlug: slug
+                  ) else { return }
+            self.openGitHubReference(reference)
+        }
+    }
+
+    /// Routes a resolved GitHub reference through the shared terminal-link
+    /// policy, so it honors the same embedded-browser and host settings as any
+    /// other link in the pane.
+    private func openGitHubReference(_ reference: TerminalGitHubReference) {
+        guard let termSurface = terminalSurface else { return }
+#if DEBUG
+        cmuxDebugLog(
+            "link.githubReference token=\(reference.rawToken) url=\(reference.url.absoluteString)"
+        )
+#endif
+        _ = TerminalLinkOpenCoordinator().open(
+            TerminalLinkOpenRequest(
+                rawValue: reference.url.absoluteString,
+                sourceWorkspaceId: tabId,
+                sourcePanelId: termSurface.id,
+                workingDirectory: nil
+            )
+        )
     }
 
     private func clampedDebugPoint(_ point: NSPoint) -> NSPoint {
@@ -9551,6 +9694,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             reason: "otherMouseDown.preflight",
             forceButtons: Set([.middle])
         )
+        convergeFocusForMiddleMouseDown()
         terminalSurface?.didReceiveExplicitInput()
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
@@ -9565,6 +9709,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             mods: mouseState.mods
         )
         _ = markGhosttyMouseButtonPressed(.middle)
+    }
+
+    /// Middle-click follows a separate AppKit path from left/right clicks.
+    /// Converge the workspace pane before the portal callback can lag, so a
+    /// Cloud manual mirror beside a local pane cannot accept the click while
+    /// the local pane keeps the focus ring.
+    func convergeFocusForMiddleMouseDown() {
+        guard let terminalSurface else { return }
+        activateContainerFocusFromPointerDown()
+        terminalSurface.hostedView.clearReparentFocusSuppressionForPointerFocus()
     }
 
     override func otherMouseUp(with event: NSEvent) {
@@ -9735,6 +9889,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             systemSymbolName: "arrow.trianglehead.2.clockwise",
             accessibilityDescription: nil
         )
+        if appendSSHClipboardWriteTrustMenuItem(to: menu) {
+            menu.addItem(.separator())
+        }
         appendReconnectRemotePaneMenuItem(to: menu)
         if terminalSurface != nil {
             menu.addItem(.separator())

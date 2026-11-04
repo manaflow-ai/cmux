@@ -45,7 +45,7 @@ test("slack reads: channels, history by #name, replies, search, users; token sta
 
 test("slack.post: draft, then the confirmed draft posts once", async () => {
   const d = await s.value('sites.slack.post({ team: "T01ACME", channel: "#eng", text: "Deploy at 3pm", threadTs: "1790000000.000100" })');
-  assert.deepEqual(d.preview, { team: "T01ACME", channel: "#eng", threadTs: "1790000000.000100", text: "Deploy at 3pm" });
+  assert.deepEqual(d.preview, { team: { id: "T01ACME", name: "Acme" }, user: { id: "U01ADA", name: "ada" }, channel: { id: "C02ENG0002", name: "eng" }, threadTs: "1790000000.000100", text: "Deploy at 3pm" });
   assert.equal(env.state.slackPosts.length, 0);
   assert.deepEqual(await s.value(`sites.slack.post(${JSON.stringify(d.id)}, { confirm: true })`), { status: "posted", channel: "C02ENG0002", ts: "1790000009.000900" });
   assert.deepEqual(env.state.slackPosts, [{ team: "T01ACME", channel: "C02ENG0002", text: "Deploy at 3pm", thread_ts: "1790000000.000100" }]);
@@ -84,6 +84,32 @@ test("notion.append: draft converts Markdown; the confirmed draft writes set + l
   assert.equal(lists[1].args.after, sets[0].args.id);
 });
 
+// r21 sites#2: the confirmed Notion write runs in the agent's isolated
+// world. The interceptor stands in for a Notion page whose own scripts
+// patched fetch, XMLHttpRequest and JSON in the page's world: every
+// page-world evaluation that carries saveTransactions is "seen" by the
+// page (which could also rewrite or exfiltrate it). The confirmed append
+// must not reach the page's world at all, and the write lands with the
+// drafted content.
+test("page-patched request primitives cannot see or change a confirmed Notion append: saveTransactions never runs in the page's world", async () => {
+  const PAGE = "https://www.notion.so/acme/Team-Handbook-1a2b3c4d00004000800000000000abcd";
+  const seen = [];
+  try {
+    await s.value(`(async () => { globalThis.nW = await sites.notion.append(${JSON.stringify(PAGE)}, "Only the agent world sends this."); return nW.status; })()`);
+    s.intercept(async (method, params) => {
+      if (method === "frame.evaluate" && params.world === "page" && JSON.stringify(params).includes("saveTransactions")) seen.push(method);
+      return undefined;
+    });
+    const ops = env.state.notionOps.length;
+    await s.value("sites.notion.append(nW.id, { confirm: true })");
+    assert.equal(seen.length, 0, "the page's world saw the confirmed write");
+    assert.ok(env.state.notionOps.length > ops, "the confirmed write did not reach Notion");
+    assert.ok(JSON.stringify(env.state.notionOps.slice(ops)).includes("Only the agent world sends this."), "the write lost the drafted content");
+  } finally {
+    s.intercept(null);
+  }
+});
+
 test("github: issue and pull request pages as structured Markdown, diff, issue list, raw file", async () => {
   const i = await s.value('sites.github.issue("acme/private#7")');
   assert.deepEqual([i.title, i.state, i.labels], ["Crash on start", "Open", ["bug", "p1"]]);
@@ -94,6 +120,20 @@ test("github: issue and pull request pages as structured Markdown, diff, issue l
   assert.deepEqual(await s.value('sites.github.issues("acme/private")'), [{ number: 7, kind: "issue", title: "Crash on start", url: "https://github.com/acme/private/issues/7" }, { number: 8, kind: "pull", title: "Fix crash", url: "https://github.com/acme/private/pull/8" }]);
   assert.equal(await s.value('sites.github.file("acme/private", "README.md")'), "# Private readme\n");
   assert.match(await s.error('sites.github.issue("acme/private#999")'), /was not found, or this account cannot see it/);
+});
+
+// A path or ref names a file inside the one repository: dot segments
+// would leave it once the URL is normalized (here into acme/private).
+test("github.file: dot segments in the path or ref are refused before any request", async () => {
+  const before = env.state.requests.length;
+  for (const call of [
+    'sites.github.file("acme/public", "../../private/raw/HEAD/README.md")',
+    'sites.github.file("acme/public", "docs/./../../../private/raw/HEAD/README.md")',
+    'sites.github.file("acme/public", "a//b")',
+    'sites.github.file("acme/public", "/README.md")',
+    'sites.github.file("acme/public", "README.md", { ref: ".." })',
+  ]) assert.match(await s.error(call), /github\.file: .*(dot segment|empty segment|ref)/, call);
+  assert.ok(!env.state.requests.slice(before).some((r) => /\/raw\//.test(r.url)), "no raw file was requested");
 });
 
 test("github.assigned lists issues and pull requests assigned to the user", async () => {
@@ -167,16 +207,20 @@ test("jira: only the signed-in account's Jira sites are called", async () => {
   assert.ok(!env.state.requests.slice(before).some((r) => /\/\/(evil|wiki)\.atlassian\.net\//.test(r.url)), "no request reached an unlisted site");
 });
 
-test("jira under allowedDomains [*.atlassian.net]: a tenant is verified on its own origin", async () => {
+// r15 sites#3: any *.atlassian.net tenant can be created by anyone, and a
+// tenant's own /myself answering with an account proves nothing about the
+// signed-in account's sites. With home.atlassian.com blocked the account's
+// site list cannot be read, so every jira call fails closed (blocked),
+// naming the host to allow, and no request reaches any tenant.
+test("jira under allowedDomains [*.atlassian.net]: with the site list blocked, every call fails closed before a tenant request", async () => {
   const p = env.session("jira-policy");
   await p.value('session.allowedDomains(["*.atlassian.net"])');
-  // home.atlassian.com is outside the policy; the tenant's own /myself
-  // proves the signed-in account can use it.
-  assert.equal((await p.value('sites.jira.me({ site: "acme" })')).displayName, "Ada");
-  assert.equal((await p.value('sites.jira.issue("https://acme.atlassian.net/browse/ABC-1")')).summary, "Login fails");
-  // A tenant the account cannot use is refused, naming the host to allow.
-  assert.match(await p.error('sites.jira.me({ site: "wiki" })'), /wiki\.atlassian\.net is not a Jira site the signed-in account can use.*home\.atlassian\.com/s);
-  assert.match(await p.error("sites.jira.sites()"), /home\.atlassian\.com.*session\.allowedDomains/s);
+  const before = env.state.requests.length;
+  for (const call of ['sites.jira.me({ site: "acme" })', 'sites.jira.issue("https://acme.atlassian.net/browse/ABC-1")', 'sites.jira.me({ site: "evil" })', "sites.jira.sites()"]) {
+    assert.match(await p.error(call), /home\.atlassian\.com.*session\.allowedDomains/s, call);
+  }
+  const reached = env.state.requests.slice(before).filter((r) => /\.atlassian\.net\//.test(r.url));
+  assert.deepEqual(reached.map((r) => r.url), [], "a tenant got a cookie-bearing request without the account's site list");
 });
 
 test("signed out: each API reports not_signed_in", async () => {
@@ -192,4 +236,26 @@ test("signed out: each API reports not_signed_in", async () => {
   } finally {
     await out.close();
   }
+});
+
+// r21 sites#3: owner and repository names are path components. A "." or
+// ".." component (URL parsing resolves it, leaving the named repository)
+// and an empty or encoded one are refused before any request, and every
+// URL must stay under the named repository once parsed.
+test("github: dot, empty and encoded owner or repository components are refused before any request", async () => {
+  const before = env.state.requests.length;
+  for (const call of [
+    'sites.github.issue("../acme#7")',
+    'sites.github.issue("acme/..#7")',
+    'sites.github.issue("./private#7")',
+    'sites.github.pull("https://github.com/../acme/pull/8")',
+    'sites.github.pull("https://github.com/acme/../pull/8")',
+    'sites.github.diff("acme/.#8")',
+    'sites.github.issues("acme/..")',
+    'sites.github.issues("../acme")',
+    'sites.github.issues("acme/%2e%2e")',
+    'sites.github.file("../acme", "README.md")',
+    'sites.github.file("acme/..", "README.md")',
+  ]) assert.match(await s.error(call), /github[.\w]*: .*(repository|owner|expected)/, call);
+  assert.deepEqual(env.state.requests.slice(before).filter((r) => r.url.startsWith("https://github.com/")).map((r) => r.url), [], "a request left for a resolved path");
 });

@@ -21,21 +21,37 @@ export class BoundaryError extends Error {
   }
 }
 
-import { siteOf } from "./public-suffix.mjs";
+import { isPublicSuffixName, siteOf } from "./public-suffix.mjs";
 
+// As BrowserReplHostName.isLoopback.
+const isLoopbackName = (host) => host === "localhost" || host === "[::1]" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
 const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const htmlEscape = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 // `T` is the runtime's agentTools namespace (pure pattern and TOTP helpers).
 export function createBoundary(T, { now = () => Date.now() } = {}) {
   const store = new Map(); // name -> { value, domains, totp }
+  // As BrowserReplSecretStore.retired: a deleted, cleared or replaced
+  // value stays masked (text, files, captures) for the session's life, under
+  // its first name, on the union of the domains of its registrations.
+  const retired = []; // { name, value, domains, totp }
+  function retire(name, s) {
+    const kept = retired.find((r) => r.value === s.value && r.totp === s.totp);
+    if (!kept) {
+      retired.push({ name, value: s.value, domains: [...s.domains], totp: s.totp });
+      return;
+    }
+    for (const d of s.domains) if (!kept.domains.some((k) => k.raw === d.raw)) kept.domains.push(d);
+  }
+  // Every value the session masks: its current and retired ones, as [name, entry].
+  const maskedEntries = () => [...store.entries(), ...retired.map((r) => [r.name, r])];
   let policy = { allowed: null, prohibited: [], blockIPs: false, locked: false };
   const policyListeners = new Set();
   let matchers = [];
 
   function rebuild() {
     codeCache = null;
-    matchers = [...store.entries()]
+    matchers = maskedEntries()
       .sort((a, b) => b[1].value.length - a[1].value.length)
       .map(([name, s]) => {
         const v = s.value;
@@ -58,7 +74,7 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
   function validCodes() {
     const window = Math.floor(now() / TOTP_PERIOD_MS);
     if (codeCache && codeCache.window === window) return codeCache.codes;
-    const codes = [...store.entries()]
+    const codes = maskedEntries()
       .filter(([, s]) => s.totp)
       .map(([name, s]) => {
         const list = [...new Set(Array.from({ length: 2 * TOTP_SKEW + 1 }, (_, i) => T.totp(s.value, (window + i - TOTP_SKEW) * TOTP_PERIOD_MS)))].sort();
@@ -144,13 +160,24 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
     return out;
   }
 
+  // As BrowserReplSecretStore.commonValues and minimumLoadedValueCharacters.
+  const COMMON_SECRET_VALUES = new Set([
+    "password", "password1", "password12", "password123", "passw0rd", "p@ssw0rd", "p@ssword",
+    "12345678", "123456789", "1234567890", "87654321", "11111111", "00000000", "12341234",
+    "qwertyui", "qwertyuiop", "qwerty123", "1q2w3e4r", "1qaz2wsx", "asdfghjk", "zaq12wsx",
+    "abc12345", "abcd1234", "admin123", "administrator", "changeme", "letmein1", "welcome1",
+    "iloveyou", "sunshine", "princess", "football", "baseball", "superman", "starwars",
+    "trustno1", "whatever", "computer", "internet", "michelle", "jennifer",
+  ]);
+  const isWeakSecret = (value) => [...new Intl.Segmenter().segment(value)].length < 8 || COMMON_SECRET_VALUES.has(value.toLowerCase());
+
   function setSecret(name, value, domains, totp, title) {
     if (typeof name !== "string" || !/^[\w.-]{1,64}$/.test(name)) throw new BoundaryError("invalid", `${title}: name: expected letters, digits, _, . or - (at most 64), got ${JSON.stringify(name)}`);
     if (typeof value !== "string" || !value) throw new BoundaryError("invalid", `${title}: ${name}: value: expected a non-empty string`);
     if (!Array.isArray(domains) || !domains.length) throw new BoundaryError("invalid", `${title}: ${name}: domains: expected the domains it may be typed into, such as ["example.com"]; a secret without domains is not accepted`);
     const parsed = domains.map((d) => {
       try {
-        return T.parsePattern(d, title);
+        return T.parsePattern(d, title, isPublicSuffixName);
       } catch (e) {
         throw new BoundaryError("invalid", e.message);
       }
@@ -163,6 +190,8 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
         throw new BoundaryError("invalid", "secrets: a TOTP secret must be base32");
       }
     }
+    const prior = store.get(name);
+    if (prior) retire(name, prior);
     store.set(name, { value, domains: parsed, totp: isTotp });
     rebuild();
   }
@@ -180,6 +209,9 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
         let data = args.object;
         if (args.path !== undefined) {
           const text = readFile(args.path);
+          // As BrowserReplSecretStore.loadSourceRefusal: UTF-8 only, and no digit spelled as a JSON escape.
+          if (/[\u0000\ufffd]/.test(text)) throw new BoundaryError("invalid", `secrets.load: ${args.path} is not UTF-8; save it as UTF-8, so files read back can mask its values`);
+          if (/\\u003[0-9]/.test(text)) throw new BoundaryError("invalid", `secrets.load: ${args.path} spells a digit with a JSON escape (\\u0030 to \\u0039); write digits as they are, so files read back can mask its values`);
           try {
             data = JSON.parse(text);
           } catch {
@@ -187,6 +219,21 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
           }
         }
         if (!data || typeof data !== "object" || Array.isArray(data)) throw new BoundaryError("invalid", 'secrets.load: expected { "<domain pattern>": { name: value } }');
+        // As BrowserReplSecretStore.isWeak: refused whole unless allowWeak.
+        if (args.allowWeak !== true) {
+          const weak = [];
+          for (const pattern of Object.keys(data).sort()) {
+            const entries = data[pattern] && typeof data[pattern] === "object" ? data[pattern] : {};
+            for (const name of Object.keys(entries).sort()) {
+              const v = entries[name];
+              const value = v && typeof v === "object" ? v.value : v;
+              if (typeof value === "string" && isWeakSecret(value) && !weak.includes(name)) weak.push(name);
+            }
+          }
+          if (weak.length) {
+            throw new BoundaryError("invalid", `secrets.load: ${weak.map((n) => JSON.stringify(n)).join(", ")} ${weak.length === 1 ? "has a weak value" : "have weak values"} (shorter than 8 characters, or a common password), which an agent could confirm by guessing; nothing was loaded. Use a stronger value, or pass { allowWeak: true } to load it anyway`);
+          }
+        }
         const names = [];
         for (const pattern of Object.keys(data).sort()) {
           const entries = data[pattern];
@@ -207,11 +254,14 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
       case "has":
         return store.has(args.name);
       case "delete": {
+        const s = store.get(args.name);
+        if (s) retire(args.name, s);
         const had = store.delete(args.name);
         rebuild();
         return had;
       }
       case "clear":
+        for (const [name, s] of store) retire(name, s);
         store.clear();
         rebuild();
         return null;
@@ -243,9 +293,11 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
   // Why a cookie on `domain` is out of the session's reach, as
   // BrowserReplDomainPolicy.cookieBlockReason: hosts, not origins, so a
   // pattern's scheme and port do not narrow it; an allowed pattern covers a
-  // cookie its host receives (on the host or a parent domain of it).
+  // Domain cookie (leading dot) its host receives (on the host or a parent
+  // domain of it), and a host-only cookie only when it names that host.
   function cookieBlockReason(domain) {
     if (!active()) return null;
+    const hostOnlyCookie = !String(domain || "").trim().startsWith(".");
     const host = T.normalizeHost(String(domain || "").replace(/^\.+/, ""));
     if (!host) return "the cookie names no domain";
     if (policy.blockIPs && T.isIPHost(host)) return "IP addresses are blocked (session.blockIPAddresses)";
@@ -253,6 +305,7 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
     const names = (p, h) => T.urlMatches(`http://${h}/`, hostOnly(p), false);
     const receives = (p) => {
       if (names(p, host) || p.host === "*") return true;
+      if (hostOnlyCookie) return false;
       const named = String(p.host).replace(/^\*\./, "");
       return named.endsWith("." + host);
     };
@@ -268,12 +321,8 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
     const base = cookieBlockReason(domain);
     if (base || !active()) return base;
     const raw = String(domain || "").trim();
-    if (!raw.startsWith(".")) {
-      const host = T.normalizeHost(raw);
-      const hostOnly = (p) => ({ ...p, scheme: null, port: null });
-      if (policy.allowed && !policy.allowed.some((p) => T.urlMatches(`http://${host}/`, hostOnly(p), false))) return `not in session.allowedDomains (${policy.allowed.map((p) => p.raw).join(", ")})`;
-      return null;
-    }
+    // A host-only cookie's reach is its host, which cookieBlockReason checked.
+    if (!raw.startsWith(".")) return null;
     const host = T.normalizeHost(raw.replace(/^\.+/, ""));
     const covers = (p) => p.host === "*" || (p.host.startsWith("*.") && (host === p.host.slice(2) || host.endsWith("." + p.host.slice(2))));
     if (policy.allowed && !policy.allowed.some(covers)) return `a cookie on ${host} reaches its other subdomains, which session.allowedDomains (${policy.allowed.map((p) => p.raw).join(", ")}) does not all allow; set it on the allowed host itself`;
@@ -291,6 +340,7 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
     if (op === "get") return policyJSON();
     if (op === "check") return blockReason(args.url || "");
     if (op === "site") return siteOf(args.host || "");
+    if (op === "publicSuffix") return isPublicSuffixName(args.name || "");
     if (op !== "set") throw new BoundaryError("invalid", `policy: unknown operation ${op}`);
     const title = args.title || "session.domainPolicy";
     if (policy.locked) throw new BoundaryError("invalid", `${title}: the domain policy is locked for this session`);
@@ -299,7 +349,7 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
       if (!Array.isArray(list)) throw new BoundaryError("invalid", `${title}: expected an array of domain patterns or null, got ${JSON.stringify(list)}`);
       return list.map((d) => {
         try {
-          return T.parsePattern(d, title);
+          return T.parsePattern(d, title, isPublicSuffixName);
         } catch (e) {
           throw new BoundaryError("invalid", e.message);
         }
@@ -309,6 +359,8 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
     if ("allowed" in args) {
       const l = parse(args.allowed);
       next.allowed = l && l.length ? l : null;
+      const typed = typedSecretDomains.find((d) => !keeps(next.allowed, d));
+      if (typed) throw new BoundaryError("invalid", `${title}: a secret was typed under the domain policy, so it may only keep pages on that secret's domains (${typed.map((d) => d.raw).join(", ")}) for the rest of the session`);
     }
     if ("prohibited" in args) next.prohibited = parse(args.prohibited) || [];
     if (typeof args.blockIPs === "boolean") next.blockIPs = args.blockIPs;
@@ -317,6 +369,26 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
     for (const fn of policyListeners) fn(policy, blockReason);
     return policyJSON();
   }
+
+  // As BrowserReplDomainPattern.covers(_:secure:) for a secret scope:
+  // every URL `other` lets load is on `p`, and on https (or a loopback host)
+  // when `p` names no scheme.
+  const hostOf = (p, host) => p.host === "*" || (p.host.startsWith("*.") ? host === p.host.slice(2) || host.endsWith("." + p.host.slice(2)) : host === p.host || (p.host.split(".").length === 2 && host === "www." + p.host));
+  // As BrowserReplDomainPattern.loadsOnlySecurely.
+  const loadsOnlySecurely = (p) => (p.host !== "*" && !p.host.startsWith("*.") && isLoopbackName(p.host)) || p.scheme === "https" || p.scheme === "wss";
+  function covers(p, other) {
+    if (p.port !== null && other.port !== p.port) return false;
+    if (p.scheme && !(other.scheme && new RegExp("^" + p.scheme.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") + "$").test(other.scheme))) return false;
+    if (!p.scheme && !loadsOnlySecurely(other)) return false;
+    if (p.host === "*") return true;
+    if (other.host === "*") return false;
+    if (other.host.startsWith("*.")) return p.host.startsWith("*.") && hostOf(p, other.host.slice(2));
+    if (!hostOf(p, other.host)) return false;
+    return other.host.split(".").length !== 2 || hostOf(p, "www." + other.host);
+  }
+  // As BrowserReplBoundary: the policy keeps pages on `domains`.
+  const keeps = (allowed, domains) => !!allowed && allowed.every((a) => domains.some((d) => covers(d, a)));
+  const typedSecretDomains = [];
 
   function prepare(method, params = {}) {
     if (!PREPARED.includes(method)) return params;
@@ -327,6 +399,13 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
       delete p.secret;
       const s = store.get(name);
       if (!s) throw new BoundaryError("invalid", `secret ${JSON.stringify(name)} was deleted`);
+      // As BrowserReplBoundary.secretTypingRefusal.
+      if (!policy.allowed) throw new BoundaryError("invalid", `secret ${JSON.stringify(name)} is typed only while the domain policy keeps the session's tabs on its domains, so the page cannot send it elsewhere; call session.allowedDomains([${s.domains.map((d) => JSON.stringify(!d.scheme && !loadsOnlySecurely(d) ? "https://" + d.raw : d.raw)).join(", ")}]) first`);
+      if (!keeps(policy.allowed, s.domains)) {
+        const outside = policy.allowed.filter((a) => !s.domains.some((d) => covers(d, a))).map((a) => a.raw).join(", ");
+        throw new BoundaryError("invalid", `secret ${JSON.stringify(name)} is typed only while the domain policy keeps the session's tabs on its domains (${s.domains.map((d) => d.raw).join(", ")}); the policy also allows ${outside} (a domain without a scheme also allows http; name it with https://, such as https://example.com)`);
+      }
+      if (!typedSecretDomains.includes(s.domains)) typedSecretDomains.push(s.domains);
       p.text = s.totp ? T.totp(s.value, now()) : s.value;
       p.secretName = name;
       p.secretDomains = s.domains;
@@ -335,8 +414,8 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
       if (reason) throw new BoundaryError("blocked", `${p.url} is blocked: ${reason}`);
     } else if (method === "session.configure" && "contentRules" in p) {
       throw new BoundaryError("invalid", "session.configure: content rules come from the domain policy (session.allowedDomains, session.prohibitedDomains, session.blockIPAddresses)");
-    } else if ((method === "tab.screenshot" || method === "tab.pdf") && store.size) {
-      const masks = [...store.values()].filter((s) => !s.totp).map((s) => ({ value: s.value, domains: s.domains }));
+    } else if ((method === "tab.screenshot" || method === "tab.pdf") && (store.size || retired.length)) {
+      const masks = maskedEntries().map(([, s]) => s).filter((s) => !s.totp).map((s) => ({ value: s.value, domains: s.domains }));
       for (const c of validCodes()) for (const value of c.codes) masks.push({ value, domains: c.domains });
       if (masks.length) p.secretMasks = masks;
     }

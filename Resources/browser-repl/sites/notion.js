@@ -155,7 +155,7 @@
         const fixed = pinned(options);
         let rs;
         for (const o of fixed ? [fixed] : apiOrigin ? [apiOrigin] : API_ORIGINS) {
-          rs = await t.inOrigin(o, notionCall, { calls: list, userId: options.userId });
+          rs = await t.inOrigin(o, notionCall, { calls: list, userId: options.userId }, { world: options.world });
           if (rs[0] && rs[0].status !== 401) {
             if (!fixed) apiOrigin = o;
             break;
@@ -226,40 +226,85 @@
         // to-dos, quotes, code, dividers, paragraphs). append(draftId, { confirm: true }) writes it.
         append(page, markdown, options) {
           const isDraft = typeof page === "string" && /^draft-\d+-[0-9a-f]+$/.test(page);
-          return t.write("notion", "append", isDraft ? page : { page, markdown, ...(options || {}) }, isDraft ? markdown : undefined, (input) => {
+          return t.write("notion", "append", isDraft ? page : { page, markdown, ...(options || {}) }, isDraft ? markdown : undefined, async (input) => {
             const id = pageId(input.page);
             pinned(input);
             if (typeof input.markdown !== "string" || !input.markdown.trim()) throw new S.SiteError("invalid", "notion.append: markdown: expected non-empty text");
             const newBlocks = blocksFromMarkdown(input.markdown);
+            // The draft names the Notion user it writes as: { userId } when
+            // given, else the one user the session holds (several: pass
+            // { userId }, see notion.accounts()).
+            const users = await spaces({ ...input, userId: undefined });
+            const user = input.userId ? users.find((u) => u.userId === input.userId) : users.length === 1 ? users[0] : null;
+            if (!user) {
+              if (!users.length || input.userId) throw new S.SiteError("not_signed_in", `notion.append: ${input.userId ? `the Notion user ${input.userId} is not` : "no Notion user is"} signed in to the cmux browser; open https://www.notion.so with tabs.open() and ask the user to sign in`);
+              throw new S.SiteError("invalid", `notion.append: several Notion users are signed in (${users.map((u) => `${u.email || u.name} = ${u.userId}`).join(", ")}); pass { userId } to choose the one that writes`);
+            }
+            const account = { userId: user.userId, email: user.email };
+            const as = { ...input, userId: account.userId };
             return {
               category: "[9] edit shared content",
-              summary: `Append ${newBlocks.length} block(s) to Notion page ${id}`,
-              preview: { page: id, blocks: newBlocks.length, markdown: input.markdown },
-              run: async () => {
-                const [r] = await calls([{ endpoint: "syncRecordValues", body: { requests: [{ pointer: { table: "block", id }, version: -1 }] } }], input);
-                const parent = rec(((r.recordMap || {}).block || {})[id]);
-                if (!parent) throw new S.SiteError("not_found", `notion.append: page ${id} was not found`);
-                const spaceId = parent.space_id;
-                const now = t.now();
-                const ops = [];
-                let after = (parent.content || []).slice(-1)[0];
-                const ids = [];
-                for (const b of newBlocks) {
-                  const bid = uuid();
-                  ids.push(bid);
-                  ops.push({ pointer: { table: "block", id: bid, spaceId }, path: [], command: "set", args: { type: b.type, id: bid, version: 1, alive: true, parent_id: id, parent_table: "block", space_id: spaceId, properties: b.properties, created_time: now, last_edited_time: now } });
-                  ops.push({ pointer: { table: "block", id, spaceId }, path: ["content"], command: "listAfter", args: after ? { after, id: bid } : { id: bid } });
-                  after = bid;
-                }
-                await calls([{ endpoint: "saveTransactions", body: { requestId: uuid(), transactions: [{ id: uuid(), spaceId, debug: { userAction: "cmux.sites.notion.append" }, operations: ops }] } }], input);
-                return { status: "appended", page: id, blockIds: ids };
+              summary: `Append ${newBlocks.length} block(s) to Notion page ${id} as ${account.email || account.userId}`,
+              account: { account },
+              target: { page: id },
+              content: { blocks: newBlocks.length, markdown: input.markdown },
+              // The blocks are made from the drafted Markdown.
+              sent: ["blocks", "markdown"],
+              commit: async (c) => {
+                let parent = null;
+                // Who the session holds now (no user named, so another user
+                // answers as themself); read again, last, right before the
+                // write (press.input).
+                const holderNow = async () => {
+                  const [nowSpaces] = await calls([{ endpoint: "getSpaces", body: {} }], { ...input, userId: undefined, world: "agent" });
+                  const holder = rec(((nowSpaces && nowSpaces[account.userId] && nowSpaces[account.userId].notion_user) || {})[account.userId]);
+                  const others = Object.entries(nowSpaces || {}).map(([uid, v]) => ({ userId: uid, email: (rec((v.notion_user || {})[uid]) || {}).email || null }));
+                  return { account: holder ? { userId: account.userId, email: holder.email || null } : others.find((o) => o.userId !== account.userId) || { userId: null, email: null } };
+                };
+                return c.write(
+                  async () => {
+                    // The user, then the page as the drafted user
+                    // (x-notion-active-user-header: Notion answers as that
+                    // user or refuses).
+                    const out = await holderNow();
+                    // A refusal (the session no longer holds that user)
+                    // leaves the page unverified.
+                    const r = await calls([{ endpoint: "syncRecordValues", body: { requests: [{ pointer: { table: "block", id }, version: -1 }] } }], { ...as, world: "agent" }).then(([x]) => x, () => null);
+                    if (!r) return out;
+                    parent = rec(((r.recordMap || {}).block || {})[id]);
+                    out.page = parent && parent.alive !== false ? parent.id : null;
+                    return out;
+                  },
+                  (press) => press.input(async () => {
+                    // The write names the drafted user too: Notion runs it as
+                    // that user or refuses it, also when the session switches
+                    // users after the read. It runs in the agent's isolated
+                    // world, like the read-backs: the page's own fetch,
+                    // XMLHttpRequest and JSON never see or change it.
+                    const spaceId = parent.space_id;
+                    const now = t.now();
+                    const ops = [];
+                    let after = (parent.content || []).slice(-1)[0];
+                    const ids = [];
+                    for (const b of newBlocks) {
+                      const bid = uuid();
+                      ids.push(bid);
+                      ops.push({ pointer: { table: "block", id: bid, spaceId }, path: [], command: "set", args: { type: b.type, id: bid, version: 1, alive: true, parent_id: id, parent_table: "block", space_id: spaceId, properties: b.properties, created_time: now, last_edited_time: now } });
+                      ops.push({ pointer: { table: "block", id, spaceId }, path: ["content"], command: "listAfter", args: after ? { after, id: bid } : { id: bid } });
+                      after = bid;
+                    }
+                    await calls([{ endpoint: "saveTransactions", body: { requestId: uuid(), transactions: [{ id: uuid(), spaceId, debug: { userAction: "cmux.sites.notion.append" }, operations: ops }] } }], { ...as, world: "agent" });
+                    return { status: "appended", page: id, blockIds: ids };
+                  }),
+                  { account: holderNow },
+                );
               },
             };
           });
         },
       };
     },
-    { summary: "Notion accounts, search, pages as Markdown; confirmed-draft Markdown append" },
+    { summary: "Notion accounts, search, pages as Markdown; confirmed-draft Markdown append", writes: ["append"] },
   );
   S.shared.notion = { toMarkdown, blocksFromMarkdown, richText, pageId };
 })(typeof globalThis !== "undefined" ? globalThis : this);

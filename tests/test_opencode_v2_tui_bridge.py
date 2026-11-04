@@ -66,6 +66,11 @@ if (spawnOptions?.env?.CMUX_AGENT_LAUNCH_KIND !== "opencode") throw new Error("s
 if (!spawnOptions?.env?.CMUX_AGENT_LAUNCH_EXECUTABLE) throw new Error("session admission dropped launch executable");
 if (!spawnOptions?.env?.CMUX_AGENT_LAUNCH_ARGV_B64) throw new Error("session admission dropped launch argv");
 if (spawnOptions.env.CMUX_AGENT_LAUNCH_ARGV_B64 === parentLaunchArgv) throw new Error("session admission reused a parent OpenCode launch capture");
+if (spawnOptions?.env?.CMUX_AGENT_MANAGED_SUBAGENT) throw new Error("top-level session admission was tagged as a subagent");
+let subagentOptions;
+const subagentSpawn = (_command, _args, options) => { subagentOptions = options; return { stdin: { end() {}, on() { return this; } }, on() { return this; }, unref() {} }; };
+if (!mod.dispatchSessionHook("stop", { session_id: "opencode-child-of-child-a", cwd: "/tmp", subagent: true }, subagentSpawn, dispatchEnvironment)) throw new Error("subagent session admission was skipped");
+if (subagentOptions?.env?.CMUX_AGENT_MANAGED_SUBAGENT !== "1") throw new Error("subagent session admission was not tagged with CMUX_AGENT_MANAGED_SUBAGENT");
 
 const socketPath = "/tmp/cmux-opencode-v2-" + process.pid + ".sock";
 try { await fs.unlink(socketPath); } catch (_) {}
@@ -304,6 +309,37 @@ const queueStops = observed.filter((event) => event.session_id === "opencode-chi
 if (queueStops.length !== 2 || queueStops.some((event) => event.is_error)) throw new Error(`queued prompt turns published ${JSON.stringify(queueStops)}`);
 liveA.setRoute(routeA);
 
+// Root-derived subagent classification: a Stop for a session whose OpenCode
+// root differs from its id must dispatch the hook with
+// CMUX_AGENT_MANAGED_SUBAGENT=1 so cmux filters its completion; a top-level
+// session must not carry the tag. Capture the real spawn environment through a
+// stub `cmux` binary, exercising deliverEvent end to end.
+const captureFile = "/tmp/cmux-opencode-v2-capture-" + process.pid + ".log";
+const captureBin = "/tmp/cmux-opencode-v2-capture-" + process.pid + ".sh";
+try { await fs.unlink(captureFile); } catch (_) {}
+await fs.writeFile(captureBin, __CAPTURE_SCRIPT__, "utf8");
+await fs.chmod(captureBin, 0o755);
+const liveCapture = makeLive("a", { CMUX_SOCKET_PATH: socketPath, CMUX_SURFACE_ID: "surface-capture", CMUX_WORKSPACE_ID: "workspace-capture", CMUX_OPENCODE_CMUX_BIN: captureBin, CMUX_TEST_CAPTURE_FILE: captureFile }, {});
+const cleanupCapture = await mod.createCMUXTUIBridge(liveCapture, { environment: liveCapture.environment });
+const captureLine = async (sessionID) => {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    let text = "";
+    try { text = await fs.readFile(captureFile, "utf8"); } catch (_) {}
+    const line = text.split("\n").find((entry) => entry.includes('"session_id":"' + sessionID + '"'));
+    if (line) return line;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("hook dispatch for " + sessionID + " was not captured");
+};
+liveCapture.emit({ details: { type: "session.execution.succeeded", data: { sessionID: "child-a" } } });
+if (!(await captureLine("child-a")).includes("managed=1")) throw new Error("child session dispatch was not tagged as a subagent");
+liveCapture.emit({ details: { type: "session.execution.succeeded", data: { sessionID: "root-a" } } });
+if ((await captureLine("root-a")).includes("managed=1")) throw new Error("top-level session dispatch was tagged as a subagent");
+cleanupCapture();
+try { await fs.unlink(captureFile); } catch (_) {}
+try { await fs.unlink(captureBin); } catch (_) {}
+
 // A bridge that never owns a queued session must release its expiry timer on
 // disposal, rather than retaining the entire TUI context until the TTL elapses.
 const expiryTimers = new Set();
@@ -323,6 +359,12 @@ server.closeAllConnections?.();
 await new Promise((resolve) => server.close(resolve));
 console.log("PASS");
 '''
+    capture_script = r'''#!/bin/sh
+p=$(cat)
+managed=$(env | sed -n 's/^CMUX_AGENT_MANAGED_SUBAGENT=//p')
+printf 'session=%s managed=%s\n' "$p" "$managed" >> "$CMUX_TEST_CAPTURE_FILE"
+'''
+    source = source.replace("__CAPTURE_SCRIPT__", json.dumps(capture_script))
     with tempfile.TemporaryDirectory(prefix="cmux-opencode-v2-package-") as package:
         package_dir = Path(package)
         feed_source = (ROOT / "Resources/opencode-plugin.js").read_text()
@@ -331,6 +373,11 @@ console.log("PASS");
         (package_dir / "node_modules").symlink_to(ROOT / "node_modules", target_is_directory=True)
         (package_dir / "harness.mjs").write_text(source)
         env = os.environ.copy()
+        # The harness asserts on spawned hook environments, so it must not
+        # inherit these from the caller: a stray tag breaks the root assertion
+        # and a stray disable makes dispatch time out.
+        for key in ("CMUX_AGENT_MANAGED_SUBAGENT", "CMUX_OPENCODE_HOOKS_DISABLED"):
+            env.pop(key, None)
         env["CMUX_OPENCODE_V2_HARNESS"] = json.dumps({"packageDir": str(package_dir), "fixture": fixture})
         result = subprocess.run([node, "--conditions=browser", str(package_dir / "harness.mjs")], cwd=ROOT, env=env, text=True, capture_output=True, check=False, timeout=20)
     if result.returncode:

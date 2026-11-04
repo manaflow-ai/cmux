@@ -69,7 +69,7 @@ Kenar çubuğu git dalını, bağlantılı PR durumunu/numarasını, çalışma 
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> uzak bir makine için çalışma alanı oluşturur. Tarayıcı panelleri uzak ağ üzerinden yönlendirilir, böylece localhost sorunsuz çalışır. Uzak oturuma bir görsel sürükleyerek scp ile yükleyin.
+<code>cmux ssh user@remote</code> uzak bir makine için çalışma alanı oluşturur. İlk uzak terminalinde bir kez başlangıç komutu çalıştırmak için <code>--command 'omp "investigate auth"'</code> parametresini geçin. Tarayıcı panelleri uzak ağ üzerinden yönlendirilir, böylece localhost sorunsuz çalışır. Uzak oturuma bir görsel sürükleyerek scp ile yükleyin.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -119,6 +119,25 @@ brew upgrade --cask cmux
 ```
 
 İlk açılışta macOS, tanımlanmış bir geliştiriciden gelen bir uygulamayı açmayı onaylamanızı isteyebilir. Devam etmek için **Aç**'a tıklayın.
+
+### Kabuk tamamlama
+
+Homebrew cask'i zsh, bash ve fish için tamamlamayı kurar. Kurulumdan sonra yeni bir kabuk başlatın. Yüklenmezse, Homebrew'un tamamlama dizinlerinin kabuğunuza bağlı olduğundan emin olun ([Homebrew'un kabuk tamamlama belgelerine](https://docs.brew.sh/Shell-Completion) bakın).
+
+cmux'u başka bir yolla kurduysanız, ilgili satırı kabuğunuzun başlangıç dosyasına ekleyin ve yeni bir kabuk başlatın:
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
 
 ## Neden cmux?
 
@@ -365,7 +384,7 @@ Evet, cmux ücretsiz kullanılır. Kaynak kodu [GitHub](https://github.com/manaf
 
 ### cmux'u nasıl destekleyebilirim?
 
-cmux ücretsiz ve açık kaynaktır ve her zaman öyle kalacaktır. Geliştirmeyi desteklemek ve cmux AI, iOS uygulaması ve Cloud VMs dahil olmak üzere sırada ne olduğuna erken erişim almak isterseniz, [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition)'a göz atın.
+cmux ücretsiz ve açık kaynaktır ve her zaman öyle kalacaktır. Geliştirmeyi desteklemek ve cmux AI, iOS uygulaması ve Cloud VMs dahil olmak üzere sırada ne olduğuna erken erişim almak isterseniz, [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)'a göz atın.
 
 ### Bir özellik isteğim var veya bir hata buldum?
 
@@ -405,18 +424,11 @@ Katılım yolları:
   <img src="./docs/assets/wechat-community-qr.jpg" alt="cmux topluluğuna katılmak için WeChat QR kodu" width="240" />
 </p>
 
-## Founder's Edition
+## cmux Pro
 
 cmux ücretsiz, açık kaynak ve her zaman öyle olacak. Geliştirmeyi desteklemek ve sırada ne olduğuna erken erişim almak isterseniz:
 
-**[Founder's Edition'ı Edinin](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **Öncelikli özellik istekleri/hata düzeltmeleri**
-- **Erken erişim: Her çalışma alanı, sekme ve panel hakkında bağlam sağlayan cmux AI**
-- **Erken erişim: Masaüstü ve telefon arasında senkronize terminallere sahip iOS uygulaması**
-- **Erken erişim: Bulut VM'ler**
-- **Erken erişim: Sesli mod**
-- **Kişisel iMessage/WhatsApp'ım**
+**[cmux Pro'ı Edinin](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## Lisans
 

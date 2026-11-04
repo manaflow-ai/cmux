@@ -68,7 +68,7 @@ import {
   TEAM_PRICING_USD,
 } from "../../../../services/billing/plans";
 import { isVaultEnabled } from "../../../../services/vault/config";
-import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
+import { isWebPlusPlanEnabled as isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -162,9 +162,8 @@ const pricingState = cache(async (searchParams?: Promise<PricingQuery>) => {
     currentPlanSnapshot(),
     searchParams ?? Promise.resolve({}),
   ]);
-  // Paid subscribers cannot buy Go. Do not call PostHog for their page view.
-  const goPlanEnabled =
-    !snapshot.isPro && (await isGoPlanEnabled(snapshot.userId));
+  // Plus is offered to every visitor, paid subscribers included.
+  const goPlanEnabled = await isGoPlanEnabled(snapshot.userId);
   return { snapshot, query, goPlanEnabled };
 });
 
@@ -211,7 +210,10 @@ function PricingContent({
   const canManageBilling = snapshot.billingManagement === "stripe";
   // The current plan's one action: Resume while a cancellation is scheduled,
   // otherwise the billing portal.
-  const currentPlanAction = (plan: string) => snapshot.cancelScheduled ? (
+  const currentPlanAction = (plan: string) => !canManageBilling ? (
+    // A granted plan has no billing to manage.
+    <DisabledButton>{t("currentPlan")}</DisabledButton>
+  ) : snapshot.cancelScheduled ? (
     <ResumePlanButton>{t("resumePlan", { plan })}</ResumePlanButton>
   ) : (
     <SecondaryLink href="/api/billing/portal">{t("manageBilling")}</SecondaryLink>
@@ -237,7 +239,7 @@ function PricingContent({
   // subscriber's plan current; only the Max card does.
   const isMax = snapshot.planId === MAX_PLAN_ID;
   const isGo = snapshot.planId === GO_PLAN_ID;
-  const showGo = isGo || (goPlanEnabled && !snapshot.isPro);
+  const showGo = isGo || goPlanEnabled;
   const isProCurrent = snapshot.isPro && !isMax && !isGo;
   // A link into /pricing may name its own origin (the CLI trial notice, a
   // campaign with utm_* tags); that beats the page default so the checkout
@@ -251,15 +253,13 @@ function PricingContent({
     TEAM_CHECKOUT_URL,
     attribution,
   );
-  // Max has the same monthly/yearly choices as Pro. A Pro subscriber is sent
-  // to the portal switch flow, so Stripe owns the interval selector there.
-  const maxPortalSwitch = snapshot.authenticated && snapshot.isPro && !isMax;
-  const maxCheckoutHref = withCheckoutAttribution(
-    maxPortalSwitch
-      ? "/api/billing/portal?flow=switch_plan&plan=max"
-      : MAX_CHECKOUT_URL,
-    attribution,
-  );
+  // The checkout endpoint decides whether this is a new purchase or a switch
+  // of an existing subscription. Pro access alone does not mean a Stripe
+  // customer exists (an operator grant has none), so the CTA never links the
+  // portal switch directly.
+  const maxCheckoutHref = withCheckoutAttribution(MAX_CHECKOUT_URL, attribution);
+  // A failed payment is fixed in the portal before any plan switch.
+  const maxNeedsPaymentFix = snapshot.isPro && !isMax && snapshot.paymentPastDue === true;
   const proCheckoutHref = withCheckoutInterval(proCheckoutURL, "month");
   const proAnnualLabelSet = {
     billingPeriod: t("billingPeriod"),
@@ -331,7 +331,7 @@ function PricingContent({
 
       {showGo ? (
         <>
-          {/* Go: one small, capped Cloud VM for focused work. */}
+          {/* Plus: one saved Cloud VM with Pro sizes and no monthly hour cap. */}
           <PlanCard
             name={t("go.name")}
             price={`$${GO_PRICING_USD.month.billedAmount}`}
@@ -369,7 +369,7 @@ function PricingContent({
         name={t("pro.name")}
         surface="public_pricing"
         monthlyOnly={isGo}
-        initialInterval={query.interval === "month" ? "month" : "year"}
+        initialInterval={query.interval === "year" ? "year" : "month"}
         labels={proAnnualLabelSet}
         checkoutHrefs={proCheckoutHrefs}
         requiresSignIn={!pending && !snapshot.authenticated}
@@ -397,8 +397,8 @@ function PricingContent({
         plan="max"
         pricing={MAX_PRICING_USD}
         surface="public_pricing"
-        monthlyOnly={maxPortalSwitch}
-        initialInterval={query.interval === "month" ? "month" : "year"}
+        monthlyOnly={false}
+        initialInterval={query.interval === "year" ? "year" : "month"}
         labels={proAnnualLabelSet}
         checkoutHrefs={{
           month: withCheckoutInterval(maxCheckoutHref, "month"),
@@ -411,7 +411,7 @@ function PricingContent({
         }
         action={appStoreAction ? appStoreAction() : isMax ? (
           <div className="space-y-2">{currentPlanAction(t("max.name"))}</div>
-        ) : canManageBilling && !snapshot.isPro ? (
+        ) : canManageBilling && (!snapshot.isPro || maxNeedsPaymentFix) ? (
           <SecondaryLink href="/api/billing/portal">
             {t("manageBilling")}
           </SecondaryLink>
@@ -447,6 +447,25 @@ function PricingContent({
           <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF} size="compact">
             {t("free.cta")}
           </PrimaryLink>
+        ),
+        go: appStoreAction ? appStoreAction("compact") : isGo ? (
+          canManageBilling ? (
+            <SecondaryLink href="/api/billing/portal" size="compact">
+              {t("manageBilling")}
+            </SecondaryLink>
+          ) : (
+            <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
+          )
+        ) : (
+          <PricingCheckoutButton
+            href={withCheckoutAttribution(GO_CHECKOUT_URL, attribution)}
+            requiresSignIn={!pending && !snapshot.authenticated}
+            location="pricing_compare_header"
+            plan="go"
+            size="compact"
+          >
+            {t("go.cta")}
+          </PricingCheckoutButton>
         ),
         pro: appStoreAction ? appStoreAction("compact") : isProCurrent ? (
           <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
@@ -641,6 +660,8 @@ type PlanSnapshot = {
   billingSource?: PersonalBillingSource;
   /** The Stripe subscription ends at period end; pricing offers Resume. */
   cancelScheduled?: boolean;
+  /** The Stripe subscription has a failed payment to fix before a switch. */
+  paymentPastDue?: boolean;
 };
 
 /**
@@ -689,5 +710,6 @@ async function readPlanSnapshot(): Promise<PlanSnapshot> {
     billingManagement: status.billingManagement,
     billingSource: status.billingSource,
     cancelScheduled: status.cancelScheduled ?? false,
+    paymentPastDue: status.paymentPastDue ?? false,
   };
 }

@@ -2792,6 +2792,72 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertNil(session)
     }
 
+    func testDetectsForcedTTYSSHSessionWithRemoteTmuxCommandForImagePaste() throws {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "ssh"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "ssh",
+                    "-tt",
+                    "my-host",
+                    "tmux",
+                    "new-session",
+                    "-A",
+                    "-s",
+                    "pastetest",
+                ],
+            ]
+        )
+
+        let detectedSession = try XCTUnwrap(session)
+        XCTAssertEqual(detectedSession.destination, "my-host")
+
+        let fileURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-21064.png")
+        try Data("image-payload".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        XCTAssertEqual(
+            TerminalImageTransferPlanner.plan(
+                fileURLs: [fileURL],
+                target: .remote(.detectedSSH(detectedSession))
+            ),
+            .uploadFiles([fileURL], .detectedSSH(detectedSession))
+        )
+    }
+
+    func testForcedTTYSSHDetectionRespectsTTYOptionPrecedence() {
+        let cases: [([String], Bool)] = [
+            (["ssh", "-o", "RequestTTY=force", "-o", "RequestTTY=no", "my-host", "tmux"], true),
+            (["ssh", "-o", "RequestTTY=no", "-o", "RequestTTY=force", "my-host", "tmux"], false),
+            (["ssh", "-o", "RequestTTY=auto", "-o", "RequestTTY=force", "my-host", "tmux"], false),
+            (["ssh", "-o", "RequestTTY force", "my-host", "tmux"], true),
+            (["ssh", "-oRequestTTY=force", "my-host", "tmux"], true),
+            (["ssh", "-o", "RequestTTY=no", "-t", "my-host", "tmux"], true),
+            (["ssh", "-T", "-t", "my-host", "tmux"], true),
+            (["ssh", "-t", "-T", "my-host", "tmux"], false),
+        ]
+
+        for (arguments, shouldDetect) in cases {
+            let session = TerminalSSHSessionDetector.detectForTesting(
+                ttyName: "/dev/ttys004",
+                processes: [
+                    .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "ssh"),
+                ],
+                argumentsByPID: [2145: arguments]
+            )
+
+            XCTAssertEqual(
+                session != nil,
+                shouldDetect,
+                "Unexpected detection result for arguments: \(arguments)"
+            )
+        }
+    }
+
     func testDetectsForegroundSSHSessionWithShortControlPathFlag() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",

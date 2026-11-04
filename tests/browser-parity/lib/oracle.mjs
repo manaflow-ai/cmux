@@ -11,7 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { loadRuntime, loadPlaywright } from "./dev-driver.mjs";
+import { loadRuntime, loadPlaywright, aiSnapshot } from "./dev-driver.mjs";
 import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "./test-dirs.mjs";
 
 const REF = /^(f\d+)?e\d+$/;
@@ -112,9 +112,9 @@ export async function runOracleCells(cells) {
     };
     const snapshotOf = async (target) => {
       const page = target && typeof target === "object" && target.mainFrame ? target : s.current;
-      const r = await page._snapshotForAI({ track: "oracle" });
-      const tree = typeof r === "string" ? r : r.full;
-      return { tree, diff: typeof r === "string" ? tree : r.incremental ?? tree, usesDiff: false, toString: () => tree };
+      const r = await aiSnapshot(page, "oracle");
+      const tree = r.full;
+      return { tree, diff: r.incremental ?? tree, usesDiff: false, toString: () => tree };
     };
     const globals = {
       tabs: {

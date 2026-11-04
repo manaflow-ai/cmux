@@ -7,6 +7,7 @@ private final class FakeSurfaceController: TerminalSurfaceControlling {
     let surfaceId = UUID()
     let owningTabId = UUID()
     var runtimeSurfacePointer: ghostty_surface_t?
+    var requiresClipboardReadGesture = false
 }
 
 private final class FakeSurfaceHost: TerminalSurfaceHosting {
@@ -53,6 +54,27 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         )
 
         #expect(RuntimeClipboardReadContent(admission: admission) == .pasteboard)
+    }
+
+    @Test @MainActor
+    func manualMirrorReadsRequireNativePasteIntent() {
+        let controller = FakeSurfaceController()
+        controller.requiresClipboardReadGesture = true
+        let context = GhosttySurfaceCallbackContext(
+            surfaceHost: FakeSurfaceHost(),
+            surfaceController: controller,
+            terminalLifecycleID: UUID()
+        )
+
+        #expect(!context.hasRuntimeClipboardPasteIntent)
+        #expect(!context.allowsRuntimeClipboardRead)
+        #expect(context.withRuntimeClipboardPasteIntent {
+            context.hasRuntimeClipboardPasteIntent
+        })
+        #expect(context.withRuntimeClipboardPasteIntent {
+            context.allowsRuntimeClipboardRead
+        })
+        #expect(!context.hasRuntimeClipboardPasteIntent)
     }
 
     @MainActor

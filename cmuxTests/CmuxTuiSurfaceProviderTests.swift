@@ -1399,11 +1399,11 @@ import Testing
         do {
             _ = try await link.connect(route: "ws://10.0.0.1:1337/v1/link", session: "main", carrier: true, timeout: .seconds(60))
             Issue.record("a client that exits before its socket line must fail the connect")
-        } catch CloudMachineLink.LinkError.exited(let status, let output) {
+        } catch CloudMachineLink.LinkError.exitedBeforeSocket(let status, let output) {
             #expect(status == 2)
             #expect(output.contains("unknown option"), "the client's stderr must reach the error: \(output)")
         } catch {
-            Issue.record("expected LinkError.exited, got \(error)")
+            Issue.record("expected LinkError.exitedBeforeSocket, got \(error)")
         }
     }
 

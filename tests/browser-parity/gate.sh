@@ -3,6 +3,9 @@
 # command. Run it before each push; a round that changes behavior must keep it
 # green or change goldens with a reviewed reason.
 #
+# Playwright is pinned to 1.62.1 (README.md): set PARITY_PLAYWRIGHT_DIR to
+# the node_modules of a 1.62.1 install.
+#
 #   tests/browser-parity/gate.sh                 # unit, sites, cmux-dev, oracle
 #   PARITY_CMUX_CLI=<tagged cli> CMUX_SOCKET_PATH=/tmp/cmux-debug-<tag>.sock \
 #     tests/browser-parity/gate.sh --app [--app-runs N]   # plus the real app

@@ -40,7 +40,11 @@ final class TerminalPortalTestWorkspace {
     }
 
     func tearDown() {
-        manager.tabs.forEach { $0.teardownAllPanels() }
+        // The initial workspace owns a default TerminalPanel that is not part
+        // of an individual portal fixture's tracked surfaces. Finalize the
+        // manager as a closing window so pending selection/materialization
+        // work cannot start a replacement runtime after panel teardown.
+        manager.closeWorkspacesForTesting()
         appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
         appDelegate.forgetRecoverableMainWindowRoute(windowId: windowID)
         AppDelegate.shared = previousAppDelegate

@@ -35,6 +35,10 @@ public struct BrowserReplKeyStroke: Equatable, Sendable {
             && lhs.editingCommand == rhs.editingCommand
     }
 
+    /// The most UTF-8 bytes `key`, `code` and `text` may each hold: one
+    /// key's name and the text one key types are far shorter.
+    public static let maximumFieldBytes = 64
+
     /// Resolves a driver key description.
     /// - Parameters:
     ///   - key: `KeyboardEvent.key` (for example `"a"`, `"A"`, `"Enter"`).
@@ -43,22 +47,31 @@ public struct BrowserReplKeyStroke: Equatable, Sendable {
     ///   - modifiers: Held modifiers named `Alt`, `Control`, `Meta`, `Shift`.
     /// - Returns: `nil` when the key has no macOS virtual key; callers insert
     ///   `text` through the text input client instead.
+    /// - Throws: `invalid` when `key`, `code` or `text` is longer than
+    ///   ``maximumFieldBytes``, before anything is resolved, so no native
+    ///   key event (and no text-insert fallback) carries a large payload.
     public static func resolve(
         key: String,
         code: String,
         text: String?,
         modifiers: [String]
-    ) -> BrowserReplKeyStroke? {
+    ) throws -> BrowserReplKeyStroke? {
+        for (name, value) in [("key", key), ("code", code), ("text", text ?? "")] where value.utf8.count > maximumFieldBytes {
+            throw BrowserReplDriverError(
+                code: "invalid",
+                message: "input.key: \(name) is \(value.utf8.count) bytes, past the \(maximumFieldBytes) bytes one key's \(name) may hold; type longer text with keyboard.type or keyboard.insertText"
+            )
+        }
         let event: BrowserKeyboardEvent?
         if !code.isEmpty {
             event = BrowserKeyboardEvent(key: key, code: code, legacyKeyCode: 0)
         } else {
             event = BrowserKeyboardEvent(rawKey: key)
         }
-        guard let event, let native = event.nativeKey else { return nil }
+        let held = modifierFlags(named: modifiers)
+        guard let event, let native = event.nativeKey?.resolvingLetterCase(held: held) else { return nil }
 
         var flags = SyntheticKeyEventFactory.appKitModifierFlags(for: native.modifiers)
-        let held = modifierFlags(named: modifiers)
         flags.formUnion(held)
 
         if let modifierKey = native.modifierKey {

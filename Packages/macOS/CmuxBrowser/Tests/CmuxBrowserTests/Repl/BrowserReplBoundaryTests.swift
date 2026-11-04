@@ -60,7 +60,8 @@ final class ScriptedPageDriver: BrowserReplDriver, @unchecked Sendable {
             if let domains = params["secretDomains"] as? [[String: Any]] {
                 // Hosts only: enough for these tests' plain domain patterns.
                 let hosts = domains.compactMap { $0["host"] as? String }
-                guard let page = URL(string: currentURL), page.scheme == "https", let host = page.host, hosts.contains(host) else {
+                guard let page = URL(string: currentURL), page.scheme == "https", let host = page.host,
+                      hosts.contains(host) || hosts.contains("*") else {
                     let refusedAt = currentURL
                     lock.withLock { refusedSecrets.append(refusedAt) }
                     return .failure(BrowserReplDriverError(code: "invalid", message: "secret \"\(params["secretName"] as? String ?? "")\" may not be typed into \(currentURL)"))
@@ -99,6 +100,20 @@ final class ScriptedPageDriver: BrowserReplDriver, @unchecked Sendable {
     func attach(eventSink: @escaping BrowserReplDriverEventSink) {}
     func detach() {}
 
+    private var secretCheck: (@Sendable (String, Int) -> Bool)?
+
+    func setSecretCheck(_ isCurrent: @escaping @Sendable (_ name: String, _ revision: Int) -> Bool) {
+        lock.withLock { secretCheck = isCurrent }
+    }
+
+    /// What the session's secret check, which the app's driver asks right
+    /// before it types, says of a secret `input.insertText` call; `nil`
+    /// without a check or a secret.
+    func secretIsCurrent(_ params: [String: Any]) -> Bool? {
+        guard let name = params["secretName"] as? String,
+              let check = lock.withLock({ secretCheck }) else { return nil }
+        return check(name, (params["secretRevision"] as? NSNumber)?.intValue ?? -1)
+    }
 }
 
 /// Serves canned HTTP/1.1 responses on 127.0.0.1 for fetch tests.
@@ -172,7 +187,7 @@ struct BrowserReplBoundaryTests {
     private func makeSession(_ driver: ScriptedPageDriver) throws -> BrowserReplSession {
         BrowserReplSession(
             id: "boundary-\(UUID().uuidString)",
-            cwd: FileManager.default.temporaryDirectory.path,
+            cwd: browserReplTestWorkingDirectory,
             bundle: try browserReplRepositoryBundle(),
             driver: driver
         )
@@ -269,6 +284,7 @@ struct BrowserReplBoundaryTests {
         defer { session.close() }
         _ = await run(session, """
         secrets.set("k", "\(Self.value)", { domains: ["example.com"] });
+        session.allowedDomains(["https://example.com"]);
         await page.goto("https://example.com/login");
         await page.locator("#f").fill(secret("k"), { timeout: 2000 }).catch((e) => console.log(e.message));
         """)

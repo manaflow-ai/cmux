@@ -21,7 +21,8 @@ struct ProUpgradeCard: View {
             tier: flow?.planTier,
             isProActive: flow?.isProActive == true,
             canManageBilling: flow?.canManageBilling == true,
-            isSignedIn: flow?.currentIdentity != nil
+            isSignedIn: flow?.currentIdentity != nil,
+            billingSource: flow?.planBillingSource
         )
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
@@ -99,7 +100,15 @@ struct ProUpgradeCardModel: Equatable {
     ///   - isSignedIn: Whether an account is signed in. A signed-in account
     ///     whose plan is still unknown is offered nothing, so a Max
     ///     subscriber never sees a Pro upgrade while the plan loads.
-    init(tier: CmuxPlanTier?, isProActive: Bool, canManageBilling: Bool, isSignedIn: Bool = false) {
+    ///   - billingSource: Who bills the plan, or `nil` while unknown. It
+    ///     picks the Pro subtitle when the hosted portal does not apply.
+    init(
+        tier: CmuxPlanTier?,
+        isProActive: Bool,
+        canManageBilling: Bool,
+        isSignedIn: Bool = false,
+        billingSource: AccountPlanBillingSource? = nil
+    ) {
         // A host that only knows the legacy flag still reads as Pro.
         let tier = tier ?? (isProActive ? .pro : nil)
         self.tier = tier
@@ -121,10 +130,7 @@ struct ProUpgradeCardModel: Equatable {
                 )
                 actions = [.upgradeToMax, .manageBilling]
             } else {
-                subtitle = String(
-                    localized: "settings.account.pro.externalSubtitle",
-                    defaultValue: "Your subscription is managed by our previous billing system. Contact support to make changes."
-                )
+                subtitle = Self.unmanagedProSubtitle(billingSource)
                 actions = [.upgradeToMax]
             }
         case .free, .go, nil:
@@ -141,6 +147,30 @@ struct ProUpgradeCardModel: Equatable {
             } else {
                 actions = [.upgradeToPro]
             }
+        }
+    }
+
+    /// The Pro subtitle when the hosted portal does not manage the plan.
+    private static func unmanagedProSubtitle(_ billingSource: AccountPlanBillingSource?) -> String {
+        switch billingSource {
+        case .appStore:
+            String(
+                localized: "settings.account.pro.appStoreSubtitle",
+                defaultValue: "Your Pro subscription is active. Manage it through your subscription provider.",
+                bundle: .module
+            )
+        case .granted:
+            // A plan granted by cmux has nothing to bill or manage.
+            String(
+                localized: "settings.account.pro.grantedSubtitle",
+                defaultValue: "Your Pro plan is active.",
+                bundle: .module
+            )
+        case .stripe, nil:
+            String(
+                localized: "settings.account.pro.externalSubtitle",
+                defaultValue: "Your subscription is managed by our previous billing system. Contact support to make changes."
+            )
         }
     }
 }

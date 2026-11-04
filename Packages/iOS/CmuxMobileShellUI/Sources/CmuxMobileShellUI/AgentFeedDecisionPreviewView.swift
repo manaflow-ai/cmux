@@ -284,6 +284,7 @@ public struct AgentFeedDecisionPreviewView: View {
         WorkspaceRootToolbarContent(
             openSettings: {},
             openDevices: {},
+            openChief: nil,
             title: "All Computers",
             isLoading: false,
             selection: .all,

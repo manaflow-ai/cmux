@@ -1,0 +1,14 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/LinkPreviews.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/LinkPreviews.swift
+@@ -28,7 +28,10 @@
+     /// Fetches running now (tests).
+     var inFlight: Int { waiting.count }
+     private let dir: URL = {
+-        let d = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("MessagesLab/link-previews", isDirectory: true)
++        // cmux: the app's own caches folder (MessagesLab's would be shared with the MessagesLab app's index).
++        let d = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
++            .appendingPathComponent(Bundle.main.bundleIdentifier ?? "MessagesLab", isDirectory: true)
++            .appendingPathComponent("link-previews", isDirectory: true)
+         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+         return d
+     }()

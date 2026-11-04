@@ -858,6 +858,7 @@ struct AgentHookDeliveryQueueTests {
                 "CMUX_AGENT_MANAGED_SUBAGENT": "1",
                 "CMUX_CLAUDE_PID": "8535",
                 "CMUX_SURFACE_ID": "surface-a",
+                "CMUX_STABLE_SURFACE_ID": "stable-surface-a",
             ],
         ]
         let event = try #require(AgentHookDeliveryEvent(
@@ -878,8 +879,37 @@ struct AgentHookDeliveryQueueTests {
         #expect(environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] == "1")
         #expect(environment["CMUX_AGENT_MANAGED_SUBAGENT"] == "1")
         #expect(environment["CMUX_SURFACE_ID"] == "surface-a")
+        // The relay alias-rewrites runtime routing only. A remote-supplied
+        // stable ID could claim a local panel's restore identity.
+        #expect(environment["CMUX_STABLE_SURFACE_ID"] == nil)
         #expect(environment["ANTHROPIC_BASE_URL"] == nil)
         #expect(environment["CMUX_CLAUDE_PID"] == nil)
+
+        let capability = "v1.live-hook-capability"
+        let directCapabilityParams: [String: Any] = [
+            "agent": "codex",
+            "subcommand": "stop",
+            "payload": "{}",
+            "relay_backed": false,
+            "socket_path": "/tmp/cmux-direct.sock",
+            "environment": ["CMUX_SURFACE_ID": "surface-a"],
+        ]
+        let capabilityEvent = try #require(AgentHookDeliveryEvent(params: directCapabilityParams))
+        let capabilityProcess = AgentHookDeliveryProcess(
+            executableURLProvider: { nil },
+            socketCapabilityProvider: { capability }
+        )
+        let capabilityEnvironment = capabilityProcess.deliveryEnvironment(
+            event: capabilityEvent,
+            executableURL: URL(fileURLWithPath: "/bin/true")
+        )
+        #expect(capabilityEnvironment["CMUX_SOCKET_CAPABILITY"] == capability)
+        #expect(capabilityEvent.environment["CMUX_SOCKET_CAPABILITY"] == nil)
+        let relayCapabilityEnvironment = capabilityProcess.deliveryEnvironment(
+            event: event,
+            executableURL: URL(fileURLWithPath: "/bin/true")
+        )
+        #expect(relayCapabilityEnvironment["CMUX_SOCKET_CAPABILITY"] == nil)
         let relayStateDirectory = try #require(
             environment["CMUX_AGENT_HOOK_STATE_DIR"]
         )
@@ -915,6 +945,8 @@ struct AgentHookDeliveryQueueTests {
         var unsafeParams = params
         unsafeParams["environment"] = ["ANTHROPIC_API_KEY": "secret"]
         #expect(AgentHookDeliveryEvent(params: unsafeParams) == nil)
+        unsafeParams["environment"] = ["CMUX_SOCKET_CAPABILITY": capability]
+        #expect(AgentHookDeliveryEvent(params: unsafeParams) == nil)
         unsafeParams["environment"] = ["CMUX_AGENT_HOOK_RELAY_ORIGIN": "1"]
         #expect(AgentHookDeliveryEvent(params: unsafeParams) == nil)
 
@@ -927,6 +959,7 @@ struct AgentHookDeliveryQueueTests {
             executableURL: URL(fileURLWithPath: "/bin/true")
         )
         #expect(directEnvironment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] == nil)
+        #expect(directEnvironment["CMUX_STABLE_SURFACE_ID"] == "stable-surface-a")
     }
 
     @Test("Mirrored cmux-tui session hooks replay relay-backed to the local pane")

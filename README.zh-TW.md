@@ -69,7 +69,7 @@
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> 為遠端機器建立工作區。瀏覽器窗格透過遠端網路路由，因此 localhost 直接可用。將圖片拖入遠端工作階段即可透過 scp 上傳。
+<code>cmux ssh user@remote</code> 為遠端機器建立工作區。傳入 <code>--command 'omp "investigate auth"'</code> 可在其首個遠端終端機中執行一次初始命令。瀏覽器窗格透過遠端網路路由，因此 localhost 直接可用。將圖片拖入遠端工作階段即可透過 scp 上傳。
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -119,6 +119,25 @@ brew upgrade --cask cmux
 ```
 
 首次啟動時，macOS 可能會要求您確認開啟來自已驗證開發者的應用程式。點擊**開啟**即可繼續。
+
+### Shell 補全
+
+Homebrew cask 會安裝 zsh、bash 和 fish 的補全。安裝後啟動一個新 shell 即可。如果沒有生效，請確認 Homebrew 的補全目錄已接入你的 shell（參見 [Homebrew 的 shell 補全文件](https://docs.brew.sh/Shell-Completion)）。
+
+如果你透過其他方式安裝 cmux，請將對應的一行加入 shell 啟動檔，然後啟動一個新 shell：
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
 
 ## 為什麼做 cmux？
 
@@ -365,7 +384,7 @@ tmux 是一個在任意終端機內執行的終端機多工器。cmux 是一個�
 
 ### 我如何支援 cmux？
 
-cmux 免費且開放原始碼，並將一直如此。如果您想支持開發並提前體驗接下來的功能，包括 cmux AI、iOS 應用程式和 Cloud VMs，請查看 [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition)。
+cmux 免費且開放原始碼，並將一直如此。如果您想支持開發並提前體驗接下來的功能，包括 cmux AI、iOS 應用程式和 Cloud VMs，請查看 [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)。
 
 ### 我有功能請求或發現了 bug？
 
@@ -405,18 +424,11 @@ cmux 免費且開放原始碼，並將一直如此。如果您想支持開發並
   <img src="./docs/assets/wechat-community-qr.jpg" alt="用於加入 cmux 社群的 WeChat QR 碼" width="240" />
 </p>
 
-## Founder's Edition
+## cmux Pro
 
 cmux 免費、開放原始碼，並將一直如此。如果您想支持開發並提前體驗即將推出的功能：
 
-**[取得 Founder's Edition](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **功能請求/Bug 修復優先處理**
-- **搶先體驗：為每個工作區、分頁和面板提供上下文的 cmux AI**
-- **搶先體驗：桌面與手機間終端機同步的 iOS 應用程式**
-- **搶先體驗：雲端虛擬機器**
-- **搶先體驗：語音模式**
-- **我的個人 iMessage/WhatsApp**
+**[取得 cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## 授權
 

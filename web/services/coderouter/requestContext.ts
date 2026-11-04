@@ -36,11 +36,13 @@ export type CodeRouterRequestContext = {
 /**
  * Control-plane authorization for account mutations.
  *
- * A Cloud VM is already authenticated by the TLS edge's VM-bound route token.
- * It must not be sent through Stack cookie/session resolution, and it must not
- * be able to choose another team. The token's team and VM pool are the entire
- * authority for the request. Human browser/native requests resolve team
- * membership through resolveCodeRouterRequestContext.
+ * Only a signed-in team member (Stack session or native token) manages
+ * provider accounts. Machine credentials (VM-bound route tokens, chatmux
+ * machine tokens, `crk_` keys) never do: a Cloud VM runs agents and
+ * untrusted code, so its token gets no account rights at all (Lawrence
+ * 2026-10-03; cmux-next-spec cloud-and-automations.md and
+ * identity-and-permissions.md 4). It may still use the team's shared
+ * accounts for model requests on the data plane.
  */
 export type CodeRouterControlContext = {
   readonly user: Pick<AuthedUser, "id">;
@@ -50,34 +52,20 @@ export type CodeRouterControlContext = {
 
 export async function resolveCoderouterControlContext(
   request: Request,
+  authenticate: (request: Request) => ReturnType<typeof authenticateRequestRouteToken> = (r) => authenticateRequestRouteToken(r),
 ): Promise<
   | { readonly ok: true; readonly value: CodeRouterControlContext }
   | { readonly ok: false; readonly response: Response }
 > {
   const token = routeTokenFromRequest(request);
-  if (request.headers.has(VM_AUTHORIZATION_HEADER) || token?.startsWith("crt_") || request.headers.has(VM_ID_HEADER) || request.headers.has(ROUTE_TOKEN_HEADER)) {
-    const auth = await authenticateRequestRouteToken(request);
+  if (request.headers.has(VM_AUTHORIZATION_HEADER) || token?.startsWith("crt_") || token?.startsWith("crk_") || request.headers.has(VM_ID_HEADER) || request.headers.has(ROUTE_TOKEN_HEADER)) {
+    const auth = await authenticate(request);
     if (!auth.ok) return { ok: false, response: jsonResponse({ error: auth.reason }, 401) };
     // A chatmux machine may use its team's shared accounts, never manage them.
     if (auth.identity.machine === "chatmux") {
       return { ok: false, response: jsonResponse({ error: "chatmux_machine_not_allowed" }, 403) };
     }
-    if (!auth.identity.vmId) {
-      return { ok: false, response: jsonResponse({ error: "vm_bound_token_required" }, 403) };
-    }
-    return {
-      ok: true,
-      value: {
-        user: { id: auth.identity.stackUserId },
-        team: {
-          teamId: auth.identity.teamId,
-          teamName: auth.identity.teamId,
-          use: true,
-          manageAccounts: true,
-        },
-        access: accountAccessForIdentity(auth.identity),
-      },
-    };
+    return { ok: false, response: jsonResponse({ error: "machine_token_cannot_manage_accounts" }, 403) };
   }
 
   const resolved = await resolveCodeRouterRequestContext(request);

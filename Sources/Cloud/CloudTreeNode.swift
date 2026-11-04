@@ -306,10 +306,16 @@ final class CloudTreeNode: NSObject {
                 remoteWorkspaceID: view.workspace.id
             )
         }
-        // No `.browser` branch: `isDragSource` admits only terminals and
-        // displays, and `CloudTreeDragRegistration` is the only reader of a leaf
-        // row's group, so a browser row never gets here. Granting browsers a
-        // projection capability is a separate decision, not a naming fix.
+        if case .browser(let row) = kind,
+           let view = row.remoteView {
+            // Keep the exact daemon tab identity so moving a Cloud browser
+            // between workspaces preserves its authenticated session and URL.
+            return SurfaceResourceGroup(
+                title: CloudTreeResourceName(resource: row.resource, remoteView: view).browserName,
+                placements: [SurfaceResourcePlacement(resource: row.resource.id, remoteView: view)],
+                remoteWorkspaceID: view.workspace.id
+            )
+        }
         if case .display(let resource, _, let view) = kind,
            let view {
             // The group's title names the local workspace the drag produces, so
@@ -334,6 +340,7 @@ final class CloudTreeNode: NSObject {
     var isDragSource: Bool {
         switch kind {
         case .terminal, .display: return true
+        case .browser(let row): return !row.resource.machine.isLocal && row.remoteView != nil
         case .workspace(let machine, _, _, _, _) where !machine.isLocal:
             guard let group = dragGroup, !group.isEmpty else { return false }
             return group.resources.allSatisfy { !$0.machine.isLocal }
@@ -962,8 +969,8 @@ enum CloudTreeNodeBuilder {
         }
         return children
     }
-    /// Builds every nonempty Cloud workspace from its actual layout members.
-    /// Empty daemon records remain available to lookup and persistence.
+    /// Builds every Cloud workspace from its daemon record and actual layout members.
+    /// Empty daemon records remain visible so they can receive Cloud surface drops.
     private static func workspacesGroupNode(
         machine: SurfaceMachineID,
         info: SurfaceMachineInfo,
@@ -997,7 +1004,7 @@ enum CloudTreeNodeBuilder {
             else { rows.displays.append(placement) }
             byWorkspace[member.workspaceID] = rows
         }
-        let workspaces = byWorkspace.values.filter { !$0.terminals.isEmpty || !$0.browsers.isEmpty || !$0.displays.isEmpty || snapshot.pendingWorkspaceCreations?[machine]?[$0.workspace.id] != nil }.sorted { lhs, rhs in
+        let workspaces = byWorkspace.values.sorted { lhs, rhs in
             lhs.workspace.index != rhs.workspace.index ? lhs.workspace.index < rhs.workspace.index : lhs.workspace.id < rhs.workspace.id
         }
         let workspaceNodes = workspaces.map { rows in

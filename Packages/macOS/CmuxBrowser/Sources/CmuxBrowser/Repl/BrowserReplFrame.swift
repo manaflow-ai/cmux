@@ -12,8 +12,19 @@ public struct BrowserReplFrame {
     /// the old document.
     public let info: WKFrameInfo?
     public let url: String
+    /// ``url`` as a refusal or another message names the frame: as any
+    /// reader but the tab's creator reads a page URL
+    /// (``BrowserReplPageURL/credentialFree``). A message names a frame the
+    /// session may not read, or one whose document changed under it, so
+    /// not even the tab's creator gets the URL as written there.
+    public var shownURL: String { BrowserReplPageURL(url, creator: nil).credentialFree }
     public let name: String
     public let crossOrigin: Bool
+    /// Whether the tree read may lack some of this frame's child frames:
+    /// WebKit gave no tree (only the main frame is known then), or could
+    /// not describe a child. The frame gate then counts the frame's child
+    /// frames in its document before it lets input or a capture through.
+    public let childFramesUnread: Bool
 
     public init(
         frameID: String,
@@ -22,7 +33,8 @@ public struct BrowserReplFrame {
         info: WKFrameInfo?,
         url: String,
         name: String,
-        crossOrigin: Bool
+        crossOrigin: Bool,
+        childFramesUnread: Bool = false
     ) {
         self.frameID = frameID
         self.parentFrameID = parentFrameID
@@ -31,6 +43,21 @@ public struct BrowserReplFrame {
         self.url = url
         self.name = name
         self.crossOrigin = crossOrigin
+        self.childFramesUnread = childFramesUnread
+    }
+
+    /// This frame, marked as one whose child frames the read may lack.
+    func withChildFramesUnread() -> BrowserReplFrame {
+        BrowserReplFrame(
+            frameID: frameID,
+            parentFrameID: parentFrameID,
+            indexInParent: indexInParent,
+            info: info,
+            url: url,
+            name: name,
+            crossOrigin: crossOrigin,
+            childFramesUnread: true
+        )
     }
 }
 
@@ -41,7 +68,8 @@ extension BrowserReplFrame {
     /// (macOS 11+) returns the tree with a `WKFrameInfo` per frame, which is
     /// what `callAsyncJavaScript(_:arguments:in:in:)` needs to reach a
     /// cross-origin frame. When the selector is missing, only the main frame
-    /// is reported.
+    /// is reported, marked ``childFramesUnread``; so is a frame with a child
+    /// WebKit could not describe, which is left out.
     @MainActor
     public static func readTree(of webView: WKWebView) async -> [BrowserReplFrame] {
         let selector = NSSelectorFromString("_frames:")
@@ -62,9 +90,12 @@ extension BrowserReplFrame {
         }
         let mainOrigin = originKey(rootInfo.securityOrigin)
         var result: [BrowserReplFrame] = []
-        func walk(_ node: AnyObject, parentID: String?, index: Int) {
-            guard let info = frameInfo(of: node) else { return }
+        /// Returns whether the node could be described.
+        @discardableResult
+        func walk(_ node: AnyObject, parentID: String?, index: Int) -> Bool {
+            guard let info = frameInfo(of: node) else { return false }
             let id = frameID(of: info) ?? (parentID.map { "\($0).\(index)" } ?? "main")
+            let position = result.count
             result.append(BrowserReplFrame(
                 frameID: id,
                 parentFrameID: parentID,
@@ -74,15 +105,19 @@ extension BrowserReplFrame {
                 name: "",
                 crossOrigin: originKey(info.securityOrigin) != mainOrigin
             ))
+            var complete = true
             let children: [AnyObject]
             if let object = node as? NSObject, object.responds(to: NSSelectorFromString("childFrames")) {
                 children = (object.value(forKey: "childFrames") as? [AnyObject]) ?? []
             } else {
                 children = []
+                complete = false
             }
             for (childIndex, child) in children.enumerated() {
-                walk(child, parentID: id, index: childIndex)
+                if !walk(child, parentID: id, index: childIndex) { complete = false }
             }
+            if !complete { result[position] = result[position].withChildFramesUnread() }
+            return true
         }
         walk(root, parentID: nil, index: 0)
         return result
@@ -130,7 +165,8 @@ extension BrowserReplFrame {
             info: nil,
             url: webView.url?.absoluteString ?? "",
             name: "",
-            crossOrigin: false
+            crossOrigin: false,
+            childFramesUnread: true
         )
     }
 }

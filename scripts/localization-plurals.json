@@ -781,5 +781,11 @@
     "arguments": [
       1
     ]
+  },
+  "chief.settings.lastTurn.toolCalls": {
+    "source": "%lld tool calls",
+    "arguments": [
+      1
+    ]
   }
 }

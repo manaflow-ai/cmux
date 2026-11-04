@@ -168,6 +168,59 @@ PATH="$nognu"
 signal_demo 1f-double-ctrl-c-python INT 130 INT
 PATH="$saved_path"
 
+# The bounded command must install its signal handlers before it starts the
+# child.  Have the child interrupt its parent immediately after exec; without
+# that ordering the Python fallback can exit on the default SIGINT action and
+# leave the wrapper running in its detached process group.
+parent_signal_child="$work/parent-signal-child.py"
+cat >"$parent_signal_child" <<'PY'
+import os
+import signal
+import sys
+import time
+
+pid_file = sys.argv[1]
+with open(pid_file, "w", encoding="utf-8") as stream:
+    stream.write(str(os.getpid()))
+    stream.flush()
+os.kill(os.getppid(), signal.SIGINT)
+time.sleep(60)
+PY
+child_pid_file="$work/child-pid"
+rm -f "$child_pid_file"
+bound_status="$work/bound-status"
+rm -f "$bound_status"
+set -m
+set +e
+(
+  PATH="$nognu" "$bounded" 20 python3 "$parent_signal_child" "$child_pid_file" >/dev/null 2>&1
+  echo "$?" >"$bound_status"
+) &
+bounded_pid=$!
+set +m
+set -e
+for _ in $(seq 1 100); do [[ -s "$child_pid_file" ]] && break; sleep 0.01; done
+[[ -s "$child_pid_file" ]] || { kill "$bounded_pid" 2>/dev/null || true; fail "parent-signal: child never started"; }
+bounded_rc=""
+for _ in $(seq 1 100); do
+  if [[ -s "$bound_status" ]]; then
+    bounded_rc="$(cat "$bound_status")"
+    break
+  fi
+  sleep 0.01
+done
+child_pid="$(cat "$child_pid_file")"
+if [[ -z "$bounded_rc" ]]; then
+  kill -TERM -- "-$bounded_pid" 2>/dev/null || kill -TERM "$bounded_pid" 2>/dev/null || true
+  kill -TERM -- "-$child_pid" 2>/dev/null || kill -TERM "$child_pid" 2>/dev/null || true
+  fail "parent-signal: bound did not handle the child's SIGINT"
+fi
+[[ "$bounded_rc" -eq 130 || "$bounded_rc" -eq 143 ]] || fail "parent-signal: expected signal exit (rc=$bounded_rc)"
+if kill -0 "$child_pid" 2>/dev/null; then
+  kill -TERM -- "-$child_pid" 2>/dev/null || kill -TERM "$child_pid" 2>/dev/null || true
+  fail "parent-signal: child survived the bound's signal cleanup"
+fi
+
 # 2. No hq checkout: start nothing, exit 65, name the public fallback.
 run_demo no-hq -u HQ_TOOLS FAKE_WARMUP=ok
 [[ $rc -eq 65 ]] || fail "2: expected exit 65 without HQ_TOOLS (rc=$rc)"

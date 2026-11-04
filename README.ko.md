@@ -69,7 +69,7 @@
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code>로 원격 머신용 워크스페이스를 생성해요. 브라우저 패널은 원격 네트워크를 통해 라우팅되어 localhost가 그대로 작동해요. 원격 세션에 이미지를 드래그하면 scp로 업로드돼요.
+<code>cmux ssh user@remote</code>로 원격 머신용 워크스페이스를 생성해요. <code>--command 'omp "investigate auth"'</code>를 전달하면 첫 원격 터미널에서 초기 명령을 한 번 실행해요. 브라우저 패널은 원격 네트워크를 통해 라우팅되어 localhost가 그대로 작동해요. 원격 세션에 이미지를 드래그하면 scp로 업로드돼요.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -119,6 +119,25 @@ brew upgrade --cask cmux
 ```
 
 처음 실행할 때 macOS에서 개발자 확인 팝업이 뜰 수 있어요. **열기**를 클릭하면 돼요.
+
+### 셸 자동완성
+
+Homebrew cask가 zsh, bash, fish용 자동완성을 설치해요. 설치 후 새 셸을 열면 돼요. 로드되지 않으면 Homebrew의 자동완성 디렉터리가 셸에 연결되어 있는지 확인해 주세요([Homebrew의 셸 자동완성 문서](https://docs.brew.sh/Shell-Completion) 참고).
+
+다른 방법으로 cmux를 설치했다면, 해당하는 줄을 셸 시작 파일에 추가하고 새 셸을 열어 주세요:
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
 
 ## 왜 cmux를 만들었나요?
 
@@ -365,7 +384,7 @@ tmux는 어떤 터미널 안에서든 실행되는 터미널 멀티플렉서예�
 
 ### cmux를 어떻게 지원할 수 있나요?
 
-cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요. 개발을 후원하고 cmux AI, iOS 앱, Cloud VMs를 포함해 다음에 나올 것들에 먼저 접근하고 싶다면, [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition)을 확인해주세요.
+cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요. 개발을 후원하고 cmux AI, iOS 앱, Cloud VMs를 포함해 다음에 나올 것들에 먼저 접근하고 싶다면, [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)을 확인해주세요.
 
 ### 기능 요청이 있거나 버그를 발견했어요?
 
@@ -405,18 +424,11 @@ cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요. 개발�
   <img src="./docs/assets/wechat-community-qr.jpg" alt="cmux 커뮤니티에 참여하기 위한 WeChat QR 코드" width="240" />
 </p>
 
-## Founder's Edition
+## cmux Pro
 
 cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요. 개발을 지원하고 다음에 나올 기능에 먼저 접근하고 싶다면:
 
-**[Founder's Edition 구매하기](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **기능 요청/버그 수정 우선 처리**
-- **얼리 액세스: 모든 워크스페이스, 탭, 패널의 컨텍스트를 제공하는 cmux AI**
-- **얼리 액세스: 데스크톱과 휴대폰 간 터미널을 동기화하는 iOS 앱**
-- **얼리 액세스: 클라우드 VM**
-- **얼리 액세스: 음성 모드**
-- **저의 개인 iMessage/WhatsApp**
+**[cmux Pro 구매하기](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## 라이선스
 

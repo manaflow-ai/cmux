@@ -21,4 +21,5 @@ if [ "$cmux_agent_auth_mode" = team ]; then
     export OPENCODE_CONFIG
   fi
 fi
+cmux_write_cua_mcp_config allow-missing
 exec /usr/local/libexec/cmux-opencode-real "$@"

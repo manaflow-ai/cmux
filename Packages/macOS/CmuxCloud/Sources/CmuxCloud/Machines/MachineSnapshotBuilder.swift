@@ -20,6 +20,7 @@ public enum MachineSnapshotBuilder: Sendable {
                 createdAt: nil,
                 label: info.name == id ? nil : info.name,
                 usesResourcePool: CloudVMResourcePool.usesResourcePool(forStatus: info.status),
+                occupiesMachineSlot: VMListPage.occupiesMachineSlot(forStatus: info.status),
                 privateAddress: info.privateAddress
             )
         }
@@ -55,6 +56,7 @@ public enum MachineSnapshotBuilder: Sendable {
             resourceReservation: summary.resourceReservation,
             resourcePoolClaim: summary.resourcePoolClaim,
             usesResourcePool: CloudVMResourcePool.usesResourcePool(forStatus: summary.status),
+            occupiesMachineSlot: VMListPage.occupiesMachineSlot(forStatus: summary.status),
             privateAddress: summary.preferredPrivateAddress
         )
         snapshot.agentUpdates = summary.agentUpdates
@@ -209,10 +211,9 @@ public enum MachineSnapshotBuilder: Sendable {
         }
     }
 
-    /// Machines that hold one of the plan's active slots. The server counts
-    /// running and provisioning machines; paused ones are listed but do not count.
+    /// Saved machines that occupy a plan slot, including paused machines.
     public static func activeCount(of machines: [MachineSnapshot]) -> Int {
-        machines.count(where: \.usesResourcePool)
+        machines.count(where: \.occupiesMachineSlot)
     }
 
     public static func planSnapshot(

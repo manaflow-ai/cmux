@@ -139,6 +139,11 @@ element is found by its path and `fixtures/corpus/gt.js` decides there whether
 a user can see it (70 GitHub links an overflow box clips out are not shown in
 Chrome either); no element is exempt otherwise.
 
+The gate pins Playwright 1.62.1 (`npm install playwright@1.62.1` in a
+scratch directory, then `PARITY_PLAYWRIGHT_DIR=<dir>/node_modules`). The
+oracle and corpus take Chrome's AI snapshot through `aiSnapshot` in
+`lib/dev-driver.mjs`: `page.ariaSnapshot({ mode: "ai" })` on 1.62.1, the
+internal `page._snapshotForAI()` on versions that still have it (1.57.0).
 Playwright loads from `PARITY_PLAYWRIGHT_DIR`, the copy bundled with
 `PARITY_REFERENCE_B_RUNTIME`, or `node_modules`; the reference backends need
 `PARITY_REFERENCE_A_CLI` and `PARITY_REFERENCE_B_RUNTIME`

@@ -32,7 +32,14 @@ def credit:
 def section_lines:
   (.body // "") | gsub("\r"; "") | gsub("<!--[\\s\\S]*?-->"; "")
   | [scan("(?m)^#{1,6}[ \\t]*Changelog[ \\t]*\\n((?:(?!#{1,6}[ \\t]).*\\n?)*)")[0]] | first // ""
-  | split("\n") | map(gsub("^\\s+|\\s+$"; "") | sub("^[-*+][ \\t]+"; "")) | map(select(length > 0));
+  | split("\n") | map(gsub("^\\s+|\\s+$"; ""))
+  # Bots and agents append a footer with no heading: a rule, a block of HTML, or a "Generated with"
+  # line. Inline tags such as <kbd> can start a real changelog line, so only block tags end it.
+  | (map(test("^(-{3,}|\\*{3,}|_{3,})$|^<(a|sup|sub|picture|source|img|div|details|summary|p|br|hr|table)\\b|^🤖|^Generated with "; "i"))
+     | index(true)) as $end
+  | (if $end == null then . else .[:$end] end)
+  | map(sub("^[-*+][ \\t]+"; ""))
+  | map(select(length > 0 and (test("^(close[sd]?|fix(es|ed)?|resolve[sd]?) +(\\S+)?#[0-9]+\\.?$"; "i") | not)));
 def is_none: gsub("[`*_]"; "") | ascii_downcase | test("^none\\s*($|[.(:;,-])");
 def has_prefix: test("^(added|changed|fixed|removed)\\b"; "i");
 def is_revert_title: .title | test("^(Revert|Reapply) \"");

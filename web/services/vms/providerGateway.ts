@@ -25,6 +25,7 @@ import {
   type VMFirewallRule,
   type VMFirewallRuleInput,
   type RestoreOptions,
+  type ResumeOptions,
   type SnapshotRef,
   type SSHEndpoint,
   type SCPEndpoint,
@@ -80,7 +81,7 @@ export type VmProviderGatewayShape = {
   ) => Effect.Effect<VmControlProbe, VmProviderOperationError>;
   readonly getStatus?: (provider: ProviderId, vmId: string) => Effect.Effect<VMStatus, VmProviderOperationError>;
   readonly getPauseState?: (provider: ProviderId, vmId: string) => Effect.Effect<VmPauseState | null, VmProviderOperationError>;
-  readonly resume?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
+  readonly resume?: (provider: ProviderId, vmId: string, options?: ResumeOptions) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly pause?: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
   readonly setRuntimeBudget?: (provider: ProviderId, vmId: string, remainingSeconds: number | null) => Effect.Effect<void, VmProviderOperationError>;
   readonly snapshot?: (
@@ -352,8 +353,8 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       const driver = getProvider(provider);
       return driver.getPauseState ? await driver.getPauseState(vmId) : null;
     }),
-  resume: (provider, vmId) =>
-    providerEffect(provider, "resume", () => getProvider(provider).resume(vmId)),
+  resume: (provider, vmId, options) =>
+    providerEffect(provider, "resume", () => getProvider(provider).resume(vmId, options)),
   pause: (provider, vmId) =>
     providerEffect(provider, "pause", () => getProvider(provider).pause(vmId)),
   setRuntimeBudget: (provider, vmId, remainingSeconds) => providerEffect(provider, "setRuntimeBudget", async () => {
@@ -391,8 +392,13 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       }
       return await driver.fork(vmId);
     }),
-  exec: (provider, vmId, command, options) =>
-    providerEffect(provider, "exec", () => getProvider(provider).exec(vmId, command, options)),
+  exec: (provider, vmId, command, options) => options?.cancelOnInterrupt
+    ? Effect.tryPromise({
+      // Effect aborts this signal when the fiber is interrupted.
+      try: (signal) => getProvider(provider).exec(vmId, command, { ...options, signal }),
+      catch: (cause) => new VmProviderOperationError({ provider, operation: "exec", cause }),
+    })
+    : providerEffect(provider, "exec", () => getProvider(provider).exec(vmId, command, options)),
   listFiles: (provider, vmId, path) => boundedProviderRead(provider, "listFiles", async (options) => {
     const impl = getProvider(provider);
     if (!impl.listFiles) throw new VmOperationUnsupportedError({ provider, operation: "listFiles" });

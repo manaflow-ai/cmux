@@ -12,6 +12,7 @@
 // VM_USAGE_HOURLY_MAX_MACHINES per run. A run that hits the cap reports it and
 // the overflow is not sent. The natural insert id makes a retried run of the
 // same hour idempotent.
+import { DELETED_ACCOUNT_ACTOR_ID } from "../auth/deletedAccount";
 import { and, asc, eq, gt, isNull, lt, or } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
@@ -81,7 +82,6 @@ export function vmUsageHourlyEvents(
 }
 
 /** Account deletion re-owns shared-team machines to this placeholder user id. */
-const DELETED_ACCOUNT_USER_ID = "deleted-account";
 
 function usageEvent(row: VmUsageIntervalRow, runningMs: number, window: VmUsageHourWindow): ServerEventInput {
   const reservation = vmResourceReservationFromMetadata(row.providerMetadata);
@@ -89,7 +89,7 @@ function usageEvent(row: VmUsageIntervalRow, runningMs: number, window: VmUsageH
   // A machine of a deleted account still costs money, but its placeholder
   // owner is not a person: send it person-less so no fake person collects
   // every deleted user's usage.
-  const deletedOwner = row.userId === DELETED_ACCOUNT_USER_ID;
+  const deletedOwner = row.userId === DELETED_ACCOUNT_ACTOR_ID;
   return {
     event: VM_USAGE_HOURLY_EVENT,
     distinctId: row.userId,

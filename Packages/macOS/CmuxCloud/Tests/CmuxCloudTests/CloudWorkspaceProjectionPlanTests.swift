@@ -111,6 +111,46 @@ struct CloudWorkspaceProjectionPlanTests {
         }
     }
 
+    @Test("Additional local views of an authorized browser tab are retained")
+    func duplicateBrowserViewSurvivesRefresh() {
+        let browser = SurfaceResourceID(machine: machine, kind: .browser, key: "browser-shared")
+        let remoteWorkspace = "workspace"
+        let remoteTab = "tab-browser"
+        let first = SurfaceProjection(resource: browser, workspaceID: UUID(), panelID: UUID(),
+                                      remoteWorkspaceID: remoteWorkspace, remoteTabID: remoteTab)
+        let second = SurfaceProjection(resource: browser, workspaceID: first.workspaceID, panelID: UUID(),
+                                       remoteWorkspaceID: remoteWorkspace, remoteTabID: remoteTab)
+        let desired = SurfaceResourcePlacement(resource: browser,
+            remoteWorkspaceID: remoteWorkspace, remoteTabID: remoteTab)
+        let plan = CloudWorkspaceProjectionPlan(desired: [desired], existing: [first, second])
+        #expect(plan.obsolete.isEmpty)
+        #expect(plan.missing.isEmpty)
+    }
+
+    @Test("A browser pane awaiting its remote receipt is not retired")
+    func pendingBrowserProjectionSurvivesRefresh() {
+        let browser = SurfaceResourceID(machine: machine, kind: .browser, key: "browser-pending")
+        let pendingPanel = UUID()
+        let pending = SurfaceProjection(resource: browser, workspaceID: UUID(), panelID: pendingPanel)
+        let plan = CloudWorkspaceProjectionPlan(desired: [], existing: [pending], protectedPanelIDs: [pendingPanel])
+        #expect(plan.obsolete.isEmpty)
+        #expect(plan.missing.isEmpty)
+    }
+
+    @Test("A protected pending pane already showing its placement is not reported missing")
+    func protectedPendingPaneSatisfiesItsPlacement() {
+        let browser = SurfaceResourceID(machine: machine, kind: .browser, key: "browser-1")
+        let pendingPanel = UUID()
+        let pending = SurfaceProjection(
+            resource: browser, workspaceID: UUID(), panelID: pendingPanel,
+            remoteWorkspaceID: "workspace", remoteTabID: "tab"
+        )
+        let placement = SurfaceResourcePlacement(resource: browser, remoteWorkspaceID: "workspace", remoteTabID: "tab")
+        let plan = CloudWorkspaceProjectionPlan(desired: [placement], existing: [pending], protectedPanelIDs: [pendingPanel])
+        #expect(plan.obsolete.isEmpty)
+        #expect(plan.missing.isEmpty)
+    }
+
     @Test("A preview whose remote placement was deleted is retired")
     func deletedRemotePlacementIsNotMistakenForPreview() {
         let display = SurfaceResourceID(machine: machine, kind: .display, key: "display:1")

@@ -304,6 +304,11 @@ struct TerminalSurfaceCommandShimPermissionsTests {
                 atPath: agentRootURL.appending(path: "claude", directoryHint: .notDirectory).path
             ))
         }
+
+        let agyShim = try #require(environment["CMUX_AGY_WRAPPER_SHIM"])
+        #expect(agyShim == agentRootURL.appending(path: "agy", directoryHint: .notDirectory).path)
+        #expect(environment["CMUX_AGY_WRAPPER_SHIM_ROOT"] == agentRoot)
+        #expect(fileManager.isExecutableFile(atPath: agyShim))
     }
 
     @Test("Claude integration flag is exported even without agent shims")

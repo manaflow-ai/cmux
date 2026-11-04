@@ -23,6 +23,8 @@ extension WorkspaceShellView {
             return selectedWorkspaceID
         }
         switch selectedPrimaryTab {
+        case .home:
+            return nil
         case .workspaces:
             return compactNavigationPath.last
         case .feed:

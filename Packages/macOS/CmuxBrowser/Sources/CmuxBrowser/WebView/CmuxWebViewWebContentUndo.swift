@@ -89,11 +89,26 @@ extension CmuxUndoableWebView {
     /// Returns `false` when `event` is not an undo/redo command equivalent.
     /// Otherwise the chord is consumed even when the relevant stack is empty,
     /// mirroring a disabled Edit-menu item rather than re-forwarding the key.
+    ///
+    /// Browser automation's keys (``NSEvent/isBrowserAutomationKeyEvent``:
+    /// a REPL session's, `cmux browser press`') are never consumed here:
+    /// they go to WebKit, so the page gets the keydown first and can cancel
+    /// it, and only a key no page handled runs Undo or Redo afterwards. The
+    /// REPL runs it through the frame gate, which refuses a focused frame
+    /// or document the session's authority blocks; done here, the undo
+    /// would reach the tab's last edit wherever the focus is.
     public func performWebContentUndoRedo(for event: NSEvent) -> Bool {
-        guard isWebContentUndoRedoCommandEquivalent(event) else { return false }
+        guard !event.isBrowserAutomationKeyEvent, isWebContentUndoRedoCommandEquivalent(event) else { return false }
         let isRedo = event.modifierFlags
             .intersection(.deviceIndependentFlagsMask)
             .contains(.shift)
+        performWebContentUndoRedo(redo: isRedo)
+        return true
+    }
+
+    /// Undoes or redoes the web view's last edit on its own undo stack, if
+    /// there is one.
+    public func performWebContentUndoRedo(redo isRedo: Bool) {
 #if DEBUG
         CMUXDebugLog.logDebugEvent(
             "browser.webContentUndoRedo \(isRedo ? "redo" : "undo") " +
@@ -109,6 +124,5 @@ extension CmuxUndoableWebView {
         } else if webContentUndoManager.canUndo {
             webContentUndoManager.undo()
         }
-        return true
     }
 }

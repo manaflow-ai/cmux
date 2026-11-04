@@ -1247,6 +1247,47 @@ struct BrowserWebContentProcessTests {
         #expect(probe.receivedKinds == ["getCredential"])
     }
 
+    @Test
+    func webAuthnCapabilityQueriesDoNotCrash() async throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let webView = panel.webView
+        let loadDelegate = BrowserWebContentProcessLoadDelegate()
+        webView.navigationDelegate = loadDelegate
+        defer { webView.navigationDelegate = nil }
+
+        try await loadDelegate.load(
+            """
+            <!doctype html>
+            <html><body>passkey capability probe</body></html>
+            """,
+            in: webView,
+            baseURL: URL(string: "https://example.com/")!
+        )
+
+        let result = try await webView.callAsyncJavaScript(
+            """
+            const platform =
+              await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+            const conditionalMethodAvailable =
+              typeof PublicKeyCredential.isConditionalMediationAvailable === "function";
+            const conditional = conditionalMethodAvailable
+              ? await PublicKeyCredential.isConditionalMediationAvailable()
+              : null;
+            return {
+              platformType: typeof platform,
+              conditionalType: conditionalMethodAvailable ? typeof conditional : "unsupported"
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? [String: String]
+
+        #expect(result?["platformType"] == "boolean")
+        #expect(result?["conditionalType"] == "boolean" || result?["conditionalType"] == "unsupported")
+    }
+
     @Test(arguments: [nil, Data()] as [Data?])
     func webAuthnAssertionReplyOmitsAbsentUserHandle(userHandle: Data?) throws {
         let coordinator = BrowserWebAuthnCoordinator()

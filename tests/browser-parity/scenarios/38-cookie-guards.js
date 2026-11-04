@@ -10,6 +10,7 @@ const outcome = async (f) => {
     return "done";
   } catch (e) {
     if (e.code === "blocked" || /blocked/.test(e.message)) return "blocked";
+    if (e.code === "closed" || /has been closed/.test(e.message)) return "closed";
     if (/profile/.test(e.message)) return "refused: profile";
     return `error: ${e.message}`;
   }
@@ -24,7 +25,13 @@ session.prohibitedDomains([PEER]);
 emitCmux("get-blocked-url", await outcome(() => page.context().cookies([`${PEER}/`])));
 emitCmux("get-hides-blocked-site", (await page.context().cookies()).filter((c) => String(c.domain).replace(/^\./, "") === peerHost).length);
 emitCmux("set-blocked-site", await outcome(() => page.context().addCookies([{ name: "blocked", value: "1", url: `${PEER}/` }])));
-emitCmux("clear-blocked-tab", await outcome(() => peerTab.context().clearCookies()));
+// The narrowed policy may close the blocked tab; tabs.list() lets that close
+// land. A clear through the tab then fails (blocked, or closed once the tab
+// is gone) and never falls back to the current tab's site.
+await tabs.list();
+const clearBlocked = await outcome(() => peerTab.context().clearCookies());
+emitCmux("clear-blocked-tab", clearBlocked === "blocked" || clearBlocked === "closed" ? "refused" : clearBlocked);
+emitCmux("primary-kept-after-blocked-clear", (await page.context().cookies([`${PRIMARY}/`])).map((c) => c.name).sort());
 session.prohibitedDomains(null);
 emitCmux("peer-cookies-after-policy", await peerCookies());
 // A runtime (or agent code calling the driver) names another site; the

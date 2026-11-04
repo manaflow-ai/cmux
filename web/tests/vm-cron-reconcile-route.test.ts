@@ -16,6 +16,7 @@ const reconcileResult = {
   updated: 1,
   destroyed: 0,
   skipped: 1,
+  repaused: 0,
   skippedNoGetStatus: false,
 };
 const reconcileVmProviderStatuses = mock(() => ({ workflow: "vm-reconcile" }));
@@ -118,6 +119,7 @@ describe("VM reconcile cron route", () => {
       updated: 1,
       destroyed: 0,
       skipped: 1,
+      repaused: 0,
       skippedNoGetStatus: false,
       staleTunnels: tunnelReap,
       stackSessionRevocations: { attempted: 0, revoked: 0, pending: 0 },

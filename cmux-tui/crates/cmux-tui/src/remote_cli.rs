@@ -87,7 +87,8 @@ fn run_inner(
     load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
 ) -> anyhow::Result<()> {
     if remote_help_requested(&args[1..]) {
-        print!("{}", remote_help(args.first().map(String::as_str)));
+        let help = remote_help(args.first().map(String::as_str));
+        print!("{}", crate::cli::with_program_name(help, &crate::cli::program_name()));
         return Ok(());
     }
     match args.first().map(String::as_str) {
@@ -102,6 +103,8 @@ fn run_inner(
         Some("remote-link") => run_remote_link(&args[1..]),
         Some("remote-sidecar") => run_remote_sidecar(&args[1..]),
         Some("remote-stop") => run_remote_stop(&args[1..]),
+        Some("remote-doctor") => crate::remote_doctor::run(&args[1..]),
+        Some("remote-trust") => crate::remote_trust::run(&args[1..]),
         Some("install-self") => run_install_self(&args[1..]),
         Some("wg") => run_wg(&args[1..]),
         Some("remote") => Err(anyhow!(catalog().remote_client.remote_lifecycle_help)),
@@ -153,6 +156,13 @@ fn remote_help_requested(args: &[String]) -> bool {
         "--link-socket",
         "--mux-socket",
         "--destination",
+        "--user",
+        "--timeout-seconds",
+        "--tier",
+        "--folder",
+        "--agent",
+        "--expires-in-hours",
+        "--limit",
     ];
 
     let mut index = 0;
@@ -194,6 +204,8 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("remote-probe") => client.remote_probe_help,
         Some("remote-link") => client.remote_link_help,
         Some("remote-stop") => catalog().remote.remote_stop_help,
+        Some("remote-doctor") => client.remote_doctor_help,
+        Some("remote-trust") => catalog().peer_trust.help,
         Some("install-self") => client.install_self_help,
         Some("wg") => client.wg_hub_help,
         Some("remote") => client.remote_lifecycle_help,

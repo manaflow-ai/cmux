@@ -91,6 +91,52 @@ class CleanupRevalidationTests(unittest.TestCase):
                 api.request.assert_called_once_with("GET", "/repos/test/repo/actions/runs/123")
 
 
+class InventoryBudgetTests(unittest.TestCase):
+    environment = {"GH_TOKEN": "test-token", "GH_REPO": "test/repo"}
+
+    def test_pull_requests_are_read_only_for_old_pull_request_runs(self):
+        old = dict(ClassifyRunTests.run_data, created_at="2026-01-01T00:00:00Z")
+        runs = [
+            dict(old, id=1, head_sha="a"),
+            dict(old, id=2, head_sha="a", status="in_progress"),
+            dict(old, id=3, head_sha="b", event="push"),
+            dict(old, id=4, head_sha="c", created_at="2999-01-01T00:00:00Z"),
+            dict(old, id=5, head_sha="d", created_at=None),
+            dict(old, id=6, head_sha="e"),
+        ]
+        api = mock.Mock()
+        api.runs.side_effect = [runs[:1] + runs[2:], runs[1:2]]
+        api.pull_requests_for_commit.side_effect = lambda sha: {
+            "a": [{"state": "closed", "merged_at": "2026-01-02T00:00:00Z"}], "e": [{"state": "open"}]}[sha]
+        with mock.patch.dict(MODULE.os.environ, self.environment, clear=True), \
+                mock.patch.object(MODULE, "GitHub", return_value=api), \
+                mock.patch("builtins.print") as printed:
+            self.assertEqual(MODULE.main(), 0)
+        self.assertEqual(api.pull_requests_for_commit.call_args_list, [mock.call("a"), mock.call("e"), mock.call("a")])
+        lines = [" ".join(str(arg) for arg in call.args) for call in printed.call_args_list]
+        self.assertIn("stale-run-janitor: DRY-RUN; eligible=2; limit=25", lines)
+        self.assertIn("would process run 1 (queued, merged PR)", lines)
+        self.assertIn("would process run 2 (in_progress, merged PR)", lines)
+
+    def test_listing_asks_only_for_pull_request_runs(self):
+        client = MODULE.GitHub("test-token", "test/repo")
+        with mock.patch.object(client, "request", return_value={"workflow_runs": []}) as request:
+            self.assertEqual(client.runs("queued"), [])
+        request.assert_called_once_with(
+            "GET", "/repos/test/repo/actions/runs?status=queued&event=pull_request&per_page=100&page=1")
+
+    def test_prefilter_matches_classify_run_for_a_closed_pr(self):
+        prs = [{"state": "closed", "merged_at": None}]
+        now = ClassifyRunTests.now
+        for event in ("pull_request", "push", None):
+            for status in ("queued", "in_progress", "completed"):
+                for created_at in ("2026-09-18T00:00:00Z", "2026-09-18T23:30:00Z", None):
+                    run = {"event": event, "status": status, "created_at": created_at}
+                    with self.subTest(run=run):
+                        self.assertEqual(MODULE.may_be_eligible(run, now=now, min_age_seconds=3600),
+                                         MODULE.classify_run(run, prs, now=now, min_age_seconds=3600) is not None)
+
+
 class WorkflowSafetyTests(unittest.TestCase):
     def test_scheduled_and_manual_janitors_are_serialized(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")

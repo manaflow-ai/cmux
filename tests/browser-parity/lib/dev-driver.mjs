@@ -49,6 +49,19 @@ export function loadPlaywright() {
   }
 }
 
+// Playwright's AI snapshot of a page (refs `[ref=eN]` that `aria-ref=`
+// locators resolve, frames inlined) as { full, incremental }. The gate pins
+// Playwright 1.62.1 (README.md), where it is the public
+// page.ariaSnapshot({ mode: "ai" }) and has no incremental form (null);
+// older versions (1.57.0) have only the internal page._snapshotForAI({ track }).
+export async function aiSnapshot(page, track) {
+  if (typeof page._snapshotForAI === "function") {
+    const r = await page._snapshotForAI(track ? { track } : {});
+    return typeof r === "string" ? { full: r, incremental: null } : { full: r.full, incremental: r.incremental ?? null };
+  }
+  return { full: await page.ariaSnapshot({ mode: "ai" }), incremental: null };
+}
+
 // Builds the install script from the recipe in page-agent.js.
 export function agentInstallSource() {
   const injected = fs.readFileSync(path.join(runtimeDir, "vendor/playwright-injected.js"), "utf8");
@@ -155,17 +168,28 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   let nextId = 1;
   const modifiersDown = new Set();
 
-  const emit = (event, payload) => {
-    for (const d of drivers) {
-      for (const h of d.listeners.get(event) ?? []) {
-        try {
-          h(payload);
-        } catch (e) {
-          console.error(`driver listener for ${event} failed:`, e);
-        }
+  const emitTo = (d, event, payload) => {
+    for (const h of d.listeners.get(event) ?? []) {
+      try {
+        h(payload);
+      } catch (e) {
+        console.error(`driver listener for ${event} failed:`, e);
       }
     }
   };
+  const emit = (event, payload) => {
+    for (const d of drivers) emitTo(d, event, payload);
+  };
+  // The headers a session other than the tab's creator gets
+  // (Dictionary.removingBrowserReplCredentialHeaders in the app).
+  const CREDENTIAL_HEADERS = new Set(["cookie", "set-cookie", "set-cookie2", "authorization", "proxy-authorization", "x-api-key", "x-auth-token", "x-csrf-token", "x-xsrf-token"]);
+  const withoutCredentials = (headers) => Object.fromEntries(Object.entries(headers).filter(([k]) => !CREDENTIAL_HEADERS.has(k.toLowerCase())));
+  // A tab another live session created: `driver` may not drive it.
+  const ownClipboard = (tab, driver) => {
+    if (tab.creator === driver && drivers.has(driver)) return tab;
+    throw new DriverError("unsupported", "page.clipboard is refused in a user's tab (one no attached session opened): a tab's clipboard belongs to the session that opened the tab, and other sessions may drive a user's tab. Open the page with tabs.open() to use it");
+  };
+  const ownerRefusing = (tab, driver) => (tab.creator && tab.creator !== driver && drivers.has(tab.creator) ? tab.creator : null);
 
   function frameId(tab, frame) {
     let id = tab.frameIds.get(frame);
@@ -179,7 +203,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
 
   function register(page) {
     if (tabOf.has(page)) return tabOf.get(page);
-    const tab = { targetId: hexId(), page, frameIds: new WeakMap(), frames: new Map(), clipboard: [], clipboardCommand: null, openerTargetId: undefined, openDialogs: 0, title: "", loadState: "commit", creator: null, handled: new Map(), inputDrivers: [], heldKeys: new Map(), heldButtons: new Map() };
+    const tab = { targetId: hexId(), page, frameIds: new WeakMap(), frames: new Map(), clipboard: [], clipboardCommand: null, openerTargetId: undefined, openDialogs: 0, title: "", loadState: "commit", creator: null, handled: new Map(), inputDrivers: [], heldKeys: new Map(), heldButtons: new Map(), requestRecipients: new Map() };
     tabs.set(tab.targetId, tab);
     tabOf.set(page, tab);
     frameId(tab, page.mainFrame());
@@ -233,17 +257,35 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         (e) => emit("download.finished", { targetId, downloadId, error: String(e.message) }),
       );
     });
+    // As in the app (BrowserReplTabOwnership.networkRecipients): a network
+    // event goes to the tab's live creator, the sessions with a network
+    // listener on the tab and the session whose action started the
+    // request; only the creator gets credential headers.
     const net = (event) => (r) => {
       const req = r.request ? r.request() : r;
-      emit(event, {
-        targetId,
-        requestId: req._guid ?? req.url(),
-        url: req.url(),
-        method: req.method(),
-        resourceType: req.resourceType(),
-        status: r.status ? r.status() : undefined,
-        headers: r.headers ? r.headers() : undefined,
-      });
+      const requestId = req._guid ?? req.url();
+      const live = (d) => drivers.has(d);
+      const recipients = new Set([...tab.handled].filter(([d, events]) => live(d) && events.has("network")).map(([d]) => d));
+      if (tab.creator && live(tab.creator)) recipients.add(tab.creator);
+      if (event === "request") {
+        for (const d of tab.inputDrivers) if (live(d)) recipients.add(d);
+        tab.requestRecipients.set(requestId, new Set(recipients));
+      } else {
+        for (const d of tab.requestRecipients.get(requestId) ?? []) if (live(d)) recipients.add(d);
+        if (event !== "response") tab.requestRecipients.delete(requestId);
+      }
+      const headers = r.headers ? r.headers() : undefined;
+      for (const d of recipients) {
+        emitTo(d, event, {
+          targetId,
+          requestId,
+          url: req.url(),
+          method: req.method(),
+          resourceType: req.resourceType(),
+          status: r.status ? r.status() : undefined,
+          headers: headers && d !== tab.creator ? withoutCredentials(headers) : headers,
+        });
+      }
     };
     page.on("request", net("request"));
     page.on("response", net("response"));
@@ -276,6 +318,8 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       if (!items || items.some((i) => !i || typeof i.type !== "string" || typeof i.base64 !== "string")) {
         throw new Error("the clipboard write is not a list of typed items within the size limit");
       }
+      // Only while the creating session holds the tab.
+      if (!(tab.creator && drivers.has(tab.creator))) throw new Error("the tab's clipboard is unavailable");
       tab.clipboard = items.map((i) => ({ type: i.type, base64: i.base64 }));
     });
     await tab.page.addInitScript({ content: pageClipboardInitScript() });
@@ -364,6 +408,36 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     }
   }
 
+  // The checks of an input.mouse press's `expect`, all at once, in each
+  // frame's agent: `{ frameId, handle, x, y, owners: [{ frameId, handle,
+  // x, y }] }`, innermost first, ending at the press point.
+  async function checkPress(targetId, expect, x, y) {
+    const refused = (why) => new DriverError("stale", `no press was sent: ${why} when the press was about to be sent (the page changed under the pointer)`);
+    const levels = [{ frameId: expect.frameId, handle: expect.handle, x: expect.x, y: expect.y, from: null }];
+    for (const o of expect.owners || []) {
+      const below = levels[levels.length - 1];
+      levels.push({ frameId: o.frameId, handle: o.handle, x: o.x, y: o.y, from: { x: below.x, y: below.y } });
+    }
+    const last = levels[levels.length - 1];
+    if (typeof expect.handle !== "string" || last.x !== x || last.y !== y) throw new DriverError("invalid", "input.mouse: expect does not end at the press point");
+    const frames = levels.map((l) => {
+      try {
+        return frameFor(targetId, l.frameId);
+      } catch {
+        throw refused(`frame ${l.frameId} was detached`);
+      }
+    });
+    for (let i = 0; i + 1 < frames.length; i++) {
+      if (frames[i].parentFrame() !== frames[i + 1]) throw refused(`frame ${levels[i].frameId} is not in frame ${levels[i + 1].frameId}`);
+    }
+    if (frames[frames.length - 1].parentFrame()) throw refused("the press names no frame up to the main frame");
+    const source = "(h, at, from) => { const a = globalThis[Symbol.for('cmux.browserRepl.agent')]; return a && typeof a.pressCheck === 'function' ? a.pressCheck(h, at, from) : 'the frame shows another document'; }";
+    const results = await Promise.all(levels.map((l, i) =>
+      evaluate(frames[i], { world: "agent", source, args: [l.handle, { x: l.x, y: l.y }, l.from] }).catch((e) => String(e.message || e))));
+    const why = results.find((r) => r !== null);
+    if (why !== undefined) throw refused(why);
+  }
+
   async function withModifiers(page, modifiers = [], fn) {
     const pressed = [];
     for (const m of modifiers) {
@@ -382,43 +456,20 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   const MODIFIER_KEYS = new Set(["Alt", "Control", "Meta", "Shift"]);
 
   // Meta+C, Meta+X and Meta+V use the tab's virtual clipboard, as the app
-  // driver does; the system pasteboard is never touched. The app runs
-  // WebKit's own Copy, Cut and Paste, so the page gets copy, cut and paste
-  // events with clipboardData. Playwright WebKit's own commands use the
-  // system clipboard, so this dispatches the events (not trusted) in the
-  // focused frame and does what WebKit does unless the page cancels them.
-  //
-  // As in the app, they run only in tabs a session created, and one the page
-  // keeps running past 5 s ends the tab's web content process (the app
-  // contains a late write to the system clipboard that way). Playwright
-  // cannot end one page's process, so this reports the crash, ignores what
-  // the page does afterwards, and lets its script run out.
-  const CLIPBOARD_COMMAND_TIMEOUT_MS = 5000;
+  // driver does; no pasteboard is ever touched. Like the app, this
+  // dispatches the copy, cut or paste event (not trusted) with a
+  // DataTransfer in the focused frame and does the default action there
+  // unless the page cancels it. They run only in tabs a session created.
   async function clipboardShortcut(tab, key) {
     const type = { c: "copy", x: "cut", v: "paste" }[key];
     const name = { copy: "Copy", cut: "Cut", paste: "Paste" }[type];
     if (!(tab.creator && drivers.has(tab.creator))) {
       throw new DriverError(
         "unsupported",
-        `${name} is refused in a user's tab (one no attached session opened): cmux ends the web content process of a tab whose page keeps a Copy, Cut or Paste running past its timeout, and it never does that to a user's tab. Use page.clipboard here, or open the page with tabs.open()`,
+        `${name} is refused in a user's tab (one no attached session opened): the clipboard there is the system's, which agent input never reaches. Open the page with tabs.open() to use the tab's own clipboard`,
       );
     }
-    let timer;
-    const expired = new Promise((resolve) => { timer = setTimeout(() => resolve(true), CLIPBOARD_COMMAND_TIMEOUT_MS); });
-    try {
-      const finished = await Promise.race([runClipboardShortcut(tab, type).then(() => false), expired]);
-      if (finished) {
-        tab.clipboardRun = null;
-        tab.clipboardCommand = null;
-        emit("tab.crashed", { targetId: tab.targetId });
-        throw new DriverError(
-          "timeout",
-          `${name} did not finish within 5 s, so cmux ended the tab's web content process: nothing the page does later reaches the system clipboard. The tab's clipboard is unchanged; call page.reload() or page.goto() to load the page again`,
-        );
-      }
-    } finally {
-      clearTimeout(timer);
-    }
+    await runClipboardShortcut(tab, type);
   }
 
   async function runClipboardShortcut(tab, type) {
@@ -427,12 +478,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     for (const f of page.frames()) {
       if (await f.evaluate(() => document.hasFocus() && !(document.activeElement instanceof HTMLIFrameElement)).catch(() => false)) frame = f;
     }
-    const started = Symbol(type);
     tab.clipboardCommand = type;
-    tab.clipboardRun = started;
-    // After a timeout the command is abandoned: what it finds later is
-    // dropped, as the app's ended process drops it.
-    const current = () => tab.clipboardRun === started;
     try {
       if (type === "paste") {
         const item = tab.clipboard.find((i) => i.type === "text/plain");
@@ -445,31 +491,27 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
           while (el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
           return !el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true, composed: true }));
         }, entries);
-        if (!cancelled && text && current()) await page.keyboard.insertText(text);
+        if (!cancelled && text) await page.keyboard.insertText(text);
         return;
       }
-      // WebKit fires copy and cut only when something is selected.
+      // Copy and Cut fire only when something is selected; without a
+      // cancelled event they take the selection as it is after the handlers.
       const result = await frame.evaluate((type) => {
         let el = document.activeElement || document.body;
         while (el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
         const field = (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && el.selectionStart !== null;
-        const selection = field ? el.value.slice(el.selectionStart, el.selectionEnd) : String(getSelection() || "");
-        if (!selection) return { selection, items: null };
+        const selected = () => (field ? el.value.slice(el.selectionStart, el.selectionEnd) : String(getSelection() || ""));
+        if (!selected()) return { selection: "", items: null };
         const data = new DataTransfer();
         const cancelled = !el.dispatchEvent(new ClipboardEvent(type, { clipboardData: data, bubbles: true, cancelable: true, composed: true }));
-        return { selection, items: cancelled ? [...data.types].map((t) => [t, data.getData(t)]) : null };
+        return { selection: selected(), items: cancelled ? [...data.types].map((t) => [t, data.getData(t)]) : null };
       }, type);
-      if (!current()) return;
       tab.clipboard = result.items
         ? result.items.map(([t, value]) => ({ type: t, base64: Buffer.from(value).toString("base64") }))
         : [{ type: "text/plain", base64: Buffer.from(result.selection).toString("base64") }];
-      // The app sends Cocoa's delete: action; execCommand is its page-side twin.
       if (type === "cut" && !result.items && result.selection) await frame.evaluate(() => document.execCommand("delete"));
     } finally {
-      if (current()) {
-        tab.clipboardCommand = null;
-        tab.clipboardRun = null;
-      }
+      tab.clipboardCommand = null;
     }
   }
 
@@ -542,16 +584,20 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         .filter((h) => !qs.length || qs.some((q) => h.url.toLowerCase().includes(q) || h.title.toLowerCase().includes(q)))
         .slice(0, limit);
     },
-    "tabs.list": async () =>
-      Promise.all([...tabs.values()].map(async (t) => ({
-        targetId: t.targetId,
-        title: await t.page.title().catch(() => ""),
-        url: t.page.url(),
-        active: t.targetId === activeTarget,
-        windowId: 1,
-        dataStore: DATA_STORE,
-        ...(t.openerTargetId ? { openerTargetId: t.openerTargetId } : {}),
-      }))),
+    "tabs.list": async (_params, driver) =>
+      Promise.all([...tabs.values()].map(async (t) => {
+        const owner = ownerRefusing(t, driver);
+        return {
+          targetId: t.targetId,
+          title: await t.page.title().catch(() => ""),
+          url: t.page.url(),
+          active: t.targetId === activeTarget,
+          windowId: 1,
+          // Another live session's tab: its owner, never its data store.
+          ...(owner ? { ownerSession: owner.sessionId } : { dataStore: DATA_STORE }),
+          ...(t.openerTargetId ? { openerTargetId: t.openerTargetId } : {}),
+        };
+      })),
     // One Playwright context, so one data store for every tab.
     "tabs.dataStore": async ({ targetId } = {}) => {
       if (targetId !== undefined) tabFor(targetId);
@@ -570,7 +616,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       return { targetId: tab.targetId };
     },
     "tab.handleEvents": async ({ targetId, events }, driver) => {
-      const known = ["dialog", "filechooser", "download"];
+      const known = ["dialog", "filechooser", "download", "network"];
       if (!Array.isArray(events) || events.some((e) => !known.includes(e))) {
         throw new DriverError("invalid", `tab.handleEvents: events must be an array of ${known.join(", ")}`);
       }
@@ -706,9 +752,13 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     "frame.contentFrames": async ({ targetId, frameId: id, elements = [] }) => {
       return Promise.all(elements.map((element) => methods["frame.contentFrame"]({ targetId, frameId: id, element }).catch(() => null)));
     },
-    "input.mouse": async ({ targetId, type, x, y, button = "left", clickCount = 1, modifiers, deltaX = 0, deltaY = 0 }, driver) => {
+    "input.mouse": async ({ targetId, type, x, y, button = "left", clickCount = 1, modifiers, deltaX = 0, deltaY = 0, expect }, driver) => {
       const tab = tabFor(targetId);
       const page = tab.page;
+      // As the app's driver: a press that names its target is sent only
+      // while the target, and each parent frame's <iframe>, is still at
+      // the point (BrowserReplPressTarget).
+      if (type === "down" && expect) await checkPress(targetId, expect, x, y);
       if (type === "down") tab.heldButtons.set(button, driver);
       if (type === "up") tab.heldButtons.delete(button);
       await withModifiers(page, modifiers, async () => {
@@ -737,9 +787,13 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         }, cmd);
       }
     },
-    "input.insertText": async ({ targetId, text, secretName, secretDomains }) => {
+    "input.insertText": async ({ targetId, text, secretName, secretDomains }, driver) => {
       const tab = tabFor(targetId);
       if (secretName) {
+        // As BrowserReplSecretTarget.tabRefusal: only the typing session's own tab.
+        if (!(tab.creator === driver && drivers.has(driver))) {
+          throw new DriverError("invalid", `secret ${JSON.stringify(secretName)} is typed only into a tab this session opened (tabs.open), where its domain policy keeps the page from sending it elsewhere; this tab is ${tab.creator && drivers.has(tab.creator) ? "another session's" : "the user's"}`);
+        }
         // As the app's driver: the frame that has focus must be on one of
         // the secret's domains, by its own origin.
         let focused = tab.page.mainFrame();
@@ -755,12 +809,31 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       }
       await tab.page.keyboard.insertText(text);
     },
-    "input.drag": async ({ targetId, path: points, button = "left", modifiers }) => {
+    // As the app's driver: `expect` binds the press to the source and
+    // `dropExpect` the release to the target (input.mouse's check); a
+    // target that changed gets no drop (the release goes back to the press
+    // point, where the drag started).
+    "input.drag": async ({ targetId, path: points, button = "left", modifiers, expect, dropExpect }) => {
       const page = tabFor(targetId).page;
+      const first = points[0];
+      const last = points[points.length - 1];
       await withModifiers(page, modifiers, async () => {
-        await page.mouse.move(points[0].x, points[0].y);
+        await page.mouse.move(first.x, first.y);
+        if (expect) await checkPress(targetId, expect, first.x, first.y);
         await page.mouse.down({ button });
         for (const p of points.slice(1)) await page.mouse.move(p.x, p.y, { steps: 5 });
+        if (dropExpect) {
+          try {
+            await checkPress(targetId, dropExpect, last.x, last.y);
+          } catch (e) {
+            await page.mouse.move(first.x, first.y, { steps: 5 });
+            await page.mouse.up({ button });
+            if (e instanceof DriverError && e.code === "stale") {
+              throw new DriverError("stale", e.message.replace(/^no press was sent: /, "no drop was made: ").replace("when the press was about to be sent", "when the drop was about to be made"));
+            }
+            throw e;
+          }
+        }
         await page.mouse.up({ button });
       });
     },
@@ -816,7 +889,12 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         const reason = driver.blockReason && driver.blockReason(url);
         if (reason) throw new DriverError("blocked", `cookies.get: ${url} is blocked: ${reason}`);
       }
-      return (await context.cookies(urls)).filter((c) => !(driver.cookieBlockReason && driver.cookieBlockReason(c.domain)));
+      // Matched as the app's driver does (cookieMatchesURL), not by
+      // Playwright's URL filter, which sends Secure cookies over http only
+      // to localhost.
+      const all = await context.cookies();
+      const matched = urls && urls.length ? all.filter((c) => urls.some((u) => cookieMatchesURL(c, u))) : all;
+      return matched.filter((c) => !(driver.cookieBlockReason && driver.cookieBlockReason(c.domain)));
     },
     "cookies.set": async ({ cookies }, driver) => {
       for (const c of cookies || []) {
@@ -848,9 +926,11 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         await context.clearCookies({ name: c.name, domain: c.domain, path: c.path });
       }
     },
-    "clipboard.read": async ({ targetId }) => ({ items: tabFor(targetId).clipboard }),
-    "clipboard.write": async ({ targetId, items }) => {
-      tabFor(targetId).clipboard = items;
+    // As in the app (BrowserReplTabClipboard): the tab's clipboard is its
+    // live creator's alone; a user's tab has none for sessions.
+    "clipboard.read": async ({ targetId }, driver) => ({ items: ownClipboard(tabFor(targetId), driver).clipboard }),
+    "clipboard.write": async ({ targetId, items }, driver) => {
+      ownClipboard(tabFor(targetId), driver).clipboard = items;
     },
   };
 
@@ -968,9 +1048,10 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   const ACTIONS = /^(input\.|frame\.evaluate$|tab\.navigate$|tab\.reload$|tab\.history$)/;
   const NAVIGATIONS = /^tab\.(navigate|reload|history)$/;
 
-  function createDriver() {
+  function createDriver({ sessionId = `dev-${nextId++}` } = {}) {
     const driver = {
       name: "dev",
+      sessionId,
       listeners: new Map(),
       opened: new Set(),
       sessionName: null,
@@ -998,6 +1079,13 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         const fn = methods[method];
         if (!fn) throw new DriverError("unsupported", `Unsupported driver method ${method}`);
         if (driver.policyFailure) throw driver.policyFailure;
+        // As the app's driver: a tab another live session created is that
+        // session's alone.
+        const owned = params.targetId && tabs.get(params.targetId);
+        const owner = owned && ownerRefusing(owned, driver);
+        if (owner) {
+          throw new DriverError("denied", `the tab ${params.targetId} belongs to the REPL session "${owner.sessionId}", which is still running; a session drives only the tabs it opened and the user's tabs (tabs.list({ all: true }) shows each tab's owner)`);
+        }
         if (driver.blockReason && params.targetId && GUARDED.test(method) && tabs.has(params.targetId)) {
           const url = tabs.get(params.targetId).page.url();
           const reason = driver.blockReason(url);
@@ -1044,6 +1132,8 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         drivers.delete(driver);
         for (const tab of tabs.values()) {
           tab.handled.delete(driver);
+          // What the creating session put in the tab's clipboard ends with it.
+          if (tab.creator === driver) tab.clipboard = [];
           // Keys and buttons this session left pressed are released, last
           // pressed first, so the page sees keyup and mouseup.
           for (const [held, k] of [...tab.heldKeys].reverse()) {
@@ -1237,6 +1327,39 @@ process.on("exit", () => {
   }
 });
 
+// Whether a cookie goes with a request to `url`, as the app's
+// HTTPCookie.browserReplMatches: a host-only cookie (no leading dot) to its
+// exact host, a Domain cookie to the domain and its subdomains (never an IP
+// address by suffix), RFC 6265 path-match, and a Secure cookie only over
+// https or to a loopback host (localhost and its subdomains, [::1], an
+// address in 127.0.0.0/8).
+export function cookieMatchesURL(cookie, url) {
+  let u;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  const host = u.hostname.toLowerCase();
+  const domain = String(cookie.domain || "").toLowerCase();
+  const isIP = /^\[.*\]$/.test(host) || /^\d+\.\d+\.\d+\.\d+$/.test(host);
+  if (domain.startsWith(".")) {
+    const bare = domain.slice(1);
+    if (host !== bare && (isIP || !host.endsWith("." + bare))) return false;
+  } else if (host !== domain) return false;
+  const cookiePath = cookie.path || "/";
+  const sent = u.pathname || "/";
+  if (!sent.startsWith(cookiePath)) return false;
+  if (sent.length !== cookiePath.length && !cookiePath.endsWith("/") && sent[cookiePath.length] !== "/") return false;
+  return !cookie.secure || u.protocol === "https:" || isLoopbackHost(host);
+}
+
+function isLoopbackHost(host) {
+  if (host === "localhost" || host.endsWith(".localhost") || host === "[::1]") return true;
+  const parts = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  return !!parts && parts[1] === "127" && parts.slice(2).every((p) => Number(p) <= 255);
+}
+
 // Host capabilities the app provides natively (driver-protocol.md, "Native
 // host contract").
 export function createNodeHost({ workDir, sessionId = "dev", print, readable = new Set() }) {
@@ -1334,7 +1457,7 @@ export async function runDevCells(cells, { workDir } = {}) {
       const print = (level, text) => lines.push(text);
       let entry = cell.session ? named.get(cell.session) : null;
       if (!entry) {
-        const driver = browser.driver();
+        const driver = browser.driver({ sessionId: cell.session || `oneshot-${outputs.length + 1}` });
         driver.on("download.finished", (p) => p.path && readable.add(fs.realpathSync(p.path)));
         let current = print;
         const host = createNodeHost({ workDir: dir, sessionId: cell.session || `oneshot-${outputs.length + 1}`, print: (l, t) => current(l, t), readable });

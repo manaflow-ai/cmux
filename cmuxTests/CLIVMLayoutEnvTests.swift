@@ -952,6 +952,65 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(unsupported.stderr.contains("Unexpected method vm.pause"), unsupported.stderr)
     }
 
+    func testVMCleanIsADryRunUnlessApplyIsPassed() throws {
+        let report: (String, String) -> [String: Any] = { mode, action in
+            [
+                "id": "brave-otter", "version": 1, "mode": mode, "home": "/home/cmux",
+                "diskUsedPctBefore": 87, "diskUsedPctAfter": mode == "apply" ? 71 : 87,
+                "reclaimableKb": 2_621_440,
+                "items": [
+                    ["category": "project-artifacts", "path": "/home/cmux/code/app/node_modules", "kb": 2_621_440, "action": action],
+                    ["category": "project-artifacts", "path": "/home/cmux/code/busy/node_modules", "kb": 0, "action": "skipped", "reason": "project-in-use"],
+                ],
+            ]
+        }
+        let (dry, dryLog) = try runVMCommandAgainstMock(
+            "vm-clean-dry",
+            arguments: ["vm", "clean", "brave-otter"]
+        ) { method, _ in
+            method == "vm.hygiene" ? report("dry-run", "would-delete") : nil
+        }
+        XCTAssertEqual(dry.status, 0, "stdout=\(dry.stdout) stderr=\(dry.stderr)")
+        XCTAssertEqual(dryLog.methods, ["vm.hygiene"], dryLog.methods.description)
+        XCTAssertEqual(dryLog.params(ofFirst: "vm.hygiene")?["id"] as? String, "brave-otter")
+        // Without --apply the request carries no apply flag at all.
+        XCTAssertNil(dryLog.params(ofFirst: "vm.hygiene")?["apply"], dryLog.methods.description)
+        XCTAssertTrue(dry.stdout.contains("can be freed on brave-otter. Nothing was removed."), dry.stdout)
+        XCTAssertTrue(dry.stdout.contains("/home/cmux/code/app/node_modules"), dry.stdout)
+        XCTAssertTrue(dry.stdout.contains("Kept 1 item(s)"), dry.stdout)
+        XCTAssertTrue(dry.stdout.contains("cmux vm clean brave-otter --apply"), dry.stdout)
+
+        let (applied, applyLog) = try runVMCommandAgainstMock(
+            "vm-clean-apply",
+            arguments: ["vm", "clean", "brave-otter", "--apply"]
+        ) { method, _ in
+            method == "vm.hygiene" ? report("apply", "deleted") : nil
+        }
+        XCTAssertEqual(applied.status, 0, "stdout=\(applied.stdout) stderr=\(applied.stderr)")
+        XCTAssertEqual(applyLog.params(ofFirst: "vm.hygiene")?["apply"] as? Bool, true)
+        XCTAssertTrue(applied.stdout.contains("Removed"), applied.stdout)
+        XCTAssertTrue(applied.stdout.contains("(disk 87% -> 71%)"), applied.stdout)
+        XCTAssertFalse(applied.stdout.contains("--apply"), applied.stdout)
+
+        let (json, _) = try runVMCommandAgainstMock(
+            "vm-clean-json",
+            arguments: ["vm", "clean", "brave-otter", "--json"]
+        ) { method, _ in
+            method == "vm.hygiene" ? report("dry-run", "would-delete") : nil
+        }
+        let payload = jsonObject(json.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
+        XCTAssertEqual(payload?["mode"] as? String, "dry-run", json.stdout)
+        XCTAssertEqual((payload?["items"] as? [[String: Any]])?.count, 2, json.stdout)
+
+        // A missing machine id is a usage error that never reaches the socket.
+        let (usage, usageLog) = try runVMCommandAgainstMock(
+            "vm-clean-usage",
+            arguments: ["vm", "clean", "--apply"]
+        ) { _, _ in nil }
+        XCTAssertNotEqual(usage.status, 0, usage.stdout)
+        XCTAssertEqual(usageLog.methods, [], usageLog.methods.description)
+    }
+
     func testVMRestartSendsTheProviderRecoveryMethod() throws {
         let (restarted, log) = try runVMCommandAgainstMock(
             "vm-restart",
@@ -1292,6 +1351,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             (["vm", "terminal", "--help"], ["cmux vm terminal", "wait-exit <machine> <terminal-id>", "output <machine> <terminal-id>"], ["cmux vm new"]),
             (["cloud", "exec", "-h"], ["cmux vm exec", "[--timeout <seconds>]", "1…900"], ["cmux vm new"]),
             (["vm", "pause", "--help"], ["cmux vm pause", "Park the machine", "cmux vm resume <machine>"], []),
+            (["vm", "clean", "--help"], ["cmux vm clean <id> --apply", "Removes nothing.", "never wakes a paused machine"], ["Usage: cmux vm <"]),
             (["vm", "workspace", "--help"], ["cmux vm workspace", "[--reuse]"], []),
             (["vm", "layout", "--help"], ["cmux vm layout"], ["cmux vm new"]),
             // The family text stays for the family itself and for verbs without their own usage.

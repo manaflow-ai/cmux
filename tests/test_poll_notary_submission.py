@@ -55,12 +55,23 @@ class PollNotarySubmissionTests(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertEqual(body["status"], "Invalid")
 
-    def test_http_failure_fails_closed(self) -> None:
+    def test_http_failure_is_a_distinct_failure(self) -> None:
         result, body = self.run_status("", http_status=401)
-        self.assertEqual(result, 1)
+        self.assertEqual(result, 3)
         self.assertEqual(body["http_status"], 401)
 
+    def test_network_errors_and_bad_json_are_failed_queries(self) -> None:
+        import urllib.error
+        import http.client
+        for error in (urllib.error.URLError("unreachable"), TimeoutError("timed out"), json.JSONDecodeError("bad", "x", 0),
+                      http.client.IncompleteRead(b""), http.client.LineTooLong("header line")):
+            with self.subTest(error=type(error).__name__), patch.object(MODULE, "_token", return_value="fixture-token"), \
+                    patch.object(MODULE.urllib.request, "urlopen", side_effect=error):
+                result = MODULE.main([str(self.state), "--output", str(self.output)])
+            self.assertEqual(result, 3)
+
     def test_response_for_another_submission_fails_closed(self) -> None:
+        # Not admitted: an answer for another id is a failed query (3).
         with patch.object(MODULE, "_token", return_value="fixture-token"), patch.object(
             MODULE,
             "_api",
@@ -70,7 +81,7 @@ class PollNotarySubmissionTests(unittest.TestCase):
             ),
         ):
             result = MODULE.main([str(self.state), "--output", str(self.output)])
-        self.assertEqual(result, 1)
+        self.assertEqual(result, 3)
 
 
 if __name__ == "__main__":

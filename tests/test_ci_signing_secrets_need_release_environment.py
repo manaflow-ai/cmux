@@ -14,6 +14,13 @@ environments whose deployment policy admits the refs that really release:
 - `ffi-release`: branch feat-cmux-next, the FFI release App credentials
   (CMUX_FFI_RELEASE_APP_*) only, read by app-ffi-release.yml's publish and
   repin jobs. The release App credentials (CMUX_RELEASE_APP_*) never enter it.
+- `nightly-next-promote` and `release-surface-ack`: the release App
+  credentials (CMUX_RELEASE_APP_*) only, read by nightly.yml's promote guard
+  jobs (promote-nightly-next and promote-nightly-next-acked) to move
+  nightly-next. No other signing secret enters them.
+- `nightly-next-train`: branch feat-cmux-next, the release App credentials
+  (CMUX_RELEASE_APP_*) only, read by nightly-next-train.yml's drive job to push
+  train commits once NIGHTLY_NEXT_TRAIN is on. No other signing secret enters it.
 
 A job without such an environment would read nothing once the repository-level
 copies are deleted, so this guard fails before that breaks a release. It also
@@ -38,6 +45,10 @@ CONTENT_SIGNING_ENVIRONMENTS = {"content-signing"}
 FFI_RELEASE_ENVIRONMENTS = {"ffi-release"}
 # The only job that may read the FFI release App credentials.
 FFI_RELEASE_READERS = {("app-ffi-release.yml", "publish"), ("app-ffi-release.yml", "repin")}
+PROMOTE_ENVIRONMENTS = {"nightly-next-promote", "release-surface-ack"}
+PROMOTE_READERS = {("nightly.yml", "promote-nightly-next"), ("nightly.yml", "promote-nightly-next-acked")}
+TRAIN_ENVIRONMENTS = {"nightly-next-train"}
+TRAIN_READERS = {("nightly-next-train.yml", "drive")}
 
 SIGNING_SECRET = re.compile(
     r"^(APPLE_[A-Z0-9_]+"
@@ -58,7 +69,11 @@ NEEDS_ENVIRONMENT = re.compile(r"^\$\{\{\s*needs\.([A-Za-z0-9_-]+)\.outputs\.env
 SET_ENVIRONMENT = re.compile(r"setOutput\(\s*['\"]environment['\"]\s*,\s*([^;\n]+)\)")
 
 
-def allowed_for(secret: str) -> set[str]:
+def allowed_for(secret: str, reader: tuple[str, str] | None = None) -> set[str]:
+    if secret.startswith("CMUX_RELEASE_APP_") and reader in PROMOTE_READERS:
+        return RELEASE_ENVIRONMENTS | PROMOTE_ENVIRONMENTS
+    if secret.startswith("CMUX_RELEASE_APP_") and reader in TRAIN_READERS:
+        return TRAIN_ENVIRONMENTS
     if secret.startswith("CONTENT_SIGNING_"):
         return CONTENT_SIGNING_ENVIRONMENTS
     if secret.startswith("CMUX_FFI_RELEASE_APP_"):
@@ -140,7 +155,7 @@ def main() -> int:
                 continue
             entered = values - {""}
             for secret in sorted(secrets):
-                allowed = allowed_for(secret)
+                allowed = allowed_for(secret, (path.name, job_name))
                 if not entered:
                     failures.append(
                         f"{where}: reads {secret} without a protected environment; "

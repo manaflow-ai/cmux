@@ -860,6 +860,13 @@ final class SessionIndexStore: ObservableObject {
         /// user/assistant lines seen in the head window. Only an exact
         /// message count when the head window covered the whole file.
         var headMessageLines: Int = 0
+        /// The first-prompt label, kept apart from `title` so a later
+        /// `custom-title` record can either replace it or clear back to it.
+        var promptTitle: String = ""
+        /// Whether the tail window held a `custom-title` line. When it did
+        /// not and the head was capped, a newer name may sit between the
+        /// two windows.
+        var tailSawCustomTitle = false
     }
 
     struct ClaudeSessionRoot: Hashable {
@@ -880,8 +887,11 @@ final class SessionIndexStore: ObservableObject {
         let prefilteredByRipgrep: Bool
     }
 
-    nonisolated private static func claudeSessionRoots() -> [ClaudeSessionRoot] {
-        let fm = FileManager.default
+    nonisolated static func claudeSessionRoots(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager fm: FileManager = .default
+    ) -> [ClaudeSessionRoot] {
         var roots: [ClaudeSessionRoot] = []
         var seen: Set<String> = []
 
@@ -890,7 +900,11 @@ final class SessionIndexStore: ObservableObject {
             let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
             let configDir = (trimmed as NSString).expandingTildeInPath
-            let standardized = ClaudeConfigDirectoryPath.preferredPath(configDir)
+            let standardized = ClaudeConfigDirectoryPath.preferredPath(
+                configDir,
+                fileManager: fm,
+                homeDirectory: homeDirectory
+            )
             let projectsRoot = (standardized as NSString).appendingPathComponent("projects")
             var isDirectory: ObjCBool = false
             guard fm.fileExists(atPath: projectsRoot, isDirectory: &isDirectory),
@@ -913,10 +927,10 @@ final class SessionIndexStore: ObservableObject {
             )
         }
 
-        let environmentConfigDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"]
+        let environmentConfigDir = environment["CLAUDE_CONFIG_DIR"]
         appendRoot(environmentConfigDir, requireConfigured: false)
 
-        let accountRoot = ("~/.codex-accounts/claude" as NSString).expandingTildeInPath
+        let accountRoot = (homeDirectory as NSString).appendingPathComponent(".codex-accounts/claude")
         if let accountDirs = try? fm.contentsOfDirectory(atPath: accountRoot) {
             for accountDir in accountDirs.sorted() {
                 appendRoot(
@@ -927,9 +941,22 @@ final class SessionIndexStore: ObservableObject {
         }
 
         appendRoot(
-            ("~/.claude" as NSString).expandingTildeInPath,
+            (homeDirectory as NSString).appendingPathComponent(".claude"),
             requireConfigured: false
         )
+
+        // People who run several Claude accounts often keep one config dir per
+        // account next to ~/.claude (~/.claude-work, ~/.claude-personal) and pick
+        // it per project through CLAUDE_CONFIG_DIR. Index the signed-in ones so
+        // their sessions show up in Vault and resume under the same account.
+        if let homeEntries = try? fm.contentsOfDirectory(atPath: homeDirectory) {
+            for entry in homeEntries.sorted() where entry.hasPrefix(".claude-") {
+                appendRoot(
+                    (homeDirectory as NSString).appendingPathComponent(entry),
+                    requireConfigured: true
+                )
+            }
+        }
 
         return roots
     }
@@ -937,11 +964,15 @@ final class SessionIndexStore: ObservableObject {
     nonisolated private static func extractClaudeMetadata(head: String, tail: String, projectDir: String) -> ClaudeParsed {
         var out = ClaudeParsed()
         out.cwd = decodeClaudeProjectDir(projectDir)
+        var latestCustomTitle: String?
 
         for line in head.split(separator: "\n", omittingEmptySubsequences: true) {
             guard let data = line.data(using: .utf8),
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
             let isMeta = (obj["isMeta"] as? Bool) ?? false
+            if let name = claudeCustomTitle(from: obj) {
+                latestCustomTitle = name
+            }
             if let lineType = obj["type"] as? String,
                lineType == "user" || lineType == "assistant" {
                 out.headMessageLines += 1
@@ -984,6 +1015,10 @@ final class SessionIndexStore: ObservableObject {
             guard let data = line.data(using: .utf8),
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
             let type = obj["type"] as? String
+            if let name = claudeCustomTitle(from: obj) {
+                latestCustomTitle = name
+                out.tailSawCustomTitle = true
+            }
             if type == "pr-link", let number = obj["prNumber"] as? Int,
                let url = obj["prUrl"] as? String {
                 out.pr = PullRequestLink(
@@ -1004,11 +1039,69 @@ final class SessionIndexStore: ObservableObject {
                 out.model = model
             }
         }
+        // Claude Code writes a `custom-title` line when the session is named and
+        // again on every rename, so the last one seen is the current name. A
+        // name outranks the first prompt, which is all `/login` or a
+        // continuation preamble would otherwise show. An empty name clears it.
+        out.promptTitle = out.title
+        if let latestCustomTitle, !latestCustomTitle.isEmpty {
+            out.title = latestCustomTitle
+        }
         // Strip the [1m] suffix some Claude internal model IDs carry (claude-opus-4-7[1m]).
         if let m = out.model, let bracket = m.firstIndex(of: "[") {
             out.model = String(m[..<bracket])
         }
         return out
+    }
+
+    /// How far back from the end of a transcript the between-windows scan
+    /// for a `custom-title` line looks. The scan reruns whenever a capped
+    /// transcript changes, which an active session does on every turn, so it
+    /// is bounded rather than reading the few transcripts that run to hundreds
+    /// of megabytes in full. A name followed by more than this much activity
+    /// falls back to the first prompt, the label every session had before.
+    nonisolated static let customTitleScanByteCap = 16 * 1024 * 1024
+
+    /// The latest `custom-title` line in the last `customTitleScanByteCap`
+    /// bytes of a transcript, for a session named between the head and tail
+    /// windows. Searches the mapped file backwards for the record marker, so
+    /// a name near the end costs one short scan; nil when there is none.
+    /// Every lookup stays inside the window, so a line that starts before it
+    /// cannot pull the rest of the file in.
+    nonisolated static func lastClaudeCustomTitle(url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
+        let marker = Data("\"custom-title\"".utf8)
+        let scanStart = max(data.startIndex, data.endIndex - customTitleScanByteCap)
+        var searchEnd = data.endIndex
+        while searchEnd > scanStart,
+              let hit = data.range(of: marker, options: .backwards, in: scanStart..<searchEnd) {
+            let lineStart: Data.Index
+            if let newline = data[scanStart..<hit.lowerBound].lastIndex(of: 0x0a) {
+                lineStart = newline + 1
+            } else if scanStart == data.startIndex {
+                lineStart = data.startIndex
+            } else {
+                // The line began before the window: a partial record, and
+                // nothing earlier is in reach.
+                return nil
+            }
+            let lineEnd = data[hit.upperBound...].firstIndex(of: 0x0a) ?? data.endIndex
+            if let object = try? JSONSerialization.jsonObject(with: data[lineStart..<lineEnd]) as? [String: Any],
+               let name = claudeCustomTitle(from: object) {
+                return name
+            }
+            searchEnd = lineStart
+        }
+        return nil
+    }
+
+    /// The name carried by a Claude Code `custom-title` transcript line
+    /// (`{"type":"custom-title","customTitle":"…","sessionId":"…"}`), trimmed.
+    /// Nil for any other line; empty when the line clears the name.
+    nonisolated private static func claudeCustomTitle(from object: [String: Any]) -> String? {
+        guard (object["type"] as? String) == "custom-title",
+              let title = object["customTitle"] as? String else { return nil }
+        return title.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Returns a usable user-prompt string from a Codex `user_message` /
@@ -1778,8 +1871,17 @@ final class SessionIndexStore: ObservableObject {
                             true
                         )
                     }
-                    let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: candidate.dirName)
+                    var parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: candidate.dirName)
                     if let cwdFilter, parsed.cwd != cwdFilter { return (idx, nil, false) }
+                    // A session named a few turns in and then used for a while
+                    // keeps its name between the two windows; the mtime cache
+                    // makes this one scan per change to the file. That record
+                    // is newer than anything in the head, so it sets the name
+                    // or, when empty, clears it back to the first prompt.
+                    if !parsed.tailSawCustomTitle, head.utf8.count >= headByteCap,
+                       let name = lastClaudeCustomTitle(url: candidate.url) {
+                        parsed.title = name.isEmpty ? parsed.promptTitle : name
+                    }
                     let sid = candidate.url.deletingPathExtension().lastPathComponent
                     // The head window is the whole file only when it came back
                     // under the byte cap; otherwise the count is partial and

@@ -40,6 +40,7 @@ extension VerticalTabsSidebar {
             sidebarSelectionColorHex: settings.selectionColorHex,
             subtleSelection: settings.subtleSelection,
             brightenInDarkMode: settings.brightenInDarkMode,
+            unselectedFillOpacity: settings.unselectedFillOpacity,
             increaseContrast: renderContext.environment.displayAccessibility.increaseContrast,
             accent: settings.accentColor
         )
@@ -226,6 +227,7 @@ extension VerticalTabsSidebar {
             sidebarSelectionColorHex: settings.selectionColorHex,
             subtleSelection: settings.subtleSelection,
             brightenInDarkMode: settings.brightenInDarkMode,
+            unselectedFillOpacity: settings.unselectedFillOpacity,
             increaseContrast: renderContext.environment.displayAccessibility.increaseContrast,
             accent: settings.accentColor
         )
@@ -468,10 +470,14 @@ extension VerticalTabsSidebar {
             },
             onTapPlus: { [weak tabManager] in
                 guard let tabManager else { return }
-                _ = tabManager.createWorkspaceInGroup(
-                    groupId: groupId,
-                    placement: resolvePlacement()
-                )
+                if tabManager.isChiefHomeGroup(groupId) {
+                    ChiefHomeNavigation.newConversation(in: tabManager)
+                } else {
+                    _ = tabManager.createWorkspaceInGroup(
+                        groupId: groupId,
+                        placement: resolvePlacement()
+                    )
+                }
             },
             onRunResolvedItem: { [weak tabManager] item in
                 guard let tabManager else { return }
@@ -550,6 +556,7 @@ extension VerticalTabsSidebar {
             },
             onDelete: { [weak tabManager] in
                 guard let tabManager,
+                      !tabManager.isChiefHomeGroup(groupId),
                       let confirmation = tabManager.workspaceGrouping.deletionConfirmation(
                           groupId: groupId,
                           fallbackGroupName: fallbackGroupName,
@@ -567,7 +574,7 @@ extension VerticalTabsSidebar {
                         return
                     }
                 }
-                tabManager.workspaceGrouping.deleteWorkspaceGroup(confirmed: confirmation)
+                tabManager.deleteWorkspaceGroup(confirmed: confirmation)
             },
             onEditConfig: {
                 SidebarWorkspaceGroupConfigOpener.openCmuxConfigInEditor()

@@ -36,9 +36,32 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
     private let connection: SSHConnection
     private let remote: CmuxTUIRemote
     private let route: Route
-    private var control: CmuxTUIControl?
-    /// Session-wide notifications of the live control (`subscribe`).
-    private var subscription: Task<Void, Never>?
+    /// Owns the one control and its session-wide notification subscription.
+    private var topologyReconnect: MobileSSHCmuxTUITopologyReconnect<CmuxTUIControl>!
+    /// Bounds relists when the control keeps changing during every snapshot.
+    nonisolated static let maximumStableListingAttempts = 3
+
+    private func makeTopologyReconnect() -> MobileSSHCmuxTUITopologyReconnect<CmuxTUIControl> {
+        MobileSSHCmuxTUITopologyReconnect<CmuxTUIControl>(
+        open: { [weak self] in
+            guard let self else { throw CancellationError() }
+            return try await self.openControl()
+        },
+        subscribe: { control in try await control.subscribe() },
+        close: { control in await control.close() },
+        transportIsOpen: { [weak self] in self?.connection.isOpen ?? false },
+        sleep: { duration in try await ContinuousClock().sleep(for: duration) },
+        onEvent: { [weak self] event, generation in
+            self?.topologyEvent(event, generation: generation)
+        },
+        onTransportGap: { [weak self] generation in
+            self?.topologyTransportGap(generation: generation)
+        },
+        onControlConnected: { [weak self] generation, recovered in
+            self?.topologyControlConnected(generation: generation, recovered: recovered)
+        }
+        )
+    }
     private var topology = MobileSSHCmuxTUITopologyGate()
     /// Called when the session's tree changed elsewhere (a laptop added a
     /// screen or tab, a terminal exited), at most once per listing.
@@ -53,58 +76,38 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
         self.session = session
         self.route = route
         self.idleCloseSeconds = idleCloseSeconds
+        self.topologyReconnect = makeTopologyReconnect()
     }
 
-    private func liveControl() async throws -> CmuxTUIControl {
-        if let control { return control }
+    private func openControl() async throws -> CmuxTUIControl {
         let control = switch route {
-        case .ensure: try await remote.connect(on: connection, session: session)
-        case .socket(let socket): try await remote.connect(on: connection, socket: socket)
+        case .ensure:
+            try await remote.connect(on: connection, session: session, clientName: "cmux-ios", handshakeTimeout: .seconds(30))
+        case .socket(let socket):
+            try await remote.connect(on: connection, socket: socket, clientName: "cmux-ios", handshakeTimeout: .seconds(10))
         }
-        if let current = self.control {
-            // A concurrent caller connected first; keep one connection.
-            await control.close()
-            return current
-        }
-        self.control = control
         if case .socket(let socket) = route, socket.name == nil {
             session = await control.session
         }
-        watchTopology(of: control)
         return control
     }
 
-    /// Relists promptly when the tree changes elsewhere: `subscribe` on the
-    /// control connection streams `tree-changed` (workspaces, screens, panes,
-    /// tabs, names, selection) and `surface-exited`. No polling; a dropped
-    /// connection ends the watch and the next connection starts a new one.
-    private func watchTopology(of control: CmuxTUIControl) {
-        subscription?.cancel()
-        subscription = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                guard let events = try? await control.subscribe() else { return }
-                var resubscribe = false
-                for await event in events {
-                    guard let self, self.control === control else { return }
-                    switch event {
-                    case .overflow:
-                        resubscribe = true
-                    case .disconnected:
-                        // The owner exited (or the relay died) while the SSH
-                        // connection lives: relist so its rows go away. A
-                        // closed SSH connection is the runtime's to report.
-                        self.control = nil
-                        guard self.connection.isOpen else { return }
-                    default:
-                        break
-                    }
-                    if self.topology.admit(event) { self.onTopologyChange?() }
-                }
-                // The server ends a subscriber that fell behind; anything
-                // else (disconnect) ends the watch.
-                guard resubscribe, let self, self.control === control else { return }
-            }
-        }
+    private func liveControl() async throws -> CmuxTUIControl {
+        try await topologyReconnect.connect()
+    }
+
+    private func topologyEvent(_ event: CmuxTUIControlEvent, generation: UInt64) {
+        if topology.admit(event, generation: generation) { onTopologyChange?() }
+    }
+
+    private func topologyTransportGap(generation: UInt64) {
+        topology.generationChanged(to: generation)
+    }
+
+    private func topologyControlConnected(generation: UInt64, recovered: Bool) {
+        topology.generationChanged(to: generation)
+        guard recovered, topology.forceSnapshotIfNeeded(generation: generation) else { return }
+        onTopologyChange?()
     }
 
     /// Opens the control connection now (discovery skips sessions whose
@@ -114,10 +117,7 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
     }
 
     func close() async {
-        subscription?.cancel()
-        subscription = nil
-        await control?.close()
-        control = nil
+        await topologyReconnect.close()
     }
 
     /// Runs `body`, reconnecting the control channel once if it dropped.
@@ -125,20 +125,49 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
         do {
             return try await body(try await liveControl())
         } catch {
-            subscription?.cancel()
-            subscription = nil
-            await control?.close()
-            control = nil
+            await topologyReconnect.reconnectAfterOperationFailure()
             return try await body(try await liveControl())
         }
     }
 
     func listWorkspaces() async throws -> [MobileSSHWorkspace] {
-        // This listing observes every change reported so far.
-        topology.listed()
-        return try await withControl { control in
-            try await control.listWorkspaces().map(Self.workspace)
+        try await Self.stableWorkspaceListing(
+            generation: { [topologyReconnect] in topologyReconnect.generation },
+            load: { [weak self] in
+                guard let self else { throw CancellationError() }
+                // This listing observes every change reported by this control
+                // generation. A reconnect that races the request forces a
+                // fresh snapshot rather than applying rows from the old
+                // control.
+                let generation = self.topologyReconnect.generation
+                self.topology.listed(generation: generation)
+                return try await self.withControl { control in
+                    try await control.listWorkspaces().map(Self.workspace)
+                }
+            }
+        )
+    }
+
+    /// Returns a snapshot only when its control generation stayed stable.
+    ///
+    /// The generation check prevents rows from a superseded control from
+    /// replacing a newer snapshot. The bound keeps a continuously changing
+    /// owner from making discovery wait forever.
+    static func stableWorkspaceListing(
+        generation: @escaping @MainActor () -> UInt64,
+        load: @escaping @MainActor () async throws -> [MobileSSHWorkspace]
+    ) async throws -> [MobileSSHWorkspace] {
+        for _ in 0..<maximumStableListingAttempts {
+            let currentGeneration = generation()
+            let workspaces = try await load()
+            guard generation() == currentGeneration else { continue }
+            return workspaces
         }
+        throw CmuxTUIError.commandFailed(
+            command: "list-workspaces",
+            message: "workspace topology changed during snapshot",
+            code: "topology-unstable"
+        )
     }
 
     /// Maps a cmux-tui workspace to its row: terminals in layout order, one
@@ -637,7 +666,7 @@ struct MobileSSHCmuxTUIInstaller {
     /// Downloads the tarball (cached per version) and verifies npm's
     /// `dist.integrity` SHA-512.
     func download(package: String, version: String) async throws -> Data {
-        let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let cache = (FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("cmux-tui/\(package)-\(version).tgz")
         let metadataURL = URL(string: "https://registry.npmjs.org/\(package)/\(version)")!
         let (metadata, _) = try await URLSession.shared.data(from: metadataURL)

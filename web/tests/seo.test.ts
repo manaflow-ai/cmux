@@ -537,6 +537,25 @@ describe("SEO metadata helpers", () => {
           [messages.nightly.metaTitle, messages.nightly.title],
         ),
         auditedRow(
+          "/next",
+          landingPageSeoCopy(
+            locale,
+            messageLookup(messages.next),
+            siteMeta,
+            {
+              complete: ["description", "subtitle"],
+              context: ["title"],
+            },
+          ),
+          [
+            messages.next.metaDescription,
+            messages.next.title,
+            messages.next.description,
+            messages.next.subtitle,
+          ],
+          [messages.next.metaTitle, messages.next.title],
+        ),
+        auditedRow(
           "/guides",
           landingPageSeoCopy(
             locale,

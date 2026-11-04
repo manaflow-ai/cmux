@@ -118,7 +118,10 @@ describe("billing portal route", () => {
   });
 
   test("opens Stripe's plan switch flow on the active Pro subscription for flow=switch_plan", async () => {
-    stripeSubscriptionRows = [{ id: "sub_pro", status: "active", cancelAtPeriodEnd: false, plan: "pro" }];
+    stripeSubscriptionRows = [{
+      id: "sub_pro", status: "active", cancelAtPeriodEnd: false, plan: "pro",
+      raw: { items: { data: [{ price: { lookup_key: "cmux-pro-monthly-50" } }] } },
+    }];
 
     const response = await GET(
       new NextRequest("https://cmux.test/api/billing/portal?flow=switch_plan&plan=max"),
@@ -136,24 +139,82 @@ describe("billing portal route", () => {
     });
   });
 
-  test("falls back to the plain portal when there is no active personal subscription to switch", async () => {
+  // A switch link the hosted portal cannot honor goes where the switch can
+  // happen: checkout when there is no subscription to switch, the dashboard
+  // dialog when the subscription needs the interval-aware in-app switch.
+  test("sends a switch link with no subscription to switch to checkout", async () => {
     stripeSubscriptionRows = [];
 
     const response = await GET(
-      new NextRequest("https://cmux.test/api/billing/portal?flow=switch_plan&plan=max"),
+      new NextRequest("https://cmux.test/api/billing/portal?flow=switch_plan&plan=max&cmux_source=pricing"),
     );
 
     expect(response.status).toBe(302);
-    expect(createPortalSession).toHaveBeenCalledWith({
-      customer: "cus_123",
-      return_url: "https://cmux.test/dashboard/billing",
-    });
+    expect(response.headers.get("location")).toBe("https://cmux.test/api/billing/checkout?plan=max&cmux_source=pricing");
+    expect(createPortalSession).not.toHaveBeenCalled();
   });
 
-  test("never puts a lifetime Founder purchase in the plan switch flow", async () => {
+  test("sends a granted account without a Stripe customer from a switch link to checkout", async () => {
+    customerRows = [];
+    returnNullUser = { ...signedInUser, clientReadOnlyMetadata: { cmuxVmPlan: "pro" } };
+
+    const response = await GET(new NextRequest("https://cmux.test/api/billing/portal?flow=switch_plan&plan=max"));
+
+    expect(response.headers.get("location")).toBe("https://cmux.test/api/billing/checkout?plan=max");
+    expect(createPortalSession).not.toHaveBeenCalled();
+  });
+
+  test("sends a switch link for a price the switch portal does not list to the dashboard switch", async () => {
+    stripeSubscriptionRows = [{
+      id: "sub_pro", status: "active", cancelAtPeriodEnd: false, plan: "pro",
+      raw: { items: { data: [{ price: { lookup_key: "cmux-pro-yearly-288" } }] } },
+    }];
+    const response = await GET(new NextRequest("https://cmux.test/api/billing/portal?flow=switch_plan&plan=max"));
+    expect(response.headers.get("location")).toBe("https://cmux.test/dashboard/billing?change=max");
+    expect(createPortalSession).not.toHaveBeenCalled();
+  });
+
+  test("sends a switch link for a yearly subscription to the dashboard switch", async () => {
+    stripeSubscriptionRows = [{
+      id: "sub_pro_yearly", status: "active", cancelAtPeriodEnd: false, plan: "pro",
+      raw: {
+        items: {
+          data: [{
+            price: {
+              lookup_key: "cmux-pro-yearly-480",
+              recurring: { interval: "year" },
+            },
+          }],
+        },
+      },
+    }];
+
+    const response = await GET(new NextRequest("https://cmux.test/api/billing/portal?flow=switch_plan&plan=max"));
+
+    expect(response.headers.get("location")).toBe("https://cmux.test/dashboard/billing?change=max");
+    expect(createPortalSession).not.toHaveBeenCalled();
+  });
+
+  test("sends a lifetime Founder's switch link to Max checkout, never the plan switch flow", async () => {
     stripeSubscriptionRows = [{ id: "sub_founder", status: "active", plan: "pro", raw: { metadata: { founders_edition: "true" } } }];
-    await GET(new NextRequest("https://cmux.test/api/billing/portal?flow=switch_plan&plan=max"));
-    expect(createPortalSession.mock.calls[0]?.[0]).not.toHaveProperty("flow_data");
+    const response = await GET(new NextRequest("https://cmux.test/api/billing/portal?flow=switch_plan&plan=max"));
+    expect(response.headers.get("location")).toBe("https://cmux.test/api/billing/checkout?plan=max");
+    expect(createPortalSession).not.toHaveBeenCalled();
+  });
+
+  // Founder's Edition already includes Pro. A founder leaving Max ends the Max
+  // subscription in the dashboard instead of paying for Pro.
+  test("never moves a Founder's Max subscription onto paid Pro through the switch flow", async () => {
+    stripeSubscriptionRows = [
+      {
+        id: "sub_max", status: "active", cancelAtPeriodEnd: false, plan: "max",
+        raw: { items: { data: [{ price: { lookup_key: "cmux-max-monthly-200", recurring: { interval: "month" } } }] } },
+      },
+      { id: "sub_founder", status: "active", plan: "pro", raw: { metadata: { founders_edition: "true" } } },
+    ];
+    const response = await GET(new NextRequest("https://cmux.test/api/billing/portal?flow=switch_plan&plan=pro"));
+    expect(response.headers.get("location")).toBe("https://cmux.test/dashboard/billing?change=pro");
+    expect(createPortalSession).not.toHaveBeenCalled();
   });
 
   test("redirects signed-in users with a Stripe customer row to the portal session", async () => {

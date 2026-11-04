@@ -124,7 +124,7 @@ extension RemoteSessionCoordinator {
     func cleanupUploadedRemotePaths(_ remotePaths: [String]) {
         guard !remotePaths.isEmpty else { return }
         let cleanupScript = remotePastePolicy.cleanupScript(for: remotePaths)
-        let cleanupCommand = "sh -c \(cleanupScript.shellSingleQuoted)"
+        let cleanupCommand = RemotePOSIXShellCommand(script: cleanupScript).commandLine
         _ = try? sshExec(
             arguments: sshCommonArguments(batchMode: true) + ["--", configuration.destination, cleanupCommand],
             timeout: 8
@@ -132,7 +132,7 @@ extension RemoteSessionCoordinator {
     }
 
     private func prepareRemotePasteDirectoryLocked() throws -> String {
-        let command = "sh -c \(remotePastePolicy.maintenanceScript().shellSingleQuoted)"
+        let command = RemotePOSIXShellCommand(script: remotePastePolicy.maintenanceScript()).commandLine
         let result = try sshExec(
             arguments: sshCommonArguments(batchMode: true) + ["--", configuration.destination, command],
             timeout: 12
@@ -151,7 +151,7 @@ extension RemoteSessionCoordinator {
     }
 
     private func finalizeRemotePasteFileLocked(_ remotePath: String) throws {
-        let command = "sh -c \(remotePastePolicy.finalizeScript(for: remotePath).shellSingleQuoted)"
+        let command = RemotePOSIXShellCommand(script: remotePastePolicy.finalizeScript(for: remotePath)).commandLine
         let result = try sshExec(
             arguments: sshCommonArguments(batchMode: true) + ["--", configuration.destination, command],
             timeout: 8
@@ -164,7 +164,7 @@ extension RemoteSessionCoordinator {
     }
 
     func cleanupRemotePasteDirectoryLocked() {
-        let command = "sh -c \(remotePastePolicy.teardownCleanupScript().shellSingleQuoted)"
+        let command = RemotePOSIXShellCommand(script: remotePastePolicy.teardownCleanupScript()).commandLine
         _ = try? sshExec(
             arguments: sshCommonArguments(batchMode: true) + ["--", configuration.destination, command],
             timeout: 8

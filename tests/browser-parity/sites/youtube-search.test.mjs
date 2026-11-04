@@ -61,6 +61,17 @@ test("youtube.transcript fetches caption URLs only on YouTube's hosts", async ()
   assert.deepEqual(off.map((r) => r.url), [], "no caption request left YouTube");
 });
 
+// r15 sites#8: track URLs come from page or player data and are fetched
+// with the session's cookies, so only YouTube's caption endpoint for the
+// video asked about is fetched: another path on a caption host, or another
+// video's captions, is never requested.
+test("youtube.transcript fetches only /api/timedtext for the requested video", async () => {
+  const before = env.state.requests.length;
+  await s.value('sites.youtube.transcript("vidSameHst6")').catch(() => null);
+  const trapped = env.state.requests.slice(before).filter((r) => /caption-trap|trap=other-video/.test(r.url));
+  assert.deepEqual(trapped.map((r) => r.url), [], "a page-supplied path or another video's captions was fetched");
+});
+
 test("page.exportContent({ transcript: true }) fetches caption URLs only on YouTube's hosts", async () => {
   await s.run('await page.goto("https://www.youtube.com/watch?v=vidDirect01")');
   const file = await s.value("page.exportContent({ transcript: true })");

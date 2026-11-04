@@ -57,6 +57,11 @@ class NightlyArtifactAliasTests(unittest.TestCase):
                 payloads[variant] = payload
                 feed = "appcast.xml" if variant == "universal" else f"appcast-{variant}.xml"
                 (folder / feed).write_text("feed\n", encoding="utf-8")
+                tested = root / "tested" / f"launch-tested-{variant}-TEST"
+                tested.mkdir(parents=True)
+                (tested / f"tested-{variant}.sha256").write_text(
+                    f"{hashlib.sha256(payload).hexdigest()}  {immutable.name}\n", encoding="utf-8"
+                )
                 (folder / "cmux-nightly-notarization-recovery.json").write_text(
                     json.dumps({
                         "build": 123,
