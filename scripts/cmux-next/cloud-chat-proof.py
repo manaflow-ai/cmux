@@ -42,6 +42,8 @@ parser.add_argument("--cleanup-machine", default="", help="vm_<hex>: inspect and
 args = parser.parse_args()
 if not args.cleanup_machine and (not args.cloud_backend or not args.expected_api_origin):
     parser.error("--cloud-backend and --expected-api-origin are required for a chat proof")
+if args.cleanup_machine and not re.fullmatch(r"vm_[0-9a-f]{1,64}", args.cleanup_machine):
+    parser.error("--cleanup-machine must look like vm_<lowercase hex>")
 
 CLI = str(Path(args.app) / "Contents/Resources/bin/cmux")
 ENV = {**os.environ, "CMUX_SOCKET_PATH": f"/tmp/cmux-debug-{args.tag}.sock"}
@@ -255,6 +257,11 @@ def machine_status(machine: str) -> tuple[int, dict, str]:
     idle = value.get("idle_pause")
     if isinstance(idle, dict):
         summary["idle_pause"] = {key: scalar(idle[key]) for key in IDLE_PAUSE_FIELDS if key in idle}
+        decision = idle.get("last_decision")
+        if isinstance(decision, dict):
+            summary["idle_pause"]["last_decision"] = {
+                key: scalar(decision[key]) for key in ("at", "outcome", "reason") if key in decision
+            }
     return code, summary, failure_text(err, out) if code != 0 else ""
 
 
@@ -383,6 +390,24 @@ def wait_for(name: str, words: tuple[str, ...], ready, timeout: int = 240) -> di
     return value
 
 
+if args.cleanup_machine:
+    machine = args.cleanup_machine
+    evidence["cleanup_machine"] = machine
+    _, _, _, machines = listed()
+    row = next((r for r in machines.get("machines") or []
+                if isinstance(r, dict) and r.get("machine_id") == machine), None)
+    record("cloud list-machines (cleanup target)", 0, "", "", listed=row is not None,
+           loaded=machines.get("loaded"),
+           **({"row": {key: scalar(row[key]) for key in ("title", "status", "created_at") if key in row}}
+              if row else {}))
+    status_code, status_summary, status_detail = machine_status(machine)
+    record("cloud machine-status", status_code, "", status_detail, machine_status=status_summary)
+    killed = kill_machine(machine)
+    after_code, after_summary, after_detail = machine_status(machine)
+    record("cloud machine-status after kill", after_code, "", after_detail, machine_status=after_summary)
+    finish("pass" if killed else "fail: kill-machine failed twice")
+
+
 # 1. The launch flag must change the actual running app, rather than only a CLI selection. The
 # workflow builds once and invokes this script once per backend; the socket and app bundle are the
 # same, while the persisted credentials file is replaced between launches.
@@ -413,23 +438,6 @@ actual = wait_for("selected backend active and signed in", ("app", "call", "auth
                   and value.get("backend", "").rstrip("/") == args.expected_api_origin.rstrip("/")
                   and value.get("signed_in") is True)
 evidence["api_origin"] = actual.get("backend")
-
-if args.cleanup_machine:
-    machine = args.cleanup_machine
-    evidence["cleanup_machine"] = machine
-    _, _, _, machines = listed()
-    row = next((r for r in machines.get("machines") or []
-                if isinstance(r, dict) and r.get("machine_id") == machine), None)
-    record("cloud list-machines (cleanup target)", 0, "", "", listed=row is not None,
-           loaded=machines.get("loaded"),
-           **({"row": {key: scalar(row[key]) for key in ("title", "status", "created_at") if key in row}}
-              if row else {}))
-    status_code, status_summary, status_detail = machine_status(machine)
-    record("cloud machine-status", status_code, "", status_detail, machine_status=status_summary)
-    killed = kill_machine(machine)
-    after_code, after_summary, after_detail = machine_status(machine)
-    record("cloud machine-status after kill", after_code, "", after_detail, machine_status=after_summary)
-    finish("pass" if killed else "fail: kill-machine failed twice")
 
 # 2. A VM agent key at the selected environment's issuer.
 started = time.monotonic()
