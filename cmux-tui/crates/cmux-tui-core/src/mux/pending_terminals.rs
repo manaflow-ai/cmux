@@ -37,7 +37,9 @@ impl Mux {
     /// a row that is launching, adopting or running, every terminal whose
     /// new shell is on its way ([`PendingTerminal::Respawning`]: a lost
     /// host's respawn in its backoff, or the restart of an `on_exit` shell
-    /// terminal), and the ended terminals whose tabs only this owner holds
+    /// terminal), every signal exit whose detach waits out the session
+    /// shutdown lead (`exit_settle.rs`), and the ended terminals whose tabs
+    /// only this owner holds
     /// ([`Self::terminals_held_by_this_owner_locked`]). 0 exactly when none
     /// does; the held tabs are read only when no live or respawning terminal
     /// keeps the owner. Read under the registry lock: every lifecycle commit
@@ -55,7 +57,11 @@ impl Mux {
             .values()
             .filter(|(_, pending)| *pending == PendingTerminal::Respawning)
             .count();
-        let kept = live.saturating_add(respawning);
+        // Scheduled under the same lock by the exit commit
+        // (`persist_terminal_exit`), so a commit is never read with neither
+        // a live row nor its pending settle.
+        let settling = self.exit_settles.pending();
+        let kept = live.saturating_add(respawning).saturating_add(settling);
         if kept > 0 {
             return Ok(kept);
         }
