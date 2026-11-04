@@ -276,10 +276,12 @@ def make_handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
                     return self.anthropic(body, row)
                 if path.endswith("/responses"):
                     return self.openai(body, row)
-            except Exception as e:  # a script that does not fit the request: say so, never drop the connection
+            except (BrokenPipeError, ConnectionResetError):  # the client hung up: nothing to answer
+                return
+            except Exception as e:  # a script that does not fit the request: a 400 (no retry loop), never a dropped connection
                 stub.log({"protocol": "anthropic" if path.endswith("/messages") else "openai", **row, "error": str(e)})
-                kind = {"type": "error", "error": {"type": "api_error", "message": f"model stub: {e}"}} if path.endswith("/messages") else {"error": {"type": "server_error", "message": f"model stub: {e}"}}
-                return self._json(500, kind)
+                kind = {"type": "error", "error": {"type": "invalid_request_error", "message": f"model stub: {e}"}} if path.endswith("/messages") else {"error": {"type": "invalid_request_error", "message": f"model stub: {e}"}}
+                return self._json(400, kind)
             stub.log({"protocol": "-", **row})
             return self._json(404, {"error": {"type": "not_found_error", "message": f"the model stub does not serve {path}"}})
 

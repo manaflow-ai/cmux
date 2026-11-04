@@ -168,10 +168,10 @@ class StubTest(unittest.TestCase):
         self.assertEqual(json.loads(text)["content"][0]["type"], "text")
         self.assertEqual((self.rows()[-1]["step"], self.rows()[-1]["side"]), (-1, True))
 
-    def test_a_step_that_does_not_fit_is_a_500_with_a_reason(self) -> None:
+    def test_a_step_that_does_not_fit_is_a_400_with_a_reason(self) -> None:
         with self.assertRaises(urllib.error.HTTPError) as e:
             self.responses([], False, [{"type": "function", "name": "apply_patch"}])
-        self.assertEqual(e.exception.code, 500)
+        self.assertEqual(e.exception.code, 400)
         self.assertIn("no shell tool", json.loads(e.exception.read())["error"]["message"])
         self.assertIn("error", self.rows()[-1])
 
