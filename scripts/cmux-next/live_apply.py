@@ -61,7 +61,9 @@ def swift_reasons(lines, added_file):
         if not body.strip() or COMMENT.match(body):
             continue
         indent = len(body) - len(body.lstrip(" "))
-        if TYPE_DECL.match(body):
+        if ENTRY.match(body) and sign == "+":
+            reasons.add("new entry point")
+        elif TYPE_DECL.match(body):
             reasons.add("type or conformance")
         elif STORED.match(body) and indent <= 4 and not body.endswith("{"):
             reasons.add("stored property")  # member level (one indent) or a global
