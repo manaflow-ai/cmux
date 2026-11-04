@@ -13,9 +13,11 @@ The existing owned-pool sweeper runs this on a separate workflow-token client ev
 An independent scheduled workflow wakes that same concurrency owner when it is not running; it never
 cancels or re-runs target jobs itself. Each pass:
 
-- lists the in-flight (`queued`, `in_progress`) pull request runs of every workflow file that declares a hosted
-  light job, created STALL_SECONDS to WINDOW ago (the newest listing page, plus one rotating overflow page per
-  workflow and status only when the newest page is full);
+- lists the repository's in-flight (`queued`, `in_progress`) pull request runs, created STALL_SECONDS to WINDOW
+  ago, in one repository-wide listing per status (the newest page; the second while the first is full; one
+  rotating overflow page from the third while the second is full), and keeps those of the workflow files that declare a hosted light job. One listing per
+  status, not one per workflow and status: 2-3 requests a pass instead of 24-48 (cmux#35099 measured 50-100
+  requests a minute against the repository's 1,000-an-hour GITHUB_TOKEN pool);
 - retains discovered candidates within WINDOW and reads the jobs of at most MAX_RUNS of them (plus one re-read
   per rescue, so at most MAX_RUNS + MAX_RESCUES) (attempt 1 only, at the pull request's current head); the first
   pass is oldest first and later passes rotate from an in-memory cursor;
@@ -212,11 +214,14 @@ class GitHub:
                 return cached[1]
             raise RuntimeError(f"{method} {path}: HTTP {error.code}") from error
 
-    def runs(self, workflow: str, status: str, start: dt.datetime, end: dt.datetime, *, page: int = 1) -> list[dict[str, Any]]:
+    def runs(self, workflow: str | None, status: str, start: dt.datetime, end: dt.datetime, *,
+             page: int = 1) -> list[dict[str, Any]]:
+        """One page of in-flight pull request runs: of one workflow file, or of the whole repository (None)."""
         # Filtered to pull_request runs server-side, so push and dispatch runs never fill the one page.
         query = urllib.parse.urlencode({"status": status, "event": "pull_request", "per_page": 100, "page": page,
                                         "created": f"{iso(start)}..{iso(end)}"})
-        return list(self.request("GET", f"/actions/workflows/{workflow}/runs?{query}").get("workflow_runs") or [])
+        where = "/actions/runs" if workflow is None else f"/actions/workflows/{workflow}/runs"
+        return list(self.request("GET", f"{where}?{query}").get("workflow_runs") or [])
 
     def jobs(self, run_id: int) -> list[dict[str, Any]]:
         page = self.request("GET", f"/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
@@ -243,6 +248,17 @@ class GitHub:
         # The workflow's owned-pool-sweeper concurrency group is the one mutation owner. Repeated
         # wakes only refresh its pending handover; they cannot run a second cancellation pass.
         self.request("POST", "/actions/workflows/ci-owned-pool-rescue.yml/dispatches", {"ref": "main"})
+
+
+REPOSITORY = "*"  # ScanState.pages key for the repository-wide listing
+
+
+def workflow_file(run: Any) -> str | None:
+    """The workflow file a listed run belongs to (`.github/workflows/ci.yml@ref` -> `ci.yml`), or None."""
+    if not isinstance(run, Mapping):
+        return None
+    path = str(run.get("path") or "").split("@", 1)[0]
+    return path.rsplit("/", 1)[-1] if path.startswith(".github/workflows/") else None
 
 
 def at_head(run: Mapping[str, Any]) -> bool:
@@ -427,34 +443,37 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
         if (created is None or not start <= created <= end or run.get("_workflow") not in workflows
                 or run_id in recovering):
             del listed[run_id]
-    for workflow in workflows:
-        for status in IN_FLIGHT:
-            key = workflow, status
-            overflow = state.pages.get(key, 2)
-            pages = (1, overflow)
-            full_overflow = False
-            newest_full = False
-            for listing_page in pages:
-                if listing_page == overflow and not newest_full:
-                    break  # the newest page holds every run: an overflow page would come back empty
-                try:
-                    page = client.runs(workflow, status, start, end, page=listing_page)
-                except Exception as error:  # noqa: BLE001 - an unread listing only narrows this pass
-                    lines.append(f"could not list {status} runs of {workflow} ({error})")
-                    continue
-                if listing_page == 1:
-                    newest_full = len(page) >= LIST_PAGE
-                if listing_page == overflow:
-                    full_overflow = len(page) >= LIST_PAGE
-                for run in page:
-                    if (isinstance(run, Mapping) and isinstance(run.get("id"), int) and candidate(run)
-                            and run["id"] not in recovering
-                            and (created := parse_time(run.get("created_at"))) is not None and start <= created <= end):
-                        listed[run["id"]] = {**run, "_workflow": workflow}
-            if full_overflow:
-                state.pages[key] = 2 if overflow >= MAX_RUN_LIST_PAGES else overflow + 1
-            else:
-                state.pages[key] = 2
+    declared = set(workflows)
+    for status in IN_FLIGHT:
+        # One repository-wide listing per status; a run is kept when its workflow file is declared. A reusable
+        # declaration's runs carry their caller's path, and with_callers() already lists the callers.
+        # Pages 1 and 2 are read every pass while full (every workflow now shares them), and one rotating page
+        # from 3 on beyond that, so a declared run is not left to the rotation behind undeclared ones.
+        key = REPOSITORY, status
+        overflow = state.pages.get(key, 3)
+        full_overflow = False
+        previous_full = True
+        for listing_page in (1, 2, overflow):
+            if not previous_full:
+                break  # the pages so far hold every run: a later page would come back empty
+            try:
+                page = client.runs(None, status, start, end, page=listing_page)
+            except Exception as error:  # noqa: BLE001 - an unread listing only narrows this pass
+                lines.append(f"could not list {status} pull request runs ({error})")
+                break
+            previous_full = len(page) >= LIST_PAGE
+            if listing_page == overflow:
+                full_overflow = previous_full
+            for run in page:
+                workflow = workflow_file(run)
+                if (workflow in declared and isinstance(run.get("id"), int) and candidate(run)
+                        and run["id"] not in recovering
+                        and (created := parse_time(run.get("created_at"))) is not None and start <= created <= end):
+                    listed[run["id"]] = {**run, "_workflow": workflow}
+        if full_overflow:
+            state.pages[key] = 3 if overflow >= MAX_RUN_LIST_PAGES else overflow + 1
+        else:
+            state.pages[key] = 3
     runs = sorted(listed.values(), key=run_key)
     candidate_count = len(runs)
     runs, state.cursor = scan_slice(runs, state.cursor)

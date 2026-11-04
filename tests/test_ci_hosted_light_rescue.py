@@ -53,7 +53,9 @@ class Fake:
 
     def runs(self, workflow, status, start, end, *, page=1):
         self.calls.append(("runs", workflow, status, page))
-        rows = [r for r in self.runs_by_workflow.get(workflow, []) if r["status"] == status]
+        source = (self.runs_by_workflow.get(workflow, []) if workflow is not None
+                  else [r for rows in self.runs_by_workflow.values() for r in rows])
+        rows = [r for r in source if r["status"] == status]
         rows.sort(key=lambda item: (item["created_at"], item["id"]), reverse=True)
         return rows[(page - 1) * 100:page * 100]
 
@@ -251,7 +253,7 @@ class Sweep(unittest.TestCase):
         cursor = rescue.ScanState()
         sweep(fake, cursor=cursor)
 
-        self.assertIn(("runs", "pr-checks.yml", "in_progress", 2), fake.calls)
+        self.assertIn(("runs", None, "in_progress", 2), fake.calls)
         self.assertEqual(mutations(fake), [("cancel", overflow["id"]), ("rerun", overflow["id"])])
         self.assertIsNotNone(cursor.cursor)
 
@@ -621,7 +623,46 @@ class Quota(unittest.TestCase):
         fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("build", status="in_progress", runner_id=7)]})
         sweep(fake, dry_run=True, cursor=rescue.ScanState())
         listings = [call for call in fake.calls if call[0] == "runs"]
-        self.assertEqual(listings, [("runs", "pr-checks.yml", "queued", 1), ("runs", "pr-checks.yml", "in_progress", 1)])
+        self.assertEqual(listings, [("runs", None, "queued", 1), ("runs", None, "in_progress", 1)])
+
+    def test_one_repository_listing_per_status_covers_every_declared_workflow(self):
+        """Two listings a pass however many workflows are declared; an undeclared workflow's run is never read."""
+        declared = ["ci.yml", "pr-checks.yml", "web-validation.yml", "cmux-next.yml"]
+        fake = Fake({"ci.yml": [run(1, workflow="ci.yml")], "web-validation.yml": [run(2, workflow="web-validation.yml")],
+                     "other.yml": [run(3, workflow="other.yml")]},
+                    {1: [job("PR size")], 2: [job("PR size")], 3: [job("PR size")]})
+        sweep(fake, dry_run=True, workflows=declared, cursor=rescue.ScanState())
+        listings = [call for call in fake.calls if call[0] == "runs"]
+        self.assertEqual(listings, [("runs", None, "queued", 1), ("runs", None, "in_progress", 1)])
+        self.assertEqual(set(fake.job_reads), {1, 2})
+
+    def test_a_declared_run_behind_two_pages_of_undeclared_runs_is_found_by_the_rotation(self):
+        """Pages 1 and 2 are read every pass; the third page onward rotates, so a buried declared run is reached."""
+        noise = [run(1000 + index, workflow="other.yml") for index in range(200)]
+        buried = run(7)
+        buried["created_at"] = ago(1200)
+        fake = Fake({"other.yml": noise, "pr-checks.yml": [buried]}, {7: [job("PR size")]})
+        cursor = rescue.ScanState()
+        sweep(fake, dry_run=True, cursor=cursor)
+        listings = [call for call in fake.calls if call[0] == "runs"]
+        self.assertIn(("runs", None, "in_progress", 1), listings)
+        self.assertIn(("runs", None, "in_progress", 2), listings)
+        self.assertIn(("runs", None, "in_progress", 3), listings)
+        self.assertEqual(set(fake.job_reads), {7})
+
+    def test_the_repository_listing_reads_the_runs_endpoint(self):
+        client = rescue.GitHub("workflow-token", "o/r")
+        with mock.patch.object(client, "request", return_value={"workflow_runs": []}) as request:
+            client.runs(None, "queued", NOW - rescue.WINDOW, NOW, page=1)
+            client.runs("ci.yml", "queued", NOW - rescue.WINDOW, NOW, page=1)
+        self.assertTrue(request.call_args_list[0].args[1].startswith("/actions/runs?"))
+        self.assertTrue(request.call_args_list[1].args[1].startswith("/actions/workflows/ci.yml/runs?"))
+
+    def test_workflow_file_names_a_listed_run(self):
+        self.assertEqual(rescue.workflow_file({"path": ".github/workflows/ci.yml"}), "ci.yml")
+        self.assertEqual(rescue.workflow_file({"path": ".github/workflows/ci.yml@refs/heads/main"}), "ci.yml")
+        self.assertIsNone(rescue.workflow_file({"path": "dynamic/copilot"}))
+        self.assertIsNone(rescue.workflow_file("not a run"))
 
     def test_a_pool_at_its_reserve_makes_no_listing_or_job_read(self):
         fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
