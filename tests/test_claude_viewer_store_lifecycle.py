@@ -132,6 +132,15 @@ class ViewerStoreLifecycleTests(unittest.TestCase):
             "jobId": self.worker_session[:8], "procStart": process_start(self.worker.pid),
             "pidDomain": "darwin",
         }))
+        self.server = MappedHookSocketServer(self.worker_workspace, self.worker_surface)
+        self.server.__enter__()
+        self.server.workspace_surfaces[self.worker_workspace] = self.worker_surface
+        self.env = cli_environment(self.server.socket_path, home=self.home)
+        self.env.update(CLAUDE_CONFIG_DIR=str(self.config),
+                        CMUX_CLAUDE_HOOK_STATE_PATH=str(self.state_path),
+                        CMUX_CLAUDE_PID=str(self.worker.pid),
+                        CMUX_WORKSPACE_ID=self.worker_workspace,
+                        CMUX_SURFACE_ID=self.worker_surface)
         self.reset_state()
 
     def worker_generation(self):
@@ -168,15 +177,6 @@ class ViewerStoreLifecycleTests(unittest.TestCase):
         state.setdefault("activeSessionsBySurface", {})[surface_id] = {
             "sessionId": self.launcher_session, "updatedAt": time.time()}
         self.state_path.write_text(json.dumps(state))
-        self.server = MappedHookSocketServer(self.worker_workspace, self.worker_surface)
-        self.server.__enter__()
-        self.server.workspace_surfaces[self.worker_workspace] = self.worker_surface
-        self.env = cli_environment(self.server.socket_path, home=self.home)
-        self.env.update(CLAUDE_CONFIG_DIR=str(self.config),
-                        CMUX_CLAUDE_HOOK_STATE_PATH=str(self.state_path),
-                        CMUX_CLAUDE_PID=str(self.worker.pid),
-                        CMUX_WORKSPACE_ID=self.worker_workspace,
-                        CMUX_SURFACE_ID=self.worker_surface)
 
     def tearDown(self):
         try:
