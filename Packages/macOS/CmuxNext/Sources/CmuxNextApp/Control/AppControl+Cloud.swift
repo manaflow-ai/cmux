@@ -21,7 +21,8 @@ extension AppControl {
                     "user": user.map { .object(["id": .string($0.id), "email": $0.primaryEmail.map(JSONValue.string) ?? .null]) } ?? .null,
                     "user_id": user.map { .string($0.id) } ?? .null,
                     "team_id": cloud.auth.teamID.map(JSONValue.string) ?? .null,
-                    "backend": .string(cloud.configuration.apiBaseURL.absoluteString),
+                    "backend": .string(cloud.configuration.ownerAPIBaseURL().absoluteString),
+                    "cloud_environment": cloud.configuration.runtimeSelection.map { .string($0.name) } ?? .null,
                     "cloud_unavailable": cloud.unavailableReason.map(JSONValue.string) ?? .null,
                 ]))
             },
@@ -41,6 +42,7 @@ extension AppControl {
             }.withDeadline(.fixed(.seconds(30))),
         ])
         registerRunMethods(services)
+        registerCloudEnvironmentMethods(services)
         registerVMAgentKeyMethods(services)
         // `cmux auth token` (cmux-platform#111): the method lives in CmuxNextControl, the mint in CmuxNextCloud.
         let identity = services.cloud.installIdentity, origin = services.cloud.configuration.ownerAPIBaseURL(), auth = services.cloud.auth

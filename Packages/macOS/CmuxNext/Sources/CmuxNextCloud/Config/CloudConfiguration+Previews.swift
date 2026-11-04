@@ -4,6 +4,7 @@ extension CloudConfiguration {
     /// Preview ingress is served directly by cmux-platform. Until production ingress is ready,
     /// only the staging and development Cloud owners have a default preview API; other builds keep their browser route.
     public func platformPreviewAPIBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
+        if let runtimeSelection { return runtimeSelection.platformOrigin }
         guard linkSource == .appServer, isDebugBuild, !isProductionAuth else { return nil }
         if let raw = environment["CMUX_NEXT_PLATFORM_PREVIEW_API_URL"] {
             guard let url = URL(string: raw), url.scheme == "https", let host = url.host, !host.isEmpty,
@@ -22,6 +23,7 @@ extension CloudConfiguration {
     /// The cmux-platform origin used by the Artifacts page. Release builds always use the
     /// production Worker; debug builds may point at a local or preview deployment explicitly.
     public func artifactsAPIBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
+        if let runtimeSelection { return runtimeSelection.platformOrigin }
         if isDebugBuild, let raw = environment["CMUX_NEXT_ARTIFACTS_API_URL"],
            let url = URL(string: raw), Self.isPlatformOrigin(url) {
             return url
