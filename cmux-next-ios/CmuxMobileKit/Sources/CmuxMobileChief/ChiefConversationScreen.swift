@@ -733,6 +733,9 @@ private extension UIView {
 @MainActor
 public final class ChiefDemoHook {
     public static let shared = ChiefDemoHook()
+    /// Batches of 50 replies the `chief-flood` demo posts: 3600 replies, enough that the
+    /// messages it loads pass the 1500 trim threshold (some replies merge into one row).
+    public static let floodBatches = 72
     weak var controller: ConversationViewController?
     weak var container: ChiefConversationContainer?
     /// The open New Message sheet, if any.
