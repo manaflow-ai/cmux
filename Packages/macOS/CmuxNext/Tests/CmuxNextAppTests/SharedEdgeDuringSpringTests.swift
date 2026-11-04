@@ -367,15 +367,15 @@ struct SharedEdgeDuringSpringTests {
             // Equalize the split (an explicit equalize springs): b1 grows from its minimum to half of B.
             rig.model.equalizeSplit("x")
             rig.root.syncWithModel()
-            for tick in 1...2 { rig.frame(edges, "equalize frame \(tick)") }
+            rig.frame(edges, "equalize frame 1")
             let b1 = try #require(try rig.screen.paneFrames["b1"])
             let minimum = rig.root.context.style.minimumPaneSize.width
             try #require(b1.targetRect.width - b1.rect.width > minimum + 20,
                          "b1 is nearly grown: \(b1.rect.width) -> \(b1.targetRect.width)")
             let column = try #require(rig.model.screens.first?.layout.columns.first { $0.id == "B" })
-            // B's right edge in to B's minimum width in three fast moves, while b1 still grows (a slow drag lets its spring
+            // B's right edge in to B's minimum width in one move, while b1 still grows (a slower drag lets its spring
             // settle first): b2's right edge from b1's left edge (B's left edge).
-            try rig.drag(.columnEdge("B"), dragged: "b2", moves: 3, step: -300, floor: column.minimumSize(style: rig.root.context.style).width,
+            try rig.drag(.columnEdge("B"), dragged: "b2", moves: 1, step: -900, floor: column.minimumSize(style: rig.root.context.style).width,
                          edges: edges)
             rig.land(edges, "landing")
         case .clickDuringReleaseSpring:
