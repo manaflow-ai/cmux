@@ -124,8 +124,29 @@ class TierTest(unittest.TestCase):
         self.assertFalse(post_edit.is_edit_event(json.dumps(payload)))
         payload["tool_name"] = "Edit"
         self.assertTrue(post_edit.is_edit_event(json.dumps(payload)))
+        self.assertEqual(post_edit.relative(self.repo, "deleted.py", None, must_exist=False), "deleted.py")
+        self.assertIsNone(post_edit.relative(self.repo, "../outside.py", None, must_exist=False))
         payload["tool_response"] = {"is_error": True}
         self.assertFalse(post_edit.is_edit_event(json.dumps(payload)))
+
+    @unittest.skipUnless(sys.platform == "linux" and shutil.which("bwrap") and shutil.which("bun")
+                         and (ROOT / "webviews/node_modules/typescript/lib/tsc.js").is_file(),
+                         "needs the Linux sandbox and warm TypeScript/Bun")
+    def test_entire_selected_manifest_typechecks_and_runs_within_work_budget(self):
+        manifest = json.loads(TIER.with_name("prepush-fast-suites.json").read_text())
+        for entry in manifest["suites"]:
+            for path in entry.values():
+                self.write(path, (ROOT / path).read_text() + "\n// selected suite fixture\n")
+        self.commit()
+        modules = self.repo / "webviews/node_modules"
+        modules.mkdir()
+        (modules / "typescript").symlink_to(
+            (ROOT / "webviews/node_modules/typescript").resolve(), target_is_directory=True)
+        code, receipt = self.tier()
+        self.assertEqual(code, 0, receipt)
+        self.assertEqual(receipt["status"], "passed", receipt)
+        self.assertTrue(any(c["name"] == "selected-file typecheck" for c in receipt["checks"]))
+        self.assertTrue(any(c["name"] == "selected unit suites" for c in receipt["checks"]))
 
     @unittest.skipUnless(sys.platform == "linux" and shutil.which("bwrap") and shutil.which("bun"),
                          "needs the Linux sandbox and warm Bun")

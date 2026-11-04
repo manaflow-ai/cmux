@@ -100,7 +100,7 @@ def is_edit_event(raw: str) -> bool:
     return name in {"edit", "write", "multiedit", "apply_patch"}
 
 
-def relative(root: Path, path: str, cwd: str | None) -> str | None:
+def relative(root: Path, path: str, cwd: str | None, *, must_exist: bool = True) -> str | None:
     if not os.path.isabs(path) and cwd:
         path = os.path.join(cwd, path)
     if os.path.isabs(path):
@@ -109,7 +109,7 @@ def relative(root: Path, path: str, cwd: str | None) -> str | None:
         except ValueError:
             return None
     path = os.path.normpath(path)
-    if path.startswith("..") or not (root / path).is_file():
+    if path.startswith("..") or (must_exist and not (root / path).is_file()):
         return None
     return path
 
@@ -294,7 +294,7 @@ def main(argv=None) -> int:
             raw = sys.stdin.read()
             paths, cwd = payload_paths(raw)
             edit_event = is_edit_event(raw)
-        if edit_event and any(relative(root, path, cwd) is not None for path in paths):
+        if edit_event and any(relative(root, path, cwd, must_exist=False) is not None for path in paths):
             # This timestamp is an observed edit event, not a commit date or worktree mtime.
             # Keep it local to this worktree so a CI client can measure edit-to-first-signal.
             import importlib.util

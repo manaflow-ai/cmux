@@ -35,12 +35,13 @@ def main():
             code, receipt = fixture.tier()
             fast.append({"exit": code, **receipt,
                          "wall_ms": round((time.monotonic() - started) * 1000, 2)})
-        print(json.dumps({
+        summary = {
             "harness": "same goal.ts and goal.test.ts; warm project typecheck+unit vs selected source typecheck+unit",
             "baseline_median_ms": statistics.median(row["elapsed_ms"] for row in baseline),
             "tier_median_ms": statistics.median(row["wall_ms"] for row in fast),
-            "baseline": baseline, "tier": fast,
-        }, indent=2))
+        }
+        print(json.dumps({**summary, "baseline": baseline, "tier": fast}, indent=2))
+        print("PREPUSH_BENCHMARK=" + json.dumps(summary))
         invalid_baseline = any(row["typecheck_exit"] or row["unit_exit"] for row in baseline)
         invalid_tier = any(row["exit"] or row["status"] != "passed" for row in fast)
         return 1 if invalid_baseline or invalid_tier else 0
