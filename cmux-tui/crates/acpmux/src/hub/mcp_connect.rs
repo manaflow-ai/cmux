@@ -20,7 +20,7 @@
 //!   `signInNeeded` with the server's RFC 9728 metadata URL, go on the card and to the agent.
 
 use super::{Hub, Session, SessionStatus};
-use crate::no_panic::{JsonExt as _, JsonField as _};
+use crate::no_panic::JsonField as _;
 use crate::rpc::RpcError;
 use cmux_json::JsonSet as _;
 use cmux_mcp_connect::registry::{AuthKind, Registry};

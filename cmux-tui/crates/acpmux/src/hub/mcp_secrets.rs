@@ -181,11 +181,17 @@ fn write_file(dir: &std::path::Path, id: &str, value: &str) -> Result<(), &'stat
 /// A connection's stored secret, read for one call: a sign-in's access token, refresh token and
 /// expiry, or a key. Its strings are wiped when it drops; unknown fields are ignored.
 #[derive(Default, serde::Deserialize)]
-#[serde(rename_all = "camelCase", default)]
+// Field-level defaults: a container `default` moves fields out of `Self::default()`, which a
+// `Drop` type refuses (E0509).
+#[serde(rename_all = "camelCase")]
 pub(crate) struct StoredSecret {
+    #[serde(default)]
     pub(crate) access_token: Option<String>,
+    #[serde(default)]
     pub(crate) refresh_token: Option<String>,
+    #[serde(default)]
     pub(crate) key: Option<String>,
+    #[serde(default)]
     pub(crate) expires_at: Option<u64>,
 }
 
