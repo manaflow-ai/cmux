@@ -1119,6 +1119,17 @@ def quarantined_only(job: dict, head_log: str, known: dict) -> bool:
     if (not found.failed or found.crashes or found.truncated or found.failed - known.keys()
             or not steps or any(not re.search(r"\btests?\b", step, re.I) for step in steps)):
         return False
+    # A generic failed test-named step must not borrow a quarantined test from another step. Only labelled
+    # logs prove which named failures belong to each failed step; raw job logs keep the normal base comparison.
+    by_step: dict[str, list[str]] = {}
+    for line in head_log.splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) == 3 and STAMP.match(parts[2]):
+            by_step.setdefault(parts[1], []).append(parts[2])
+    for step in steps:
+        result = test_reds.read("\n".join(by_step.get(step, [])))
+        if not result.failed or result.crashes or result.truncated or result.failed - known.keys():
+            return False
     def normalized(text):
         return re.sub(r"\d+", "#", mask_shas(text.replace("##[error]", "").strip()))
     diagnostics = set()

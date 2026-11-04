@@ -256,7 +256,7 @@ class RequiredWebVerdict(unittest.TestCase):
 class BaseRedConsumer(unittest.TestCase):
     def fake(self):
         github = base.FakeGitHub()
-        github.logs[1] = HEAD
+        github.logs[1] = base.log(JOB, base.TEST_STEP, *HEAD.splitlines())
         github.logs[2] = SUMMARY
         github.jobs[2]["conclusion"] = "success"
         original = github.json
@@ -288,12 +288,26 @@ class BaseRedConsumer(unittest.TestCase):
                            "(fail) first [1ms]", "0 pass", "1 fail"])
         snapshot = state(text)
         github = self.fake()
-        github.logs[1] = text
+        github.logs[1] = base.log(JOB, base.TEST_STEP, *text.splitlines())
         self.assertIn(ISSUE, excuse.judge(base.REPO, "feat-cmux-next", base.HEAD, [10], github,
                                         flake_state=snapshot)[0])
         github.logs[1] += "\nerror: Failed to compile another package"
         with self.assertRaises(excuse.Refused):
             excuse.judge(base.REPO, "feat-cmux-next", base.HEAD, [10], github, flake_state=snapshot)
+
+    def test_every_failed_step_needs_its_own_named_quarantine_evidence(self):
+        for other in ["second step", "passed step", "unlabelled"]:
+            github = self.fake()
+            if other == "second step":
+                github.jobs[1]["steps"].append({"name": "Other tests", "conclusion": "failure"})
+                github.logs[1] += "\n" + base.log(JOB, "Other tests", "##[error]Process completed with exit code 1.")
+            elif other == "passed step":
+                github.logs[1] = base.log(JOB, "Passed tests", *HEAD.splitlines())
+                github.logs[1] += "\n" + base.log(JOB, base.TEST_STEP, "##[error]Process completed with exit code 1.")
+            else:
+                github.logs[1] = HEAD
+            with self.subTest(other=other), self.assertRaises(excuse.Refused):
+                excuse.judge(base.REPO, "feat-cmux-next", base.HEAD, [10], github, flake_state=state())
 
     def test_red_base_window_combines_exact_and_quarantined_test_failures(self):
         github = self.fake()

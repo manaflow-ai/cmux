@@ -28,7 +28,8 @@ existing deterministic comparison.
 
 An active matching quarantine can bridge a green base verdict in
 `base_red_excuse.py` only when the entire red is explained by named test failures
-in test steps. Additional failed steps or unrelated errors remain blocking.
+in test steps, with labelled log evidence for every failed step. An unlabelled
+job log keeps the normal base comparison. Additional failed steps or unrelated errors remain blocking.
 Crashes, incomplete runs, infrastructure losses and new diagnostics always keep
 their existing treatment. The quarantine issue and expiry appear in the audit
 output so every waiver has a repair destination.

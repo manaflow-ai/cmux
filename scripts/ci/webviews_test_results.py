@@ -176,7 +176,6 @@ def tap_observations(summary: Path, *, log_dir: Path | None = None):
                     stream.seek(offset)
                     def checked_lines():
                         diagnostic_bytes = 0
-                        yield file + ":"
                         for raw in bounded_lines(stream):
                             if raw is None:
                                 raise Unreadable()
