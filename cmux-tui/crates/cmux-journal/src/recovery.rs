@@ -76,8 +76,8 @@ pub struct OpenReport {
 
 /// What recovery could not read, beyond a torn tail: media damage or a bug, never a crash. The
 /// daemon reports it to the person; moved segments stay in `quarantine/` for a salvage. Every
-/// open reports the [`Damage::Corrupt`] that earlier opens found, first, until the daemon calls
-/// `Journal::clear_damage`.
+/// open reports the losses ([`Damage::Corrupt`]) that earlier opens found, until the daemon calls
+/// `Journal::clear_damage`; a loss that lies inside another is reported once, as the larger range.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Damage {
     /// `segment` could not be read past `offset`. The segments in `moved` are in `quarantine/`
@@ -137,15 +137,32 @@ struct Bad {
     lost_through: Lsn,
 }
 
-/// `known` is a recorded loss and `found` a loss inside its LSN range.
-fn covers(known: &Damage, found: &Damage) -> bool {
-    match (known, found) {
-        (
-            Damage::Corrupt { lost_after: after, lost_through: through, .. },
-            Damage::Corrupt { lost_after: found_after, lost_through: found_through, .. },
-        ) => after <= found_after && found_through <= through,
-        _ => false,
-    }
+/// `damage` without the losses ([`Damage::Corrupt`]) whose LSN range lies inside another's; of
+/// two equal ranges the first stays. Other damage stays as it is.
+fn distinct_losses(damage: Vec<Damage>) -> Vec<Damage> {
+    let ranges: Vec<Option<(Lsn, Lsn)>> = damage
+        .iter()
+        .map(|entry| match entry {
+            Damage::Corrupt { lost_after, lost_through, .. } => Some((*lost_after, *lost_through)),
+            _ => None,
+        })
+        .collect();
+    let inside_another = |index: usize| {
+        let Some(Some((after, through))) = ranges.get(index).copied() else { return false };
+        ranges.iter().enumerate().any(|(other, range)| {
+            let Some((other_after, other_through)) = *range else { return false };
+            other != index
+                && other_after <= after
+                && through <= other_through
+                && ((other_after, other_through) != (after, through) || other < index)
+        })
+    };
+    damage
+        .into_iter()
+        .enumerate()
+        .filter(|(index, _)| !inside_another(*index))
+        .map(|(_, entry)| entry)
+        .collect()
 }
 
 fn io(what: &'static str) -> impl FnOnce(std::io::Error) -> OpenError {
@@ -333,17 +350,18 @@ pub(crate) fn recover(
     };
     let copy = last_read.as_ref().filter(|read| read.end > read.vouched);
     // The damage found here, durable before the new segment hides it from every later open
-    // (review G2), after the damage earlier opens recorded. A loss that lies inside one already
-    // recorded is the same loss, found again after a crash: it is not recorded twice (review N1).
-    report.damage.retain(|damage| !earlier.iter().any(|known| covers(known, damage)));
-    if report.damage.iter().any(|damage| matches!(damage, Damage::Corrupt { .. })) {
-        let mut all = earlier.clone();
-        all.extend(report.damage.iter().cloned());
-        write_damage(storage, dir, &all).map_err(io("record the damage"))?;
+    // (review G2), after the damage earlier opens recorded. A loss that lies inside another is
+    // the same loss found again (after a crash, or by two steps of this open): it is recorded and
+    // reported once, as the larger range (review N1).
+    let mut all = earlier.clone();
+    all.append(&mut report.damage);
+    let all = distinct_losses(all);
+    let recorded: Vec<Damage> =
+        all.iter().filter(|damage| matches!(damage, Damage::Corrupt { .. })).cloned().collect();
+    if recorded != earlier {
+        write_damage(storage, dir, &recorded).map_err(io("record the damage"))?;
     }
-    let mut damage = earlier;
-    damage.append(&mut report.damage);
-    report.damage = damage;
+    report.damage = all;
     // The writer always starts in a segment this open makes: an earlier process's segment may
     // hold a page that its cache had and its disk never got (a failed sync), so nothing is
     // appended to it again. It is read only through the next segment's "previous last LSN".
