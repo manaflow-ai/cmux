@@ -259,6 +259,10 @@ pub struct Activity {
     /// acpmux's `phases` block, while every daemon whose count holds sent one
     /// ([`ACTIVITY_PHASES_CAPABILITY`]).
     pub phases: Option<Value>,
+    /// When a person last prompted one of acpmux's chats (Unix ms), the newest any daemon sent:
+    /// the Cloud keeps the machine running for a while after it (cmux-platform `IdlePolicy.ts`,
+    /// the post-chat warm window).
+    pub last_person_prompt_at: Option<u64>,
 }
 
 impl Activity {
@@ -274,24 +278,30 @@ impl Activity {
         if let Some(phases) = &self.phases {
             out.insert("phases".to_owned(), phases.clone());
         }
+        if let Some(at) = self.last_person_prompt_at {
+            out.insert("last_person_prompt_at".to_owned(), json!(at));
+        }
         Value::Object(out)
     }
 }
 
 impl Activity {
     /// The report's activity from the daemon's (or the socket's `activity` lines) and acpmux's
-    /// sessions at work: the counts add up, the newest agent action wins.
+    /// sessions at work: the counts add up, the newest agent action wins, and acpmux's person's
+    /// prompt time rides along.
     pub fn with_acp(
         &self,
         acp_sessions: u64,
         acp_action_at: Option<u64>,
         acp_phases: Option<Value>,
+        acp_prompt_at: Option<u64>,
     ) -> Activity {
         Activity {
             active_sessions: self.active_sessions.saturating_add(acp_sessions),
             last_user_input_at: self.last_user_input_at,
             last_agent_action_at: self.last_agent_action_at.max(acp_action_at),
             phases: acp_phases,
+            last_person_prompt_at: acp_prompt_at,
         }
     }
 }
