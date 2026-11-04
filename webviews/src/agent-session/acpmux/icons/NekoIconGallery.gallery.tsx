@@ -1,5 +1,6 @@
 // l10n-allow-file: gallery fixtures (icon comparison), not shipped UI.
 import { componentEntry } from "../../../gallery/format";
+import type { CSSProperties } from "react";
 import { Icon } from "./Icon";
 import { bundledIconPack, nekoFillInIconPack, nekoIconPack } from "./iconPack";
 import { IconsProvider } from "./IconsContext";
@@ -39,13 +40,15 @@ function NekoIconGallery({ mode = "light", set = "neko-curated" }: { mode?: Mode
         background: palette.background,
         color: palette.foreground,
         colorScheme: mode,
+        // Keep Cat accent layers independent of the host page's accent while comparing themes.
+        "--agent-accent": palette.accent,
         display: "grid",
         gap: 14,
         padding: 24,
         borderRadius: 12,
         minHeight: 156,
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-      }}
+      } as CSSProperties}
       data-neko-gallery={set}
       data-mode={mode}
     >
