@@ -702,6 +702,44 @@ class RecentRevertTests(unittest.TestCase):
             self.assertEqual(unread, ["App.tsx"])
 
 
+class MergeBaseTests(unittest.TestCase):
+    """The merge base comes from git when the base history has both ends, not a `compare` call."""
+
+    def test_the_merge_base_comes_from_git_and_falls_back_to_compare(self):
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
+                   GIT_COMMITTER_EMAIL="t@t")
+
+        def git(repo, *args):
+            return subprocess.run(["git", "-C", repo, *args], check=True, capture_output=True, text=True,
+                                  env=env).stdout.strip()
+        compared = []
+
+        def fake_json(*args):
+            compared.append(args[1])
+            return {"sha": "c" * 40}
+        saved = risk.gh_json
+        risk.gh_json = fake_json
+        try:
+            with tempfile.TemporaryDirectory() as repo:
+                git(repo, "init", "-q")
+                git(repo, "commit", "-q", "--allow-empty", "-m", "fork")
+                fork = git(repo, "rev-parse", "HEAD")
+                git(repo, "commit", "-q", "--allow-empty", "-m", "base")
+                base = git(repo, "rev-parse", "HEAD")
+                git(repo, "checkout", "-q", "-b", "pr", fork)
+                git(repo, "commit", "-q", "--allow-empty", "-m", "head")
+                head = git(repo, "rev-parse", "HEAD")
+                pr = {"base": {"sha": base}, "head": {"sha": head}}
+                self.assertEqual(risk.merge_base_of("o/r", pr, repo), fork)
+                self.assertEqual(compared, [])
+                # The head was not fetched: compare answers.
+                missing = {"base": {"sha": base}, "head": {"sha": HEAD}}
+                self.assertEqual(risk.merge_base_of("o/r", missing, repo), "c" * 40)
+                self.assertEqual(compared, [f"repos/o/r/compare/{base}...{HEAD}"])
+        finally:
+            risk.gh_json = saved
+
+
 class RenderTests(unittest.TestCase):
     def test_a_file_name_cannot_start_a_workflow_command(self):
         name = "docs/a\n::add-mask::x`b.md"
