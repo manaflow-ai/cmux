@@ -2,7 +2,7 @@
 .import-history {
   max-width: 760px;
   margin: 0 auto;
-  padding: 40px 32px 28px;
+  padding: var(--ds-space-6) var(--ds-space-5) var(--ds-space-5);
   user-select: text;
 }
 .import-history h1 {
@@ -10,10 +10,10 @@
   font-size: var(--text-title);
   line-height: var(--text-title--line-height);
   letter-spacing: var(--text-title--letter-spacing);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 .history-lead {
-  margin: 10px 0 24px;
+  margin: var(--ds-space-2) 0 var(--ds-space-5);
   color: var(--page-text-2);
   line-height: 1.5;
 }
@@ -25,12 +25,11 @@
 }
 .history-source {
   border: 1px solid var(--page-separator);
-  border-radius: 10px;
+  border-radius: var(--ds-radius-lg);
   background: var(--page-elevated);
-  padding: 14px 16px;
-  margin-top: 10px;
+  padding: var(--ds-space-3) var(--ds-space-4);
+  margin-top: var(--ds-space-2);
   min-width: 0;
-  transition: border-color 120ms ease, background 120ms ease;
 }
 .history-source:has(input:checked) {
   border-color: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 48%, var(--page-separator));
@@ -65,8 +64,8 @@
   border-radius: 8px;
   background: var(--page-hover);
   color: var(--page-text);
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--text-control);
+  font-weight: var(--weight-emphasis);
   line-height: 1;
 }
 .history-source-action {
@@ -142,7 +141,7 @@
   justify-content: space-between;
   position: sticky;
   bottom: 0;
-  padding: 18px 0 0;
+  padding: var(--ds-space-4) 0 0;
   background: var(--cmux-surface-solid, Canvas);
   border-top: 1px solid var(--page-separator);
   margin-top: 24px;
@@ -177,9 +176,9 @@
   border-radius: 8px;
 }
 .layout-cards .history-source-icon {
-  width: 34px;
-  height: 34px;
-  flex-basis: 34px;
+  width: var(--ds-control-primary);
+  height: var(--ds-control-primary);
+  flex-basis: var(--ds-control-primary);
 }
 .layout-compact .history-source {
   padding: 8px 0;
