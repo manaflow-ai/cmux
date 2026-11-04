@@ -74,8 +74,9 @@ import Testing
                 "the key's turn made the stand-in's Ghostty surface, host view and session (15-20 ms of the 10 ms budget)")
         #expect(pane.view.content == nil, "the key's frame shows another view in the pane than its themed pane")
 
-        // The key's frame commits; the terminal is made right after it, and the pane shows it in the next pass.
-        for _ in 0..<2 { await Self.nextCommittedPass() }
+        // The key's frame commits; the terminal is made right after it (or at the next display frame when a surface was
+        // already made in this one: one per frame), and the pane shows it.
+        for _ in 0..<12 where services.cache.existingTerminal(standIn.id) == nil || pane.view.content == nil { await Self.nextCommittedPass() }
         let entry = try #require(services.cache.existingTerminal(standIn.id), "no terminal for the stand-in after its key's frame")
         #expect(pane.view.content === entry.session.view, "the pane does not show the stand-in's terminal after its key's frame")
         #expect(pane.currentTabKey == standIn.id)
