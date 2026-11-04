@@ -50,6 +50,11 @@ export interface AcpmuxRequests {
   "_acpmux/subsession/send": { params: unknown; result: unknown };
   "_acpmux/subsession/start": { params: unknown; result: unknown };
   "_acpmux/subsession/stop": { params: unknown; result: unknown };
+  "_acpmux/race/cancel": { params: unknown; result: unknown };
+  "_acpmux/race/get": { params: unknown; result: unknown };
+  "_acpmux/race/list": { params: unknown; result: unknown };
+  "_acpmux/race/start": { params: unknown; result: unknown };
+  "_acpmux/race/stats": { params: unknown; result: unknown };
   "_acpmux/forum/ack": { params: unknown; result: unknown };
   "_acpmux/forum/announce": { params: unknown; result: unknown };
   "_acpmux/forum/rules": { params: unknown; result: unknown };
@@ -359,6 +364,11 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/subsession/send", kind: "request", acp: false, typed: false },
   { name: "_acpmux/subsession/start", kind: "request", acp: false, typed: false },
   { name: "_acpmux/subsession/stop", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/race/cancel", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/race/get", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/race/list", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/race/start", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/race/stats", kind: "request", acp: false, typed: false },
   { name: "_acpmux/forum/ack", kind: "request", acp: false, typed: false },
   { name: "_acpmux/forum/announce", kind: "request", acp: false, typed: false },
   { name: "_acpmux/forum/rules", kind: "request", acp: false, typed: false },

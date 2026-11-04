@@ -5,7 +5,7 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Target {
     pub harness: String,
@@ -15,7 +15,7 @@ pub struct Target {
     pub effort: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Candidate {
     pub id: String,
@@ -35,7 +35,7 @@ pub struct Candidate {
     pub error: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Race {
     pub id: String,
@@ -673,11 +673,19 @@ mod tests {
     #[test]
     fn a_closed_child_is_terminal_even_when_last_turn_is_from_another_generation() {
         let old = json!({"status":"completed", "turnId":"old", "reply":"done"});
-        assert_eq!(turn_outcome("completed", Some("old"), Some("new"), false), None);
-        assert_eq!(turn_outcome("completed", Some("old"), Some("new"), true), Some((false, None)));
-        assert_eq!(turn_outcome("failed", Some("new"), Some("new"), false), Some((false, None)));
-        assert_eq!(turn_outcome("completed", Some("new"), Some("new"), false), Some((true, None)));
-        let _ = old;
+        assert_eq!(turn_outcome("completed", Some("old"), Some("new"), false, &old), None);
+        assert_eq!(
+            turn_outcome("completed", Some("old"), Some("new"), true, &old),
+            Some((false, None))
+        );
+        assert_eq!(
+            turn_outcome("failed", Some("new"), Some("new"), false, &old),
+            Some((false, None))
+        );
+        assert_eq!(
+            turn_outcome("completed", Some("new"), Some("new"), false, &old),
+            Some((true, None))
+        );
     }
 
     #[test]
