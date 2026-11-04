@@ -11,12 +11,16 @@ public extension PageDescriptor {
     /// loopback previews and render cards (AgentPaneRenderFrame) in frames, and runs only its own script files, no inline script
     /// (plus WebAssembly compilation, `'wasm-unsafe-eval'`, for Ondine's Mermaid diagrams). The page's
     /// meta CSP says the same (build-agent-pane-web.sh; AgentPageCSPAlignmentTests); the host runs the
-    /// user's registry.js through evaluateJavaScript, which the CSP does not govern.
+    /// user's registry.js through evaluateJavaScript, which the CSP does not govern. It plays video
+    /// and audio only from its own origin: the files the host granted (``AgentPaneMediaGrants``),
+    /// served in byte ranges under `__media/` (``AgentPageMediaResource``).
     static let agent = PageDescriptor(
         id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace, AppsPanelsPageProvider.namespace],
         csp: PageCSP(connect: ["'none'"],
                      frame: [AgentPaneRenderFrame.source, "cmux-page://cmux.agent/__artifact", "http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
+                     media: ["'self'"],
                      script: ["'wasm-unsafe-eval'"], inlineScript: false),
+        dynamicPrefixes: [AgentPageMediaResource.prefix],
         // Permission cards (Allow once, Allow for chat), tool cards, Push, Apply and Remove act on one click and
         // appear when the agent decides: a click meant only to bring the window forward must not answer them.
         acceptsFirstMouse: false)
@@ -126,6 +130,8 @@ public final class AgentPageProvider: PageProvider {
     public var pendingAsks = AgentPanePendingAsks()
     /// The pane host, available before its handshake or transport socket.
     public var tailHost: (any AgentPaneHostProviding)?
+    /// The pane's tab (``AgentPaneModel/tabKey``), which a chat's place is kept by. ``AgentPaneView`` sets it.
+    public var tabKey: @MainActor () -> String? = { nil }
     /// The debug UI pointer report from an app-owned page. The native picker
     /// owns the crop and composer delivery; the page only supplies metadata.
     public var onUiPointerReport: @MainActor (JSONValue) -> Void = { _ in }
@@ -369,7 +375,7 @@ public final class AgentPageProvider: PageProvider {
         }
         // Named, not a prefix: `scrollAnchor` treats anything but `.get` as a write, so a later
         // `chat.scrollAnchor.forget` would have erased a chat's place instead of being refused.
-        if AgentPaneScrollAnchors.handles(method: method) { return try Self.scrollAnchor(method, params: params, op: op) }
+        if AgentPaneScrollAnchors.handles(method: method) { return try Self.scrollAnchor(method, params: params, op: op, tab: tabKey()) }
         if AgentPaneTailCache.handles(method: method) {
             return try await Self.tail(method, params: params, op: op, host: tailHost, pageGeneration: tailGeneration)
         }
