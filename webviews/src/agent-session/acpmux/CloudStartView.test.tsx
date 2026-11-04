@@ -136,7 +136,7 @@ test("a signed-out failure keeps the prompt card and offers inline sign-in", () 
   const variant = cloudStartGallery.variants["signed-out"]!;
   const html = renderToStaticMarkup(<CloudStartView {...variant.props} />);
   expect(html).toContain(variant.props.start.task);
-  expect(html).toContain("Sign in to continue");
+  expect(html).toContain('class="acpmux-cloud-start__sign-in"');
   expect(html).toContain("Sign in to use Cloud.");
 });
 
