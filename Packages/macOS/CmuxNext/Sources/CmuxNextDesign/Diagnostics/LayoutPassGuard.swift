@@ -74,18 +74,28 @@ public final class LayoutPassGuard {
     public private(set) var viewLayoutCalls = 0
     public private(set) var windowLayoutPasses = 0
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// ``windowLayoutPasses`` per window (DEV and bench builds): `debug.frames` names the window of each pass by its role
-    /// (``LayoutPassRoleNaming``). One counter add in place per pass; an entry is made once per window.
+    /// ``windowLayoutPasses`` per window (DEV and bench builds), only while `debug.frames` runs
+    /// (``countsPassesByWindow``): it names the window of each pass by its role (``LayoutPassRoleNaming``). One counter add
+    /// in place per pass; an entry is made once per window, in storage reserved when counting starts.
     private var passesByWindow: [ObjectIdentifier: (window: WeakWindow, passes: Int)] = [:]
 
-    struct WeakWindow {
-        weak var object: NSWindow?
+    /// Whether passes are counted per window (off by default; `debug.frames` turns it on from its start to its stop).
+    public var countsPassesByWindow = false {
+        didSet {
+            guard countsPassesByWindow != oldValue else { return }
+            passesByWindow.removeAll(keepingCapacity: false)
+            if countsPassesByWindow { passesByWindow.reserveCapacity(64) }
+        }
     }
 
-    /// Every window that had a layout pass, with its passes since launch (its entry goes when it closes).
+    public struct WeakWindow {
+        public weak var object: NSWindow?
+        public init(object: NSWindow?) { self.object = object }
+    }
+
+    /// Every live window that had a layout pass since counting started, with its passes (read once per frame that had one).
     public var windowPassCounts: [(window: NSWindow, passes: Int)] {
-        passesByWindow = passesByWindow.filter { $0.value.window.object != nil }
-        return passesByWindow.values.compactMap { entry in entry.window.object.map { ($0, entry.passes) } }
+        passesByWindow.values.compactMap { entry in entry.window.object.map { ($0, entry.passes) } }
     }
     #endif
 
@@ -183,9 +193,9 @@ public final class LayoutPassGuard {
         if layout.depth == 0, viewLayoutCalls != layout.viewCallsAtStart {
             windowLayoutPasses &+= 1
             #if DEBUG || CMUX_BENCH_HOOKS
-            if passesByWindow[id]?.window.object === window {
+            if countsPassesByWindow, passesByWindow[id]?.window.object === window {
                 passesByWindow[id]?.passes &+= 1
-            } else {
+            } else if countsPassesByWindow {
                 passesByWindow[id] = (WeakWindow(object: window), 1)
             }
             #endif

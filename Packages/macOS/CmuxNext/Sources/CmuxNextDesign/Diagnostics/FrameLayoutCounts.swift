@@ -24,6 +24,13 @@ public struct FrameLayoutCounts {
         #endif
     }
 
+    /// `debug.frames` stopped: no more counting per window.
+    public mutating func stop() {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        windows.stop()
+        #endif
+    }
+
     /// One display frame: its counts since the last frame (kept when `records`; the marks always move).
     public mutating func frame(records: Bool) {
         let guardian = LayoutPassGuard.shared
