@@ -567,6 +567,47 @@ class OrganizationFallback(unittest.TestCase):
 
 
 class Wiring(unittest.TestCase):
+    def test_next_portable_bootstrap_needs_no_private_app_credentials(self):
+        bootstrap = jobs("cmux-next.yml")["portable-placement"]
+        self.assertNotIn("secrets.", yaml.safe_dump(bootstrap))
+        self.assertNotIn("environment", bootstrap)
+        self.assertFalse(any("actions/create-github-app-token@" in step.get("uses", "")
+                             for step in bootstrap["steps"]))
+        config = bootstrap["steps"][-1]["env"]
+        self.assertNotIn("ROUTE_TOKEN", config)
+        self.assertNotIn("ROUTE_TOKEN_FALLBACK", config)
+
+    def test_next_secretless_bootstrap_uses_only_fresh_registered_capacity(self):
+        bootstrap = jobs("cmux-next.yml")["portable-placement"]
+        config = env(JOBS=bootstrap["steps"][-1]["env"]["JOBS"],
+                     GITHUB_REPOSITORY="manaflow-ai/cmux", REQUIRE_LIVE_CAPACITY="1",
+                     SNAPSHOT_TOKEN="ordinary-token")
+        state = {
+            "schema": "runner-state/v1", "repository": "manaflow-ai/cmux", "complete": True,
+            "generated_at": NOW.isoformat(), "repository_runners": [],
+            "runner_groups": {"glaeda-minis": [dict(row, id=index, os="macOS")
+                                               for index, row in enumerate(idle(2), 1)]},
+            "scale_sets": {},
+            "queue_snapshot": {
+                "artifact": {"id": 7, "name": placement.pool.ARTIFACT_NAME, "expired": False,
+                             "created_at": NOW.isoformat(),
+                             "workflow_run": {"id": 8, "head_branch": placement.pool.SNAPSHOT_BRANCH,
+                                              "repository_id": 1, "head_repository_id": 1}},
+                "snapshot": snapshot(),
+            },
+        }
+        cases = [(state, ("checks", "path_route")),
+                 ({**state, "generated_at": (NOW - dt.timedelta(minutes=6)).isoformat()}, ()),
+                 ({**state, "complete": False}, ()),
+                 ({**state, "queue_snapshot": {}}, ())]
+        for document, expected in cases:
+            with self.subTest(expected=expected, document=document), \
+                 mock.patch.dict(os.environ, {}, clear=True), \
+                 mock.patch.object(placement.pool, "GitHub", side_effect=AssertionError("API client")):
+                raw = base64.b64encode(gzip.compress(json.dumps(document).encode())).decode()
+                runners, queue = placement.read({**config, "CI_RUNNER_STATE": raw}, NOW)
+                self.assertEqual(placement.decide(config, runners, queue, NOW).mini_jobs, expected)
+
     def test_status_reports_consume_live_capacity_without_a_routing_app(self):
         offered = 0
         for workflow, name in (("pr-red-checks-comment.yml", "comment"),
