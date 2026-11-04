@@ -19,11 +19,13 @@ import Testing
 
     @Test func eachPassIsCountedForItsWindowRole() throws {
         LayoutPassGuard.shared.install()
-        let (panel, panelView) = Self.window { OverlayHostPanel(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.borderless], backing: .buffered, defer: false) }
+        let (panel, panelView) = Self.window { OverlayHostPanel() }
         let (plain, plainView) = Self.window { NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.borderless], backing: .buffered, defer: false) }
         defer { panel.close(); plain.close() }
         var counts = FrameLayoutCounts()
-        panel.layoutIfNeeded(); plain.layoutIfNeeded()
+        panelView.needsLayout = true; panel.layoutIfNeeded()
+        #expect(LayoutPassGuard.shared.windowPassCounts.isEmpty, "counted per window before the probe started")
+        plain.layoutIfNeeded()
         counts.reset()
         // Frame 1: the panel twice, the plain window once.
         panelView.needsLayout = true; panel.layoutIfNeeded()
@@ -40,5 +42,9 @@ import Testing
         let perFrame = try #require(report["window_passes_per_frame"] as? [[String: Int]])
         #expect(perFrame.count == 2 && perFrame[1].isEmpty, "\(perFrame)")
         #expect(report["window_layouts"] as? Int == 3, "\(report)")
+        counts.stop()
+        #expect(!LayoutPassGuard.shared.countsPassesByWindow, "counting per window stayed on after stop")
+        panelView.needsLayout = true; panel.layoutIfNeeded()
+        #expect(LayoutPassGuard.shared.windowPassCounts.isEmpty, "a pass was counted per window after stop")
     }
 }
