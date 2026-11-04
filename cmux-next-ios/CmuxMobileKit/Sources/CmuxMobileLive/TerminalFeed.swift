@@ -486,8 +486,15 @@ public final class TerminalFeed {
             case .failed: markdown += "\n\n" + fenced(message)
             // What it waits on: an approval's command, a plan to review, or the question it
             // asked (once answered, the question card is gone), under the headline.
+            // The detail's first paragraph is the tool the headline already names ("Bash"):
+            // it shows once.
             case .needsInput where !markdown.contains(message):
-                markdown = (markdown.hasPrefix("**") ? markdown : "**\(markdown)**") + "\n\n" + message
+                let head = message.components(separatedBy: "\n\n").first ?? ""
+                let detail = !head.isEmpty && markdown.hasSuffix(head)
+                    ? String(message.dropFirst(head.count).drop(while: \.isNewline)) : message
+                if !detail.isEmpty {
+                    markdown = (markdown.hasPrefix("**") ? markdown : "**\(markdown)**") + "\n\n" + detail
+                }
             default: break
             }
         }

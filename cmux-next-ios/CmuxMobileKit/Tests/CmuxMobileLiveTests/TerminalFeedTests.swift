@@ -433,7 +433,8 @@ import Testing
         await Self.settle { store.items.count == 1 }
         let item = store.item(id: "term-mac-ntf_1")
         #expect(item?.kind == .needsInput)
-        #expect(item?.markdown == "**Needs approval:** Bash\n\n" + command)
+        // The tool shows once: in the headline, not again above its command.
+        #expect(item?.markdown == "**Needs approval:** Bash\n\n```\nrm -rf build\n```\n\nClean the build folder")
     }
 
     /// A Mac before the event's `id`: its preview goes to the next new row on that terminal.
