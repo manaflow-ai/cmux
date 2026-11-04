@@ -1213,6 +1213,7 @@ fn masked_reply(
 #[cfg(test)]
 mod reply_tests {
     use super::*;
+    use crate::store::{MemoryStore, SessionMeta};
 
     #[test]
     fn unbounded_reply_keeps_long_reviewer_text() {
@@ -1236,6 +1237,49 @@ mod reply_tests {
         assert!(events.len() > MAX_REPLY_CHARS);
         assert_eq!(masked_reply(&events, last, None).unwrap(), text);
         assert!(masked_reply(&events, last, Some(MAX_REPLY_CHARS)).unwrap().ends_with('…'));
+    }
+
+    #[test]
+    fn unbounded_reply_pages_past_four_thousand_stored_chunks() {
+        let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let hub = Hub::new(config, Box::new(MemoryStore::default()));
+        let session: Arc<Session> = hub.insert_test_session(
+            serde_json::from_value::<SessionMeta>(json!({
+                "schema": crate::store::META_SCHEMA,
+                "id": "race-review",
+                "name": "race review",
+                "harness": "codex",
+                "cwd": "/tmp",
+                "status": "running",
+                "createdAt": 1,
+                "updatedAt": 2
+            }))
+            .unwrap(),
+        );
+        let update = |text: &str| {
+            hub.append(
+                &session,
+                "in",
+                "agent_message_chunk",
+                json!({
+                    "method": method::SESSION_UPDATE,
+                    "params": {"update": {"content": {"text": text}}}
+                }),
+            );
+        };
+        hub.append(&session, "mux", "turn_started", json!({"turnId": "old"}));
+        update("old turn");
+        hub.append(&session, "mux", "turn_started", json!({"turnId": "review"}));
+        let expected = format!(r#"{{"winnerId":"c1","reason":"{}"}}"#, "x".repeat(4_480));
+        for chunk in expected.chars() {
+            update(&chunk.to_string());
+        }
+
+        let got = hub.last_reply_unbounded(&session).expect("review reply");
+        assert_eq!(got, expected);
+        assert!(got.len() > MAX_REPLY_CHARS);
+        assert!(serde_json::from_str::<Value>(&got).is_ok());
     }
 }
 
