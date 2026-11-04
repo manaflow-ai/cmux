@@ -91,6 +91,7 @@ class WebLintPrePushTests(unittest.TestCase):
         self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(self.global_config),
                         HOME=str(self.root), ESLINT_LOG=str(self.eslint_log))
         git_fixture_env.without_auto_maintenance(self.env)
+        self.stub_lint_tools()
 
         subprocess.run(["git", "init", "--quiet", "--bare", "--initial-branch=feat-cmux-next", str(self.origin)],
                        env=self.env, check=True, capture_output=True)
@@ -110,6 +111,7 @@ class WebLintPrePushTests(unittest.TestCase):
         self.write("web/app/page.tsx", "export const page = 1;\n")
         self.write("web/app/other.tsx", "export const other = BAD_ESLINT;\n")  # web/ is red on base
         self.write(".gitignore", "node_modules/\n")
+        self.write("scripts/cmux-next/lint-tools.lock", self.lint_tools_lock)
         self.commit("base")
         eslint = self.repo / "web/node_modules/.bin/eslint"
         eslint.parent.mkdir(parents=True)
@@ -119,6 +121,23 @@ class WebLintPrePushTests(unittest.TestCase):
         self.git("fetch", "--quiet", "origin")
         installed = subprocess.run(["bash", INSTALLER], cwd=self.repo, env=self.env, text=True, capture_output=True)
         self.assertEqual(installed.returncode, 0, installed.stderr)
+
+    def stub_lint_tools(self):
+        """The cmux-next gate the hook runs after the web lint refuses an install with no lint-tools.lock (#34237),
+        and with one it runs the pinned ast-grep, SwiftFormat and SwiftLint on a Swift push. These tests are about the
+        web lint, so the fixture pins stand-ins that find nothing and puts them where the gate looks first
+        (CMUX_LINT_TOOLS_DIR), so nothing is downloaded."""
+        tools = self.root / "lint-tools"
+        rows = ["# tool\tversion\tplatform\turl\tsha256\tbinary-in-zip"]
+        for platform_key in ("darwin-arm64", "darwin-x86_64", "linux-x86_64", "linux-arm64"):
+            for tool in ("ast-grep", "swiftformat", "swiftlint"):
+                rows.append(f"{tool}\tfixture\t{platform_key}\tfile:///nonexistent\t{'0' * 64}\t{tool}")
+                binary = tools / f"{tool}-fixture-{platform_key}" / tool
+                binary.parent.mkdir(parents=True, exist_ok=True)
+                binary.write_text("#!/bin/sh\nexit 0\n")
+                binary.chmod(0o755)
+        self.lint_tools_lock = "\n".join(rows) + "\n"
+        self.env["CMUX_LINT_TOOLS_DIR"] = str(tools)
 
     def copy_sources(self):
         for relative in (
@@ -1402,6 +1421,7 @@ class TuiBindingsTests(unittest.TestCase):
 
     setUp = WebLintPrePushTests.setUp
     copy_sources = WebLintPrePushTests.copy_sources
+    stub_lint_tools = WebLintPrePushTests.stub_lint_tools
     git = WebLintPrePushTests.git
     write = WebLintPrePushTests.write
     commit = WebLintPrePushTests.commit

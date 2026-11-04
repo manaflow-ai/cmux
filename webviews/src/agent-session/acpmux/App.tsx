@@ -306,6 +306,7 @@ import { SubagentTray } from "./subagents/SubagentTray";
 import { agentProgressSource } from "./subagents/agentProgressSource";
 import { AgentProgressContext, AgentProgressStore } from "./subagents/agentProgressStore";
 import { BackgroundTasksPanel } from "./backgroundTasks/BackgroundTasksPanel";
+import { isBackgroundPane, openBackgroundPane } from "./backgroundTasks/backgroundPane";
 import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTasks";
 import { backgroundTasksLook } from "./backgroundTasks/backgroundTasksLook.experiment";
 import { settleTrayExit, TRAY_GHOST } from "./subagents/trayMotion";
@@ -752,7 +753,7 @@ import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 import { MOTION_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import { type OlderReserve, olderReserve } from "./conversation/olderReserve";
-import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
+import { holdWebSwap, pageReleaseHold, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { SandboxTab, sandboxAgent, sandboxPageRefusal, sandboxRetryable, type RunMode } from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
@@ -1570,6 +1571,7 @@ const ThinkingRow = memo(
         quietAt={row.quietAt}
         below={row.below}
         command={row.doingCommand}
+        retry={row.retry}
       />
     );
   },
@@ -1594,7 +1596,8 @@ const ThinkingRow = memo(
     a.row.quietKey === b.row.quietKey &&
     a.row.quietAt === b.row.quietAt &&
     a.row.below === b.row.below &&
-    a.row.doingCommand === b.row.doingCommand,
+    a.row.doingCommand === b.row.doingCommand &&
+    a.row.retry === b.row.retry,
 );
 const WorkingRow = memo(
   function WorkingRow({ row, sessionId }: RowProps) {
@@ -2836,6 +2839,7 @@ export function VirtualTranscript({
   earlier,
   promptCount,
   loadThrough,
+  loadPromptIndex,
   sessionId,
   onToggleActivity,
   onOpenDiff,
@@ -2883,6 +2887,8 @@ export function VirtualTranscript({
   promptCount?: number;
   /// Pages history in until the prompt at `seq` is held (a click on an earlier prompt's tick).
   loadThrough?: (seq: number) => Promise<boolean>;
+  /// Asks for the chat's prompt index (a hover or click on a pending tick): true once it named them.
+  loadPromptIndex?: () => Promise<boolean>;
   sessionId?: string;
   /// Where the transcript opens instead of the latest message, when that row is loaded.
   openAt?: ScrollAnchor;
@@ -5756,6 +5762,7 @@ export function VirtualTranscript({
             earlier={earlier}
             promptCount={promptCount}
             loadThrough={loadThrough}
+            loadPromptIndex={loadPromptIndex}
             sessionId={sessionId}
             layout={layout}
             scroller={ref}
@@ -6459,6 +6466,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     dismissed: ReadonlySet<string>;
   }>();
   if (backgroundPanel && snapshot.sessionId !== backgroundPanel.sessionId) setBackgroundPanel(undefined);
+  /// This page is the chat's Background tasks tab in the right column (a `subagent:` reveal of the
+  /// reserved pane id, backgroundTasks/backgroundPane.ts): it shows the panel alone, filling the tab.
+  const [ownBackgroundPane, setOwnBackgroundPane] = useState(false);
+  if (ownBackgroundPane && !backgroundPanel && snapshot.sessionId)
+    setBackgroundPanel({ sessionId: snapshot.sessionId, expanded: false, dismissed: new Set<string>() });
   const backgroundOpen = backgroundPanel !== undefined;
   const backgroundCache = useRef<TaskCache>(new WeakMap());
   const artifactSession = snapshot.sessionId;
@@ -6628,6 +6640,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
     const agent = revealedSubagent(value);
     if (agent === undefined) return void revealTurnWhenShown(value);
+    if (isBackgroundPane(agent)) {
+      setOwnBackgroundPane(true);
+      return;
+    }
     subagentPane.current = true;
     setOwnSubagentPane(true);
     setRequestedSubagent(agent);
@@ -7578,11 +7594,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The Background tasks panel opens from the chat's ⋯ menu and from the running tray's header
   // (SubagentTray.tsx `onOpenPanel`). A workflow's side tab would cover it (a full-height overlay):
   // it closes. Already open, it stays as it is (expanded, cleared and drilled in alike).
+  // It opens as a tab in the chat's right column (Leo, 2026-11-03: "it should be opening up on the
+  // right pane as a tab instead of this"), or focuses the one open there; a host that opens no tab
+  // (the gallery, Quick Chat's panel, an older app) keeps it in this pane's right column.
   const panelSession = snapshot.sessionId;
-  const openBackgroundPanel = useCallback(() => {
+  const backgroundTabTitle = t("backgroundTasks.title");
+  const openBackgroundHere = useCallback(() => {
     clearWorkflowSideTab();
     setBackgroundPanel((panel) => panel ?? { sessionId: panelSession, expanded: false, dismissed: new Set<string>() });
   }, [clearWorkflowSideTab, panelSession]);
+  const openBackgroundPanel = useCallback(() => {
+    if (ownBackgroundPane) return openBackgroundHere();
+    void openBackgroundPane(callNative, backgroundTabTitle).then((opened) => {
+      if (!opened) openBackgroundHere();
+    });
+  }, [ownBackgroundPane, openBackgroundHere, backgroundTabTitle]);
   const closeWorkflowSideTab = useCallback(() => {
     workflowSideTabFocusOnClose.current = true;
     setWorkflowSideTabId(undefined);
@@ -8575,6 +8601,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       sandbox.setMode(mode);
     },
   };
+  /// The composer's Run as rows: picking Cloud there is the person's pick of the chat's folder too,
+  /// so the host grants it (workspace.useFolder) and the Cloud start may copy it (the same folder
+  /// sendToCloud names). A folder Cloud never copies (home or above, agent-home) asks nothing.
+  /// The last Cloud pick's folder grant (workspace.useFolder), still out or done: a Cloud start waits
+  /// for it, so a Return right after picking Cloud never races the grant into path_outside_roots.
+  const cloudFolderGrant = useRef<Promise<unknown> | undefined>(undefined);
+  const composerModeRows = {
+    mode: sandboxModeRows.mode,
+    onMode: (mode: RunMode) => {
+      if (mode === "cloud") {
+        const folder = cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);
+        if ("cwd" in folder) cloudFolderGrant.current = pickFolder(callNative, folder.cwd, () => undefined);
+      }
+      sandboxModeRows.onMode(mode);
+    },
+  };
   /// A Sandboxed send: text only, by an agent a sandbox runs. A page-side refusal comes back as its
   /// code (the prompt stays where it was typed); false: nothing was sent.
   const startSandbox = (text: string, attachmentCount: number, harness: string | undefined): string | boolean =>
@@ -8586,7 +8628,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// message as it goes (CloudStartView; the host's `cloudStartProgress` pushes fill it in).
   const cloudPicked = sandbox.mode === "cloud" && !snapshot.sessionId;
   const cloudPickedNotOffered = cloudPicked && !sandboxOffered;
-  const [startCloud] = useState(() => oneCloudStart(callNative));
+  const [startCloud] = useState(() =>
+    oneCloudStart((method, params) =>
+      (cloudFolderGrant.current ?? Promise.resolve()).catch(() => undefined).then(() => callNative(method, params)),
+    ),
+  );
   const [cloudStartKeys] = useState(() => makeCloudStartKeys());
   const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
   /// A Cloud start is out: the composer takes no edits until it ends (#28686 review). On success the
@@ -8741,13 +8787,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }),
     [autoOpenSubagents],
   );
+  // Escape closes a subagent's view to the chat's, as its pill's × does (subagents/subagentEscape.ts).
+  useEscapeClosesSubagent(!quick && !!subagentView, () => setSubagentView(undefined));
   // A pane opened on a subagent shows the chat's other subagents in place, and its "Subagent of" pill goes
   // back to the chat: its tab's name follows what it shows (review of #28497 at 995299ff). Not before
   // the subagent it was opened on has shown, or the name the app gave the tab would flash away; and not
   // while this page has no rows for the subagent yet (they load after the pane opens), which would name
   // it "Subagent of" over the name the chat's page gave it.
-  // Escape closes a subagent's view to the chat's, as its pill's × does (subagents/subagentEscape.ts).
-  useEscapeClosesSubagent(!quick && !!subagentView, () => setSubagentView(undefined));
   const shownSubagentKnown = !!subagentView && freshAgents.some((agent) => agent.id === subagentView);
   const shownSubagentTitle =
     ownSubagentPane && subagentView && shownSubagentKnown ? subagentTitle(subagentView) : undefined;
@@ -11930,6 +11976,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             const released = quitting === true ? held.release() : [];
             const chips = released.length ? await giveBackTrustHeld.current(released, false, true, until) : [];
             await settleDraftWithin(composerHandle.current, Math.max(0, until - Date.now()));
+            // Only untouched New Tabs are capped. Keep their page-owned drafts, attachments,
+            // sends, composition and popups; quit and close still hand back their state.
+            if (quitting !== true && newTabNow.current && pageReleaseHold()) return { holdsPageState: true };
             const anchor = transcriptAnchor.current?.();
             const composer = composerHandle.current?.wakeState();
             const attachments = [...chips, ...(composer?.attachments ?? [])];
@@ -13394,6 +13443,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                 Promise.resolve(false)
                                                             : undefined
                                                         }
+                                                        loadPromptIndex={
+                                                          !childRows
+                                                            ? () =>
+                                                                directClient.current?.loadPromptIndex() ??
+                                                                Promise.resolve(false)
+                                                            : undefined
+                                                        }
                                                         sourceRows={childRows ? undefined : sourceRows}
                                                         endReserve={previewBeside ? COMPUTER_USE_PREVIEW_RESERVE : 0}
                                                         working={snapshot.isWorking}
@@ -14262,7 +14318,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             }
             localName={thisMacName(localMachineName, machineName, composerSnapshot.summary)}
             environments
-            {...(sandboxOffered ? { runMode: sandboxModeRows } : {})}
+            {...(sandboxOffered ? { runMode: composerModeRows } : {})}
             onBrowseFolder={
               canMove ? () => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd) : undefined
             }
@@ -14588,6 +14644,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         className="acpmux-shell"
         data-tab-row={inTabRow ? "" : undefined}
         data-solo-tab={soloTab ? "" : undefined}
+        data-background-pane={ownBackgroundPane ? "" : undefined}
         aria-label={composerSnapshot.summary?.title || t("header.agentChat")}
         style={inTabRow ? tabRowStyle(tabRow) : undefined}
       >
@@ -14734,7 +14791,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   // (never home or above it, cloudStartFolder), and whenever Cloud may be offered, the
                   // host's sandbox check still out included (newTabProjectPick); a home or root answer
                   // asks nothing here (the local start still asks on Return).
-                  {...newTabProjectPick(callNative, sandboxOfferable)}
+                  {...newTabProjectPick(callNative, sandboxOfferable, (grant) => {
+                    cloudFolderGrant.current = grant;
+                  })}
                   {...(!handshaken ? { startPending: true } : {})}
                   {...(newTabChatsPending ? { chatsPending: true } : {})}
                   {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}
@@ -15177,8 +15236,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               onClearFinished={(ids) =>
                 setBackgroundPanel((panel) => panel && { ...panel, dismissed: new Set([...panel.dismissed, ...ids]) })
               }
-              onExpand={() => setBackgroundPanel((panel) => panel && { ...panel, expanded: !panel.expanded })}
-              onClose={() => setBackgroundPanel(undefined)}
+              // Its own tab has the tab's own close and the whole tab already: no Expand or Close.
+              onExpand={
+                ownBackgroundPane
+                  ? undefined
+                  : () => setBackgroundPanel((panel) => panel && { ...panel, expanded: !panel.expanded })
+              }
+              onClose={ownBackgroundPane ? undefined : () => setBackgroundPanel(undefined)}
               onOpenSession={openOfferChat}
               onOpenCommand={(task) => {
                 const command = panelCommands.find((candidate) => candidate.id === task.id);
