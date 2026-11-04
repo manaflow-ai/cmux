@@ -248,8 +248,15 @@ async function serve(root: string): Promise<{ baseUrl: string; close: () => void
   const types: Record<string, string> = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".wasm": "application/wasm", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".woff2": "font/woff2", ".woff": "font/woff", ".ttf": "font/ttf" };
   const server = Bun.serve({
     port: 0,
+    // Loopback only: the built gallery is never reachable from the network while a run lasts.
+    hostname: "127.0.0.1",
     async fetch(request) {
-      const requested = decodeURIComponent(new URL(request.url).pathname).replace(/^\/+/, "") || "index.html";
+      let requested: string;
+      try {
+        requested = decodeURIComponent(new URL(request.url).pathname).replace(/^\/+/, "") || "index.html";
+      } catch {
+        return new Response("bad request", { status: 400 });
+      }
       const file = resolve(root, requested);
       if (file !== resolve(root) && !file.startsWith(resolve(root) + sep)) return new Response("forbidden", { status: 403 });
       try {
