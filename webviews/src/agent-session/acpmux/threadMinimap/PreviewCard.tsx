@@ -15,6 +15,7 @@ import { Icon } from "../icons/Icon";
 import { forwardWheel } from "../wheelPassThrough";
 import { BookmarkIcon } from "./BookmarkIcon";
 import { cardOffset, type MinimapTurnMetadata, type ReplyBlock } from "./model";
+import { Button } from "../../../ui/Button";
 import { sliceWhole, sliceWholeEnd } from "../../../ui/wholeChars";
 import { type CoveredCandidates, useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
 
@@ -279,6 +280,8 @@ export const PreviewCard = React.forwardRef<
       const style = promptNode.ownerDocument.defaultView?.getComputedStyle(promptNode);
       if (!style) return settle();
       const lineHeight = Number.parseFloat(style.lineHeight) || 20;
+      const replyStyle = replyNode.ownerDocument.defaultView?.getComputedStyle(replyNode);
+      const replyLineHeight = Number.parseFloat(replyStyle?.lineHeight ?? "") || lineHeight;
       const promptLines = Math.max(1, Math.min(3, Math.ceil(promptNode.getBoundingClientRect().height / lineHeight)));
       // The reply's natural height, read from the reply itself with its clamp lifted for the read
       // (an inline style, put back before anything paints). A measuring copy appended to the card
@@ -291,7 +294,7 @@ export const PreviewCard = React.forwardRef<
       replyNode.style.setProperty("-webkit-line-clamp", "unset");
       const naturalReplyLines = Math.max(
         1,
-        Math.min(4, Math.ceil(replyNode.getBoundingClientRect().height / lineHeight)),
+        Math.min(4, Math.ceil(replyNode.getBoundingClientRect().height / replyLineHeight)),
       );
       if (clamp === null) replyNode.removeAttribute("style");
       else replyNode.setAttribute("style", clamp);
@@ -299,10 +302,12 @@ export const PreviewCard = React.forwardRef<
       // longer prompt spends only the reply lines it needs, so the card never grows because of it.
       const oldTextLines = Math.min(2, promptLines) + naturalReplyLines;
       const lines = Math.max(1, Math.min(4, oldTextLines - promptLines));
-      budget(replyNode, lines, lineHeight);
+      // The reply clamp uses the reply's own settled 20px row. Measuring and budgeting with the
+      // same value prevents a partial next row while prompt body copy stays on the denser 18px token.
+      budget(replyNode, lines, replyLineHeight);
       // The budget sets the card's height, and with it where the card centers.
       const size = settle();
-      rememberFit(known, { width: size.width, lineHeight, lines });
+      rememberFit(known, { width: size.width, lineHeight: replyLineHeight, lines });
       return size;
     },
     [origin, move],
@@ -404,8 +409,10 @@ export const PreviewCard = React.forwardRef<
             <span className="acpmux-minimap__prompt">{prompt}</span>
           )}
           {bookmark && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="sm"
+              icon
               className="acpmux-minimap__bookmark"
               aria-pressed={bookmark.marked}
               aria-label={t(bookmark.marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
@@ -414,7 +421,7 @@ export const PreviewCard = React.forwardRef<
               onKeyDown={scrollKey}
             >
               <BookmarkIcon filled={bookmark.marked} />
-            </button>
+            </Button>
           )}
         </div>
       )}

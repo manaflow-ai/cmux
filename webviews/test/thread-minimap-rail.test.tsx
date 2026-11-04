@@ -625,15 +625,25 @@ test("a press released off the rail ends there: a later hover does not scrub", a
   }
 });
 
-test("a bookmark shows as the tick's dot; the dot and the card toggle it; a prompt's row has no Pin", async () => {
+test("a bookmark shows as the tick's dot; the prompt row, dot and card share its state", async () => {
   const view = await mount(8);
   try {
-    // Leo's prompt row (2026-10-21): check, age, Copy, Retry, Fork; no Pin under a prompt.
-    expect(document.querySelector('.acpmux-row[data-row-id^="user-"] .cv-message-pin')).toBeNull();
+    const promptButton = document.querySelector<HTMLButtonElement>(
+      '.acpmux-row[data-row-id="user-1"] .cv-message-pin',
+    )!;
+    expect(promptButton).not.toBeNull();
+    expect(promptButton.getAttribute("aria-pressed")).toBe("false");
+    await act(async () => promptButton.click());
+    expect(tick(0).hasAttribute("data-bookmarked")).toBe(true);
+    expect(tick(0).querySelector(".acpmux-minimap__dot")).not.toBeNull();
+    await act(async () => tick(0).focus());
+    const cardButton = () => card()!.querySelector<HTMLElement>(".acpmux-minimap__bookmark")!;
+    expect(cardButton().getAttribute("aria-pressed")).toBe("true");
+    await act(async () => cardButton().click());
+    expect(promptButton.getAttribute("aria-pressed")).toBe("false");
     expect(tick(2).hasAttribute("data-bookmarked")).toBe(false);
     // The card marks it: the rail's tick gets its dot.
     await act(async () => tick(2).focus());
-    const cardButton = () => card()!.querySelector<HTMLElement>(".acpmux-minimap__bookmark")!;
     await act(async () => cardButton().click());
     expect(tick(2).hasAttribute("data-bookmarked")).toBe(true);
     expect(tick(2).querySelector(".acpmux-minimap__dot")).not.toBeNull();
