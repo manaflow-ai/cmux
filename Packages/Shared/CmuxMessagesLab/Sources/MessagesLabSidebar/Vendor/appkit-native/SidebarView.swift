@@ -113,6 +113,9 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     private let cache = SidebarBitmapCache()
     let avatars = SidebarAvatarCache() // cmux: internal, the pin drag draws its tile
     var avatarMotion = SidebarAvatarMotion() // cmux: a Chief's avatar loop (the host's gate and style)
+    /// cmux (the user, 2026-11-03, msg 20105): nothing in the list animates unless the host turns this on: rows
+    /// moving or appearing, the typing bubble's pop, fade and pulse, the swipe, the tile and pin drags, avatar loops.
+    var animates = false { didSet { avatarMotion.animates = animates } }
     private let textCache = SidebarTextCache()
     private let timeFormatter = ConversationTimeFormatter(yesterday: SidebarStrings.yesterday)
     private var bellSecondary: CGImage?, bellSelected: CGImage?, failedGlyph: CGImage?, failedSelected: CGImage?
@@ -342,7 +345,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
                 closeSwipe()
                 if let act { runSwipe(act, c) }
             } else if phase == .ended, n > 0, abs(s.offset) >= n * Self.swipeButtonWidth / 2 {
-                setSwipeOffset((s.offset > 0 ? 1 : -1) * n * Self.swipeButtonWidth, animated: true)
+                setSwipeOffset((s.offset > 0 ? 1 : -1) * n * Self.swipeButtonWidth, animated: animates)
                 swipe?.open = true
             } else {
                 closeSwipe()
@@ -444,7 +447,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             buttons.forEach { $0.layer.removeFromSuperlayer() }
             CATransaction.commit()
         }
-        guard animated, let l = rowLayers[s.row] else {
+        guard animated, animates, let l = rowLayers[s.row] else {
             rowLayers[s.row]?.setAffineTransform(.identity)
             buttons.forEach { $0.layer.removeFromSuperlayer() }
             swipeStrip.isHidden = true
@@ -534,7 +537,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
                 let r = tileRect(k)
                 m.position = CGPoint(x: r.midX, y: r.midY)
                 m.removeAnimation(forKey: "move")
-                SidebarMotion.move(m, by: CGPoint(x: old.x - m.position.x, y: old.y - m.position.y))
+                if animates { SidebarMotion.move(m, by: CGPoint(x: old.x - m.position.x, y: old.y - m.position.y)) }
             }
             CATransaction.commit()
         }
@@ -557,7 +560,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
                 let r = tileRect(t)
                 m.position = CGPoint(x: r.midX, y: r.midY)
                 m.removeAnimation(forKey: "move")
-                SidebarMotion.move(m, by: CGPoint(x: old.x - m.position.x, y: old.y - m.position.y))
+                if animates { SidebarMotion.move(m, by: CGPoint(x: old.x - m.position.x, y: old.y - m.position.y)) }
             }
             CATransaction.commit()
         }
@@ -627,7 +630,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         let typingNow = Set(fresh.items.lazy.filter(\.typing).map(\.id))
         defer { typingIDs = typingNow }
         lastMotion = MotionLog()
-        guard SidebarMotion.enabled, query.isEmpty, view.window != nil, let old = typingIDs else { typingAppeared = []; return nil }
+        guard SidebarMotion.enabled, animates, query.isEmpty, view.window != nil, let old = typingIDs else { typingAppeared = []; return nil }
         typingAppeared = typingNow.subtracting(old)
         var frames: [ConversationID: CGRect] = [:]
         let clip = scrollView.contentView.bounds
@@ -1051,7 +1054,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         l.time.isHidden = compact
         l.content.isHidden = compact
         if c.typing, !compact {
-            l.setTyping(palette, scale: renderContext.scale)
+            l.setTyping(palette, scale: renderContext.scale, still: !animates)
             l.typing?.position = CGPoint(x: SidebarMetrics.textX + SidebarTypingLayer.size.width / 2, y: SidebarMetrics.previewBaseline - 4)
             if let t = l.typing, typingAppeared.remove(c.id) != nil { SidebarMotion.typingIn(t) }
         } else {
@@ -1230,7 +1233,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             l.pinRing.opacity = 0.45
         }
         if c.typing {
-            l.setTyping(palette, scale: s)
+            l.setTyping(palette, scale: s, still: !animates)
             l.typing?.showsTail = true
             // Where the unread message bubble goes: centered over the avatar's top (to verify).
             l.typing?.position = CGPoint(x: ar.midX, y: ar.minY + ar.height * 0.30 - SidebarTypingLayer.size.height / 2)
@@ -1797,10 +1800,11 @@ final class SidebarRowLayer: CALayer {
     required init?(coder: NSCoder) { fatalError() }
     /// Hands the typing bubble to the caller (it fades it out elsewhere); the row has none after.
     func detachTyping() -> SidebarTypingLayer? { let t = typing; typing = nil; return t }
-    func setTyping(_ p: SidebarPalette?, scale: CGFloat = 2) {
+    func setTyping(_ p: SidebarPalette?, scale: CGFloat = 2, still: Bool = false) {
         guard let p else { typing?.removeFromSuperlayer(); typing = nil; return }
         if typing == nil { let t = SidebarTypingLayer(); addSublayer(t); typing = t }
         typing?.apply(p, scale: scale)
+        typing?.still = still
         typing?.animate()
     }
     func contentsScaleAll(_ s: CGFloat) {
