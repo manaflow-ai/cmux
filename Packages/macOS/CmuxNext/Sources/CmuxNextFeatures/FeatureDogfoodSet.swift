@@ -83,7 +83,6 @@ public nonisolated struct FeatureDogfoodSet: Sendable, Equatable {
         "pageProcessGroups",
         "pageRendererAtFirstShow",
         "pageScriptFrames",
-        "pageTabsShareChromiumWindow",
         "paneHoldsContentInMotion",
         "pointerFrameDrags",
         "pointerFrameHover",

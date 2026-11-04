@@ -97,8 +97,6 @@ public final class FakeChromiumPage: PageChromiumPage {
     public private(set) var mouseMoves: [CGPoint] = []
     /// How many times the host copied the selection (``copySelection()``).
     public private(set) var selectionCopies = 0
-    /// Every pane window the host moved the page to (``moveWindow(to:)``), in order.
-    public private(set) var moves: [PageChromiumWindow] = []
 
     /// One visibility or lifecycle call the host made (``setVisible(_:)``, ``setFrozen(_:)``).
     public enum LifecycleStep: Equatable, Sendable {
@@ -222,7 +220,6 @@ public final class FakeChromiumPage: PageChromiumPage {
     public func setVisible(_ visible: Bool) { lifecycleSteps.append(.visible(visible)) }
 
     /// Records the move (``moves``).
-    public func moveWindow(to window: PageChromiumWindow) { moves.append(window) }
 
     /// Records `.frozen(frozen)` in ``lifecycleSteps`` and answers ``freezes``; a closed page
     /// records nothing and answers false, as a CEF page does.

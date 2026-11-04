@@ -117,13 +117,11 @@ extension PageWebView {
         // main-hop-allow: makePage and attachChromium are the Chromium host's main-actor async calls (the page is made over IPC) with cancel checks between; the task only runs them
         chromiumStart = Task { [weak self] in
             let page: any PageChromiumPage
-            // Read in the task's turn, after the opening turn set it (``PageOpenRequest/chromiumWindow``).
-            let window = self?.chromiumWindow
             do {
                 #if DEBUG || CMUX_BENCH_HOOKS
                 ChatOpenTrace.shared.makingTracedPage = traced
                 #endif
-                page = try await hosting.makePage(descriptor, chatOpen: chatOpen, window: window, origin: origin)
+                page = try await hosting.makePage(descriptor, chatOpen: chatOpen, origin: origin)
             } catch {
                 // Cancelled: the page closed, was discarded, fell back or its browser ended meanwhile.
                 guard let self, !Task.isCancelled else { return }
@@ -131,14 +129,12 @@ extension PageWebView {
             }
             guard let self, !Task.isCancelled else { return page.close() }
             traceMark(.browserCreated)
-            await self.attachChromium(page, scripts: scripts, work: hosting.work, dialogs: hosting.dialogs, madeIn: window)
+            await self.attachChromium(page, scripts: scripts, work: hosting.work, dialogs: hosting.dialogs)
         }
     }
 
-    /// `madeIn`: the pane window the page was made in; a tab that moved to another pane meanwhile moves the page
-    /// there once it is the view's page.
     private func attachChromium(_ page: any PageChromiumPage, scripts: PageChromiumDocumentScripts, work: BackgroundWork,
-                                dialogs: CmuxDialogCenter, madeIn: PageChromiumWindow?) async {
+                                dialogs: CmuxDialogCenter) async {
         let handlers = Self.chromiumFireAndForget + chromiumMessageHandlers.keys.sorted()
         let bridge = ChromiumPageHostBridge(page: page, descriptor: descriptor, fireAndForget: handlers)
         // Hidden until the attach below tells it whether the page shows; then ``setEngineVisible(_:)`` does.
@@ -166,7 +162,6 @@ extension PageWebView {
             return await Self.apply(edit, token: self?.inputReadiness.editToken, expectedEpoch: expectedEpoch, in: page)
         }
         chromiumSession = session
-        if let chromiumWindow, chromiumWindow != madeIn { page.moveWindow(to: chromiumWindow) }
         scriptTarget.bridge = bridge
         bridge.evaluate(DesignSettings.shared.interfaceScaleScript) // MQ12 allowed: a starting page never froze
         page.setZoom(pageZoom)

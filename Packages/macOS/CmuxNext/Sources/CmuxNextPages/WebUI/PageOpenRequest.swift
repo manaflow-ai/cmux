@@ -31,9 +31,6 @@ public struct PageOpenRequest {
     public var parked: Bool
     /// The agent chat open the page shows (``PageWebView/chatOpen``), known before its document starts.
     public var chatOpen: ChatOpenStages?
-    /// The pane window a Chromium page joins (``PageWebView/chromiumWindow``); nil gives it one of its
-    /// own. The pane that shows a page tab sets it when it shows the tab, so an opener may leave it nil.
-    public var chromiumWindow: PageChromiumWindow?
     /// Who asks for the page: a person (the default) or automation start its Chromium page at once; the launch's
     /// restore (``PageOpenOrigin/launchRestore``) follows the launch order.
     public var origin: PageOpenOrigin
@@ -41,7 +38,7 @@ public struct PageOpenRequest {
     public init(descriptor: PageDescriptor, root: URL? = nil, routes: [PageRoute], route: String? = nil,
                 documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
                 surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
-                parked: Bool = false, chatOpen: ChatOpenStages? = nil, chromiumWindow: PageChromiumWindow? = nil,
+                parked: Bool = false, chatOpen: ChatOpenStages? = nil,
                 origin: PageOpenOrigin = .user) {
         self.descriptor = descriptor
         self.root = root
@@ -53,7 +50,6 @@ public struct PageOpenRequest {
         self.dynamicResources = dynamicResources
         self.parked = parked
         self.chatOpen = chatOpen
-        self.chromiumWindow = chromiumWindow
         self.origin = origin
     }
 }
@@ -110,7 +106,5 @@ extension PageWebView {
         }
         // Its crashes count against its group's budget: the group's pages die together (PageCrashRecovery).
         crash.sharesWebKitProcess = group != nil
-        // Before the page's Chromium start reads it: that start runs in a later turn (``startChromium(hosting:origin:)``).
-        chromiumWindow = request.chromiumWindow
     }
 }

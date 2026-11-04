@@ -839,7 +839,6 @@ final class AppServices {
             Logger(subsystem: "com.cmuxterm.app.next", category: "agent.pane")
                 .fault("page tab view freed with its page inside; page=\(page.rawValue, privacy: .public)")
         }
-        pages.sharesChromiumWindows = self.features.isEnabled(.pageTabsShareChromiumWindow)
         DebugTimings.markLaunch("services.cache")
         let runtime = GhosttyRuntime.shared
         // Terminal keys' echo and daemon stages go to the input latency slots, from the first terminal.
