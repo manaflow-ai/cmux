@@ -162,3 +162,41 @@ async fn a_journal_that_syncs_nothing_asks_the_daemon_to_stop() {
     journal.set_sync_delay(Duration::ZERO);
     assert!(asked, "a reply waited past the stall limit and the store did not ask to stop");
 }
+
+/// F1, the streaming read: `session/load`'s replay sends each record as it reads it
+/// (`Hub::scan_events`). It must stop at the records whose journal record was appended when it
+/// started: a line the log holds while its record is not appended is not sent.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_replay_never_sends_a_line_before_its_record() {
+    use crate::store::PAUSE_AFTER_LOG_WRITE;
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(63);
+    let hub = hub(home.path(), &journal);
+    let session = hub.resolve(CHAT).unwrap_or_else(|e| panic!("{e:?}"));
+    let first = hub.append(&session, "mux", "note", json!({"n": 1}));
+    let (arrived_tx, arrived) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel::<()>();
+    *PAUSE_AFTER_LOG_WRITE.lock().unwrap_or_else(|e| e.into_inner()) =
+        Some((arrived_tx, release_rx));
+    let appender = {
+        let (hub, session) = (hub.clone(), session.clone());
+        std::thread::spawn(move || hub.append(&session, "mux", "note", json!({"n": 2})).seq)
+    };
+    arrived
+        .recv_timeout(Duration::from_secs(10))
+        .unwrap_or_else(|e| panic!("the append never paused: {e}"));
+    let releaser = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(200));
+        let _ = release.send(());
+    });
+    let mut seen = Vec::new();
+    hub.scan_events(CHAT, 0, &mut |record| {
+        seen.push(record.seq);
+        true
+    })
+    .unwrap_or_else(|e| panic!("{e:#}"));
+    releaser.join().unwrap_or_else(|_| panic!("releaser panicked"));
+    let second = appender.join().unwrap_or_else(|_| panic!("append panicked"));
+    assert!(seen.contains(&first.seq), "the replay missed line {}: {seen:?}", first.seq);
+    assert!(!seen.contains(&second), "the replay sent line {second} before its record: {seen:?}");
+}
