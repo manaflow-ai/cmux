@@ -218,6 +218,60 @@ import Testing
         #expect(settings.snapshot.root.value(at: Self.edits)?["Nord/background"] == "#2e3440")
     }
 
+    /// An entry both files set keeps the person's own value in cmux-next.json when Theme Studio
+    /// writes the shown map back.
+    @Test func aWriteKeepsThePersonsOwnEntryWhereTheThemeFileSetsTheSameKey() async throws {
+        let home = try Home()
+        defer { withExtendedLifetime(home) {} }
+        try home.write(##"{ "appearance.theme": "Nord", "colors": { "background": "#2e3440" } }"##, theme: "nord")
+        let settings = try Self.controller(home, config: ##"{ "appearance": { "theme": "Nord", "themeFile": "nord", "themeEdits": { "Nord/background": "#000000" } } }"##)
+        await settings.reload()
+        let descriptor = try #require(SettingsSchema.descriptor(for: Self.edits))
+        var shown = try #require(settings.snapshot.root.value(at: Self.edits)?.objectValue)
+        #expect(shown["Nord/background"] == "#2e3440")
+        shown["Nord/2"] = "#a3be8c"
+        try await settings.setSetting(descriptor, to: .object(shown), by: .user)
+        #expect(settings.fileRoot.value(at: Self.edits) == .object(["Nord/background": "#000000", "Nord/2": "#a3be8c"]))
+    }
+
+    /// A save that does not parse (an editor mid-edit) keeps the last good look and is one notice,
+    /// wherever the parse error moves.
+    @Test func aBrokenSaveKeepsTheLastGoodLookAndIsOneNotice() async throws {
+        let home = try Home()
+        defer { withExtendedLifetime(home) {} }
+        try home.write(#"{ "appearance.accent": "blue" }"#, theme: "tokyo")
+        let settings = try Self.controller(home, config: #"{ "appearance": { "themeFile": "tokyo" } }"#)
+        await settings.reload()
+        #expect(settings.snapshot.accent == .blue)
+        var notices = SettingsDiagnosticNotices()
+        var fingerprints: Set<String> = []
+        for broken in [#"{ "appearance.accent": "#, #"{ "appearance.accent": "red", "#] {
+            try home.write(broken, theme: "tokyo")
+            await settings.reload()
+            #expect(settings.snapshot.accent == .blue)
+            let problem = try #require(settings.diagnostics.first { $0.kind == .unreadableFile && $0.file == "themes/tokyo.json" })
+            #expect(problem.path == "appearance.themeFile")
+            let update = notices.update(settings.diagnostics, file: settings.fileRoot)
+            fingerprints.formUnion(update.announce.filter { $0.file != nil }.map(\.fingerprint))
+        }
+        #expect(fingerprints.count == 1)
+        try home.write(#"{ "appearance.accent": "red" }"#, theme: "tokyo")
+        await settings.reload()
+        #expect(settings.snapshot.accent == .red)
+        #expect(!settings.diagnostics.contains { $0.kind == .unreadableFile })
+    }
+
+    /// Settings lists problems; which keys the file sets is no problem.
+    @Test func thePageListsNoNoteAsAProblem() async throws {
+        let home = try Home()
+        defer { withExtendedLifetime(home) {} }
+        try home.write(#"{ "appearance.accent": "blue" }"#, theme: "tokyo")
+        let settings = try Self.controller(home, config: #"{ "appearance": { "themeFile": "tokyo" } }"#)
+        await settings.reload()
+        #expect(settings.diagnostics.contains { $0.kind == .setByThemeFile })
+        #expect(!settings.pageDiagnostics.contains { $0.kind == .setByThemeFile })
+    }
+
     @Test func aNameThatIsNoThemeFileNameIsReported() async throws {
         let home = try Home()
         defer { withExtendedLifetime(home) {} }
