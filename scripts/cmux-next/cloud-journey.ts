@@ -329,14 +329,18 @@ export const MODEL_STUB_PY = fileURLToPath(new URL("./cloud-journey-model-stub.p
 export const INSTALLER_SWIFT = fileURLToPath(new URL("../../Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/CloudCredentialInstaller.swift", import.meta.url));
 
 /** CloudCredentialInstaller.preflight and .command(provider: .claude, payloadPath:), built as the Swift builds them. */
-export function claudeLoginPrograms(installerSwift: string): { preflight: string; install: (payloadPath: string) => string } {
-  const preflight = swiftRawString(installerSwift, "preflight");
+/**
+ * The Mac's login copy programs. `creatorTeamGuest` is the DEV and dogfood creator allowance (nightly builds,
+ * CloudCredentialTransfer.allowsCreatorTeamGuest): the machine's creator may also copy a login to a team guest.
+ */
+export function claudeLoginPrograms(installerSwift: string, creatorTeamGuest = false): { preflight: string; install: (payloadPath: string) => string } {
+  const preflight = swiftRawString(installerSwift, creatorTeamGuest ? "creatorTeamPreflight" : "preflight");
   const script = swiftRawString(installerSwift, "script");
   return {
     preflight,
     install: (payloadPath) =>
       "set -e\n. /etc/cmux/agent-auth.sh\ncmux_agent_drop_model_plane_env\n" +
-      `python3 - ${shq("claude")} ${shq(payloadPath)} owner <<'CMUX_CREDENTIAL_INSTALL'\n${script}\nCMUX_CREDENTIAL_INSTALL`,
+      `python3 - ${shq("claude")} ${shq(payloadPath)} ${creatorTeamGuest ? "owner,team" : "owner"} <<'CMUX_CREDENTIAL_INSTALL'\n${script}\nCMUX_CREDENTIAL_INSTALL`,
   };
 }
 
@@ -608,9 +612,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
     if (agent !== "claude" || only.has("chat") || only.has("login")) {
       J.skip("pass Claude login", agent !== "claude" ? `agent ${agent}` : "--skip");
-    } else if (team) {
-      // The app copies a login only to an owner machine (CloudCredentialInstaller.preflight); a team guest is shared.
-      J.skip("pass Claude login", "a team machine: the app copies a person's login only to their own machine");
     } else if (!claudeLogin) {
       J.skip("pass Claude login", "no CLAUDE_CODE_OAUTH_TOKEN: the reply needs the person's Claude login on the machine");
     } else {
@@ -619,9 +620,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       await J.step("pass Claude login", async () => {
         // CloudCredentialTransfer.validate: a setup-token login, printable ASCII, at most 12,000 bytes.
         if (!/^sk-ant-oat01-[\x21-\x7e]{19,11987}$/.test(claudeLogin)) throw new Error("CLAUDE_CODE_OAUTH_TOKEN is not a `claude setup-token` login");
-        const programs = claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"));
+        // On a team machine the journey is its creator and copies as a DEV or nightly build does (Release copies
+        // only to an owner machine).
+        const programs = claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), Boolean(team));
         const pre = await exec(programs.preflight);
-        if (pre.code !== 0) throw new Error(`preflight exit ${pre.code}: not an owner machine with the image's launchers`);
+        if (pre.code !== 0) throw new Error(`preflight exit ${pre.code}: not an ${team ? "owner or team" : "owner"} machine with the image's launchers`);
         const folder = "/home/cmux/.cmux/credential-transfer";
         const made = await exec(`umask 077 && mkdir -p -- ${shq(folder)} && chmod 700 -- ${shq(folder)} && test -O ${shq(folder)} && test ! -L ${shq(folder)}`);
         if (made.code !== 0) throw new Error(`staging folder: exit ${made.code}`);

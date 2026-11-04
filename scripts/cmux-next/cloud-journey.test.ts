@@ -66,4 +66,10 @@ describe("cloud journey", () => {
     expect(stub).toContain('c.get("type") == "tool_result"');
     expect(stub).toContain("cred_sha256");
   });
+  test("a team machine gets the DEV creator allowance, as a nightly build copies", () => {
+    const team = claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), true);
+    expect(team.preflight).toContain("owner|team");
+    expect(team.install("/p.json")).toContain("'/p.json' owner,team <<");
+    expect(claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8")).install("/p.json")).toContain("'/p.json' owner <<");
+  });
 });
