@@ -92,8 +92,9 @@ impl ActivityStream {
             self.update(|state| state.user_input_ms = Some(now_ms()));
             return;
         }
-        // SeqCst: either this key sees the subscriber, or the subscriber's first snapshot sees this time.
-        self.shared.user_input_ms.store(now_ms(), Ordering::SeqCst);
+        // SeqCst: either this key sees the subscriber, or the subscriber's first snapshot sees this time. A key
+        // preempted after its clock read never moves the time back.
+        self.shared.user_input_ms.fetch_max(now_ms(), Ordering::SeqCst);
         if self.shared.subscribed.load(Ordering::SeqCst)
             && !self.shared.wake_pending.swap(true, Ordering::SeqCst)
         {

@@ -132,6 +132,27 @@ impl SizingEntries {
 }
 
 impl TerminalSizingEntry {
+    /// Points the entry at `surface`'s terminal runtime when that runtime is the entry's: a respawn under the same
+    /// runtime id builds a new runtime with a new slot, and the entry outlives it. The old slot is cleared; the
+    /// sizing guard publishes into the new one (the caller reached the entry through `SizingEntries`, which marked
+    /// it). A surface of another runtime changes nothing.
+    pub(in crate::mux) fn follow_runtime_of(
+        &mut self,
+        runtime: SurfaceId,
+        surface: &crate::Surface,
+    ) {
+        if surface.terminal_runtime_id() != Some(runtime) {
+            return;
+        }
+        let Some(slot) = surface.sizing_fast_path_slot() else { return };
+        if self.fast_path_slot.as_ref().is_some_and(|current| Arc::ptr_eq(current, &slot)) {
+            return;
+        }
+        if let Some(old) = self.fast_path_slot.replace(slot) {
+            old.store(None);
+        }
+    }
+
     /// The view a key may skip its note for: the sole newest member, a client's own view, while nothing waits for
     /// the next apply. Settled: no grid hold, no handheld that reported a size (a handheld caps or holds the grid),
     /// and, unless the engine holds the grid (no view counts, so an apply does nothing), the grid it applied is its
@@ -229,7 +250,8 @@ impl Drop for SizingGuard<'_> {
     fn drop(&mut self) {
         if self.guard.terminal_sizing.publishing {
             // A panic that began while this guard held the lock cut its change short: the marked entries publish
-            // nothing (their keys take the slow path, which meets the poisoned lock as the old path does).
+            // nothing, so their keys take the slow path. A later holder that recovers the poison republishes what it
+            // touches (the settled and member checks still apply to what it sees).
             let cut_short = std::thread::panicking() && !self.panicking_at_lock;
             self.guard.terminal_sizing.publish_marked(cut_short);
         }
