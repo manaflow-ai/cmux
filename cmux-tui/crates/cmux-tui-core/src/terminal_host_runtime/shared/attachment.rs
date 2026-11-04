@@ -172,7 +172,58 @@ impl HostInputRoute {
     pub(crate) fn send(&self, kind: MessageKind, payload: &[u8]) -> std::io::Result<()> {
         send_host_frame(&self.writer, self.protocol_version, kind, payload)
     }
+
+    /// One small frame on the route's connection on the caller's turn, only when that cannot wait: the connection's
+    /// writer is free and the host socket takes the whole frame now. True when it was written. False (nothing
+    /// written) when another writer holds the connection, the frame is larger than [`INLINE_FRAME_MAX`], or the
+    /// socket cannot take it whole at once; the caller then queues the frame for the terminal's input port. A frame
+    /// the socket refused with an error is not written either: the port's writer meets the same error and handles it
+    /// (a lost host's reconnect).
+    #[cfg(unix)]
+    pub(crate) fn try_send_now(&self, kind: MessageKind, payload: &[u8]) -> bool {
+        use std::os::fd::AsRawFd as _;
+        if payload.len() > INLINE_FRAME_MAX {
+            return false;
+        }
+        let Ok(writer) = self.writer.try_lock() else { return false };
+        let mut frame = Frame::new(kind, payload.to_vec());
+        frame.version = self.protocol_version;
+        let Ok(bytes) = crate::terminal_host_protocol::encode_frame(&frame) else { return false };
+        // MSG_DONTWAIT: never blocks, whatever the socket's mode. A Unix stream socket takes a write this small whole
+        // or not at all (it needs room for the whole of it): a partial write cannot happen, and if one ever did the
+        // stream would be corrupt, so the connection is shut down as `send_host_frame` does after a failed write.
+        // SAFETY: the descriptor is the connection's open socket, kept alive by the writer guard; `bytes` is a live
+        // buffer of the given length.
+        let sent = unsafe {
+            libc::send(
+                writer.as_raw_fd(),
+                bytes.as_ptr().cast(),
+                bytes.len(),
+                libc::MSG_DONTWAIT | SEND_NO_SIGNAL,
+            )
+        };
+        if sent == bytes.len() as isize {
+            return true;
+        }
+        if sent > 0 {
+            let _ = writer.shutdown(std::net::Shutdown::Both);
+        }
+        false
+    }
 }
+
+/// The largest frame payload [`HostInputRoute::try_send_now`] writes on the caller's turn: a person's key (a few
+/// bytes, a short paste of a word). Larger input goes through the port's writer.
+#[cfg(unix)]
+pub(crate) const INLINE_FRAME_MAX: usize = 1024;
+
+/// No SIGPIPE from a send to a host that closed its end: the error is returned instead. macOS has no such flag; there,
+/// as for every other write on this socket (`write_frame` through std), the Rust runtime ignores SIGPIPE, so the send
+/// fails with EPIPE.
+#[cfg(all(unix, not(target_os = "macos")))]
+const SEND_NO_SIGNAL: libc::c_int = libc::MSG_NOSIGNAL;
+#[cfg(target_os = "macos")]
+const SEND_NO_SIGNAL: libc::c_int = 0;
 
 /// One frame on a daemon-to-host connection's writer.
 pub(crate) fn send_host_frame(
