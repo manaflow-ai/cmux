@@ -1713,6 +1713,7 @@ export function Picker({
                         key={choice.id}
                         choice={choice}
                         section={section}
+                        current={choice.id === section.current}
                         warnUnrestricted={warnUnrestricted}
                         close={() => setMenuOpen(false)}
                       />
@@ -1724,6 +1725,7 @@ export function Picker({
                       key={choice.id}
                       choice={choice}
                       section={section}
+                      current={choice.id === section.current}
                       warnUnrestricted={warnUnrestricted}
                       close={() => setMenuOpen(false)}
                     />
@@ -1741,11 +1743,13 @@ export function Picker({
 function PickerMenuItem({
   choice,
   section,
+  current,
   warnUnrestricted,
   close,
 }: {
   choice: Choice;
   section: Section;
+  current: boolean;
   warnUnrestricted: boolean;
   close(): void;
 }) {
@@ -1771,6 +1775,7 @@ function PickerMenuItem({
         )}
       </span>
       {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
+      {current && <CheckIcon />}
     </MenuItem>
   );
 }
