@@ -22502,6 +22502,8 @@ struct CMUXCLI {
               - pane [focused]
               - surface [selected]
               Browser surfaces also include their current URL.
+              Without --all, --window or --workspace, a last line says how many
+              other windows were left out.
 
             Example:
               cmux tree
@@ -24629,7 +24631,7 @@ struct CMUXCLI {
               options.windowHandle == nil,
               options.workspaceHandle == nil,
               !shownWindows.isEmpty,
-              let listed = (try? client.sendV2(method: "window.list"))?["windows"] as? [[String: Any]] else {
+              let listed = (try? client.sendV2(method: "window.list", responseTimeout: 2))?["windows"] as? [[String: Any]] else {
             return nil
         }
         let shownIDs = Set(shownWindows.compactMap { $0["id"] as? String })

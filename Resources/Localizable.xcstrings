@@ -114686,15 +114686,51 @@
       "extractionState": "manual",
       "localizations": {
         "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "(النافذة الحالية فقط، عدد النوافذ الأخرى: %lld؛ استخدم --all)"
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "(النافذة الحالية فقط، عدد النوافذ الأخرى: %lld؛ استخدم --all)"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "(النافذة الحالية فقط، عدد النوافذ الأخرى: %lld؛ استخدم --all)"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "(النافذة الحالية فقط، عدد النوافذ الأخرى: %lld؛ استخدم --all)"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "(النافذة الحالية فقط، عدد النوافذ الأخرى: %lld؛ استخدم --all)"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "(النافذة الحالية فقط، عدد النوافذ الأخرى: %lld؛ استخدم --all)"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "(النافذة الحالية فقط، عدد النوافذ الأخرى: %lld؛ استخدم --all)"
+                }
+              }
+            }
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "(samo trenutni prozor, još %lld prozora: koristite --all)"
+            "value": "(samo trenutni prozor, ostali prozori: %lld; koristite --all)"
           }
         },
         "da": {
@@ -114704,27 +114740,87 @@
           }
         },
         "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "(nur das aktuelle Fenster, %lld weitere Fenster: --all verwenden)"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "(nur das aktuelle Fenster, %lld weiteres Fenster: --all verwenden)"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "(nur das aktuelle Fenster, %lld weitere Fenster: --all verwenden)"
+                }
+              }
+            }
           }
         },
         "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "(current window only, %lld more windows: use --all)"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "(current window only, %lld more window: use --all)"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "(current window only, %lld more windows: use --all)"
+                }
+              }
+            }
           }
         },
         "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "(solo la ventana actual, %lld ventanas más: usa --all)"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "(solo la ventana actual, %lld ventana más: usa --all)"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "(solo la ventana actual, %lld ventanas más: usa --all)"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "(solo la ventana actual, %lld ventanas más: usa --all)"
+                }
+              }
+            }
           }
         },
         "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "(fenêtre actuelle uniquement, %lld autres fenêtres : utilisez --all)"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "(fenêtre actuelle uniquement, %lld autre fenêtre : utilisez --all)"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "(fenêtre actuelle uniquement, %lld autres fenêtres : utilisez --all)"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "(fenêtre actuelle uniquement, %lld autres fenêtres : utilisez --all)"
+                }
+              }
+            }
           }
         },
         "it": {
@@ -114734,9 +114830,15 @@
           }
         },
         "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "(現在のウィンドウのみ。ほかに %lld 個のウィンドウがあります: --all を使用)"
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "(現在のウィンドウのみ。ほかに %lld 個のウィンドウがあります: --all を使用)"
+                }
+              }
+            }
           }
         },
         "km": {
@@ -114746,9 +114848,15 @@
           }
         },
         "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "(현재 창만 표시, 다른 창 %lld개: --all 사용)"
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "(현재 창만 표시, 다른 창 %lld개: --all 사용)"
+                }
+              }
+            }
           }
         },
         "nb": {
@@ -114794,15 +114902,27 @@
           }
         },
         "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "(仅当前窗口，另有 %lld 个窗口：使用 --all)"
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "(仅当前窗口，另有 %lld 个窗口：使用 --all)"
+                }
+              }
+            }
           }
         },
         "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "(僅目前視窗，另有 %lld 個視窗：使用 --all)"
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "(僅目前視窗，另有 %lld 個視窗：使用 --all)"
+                }
+              }
+            }
           }
         }
       }

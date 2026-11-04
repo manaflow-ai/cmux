@@ -129,6 +129,12 @@
       1
     ]
   },
+  "cli.tree.output.otherWindows.other": {
+    "source": "(current window only, %lld more windows: use --all)",
+    "arguments": [
+      1
+    ]
+  },
   "cli.vm.env.remove.many": {
     "source": "OK removed %1$ld variables on %2$@: %3$@",
     "arguments": [
