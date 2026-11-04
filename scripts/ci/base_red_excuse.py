@@ -64,6 +64,9 @@ _spec = importlib.util.spec_from_file_location("main_fix_evidence", Path(__file_
 _evidence = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_evidence)
 Refused, job_for, latest_checks = _evidence.Refused, _evidence.job_for, _evidence.latest_checks
+# A read GitHub rate-limited, where the evidence reader tells it apart (main's main_fix_evidence.py): exit 3, which
+# gh-merge-green reports as a rate limit rather than a red. A reader without it raises Refused (exit 1).
+RateLimited = getattr(_evidence, "RateLimited", ())
 
 
 ESCAPE_FLAG = "--allow-escape-sequences"
@@ -804,15 +807,15 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                 continue
             job = job_for(repo, latest[name], sha, github)
             if is_aggregate(name, repo):
-                if name in rollups(repo)["run"]:
-                    aggregate_runs.append((name, job["run_id"]))
-                    continue
                 # The check-run can remain failed while its Actions job has
                 # been retried or replaced.  Never discard this exact job and
                 # rescan the run: a green/missing aggregate must not allow its
-                # child failures to be excused.
+                # child failures to be excused (a run rollup like ci-status too).
                 if job.get("conclusion") != "failure":
                     raise Refused(f"'{name}': exact aggregate job is {job.get('conclusion')}, not failure")
+                if name in rollups(repo)["run"]:
+                    aggregate_runs.append((name, job["run_id"]))
+                    continue
                 aggregate_jobs.append(job)
             else:
                 jobs[job["id"]] = job
@@ -1391,6 +1394,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         audit = judge(args.repo, args.base, args.sha, args.run, GitHub(), checks=args.check,
                       flake_state=test_reds.load_flake_state(args.flake_state, fetch=True))
+    except RateLimited as error:
+        print(f"rate-limited: {error}", file=sys.stderr)
+        return 3
     except Infra as error:
         print(f"not excused: infra, not a verdict: {error}", file=sys.stderr)
         return 1
