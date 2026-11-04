@@ -6,6 +6,7 @@ import Testing
 /// FRAME OWNER REFACTOR S7b: `debug.layers` `top_instances`. The class counts (`top_classes`) said the titlebar's
 /// `_NSCoreHostingView<RootView>` laid out about 7.6 and 3.8 times per tick of a live resize, but not which two views
 /// those are. The guard now counts per view, from a reset on (benches and films), with each view's superview chain.
+/// The guard is one per process (it swizzles AppKit), so the test reads only what it counts after its own reset.
 @MainActor
 @Suite(.serialized)
 struct LayoutPassGuardInstancesTests {
@@ -20,10 +21,8 @@ struct LayoutPassGuardInstancesTests {
         holder.addSubview(busy)
         holder.addSubview(quiet)
 
+        // Before this test's reset: whatever an earlier test of the process counted is cleared by it.
         busy.layout()
-        let beforeReset = guardian.instancesByCalls(limit: 10).filter { $0.viewClass == String(describing: Leaf.self) }
-        #expect(beforeReset.isEmpty, "views counted before any reset: \(beforeReset)")
-
         guardian.reset()
         for _ in 0..<3 { busy.layout() }
         quiet.layout()

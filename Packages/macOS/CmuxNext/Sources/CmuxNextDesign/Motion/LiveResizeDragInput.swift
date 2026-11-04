@@ -36,7 +36,9 @@ public final class LiveResizeDragInput {
     /// The switch for the resize in progress, read at its first drag; nil between resizes.
     private var latched: Bool?
     /// A drag was applied in the display frame that runs now (since the last frame tick): a drag that comes now waits
-    /// for the next tick. A tick starts a display frame; it applies the waiting drag, if any.
+    /// for the next tick. A tick starts a display frame; it applies the waiting drag, if any. It is the frame's, not the
+    /// resize's: a press and release do not clear it, so a new resize in the same display frame as the last applied drag
+    /// waits for the tick too (at most one tree layout per display frame).
     private var appliedThisFrame = false
     private var ticksLeft = 0
     private lazy var client = FrameClient(owner: "LiveResize.drag", isAnimation: false, input: true, scheduler: { [weak self] in
