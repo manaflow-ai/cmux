@@ -6,7 +6,34 @@
 import { useEffect, useRef, type PointerEvent } from "react";
 import { isMousePress, trackPressRelease } from "./pressRelease";
 
+type OpenPopover = { element: HTMLElement; close(): void };
+const openPopovers = new Set<OpenPopover>();
+
+/** Close other open popovers in this composer before a trigger starts its own press. */
+function closeOpenComposerPopovers(except: HTMLElement) {
+  const composer = except.closest(".acpmux-composer, .nt-composer");
+  if (!composer) return;
+  for (const popover of [...openPopovers]) {
+    if (!popover.element.isConnected) {
+      openPopovers.delete(popover);
+      continue;
+    }
+    if (popover.element !== except && popover.element.closest(".acpmux-composer, .nt-composer") === composer)
+      popover.close();
+  }
+}
+
 export function usePopoverTrigger(open: boolean, setOpen: (open: boolean) => void, show?: () => void) {
+  const targetRef = useRef<HTMLElement | null>(null);
+  const setOpenRef = useRef(setOpen);
+  setOpenRef.current = setOpen;
+  useEffect(() => {
+    const element = targetRef.current;
+    if (!open || !element) return;
+    const popover = { element, close: () => setOpenRef.current(false) };
+    openPopovers.add(popover);
+    return () => openPopovers.delete(popover);
+  }, [open]);
   const openAtPress = useRef<boolean | undefined>(undefined);
   // A mouse press already opened or closed it: the click it ends with does nothing.
   const pressed = useRef(false);
@@ -22,6 +49,8 @@ export function usePopoverTrigger(open: boolean, setOpen: (open: boolean) => voi
   );
   return {
     onPointerDown: (event: PointerEvent<HTMLElement>) => {
+      targetRef.current = event.currentTarget;
+      closeOpenComposerPopovers(event.currentTarget);
       openAtPress.current = open;
       if (!isMousePress(event)) return;
       // Opening a menu moves focus into it, and the browser's transient :active state goes with it
@@ -63,7 +92,8 @@ export function usePopoverTrigger(open: boolean, setOpen: (open: boolean) => voi
     onMouseDown: (event: { preventDefault(): void }) => {
       if (open) event.preventDefault();
     },
-    onClick: () => {
+    onClick: (event: { currentTarget: HTMLElement }) => {
+      targetRef.current = event.currentTarget;
       const wasOpen = openAtPress.current ?? open;
       openAtPress.current = undefined;
       if (pressed.current) {
