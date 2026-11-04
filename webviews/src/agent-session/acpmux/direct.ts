@@ -1994,6 +1994,13 @@ export class AcpmuxDirectClient {
   private lastSeq = 0;
   private turnOpen = false;
   private autoResumedAttempt: number | undefined;
+  /// The chat's last failed turn, by its prompt's root and its card's row (`failedAttempts`).
+  private lastFailure?: FailedAttempt;
+  /// The open turn when it is acpmux's retry (auto_resume, automatic or the Retry button's) of the
+  /// failed turn before it: the failure it retries, and its own hidden prompt row.
+  private retrying?: { failure: FailedAttempt; promptRow: string };
+  /// The root of the prompt that opened the open turn, whatever the turn_started names.
+  private openedRoot?: string;
   /// The last seq seen when Stop was pressed: only a turn event after it answers that Stop. A
   /// rebuild (loadOlder, lag resync) replays older ones, which must not answer a later Stop.
   private stopAfterSeq?: number;
@@ -2891,6 +2898,9 @@ export class AcpmuxDirectClient {
     this.clockOffset = undefined;
     this.summary = undefined;
     this.autoResumedAttempt = undefined;
+    this.lastFailure = undefined;
+    this.retrying = undefined;
+    this.openedRoot = undefined;
     this.configSeq = 0;
     this.limitsSeq = 0;
     this.limitsVersion += 1;
@@ -5104,6 +5114,9 @@ export class AcpmuxDirectClient {
     this.turnOpen = false;
     this.runningTurnId = undefined;
     this.autoResumedAttempt = undefined;
+    this.lastFailure = undefined;
+    this.retrying = undefined;
+    this.openedRoot = undefined;
     this.turnPrompt = undefined;
     this.turnTokens = undefined;
     this.turnTokenSplit = undefined;
@@ -6231,6 +6244,16 @@ export class AcpmuxDirectClient {
         this.stoppingOpens(event);
         // A prompt opens its turn; a steer goes into the turn already open.
         if (promptId && msg.steer !== true) this.turnPrompt = promptRoot(promptId);
+        if (msg.steer !== true) {
+          // A retry of the failed turn before it fails the same way again: one card per prompt
+          // (`failedAttempts`). Any other prompt starts the count over.
+          const root = promptId ? promptRoot(promptId) : undefined;
+          const failure = this.lastFailure;
+          this.retrying =
+            failure && root === failure.root && autoResumeKind(msg) ? { failure, promptRow: durableRowId } : undefined;
+          this.lastFailure = undefined;
+          this.openedRoot = root;
+        }
         this.turnOpen = true;
       } else if (event.kind === "stopping") {
         // acpmux took the person's Stop for the running turn (hub/cancel.rs `mark_stopping`).
@@ -6363,6 +6386,7 @@ export class AcpmuxDirectClient {
             // "idk if it should be showing things like that").
             ...(msg.cancelForced === true ? { stopForced: true as const } : {}),
           });
+        if (event.kind === "turn_result") this.failedAttempts(summaryId, status);
         if (event.kind === "turn_result") this.deferLateSteers(turnId, status);
         this.streamingAssistant = undefined;
         this.streamingAssistantMessageId = undefined;
@@ -6725,6 +6749,28 @@ export class AcpmuxDirectClient {
       if (row && row.kind === "user" && !row.incoming && !row.inboxThread && row.steerPromptId) return row.id;
     }
     return undefined;
+  }
+
+  /// One error card per prompt (Aziz, 2026-11-03: "Claude Code quit before it finished this turn."
+  /// four times under one message): a Claude chat whose conversation was lost failed its turn, then
+  /// acpmux's automatic continuation and each Retry (`P~resume-n`, auto_resume) failed the same way,
+  /// and every attempt drew its own card. A retry that fails again replaces the card of the failure
+  /// it retried, and its hidden prompt goes with it, so the newest card sits under the person's
+  /// prompt as the only one. A retry that ends any other way leaves the earlier failure as it was.
+  private failedAttempts(summaryId: string, status: string): void {
+    const retrying = this.retrying;
+    this.retrying = undefined;
+    const root = this.openedRoot;
+    this.openedRoot = undefined;
+    if (status !== "failed") {
+      this.lastFailure = undefined;
+      return;
+    }
+    if (retrying) {
+      if (retrying.failure.summaryId !== summaryId) this.rows.delete(retrying.failure.summaryId);
+      this.rows.delete(retrying.promptRow);
+    }
+    this.lastFailure = root !== undefined ? { root, summaryId } : undefined;
   }
 
   /// A stopped turn's end: each steer logged after its `stopping` record goes below the stop line, as a
@@ -10431,6 +10477,15 @@ function catalogEntry(harness: any): AcpmuxSnapshot["catalog"][number] {
 
 /// Whether the person can see the page: WebKit reports `hidden` for a web view out of its window,
 /// hidden, or in an occluded window.
+/// A failed turn's card (its turnSummary row) and the root of the prompt it ran (`failedAttempts`).
+type FailedAttempt = { root: string; summaryId: string };
+
+/// Whether a prompt record is acpmux's retry of the chat's own failed turn (`auto_resume`, the
+/// automatic continuation or the Retry button's), never a subagent's resume.
+function autoResumeKind(msg: { _meta?: { provenance?: unknown } }): boolean {
+  return (msg._meta?.provenance as { kind?: unknown } | undefined)?.kind === "auto_resume";
+}
+
 /// The prompt a turn runs for: acpmux's continuation `P~resume-n` of a cut turn is `P`'s
 /// (hub/auto_resume.rs `SUFFIX`).
 export function promptRoot(promptId: string): string {
