@@ -263,8 +263,9 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             }
             // The daemon has stopped its agents and synced its store. Exit
             // now rather than wait for the runtime to drain blocking tasks
-            // (a launcher `--version` check can take 20 s).
-            std::process::exit(0)
+            // (a launcher `--version` check can take 20 s); 74 when its store
+            // asked for a restart (`daemon::EXIT_REPAIR`).
+            std::process::exit(crate::daemon::exit_status())
         }
         Some(Command::CliAgent {
             last_block,
