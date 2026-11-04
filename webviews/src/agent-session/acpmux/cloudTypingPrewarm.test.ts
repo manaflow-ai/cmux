@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test";
-import { CLOUD_TYPING_PREWARM_REFRESH_MS, CloudTypingPrewarm, cloudTypingMachineID } from "./cloudTypingPrewarm";
+import {
+  CLOUD_TYPING_PREWARM_REFRESH_MS,
+  CloudTypingPrewarm,
+  cloudIdentityKept,
+  cloudTypingMachineID,
+} from "./cloudTypingPrewarm";
 
 function harness() {
   let now = 0;
@@ -136,4 +141,16 @@ test("an explicit local choice suppresses a previous Cloud identity until the ch
   expect(cloudTypingMachineID("picked-cloud", "previous-cloud")).toBe("picked-cloud");
   expect(cloudTypingMachineID(null, "previous-cloud")).toBeUndefined();
   expect(cloudTypingMachineID(undefined)).toBeUndefined();
+});
+
+test("a handshake's Cloud identity stays with its chat, not the next draft or chat in the pane", () => {
+  // A send from a fresh Cloud draft adopts its new session: the identity is that chat's.
+  expect(cloudIdentityKept({ generation: 1 }, { session: "chat-a", generation: 1 })).toBe(true);
+  expect(cloudIdentityKept({ session: "chat-a", generation: 1 }, { session: "chat-a", generation: 1 })).toBe(true);
+  // Leaving the Cloud chat for a New Tab draft or another chat drops it until that page's handshake.
+  expect(cloudIdentityKept({ session: "chat-a", generation: 1 }, { generation: 1 })).toBe(false);
+  expect(cloudIdentityKept({ session: "chat-a", generation: 1 }, { session: "chat-b", generation: 1 })).toBe(false);
+  expect(cloudIdentityKept({ generation: 1 }, { generation: 2 })).toBe(false);
+  // An unbound identity never names the machine a fresh local draft's first edit hints.
+  expect(cloudTypingMachineID(undefined, undefined)).toBeUndefined();
 });
