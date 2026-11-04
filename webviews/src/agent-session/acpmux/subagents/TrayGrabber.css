@@ -1,0 +1,105 @@
+/* The running tray's grabber (TrayGrabber.tsx): a band along the top edge, of the tray while it
+   shows and of the composer while the tray is tucked. The band is the button, so the pointer finds
+   it anywhere along its width; the small pill in it is drawn while the pointer is in the band, the
+   button has keyboard focus, or (tucked) work runs or an agent waits on the person. Its side is
+   trayGrabber.experiment.ts. */
+.acpmux-tray-grabber {
+  --acpmux-grabber-band: 64px;
+  --acpmux-grabber-height: 12px;
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: calc(50% - var(--acpmux-grabber-band) / 2);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  width: var(--acpmux-grabber-band);
+  height: var(--acpmux-grabber-height);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--agent-muted);
+  cursor: pointer;
+}
+.acpmux-tray-grabber[data-side="left"] {
+  left: var(--acpmux-tray-inset, 8px);
+}
+.acpmux-tray-grabber[data-side="right"] {
+  right: var(--acpmux-tray-inset, 8px);
+  left: auto;
+}
+.acpmux-tray-grabber__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 10px;
+  padding: 0 6px;
+  border-radius: 0 0 6px 6px;
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  box-shadow: inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 var(--acpmux-composer-edge, transparent);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  line-height: 10px;
+  opacity: 0;
+  transition: opacity var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
+}
+.acpmux-tray-grabber:is(:hover, :focus-visible) > .acpmux-tray-grabber__pill,
+.acpmux-tray-grabber[data-live] > .acpmux-tray-grabber__pill {
+  opacity: 1;
+}
+.acpmux-tray-grabber:hover {
+  color: var(--agent-text);
+}
+.acpmux-tray-grabber:focus-visible {
+  outline: none;
+}
+.acpmux-tray-grabber:focus-visible > .acpmux-tray-grabber__pill {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+/* Tucked, the chevron points up: it brings the tray back. */
+.acpmux-tray-grabber[data-tucked] svg {
+  transform: rotate(180deg);
+}
+.acpmux-tray-grabber__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--agent-accent, var(--agent-text));
+}
+/* The tucked tray: no glass, no height, only the grabber on the composer's top edge. It lies over
+   the composer's top so the band reaches into the card the pointer is already on. */
+.acpmux-dock > .acpmux-tray-tucked {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  height: 0;
+  min-height: 0;
+  margin: 0 var(--cv-inset-end, var(--cv-inset)) 0 var(--cv-inset);
+  overflow: visible;
+  animation: none;
+}
+.acpmux-tray-tucked {
+  position: relative;
+  height: 0;
+}
+.acpmux-tray-tucked > .acpmux-tray-grabber {
+  top: 0;
+}
+/* A showing tray's grabber sits over its top edge: the band is drawn only while the pointer is in
+   it, so the header under it keeps its words. */
+.acpmux-running-tray:has(> .acpmux-tray-grabber) {
+  position: relative;
+}
+.acpmux-running-tray > .acpmux-tray-grabber {
+  --acpmux-grabber-height: 8px;
+}
+.acpmux-running-tray > .acpmux-tray-grabber > .acpmux-tray-grabber__pill {
+  height: 8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-tray-grabber__pill {
+    transition: none;
+  }
+}

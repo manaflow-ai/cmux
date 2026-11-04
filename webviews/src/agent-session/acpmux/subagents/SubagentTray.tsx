@@ -113,6 +113,9 @@ import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
 import { PlanList } from "../conversation/PlanList";
+import { changeChatDisplay, TRAY_TUCKED_KEY, useTrayTucked } from "../chatDisplay";
+import { TrayGrabber } from "./TrayGrabber";
+import { trayGrabberLook } from "./trayGrabber.experiment";
 import type { AcpmuxPlanEntry } from "../model";
 
 const ROW_ICON = rowIconSize(12);
@@ -223,6 +226,10 @@ export const SubagentTray = memo(function SubagentTray({
   const [opensArm] = useState(() => experimentArm(trayOpenLook));
   const [kindsArm] = useState(() => experimentArm(trayHeadKindsLook));
   const [kindLine] = useState(() => experimentArm(trayKindLineLook));
+  const [grabberSide] = useState(() => experimentArm(trayGrabberLook));
+  // Tucked away (Settings > Tuck Away Running Tray, the palette, the CLI, or the grabber): only the
+  // grabber shows, on the composer's top edge (TrayGrabber.tsx).
+  const tucked = useTrayTucked();
   // How the header reaches the Background tasks panel, where the chat has one (Leo, 2026-11-03: "a
   // thing like this that can either expand OR open up to this sort of thing"): a panel button beside
   // its chevron (the default), or the whole header, Claude's chip.
@@ -371,6 +378,23 @@ export const SubagentTray = memo(function SubagentTray({
     [t, items, finished, waiting, working, chatHarness, kindsArm, kindLine],
   );
   if (items.length === 0 && finished.length === 0 && !planned) return null;
+  if (tucked)
+    return (
+      <div className="acpmux-tray-tucked" data-tray-tucked="">
+        <TrayGrabber
+          tucked
+          side={grabberSide}
+          running={items.length}
+          waiting={waitingCount(items, waiting)}
+          // Back folded to its header, or open with Option (Leo's plan: tucked, then folded, then open).
+          onToggle={(openIt) => {
+            setOpened(openIt);
+            rememberTrayOpen(chat, openIt);
+            changeChatDisplay(TRAY_TUCKED_KEY, null);
+          }}
+        />
+      </div>
+    );
   // The counts, split by kind, then what ended and failed (trayHeadKinds.ts; Leo, 2026-11-03: "the
   // top bit aka what the collapsed area shows i think can show much more interesting stuf fthan it
   // does now").
@@ -481,6 +505,8 @@ export const SubagentTray = memo(function SubagentTray({
       data-opens={(headed && opensPanel) || undefined}
       style={gutter > 0 ? ({ "--acpmux-tray-gutter": `${gutter}px` } as CSSProperties) : undefined}
     >
+      {/* Its top edge's grabber tucks it away; Settings, the palette and the CLI do the same. */}
+      <TrayGrabber tucked={false} side={grabberSide} onToggle={() => changeChatDisplay(TRAY_TUCKED_KEY, true)} />
       {headed && (
         <button
           type="button"
@@ -777,6 +803,15 @@ export const SubagentTray = memo(function SubagentTray({
     );
   }
 });
+
+/// How many lines wait on the person: the dot on a tucked tray's grabber.
+function waitingCount(items: readonly TrayItem[], waiting: ReadonlySet<string>): number {
+  return items.filter((item) =>
+    item.kind === "agent"
+      ? subagentStatus(item.agent, waiting) === "waiting"
+      : item.kind === "session" && item.session.state === "waiting",
+  ).length;
+}
 
 /// A subagent's state needs no word on its line when its glyph says it: done, or running under the
 /// spinner. Waiting, failed, stopped and a retry keep theirs.

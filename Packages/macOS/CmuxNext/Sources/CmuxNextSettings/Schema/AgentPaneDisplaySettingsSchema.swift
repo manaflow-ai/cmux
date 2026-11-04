@@ -74,6 +74,13 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 help: SettingsText.keyed("settings.agentPane.display.pinnedPlan.help",
                                          "While the agent works, its task list stays under the latest message instead of in the bar over the composer."),
                 .toggle, .bool(false), ["plan", "task", "tasks", "todo", "checklist", "pin", "pinned", "list", "progress"]),
+            // The running tray over the composer (the composer hat) tucked away; a grabber on the composer's
+            // top edge brings it back (webviews subagents/TrayGrabber.tsx; Leo, 2026-11-04: "Some people might
+            // want to tuck away the composer hat"). The grabber writes this key, so the palette, CLI and MCP agree.
+            row(["trayTucked"], SettingsText.keyed("settings.agentPane.display.trayTucked", "Tuck Away Running Tray"),
+                help: SettingsText.keyed("settings.agentPane.display.trayTucked.help",
+                                         "Hides the bar of running agents and commands over the composer. A grabber on the composer's top edge brings it back and shows a dot when an agent waits on you."),
+                .toggle, .bool(false), ["tray", "hat", "composer", "running", "background", "agents", "subagents", "tasks", "tuck", "hide", "show", "collapse", "grabber"]),
             row(["font", "preset"], SettingsText.keyed("settings.agentPane.display.font", "Chat Font"),
                 .choice([
                     SettingChoice("markdown", SettingsText.keyed("settings.choice.agentChatFontMarkdown", "Same as Markdown Viewer")),
