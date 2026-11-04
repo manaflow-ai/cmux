@@ -65,6 +65,31 @@ const devServer = activity(
   1.5,
 );
 
+// The raw assignment from Leo's 2026-11-04 running-strip screenshot. Synthetic paths and data;
+// the executed SHA lookup stays named, while flags and interpolation live in the tooltip/output.
+const glyphCheck =
+  "SHA=$(git rev-parse HEAD); cmux-ci run --class light --key glyph-parity-${SHA:0:12} --ref $SHA --script scripts/check-glyphs.sh";
+const glyphCheckScene = (description?: string) =>
+  chat(
+    [
+      user("Check the glyphs on the fleet", 9),
+      activity(
+        [
+          tool(glyphCheck, "execute", "completed", {
+            inputSummary: JSON.stringify({
+              command: glyphCheck,
+              ...(description ? { description } : {}),
+              run_in_background: true,
+            }),
+            startedAt: minutesAgo(8.75),
+          }),
+        ],
+        8.75,
+      ),
+    ],
+    { isWorking: true },
+  );
+
 /** A long shell line Claude runs in the background, still running (Leo 2026-10-21: "is that a
  * command or a subagent?"). */
 const testRun = activity(
@@ -571,6 +596,34 @@ export default agentPaneEntry({
       },
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
     },
+    "command-substitution": {
+      note: "Leo's raw rev-parse HEAD); strip, repaired: git rev-parse HEAD · cmux-ci run. Both executed operations stay named; shell flags and interpolation remain in the full-command tooltip.",
+      snapshot: glyphCheckScene(),
+      play: async (ctx) => {
+        await trayLines(1)(ctx);
+        const name = ctx.document.querySelector(".acpmux-running-tray .acpmux-summary-agent__name");
+        if (name?.textContent !== "git rev-parse HEAD · cmux-ci run")
+          throw new Error("the command needs a readable title");
+        const line = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray .acpmux-agent-line__button");
+        if (line?.title !== glyphCheck) throw new Error("the full command stays available in the tooltip");
+      },
+    },
+    "command-substitution-described": {
+      note: "The same shell line with a human description: the tray uses that title unchanged.",
+      snapshot: glyphCheckScene("Check the glyphs on the fleet"),
+      play: trayLines(1),
+    },
+    "command-substitution-folded": {
+      note: "The command shares the tray with a reviewer. Its readable title also appears in the folded name arm; no malformed assignment leaks into the strip.",
+      snapshot: chat(
+        [
+          user("Check the glyphs on the fleet", 9),
+          group([agent("Review glyph changes", 9)], 9),
+          ...glyphCheckScene().rows.slice(1),
+        ],
+        { isWorking: true },
+      ),
+    },
     "expand-on-composer": {
       note: "Chosen (Leo, 2026-11-01: \"there's a layout shift when i expand it\"): the tray stays on the composer, its columns on the composer's. What it opens lies over the transcript's foot, as a menu over the composer does, and no row moves; the room under the last row takes it once the rows move anyway (a reply streaming on, a send, Jump to latest, or the reader's wheel past the end).",
       height: 420,
@@ -735,13 +788,16 @@ export default agentPaneEntry({
       })(),
     },
     "counts-equal-rows": {
-      note: "What Leo called lying, told straight: the header counts only what runs (2 subagents, 2 chats it started, all subagents; 2 commands) and equals the rows under it. A command reads as what it does, not its cd prefix; a chat says what its turn does now. What ended stays visible as bounded status cards.",
+      note: "What Leo called lying, told straight: the header counts what runs kind by kind (2 subagents, 2 sessions it started, 2 commands), then the 3 that ended in the list, and equals the rows under it. A command reads as what it does, not its cd prefix; a chat says what its turn does now. What ended stays visible as bounded status cards.",
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         await ctx.click({ selector: ".acpmux-running-tray__head" });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray li[data-finished]").length === 3);
         const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
-        if (title !== "4 subagents running · 2 commands") throw new Error(`the header must count the rows: ${title}`);
+        // Kind by kind (trayHeadKinds.ts): the chats it started read as sessions, and what ended in
+        // the list counts after what runs.
+        if (title !== "2 subagents running · 2 sessions · 2 commands · 3 done")
+          throw new Error(`the header must count the rows: ${title}`);
       },
       snapshot: (() => {
         const base = chat(

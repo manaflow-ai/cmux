@@ -30,11 +30,23 @@ struct CloudConfigurationSignedDEVTests {
     @Test(arguments: ["com.cmuxterm.app", "com.cmuxterm.app.nightly", "com.cmuxterm.app.nightly.cmux-next",
                       "com.cmuxterm.app.rc", "com.cmuxterm.app.debug", "com.cmuxterm.app.debug.next.other", "com.cmuxterm.app.debug.nextx"])
     func otherReleaseChannelsKeepProduction(bundleID: String) {
-        let config = CloudConfiguration.resolve(bundleID: bundleID, bundled: ["CMUX_CLOUD_LINK": "app"], process: [:], isDebugBuild: false)
-        #expect(config.linkSource == .legacy)
+        let config = CloudConfiguration.resolve(bundleID: bundleID, bundled: [:], process: [:], isDebugBuild: false)
+        // Production auth uses NEXT Cloud through the production owner API (cmux-api, which forwards
+        // Cloud to cmux-platform-production), the same app-server link signed DEV builds use.
+        #expect(config.linkSource == .appServer)
         #expect(config.isProductionAuth)
         #expect(config.apiBaseURL.absoluteString == "https://cmux.com")
         #expect(config.ownerAPIBaseURL(environment: [:]).absoluteString == "https://cloud-api.cmux.dev")
+    }
+
+    @Test(arguments: [["CMUX_NEXT_CLOUD_LINK": "legacy"], ["CMUX_CLOUD_LINK": "LEGACY"]])
+    func productionKeepsTheLegacyEscapeHatch(bundled: [String: String]) {
+        let config = CloudConfiguration.resolve(bundleID: "com.cmuxterm.app.nightly.cmux-next", bundled: bundled, process: [:], isDebugBuild: false)
+        #expect(config.linkSource == .legacy)
+        #expect(config.isProductionAuth)
+        let launched = CloudConfiguration.resolve(bundleID: "com.cmuxterm.app.nightly.cmux-next", bundled: [:],
+                                                  process: ["CMUX_NEXT_CLOUD_LINK": "legacy"], isDebugBuild: false)
+        #expect(launched.linkSource == .legacy)
     }
 
     @Test func onlyABenchCaptureBuildIsConfiguredAsDebug() {

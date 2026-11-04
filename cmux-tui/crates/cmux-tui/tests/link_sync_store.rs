@@ -168,6 +168,8 @@ fn serve_machine(socket: &Path, home: &Path) -> &'static AtomicU64 {
 fn git(dir: &Path, args: &[&str]) {
     let output = Command::new("git")
         .args(["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"])
+        // No background gc or maintenance: it would change .git while a push reads it.
+        .args(["-c", "gc.auto=0", "-c", "maintenance.auto=false"])
         .args(args)
         .current_dir(dir)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
