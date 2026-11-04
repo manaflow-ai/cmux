@@ -13506,7 +13506,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                         coldOpen={!childRows && opened.cold ? opened.open : undefined}
                                                         onColdOpenShown={coldOpenShown}
                                                         afterLatest={
-                                                          !childRows && (trayPlacement === "after-latest-message" || !quick) ? (
+                                                          !childRows &&
+                                                          (trayPlacement === "after-latest-message" || !quick) ? (
                                                             <>
                                                               {!quick && (
                                                                 <OpenAppCard
