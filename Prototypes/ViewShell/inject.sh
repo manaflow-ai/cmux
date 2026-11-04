@@ -70,6 +70,8 @@ done
 patch="patch-$(date +%s)-$$.dylib"
 xcrun swiftc -emit-library "${objects[@]}" -o "$work/$patch" -target "$target" -module-name ViewShellPatch \
   -Xlinker -undefined -Xlinker dynamic_lookup
+echo "inject.sh debug: $(grep -n 'Text(text)' "$sources/Badge.swift" | tr '\n' ' ')"
+nm -gU "$work/$patch" | awk '{print $3}' | xcrun swift-demangle --simplified | sed 's/^/inject.sh debug sym: /'
 codesign --force --sign "${CMUX_LIVE_CODE_SIGN_IDENTITY:--}" "$work/$patch" 2>/dev/null
 mkdir -p "$live"
 # Move into place in one step, so the shell never reads a half-written file.
