@@ -49,10 +49,8 @@ public struct LayoutTabDrag {
 final class LayoutViewContext {
     let model: LayoutModel
     weak var provider: (any LayoutPaneContentProvider)?
-    /// The provider's next pane content in a host made ahead, parked hidden in ``spareShelf`` (``parkSpare(_:)``).
+    /// The provider's next pane content in a host made ahead, parked hidden in a screen view (``parkSpare(_:in:)``).
     private(set) var spareHost: PaneHostView?
-    /// Where a spare host waits: a hidden, empty-looking view in the layout, so the host's window walk runs when it is parked.
-    let spareShelf = SpareHostShelf()
     private(set) var hosts: [PaneID: PaneHostView] = [:]
     /// Panes present in any screen of the current snapshot.
     var livePanes: Set<PaneID> = []
@@ -259,31 +257,19 @@ final class LayoutViewContext {
 }
 
 extension LayoutViewContext {
-    /// Puts `content` (the provider's next pane content) in a host made now and parks it in ``spareShelf``; a later
-    /// ``host(for:)`` whose content is `content` adopts that host. Nil drops the one parked. TERMINAL CREATE COST item 4: a
-    /// New Column's new host and pane entering the window cost 2 ms of the key's turn.
-    func parkSpare(_ content: NSView?) {
+    /// Puts `content` (the provider's next pane content) in a host made now and parks it hidden in `screen`, the screen
+    /// view a new pane most likely shows in: a later ``host(for:)`` whose content is `content` adopts that host, and the
+    /// screen's reconcile only unhides it (no move between superviews, no window walk). Nil drops the one parked.
+    /// A hidden host in a screen's subviews is a state the screen already has (a closing pane's retired host).
+    /// TERMINAL CREATE COST item 4: a New Column's new host and pane entering the window cost 2 ms of the key's turn.
+    func parkSpare(_ content: NSView?, in screen: NSView?) {
         spareHost?.removeFromSuperview()
-        spareHost = content.map { content in
+        spareHost = content.flatMap { content in
+            guard let screen else { return nil }
             let host = PaneHostView(pane: PaneID(rawValue: "spare-pane-host"), content: content)
             host.isHidden = true
-            spareShelf.addSubview(host)
+            screen.addSubview(host, positioned: .below, relativeTo: nil)
             return host
         }
     }
-}
-
-/// The hidden view a spare pane host waits in: no hit testing, no accessibility children (nothing in it shows).
-final class SpareHostShelf: NSView {
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        isHidden = true
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { nil }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-    override func accessibilityChildren() -> [Any]? { [] }
-    override func isAccessibilityElement() -> Bool { false }
 }

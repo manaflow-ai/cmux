@@ -1,12 +1,12 @@
 public import AppKit
 
 extension LayoutRootView {
-    /// Parks the provider's next stand-in pane content in a pane host made now, hidden in this view and so already in the
-    /// window: the key that opens a pane (New Column, New Row, Cmd-D) adopts both and puts no new view in the window
-    /// (TERMINAL CREATE COST item 4). Call it only while the layout is still; nil drops the one parked.
+    /// Parks the provider's next stand-in pane content in a pane host made now, hidden in the active screen's view and so
+    /// already in the window: the key that opens a pane there (New Column, New Row, Cmd-D) only unhides it, with no view
+    /// moving into the window or between superviews (TERMINAL CREATE COST item 4). Call it only while the layout is still;
+    /// nil drops the one parked. With no screen view yet, nothing is parked (the pane's host is made in its key's turn).
     public func parkSparePaneContent(_ content: NSView?) {
-        if content != nil, context.spareShelf.superview !== self { addSubview(context.spareShelf, positioned: .below, relativeTo: nil) }
-        context.parkSpare(content)
+        context.parkSpare(content, in: model.activeScreenID.flatMap { screenViews[$0] })
     }
 
     /// Parks `spare`'s pane view (``parkSparePaneContent(_:)``) and returns `spare`.
