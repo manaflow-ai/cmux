@@ -188,8 +188,9 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     expect(await top("Stop the dev server")).toBeLessThan(at);
     expect(at).toBeLessThan(await top("Dev server stopped."));
     // The first turn's calls: the dev server stopped (a later turn said so), the watcher still runs
-    // in the background. A finished Claude turn folds its two calls under their run's line, as Claude
-    // desktop does (turns.ts claudeGroups): open it to their rows.
+    // in the background. A finished Claude turn folds under Worked for, and inside it its two calls
+    // under their run's line, as Claude desktop does (turns.ts claudeGroups): open both to their rows.
+    await page.locator(".cv-worked").first().click();
     await page.locator("button.cv-tool", { hasText: "Ran 2 commands" }).click();
     const row = (command: string) => page.locator(".cv-tool", { hasText: command }).first();
     await row("npm run dev").waitFor({ timeout: 5_000 });
@@ -200,6 +201,47 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
       "Running in background",
     );
     await page.close();
+  });
+
+  test("Background tasks header keeps compact chrome in the production pane stylesheet", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    try {
+      await page.goto(url(CHAT));
+      await page.getByText("Dev server stopped.").waitFor();
+      await page.getByRole("button", { name: "Chat actions" }).click();
+      await page.getByRole("menuitem", { name: "Background tasks", exact: true }).click();
+      const head = page.locator(".acpmux-bg__head");
+      await head.waitFor();
+      // This uses dev.tsx's shipped stylesheet set, which deliberately excludes ui.css/controls.css.
+      const buttons = head.locator("button");
+      const boxes = await buttons.evaluateAll((nodes) =>
+        nodes.map((button) => {
+          const style = getComputedStyle(button);
+          const box = button.getBoundingClientRect();
+          return {
+            width: box.width,
+            height: box.height,
+            border: style.borderTopWidth,
+            background: style.backgroundColor,
+            cursor: style.cursor,
+          };
+        }),
+      );
+      expect(boxes.length).toBeGreaterThan(0);
+      for (const box of boxes) {
+        expect(box.width).toBe(24);
+        expect(box.height).toBe(24);
+        expect(box.border).toBe("0px");
+        expect(box.background).toBe("rgba(0, 0, 0, 0)");
+        expect(box.cursor).toBe("default");
+      }
+      await buttons.first().hover();
+      expect(await buttons.first().evaluate((button) => getComputedStyle(button).backgroundColor)).not.toBe(
+        "rgba(0, 0, 0, 0)",
+      );
+    } finally {
+      await page.close();
+    }
   });
 
   /// A page whose native host records what the page asks of it (CmuxNextAgentPane's `agentSession`).

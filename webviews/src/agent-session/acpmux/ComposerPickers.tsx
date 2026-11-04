@@ -16,7 +16,7 @@ import {
   resolvedModel,
 } from "./defaultChoice";
 import { loadLastChips, rememberLastChips } from "./chipMemory";
-import type { AcpmuxSnapshot } from "./model";
+import type { AcpmuxSnapshot, AcpmuxUsageLimits } from "./model";
 import type { SpeedSection } from "./EffortPicker";
 import { pendingSpeed } from "./pendingSpeed";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
@@ -55,6 +55,8 @@ import { AnchoredCard } from "../../ui/Tooltip";
 import { HOVER_INTENT } from "../../ui/hoverIntent";
 import { useHoverCard } from "./chips/useHoverCard";
 import { ContextCardBody } from "./ContextCard";
+import { PlanUsageCardBody } from "./PlanUsageCard";
+import { planUsedFraction } from "./usageLimits";
 import { contextBreakdown } from "./session-info/ContextSection";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
@@ -69,6 +71,8 @@ import { usePopupHost } from "../../ui/UiProvider";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { isMousePress } from "../../ui/pressRelease";
 import { focusAfterEscape } from "../../ui/escapeFocus";
+import { experimentArm } from "../../experiments/experiment";
+import { contextRingLook } from "./contextRingLook.experiment";
 import {
   type ModeIconName,
   RECOMMENDED_BADGE,
@@ -1155,8 +1159,10 @@ export function ComposerPickers({
       )}
       {/* A custom harness's other settings: each config option no chip above owns, picked like the
           effort level. Codex's collaboration mode stays on its command/mode paths. */}
+      {/* A chat still opening, or starting another harness, carries its last session's options
+          (another chat's recap and suggestions switches), so Options waits for this chat's own. */}
       <AgentOptionsMenu
-        options={extraOptions}
+        options={opening || snapshot.switching?.phase === "starting" ? [] : extraOptions}
         managed={fullAccessManaged}
         managedReason={t(PICKER_LABELS.fullAccessManaged)}
         onPick={(configId, value) => onEffort(configId, value)}
@@ -1402,13 +1408,34 @@ export function isPlan(modeId: string): boolean {
 const TABBABLE =
   'a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex]:not([tabindex="-1"])';
 
+/// The context ring's looks (experiment `context-ring-look`), in the ring's 14-unit viewBox.
+const CONTEXT_RING_LOOKS: Record<
+  "track" | "arc" | "percent" | "fill-quiet",
+  { radius: number; width: number; trackOpacity: number; usedStroke: string; usedOpacity: number; roundEnds: boolean }
+> = {
+  // Shipped: the remaining share at half the used arc's ink, flat ends, so the circle is one gauge.
+  track: { radius: 6, width: 1.75, trackOpacity: 0.5, usedStroke: "currentColor", usedOpacity: 1, roundEnds: false },
+  arc: { radius: 6, width: 1.75, trackOpacity: 0.3, usedStroke: "currentColor", usedOpacity: 1, roundEnds: true },
+  percent: { radius: 6, width: 1.75, trackOpacity: 0.3, usedStroke: "currentColor", usedOpacity: 1, roundEnds: true },
+  "fill-quiet": {
+    radius: 5.5,
+    width: 2.75,
+    trackOpacity: 0.3,
+    usedStroke: "var(--agent-text)",
+    usedOpacity: 0.7,
+    roundEnds: false,
+  },
+};
+
 /// How much of the context window the session has used, as a neutral ring that fills. Resting the pointer
 /// on it, or focusing it, shows the context card with no click (ContextCard.tsx; Leo 2026-10-21,
 /// after Claude's and Codex's): the share and tokens used, the window as a stacked bar, and
 /// Details ›, which opens Session Info's Context section. A click pins the card until a press
 /// outside; Escape closes it however it opened. Tab from the ring moves into the card's buttons,
 /// and Tab past them goes on to what follows the ring. The ring itself never takes a hover pill
-/// (contextCard.css).
+/// (contextCard.css). With `plan` (`agentPane.composerRing` is "planUsage") and a limit the harness
+/// reported, the ring draws the plan window closest to its cap instead and its card is the plan
+/// usage popover (PlanUsageCard.tsx); with none reported it stays on the context, never a 0%.
 export function ContextRing({
   used,
   size,
@@ -1417,6 +1444,7 @@ export function ContextRing({
   now,
   breakdown: reported,
   onOpenDetails,
+  plan,
 }: {
   used?: number;
   size?: number;
@@ -1430,27 +1458,45 @@ export function ContextRing({
   breakdown?: unknown;
   /// Opens Session Info at its Context section; the card shows Details › only with it.
   onOpenDetails?(): void;
+  /// The ring shows the account's plan usage: its limits (acpmux `usageLimits`) and the chat's
+  /// harness family, which names the usage page.
+  plan?: { limits?: AcpmuxUsageLimits; family?: string };
 }) {
   const t = useT();
+  const planFraction = plan ? planUsedFraction(plan.limits) : undefined;
+  const planShown = planFraction !== undefined;
   const hover = useHoverCard(HOVER_INTENT.tooltipDelay);
   const [pinned, setPinned] = useState(false);
   const wrapper = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const card = useRef<HTMLDivElement>(null);
-  const known = used !== undefined && size !== undefined && size > 0;
-  const fraction = known ? Math.min(1, Math.max(0, used / size)) : 0;
+  const contextKnown = used !== undefined && size !== undefined && size > 0;
+  const known = planShown || contextKnown;
+  const fraction = planShown
+    ? Math.min(1, Math.max(0, planFraction))
+    : contextKnown
+      ? Math.min(1, Math.max(0, used / size))
+      : 0;
   const percent = Math.round(fraction * 100);
-  const label = known ? t(PICKER_LABELS.context, { percent }) : t("context.title");
-  const breakdown = known ? contextBreakdown(reported) : undefined;
+  const label = planShown
+    ? t("planUsage.ringLabel", { percent })
+    : known
+      ? t(PICKER_LABELS.context, { percent })
+      : t("context.title");
+  const breakdown = contextKnown && !planShown ? contextBreakdown(reported) : undefined;
   const shown = known && (pinned || hover.open);
   const dismissHover = hover.dismiss;
   const closeCard = useCallback(() => {
     setPinned(false);
     dismissHover();
   }, [dismissHover]);
-  // As Claude desktop's: a 14 px ring, a faint track with the share used drawn over it as an arc
-  // from twelve o'clock (round ends), not a pie and not a spinner.
-  const arcRadius = 6;
+  // As Claude desktop's: a small ring with the share used drawn over its track as an arc from
+  // twelve o'clock; never a pie and never a spinner. Leo (2026-11-03) read the faint-track arc at 68%
+  // as a loading spinner, so the shipped look (`track`) draws the remaining share as a clearly visible
+  // track with flat arc ends: the whole circle reads as one gauge with no gap. The ring never animates.
+  const look = experimentArm(contextRingLook);
+  const ring = CONTEXT_RING_LOOKS[look];
+  const arcRadius = ring.radius;
   const arcCircumference = 2 * Math.PI * arcRadius;
   useEffect(() => {
     // Keep the automation path truthful too: before the first usage report the ring is
@@ -1544,9 +1590,14 @@ export function ContextRing({
         aria-haspopup="dialog"
         aria-expanded={shown}
         // Before the first usage report there is nothing to show: the ring keeps its place, off.
-        disabled={!known}
+        // aria-disabled, not disabled: a disabled button gets no contextmenu in WebKit, and its
+        // right-click (UsageRingMenu) must still hide it or switch it to plan usage (Leo
+        // 2026-11-04: "i want to be able to right click disable it"). The click stays inert.
+        aria-disabled={known ? undefined : true}
         {...hover.trigger}
-        onClick={() => setPinned((was) => !was)}
+        onClick={() => {
+          if (known) setPinned((was) => !was);
+        }}
         onKeyDown={(event) => {
           // Tab goes into the open card (it sits in a portal, out of the page's tab order).
           if (event.key !== "Tab" || event.shiftKey || !shown) return;
@@ -1559,43 +1610,56 @@ export function ContextRing({
       >
         <svg width={14} height={14} viewBox="0 0 14 14" aria-hidden="true" focusable="false">
           <circle
+            className="acpmux-context-track"
             cx="7"
             cy="7"
             r={arcRadius}
             fill="none"
             stroke="currentColor"
-            strokeOpacity={0.3}
-            strokeWidth={1.75}
+            strokeOpacity={ring.trackOpacity}
+            strokeWidth={ring.width}
           />
           {fraction > 0 && (
             <circle
+              className="acpmux-context-used"
               cx="7"
               cy="7"
               r={arcRadius}
               fill="none"
-              stroke="currentColor"
-              strokeWidth={1.75}
-              strokeLinecap={fraction >= 1 ? "butt" : "round"}
+              stroke={ring.usedStroke}
+              strokeOpacity={ring.usedOpacity}
+              strokeWidth={ring.width}
+              strokeLinecap={fraction >= 1 || !ring.roundEnds ? "butt" : "round"}
               strokeDasharray={`${arcCircumference * fraction} ${arcCircumference}`}
               transform="rotate(-90 7 7)"
             />
           )}
         </svg>
       </button>
+      {look === "percent" && known && (
+        <span className="acpmux-context-caption" aria-hidden="true">
+          {percent}%
+        </span>
+      )}
       <AnchoredCard
         anchor={shown ? trigger.current : null}
         // AnchoredCard makes it the shared glass hover card (ui-tooltip ui-card ui-glass).
-        className={`acpmux-context-card acpmux-context-pop${breakdown ? " acpmux-context-pop--breakdown" : " acpmux-context-pop--compact"}`}
+        className={`acpmux-context-card acpmux-context-pop${planShown ? " acpmux-plan-pop" : breakdown ? " acpmux-context-pop--breakdown" : " acpmux-context-pop--compact"}`}
         side="top"
         interactive
-        ariaLabel={t("context.title")}
+        ariaLabel={planShown ? t("planUsage.title") : t("context.title")}
         popupRef={card}
         hoverBridgeId={hover.card["data-cmux-hover-bridge"]}
         // On the card's outer element, so its padding counts as inside the card.
         onPointerEnter={hover.card.onPointerEnter}
         onPointerLeave={hover.card.onPointerLeave}
       >
-        {known && (
+        {planShown && (
+          <div onFocusCapture={hover.card.onFocusCapture} onBlurCapture={hover.card.onBlurCapture}>
+            <PlanUsageCardBody limits={plan?.limits} family={plan?.family} now={now} />
+          </div>
+        )}
+        {contextKnown && !planShown && (
           <div onFocusCapture={hover.card.onFocusCapture} onBlurCapture={hover.card.onBlurCapture}>
             <ContextCardBody
               used={used}

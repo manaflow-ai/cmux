@@ -47,10 +47,10 @@ import Testing
     /// grid.md `lead` from the sidebar edge, and `text` after a 16 / 20 icon box and an 8 gap.
     nonisolated static func lead(_ comfortable: Bool) -> CGFloat { comfortable ? 16 : 12 }
     nonisolated static func text(_ comfortable: Bool) -> CGFloat { comfortable ? 44 : 36 }
-    /// Trailing column `index`'s center in a 304 pt row: 24 pt (plus 20 a column) in from the sidebar's edge,
-    /// which lies `rowEdgeGap` past the row's end.
+    /// Trailing column `index`'s center in a 304 pt row: a status mark's half plus the row inset (13 compact, 15
+    /// comfortable; plus 20 a column) in from the row's end (Leo 2026-11-04: "too much of a gutter on the right").
     static func column304(_ index: Int) -> CGFloat {
-        304 + SidebarStyle.rowEdgeGap - 24 - CGFloat(index) * 20
+        304 - (SidebarStyle.horizontalInset + 7) - CGFloat(index) * 20
     }
 
     /// Existing APIs only: this test compiles on the pre-fix stack and fails on its old insets,
@@ -74,12 +74,12 @@ import Testing
             let expectedText = c.kind == .sectionHeader ? Self.lead(c.comfortable) : Self.text(c.comfortable)
             #expect(abs(origin + lead - Self.lead(c.comfortable) - CGFloat(c.depth * 7)) <= 0.5)
             #expect(abs(origin + text - expectedText - CGFloat(c.depth * 7)) <= 0.5)
-            // A control's size never changes its center. A second column is one 20 pt pitch in.
+            // A control's size never changes its center: 19 / 23 pt from the edge (Leo 2026-11-04). A second column is one 20 pt pitch in.
             for index in 0..<c.marks {
                 let side: CGFloat = index == 0 ? 16 : 12
                 let mark = SidebarStyle.trailingColumnFrame(rowWidth: width - CGFloat(index) * 20,
                                                            centerY: height / 2, side: side)
-                #expect(abs(origin + mark.midX - (320 - 24 - CGFloat(index) * 20)) <= 0.5)
+                #expect(abs(origin + mark.midX - (320 - (c.comfortable ? 23 : 19) - CGFloat(index) * 20)) <= 0.5)
                 #expect(abs(mark.midY - height / 2) <= 0.5)
             }
         }
@@ -300,7 +300,7 @@ extension SidebarGridAlignmentTests {
                 #expect(abs(frame.maxX - (320 - SidebarStyle.rowEdgeGap)) <= 0.5)
                 let columns = SidebarStyle.columns(rowWidth: frame.width, leadingOffset: reach)
                 #expect(abs(frame.minX + columns.lead - Self.lead(comfortable) - CGFloat(depth * 7)) <= 0.5)
-                #expect(abs(frame.minX + columns.trailingCenter() - 296) <= 0.5)
+                #expect(abs(frame.minX + columns.trailingCenter() - (320 - SidebarStyle.rowEdgeGap - SidebarStyle.horizontalInset - 7)) <= 0.5)
             }
         }
     }

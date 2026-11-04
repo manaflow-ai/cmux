@@ -21,6 +21,8 @@
 //! An invitee is a guest like any other (same `guest:` author, same hold on every prompt), whose
 //! author also names its `account` and `role`: `view` watches only, `talk` may also prompt and
 //! type. An invite spends no link use. `-uninvite` removes the account and kicks its guests.
+//! An invite and `-list` answer `invite_url`, the link the owner hands out (`<room origin>/i/<share_id>`,
+//! no secret in it; null without a room).
 //!
 //! With a hosted room configured (`agent_session_share_room.rs`), create provisions the share in
 //! the room first (`provisioning` until it answers) and answers the guest link; a revoke or kick
@@ -252,6 +254,13 @@ impl LinkShare {
         self.room.as_ref()?.get(field)?.as_str()
     }
 
+    /// The link an invitee opens: the room's origin, then `/i/<share_id>` (no secret in it, the
+    /// room signs the account in). Null while the share has no room.
+    fn invite_url(&self) -> Value {
+        self.room_str("url")
+            .map_or(Value::Null, |origin| json!(format!("{origin}/i/{}", self.share_id)))
+    }
+
     /// The room's `DELETE` is already queued.
     fn delete_queued(&self) -> bool {
         self.pending_room_ops.iter().any(|op| op_of(op) == Some("delete"))
@@ -285,7 +294,7 @@ impl LinkShare {
             "uses_left": self.uses_left, "state": self.state, "url": null,
             "create_id": self.create_id,
             "room": self.room.as_ref().map(|room| room.get("url").cloned().unwrap_or(Value::Null)),
-            "guests": guests, "invitees": invitees})
+            "invite_url": self.invite_url(), "guests": guests, "invitees": invitees})
     }
 }
 
@@ -325,6 +334,42 @@ pub(in crate::server) struct LinkShares {
 impl Drop for LinkShares {
     fn drop(&mut self) {
         self.timers.stop();
+    }
+}
+
+/// Moves `directory`'s shares file to the first free name of `.unreadable`,
+/// `.unreadable-<ms>`, `.unreadable-<ms>-1`, … A hard link never replaces what is at its
+/// name (a `rename` would: two moves in one millisecond, or a clock that went back, pick the
+/// same name), so a taken name moves on to the next; the original is removed once linked. A
+/// filesystem without hard links falls back to `rename`, and only onto a name nothing is at.
+fn set_aside_unreplaced(directory: &Path, ms: u64) -> std::io::Result<()> {
+    use std::io::ErrorKind;
+    let path = directory.join(FILE);
+    let mut attempt = 0u64;
+    loop {
+        let aside = directory.join(match attempt {
+            0 => format!("{FILE}.unreadable"),
+            1 => format!("{FILE}.unreadable-{ms}"),
+            n => format!("{FILE}.unreadable-{ms}-{}", n - 1),
+        });
+        attempt += 1;
+        match std::fs::hard_link(&path, &aside) {
+            Ok(()) => {
+                return match std::fs::remove_file(&path) {
+                    Err(error) if error.kind() != ErrorKind::NotFound => Err(error),
+                    _ => Ok(()),
+                };
+            }
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+            Err(_) if std::fs::symlink_metadata(&aside).is_ok() => {}
+            Err(_) => {
+                return match std::fs::rename(&path, &aside) {
+                    Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+                    moved => moved,
+                };
+            }
+        }
     }
 }
 
@@ -546,21 +591,15 @@ impl LinkShares {
     }
 
     /// Moves an unreadable shares file to `agent-session-shares.json.unreadable` (or, when one
-    /// from before is there, `….unreadable-<unix ms>`), so no write replaces it and no earlier
-    /// copy is lost. Ok when there is nothing at the path any more.
+    /// from before is there, `….unreadable-<unix ms>`, then `….unreadable-<unix ms>-<n>`), so no
+    /// write replaces it and no earlier copy is lost. Ok when there is nothing at the path any
+    /// more.
     fn set_aside(&self, directory: &Path) -> std::io::Result<()> {
         #[cfg(test)]
         if self.refuse_set_aside.load(Ordering::Relaxed) {
             return Err(std::io::Error::other("set aside refused (test)"));
         }
-        let mut aside = directory.join(format!("{FILE}.unreadable"));
-        if std::fs::symlink_metadata(&aside).is_ok() {
-            aside = directory.join(format!("{FILE}.unreadable-{}", wall_ms()));
-        }
-        match std::fs::rename(directory.join(FILE), &aside) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            moved => moved,
-        }
+        set_aside_unreplaced(directory, wall_ms())
     }
 
     fn save(&self, directory: Option<&Path>, shares: &[LinkShare]) -> Option<std::io::Result<()>> {
@@ -819,7 +858,7 @@ impl LinkShares {
                 share.live()?;
             }
             let answer = json!({"share_id": share.share_id, "account": account, "role": role,
-                "state": InviteState::Invited});
+                "state": InviteState::Invited, "invite_url": share.invite_url()});
             if let Some(invitee) = share.invitees.iter_mut().find(|i| i.account == account) {
                 if invitee.state == InviteState::Invited {
                     return if invitee.role == role {
