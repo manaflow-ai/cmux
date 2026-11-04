@@ -94,8 +94,9 @@ fn exact_integer(value: &Value) -> Option<u64> {
     if let Some(n) = value.as_u64() {
         return Some(n);
     }
-    let n = value.as_f64()?;
-    (n >= 0.0 && n.fract() == 0.0 && n < 1e15).then_some(n as u64)
+    let n = value.as_f64().filter(|n| *n >= 0.0 && n.fract() == 0.0 && *n < 1e15)?;
+    // Below 1e15 an integral f64 prints exactly, so this is the number with no lossy cast.
+    format!("{n:.0}").parse().ok()
 }
 
 /// What the app sends: `POST <url>` with `body`, `Authorization: Bearer <session>`,

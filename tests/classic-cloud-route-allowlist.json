@@ -84,6 +84,18 @@
       "reason": "debt: code mode's cloud relay maps vm.* operations onto classic /api/vm routes until it calls cmux-platform"
     },
     {
+      "file": "cmux-tui/crates/cmux-cloud-config/src/config.rs",
+      "pattern": "base:cmux-staging",
+      "count": 1,
+      "reason": "keep: moved from CloudConfiguration.swift (#34982, step A); the staging web app still serves sign-in, teams and billing for development builds, and its Cloud API base is now the development Worker; step B deletes the Swift copy"
+    },
+    {
+      "file": "cmux-tui/crates/cmux-cloud-config/src/config.rs",
+      "pattern": "base:cmux.com",
+      "count": 1,
+      "reason": "keep: moved from CloudConfiguration.swift (#34982, step A); production NEXT customers still sign in and reach their team on cmux.com until cmux-platform serves those routes; step B deletes the Swift copy"
+    },
+    {
       "file": "webviews/src/agent-session/acpmux/run-board/runApi.ts",
       "pattern": "route:/api/runs",
       "count": 3,
