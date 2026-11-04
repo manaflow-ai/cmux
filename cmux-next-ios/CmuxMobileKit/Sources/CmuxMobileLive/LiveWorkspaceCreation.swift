@@ -168,7 +168,9 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         guard !workspace.isHome else { throw WorkspaceCreationError("Home has no duplicate.", isForPerson: true) }
         // The Mac's own copy of the workspace now (its layout is the tree's, not a stale row's).
         let current = (tree.workspaces.first { $0.id == workspace.id }) ?? workspace
-        let blueprint = Self.duplicateBlueprint(current, directories: tree.directories, browsers: browsers)
+        // Pages only where the Mac can open them, so no pane keeps a placeholder shell for one.
+        let pages = browsers && Self.streamsBrowser(capabilities(workspace.macID))
+        let blueprint = Self.duplicateBlueprint(current, directories: tree.directories, browsers: pages)
         do {
             return try await buildDuplicate(blueprint, name: current.title, color: current.colorHex, icon: current.icon, on: client)
         } catch let error as DaemonReplyError {

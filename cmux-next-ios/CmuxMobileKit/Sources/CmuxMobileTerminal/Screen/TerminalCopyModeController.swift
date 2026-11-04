@@ -224,6 +224,10 @@ private final class CopyModeKeyView: UIView {
                 unhandled.insert(press)
                 continue
             }
+            // Motions arrive through their repeatable key commands (as the terminal's
+            // navigation keys do), never twice.
+            // A shifted or caps-locked motion has no key command: it is handled here.
+            if key.modifierFlags.isDisjoint(with: [.shift, .alphaShift]), Self.motions.contains(where: { $0.key == action }) { continue }
             controller.handle(action)
         }
         if !unhandled.isEmpty { super.pressesBegan(unhandled, with: event) }

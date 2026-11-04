@@ -51,13 +51,20 @@ def clear_pasteboard():
     subprocess.run(["xcrun", "simctl", "pbcopy", udid()], input="(empty)", text=True, capture_output=True)
 
 
-def menu_rows(j):
-    """The page menu's rows (opened with a tap on the bottom title capsule); left open."""
-    bottom = [e for e in j.sim.find(kind="Button") if e.frame[1] > 740 and e.frame[2] > 120]
-    check(bottom, "no title capsule at the bottom")
-    j.sim.tap_el(bottom[0])
-    time.sleep(1.2)
-    return [e.label for e in j.sim.find(kind="Button") if e.label]
+def menu_rows(j, tries=3):
+    """The page menu's rows (opened with a tap on the bottom title capsule); left open. A tap
+    while the last menu is still closing is lost, so it taps again until the menu shows."""
+    rows = []
+    for _ in range(tries):
+        time.sleep(0.8)
+        bottom = [e for e in j.sim.find(kind="Button") if e.frame[1] > 740 and e.frame[2] > 120]
+        check(bottom, "no title capsule at the bottom")
+        j.sim.tap_el(bottom[0])
+        time.sleep(1.2)
+        rows = [e.label for e in j.sim.find(kind="Button") if e.label]
+        if "Close Tab" in rows or "Rename Tab…" in rows:
+            return rows
+    return rows
 
 
 def close_menu(j):
@@ -69,12 +76,17 @@ def tap_menu(j, title, scroll=True):
     """A page menu row (the menu scrolls when it is long)."""
     row = j.sim.wait(label=title, kind="Button", timeout=3)
     for _ in range(6 if scroll else 0):
-        if row and row.frame[1] + row.frame[3] < 800:
+        if row and 60 < row.frame[1] and row.frame[1] + row.frame[3] < 800:
             break
-        j.sim.swipe(200, 600, 200, 300, 0.3)
+        if row and row.frame[1] <= 60:
+            j.sim.swipe(200, 300, 200, 600, 0.3)  # above the screen: scroll the menu down
+        else:
+            j.sim.swipe(200, 600, 200, 300, 0.3)
         time.sleep(0.6)
         row = j.sim.wait(label=title, kind="Button", timeout=2)
     check(row, f"no {title!r} in the page menu: {[e.label for e in j.sim.find(kind='Button')][:30]}")
+    time.sleep(0.5)
+    row = j.sim.wait(label=title, kind="Button", timeout=2) or row
     j.sim.tap_el(row)
     time.sleep(1.0)
 
@@ -155,7 +167,7 @@ def copymode(j, label):
     key("esc")
     left = not j.sim.find(ident="terminal.copyMode")
     # The Mac's own row, for comparison.
-    mac = [r for r in screen_text(surface).splitlines() if f"bravo-{stamp}" in r and "printf" not in r]
+    mac = [r for r in screen_text(surface).splitlines() if r.startswith(f"bravo-{stamp}")]
     return {"copied": copied, "mac_row": mac[0].rstrip() if mac else None, "matches_mac": bool(mac) and copied.strip() == mac[0].strip(),
             "bar_left_after_y": gone, "shift_cmd_m_entered": entered, "escape_left": left}
 
@@ -198,16 +210,19 @@ def termtools(j, label):
     field = j.sim.wait(ident="terminal.sendText.field", timeout=5) or j.sim.wait(kind="TextField", timeout=3)
     check(field, "no Send Text field")
     j.sim.tap_el(field)
-    pq.type_text(f"echo sent-{stamp}-$((6*7))")
+    pq.type_text(f"echo sent{stamp}ok")
     pq.shot(f"termtools-{label}-send-text")
-    send = j.sim.wait(label="Send", kind="Button", timeout=4)
-    check(send, "no Send button")
-    j.sim.tap_el(send)
-    typed, took = t.until(lambda: f"echo sent-{stamp}-$((6*7))" in screen_text(surface), timeout=15,
+    # The alert's Send, not the composer's (`terminal.composer.send`).
+    send = [e for e in j.sim.find(label="Send", kind="Button") if e.ident != "terminal.composer.send"]
+    check(send, "no Send button in the alert")
+    j.sim.tap_el(send[0])
+    typed, took = t.until(lambda: f"echo sent{stamp}ok" in screen_text(surface), timeout=15,
                           what="the text on the Mac's terminal")
     time.sleep(1.5)
     out["send_text_on_mac_s"] = round(took, 1)
-    out["send_text_ran"] = f"sent-{stamp}-42" in screen_text(surface)  # no Return: it must not run
+    # No Return: the line waits at the prompt, its output never printed on a row of its own.
+    out["send_text_ran"] = any(r.strip() == f"sent{stamp}ok" for r in screen_text(surface).splitlines())
+    out["mac_prompt_line"] = [r for r in screen_text(surface).splitlines() if f"sent{stamp}ok" in r][-1:]
     pq.shot(f"termtools-{label}-sent")
     # Clean the typed line off the prompt (Ctrl-U on the Mac).
     t.mac_raw({"cmd": "send", "surface": surface, "text": "\u0015"})
