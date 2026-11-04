@@ -29,7 +29,7 @@ pub struct ClientConfig {
     pub version: u32,
     #[serde(flatten)]
     pub configuration: Configuration,
-    pub capabilities: serde_json::Value,
+    pub capabilities: Value,
     pub image_channel: String,
 }
 
