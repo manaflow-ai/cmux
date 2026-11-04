@@ -28,6 +28,14 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         return true
     }
 
+    /// A terminal shown again, and one still blank 500 ms later: crash-telemetry breadcrumbs (numbers only).
+    func terminalSession(_ session: TerminalSession, revealed report: TerminalRevealReport) {
+        services?.crashReporting.reporter.addBreadcrumb(category: "terminal.reveal", message: "revealed", warning: report.isSuspect, data: report.fields)
+    }
+    func terminalSession(_ session: TerminalSession, blankAfterReveal report: TerminalRevealReport) {
+        services?.crashReporting.reporter.addBreadcrumb(category: "terminal.reveal", message: "blank after reveal", warning: true, data: report.fields)
+    }
+
     /// The declared terminal context menu (`ContextMenuCatalog`), targeted at the right-clicked
     /// terminal's tab, led by the rows of the link or path Ghostty underlines (``linkMenu``).
     func terminalSession(_ session: TerminalSession, contextMenuFor event: NSEvent) -> NSMenu? {

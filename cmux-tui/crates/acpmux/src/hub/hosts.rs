@@ -1241,6 +1241,7 @@ impl Hub {
                         .turn_line
                         .clone()
                         .unwrap_or_else(|| super::prompt_line::prompt_line(&prompt, &client, None));
+                    self.resume_before_turn();
                     *session.turn.lock().unwrap() = Some(TurnInfo {
                         trigger: work.turn_trigger,
                         started_at,
