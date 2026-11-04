@@ -294,8 +294,9 @@ struct SharedEdgeDuringSpringTests {
 
     @Test(arguments: Overlap.allCases)
     func panesThatShareAnEdgeShowItAtOnePlaceInEveryFrame(_ overlap: Overlap) throws {
-        // The rule under test is on by default (`motion.frameOwner.sharedEdges`); a run with it off tests nothing here.
-        try #require(MotionTunables.frameOwnerSharedEdges.value, "motion.frameOwner.sharedEdges is off")
+        // The rule under test is on by default (`motion.frameOwner.sharedEdges`); a run with it turned off tests nothing
+        // here. Read by its key: the red run of this file is on a base without the switch.
+        try #require(TunableStore.shared.override("motion.frameOwner.sharedEdges") != .bool(false), "motion.frameOwner.sharedEdges is off")
         let rig = Rig()
         defer { rig.window.closeAfterTest() }
         let edges = try rig.sharedEdges()
