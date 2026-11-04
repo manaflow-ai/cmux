@@ -447,14 +447,20 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       [{ promptId: "q-2", prompt: "Docs are rebuilt for the 2.3 release notes." }],
     );
     try {
-      await page.locator(".cv-pending__toggle").click();
+      // One waiting message is its own line; more wait in one collapsed group (PendingMessagesCard.tsx).
+      await page.locator(".cv-pending__toggle, .cv-pending--one").first().waitFor({ timeout: 10_000 });
+      if (await page.locator(".cv-pending__toggle").count()) await page.locator(".cv-pending__toggle").click();
       const rows = page.locator(".cv-received");
       await rows.nth(1).waitFor({ timeout: 10_000 });
       const lines = await rows.evaluateAll((all) =>
         all.map((row) => {
           const line = row.querySelector<HTMLElement>(":scope > .cv-disclosure__line")!;
           const chevron = line.querySelector<HTMLElement>(".cv-rotor")!.getBoundingClientRect();
-          const words = line.querySelector<HTMLElement>(".cv-received__preview")!.getBoundingClientRect();
+          // The line's last words: its first line's, or the sender's (its text, not its padded box) in
+          // the stacked gallery look.
+          const range = document.createRange();
+          range.selectNodeContents(line.querySelector(".cv-received__preview, .cv-received__from")!);
+          const words = range.getBoundingClientRect();
           const hover = line.querySelector<HTMLElement>(".cv-received__hover");
           return {
             right: Math.round(chevron.right),

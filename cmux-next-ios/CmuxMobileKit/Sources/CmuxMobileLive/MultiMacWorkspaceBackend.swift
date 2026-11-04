@@ -21,6 +21,11 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
         return coordinator.session(macID: macID)?.creation ?? coordinator.idleSession.creation
     }
 
+    /// The backend of `macID`'s own session (no idle stand-in): what it has listed.
+    func linked(_ macID: String) -> LiveWorkspaceCreationBackend? {
+        coordinator?.session(macID: macID)?.creation
+    }
+
     private func backend(_ macID: String) throws -> LiveWorkspaceCreationBackend {
         guard let backend = on(macID) else { throw WorkspaceCreationError("Not connected to a Mac") }
         // A change to a Mac whose link closed (idle) opens it again.
@@ -215,6 +220,10 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     }
     public func stopAgentChat(_ chat: AgentChatListing, on macID: String) async throws {
         try await backend(macID).stopAgentChat(chat, on: macID)
+    }
+    public func launchAgentTeams(_ teams: AgentTeamsLaunch, beside tab: WorkspaceTab?, folder: String?,
+                                 in workspace: Workspace) async throws -> WorkspaceTab {
+        try await backend(workspace.macID).launchAgentTeams(teams, beside: tab, folder: folder, in: workspace)
     }
 
     // MARK: WorkspaceGroupBackend

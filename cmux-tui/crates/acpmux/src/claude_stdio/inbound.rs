@@ -255,6 +255,15 @@ impl Translator {
                         {
                             out.push(upd(plan));
                         }
+                        // Claude Code 2.1 keeps it with TaskCreate and TaskUpdate
+                        // instead: each call lands on its result (`task_plan.rs`). The
+                        // list is the main session's; a subagent's tasks stay its own.
+                        if main_line
+                            && super::task_plan::TaskPlan::follows(name)
+                            && let Some(id) = c.get("id").and_then(Value::as_str)
+                        {
+                            self.task_plan.lock().await.call(name, id, &input);
+                        }
                         // Every shell, so one moved to the background later
                         // keeps its command (cx-ncc.84).
                         if name == "Bash"
@@ -275,6 +284,12 @@ impl Translator {
                                 output: None,
                             };
                             self.background_shells.lock().await.insert(id.to_owned(), shell);
+                        }
+                        // Claude's /loop tools, the chat's goal from their results (`loops.rs`).
+                        if parent.is_none()
+                            && let Some(id) = c.get("id").and_then(Value::as_str)
+                        {
+                            self.note_loop_call(id, name, &input).await;
                         }
                         let mut call = tool_call_fields(name, &input);
                         call.set("sessionUpdate", json!("tool_call"));
@@ -416,7 +431,20 @@ impl Translator {
                             "status": if is_err { "failed" } else { "completed" },
                             "content": content,
                         })));
+                        // A task call's result redraws the task list (`task_plan.rs`).
+                        if let Some(plan) = self.task_plan.lock().await.result(
+                            tool,
+                            is_err,
+                            line.get("tool_use_result"),
+                        ) {
+                            out.push(upd(plan));
+                        }
                         if let Some(update) = self.workflow_launched(tool, is_err, line).await {
+                            out.push(upd(update));
+                        }
+                        if let Some(update) =
+                            self.loop_result(tool, is_err, line.get("tool_use_result")).await
+                        {
                             out.push(upd(update));
                         }
                         // A background subagent's result is only its launch, unless the launch
@@ -993,6 +1021,12 @@ impl Translator {
                 update.set(key, json!(value));
             }
         }
+        // Claude Code says a shell's exit code only in its summary
+        // ("Background command \"x\" completed (exit code 0)"); Codex's
+        // updates carry it as `exitCode`, and clients read it there.
+        if let Some(code) = text("summary").and_then(summary_exit_code) {
+            update.set("exitCode", json!(code));
+        }
         Some(shell_update(&shell, update))
     }
 
@@ -1000,7 +1034,8 @@ impl Translator {
     /// ended with its process, so each is reported `stopped`, marked
     /// `_meta.acpmux.endedBy: "harness_exit"` for the hub (`hub/processes.rs`
     /// lists it `lost`); the update itself is what clients show. A call named
-    /// early whose input was still streaming ends `failed` with them.
+    /// early whose input was still streaming ends `failed` with them, and its
+    /// loops end with it too (`loops.rs`).
     pub async fn end_background_shells(&self) -> Vec<Message> {
         let mut shells: Vec<_> =
             self.background_shells.lock().await.drain().filter(|(_, s)| s.background).collect();
@@ -1014,6 +1049,7 @@ impl Translator {
                            "_meta": {"acpmux": {"endedBy": "harness_exit"}}}),
             )
         }));
+        out.extend(self.end_loops().await);
         out
     }
 
@@ -1283,6 +1319,18 @@ fn launch_output_file(text: &str) -> Option<String> {
     let (_, rest) = text.split_once(MARK)?;
     let path = rest.lines().next()?.trim();
     (path.starts_with('/') && path.ends_with(".output")).then(|| path.to_owned())
+}
+
+/// The exit code a Claude Code task summary ends with: the number after its
+/// last "exit code " ("… completed (exit code 0)", "… failed with exit code 1").
+/// The last, so a command's description that says those words is not read.
+pub(super) fn summary_exit_code(summary: &str) -> Option<i64> {
+    let (_, rest) = summary.rsplit_once("exit code ")?;
+    let end = rest
+        .char_indices()
+        .find(|&(i, c)| !(c.is_ascii_digit() || (i == 0 && c == '-')))
+        .map_or(rest.len(), |(i, _)| i);
+    rest.get(..end)?.parse().ok()
 }
 
 /// A `background_task_update` for one shell.

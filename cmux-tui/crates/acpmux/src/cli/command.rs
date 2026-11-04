@@ -460,6 +460,8 @@ pub enum Command {
     #[command(hide = true)]
     TagCmd { session: String, assignments: Vec<String>, remove: Vec<String>, ttl: Option<u64> },
     #[command(hide = true)]
+    SessionSearch(crate::cli::session_search::SearchArgs),
+    #[command(hide = true)]
     RulesCmd { session: String, rules: Option<String>, clear: bool },
     #[command(hide = true)]
     LimitsCmd { session: String, max: Option<u32>, clear: bool },
@@ -581,6 +583,11 @@ pub enum Command {
     DaemonStart { person_key_fd: Option<i32>, show_token: bool },
     #[command(hide = true)]
     DaemonRestart,
+    #[command(hide = true)]
+    DaemonService {
+        #[command(subcommand)]
+        action: crate::cli::daemon_service::ServiceAction,
+    },
     /// App sign-out: clear peer tails without starting an agent or daemon.
     #[command(hide = true, name = "__clear-peer-snapshots")]
     ClearPeerSnapshots,
@@ -601,7 +608,9 @@ pub enum Command {
         #[arg(long)]
         show_token: bool,
         /// Set a daemon host-wide setting as KEY=VALUE (for example,
-        /// `session.memory_mb=6144`, `session.swap_mb=2048`,
+        /// `permissions.default=yolo` (yolo, standard, ask or default) for the
+        /// permission mode every new chat starts in, `permissions.codex=ask` for
+        /// one harness, `session.memory_mb=6144`, `session.swap_mb=2048`,
         /// `session.tasks_max=8192`, `session.sessions_tasks_max=131072` or
         /// `session.cpu_class=normal`).
         #[arg(long, value_name = "KEY=VALUE")]
@@ -644,6 +653,12 @@ pub enum Command {
         /// (or in a debug build). Release launchers never pass it.
         #[arg(long)]
         dev: bool,
+        /// This daemon is the home's supervised owner (the systemd unit passes it): when another
+        /// daemon of this home holds the lock and serves this same socket, ask it to hand over
+        /// (its agents keep running for this daemon to adopt) instead of exiting. A lock refusal
+        /// then exits 1, never 75, so the unit keeps retrying.
+        #[arg(long)]
+        take_over: bool,
     },
 }
 
@@ -1054,6 +1069,8 @@ pub enum SessionCmd {
         #[arg(long, short = 'n', default_value_t = 20)]
         limit: usize,
     },
+    /// Find the session's messages that hold every word of TEXT, newest first.
+    Search(crate::cli::session_search::SearchArgs),
     /// The prompts waiting for the running turn: list, remove PROMPT_ID..., clear --from-agents.
     #[command(subcommand)]
     Queue(crate::cli::session_queue::QueueCmd),
@@ -1189,6 +1206,12 @@ pub enum DaemonCmd {
         /// (or in a debug build). Release launchers never pass it.
         #[arg(long)]
         dev: bool,
+        /// This daemon is the home's supervised owner (the systemd unit passes it): when another
+        /// daemon of this home holds the lock and serves this same socket, ask it to hand over
+        /// (its agents keep running for this daemon to adopt) instead of exiting. A lock refusal
+        /// then exits 1, never 75, so the unit keeps retrying.
+        #[arg(long)]
+        take_over: bool,
     },
     /// Daemon status, hosts, and the web URL (without its token).
     Status {
@@ -1210,6 +1233,12 @@ pub enum DaemonCmd {
     },
     /// Restart the daemon, preserving hosted sessions so they resume on startup.
     Restart,
+    /// The service that keeps this machine's daemon running: the LaunchAgent on macOS, the
+    /// user systemd unit on Linux (the files `host setup` writes on an ssh host).
+    Service {
+        #[command(subcommand)]
+        action: crate::cli::daemon_service::ServiceAction,
+    },
     /// Stop the daemon. Hosted agents keep running for the next daemon to
     /// adopt (a restart or an update); pooled hosts end. `--end-agents` ends
     /// every agent process too, agent hosts included, returns once they all
@@ -1362,6 +1391,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::RulesCmd { session, rules, clear }
             }
             SessionCmd::History { session, limit } => Command::History { session, limit },
+            SessionCmd::Search(args) => Command::SessionSearch(args),
             SessionCmd::Queue(q) => Command::QueueCmd(q),
         },
         Command::Daemon(dc) => match dc {
@@ -1375,6 +1405,7 @@ pub fn flatten(c: Command) -> Command {
                 person_key_fd,
                 allow_dev_origin,
                 dev,
+                take_over,
             } => Command::DaemonRun {
                 listen,
                 token,
@@ -1385,6 +1416,7 @@ pub fn flatten(c: Command) -> Command {
                 person_key_fd,
                 allow_dev_origin,
                 dev,
+                take_over,
             },
             DaemonCmd::Status { show_token } => Command::Status { show_token },
             DaemonCmd::Start { person_key_fd, show_token } => {
@@ -1394,6 +1426,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::Shutdown { keep_agents, end_agents, restart }
             }
             DaemonCmd::Restart => Command::DaemonRestart,
+            DaemonCmd::Service { action } => Command::DaemonService { action },
             DaemonCmd::Config { show_token, set } => Command::Config { show_token, set },
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,

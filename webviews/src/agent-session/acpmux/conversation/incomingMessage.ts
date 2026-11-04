@@ -61,6 +61,11 @@ export type IncomingMessage = {
   /// Relayed from an acpmux on another machine (`acpmux send` there): the paths it names are
   /// that machine's, not this Mac's.
   remote?: true;
+  /// The app or bot and the persona inside it that the sender named itself as (`[from APP ›
+  /// PERSONA] …`, cmux chat send --from; u20190): the line names it "APP › PERSONA" and draws the
+  /// app's mark, else its monogram.
+  app?: string;
+  persona?: string;
   /// The sender's harness when the message names it (`fromHarness`: a peer's relayed message, whose
   /// chat is not listed here), for its mark.
   harness?: string;
@@ -327,6 +332,8 @@ export function incomingPrompt(
       kind: "message",
       message: {
         name: signed?.name ?? name,
+        ...(signed?.app && { app: signed.app }),
+        ...(signed?.persona && { persona: signed.persona }),
         ...(provenance.kind === "lane_report"
           ? { report: true, ...(provenance.details !== undefined ? { details: provenance.details } : {}) }
           : {}),
@@ -407,6 +414,8 @@ export function incomingPrompt(
       kind: "message",
       message: {
         name: signed?.name ?? name,
+        ...(signed?.app && { app: signed.app }),
+        ...(signed?.persona && { persona: signed.persona }),
         ...(sessionId && { sessionId }),
         ...(chief && { chief }),
         ...id("msgId"),
@@ -552,9 +561,36 @@ function sentFirst(text: string): { name: string; text: string } | undefined {
   return { name, text: unsigned(prefixed[2]!.trim(), name) };
 }
 
+/// The label `cmux chat send` and MCP `chat_send` put before an agent's words (cmux-conversation
+/// agent_sender.rs): `[from Grok bot › Ada] …`, `[from Muse] …`.
+const FROM_LABEL = /^\[from ([^\]\n]{1,110})\]\s+(\S[\s\S]*)$/;
+const PERSONA_SEPARATOR = " › ";
+
+/// A label that is a session's routing name (`claude-sr2-coord`, `lane-a`): sentFirst's, never an app
+/// whose mark the line may draw (a Codex lane called `claude-…` must not draw Claude's; cmux#30247).
+const ROUTING_NAME = /^[a-z0-9][\w.@/:-]*$/;
+
+/// The sender an agent's `[from APP › PERSONA]` label names, and its words after it: a label with a
+/// persona, a space or a capital (`Grok bot › Ada`, `Muse`), never a lower-case routing name.
+export function labelledFirst(text: string): { name: string; app: string; persona?: string; text: string } | undefined {
+  const labelled = FROM_LABEL.exec(text);
+  if (!labelled || ROUTING_NAME.test(labelled[1]!.trim())) return undefined;
+  const [app, ...rest] = labelled[1]!.split("›").map((part) => part.trim());
+  if (!app) return undefined;
+  const persona = rest.filter(Boolean).join(" ") || undefined;
+  return {
+    name: persona ? `${app}${PERSONA_SEPARATOR}${persona}` : app,
+    app,
+    ...(persona && { persona }),
+    text: unsigned(labelled[2]!.trim(), app),
+  };
+}
+
 /// The agent named first in brackets in `text`, and its message after the name; `[from <name>]`
-/// names `<name>` (sentFirst).
-function namedFirst(text: string): { name: string; text: string } | undefined {
+/// names `<name>` (sentFirst), and `[from APP › PERSONA]` its app and persona (labelledFirst).
+function namedFirst(text: string): { name: string; app?: string; persona?: string; text: string } | undefined {
+  const label = labelledFirst(text);
+  if (label) return label;
   const sent = sentFirst(text);
   if (sent) return sent;
   const prefixed = NAME_PREFIX.exec(text);
@@ -600,7 +636,13 @@ function addressedFirst(
 /// The agent that signed a message whose envelope names its sender already: its name first in
 /// brackets, when it is an agent's name and not a tag (`[WIP]`, `[1/3]`), after "From", or
 /// before an arrow to its receiver. A name the envelope gives (`known`) is a signature in any form.
-function agentSigned(text: string, known: readonly unknown[] = []): { name: string; text: string } | undefined {
+function agentSigned(
+  text: string,
+  known: readonly unknown[] = [],
+): { name: string; app?: string; persona?: string; text: string } | undefined {
+  // A sender that names its app and persona says who it is in any envelope.
+  const label = labelledFirst(text);
+  if (label) return label;
   const named = namedFirst(text);
   if (named && (ENVELOPE_AGENT.test(named.name) || namesSender(named.name, known))) return named;
   const addressed = ADDRESSED.exec(text);

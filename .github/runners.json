@@ -453,8 +453,8 @@
     "nightly.yml#build-nightly-inputs": {"class": "portable-checks"},
     "nightly.yml#find-nightly-next-recovery": {"class": "portable-checks"},
     "nightly.yml#check-nightly-webviews": {"class": "portable-checks"},
-    "nightly.yml#pick-nightly-sign-runner": {"class": "portable-checks"},
     "nightly.yml#route-visual-gate-nightly": {"class": "portable-checks"},
+    "nightly.yml#attest-nightly-remote-daemon": {"class": "portable-checks"},
     "nightly.yml#prepare-nightly-variant-primary": {"class": "portable-checks"},
     "nightly.yml#prepare-nightly-variant": {"class": "portable-checks"},
     "nightly.yml#build-nightly-remote-daemon": "portable-checks",
@@ -540,10 +540,6 @@
       "class": "apple-gui",
       "picker_followup": "runs-on names a fixed macOS label (glaeda-gui-std-xcode-26.6 on attempt 1, an M4 Pro mini; stable-next never uses an M6), then Blacksmith; take it from a picker job's output that keeps off the M6 minis"
     },
-    "stable-next.yml#swift-suites": {
-      "class": "apple-swift-tests",
-      "picker_followup": "runs-on names a fixed macOS label (glaeda-gui-std-xcode-26.6 on attempt 1, an M4 Pro mini; stable-next never uses an M6), then Blacksmith; take it from a picker job's output that keeps off the M6 minis"
-    },
     "terminal-hang-diagnostics.yml#phase-attribution": {
       "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
@@ -582,7 +578,10 @@
     "ci-guards.yml#guard-status": {"class": "portable-checks", "reason": "report step: rolls up the guard job results, 2 s of work (runs 41393826242, 41393801145)"},
     "pr-checks.yml#size": {"class": "portable-checks", "reason": "report step: one GraphQL read and a size warning, 4 s of work (runs 41394557472, 41394554327)"},
     "pr-checks.yml#ui-review": {"class": "portable-checks", "reason": "report step: one file-list read and an advisory warning, 4 s of work (run 41394554327)"},
-    "cmux-next.yml#path_route": {"class": "portable-checks", "reason": "router: classifies the PR's paths and probes the published tree, 32-51 s of work (runs 41394344151, 41393817927)"}
+    "cmux-next.yml#path_route": {"class": "portable-checks", "reason": "router: classifies the PR's paths and probes the published tree, 32-51 s of work (runs 41394344151, 41393817927)"},
+    "ci-web.yml#web-subarea-scope": {"class": "portable-checks", "reason": "router: classifies the webview subareas and hands the shards their duration manifest, 29 s of work (run 41762274751)"},
+    "ci-web.yml#webviews-test-durations": {"class": "portable-checks", "reason": "bookkeeping: merges and saves the shard duration manifest beside web-subarea-scope's restore, 5 s of work (run 41761413284)"},
+    "resolve-runners.yml#resolve": {"class": "portable-checks", "reason": "resolver: prints the runner capability map, 5 s of work (run 41762274751)"}
   },
   "linux_sizes": {
     "$comment": [
