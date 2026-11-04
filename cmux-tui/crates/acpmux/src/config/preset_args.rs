@@ -59,10 +59,6 @@ pub struct Preset {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system_prompt_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub context_user: Option<String>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub context_project: BTreeMap<String, String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// The mode a session started from this preset starts in. One that does
     /// not ask is set by the person only, and used without the person only
@@ -80,13 +76,7 @@ impl Preset {
     /// session with: every field but `description` and `mode_approval`.
     /// None only if it cannot be serialized (then nothing is approved).
     pub fn approval_digest(&self) -> Option<String> {
-        let bound = Self {
-            description: None,
-            mode_approval: None,
-            context_user: None,
-            context_project: BTreeMap::new(),
-            ..self.clone()
-        };
+        let bound = Self { description: None, mode_approval: None, ..self.clone() };
         // A struct of strings, lists and a BTreeMap: its JSON is stable.
         serde_json::to_vec(&bound).ok().map(|bytes| crate::sha256::sha256_hex(&bytes))
     }

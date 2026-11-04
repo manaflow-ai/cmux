@@ -67,8 +67,6 @@ pub(super) async fn handle(
                 env: std::collections::BTreeMap::new(),
                 args: Vec::new(),
                 system_prompt_sha256: None,
-                context_user: None,
-                context_project: std::collections::BTreeMap::new(),
                 description: None,
                 mode: None,
                 mode_approval: None,

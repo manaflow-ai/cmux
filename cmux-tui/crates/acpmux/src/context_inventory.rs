@@ -183,6 +183,23 @@ pub fn preset_is_editable(meta: &SessionMeta, cfg: &Config) -> bool {
     verified_prompt_text(meta, cfg).is_some()
 }
 
+fn preset_guidance<'a>(meta: &SessionMeta, cfg: &'a Config) -> Option<(&'a str, &'a str)> {
+    verified_prompt_text(meta, cfg)?;
+    let name = meta.preset.as_deref()?;
+    cfg.context_overrides
+        .preset_prompts
+        .get(name)?
+        .projects
+        .get(&crate::config::ContextOverrides::project_key(&meta.cwd))
+        .map(|text| ("project", text.as_str()))
+        .or_else(|| {
+            cfg.context_overrides
+                .preset_prompts
+                .get(name)
+                .and_then(|values| values.user.as_deref().map(|text| ("user", text)))
+        })
+}
+
 /// Build an inventory from the latest harness report and cmux-owned state.
 pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
     let mut parts = Vec::new();
@@ -195,14 +212,15 @@ pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
     let project = cfg.context_overrides.projects.get(&project_key).cloned();
     let mut override_parts = BTreeMap::new();
     if let Some(default_text) = verified_prompt_text(meta, cfg) {
-        let preset = meta.preset.as_deref().and_then(|name| cfg.presets.get(name));
+        let values =
+            meta.preset.as_deref().and_then(|name| cfg.context_overrides.preset_prompts.get(name));
         override_parts.insert(
             "cmux-system-prompt".into(),
             ContextPromptOverrideView {
                 label: "Preset system prompt".into(),
                 default_text: Some(default_text),
-                user: preset.and_then(|p| p.context_user.clone()),
-                project: preset.and_then(|p| p.context_project.get(&project_key).cloned()),
+                user: values.and_then(|v| v.user.clone()),
+                project: values.and_then(|v| v.projects.get(&project_key).cloned()),
             },
         );
     }
@@ -277,27 +295,22 @@ pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
     let mut parts = snapshot(cfg, &meta.cwd);
     if let Some(default) = verified_prompt_text(meta, cfg) {
         let text = meta.cmux_preset_prompt.clone().unwrap_or(default);
-        let project_key = crate::config::ContextOverrides::project_key(&meta.cwd);
-        if let Some(preset) = meta.preset.as_deref().and_then(|name| cfg.presets.get(name)) {
-            let guidance = preset
-                .context_project
-                .get(&project_key)
-                .map(|text| ("project", text.as_str()))
-                .or_else(|| preset.context_user.as_deref().map(|text| ("user", text)));
-            if let Some((scope, guidance)) = guidance {
-                parts.push(ContextPart {
-                    id: format!("cmux-preset-{scope}-override"),
-                    source: format!("cmux-preset-{scope}"),
-                    label: format!("Preset {} guidance", if scope == "project" { "project" } else { "user" }),
-                    tokens: estimated_tokens(guidance),
-                    included: !guidance.is_empty(),
-                    editable: true,
-                    measurement: "estimated".into(),
-                    source_bytes: Some(guidance.len() as u64),
-                    channel: Some("user-context".into()),
-                    text: Some(guidance.to_owned()),
-                });
-            }
+        if let Some((scope, guidance)) = preset_guidance(meta, cfg) {
+            parts.push(ContextPart {
+                id: format!("cmux-preset-{scope}-override"),
+                source: format!("cmux-preset-{scope}"),
+                label: format!(
+                    "Preset {} guidance",
+                    if scope == "project" { "project" } else { "user" }
+                ),
+                tokens: estimated_tokens(guidance),
+                included: !guidance.is_empty(),
+                editable: true,
+                measurement: "estimated".into(),
+                source_bytes: Some(guidance.len() as u64),
+                channel: Some("user-context".into()),
+                text: Some(guidance.to_owned()),
+            });
         }
         parts.push(ContextPart {
             id: "cmux-system-prompt".into(),
@@ -563,12 +576,19 @@ mod tests {
         let mut meta: SessionMeta = serde_json::from_value(json!({
             "schema":"acpmux.session.v1","id":"s","name":"s","harness":"claude",
             "preset":"missing","cwd":"/repo","status":"idle","createdAt":0,"updatedAt":0
-        })).unwrap();
+        }))
+        .unwrap();
         meta.cmux_context = Some(vec![ContextPart {
-            id: "cmux-system-prompt".into(), source: "cmux-preset".into(),
-            label: "Preset system prompt".into(), tokens: 1, included: true,
-            editable: true, measurement: "estimated".into(), source_bytes: Some(1),
-            channel: Some("system-prompt-file".into()), text: Some("stale".into()),
+            id: "cmux-system-prompt".into(),
+            source: "cmux-preset".into(),
+            label: "Preset system prompt".into(),
+            tokens: 1,
+            included: true,
+            editable: true,
+            measurement: "estimated".into(),
+            source_bytes: Some(1),
+            channel: Some("system-prompt-file".into()),
+            text: Some("stale".into()),
         }]);
         let got = inventory(&meta, &Config::default());
         assert!(!got.parts.iter().any(|part| part.id == "cmux-system-prompt"));
@@ -586,31 +606,68 @@ mod tests {
         std::fs::write(&prompt_path, prompt).unwrap();
         let mut cfg = Config::default();
         cfg.path = Some(config_path);
-        cfg.harnesses.insert("claude".into(), crate::config::HarnessProfile {
-            kind: crate::config::HarnessKind::ClaudeStdio,
-            argv: vec!["claude".into()], env: BTreeMap::new(), description: None,
-            fallback: None, family: None, models: vec![], model: None, effort: None,
-            policy: None,
-        });
+        cfg.harnesses.insert(
+            "claude".into(),
+            crate::config::HarnessProfile {
+                kind: crate::config::HarnessKind::ClaudeStdio,
+                argv: vec!["claude".into()],
+                env: BTreeMap::new(),
+                description: None,
+                fallback: None,
+                family: None,
+                models: vec![],
+                model: None,
+                effort: None,
+                policy: None,
+            },
+        );
         cfg.context_overrides.user = Some("global guidance".into());
-        cfg.presets.insert("demo".into(), crate::config::Preset {
-            harness: "claude".into(), model: None, effort: None, policy: None,
-            env: BTreeMap::new(), args: vec![],
-            system_prompt_sha256: Some(crate::sha256::sha256_hex(prompt.as_bytes())),
-            context_user: Some("preset guidance".into()), context_project: BTreeMap::new(),
-            description: None, mode: None, mode_approval: None,
-        });
+        cfg.presets.insert(
+            "demo".into(),
+            crate::config::Preset {
+                harness: "claude".into(),
+                model: None,
+                effort: None,
+                policy: None,
+                env: BTreeMap::new(),
+                args: vec![],
+                system_prompt_sha256: Some(crate::sha256::sha256_hex(prompt.as_bytes())),
+                description: None,
+                mode: None,
+                mode_approval: None,
+            },
+        );
+        let digest = cfg.presets["demo"].approval_digest();
+        cfg.context_overrides.preset_prompts.insert(
+            "demo".into(),
+            crate::config::ContextPromptOverrides {
+                user: Some("preset guidance".into()),
+                projects: BTreeMap::new(),
+            },
+        );
+        assert_eq!(cfg.presets["demo"].approval_digest(), digest);
         let meta: SessionMeta = serde_json::from_value(json!({
             "schema":"acpmux.session.v1","id":"s","name":"s","harness":"claude",
             "preset":"demo","cwd":"/repo","status":"idle","createdAt":0,"updatedAt":0
-        })).unwrap();
+        }))
+        .unwrap();
         let snapshot = snapshot_session(&meta, &cfg);
-        assert!(snapshot.iter().any(|part| part.source == "cmux-user" && part.text.as_deref() == Some("global guidance")));
-        assert!(snapshot.iter().any(|part| part.source == "cmux-preset-user" && part.text.as_deref() == Some("preset guidance")));
-        assert!(snapshot.iter().any(|part| part.id == "cmux-system-prompt" && part.text.as_deref() == Some(prompt)));
+        assert!(
+            snapshot.iter().any(|part| part.source == "cmux-user"
+                && part.text.as_deref() == Some("global guidance"))
+        );
+        assert!(snapshot.iter().any(|part| part.source == "cmux-preset-user"
+            && part.text.as_deref() == Some("preset guidance")));
+        assert!(snapshot
+            .iter()
+            .any(|part| part.id == "cmux-system-prompt" && part.text.as_deref() == Some(prompt)));
         let view = inventory(&meta, &cfg);
         assert_eq!(view.overrides.user.as_deref(), Some("global guidance"));
-        assert_eq!(view.overrides.parts["cmux-system-prompt"].user.as_deref(), Some("preset guidance"));
+        assert!(view.overrides.default_text.is_none());
+        assert_eq!(
+            view.overrides.parts["cmux-system-prompt"].user.as_deref(),
+            Some("preset guidance")
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 }

@@ -1151,8 +1151,8 @@ impl ArtifactsSyncConfig {
 
 /// Persisted cmux-added prompt overrides. The `user` value applies to every new
 /// session on this daemon; project entries are keyed by a canonical working directory.
-/// Harness-owned prompts never live here: this store contains only text the user explicitly
-/// added through the Context viewer.
+/// Preset-specific guidance is kept separately so editing it does not change the
+/// preset's mode approval or the global guidance view.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextOverrides {

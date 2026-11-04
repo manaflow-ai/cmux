@@ -48,38 +48,20 @@ pub(super) async fn handle(
             if scope == "project" { Some(project_path(None, &session.meta().cwd)?) } else { None };
         let mut cfg = hub.config.write().await;
         let previous = cfg.context_overrides.clone();
-        let previous_presets = cfg.presets.clone();
         if part_id.is_some() {
             let preset_name = session
                 .meta()
                 .preset
                 .clone()
                 .ok_or_else(|| RpcError::invalid_params("context part requires a preset"))?;
-            let preset = cfg
-                .presets
-                .get(&preset_name)
-                .ok_or_else(|| RpcError::invalid_params("preset not found"))?;
-            if verified_prompt_text(&session.meta(), &cfg).is_none()
-                || preset.system_prompt_sha256.is_none()
+            if cfg.presets.get(&preset_name).is_none()
+                || verified_prompt_text(&session.meta(), &cfg).is_none()
             {
                 return Err(RpcError::invalid_params("context part requires a verified preset"));
             }
-            let preset = cfg
-                .presets
-                .get_mut(&preset_name)
-                .ok_or_else(|| RpcError::invalid_params("preset not found"))?;
-            match scope {
-                "user" => preset.context_user = text,
-                "project" => {
-                    let key = crate::config::ContextOverrides::project_key(cwd.as_deref().unwrap());
-                    if let Some(text) = text {
-                        preset.context_project.insert(key, text);
-                    } else {
-                        preset.context_project.remove(&key);
-                    }
-                }
-                _ => return Err(RpcError::invalid_params("scope must be user or project")),
-            }
+            cfg.context_overrides
+                .set_preset(&preset_name, scope, cwd.as_deref(), text)
+                .map_err(RpcError::invalid_params)?;
         } else {
             cfg.context_overrides
                 .set(scope, cwd.as_deref(), text)
@@ -87,7 +69,6 @@ pub(super) async fn handle(
         }
         if let Err(e) = cfg.save() {
             cfg.context_overrides = previous;
-            cfg.presets = previous_presets;
             return Err(RpcError::internal(format!("save context override: {e}")));
         }
     }
