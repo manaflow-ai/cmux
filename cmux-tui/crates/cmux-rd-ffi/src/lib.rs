@@ -11,6 +11,7 @@
 mod bulk_ffi;
 mod input;
 mod input_ffi;
+mod line_reader_ffi;
 mod rb_client_ffi;
 mod receiver;
 mod session;
@@ -25,6 +26,7 @@ use cmux_rd_proto::{STREAM_BULK, STREAM_CONTROL, STREAM_DATAGRAM, encode_stream_
 pub use bulk_ffi::*;
 pub use input::InputChannel;
 pub use input_ffi::*;
+pub use line_reader_ffi::*;
 pub use rb_client_ffi::*;
 pub use receiver::{Carrier, Message, Receiver, ReceiverError, Stats};
 pub use session::{MAX_STREAMS, Session, SessionError};
@@ -32,7 +34,7 @@ pub use session_ffi::*;
 pub use upstream_ffi::*;
 
 /// Version of the C ABI (`CMUX_RD_FFI_ABI_VERSION`).
-pub const ABI_VERSION: u32 = 4;
+pub const ABI_VERSION: u32 = 5;
 
 pub const CMUX_RD_OK: i32 = 0;
 pub const CMUX_RD_ERR_NULL: i32 = -1;
@@ -456,6 +458,8 @@ pub unsafe extern "C" fn cmux_rd_encode_stream_frame(
 mod bulk_tests;
 #[cfg(test)]
 mod input_tests;
+#[cfg(test)]
+mod line_reader_tests;
 #[cfg(test)]
 mod rb_client_tests;
 #[cfg(test)]

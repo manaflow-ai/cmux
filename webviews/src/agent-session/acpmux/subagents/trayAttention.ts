@@ -6,9 +6,14 @@
 import { subagentStatus } from "../summary/SubagentStatusList";
 import { sessionRetry } from "./retryState";
 import type { TrayItem } from "./runningTray";
+import type { StartedSession } from "../started/startedSessions";
 
 /// One line of the open list: the item, and whether it ended (its `data-finished` card).
 export type TrayCard = { readonly item: TrayItem; readonly finished: boolean };
+
+/// A started chat waits on the person: it reads "waiting" and is not only queued for a run slot
+/// (`waitsForSlot`), which waits on cmux and starts on its own.
+export const asksPerson = (session: StartedSession): boolean => session.state === "waiting" && !session.waitsForSlot;
 
 /// The item waits on the person or failed.
 export function needsPerson(item: TrayItem, waiting: ReadonlySet<string>): boolean {
@@ -18,11 +23,7 @@ export function needsPerson(item: TrayItem, waiting: ReadonlySet<string>): boole
   }
   // A failed chat acpmux is retrying (or deciding to) is about to run again, as a retrying
   // subagent reads "running" (retryState.ts): only one that stays failed needs the person.
-  if (item.kind === "session") {
-    // A chat queued for a run slot (`waitsForSlot`) reads "waiting" but waits on cmux, not the person.
-    const asks = item.session.state === "waiting" && !item.session.waitsForSlot;
-    return asks || sessionRetry(item.session).kind === "failed";
-  }
+  if (item.kind === "session") return asksPerson(item.session) || sessionRetry(item.session).kind === "failed";
   return false;
 }
 
@@ -50,27 +51,3 @@ export function attentionFirst(
   const ordered = [...groups.filter((group) => group.urgent), ...groups.filter((group) => !group.urgent)];
   return ordered.flatMap((group) => group.cards);
 }
-
-/// How many lines run now: the count on a tucked hat's pull tab (TrayPullTab.tsx). Only a line that
-/// runs counts: one that waits, on the person or for a run slot (`waitsForSlot`), or that ended, does
-/// not (the tab's dot says the first); a chat acpmux retries runs again, as a retrying subagent reads
-/// "running".
-export function runningCount(items: readonly TrayItem[], waiting: ReadonlySet<string>): number {
-  return items.filter((item) => {
-    if (item.kind === "agent") {
-      // "idle" here is one that awaits background work of its own (no `now`): that work runs.
-      const status = subagentStatus(item.agent, waiting);
-      return status === "running" || status === "idle";
-    }
-    if (item.kind === "session") {
-      if (item.session.state === "failed") return sessionRetry(item.session).kind !== "failed";
-      return item.session.state === "running" && !item.session.waitsForSlot;
-    }
-    return true;
-  }).length;
-}
-
-/// How many lines need the person (needsPerson): the dot on a tucked hat's pull tab. Tucking hides
-/// noise, never a question or a failure.
-export const needsPersonCount = (items: readonly TrayItem[], waiting: ReadonlySet<string>): number =>
-  items.filter((item) => needsPerson(item, waiting)).length;

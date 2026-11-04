@@ -140,7 +140,9 @@ pub(super) fn fence(remote: &mut Remote, remote_root: &str) -> anyhow::Result<Le
                     .downcast_ref::<super::remote::FsRefusal>()
                     .is_some_and(|refusal| refusal.code == "blob.no_job") => {}
             Err(error) => {
-                return Err(error.context("cannot read what the machine's earlier store fetch wrote"));
+                return Err(
+                    error.context("cannot read what the machine's earlier store fetch wrote")
+                );
             }
         }
     }
@@ -163,8 +165,7 @@ fn written_by(
 ) -> anyhow::Result<()> {
     let mut from = 0u64;
     loop {
-        let page =
-            remote.call("blob.fetch.status", json!({ "job": job, "written_from": from }))?;
+        let page = remote.call("blob.fetch.status", json!({ "job": job, "written_from": from }))?;
         let entries = page.get("written").and_then(Value::as_array).cloned().unwrap_or_default();
         for entry in &entries {
             if let (Some(path), Some(revision)) = (
@@ -450,10 +451,10 @@ pub(super) fn send(
     let Some(job) = started.get("job").and_then(Value::as_str).map(str::to_owned) else {
         return Err(match fence(remote, remote_root) {
             Ok(_) => anyhow!("blob.fetch.start answered no job"),
-            Err(fenced) => {
-                Unsettled(format!("blob.fetch.start answered no job; and the cancel failed: {fenced:#}"))
-                    .into()
-            }
+            Err(fenced) => Unsettled(format!(
+                "blob.fetch.start answered no job; and the cancel failed: {fenced:#}"
+            ))
+            .into(),
         });
     };
     let deadline = Instant::now() + FETCH_DEADLINE;
@@ -492,7 +493,7 @@ pub(super) fn send(
     written_by(remote, &job, &mut |path, revision| {
         sent.written.insert(path, revision);
     })
-        .context("cannot read what the machine's fetch wrote")?;
+    .context("cannot read what the machine's fetch wrote")?;
     Ok(sent)
 }
 

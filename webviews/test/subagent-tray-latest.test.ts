@@ -12,12 +12,8 @@ import { elapsed, groupElapsed, ticking } from "../src/agent-session/acpmux/suba
 import { subagentStatus, subagentStateText } from "../src/agent-session/acpmux/summary/SubagentStatusList";
 import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import {
-  attentionFirst,
-  needsPersonCount,
-  runningCount,
-  type TrayCard,
-} from "../src/agent-session/acpmux/subagents/trayAttention";
+import { attentionFirst, type TrayCard } from "../src/agent-session/acpmux/subagents/trayAttention";
+import { pullTabCounts } from "../src/agent-session/acpmux/subagents/TrayPullTab";
 
 setPaneLanguage("en");
 const t = (key: Parameters<typeof translate>[0], values?: Parameters<typeof translate>[1]) =>
@@ -124,8 +120,10 @@ test("a failed chat acpmux is retrying keeps its place; one that stays failed le
   expect(ordered.indexOf("r")).toBeGreaterThan(ordered.indexOf("a"));
 });
 
-// A chat queued for a concurrency slot reads "waiting" but waits on cmux, not on the person.
-test("a chat queued for a slot keeps its place; one waiting on the person leads", () => {
+// A chat queued for a run slot (`waitsForSlot`) reads "waiting" but waits on cmux, not on the person:
+// it keeps its place in the open list, and the tucked tab counts it with what runs instead of drawing
+// the dot (cmuxterm-hq#7064's review gap: the tucked tab showed a dot, or nothing, for it).
+test("a chat queued for a slot keeps its place and counts as running; one waiting on the person leads", () => {
   const items = trayItems(
     [agent("a", { background: true, startedAt: 3_000 })],
     [],
@@ -138,43 +136,12 @@ test("a chat queued for a slot keeps its place; one waiting on the person leads"
   const ordered = attentionFirst(items, [], new Set()).map((card) => card.item.id);
   expect(ordered[0]).toBe("w");
   expect(ordered.indexOf("q")).toBeGreaterThan(ordered.indexOf("a"));
-});
-
-// The tucked grabber's count says what runs: not what waits on the person or for a slot, and a chat
-// acpmux retries counts, as a retrying subagent does.
-test("the tucked count is what runs: waiting and slot-queued lines are out, a retrying chat is in", () => {
-  const items = trayItems(
-    [agent("a", { background: true, startedAt: 3_000 })],
+  expect(pullTabCounts(items, new Set())).toEqual({ waiting: 1, running: 2 });
+  const queuedOnly = trayItems(
     [],
-    [
-      { subsession: true, sessionId: "q", title: "Queued", state: "waiting", waitsForSlot: true },
-      { subsession: true, sessionId: "w", title: "Asks", state: "waiting" },
-      { subsession: true, sessionId: "r", title: "Retrying", state: "failed", retry: { attempt: 2, of: 4 } },
-      { subsession: true, sessionId: "s", title: "Runs", state: "running" },
-    ],
+    [],
+    [{ subsession: true, sessionId: "q", title: "Queued", state: "waiting", waitsForSlot: true }],
     false,
   );
-  const ids = items.map((item) => item.id);
-  for (const id of ["a", "q", "w", "r", "s"]) expect(ids).toContain(id);
-  expect(runningCount(items, new Set())).toBe(3);
-  expect(runningCount(items, new Set(["a"]))).toBe(2);
-});
-
-// The tucked tab's dot is every line that needs the person (needsPerson), the same rule that puts a
-// line first in the open list; an agent counts as running only while it runs (review follow-ups on
-// #35542: the count took every agent that did not wait).
-test("the tucked dot counts what needs the person; the count only what runs", () => {
-  const items = trayItems(
-    [agent("a", { background: true, startedAt: 3_000 }), agent("b", { background: true, startedAt: 2_000 })],
-    [],
-    [
-      { subsession: true, sessionId: "q", title: "Queued", state: "waiting", waitsForSlot: true },
-      { subsession: true, sessionId: "w", title: "Asks", state: "waiting" },
-    ],
-    false,
-  );
-  expect(runningCount(items, new Set())).toBe(2);
-  expect(needsPersonCount(items, new Set())).toBe(1);
-  expect(runningCount(items, new Set(["a"]))).toBe(1);
-  expect(needsPersonCount(items, new Set(["a"]))).toBe(2);
+  expect(pullTabCounts(queuedOnly, new Set())).toEqual({ waiting: 0, running: 1 });
 });
