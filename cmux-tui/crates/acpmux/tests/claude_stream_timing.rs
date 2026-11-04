@@ -138,3 +138,42 @@ async fn a_claude_log_keeps_each_requests_start_and_first_delta_only() {
         "the log keeps each main request's message_start and first delta, no later delta and no subagent line"
     );
 }
+
+/// A model gateway that is down: Claude Code retries the request (`system/api_retry`), and the
+/// chat logs `turn_retrying` for each retry with its count and error, so a client says the model
+/// cannot be reached instead of "Thinking" (`hub/turn_retry.rs`). The request that goes through
+/// logs `turn_heard`, before the reply.
+#[tokio::test]
+async fn a_claude_api_retry_logs_turn_retrying_until_the_model_answers() {
+    let mut c = claude_client().await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                   "_meta": {"acpmux": {"harness": "fakeclaude", "name": "retry"}}}),
+        )
+        .await;
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "api-retry-probe"}]}),
+    )
+    .await;
+    let page = c
+        .request(method::MUX_EVENTS, json!({"sessionId": id, "afterSeq": 0, "limit": 10_000}))
+        .await;
+    let events = page["events"].as_array().unwrap();
+    let kinds: Vec<&str> = events.iter().filter_map(|e| e["kind"].as_str()).collect();
+    let retries: Vec<&Value> = events.iter().filter(|e| e["kind"] == "turn_retrying").collect();
+    assert_eq!(retries.len(), 2, "{kinds:?}");
+    let turn = events.iter().find(|e| e["kind"] == "turn_started").unwrap();
+    assert_eq!(retries[1]["msg"]["turnId"], turn["msg"]["turnId"]);
+    assert_eq!(retries[1]["msg"]["attempt"], 2);
+    assert_eq!(retries[1]["msg"]["maxRetries"], 10);
+    assert_eq!(retries[1]["msg"]["errorStatus"], 503);
+    assert_eq!(retries[1]["msg"]["error"], "server_error");
+    assert_eq!(retries[1]["msg"]["source"], "claude");
+    let at = |kind: &str| kinds.iter().position(|k| *k == kind).unwrap_or(usize::MAX);
+    let last_retry = kinds.iter().rposition(|k| *k == "turn_retrying").unwrap();
+    assert!(last_retry < at("turn_heard") && at("turn_heard") < at("turn_result"), "{kinds:?}");
+}

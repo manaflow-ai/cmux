@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 4f1dbac715ad957911123ddd06ccb61a157e6b8255f4c69a8545e86a92b80481. */
+/* cmux-tui mux protocol 12, IR 2ebf7bae09dd7bd531843e7f365bfc9b1a9aecfded17ee3d16a00b38b73d360a. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -171,6 +171,26 @@ export type CellPixelSurface = {
   "height_px": number;
   "surface": Id;
   "width_px": number;
+};
+
+export type ChiefWorkAgent = {
+  "id": string;
+  "name": string;
+  "startedAt": (bigint) | null;
+  "state": "working" | "waiting" | "idle" | "failed";
+  "task": (string) | null;
+  "updatedAt": (bigint) | null;
+};
+
+export type ChiefWorkTask = {
+  "command": string;
+  "detail": (string) | null;
+  "endedAt": (bigint) | null;
+  "id": string;
+  "sessionId": string;
+  "startedAt": (bigint) | null;
+  "status": "running" | "done" | "failed" | "cancelled" | "unknown";
+  "title": string;
 };
 
 export type ClientInfo = {
@@ -1007,6 +1027,19 @@ export type Screen = {
   "zoomed_pane": (Id) | null;
 };
 
+export type SelectionPane = {
+  "active_tab": bigint;
+  "focused_at": bigint;
+  "id": Id;
+};
+
+export type SelectionScreen = {
+  "active": boolean;
+  "active_pane": Id;
+  "id": Id;
+  "panes": Array<SelectionPane>;
+};
+
 export type SendExpectAgent = {
   "session"?: (string) | null;
 };
@@ -1142,7 +1175,10 @@ export type ServerStatsWritePath = {
   "effect_intent_batches": bigint;
   "effect_intent_failures": bigint;
   "effect_intents": bigint;
+  "registry_wal_frame_bytes"?: bigint;
   "request_effect_commits": bigint;
+  "wal_commits"?: bigint;
+  "wal_synced_commits"?: bigint;
   "writer_registry_locks": bigint;
 };
 

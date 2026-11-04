@@ -29,6 +29,27 @@ export type Automation = {
   readonly created_at: number
   readonly updated_at: number
   readonly next_run_at: number | null
+  readonly sharing?: Sharing
+  readonly editors?: ReadonlyArray<UserId>
+  readonly catch_up?: CatchUp
+  readonly home?: "cloud"
+  readonly epoch?: number
+  readonly last_slot?: number | null
+  readonly handoff?: Handoff
+  readonly origin?: {
+    readonly handoff: string
+    readonly from: string
+    readonly source_id: string
+  }
+}
+
+export type AutomationAuditEntry = {
+  readonly n: number
+  readonly at: number
+  readonly actor: string
+  readonly op: string
+  readonly automation: AutomationId
+  readonly summary: string
 }
 
 /** An automation definition, owned by its team's SchedulerDO. */
@@ -36,6 +57,12 @@ export type AutomationId = string
 
 export type AutomationSettings = {
   readonly agent_run_default_seconds: number | null
+}
+
+export type AutomationTeleportBegun = {
+  readonly automation: Automation
+  readonly epoch: number
+  readonly last_slot: number | null
 }
 
 /** A stored avatar: its SHA-256, its media type (from the bytes) and its size. */
@@ -64,6 +91,11 @@ export type Body = {
   readonly chief: string
   readonly conversation: ConversationId
   readonly prompt: string
+  readonly destination?: {
+    readonly type: "slack"
+    readonly slackTeamId: string
+    readonly channelId: string
+  }
 } | {
   readonly type: "code"
   readonly ref: CodeRef
@@ -76,6 +108,8 @@ export type Budget = {
   readonly model_spend_usd?: number | "Infinity" | "-Infinity" | "NaN"
   readonly tool_calls?: number
 }
+
+export type CatchUp = "latest" | "all" | "none"
 
 export type ChiefBrainPlace = {
   readonly host: HostId
@@ -525,6 +559,13 @@ export type GroupPlacement = {
 
 export type GroupWorkspaceId = string
 
+export type Handoff = {
+  readonly id: string
+  readonly to: string
+  readonly epoch: number
+  readonly at: number
+}
+
 /** Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: "poster"}. */
 export type HomeAttachmentPoster = {
   readonly hash: HomeSha256
@@ -887,6 +928,15 @@ export type MessageId = string
 
 export type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd"
 
+export type MovedAutomation = {
+  readonly id: AutomationId
+  readonly name: string
+  readonly moved_to: string
+  readonly moved_id: string
+  readonly epoch: number
+  readonly moved_at: number
+}
+
 export type NativeDeviceId = string
 
 export type NativeMeshId = string
@@ -1048,6 +1098,8 @@ export type ServerNetworkReservation = {
 }
 
 export type ServerNetworkState = ServerNetworkReservation | ServerNetworkBinding
+
+export type Sharing = "team" | "private"
 
 /** A Cloud machine snapshot. */
 export type SnapshotId = string
@@ -1473,6 +1525,17 @@ export type WgPublicKey = string
 
 /** Params and result of every cloud op, keyed by op name. */
 export interface CloudOps {
+  /** The team's automation audit log, oldest first: who created, changed, ran, paused, deleted or moved which automation. Admins and owners read every entry; other members the entries of automations they may view. Never a body or a secret. */
+  readonly "automation.audit.list": {
+    readonly params: {
+      readonly automation?: AutomationId
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly entries: ReadonlyArray<AutomationAuditEntry>
+      readonly revision: string
+    }
+  }
   /** Create an automation (triggers, body, target policy) in the caller's team. */
   readonly "automation.create": {
     readonly params: {
@@ -1484,6 +1547,9 @@ export interface CloudOps {
       readonly target?: TargetPolicy
       readonly concurrency?: Concurrency
       readonly budget?: Budget
+      readonly sharing?: Sharing
+      readonly editors?: ReadonlyArray<UserId>
+      readonly catch_up?: CatchUp
     }
     readonly result: Automation
   }
@@ -1512,6 +1578,30 @@ export interface CloudOps {
     }
     readonly result: Automation
   }
+  /** Accept step of a teleport (docs/automations-teleport-teams.md): make the Cloud copy of an automation another store fenced. Use the idempotency key teleport:<handoff id>; one copy per handoff id. Its next fire follows last_slot and the catch_up policy, so no slot runs twice. */
+  readonly "automation.import": {
+    readonly params: {
+      readonly name: string
+      readonly description?: string
+      readonly enabled?: boolean
+      readonly triggers: ReadonlyArray<TriggerInput>
+      readonly body: Body
+      readonly target?: TargetPolicy
+      readonly concurrency?: Concurrency
+      readonly budget?: Budget
+      readonly sharing?: Sharing
+      readonly editors?: ReadonlyArray<UserId>
+      readonly catch_up?: CatchUp
+      readonly handoff: {
+        readonly id: string
+        readonly from: string
+        readonly source_id: string
+        readonly epoch: number
+        readonly last_slot: number | null
+      }
+    }
+    readonly result: Automation
+  }
   /** List the automations of the caller's team, oldest first, with their bodies. Without params the first page holds every automation (at most 100); page with limit and cursor (keyset: pass next_cursor). */
   readonly "automation.list": {
     readonly params: {
@@ -1523,6 +1613,7 @@ export interface CloudOps {
       readonly automations: ReadonlyArray<Automation>
       readonly automation_count?: number | "Infinity" | "-Infinity" | "NaN"
       readonly next_cursor?: string | null
+      readonly moved?: ReadonlyArray<MovedAutomation>
       readonly revision: string
     }
   }
@@ -1554,6 +1645,34 @@ export interface CloudOps {
     readonly params: Readonly<Record<string, never>>
     readonly result: AutomationSettings
   }
+  /** Abort a teleport the destination refused: lift the fence; the automation fires here again. */
+  readonly "automation.teleport.abort": {
+    readonly params: {
+      readonly automation: AutomationId
+      readonly handoff: string
+    }
+    readonly result: Automation
+  }
+  /** Fence step of a teleport away from Cloud: from now on the automation neither fires nor runs here, and the answer carries its full spec, epoch and last fired slot. to is home, ssh:<host>[:<dir>] or cloud. Then automation.teleport.complete or automation.teleport.abort with the same handoff id. */
+  readonly "automation.teleport.begin": {
+    readonly params: {
+      readonly automation: AutomationId
+      readonly handoff: {
+        readonly id: string
+        readonly to: string
+      }
+    }
+    readonly result: AutomationTeleportBegun
+  }
+  /** Release step of a teleport: the fenced Cloud automation becomes a tombstone naming its new home and id (automation.list moved). */
+  readonly "automation.teleport.complete": {
+    readonly params: {
+      readonly automation: AutomationId
+      readonly handoff: string
+      readonly moved_id: string
+    }
+    readonly result: MovedAutomation
+  }
   /** Change an automation; the version increments and later runs use the new version. */
   readonly "automation.update": {
     readonly params: {
@@ -1567,6 +1686,9 @@ export interface CloudOps {
       readonly target?: TargetPolicy
       readonly concurrency?: Concurrency
       readonly budget?: Budget
+      readonly sharing?: Sharing
+      readonly editors?: ReadonlyArray<UserId>
+      readonly catch_up?: CatchUp
     }
     readonly result: Automation
   }
@@ -3912,15 +4034,20 @@ export type CloudOpName = keyof CloudOps
 
 /** Routing metadata: mutations go to /v1/ops (keyed unless idempotency is none), reads to /v1/read. */
 export const cloudOpMeta = {
+  "automation.audit.list": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
   "automation.create": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.delete": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "destructive" },
   "automation.deploy": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "execute" },
   "automation.get": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
+  "automation.import": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.list": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
   "automation.run": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "execute" },
   "automation.runs.list": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
   "automation.settings.get": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
   "automation.settings.set": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
+  "automation.teleport.abort": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
+  "automation.teleport.begin": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
+  "automation.teleport.complete": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.update": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.webhook.get": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
   "calendar.calendars.list": { class: "read", idempotency: "forbidden", owner: "cloud:ConnectionDO", risk: "read" },

@@ -68,6 +68,10 @@ fn dispatch_command(
         Command::ChiefInspect(_) => {
             anyhow::bail!("chief-inspect requires the asynchronous request path")
         }
+        Command::ChiefWork { chief } => {
+            drop(chief);
+            anyhow::bail!("chief-work requires the asynchronous request path")
+        }
         Command::PasteImage {
             surface,
             terminal_id,

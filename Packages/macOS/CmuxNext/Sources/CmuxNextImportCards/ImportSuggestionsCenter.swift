@@ -327,6 +327,9 @@ public final class ImportSuggestionsCenter {
         ], origin: origin)
         invocation.callerAgentSession = raised != .user ? request.agentSession : caller?.callerAgentSession
         invocation.callerTerminal = raised != .user ? request.terminal : caller?.callerTerminal
+        // A cmux app's or the socket's press stays theirs: the consent panel asks (isPersonsOwnRun).
+        invocation.callerApp = caller?.callerApp
+        invocation.viaControlSocket = caller?.viaControlSocket ?? false
         return invocation
     }
 

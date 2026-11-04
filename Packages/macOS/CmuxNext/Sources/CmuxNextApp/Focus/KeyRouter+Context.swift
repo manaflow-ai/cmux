@@ -189,7 +189,7 @@ extension KeyRouter {
     private func focusedAddressBar(in controller: WindowController) -> AddressBarView? {
         guard case .addressBar = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
               case .browser(let entry)? = controller.content?.paneController(key: pane)?.currentContent else { return nil }
-        return entry.chrome.addressBar
+        return entry.chrome?.addressBar
     }
 
     /// The React page the focused pane's selected tab shows, if any.
@@ -204,7 +204,7 @@ extension KeyRouter {
         var modelPage: PageWebView?
         if case .page(_, _) = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
            case .page(let view)? = controller.content?.paneController(key: pane)?.currentContent {
-            modelPage = view.content as? PageWebView
+            modelPage = PageWebView.shown(in: view.content)
         }
         return Self.keyPage(modelPage: modelPage, in: controller.window)
     }

@@ -12,6 +12,8 @@ import type { MarkdownFieldElement } from "../MarkdownField";
 import { proseMirrorGlobals } from "../promptFieldTesting";
 import { inlineToken, type ComposerAttachment } from "../attachments";
 import { translate } from "../i18n";
+import { seedLastPicks } from "../lastPick";
+import { EMPTY_OMNIBAR } from "../omnibar";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -456,6 +458,39 @@ test("Return on a typed address still opens it without a harness", async () => {
   }
 });
 
+// A last pick names the chip's harness before acpmux lists its harnesses (or when that read failed
+// and nothing has read again), so the chip read "Opus 5.5" over a list with no Ask row, and Return
+// took the prompt to Google. Whatever the chip names, Return asks.
+test("with a remembered pick and no catalog, the Ask row leads and Return asks instead of searching", async () => {
+  const asked: string[] = [];
+  const searched: string[] = [];
+  saved.set("localStorage", scope.localStorage);
+  Object.assign(scope, { localStorage: dom!.window.localStorage });
+  seedLastPicks({ global: { harness: "claude", model: "claude-opus-5-5" } });
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        omnibar={EMPTY_OMNIBAR}
+        onAsk={(harness, text, _cwd, model) => void asked.push(`${harness} ${model}: ${text}`)}
+        onSearch={(text) => void searched.push(text)}
+      />,
+    );
+  });
+  const field = await promptField();
+  await act(async () => {
+    field.acpmuxMarkdownField!.focus();
+    field.acpmuxMarkdownField!.type("look at the ios connection failures");
+  });
+  const rows = [...document.querySelectorAll(".nt-row")].map((row) => row.textContent ?? "");
+  expect(rows[0]).toContain("Claude Code");
+  expect(rows.some((row) => row.includes("Search the web"))).toBe(true);
+  await press(field, "Enter");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(searched).toEqual([]);
+  expect(asked).toEqual(["claude claude-opus-5-5: look at the ios connection failures"]);
+});
+
 test("the `/` menu opens mid-prompt with the skills and writes the pick in place, as in chat", async () => {
   const snapshot = noChat([], {
     catalog: [],
@@ -822,11 +857,13 @@ test("while a Cloud start is out the box takes no edits, and takes them again on
 
 test("picking Cloud drops a saved environment picked before: the send names the folder chip's folder, not the tab's inherited one", async () => {
   const clouded: unknown[][] = [];
+  // A worktree environment: one that is only a folder is the folder menu's, not a Machines… row.
   const repoB: SavedEnvironment = {
     id: "b",
     name: "Repo B",
     kind: "local",
     folder: "/repo/B",
+    worktree: true,
     updatedAt: 1,
   };
   function Page() {
@@ -875,6 +912,59 @@ test("picking Cloud drops a saved environment picked before: the send names the 
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
   expect(clouded.length).toBe(1);
   expect((clouded[0] as unknown[])[2]).toBe("/repo/A");
+});
+
+test("with Cloud picked, a folder that is a saved folder-only environment is the folder Cloud sends", async () => {
+  const clouded: unknown[][] = [];
+  const repoC: SavedEnvironment = { id: "c", name: "Repo C", kind: "local", folder: "/repo/C", updatedAt: 1 };
+  function Page() {
+    const [mode, setMode] = useState<RunMode>("persistent");
+    return (
+      <NewTabScreen
+        snapshot={noChat()}
+        cwd="/Users/me"
+        startCwd="/repo/A"
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        environments
+        savedEnvironments={{
+          list: async () => [repoC],
+          save: async () => repoC,
+          remove: async () => {},
+        }}
+        runMode={{ mode, onMode: setMode }}
+        onCloud={(...args) => (clouded.push(args), false)}
+      />
+    );
+  }
+  const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const computer = () =>
+    container.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button')!;
+  const choose = async (selector: string, machines = false) => {
+    if (machines) await openMachines(computer());
+    else await act(async () => computer().click());
+    await settle();
+    const row = document.querySelector<HTMLElement>(`.acpmux-env-popover ${selector}`)!;
+    await act(async () => (row.closest<HTMLElement>('[role="option"]') ?? row).click());
+    await settle();
+  };
+  await act(async () => root!.render(<Page />));
+  await settle();
+  await choose('[data-mode="cloud"]');
+  // The saved environment is only a folder: the folder menu lists it, and Cloud sends it.
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-location .acpmux-location-button")!.click());
+  const row = document.querySelector<HTMLElement>('.acpmux-location-row[title="/repo/C"]')!;
+  await act(async () => (row.closest<HTMLElement>('[role="option"]') ?? row).click());
+  await settle();
+  await typePrompt("fix the flaky test");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(clouded.length).toBe(1);
+  expect((clouded[0] as unknown[])[2]).toBe("/repo/C");
 });
 
 test.each(

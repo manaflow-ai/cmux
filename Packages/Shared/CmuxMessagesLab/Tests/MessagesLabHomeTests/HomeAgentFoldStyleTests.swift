@@ -37,7 +37,7 @@ import Testing
             #expect(payload.style == style.rawValue, "\(style.title), \(name)")
             let height = provider.measure(custom, maxWidth: 420).height
             #expect(height == style.height(payload), "\(style.title), \(name): measured \(height)")
-            #expect(height >= HomeAgentFoldRowProvider.height, "\(style.title), \(name)")
+            #expect(height >= (style.spacing == nil ? HomeAgentFoldRowProvider.height : 16), "\(style.title), \(name)")
             let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
             let ctx = try #require(CGContext(data: nil, width: 420, height: Int(height.rounded(.up)), bitsPerComponent: 8, bytesPerRow: 0,
                                              space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
@@ -59,6 +59,47 @@ import Testing
         #expect(payload.states == ["reported", "told", "told"])
         #expect(payload.latest == "Done: both rows now start at 12 pt.")
         #expect(payload.count == 4 && payload.role == "fold")
+    }
+
+    /// The spacing variants (user 2026-11-02, msg 19733): each one changes the shipped line's spacing, and no two
+    /// are the same, so every pick in the playground shows something new.
+    @Test func everySpacingVariantDiffersFromTheShippedLineAndTheOthers() {
+        let spacings = HomeAgentFoldStyle.allCases.compactMap(\.spacing)
+        #expect(spacings.count >= 10)
+        #expect(!spacings.contains(.shipped))
+        for (i, a) in spacings.enumerated() { for b in spacings.dropFirst(i + 1) { #expect(a != b) } }
+    }
+
+    /// The pill styles (user 2026-11-03, msg 19960): one pill per agent, named by its title, and a click opens the
+    /// agent whose pill it lands on (between pills, or on a note, the row folds as before).
+    @Test(arguments: [HomeAgentFoldStyle.pills, .pillsTwoLine, .pillChips])
+    func aClickOnAPillOpensThatAgent(style: HomeAgentFoldStyle) async throws {
+        let (opened, sink) = AsyncStream.makeStream(of: String.self)
+        let provider = HomeAgentFoldRowProvider(style: style.rawValue) { peer, _ in sink.yield(peer) }
+        var row = Self.rows()[0].1
+        row.peerTitles = ["Sidebar alignment fix", "Nightly appcast rebuild", "First-click button audit"]
+        let part = try #require(provider.part(row))
+        guard case let .custom(custom) = part else { Issue.record("not a drawn row"); return }
+        let payload = try #require(HomeAgentFoldRowProvider.payload(custom))
+        #expect(payload.titles == row.peerTitles)
+        let shape = try #require(style.pillShape)
+        let pills = HomeAgentPills(payload, shape: shape, width: 900)
+        #expect(pills.pills.map(\.title) == row.peerTitles)
+        let ref = PartRef(messageId: "m1", partIndex: 0)
+        // Between pills the click is not taken (the row folds as before).
+        #expect(!provider.tapped(custom, ref: ref, at: CGPoint(x: 899, y: 1), width: 900))
+        for pill in pills.pills {
+            #expect(provider.tapped(custom, ref: ref, at: CGPoint(x: pill.rect.midX, y: pill.rect.midY), width: 900))
+        }
+        var got: [String] = []
+        for await peer in opened {
+            got.append(peer)
+            if got.count == 3 { break }
+        }
+        #expect(got == ["a959", "a931", "a940"])
+        // Stacked pills: the row grows with its agents; chips stay one row.
+        let height = provider.measure(custom, maxWidth: 900).height
+        #expect(shape == .chip ? height < 40 : height >= 3 * HomeAgentPills.pillHeight(shape))
     }
 
     @Test func theShippedProviderStillDrawsTheShippedLine() throws {

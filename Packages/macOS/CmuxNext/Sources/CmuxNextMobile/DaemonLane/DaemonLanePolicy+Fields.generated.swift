@@ -62,7 +62,7 @@ extension DaemonLanePolicy {
         "move-tab-group-to-column": ["after_column", "group", "pane", "screen", "transaction", "width"],
         "move-tab-group-to-new-workspace": ["group", "index", "transaction", "workspace_group"],
         "move-tab-group-to-split": ["edge", "group", "pane", "ratio", "transaction"],
-        "move-tab-to-column": ["after_column", "dock", "keep_focus", "pane", "screen", "surface", "transaction", "width"],
+        "move-tab-to-column": ["after_column", "dock", "keep_focus", "pane", "pane_id", "screen", "surface", "transaction", "width"],
         "move-tab-to-new-workspace": ["group", "index", "name", "surface", "transaction"],
         "move-tab-to-split": ["edge", "keep_focus", "pane", "ratio", "surface", "transaction"],
         "move-tab-to-workspace": ["surface", "transaction", "workspace"],

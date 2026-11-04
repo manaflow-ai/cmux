@@ -161,8 +161,10 @@ use command_args::{
 };
 mod origin_gate;
 mod orphan_shutdown;
+mod owner_keepers;
 mod page_router;
 pub use orphan_shutdown::stop_orphaned_owner;
+pub use owner_keepers::{Keepers, OwnerKeepersWatch, watch_owner_keepers};
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 mod starter_exit;
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
@@ -249,6 +251,7 @@ mod tab_park;
 mod tab_restart;
 mod websocket_listener;
 pub(crate) use cmd_subscribe::SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY;
+pub(crate) use cmd_subscribe::TREE_SELECTION_DELTAS_CAPABILITY;
 #[cfg(test)]
 use cmd_subscribe::subscribed_event_json;
 use cmd_subscribe::subscription_overflow_json;
@@ -306,6 +309,8 @@ mod chief_engine_mirror;
 mod chief_inspect;
 mod chief_manage;
 mod chief_registry_resource;
+#[cfg(unix)]
+mod chief_work;
 mod participant_avatars;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
 mod url_open;
@@ -518,7 +523,7 @@ pub use frontend_browser_history::{
 /// same-screen drags, and a client `transaction` id echoed in `tab-changed`.
 pub const TAB_DRAG_CAPABILITY: &str = "tab-drag-v1";
 pub use split_respawn::{TAB_SPLIT_KEEP_FOCUS_CAPABILITY, TAB_SPLIT_RESPAWN_CAPABILITY};
-pub use tab_column::TAB_COLUMN_RESPAWN_CAPABILITY;
+pub use tab_column::{TAB_COLUMN_CLIENT_PANE_CAPABILITY, TAB_COLUMN_RESPAWN_CAPABILITY};
 /// Optional `name` on `move-tab-to-new-workspace`: the new workspace takes
 /// it in the same commit (else the default `workspace-N`).
 pub const TAB_WORKSPACE_NAME_CAPABILITY: &str = "tab-workspace-name-v1";
@@ -789,6 +794,11 @@ enum Command {
     /// The Chief memory inspector's read-only API, for the owner's trusted
     /// connection, forwarded to the brain host (`chief-inspect-v1`).
     ChiefInspect(chief_inspect::Params),
+    /// Read-only inventory of this Chief's owned work (`chief-work-v1`).
+    /// Its bounded async raw handler runs before command dispatch.
+    ChiefWork {
+        chief: String,
+    },
     UrlOpenClaim {
         request_id: String,
     },
@@ -2837,9 +2847,13 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
 }
 
 mod tree_json;
+#[cfg(test)]
+pub(crate) use tree_json::panes_built_for_test;
+pub(crate) use tree_json::selection_changed_json;
 pub(crate) use tree_json::tree_entity_json;
+pub(crate) use tree_json::workspace_presentation_changed_json;
 pub(crate) use tree_json::workspaces_json;
-use tree_json::{pane_json, tree_delta_json};
+use tree_json::{ShortIds, pane_json, tree_delta_json};
 
 fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
     mux.surface(id)

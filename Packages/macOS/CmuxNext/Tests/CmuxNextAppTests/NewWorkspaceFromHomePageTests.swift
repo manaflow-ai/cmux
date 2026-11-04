@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextSettings
 import CmuxNextSidebar
 import Foundation
 import Testing
@@ -9,10 +10,12 @@ import Testing
 /// https://github.com/manaflow-ai/cmux/issues/32731: Cmd-N from Home made the new workspace at the top, then moved it
 /// next to the workspace selected before Home. The Home page parks that workspace and keeps `state.workspaceID`, but
 /// the window shows no workspace, so `workspaces.newPlacement` has no current one: the new row keeps the daemon's
-/// first slot and no second move follows.
+/// first slot and no second move follows. Under `beforeCurrent` and `afterCurrent` the daemon anchors its create to its active workspace,
+/// which Home leaves on the parked one, so the app moves the row to the top itself; `top` and `bottom` keep its place.
 @MainActor @Suite(.serialized)
 struct NewWorkspaceFromHomePageTests {
-    @Test func cmdNFromHomeKeepsTheNewRowWhereItWasMade() throws {
+    @Test(arguments: NewWorkspacePlacement.allCases)
+    func cmdNFromHomeKeepsTheNewRowOutOfTheParkedWorkspacesPlace(_ placement: NewWorkspacePlacement) throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let store = services.machines.local.store
@@ -43,7 +46,8 @@ struct NewWorkspaceFromHomePageTests {
 
         // Home shows: the last workspace stays parked under the page.
         controller.state.page = .home
-        let rule = NewWorkspacePlacements.rule(for: window, in: windows)
+        var rule = NewWorkspacePlacements.rule(for: window, in: windows)
+        rule.placement = placement
         #expect(rule.current == nil, "the workspace parked under Home is not the current one")
 
         NewWorkspacePlacements.expect("c-new", in: window, byDefault: rule, windows: windows)
@@ -53,6 +57,16 @@ struct NewWorkspaceFromHomePageTests {
         windows.applyPendingPlacements(live: Set(live))
 
         #expect(Self.group(of: "c-new", in: sidebar.model.sections) == nil, "the new row moved into the parked workspace's group")
+        // The loose rows in order. The stand-in daemon lists the new one after "b-loose", the place its create gives under
+        // `bottom`, and the one this fixture gives under `top`; under `beforeCurrent` or `afterCurrent` from Home the app takes the top.
+        let loose = sidebar.model.sections.flatMap(\.nodes).compactMap { node -> String? in
+            if case let .workspace(row) = node { return row.id.rawValue }
+            return nil
+        }
+        switch placement {
+        case .beforeCurrent, .afterCurrent: #expect(loose == ["c-new", "b-loose"], "before/after current from Home is the top, not beside the parked workspace")
+        case .top, .bottom: #expect(loose == ["b-loose", "c-new"], "the app kept the daemon's place")
+        }
         #expect(windows.pendingPlacements.isEmpty)
     }
 
