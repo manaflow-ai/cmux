@@ -22,12 +22,9 @@ public protocol ChromiumWarmupEngine: AnyObject {
     /// Starts Chromium (`CefInitialize`) for `reason`, awaiting the load first: the Chromium Host's
     /// launch start (``ChromiumWarmup/startWithoutIdleWait(_:)``), which waits for no idle slot.
     func warmStart(reason: String) async
-    /// Builds the next missing spare window, the pages profile's too with `pages`; `pages` false
-    /// closes an untaken pages spare. True when one started.
+    /// Builds the default profile's spare window when none is up. True when one started.
     @discardableResult
-    func prepareSpareWindow(pages: Bool) -> Bool
-    /// Stops keeping a pages spare window and closes an untaken one.
-    func dropPagesSpareWindow()
+    func prepareSpareWindow() -> Bool
     /// How many untaken spare windows are up (or being built).
     var spareWindowCount: Int { get }
     /// Holds the spare windows for memory pressure: `true` refuses new ones and give-backs until

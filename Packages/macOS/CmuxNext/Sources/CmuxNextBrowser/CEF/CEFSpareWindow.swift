@@ -9,14 +9,10 @@ import Foundation
 /// showed as a stall: every pane's first Chromium tab, not only the process's
 /// first (PL-cef-tab, 2026-10-23).
 ///
-/// One spare per ``Kind``: `browser`, a host of the default profile's own
-/// store, and `pages`, a host of the cmux pages' in-memory profile
-/// (`pagesProfile`, `CEFEngine.beginPagesProfile()`), so a cmux page's key takes a
-/// live window too. One spare per kind is cmux's own choice
-/// (p13-webui design D), not Chrome's: Chrome keeps one spare renderer, of
-/// one BrowserContext's default StoragePartition, and a spare asked for
-/// another context replaces it, because a spare of one store cannot serve
-/// another (`content/browser/renderer_host/spare_render_process_host_manager_impl.h`).
+/// One spare per ``Kind``: `browser`, a host of the default profile's own store. Chrome keeps one
+/// spare renderer, of one BrowserContext's default StoragePartition, and a spare asked for another
+/// context replaces it, because a spare of one store cannot serve another
+/// (`content/browser/renderer_host/spare_render_process_host_manager_impl.h`).
 /// Each spare holds a placeholder tab, in no pane (its window starts at the
 /// hidden-tab viewport): an about:blank page frozen through DevTools (`CEFTab.freezeNeverShownPage`).
 /// The first host a spare's store needs
@@ -65,8 +61,6 @@ final class CEFSpareWindow {
     enum Kind: String, CaseIterable {
         /// The default browser profile's own store.
         case browser
-        /// The cmux pages' in-memory profile (`pagesProfile`).
-        case pages
     }
 
     enum State: String {
@@ -76,12 +70,6 @@ final class CEFSpareWindow {
     private var hosts: [Kind: CEFPaneHost] = [:]
     /// The kinds a spare was made of in this process (`state` says `taken` after its take).
     private var made: Set<Kind> = []
-    /// The cmux pages' off-the-record profile (`CEFEngine.beginPagesProfile()`): its keys take the
-    /// `pages` spare. Nil until the engine makes it; no `pages` spare is made before.
-    var pagesProfile: BrowserProfileID?
-    /// Whether the warmup keeps a `pages` spare (cmux pages use Chromium and the
-    /// `pagesSpareWindow` feature is on). Turning it off closes an untaken one.
-    private(set) var wantsPages = false
     /// The default-off feature `chromiumOneSpareRenderer` (`CEFEngine.setOneSpareRenderer`): at most one
     /// Chromium spare renderer (``placeholderIsTheSpare``). Set before Chromium starts.
     var oneSpareRenderer = false
@@ -91,7 +79,7 @@ final class CEFSpareWindow {
     /// posts the refill as an idle task (`ChromiumWarmup`). Called in the take's turn, so it must
     /// only post, never build a window.
     var onNeeded: (@MainActor () -> Void)?
-    // memory: fixed: 2 keys (`Kind`), each a list of (browser id, disposition, bounds) values of a few
+    // memory: fixed: 1 key (`Kind`), each a list of (browser id, disposition, bounds) values of a few
     // bytes, emptied when its spare is taken (`takeParked`) or dropped (`drop`); the spare windows
     // themselves follow memory pressure through ChromiumWarmup's SpareMemoryConsumer.
     /// Tabs Chromium created in a spare's window before a tab took it, by the spare's kind.
@@ -119,27 +107,19 @@ final class CEFSpareWindow {
     func isSpare(_ candidate: CEFPaneHost) -> Bool { hosts.values.contains { $0 === candidate } }
 
     /// The spare kind that serves `key`, nil when none does: a pane of the default profile's own
-    /// store, or of the pages profile. A remote machine's store, an incognito window, a popup or
-    /// a spare's own key never takes one.
+    /// store. A remote machine's store, an incognito window or cmux page, a popup or a spare's own key
+    /// never takes one.
     func kind(for key: CEFPaneKey) -> Kind? {
-        guard key.machineKey == nil, !key.pane.rawValue.hasPrefix(Self.panePrefix),
+        guard key.machineKey == nil, !key.offTheRecord, !key.pane.rawValue.hasPrefix(Self.panePrefix),
               !key.pane.rawValue.hasPrefix(CEFPaneHost.popupPrefix) else { return nil }
-        if key.offTheRecord {
-            guard let pagesProfile, key.profile == pagesProfile else { return nil }
-            return .pages
-        }
         return key.profile == .default ? .browser : nil
     }
 
-    /// The kinds the warmup keeps a spare of: `browser` always, `pages` while `wantsPages`, the
-    /// pages profile exists and its placeholder would not be a second spare renderer (``placeholderIsTheSpare``).
-    var wantedKinds: [Kind] {
-        Kind.allCases.filter { $0 == .browser || (wantsPages && pagesProfile != nil && !placeholderIsTheSpare) }
-    }
+    /// The kinds the warmup keeps a spare of.
+    var wantedKinds: [Kind] { Kind.allCases }
 
     /// The one Chromium spare renderer is a spare window's placeholder (`chromiumOneSpareRenderer` on):
-    /// Chromium's own spare is off (`CEFSwitches.chromiumSpareOff`, read at `CEFRuntime.initialize`) and
-    /// only the `browser` kind is kept. Chrome keeps one spare renderer, never one per profile
+    /// Chromium's own spare is off (`CEFSwitches.chromiumSpareOff`, read at `CEFRuntime.initialize`). Chrome keeps one spare renderer, never one per profile
     /// (`content/browser/renderer_host/spare_render_process_host_manager_impl.h`). Off, Chromium's
     /// spare is the one.
     var placeholderIsTheSpare: Bool { oneSpareRenderer }
@@ -156,12 +136,6 @@ final class CEFSpareWindow {
 
     /// The first wanted kind with no untaken spare, nil when every wanted kind has one.
     var missingKind: Kind? { wantedKinds.first { hosts[$0] == nil } }
-
-    /// Whether to keep a `pages` spare; false closes an untaken one.
-    func setWantsPages(_ wants: Bool, runtime: CEFRuntime) {
-        wantsPages = wants
-        if !wants { drop(.pages, runtime: runtime) }
-    }
 
     /// Starts the spare of the first wanted kind with none (`missingKind`): true when it started.
     @discardableResult
@@ -181,10 +155,10 @@ final class CEFSpareWindow {
     /// Starts the spare window of `kind`: true when it started. Chromium must
     /// run, no spare may be held for memory pressure, no untaken spare of `kind` may exist, and no
     /// other Chromium window may be on its way (a window built beside another one raced it,
-    /// os-smoke 2026-10-18). While ``placeholderIsTheSpare``, only a `browser` spare is made.
+    /// os-smoke 2026-10-18).
     @discardableResult
     func prepare(_ kind: Kind, runtime: CEFRuntime) -> Bool {
-        guard !isHeld, kind == .browser || !placeholderIsTheSpare, hosts[kind] == nil, let key = spareKey(kind),
+        guard !isHeld, hosts[kind] == nil, let key = spareKey(kind),
               runtime.state == .ready, runtime.acceptsNewBrowsers,
               !runtime.hosts.values.contains(where: \.isCreatingWindow) else { return false }
         made.insert(kind)
@@ -209,7 +183,7 @@ final class CEFSpareWindow {
               spare.placeholder != nil, spare.isLive || spare.isCreatingWindow else { return nil }
         hosts[kind] = nil
         #if DEBUG || CMUX_BENCH_HOOKS
-        runtime.benchMarks.point(kind == .browser ? "cef.spare_taken" : "cef.pages_spare_taken")
+        runtime.benchMarks.point("cef.spare_taken")
         #endif
         runtime.hosts[spare.key] = nil
         spare.rekey(key)
@@ -298,12 +272,11 @@ final class CEFSpareWindow {
         return parked.removeValue(forKey: kind) ?? []
     }
 
-    /// A new spare key of `kind`; nil for `pages` before the pages profile exists.
+    /// A new spare key of `kind`.
     private func spareKey(_ kind: Kind) -> CEFPaneKey? {
         let pane = BrowserPaneID(rawValue: Self.panePrefix + kind.rawValue + "-" + BrowserTabID.random().rawValue)
         switch kind {
         case .browser: return CEFPaneKey(pane: pane, profile: .default)
-        case .pages: return pagesProfile.map { CEFPaneKey(pane: pane, profile: $0, offTheRecord: true) }
         }
     }
 }

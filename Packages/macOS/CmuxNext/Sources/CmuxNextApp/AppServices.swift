@@ -625,8 +625,6 @@ final class AppServices {
     /// Feeds every window's occlusion family with `windowOcclusionFamily` (`startHibernationMeasurements`); the window
     /// manager reports each order to it (`WindowManager.windowDidOrder`), since an order without a key change posts nothing.
     var windowOcclusionFamilies: WindowOcclusionChecker?
-    /// Follows the default engine for the pages spare window (`startChromiumWarmup`, feature `pagesSpareWindow`).
-    var pagesSpareWatch: ServiceObservation<Bool>?
     /// Repaints on `appearance.borders` changes (`observeBorders`).
     var borderObservation: Task<Void, Never>?
     /// Repaints when the glass mode pages draw changes (`observeGlass`).

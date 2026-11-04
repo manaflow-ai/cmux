@@ -35,15 +35,14 @@ public import WebKit
 ///     crashed hidden reloads when it shows, ``PageCrashRecovery``). `script_deliveries`, `data_deliveries`: runs of
 ///     router envelopes sent as scripts and as data on the page push channel (`pagePushChannel`), since the start.
 /// - `spares`: spares that are no page view, each `{spare, state, renderer_clients, renderer_pids,
-///   webkit_pid}`: `cef_window` and `cef_pages_window`, the Chromium spare windows of the default
-///   and the cmux pages profile (each `state` is `none`, `creating`, `live`, `taken` or `closed`;
-///   its renderer is its about:blank placeholder's), and `new_tab`, a New Tab spare with no page
+///   webkit_pid}`: `cef_window`, the Chromium spare window of the default profile (its `state` is
+///   `none`, `creating`, `live`, `taken` or `closed`; its renderer is its about:blank placeholder's), and `new_tab`, a New Tab spare with no page
 ///   view (`state` null, its `webkit_pid`).
 /// - `browser_tabs`: `{tab, renderer_clients, renderer_pids}` per Chromium browser tab.
 /// - `processes`: one per Chromium helper process: `{pid, kind, renderer_client_id, hosts}`. `kind`
 ///   is `renderer`, `extension_renderer`, `gpu`, `network`, `utility` or `other`;
 ///   `renderer_client_id` is null but for `renderer`; `hosts` names what the renderer runs
-///   (`page:<id>#<instance>`, `spare:cef_window`, `spare:cef_pages_window`, `browser_tab:<id>`), empty when nothing known does.
+///   (`page:<id>#<instance>`, `spare:cef_window`, `browser_tab:<id>`), empty when nothing known does.
 /// - `retire`: `pending`, the closed pages whose engine page waits for the retirer's deadline;
 ///   `engine_closes`, the engine page closes of the host's pages since launch; `engine_closes_in_close_turn`,
 ///   those that ran inside ``WebUIHost/close(_:)`` (0: a close asks no engine page to end in its turn);

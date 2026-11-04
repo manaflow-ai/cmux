@@ -35,12 +35,7 @@ public import Foundation
 ///   stays lazy: a user who never opens a Chromium tab never pays for it (AppServices+Chromium).
 /// - Once Chromium runs, an idle task builds the next missing spare Chromium window
 ///   (`CEFEngine.prepareSpareWindow`), so each pane's first Chromium tab joins a live window
-///   instead of building one on the key's turn (p06-scheduler.md, risk 6). While cmux pages use
-///   Chromium (`pagesSpare`, the `pagesSpareWindow` feature), the warm start's spare step also
-///   makes the pages profile (`CEFEngine.beginPagesProfile`), and the step after the default
-///   profile's spare comes up builds the pages spare, so a cmux page's key joins a live window too.
-///   One spare per kind; each take asks for the next. When pages leave Chromium
-///   (`pagesSpareChanged`), the untaken pages spare closes.
+///   instead of building one on the key's turn (p06-scheduler.md, risk 6). Each take asks for the next.
 /// - A step that comes while a menu tracks waits for the menu to close, and is posted again then.
 /// - Spare windows follow memory pressure through one memory consumer (``SpareMemoryConsumer``,
 ///   Chrome's spare rule): at warning or critical none is made or given back
@@ -169,16 +164,13 @@ public final class ChromiumWarmup {
     /// Whether a Chromium page is being created: it builds its own window,
     /// and a spare built meanwhile would race it (os-smoke 2026-10-18).
     private var pagesPending: @MainActor () -> Bool = { false }
-    /// Whether to keep a spare window of the cmux pages profile (pages use Chromium and the
-    /// `pagesSpareWindow` feature is on); read at each spare step.
-    private var pagesSpare: @MainActor () -> Bool = { false }
     /// The spare step came while a page was being made: it is posted again once the pages settle
     /// (`pagesSettled`), not at a later request.
     private var spareWaitsForPages = false
     private var stopped = false
-    /// Where Chromium runs (``start(defaultIsChromium:pagesPending:pagesSpare:placement:)``): in process until then.
+    /// Where Chromium runs (``start(defaultIsChromium:pagesPending:placement:)``): in process until then.
     private(set) var placement = Placement.inProcess
-    /// The placement ``start(defaultIsChromium:pagesPending:pagesSpare:placement:)`` set; nil before it
+    /// The placement ``start(defaultIsChromium:pagesPending:placement:)`` set; nil before it
     /// (`debug.cef` `warmup_spare_windows`, which the bench's host arms check).
     public var startedPlacement: Placement? { started ? placement : nil }
     /// The spare windows' memory consumer: no new spare at warning or critical, none again until
@@ -253,16 +245,14 @@ public final class ChromiumWarmup {
     /// - Parameters:
     ///   - defaultIsChromium: Whether new browser tabs open in Chromium (`browser.defaultEngine`).
     ///   - pagesPending: Whether a Chromium page is being made (a spare then waits for `pagesSettled`).
-    ///   - pagesSpare: Whether to keep a spare window of the cmux pages profile too.
     ///   - placement: Where Chromium runs: whether its start holds the main thread and whether spare
     ///     windows are kept.
     public func start(defaultIsChromium: @escaping @MainActor () -> Bool, pagesPending: @escaping @MainActor () -> Bool = { false },
-                      pagesSpare: @escaping @MainActor () -> Bool = { false }, placement: Placement = .inProcess) {
+                      placement: Placement = .inProcess) {
         guard !started, !stopped, isAvailable else { return }
         started = true
         self.defaultIsChromium = defaultIsChromium
         self.pagesPending = pagesPending
-        self.pagesSpare = pagesSpare
         self.placement = placement
         // Whenever no spare window is ready (taken, or a tab started Chromium itself), an idle
         // task makes one, so a new Chromium tab joins a live window (CEFSpareWindow, PL-cef-tab).
@@ -306,16 +296,6 @@ public final class ChromiumWarmup {
             await self?.engine.warmStart(reason: reason.rawValue)
             self?.warmStarted()
         }
-    }
-
-    /// Whether cmux pages keep a Chromium spare changed (`pagesSpare`, read again now): kept, an
-    /// idle task builds the pages spare; no longer kept (pages left Chromium), the untaken pages
-    /// spare closes now. Nothing to do before Chromium runs: the first spare step reads
-    /// `pagesSpare` itself.
-    public func pagesSpareChanged() {
-        guard !stopped, placement.keepsSpareWindows, engine.isRunning else { return }
-        if pagesSpare() { return spareNeeded() }
-        engine.dropPagesSpareWindow()
     }
 
     /// No Chromium page is being made any more (the cache's pending set emptied): a spare step
@@ -423,9 +403,8 @@ public final class ChromiumWarmup {
         warmStarted()
     }
 
-    /// Chromium runs: the next missing spare window (CEFSpareWindow, the default profile's, then
-    /// the pages profile's) is an idle step of its own, so neither step lands in the first tab's
-    /// or page's open. None where the placement keeps no spare window (`chromiumHostNoSpareWindow`).
+    /// Chromium runs: the spare window (CEFSpareWindow, the default profile's) is an idle step of its
+    /// own, so it never lands in the first tab's or page's open. None where the placement keeps no spare window (`chromiumHostNoSpareWindow`).
     private func warmStarted() {
         guard !stopped, placement.keepsSpareWindows, allowsSpare, engine.isRunning else { return }
         post(.spare)
@@ -439,7 +418,7 @@ public final class ChromiumWarmup {
             spareWaitsForPages = true
             return
         }
-        engine.prepareSpareWindow(pages: pagesSpare())
+        engine.prepareSpareWindow()
     }
 
     /// `step` came while a menu tracks: it stays pending, and the end of menu tracking posts it

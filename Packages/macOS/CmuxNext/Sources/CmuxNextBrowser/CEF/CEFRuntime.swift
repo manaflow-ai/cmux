@@ -295,9 +295,6 @@ final class CEFRuntime {
         if let waitDeadlines { wakeUps = waitDeadlines }
         guard stores !== self.stores else { return }
         self.stores = stores
-        // The pages profile belonged to the old stores: no key of these takes its spare.
-        spareWindow.pagesProfile = nil
-        spareWindow.drop(.pages, runtime: self)
         // An incognito session ended: drop its in-memory contexts, so
         // Chromium destroys their profiles (and data) once no browser uses
         // them.

@@ -64,9 +64,6 @@ extension AppServices {
     /// Arms the warm-up: its launch timer and the spare windows, then posts the likelihood hint (``postChromiumLikely()``).
     private func armChromiumWarmup() {
         let preference = cache.browserTabs.preference
-        // cmux pages follow `browser.defaultEngine` (ChromiumPageHost): with the feature, their profile
-        // keeps a spare window too, so a page's key joins a live window.
-        let pagesSpare = features.isEnabled(.pagesSpareWindow)
         #if DEBUG || CMUX_BENCH_HOOKS
         let hostNoSpareWindow = features.isEnabled(.chromiumHostNoSpareWindow)  // the bench's no spare window arm
         #else
@@ -74,20 +71,8 @@ extension AppServices {
         #endif
         chromiumWarmup.start(defaultIsChromium: { preference.defaultEngine == .chromium },
                              pagesPending: { [weak cache] in cache?.hasPendingPages == true },
-                             pagesSpare: { pagesSpare && preference.defaultEngine == .chromium },
                              placement: .init(backend: chromiumRuntime.source.backend, hostNoSpareWindow: hostNoSpareWindow))
         cache.onPagesSettled = { [weak chromiumWarmup] in chromiumWarmup?.pagesSettled() }
-        if pagesSpare {
-            // Pages follow the default engine: switched away from Chromium, the untaken pages spare
-            // closes; switched back, the next idle moment builds it again. The current value is
-            // the one `start` already reads; only changes act (the first apply is that value).
-            var started = false
-            pagesSpareWatch = ServiceObservation(.background, owner: "ChromiumWarmup.pagesSpare", on: mainWork) {
-                preference.defaultEngine == .chromium
-            } apply: { [weak self] _ in
-                if started { self?.chromiumWarmup.pagesSpareChanged() } else { started = true }
-            }
-        }
         postChromiumLikely()
     }
 

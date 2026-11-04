@@ -23,17 +23,17 @@ import Testing
         rig.work.noteDiscreteInput(expectsFrame: true)
         #expect(rig.work.budget.isInputResponseOpen)
         engine.onSpareWindowNeeded?()
-        #expect(engine.prepared.isEmpty, "nothing is built in the take's turn")
+        #expect(engine.prepared == 0, "nothing is built in the take's turn")
         rig.timer.run(ms: 60)
-        #expect(engine.prepared.isEmpty, "the refill ran inside the input response")
+        #expect(engine.prepared == 0, "the refill ran inside the input response")
 
         rig.work.budget.noteUserBlockingCommit()
         #expect(!rig.work.budget.isInputResponseOpen)
         // The next long period, or (while the response's requested tick keeps the link up) the
         // refill's maxDelay, builds it.
         rig.timer.run(ms: 600)
-        spinMainRunLoop { !engine.prepared.isEmpty }
-        #expect(engine.prepared == [false], "the spare is built once the response closed")
+        spinMainRunLoop { engine.prepared > 0 }
+        #expect(engine.prepared == 1, "the spare is built once the response closed")
         warmup.stop()
     }
 
@@ -48,10 +48,10 @@ import Testing
 
         engine.onSpareWindowNeeded?()
         rig.timer.run(ms: 400)
-        #expect(engine.prepared.isEmpty, "no idle period while frames run, and the delay has not passed")
+        #expect(engine.prepared == 0, "no idle period while frames run, and the delay has not passed")
         rig.timer.run(ms: 150)
-        spinMainRunLoop { !engine.prepared.isEmpty }
-        #expect(engine.prepared == [false], "past maxDelay the refill ran as background work")
+        spinMainRunLoop { engine.prepared > 0 }
+        #expect(engine.prepared == 1, "past maxDelay the refill ran as background work")
         keeper.deactivate()
         warmup.stop()
     }

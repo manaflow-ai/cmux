@@ -214,36 +214,20 @@ public final class CEFEngine: BrowserEngine {
         try? await startRuntime(trigger: reason)
     }
 
-    /// Builds the next spare Chromium window (`CEFSpareWindow`) once Chromium runs and no other
-    /// Chromium window is being built, so a pane's first tab skips building one: the default
-    /// profile's first, then, with `pages`, the cmux pages profile's (``beginPagesProfile()``), so a
-    /// cmux page's key joins a live window too. One spare per kind at a time; each later idle
-    /// moment builds the next missing one (`onSpareWindowNeeded`). `pages` false closes an
-    /// untaken pages spare. Call at an idle moment: building one holds the main thread. True
-    /// when one started.
+    /// Builds the default profile's spare Chromium window (`CEFSpareWindow`) once Chromium runs and no
+    /// other Chromium window is being built, so a pane's first tab skips building one. One spare at a
+    /// time; a later idle moment builds the next after a take (`onSpareWindowNeeded`). Call at an idle
+    /// moment: building one holds the main thread. True when one started.
     @discardableResult
-    public func prepareSpareWindow(pages: Bool = false) -> Bool {
-        if pages { _ = beginPagesProfile() }
+    public func prepareSpareWindow() -> Bool {
         adoptStores()
-        let spares = CEFRuntime.shared.spareWindow
-        spares.setWantsPages(pages, runtime: .shared)
-        return spares.prepareNext(runtime: .shared)
-    }
-
-    /// Stops keeping a spare window of the cmux pages profile and closes an untaken one: cmux
-    /// pages no longer use Chromium (`browser.defaultEngine` left Chromium). The next
-    /// `prepareSpareWindow(pages: true)` keeps one again. Call only while Chromium runs.
-    public func dropPagesSpareWindow() {
-        CEFRuntime.shared.spareWindow.setWantsPages(false, runtime: .shared)
+        return CEFRuntime.shared.spareWindow.prepareNext(runtime: .shared)
     }
 
     /// The one off-the-record profile every cmux page in Chromium uses (`ChromiumPageHost`):
     /// like the WebKit pages' non-persistent store, a page keeps nothing on disk, and no profile
-    /// of the person's (their extensions, cookies) touches a cmux page. Begun by the first call,
-    /// at the warm start that builds its spare window (``prepareSpareWindow(pages:)``) or at the
-    /// first page, whichever is first; never ended; later calls return the same profile. The
-    /// runtime learns it when this engine adopts its stores (a spare step or a tab), so its keys
-    /// take the pages spare window; an incognito window's profile never does.
+    /// of the person's (their extensions, cookies) touches a cmux page. Begun by the first page;
+    /// never ended; later calls return the same profile.
     public func beginPagesProfile() -> BrowserProfileID {
         if let pagesProfileID { return pagesProfileID }
         let profile = stores.offTheRecord.begin()
@@ -433,7 +417,6 @@ public final class CEFEngine: BrowserEngine {
         if runtimeSource.watchesHostHangs {
             runtime.watchHostHangs(reports: { [weak runtimeSource] hang in runtimeSource?.onHostHang?(hang) })
         }
-        if let pagesProfileID { runtime.spareWindow.pagesProfile = pagesProfileID }
     }
 
     /// Starts Chromium in this process or in the Chromium Host, as the source's backend says;

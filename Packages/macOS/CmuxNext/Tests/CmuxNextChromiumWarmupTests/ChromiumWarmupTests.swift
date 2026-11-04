@@ -54,9 +54,8 @@ import Testing
 
     /// Starts `warmup` with Chromium not the default and runs its launch check, so only the steps
     /// a test asks for are queued after.
-    func started(_ warmup: ChromiumWarmup, pagesPending: @escaping @MainActor () -> Bool = { false },
-                 pagesSpare: @escaping @MainActor () -> Bool = { false }) {
-        warmup.start(defaultIsChromium: { false }, pagesPending: pagesPending, pagesSpare: pagesSpare)
+    func started(_ warmup: ChromiumWarmup, pagesPending: @escaping @MainActor () -> Bool = { false }) {
+        warmup.start(defaultIsChromium: { false }, pagesPending: pagesPending)
         #expect(idle.queued.map(\.owner) == ["ChromiumWarmup.launch"])
         idle.runPeriod()
     }
@@ -106,10 +105,10 @@ import Testing
         #expect(engine.warmStarts.isEmpty, "the idle step awaits nothing")
         #expect(idle.queued.map(\.owner) == ["ChromiumWarmup.spare"])
         #expect(idle.queued.first?.maxDelay == .milliseconds(500), "the refill runs as background work past 500 ms")
-        #expect(engine.prepared.isEmpty)
+        #expect(engine.prepared == 0)
 
         idle.runPeriod()
-        #expect(engine.prepared == [false])
+        #expect(engine.prepared == 1)
         warmup.stop()
     }
 
@@ -138,10 +137,10 @@ import Testing
         let warmup = warmup(engine: engine)
         started(warmup)
         for _ in 0..<3 { engine.onSpareWindowNeeded?() }
-        #expect(engine.prepared.isEmpty, "nothing is built in the turn that asked")
+        #expect(engine.prepared == 0, "nothing is built in the turn that asked")
         #expect(idle.queued.map(\.owner) == ["ChromiumWarmup.spare"])
         idle.runPeriod()
-        #expect(engine.prepared == [false])
+        #expect(engine.prepared == 1)
         #expect(idle.queued.isEmpty)
 
         engine.onSpareWindowNeeded?()
@@ -159,7 +158,7 @@ import Testing
         engine.onSpareWindowNeeded?()
         key(.milliseconds(60))
         idle.runPeriod()
-        #expect(engine.prepared.isEmpty, "a spare was built 60 ms after a key")
+        #expect(engine.prepared == 0, "a spare was built 60 ms after a key")
         #expect(idle.queued.isEmpty, "nothing polls while the quiet runs")
         #expect(delays(are: [.milliseconds(690)]))
         #expect(idle.afters.first?.owner == "ChromiumWarmup.quiet")
@@ -169,13 +168,13 @@ import Testing
         idle.fireAfters()
         #expect(idle.queued.map(\.owner) == ["ChromiumWarmup.spare"])
         idle.runPeriod()
-        #expect(engine.prepared.isEmpty, "a key came during the wait")
+        #expect(engine.prepared == 0, "a key came during the wait")
         #expect(delays(are: [.milliseconds(650)]))
 
         idle.now += .milliseconds(651)
         idle.fireAfters()
         idle.runPeriod()
-        #expect(engine.prepared == [false])
+        #expect(engine.prepared == 1)
         warmup.stop()
     }
 
@@ -202,7 +201,7 @@ import Testing
         engine.onSpareWindowNeeded?()
         idle.now += .milliseconds(200)
         idle.runPeriod(mayOverrun: false)
-        #expect(engine.prepared.isEmpty, "a spare was built in a short period")
+        #expect(engine.prepared == 0, "a spare was built in a short period")
         #expect(idle.queued.map(\.owner) == ["ChromiumWarmup.spare"])
         #expect(idle.queued.first?.maxDelay == .milliseconds(300), "the post again keeps the first post's deadline")
 
@@ -210,55 +209,7 @@ import Testing
         idle.runPeriod(mayOverrun: false)
         #expect(idle.queued.first?.maxDelay == .zero, "past its deadline: background work at once")
         idle.runPeriod()
-        #expect(engine.prepared == [false])
-        warmup.stop()
-    }
-
-    /// A spare window came up while the pages kind has none (`CEFSpareWindow.windowCameUp`
-    /// reports `onSpareWindowNeeded`): an idle task, never the turn that asked, builds the next spare with
-    /// the pages switch read then. Read again at each step: off, the step keeps no pages spare.
-    @Test func eachSpareStepReadsThePagesSwitchWhenItRuns() {
-        let engine = FakeWarmupEngine()
-        let warmup = warmup(engine: engine)
-        let pages = Flag(true)
-        started(warmup, pagesSpare: { pages.value })
-        engine.onSpareWindowNeeded?()
-        #expect(engine.prepared.isEmpty)
-        idle.runPeriod()
-        #expect(engine.prepared == [true], "the pages spare is built in the idle task")
-
-        engine.onSpareWindowNeeded?()
-        pages.value = false
-        idle.runPeriod()
-        #expect(engine.prepared == [true, false], "pages off when it ran: the step keeps no pages spare")
-        warmup.stop()
-    }
-
-    /// `browser.defaultEngine` left Chromium, so pages no longer use it: the untaken
-    /// pages spare closes at once; back on Chromium, an idle task builds it again. Before Chromium
-    /// runs, nothing happens (the first spare step reads the switch itself).
-    @Test func thePagesSpareFollowsTheSwitch() {
-        let engine = FakeWarmupEngine()
-        let warmup = warmup(engine: engine)
-        let pages = Flag(true)
-        started(warmup, pagesSpare: { pages.value })
-
-        engine.isRunning = false
-        pages.value = false
-        warmup.pagesSpareChanged()
-        #expect(engine.droppedPages == 0 && idle.queued.isEmpty, "no Chromium yet, no spare to drop")
-
-        engine.isRunning = true
-        warmup.pagesSpareChanged()
-        #expect(engine.droppedPages == 1, "pages left Chromium: the pages spare closes")
-        #expect(idle.queued.isEmpty)
-
-        pages.value = true
-        warmup.pagesSpareChanged()
-        #expect(engine.prepared.isEmpty, "not on the switch's turn")
-        idle.runPeriod()
-        #expect(engine.prepared == [true])
-        #expect(engine.droppedPages == 1)
+        #expect(engine.prepared == 1)
         warmup.stop()
     }
 
@@ -275,7 +226,7 @@ import Testing
         started(warmup)
         engine.onSpareWindowNeeded?()
         idle.runPeriod()
-        #expect(engine.prepared == [false])
+        #expect(engine.prepared == 1)
 
         memory.send(.warning)
         #expect(engine.holds == [true], "a warning holds the spares")
@@ -284,7 +235,7 @@ import Testing
         engine.onSpareWindowNeeded?()
         #expect(idle.queued.isEmpty, "no spare step is posted at warning")
         idle.runPeriod()
-        #expect(engine.prepared == [false], "no refill at warning")
+        #expect(engine.prepared == 1, "no refill at warning")
 
         memory.send(.critical)
         #expect(engine.holds == [true, true], "critical keeps the hold")
@@ -293,14 +244,14 @@ import Testing
         engine.onSpareWindowNeeded?()
         #expect(idle.queued.isEmpty, "no spare step is posted at critical")
         idle.runPeriod()
-        #expect(engine.prepared == [false], "no refill at critical")
+        #expect(engine.prepared == 1, "no refill at critical")
 
         memory.send(.normal)
         #expect(engine.holds.last == false, "normal lets the spares go")
-        #expect(engine.prepared == [false], "nothing is built on the level's turn")
+        #expect(engine.prepared == 1, "nothing is built on the level's turn")
         #expect(idle.queued.map(\.owner) == ["ChromiumWarmup.spare"])
         idle.runPeriod()
-        #expect(engine.prepared == [false, false], "an idle task builds the spare again")
+        #expect(engine.prepared == 2, "an idle task builds the spare again")
         warmup.stop()
     }
 
@@ -315,7 +266,7 @@ import Testing
         engine.onSpareWindowNeeded?()
         memory.send(.warning)
         idle.runPeriod()
-        #expect(engine.prepared.isEmpty, "a queued spare was built at warning")
+        #expect(engine.prepared == 0, "a queued spare was built at warning")
 
         memory.send(.normal)
         key(.milliseconds(60))
@@ -325,7 +276,7 @@ import Testing
         #expect(idle.afters.allSatisfy { $0.token == nil }, "a warning ended the quiet wait")
         idle.fireAfters()
         idle.runPeriod()
-        #expect(engine.prepared.isEmpty, "a spare was built at warning")
+        #expect(engine.prepared == 0, "a spare was built at warning")
         warmup.stop()
     }
 
@@ -358,7 +309,7 @@ import Testing
         tracking.value = true
         engine.onSpareWindowNeeded?()
         idle.runPeriod()
-        #expect(engine.prepared.isEmpty, "a menu tracks")
+        #expect(engine.prepared == 0, "a menu tracks")
         #expect(idle.queued.isEmpty, "nothing polls while it does")
         engine.onSpareWindowNeeded?()
         #expect(idle.queued.isEmpty, "the waiting step serves this report too")
@@ -367,11 +318,11 @@ import Testing
         tracking.value = false
         menu.end()
         #expect(idle.queued.map(\.owner) == ["ChromiumWarmup.spare"])
-        #expect(engine.prepared.isEmpty, "posted, not run, at the menu's end")
+        #expect(engine.prepared == 0, "posted, not run, at the menu's end")
         menu.end()
         #expect(idle.queued.count == 1, "the observation ended with the menu")
         idle.runPeriod()
-        #expect(engine.prepared == [false])
+        #expect(engine.prepared == 1)
         warmup.stop()
     }
 
@@ -384,11 +335,11 @@ import Testing
         started(warmup)
         engine.onSpareWindowNeeded?()
         idle.runPeriod()
-        #expect(engine.prepared == [false])
+        #expect(engine.prepared == 1)
         #expect(menu.observations == 0, "no wait for a menu end that never comes")
         engine.onSpareWindowNeeded?()
         idle.runPeriod()
-        #expect(engine.prepared == [false, false], "the next request still builds a spare")
+        #expect(engine.prepared == 2, "the next request still builds a spare")
         warmup.stop()
     }
 
@@ -401,7 +352,7 @@ import Testing
         started(warmup, pagesPending: { making.value })
         engine.onSpareWindowNeeded?()
         idle.runPeriod()
-        #expect(engine.prepared.isEmpty)
+        #expect(engine.prepared == 0)
         engine.onSpareWindowNeeded?()
         #expect(idle.queued.isEmpty, "the spare waits for the pages, not for a report")
 
@@ -409,7 +360,7 @@ import Testing
         warmup.pagesSettled()
         #expect(idle.queued.map(\.owner) == ["ChromiumWarmup.spare"])
         idle.runPeriod()
-        #expect(engine.prepared == [false])
+        #expect(engine.prepared == 1)
         warmup.stop()
     }
 
@@ -420,7 +371,7 @@ import Testing
         engine.onSpareWindowNeeded?()
         warmup.stop()
         idle.runPeriod()
-        #expect(engine.prepared.isEmpty)
+        #expect(engine.prepared == 0)
         engine.onSpareWindowNeeded?()
         #expect(idle.queued.isEmpty)
     }
@@ -556,9 +507,8 @@ import Testing
 @MainActor final class FakeWarmupEngine: ChromiumWarmupEngine {
     var availability: BrowserEngineAvailability = .available
     var isRunning: Bool
-    /// The `pages` argument of each `prepareSpareWindow` call.
-    private(set) var prepared: [Bool] = []
-    private(set) var droppedPages = 0
+    /// How many `prepareSpareWindow` calls came.
+    private(set) var prepared = 0
     /// The argument of each `holdSpareWindows` call.
     private(set) var holds: [Bool] = []
     /// How many times the untaken spares were closed (`closeUntakenSpareWindows`).
@@ -590,13 +540,11 @@ import Testing
         return true
     }
 
-    func prepareSpareWindow(pages: Bool) -> Bool {
-        prepared.append(pages)
+    func prepareSpareWindow() -> Bool {
+        prepared += 1
         spareWindowCount = 1
         return true
     }
-
-    func dropPagesSpareWindow() { droppedPages += 1 }
 
     func holdSpareWindows(_ held: Bool) {
         holds.append(held)

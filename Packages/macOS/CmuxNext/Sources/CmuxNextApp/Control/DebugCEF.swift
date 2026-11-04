@@ -29,7 +29,6 @@ enum DebugCEF {
             "trigger": report.trigger.map { .string($0) } ?? .null,
             "footprint_mb": .number(footprintMegabytes()),
             "spare_window": .string(services.cache.cef.spareWindowState),
-            "pages_spare_window": .string(services.cache.cef.pagesSpareWindowState),
             // Whether the warm-up keeps spare windows (null before it starts); the bench's host arms check it.
             "warmup_spare_windows": services.chromiumWarmup.startedPlacement.map { .bool($0.keepsSpareWindows) } ?? .null,
             // A window a spare would have served, built because none was ready.

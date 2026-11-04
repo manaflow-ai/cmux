@@ -77,7 +77,6 @@ extension AppControl {
             pages: pages, registry: registry, newTabSpare: services.newTabSpares.spare?.view.page,
             spareWindows: [
                 WebUICensus.Host(name: "cef_window", state: cef.spareWindowState, rendererClients: cef.spareWindowRendererClients),
-                WebUICensus.Host(name: "cef_pages_window", state: cef.pagesSpareWindowState, rendererClients: cef.pagesSpareWindowRendererClients),
             ],
             browserTabs: services.cache.browsers.sorted { $0.key < $1.key }.compactMap { id, entry in
                 (entry.tab as? CEFTab).map { WebUICensus.Host(name: id, rendererClients: $0.rendererClientIDs) }

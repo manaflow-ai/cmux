@@ -36,15 +36,15 @@ import Testing
         #expect(idle.queued.map(\.owner).contains("ChromiumWarmup.spare"), "the host warm start posted no spare step")
 
         idle.runPeriod()
-        #expect(engine.prepared == [false], "the host warm start did not prepare the default profile's spare")
+        #expect(engine.prepared == 1, "the host warm start did not prepare the default profile's spare")
         warmup.stop()
     }
 
-    /// The bench arm `chromiumHostNoSpareWindow`: no spare step, no refill, no pages spare.
+    /// The bench arm `chromiumHostNoSpareWindow`: no spare step, no refill.
     @Test func theNoSpareWindowArmBuildsNoSpareWindow() async {
         let engine = FakeWarmupEngine(running: false)
         let warmup = warmup(engine)
-        warmup.start(defaultIsChromium: { true }, pagesSpare: { true }, placement: .host(spareWindows: false))
+        warmup.start(defaultIsChromium: { true }, placement: .host(spareWindows: false))
         #expect(engine.onSpareWindowNeeded == nil, "the spare refill was wired in the no spare window arm")
         #expect(warmup.startedPlacement?.keepsSpareWindows == false)
 
@@ -54,11 +54,9 @@ import Testing
         for _ in 0..<100 { await Task.yield() }
         #expect(!idle.queued.contains { $0.owner == "ChromiumWarmup.spare" }, "a spare step was posted in the arm")
 
-        warmup.pagesSpareChanged()
         warmup.pagesSettled()
         idle.runPeriod()
-        #expect(engine.prepared.isEmpty, "a spare window was built in the arm")
-        #expect(engine.droppedPages == 0)
+        #expect(engine.prepared == 0, "a spare window was built in the arm")
         warmup.stop()
     }
 

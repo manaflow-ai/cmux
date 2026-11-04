@@ -25,7 +25,7 @@ import Testing
         for _ in 0..<100 { await Task.yield() }
         #expect(engine.warmStarts == ["restoredTab"], "a second start ran")
         #expect(warmup.reason == .restoredTab)
-        #expect(engine.prepared.isEmpty, "the first spare window did not wait for an idle step")
+        #expect(engine.prepared == 0, "the first spare window did not wait for an idle step")
         warmup.stop()
     }
 }

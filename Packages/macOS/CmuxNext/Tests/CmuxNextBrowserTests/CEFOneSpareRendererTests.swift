@@ -2,16 +2,12 @@
 import Foundation
 import Testing
 
-/// Chrome keeps one spare renderer (`SpareRenderProcessHostManager`). Home had two or
-/// three: the default profile's spare window holds an about:blank placeholder with a renderer, the pages
-/// spare window another, and Chromium kept its own spare beside them. With the default-off feature
-/// `chromiumOneSpareRenderer` there is one: while placeholders hold a renderer, Chromium's own spare is
-/// off (`disable-features=SpareRendererForSitePerProcess`) and only the default profile keeps a spare
-/// window. Each spare window reports its placeholder's renderer for `debug.memory`. Against a spy shim; each
+/// Chrome keeps one spare renderer (`SpareRenderProcessHostManager`). Home had two: the default
+/// profile's spare window holds an about:blank placeholder with a renderer, and Chromium kept its own
+/// spare beside it. With the default-off feature `chromiumOneSpareRenderer` there is one: Chromium's own
+/// spare is off (`disable-features=SpareRendererForSitePerProcess`). Each spare window reports its placeholder's renderer for `debug.memory`. Against a spy shim; each
 /// test has its own runtime.
 @MainActor @Suite(.serialized) struct CEFOneSpareRendererTests {
-    private let pages = BrowserProfileID(rawValue: UUID())
-
     // MARK: Switches
 
     @Test func chromiumSpareOffDisablesChromiumsSpareInTheOneDisableEntry() {
@@ -36,42 +32,33 @@ import Testing
 
     // MARK: The spare windows
 
-    /// Feature off: Chromium keeps its own spare and both kinds keep a spare window, as before.
-    @Test func featureOffKeepsChromiumsSpareAndBothWindows() throws {
+    /// Feature off: Chromium keeps its own spare beside the spare window, as before.
+    @Test func featureOffKeepsChromiumsSpare() throws {
         let (runtime, root) = try Self.spyRuntime()
         defer { try? FileManager.default.removeItem(at: root) }
-        let spares = wantingPages(runtime)
-        #expect(!spares.placeholderIsTheSpare)
-        #expect(spares.wantedKinds == [.browser, .pages])
+        #expect(!runtime.spareWindow.placeholderIsTheSpare)
+        #expect(runtime.spareWindow.wantedKinds == [.browser])
     }
 
     /// Feature on: the default profile's placeholder is the one spare renderer.
     @Test func thePlaceholderIsTheOneSpare() throws {
         let (runtime, root) = try Self.spyRuntime()
         defer { try? FileManager.default.removeItem(at: root) }
-        let spares = wantingPages(runtime)
+        let spares = runtime.spareWindow
         spares.oneSpareRenderer = true
         #expect(spares.placeholderIsTheSpare, "Chromium kept its own spare beside the placeholder")
         #expect(spares.wantedKinds == [.browser])
 
-        #expect(!spares.prepare(.pages, runtime: runtime), "a second placeholder renderer")
         #expect(spares.prepare(.browser, runtime: runtime))
         try Self.comeUp(runtime, browser: 10)
         #expect(spares.state(of: .browser) == .live)
-        #expect(spares.missingKind == nil, "the warmup would ask for a pages spare")
+        #expect(spares.missingKind == nil, "the warmup would ask for a second spare")
         #expect(OneSpareSpy.createWindowCalls == 1)
         #expect(spares.untakenSpares.map { $0.kind } == [.browser])
         #expect(spares.untakenSpares.first?.rendererClients == [110], "the placeholder's renderer is not reported")
     }
 
     // MARK: Helpers
-
-    private func wantingPages(_ runtime: CEFRuntime) -> CEFSpareWindow {
-        let spares = runtime.spareWindow
-        spares.pagesProfile = pages
-        spares.setWantsPages(true, runtime: runtime)
-        return spares
-    }
 
     /// Chromium finished the one window being built: its OnAfterCreated, as `browser`.
     private static func comeUp(_ runtime: CEFRuntime, browser: Int32) throws {

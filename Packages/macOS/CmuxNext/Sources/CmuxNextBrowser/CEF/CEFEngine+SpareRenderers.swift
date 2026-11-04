@@ -8,13 +8,10 @@ extension CEFEngine {
         CEFRuntime.shared.spareWindow.oneSpareRenderer = on
     }
 
-    /// The untaken spare Chromium windows for `debug.memory`: `chromium_window` (the default profile's)
-    /// and `chromium_pages_window` (the cmux pages profile's), each with its placeholder's renderer
-    /// client ids, empty while it holds no renderer.
+    /// The untaken spare Chromium windows for `debug.memory`: `chromium_window` (the default profile's),
+    /// with its placeholder's renderer client ids, empty while it holds no renderer.
     public var spareWindowRenderers: [(pool: String, rendererClients: [Int32])] {
-        CEFRuntime.shared.spareWindow.untakenSpares.map { spare in
-            (spare.kind == .browser ? "chromium_window" : "chromium_pages_window", spare.rendererClients)
-        }
+        CEFRuntime.shared.spareWindow.untakenSpares.map { spare in ("chromium_window", spare.rendererClients) }
     }
 
     /// The renderer client ids that host a frame of any browser Chromium holds: tabs, cmux pages, popups,

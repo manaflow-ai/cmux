@@ -33,9 +33,6 @@ extension CEFEngine {
     /// The default profile's spare window: `none`, `creating`, `live`, `taken` or `closed` (`debug.cef`).
     public var spareWindowState: String { CEFRuntime.shared.spareWindow.state(of: .browser).rawValue }
 
-    /// The cmux pages profile's spare window, in the same states (`debug.cef` `pages_spare_window`).
-    public var pagesSpareWindowState: String { CEFRuntime.shared.spareWindow.state(of: .pages).rawValue }
-
     /// Windows built in this process for a key a spare serves because no spare of its kind was
     /// ready (`debug.cef` `window_built_on_key_turn`).
     public var windowsBuiltOnKeyTurn: Int { CEFRuntime.shared.spareWindow.windowsBuiltOnKeyTurn }
@@ -44,11 +41,6 @@ extension CEFEngine {
     /// The renderer client ids of the untaken default-profile spare window's about:blank placeholder (`debug.webui`).
     public var spareWindowRendererClients: [Int32] {
         CEFRuntime.shared.spareWindow.host(of: .browser)?.placeholder?.rendererClientIDs ?? []
-    }
-
-    /// The renderer client ids of the untaken pages spare window's about:blank placeholder (`debug.webui`).
-    public var pagesSpareWindowRendererClients: [Int32] {
-        CEFRuntime.shared.spareWindow.host(of: .pages)?.placeholder?.rendererClientIDs ?? []
     }
     #endif
 
