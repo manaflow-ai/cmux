@@ -70,6 +70,12 @@ impl Surface {
         })
     }
 
+    /// Sets the title the terminal shows, as its reader does when the program sets one.
+    #[cfg(test)]
+    pub(crate) fn set_test_title(&self, title: &str) {
+        *self.as_pty().expect("test PTY surface").title.lock().unwrap() = title.to_string();
+    }
+
     #[cfg(test)]
     pub(crate) fn set_test_pwd(&self, pwd: Option<String>) {
         let pty = self.as_pty().expect("test PTY surface");

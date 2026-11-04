@@ -65,6 +65,21 @@ pub(crate) fn panes_built_for_test() -> u64 {
     PANES_BUILT.with(std::cell::Cell::get)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Test seam: runs once on this thread between an entity's build and the whole tree's build in
+    /// `tree_entity_json`'s check, as a terminal's reader could run there on another thread.
+    static ENTITY_CHECK_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `hook` once, the next time `tree_entity_json` on this thread has built an entity and has not
+/// built the whole tree yet.
+#[cfg(test)]
+pub(crate) fn set_entity_check_hook_for_test(hook: impl FnOnce() + 'static) {
+    ENTITY_CHECK_HOOK.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
+}
+
 pub(super) fn pane_json(
     state: &State,
     id: PaneId,
@@ -469,6 +484,9 @@ pub(crate) fn tree_entity_json(
     #[cfg(test)]
     {
         let built = panes_built_for_test();
+        if let Some(hook) = ENTITY_CHECK_HOOK.with(|slot| slot.borrow_mut().take()) {
+            hook();
+        }
         let from_tree = entity_from_whole_tree(state, notifications, kind, id);
         PANES_BUILT.with(|cell| cell.set(built));
         assert_eq!(entity, from_tree, "the {kind:?} entity of {id} differs from the tree's");
