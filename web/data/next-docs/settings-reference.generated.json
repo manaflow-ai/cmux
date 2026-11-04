@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 568,
+  "count": 570,
   "sections": [
     {
       "id": "general",
@@ -1800,6 +1800,27 @@
             "thinking",
             "verbose"
           ]
+        },
+        {
+          "key": "agentPane.display.trayHandle",
+          "title": "Running Tray Handle",
+          "help": "Where the handle that tucks the running tray away and brings it back sits along the top of the composer.",
+          "kind": "choice",
+          "default": "middle",
+          "group": "Agent Chat",
+          "values": [
+            "left",
+            "middle",
+            "right"
+          ]
+        },
+        {
+          "key": "agentPane.display.trayTucked",
+          "title": "Tuck Away Running Tray",
+          "help": "Hides the bar of running work over the composer. Hover the top middle of the composer and click its chevron to bring it back.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.vscodeMinimap",

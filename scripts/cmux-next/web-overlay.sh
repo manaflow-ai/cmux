@@ -18,7 +18,9 @@
 #                        # build the app on the fleet (cmux-ci; the Linux pool for cmux-next; tag
 #                        # web-overlay, workspace web-overlay:$USER) and install its web bundles
 #   web-overlay.sh build              # build the web bundles in this checkout and install them
-#   web-overlay.sh install DIR        # install a build-web-bundles.sh --out-root DIR
+#   web-overlay.sh install DIR [--commit SHA]
+#                        # install a build-web-bundles.sh --out-root DIR; manifest.json records
+#                        # SHA, else DIR's .web-overlay-source (`build` writes it), else unknown
 #   web-overlay.sh install-app APP    # install the web bundles of a built cmux .app
 #   web-overlay.sh off                # bundled pages again (keeps the overlay files)
 #   web-overlay.sh status
@@ -126,9 +128,23 @@ PY
   echo "installed ${installed[*]} ($source_commit) into $overlay"
 }
 
-# An output root of build-web-bundles.sh --out-root, built from this checkout.
+# The file in an output root that names the commit it was built from (`build` writes it).
+SOURCE_FILE=".web-overlay-source"
+
+# An output root of build-web-bundles.sh --out-root; $2 is the commit it was built from, else its
+# $SOURCE_FILE, else unknown. Never this checkout's HEAD: the root may come from another tree.
 install_from() {
-  install_dirs "$1/$PANE" "$1/$PAGES" "$1/$APP" "$(git -C "$ROOT" rev-parse HEAD)"
+  local commit="${2:-}"
+  [[ -n "$commit" ]] || commit="$(head -n 1 "$1/$SOURCE_FILE" 2>/dev/null || true)"
+  install_dirs "$1/$PANE" "$1/$PAGES" "$1/$APP" "${commit:-unknown}"
+}
+
+# This checkout's HEAD, with -dirty when the tree it builds from has changes.
+checkout_commit() {
+  local head
+  head="$(git -C "$ROOT" rev-parse HEAD)"
+  if [[ -n "$(git -C "$ROOT" status --porcelain --untracked-files=no 2>/dev/null)" ]]; then head+="-dirty"; fi
+  echo "$head"
 }
 
 # A built cmux .app: its module bundles and its viewer folder hold the same files. $2 is the
@@ -342,7 +358,13 @@ case "$cmd" in
     ;;
   install)
     [[ -n "${1:-}" ]] || usage 1
-    install_from "$(cd "$1" && pwd)"
+    dir="$1"; shift
+    commit=""
+    if [[ "${1:-}" == "--commit" ]]; then
+      [[ -n "${2:-}" ]] || usage 1
+      commit="$2"
+    elif [[ -n "${1:-}" ]]; then usage 1; fi
+    install_from "$(cd "$dir" && pwd)" "$commit"
     ;;
   install-app)
     [[ -d "${1:-}" ]] || usage 1
@@ -352,6 +374,7 @@ case "$cmd" in
     out="$(mktemp -d "${TMPDIR:-/tmp}/web-overlay-build.XXXXXX")"
     trap 'rm -rf "$out"' EXIT
     "$ROOT/scripts/cmux-next/build-web-bundles.sh" --force --out-root "$out"
+    checkout_commit > "$out/$SOURCE_FILE"
     install_from "$out"
     ;;
   fleet)
