@@ -335,7 +335,8 @@ async fn a_guarded_finish_refuses_a_folder_outside_the_roots_and_the_source_stay
         std::os::unix::fs::symlink(outside.path(), &link).unwrap();
         tries.push(json!({"cwd": link}));
     }
-    for extra in tries {
+    for mut extra in tries {
+        extra["epoch"] = begin["epoch"].clone();
         let r = finish(&mut dst, &receive_id, extra.clone()).await;
         assert!(r.as_ref().is_err_and(|e| e.contains("transfer.cwd")), "{extra}: {r:?}");
     }
