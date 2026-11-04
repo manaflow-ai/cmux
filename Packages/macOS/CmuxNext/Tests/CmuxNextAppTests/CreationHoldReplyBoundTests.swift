@@ -151,4 +151,50 @@ struct CreationHoldReplyBoundTests {
         _ = fresh.open(generation: 1)
         #expect(fresh.holds(letter, limit: .seconds(2), expiring: true, closes: false, replyLimit: .seconds(10)))
     }
+
+    /// Cmd-N over terminal T, a typed command, then the person moves on (a click on another workspace hides T): at the reply
+    /// bound the command never runs in T, a shell they left; its keys are counted, never typed (review of #35275 at
+    /// 8deeb23ec4e5). Base: the bound gave T the left workspace's keys too.
+    @Test func aNewWorkspaceThePersonLeftTypesNothingIntoThePressTerminalAtTheBound() throws {
+        let buffer = CreationInputBuffer(began: .now)
+        let press = CreationInputBuffer.HeldLane(tab: "press_tab", machine: nil)
+        _ = buffer.open(generation: 1, newWorkspace: true, pressTerminal: press)
+        var typed = 0
+        for character in "rm -rf build\r" {
+            let text = String(character)
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                                      context: nil, characters: text, charactersIgnoringModifiers: text, isARepeat: false,
+                                                      keyCode: text == "\r" ? 36 : 0))
+            buffer.capture(event, focusedTab: press.tab, forNewWorkspace: true)
+            typed += 1
+        }
+        buffer.personMovedOn()
+        buffer.endReplyWait()
+        let keys = buffer.take(focused: nil, isShortcut: { _, _ in false })
+        let intoPress = keys.flatMap(\.keys).filter { $0.lane == press }.count
+        #expect(intoPress == 0, "\(intoPress) key(s) of the left workspace ran in the press terminal")
+        #expect(keys.isEmpty, "the left workspace's keys went on: \(keys.flatMap(\.keys).map { $0.event.characters ?? "" })")
+        #expect(buffer.untypedTerminalKeys == typed)
+    }
+
+    /// A close's read opened while a creation waits for its reply (a person's Cmd-W) does not restart that creation's reply
+    /// bound: the hold still ends one bound after the creation began (review of #35275: the close moved its start).
+    @Test func aCloseDuringAPendingCreationKeepsTheCreationsReplyBound() async throws {
+        let buffer = CreationInputBuffer(began: .now)
+        buffer.replyWaitLimit = .seconds(1)
+        let ended = BoundEnd()
+        buffer.onBound = { _, bound in if bound == .reply, ended.at == nil { ended.at = .now } }
+        let opened = ContinuousClock.now
+        _ = buffer.open(generation: 1, at: opened)
+        try await Task.sleep(for: .milliseconds(600))
+        _ = buffer.openClose(closing: ["closing_tab"], machine: nil)
+        #expect(buffer.waitedPastReplyBound(.milliseconds(500)), "the close restarted the creation's reply bound")
+        let deadline = ContinuousClock.now + .seconds(3)
+        while ended.at == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        let end = try #require(ended.at, "the reply bound never ended the hold")
+        #expect(end - opened < .milliseconds(1400), "the hold ended \(end - opened) after the creation began, past its 1 s bound")
+    }
 }
+
+/// When a hold's reply bound ended it (``CreationInputBuffer/onBound``).
+@MainActor private final class BoundEnd { var at: ContinuousClock.Instant? }
