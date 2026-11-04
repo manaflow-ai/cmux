@@ -23,6 +23,7 @@
     "automation-bench.yml:scoreboard": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "backend.yml:deploy-production": {"class": "linux-js", "warm": ["actions-cache"]},
     "backend.yml:deploy-staging": {"class": "linux-js", "warm": ["actions-cache"]},
+    "backend.yml:journey-staging": {"class": "linux-rust", "warm": [], "exempt": "cold: cargo build of cmux-tui from an empty target directory for the staging Cloud journey; no warm source wired yet"},
     "backend.yml:test": {"class": "linux-js", "warm": ["actions-cache"]},
     "backend.yml:vitess-development": {"class": "linux-js", "warm": ["actions-cache"]},
     "build-ghosttykit.yml:build-ghosttykit": {"class": "mac-build", "warm": ["actions-cache"]},
