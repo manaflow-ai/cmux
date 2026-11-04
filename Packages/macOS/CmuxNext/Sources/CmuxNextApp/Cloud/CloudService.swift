@@ -857,10 +857,11 @@ final class CloudService {
         changes.began { [weak self] in _ = await self?.refresh() }; await refresh(); logger.info("resumed machine \(machineID, privacy: .public)")
     }
 
-    /// The machine's idle auto-pause (`PUT /api/vm/{id}/idle-pause`): minutes
-    /// of idle before cmux Cloud pauses it; 0 is Off.
+    /// The machine's idle policy in minutes: CloudDO uses `cloud.machine.idle_policy.set`
+    /// (seconds), classic uses `PUT /api/vm/{id}/idle-pause`. 0 disables early pause;
+    /// CloudDO's separate 24-hour cost backstop still applies.
     func setIdlePause(_ machineID: String, minutes: Int) async throws {
-        try await api.setIdlePause(machineID, minutes: minutes)
+        try await configuration.linkSource == .appServer ? CloudMachineSettings.setIdlePause(machineID, minutes: minutes, ops: appOps) : api.setIdlePause(machineID, minutes: minutes)
         machines.session(machineID)?.machine.idlePauseMinutes = minutes
         logger.info("set idle pause \(machineID, privacy: .public) to \(minutes) min")
     }
@@ -879,7 +880,7 @@ final class CloudService {
     }
 
     func renameMachine(_ machineID: String, to name: String) async throws {
-        try await api.renameMachine(machineID, to: name.isEmpty ? nil : name)
+        try await configuration.linkSource == .appServer ? CloudMachineSettings.rename(machineID, to: name, ops: appOps) : api.renameMachine(machineID, to: name.isEmpty ? nil : name)
         machines.session(machineID)?.machine.displayName = name.isEmpty ? nil : name
     }
 

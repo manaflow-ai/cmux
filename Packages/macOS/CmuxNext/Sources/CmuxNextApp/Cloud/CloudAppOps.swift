@@ -44,8 +44,11 @@ extension CloudMachine {
         // The record's `capabilities` are machine capability names
         // (`agent_session`, …), not provider operations, so the machine
         // declares none and every Cloud action stays available.
-        // The idle auto-pause fields, when the backend sends them (`/api/vm` names).
-        let minutes = (value["idlePauseMinutes"]?.doubleValue).flatMap { Int(exactly: $0) }
+        // Classic says minutes; CloudDO says idle_policy.idle_seconds. This is the stored policy,
+        // not necessarily the effective team-wide idle window or the 24-hour backstop.
+        let policyMinutes = value["idle_policy"]?["idle_seconds"]?.doubleValue
+            .flatMap { Int(exactly: $0) }.flatMap { $0 % 60 == 0 ? $0 / 60 : nil }
+        let minutes = value["idlePauseMinutes"]?.doubleValue.flatMap { Int(exactly: $0) } ?? policyMinutes
         let idlePause = Self.idlePauseDiagnostics(value["idlePause"])
         self.init(id: id, provider: "cmux-next", status: status, displayName: value["name"]?.stringValue,
                   pauseReason: Self.nextPauseReason(value["pause_reason"] ?? value["pauseReason"]), idlePauseMinutes: minutes,
