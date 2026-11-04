@@ -164,13 +164,19 @@ extension CMUXCLI {
         }
     }
 
+    /// Whether the global file holds cmux's live hooks. The disabled
+    /// ownership marker a partial uninstall leaves behind runs nothing, so it
+    /// alone does not count as installed.
     static func kiroGlobalHooksInstalled(_ def: AgentHookDef) -> Bool {
         guard let data = FileManager.default.contents(atPath: kiroGlobalHooksFilePath(for: def)),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let entries = json["hooks"] as? [[String: Any]] else {
             return false
         }
-        return entries.contains(where: isCmuxOwnedKiroGlobalHookEntry)
+        return entries.contains {
+            isCmuxOwnedKiroGlobalHookEntry($0)
+                && $0["name"] as? String != kiroGlobalOwnershipEntryName
+        }
     }
 
     /// `cmux hooks setup kiro --global`: writes cmux's lifecycle hooks to the
