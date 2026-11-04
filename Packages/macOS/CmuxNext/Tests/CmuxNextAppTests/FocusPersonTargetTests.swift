@@ -37,6 +37,19 @@ struct FocusPersonTargetTests {
         #expect(state.personTarget == "b-tab", "the mouse responder report did not set the person's target")
     }
 
+    /// A responder report inside a key's dispatch is no focus choice of the person's (lead on #35275): after a script moved
+    /// the focus, a key the person types (a responder change it causes) must not copy the script's target into theirs, or
+    /// the bound drops the keys they typed for the press-time terminal.
+    @Test func aKeysResponderReportLeavesThePersonsTarget() {
+        let (machine, initial) = twoTerminals()
+        var state = initial
+        _ = machine.send(.focusPane("a", source: .mouse), into: &state)
+        _ = machine.send(.focusPane("b", source: .cli), into: &state)
+        _ = machine.send(.responder(.content(pane: "b"), source: .keyboard), into: &state)
+        #expect(state.typingTab == "b-tab")
+        #expect(state.personTarget == "a-tab", "a key's responder report set the person's target to \(state.personTarget ?? "none")")
+    }
+
     @Test(arguments: [FocusEvent.Source.cli, .programmatic])
     func aScriptsOrTheAppsMoveLeavesThePersonsTarget(_ source: FocusEvent.Source) {
         let (machine, initial) = twoTerminals()

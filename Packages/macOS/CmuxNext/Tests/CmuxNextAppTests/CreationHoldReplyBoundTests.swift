@@ -21,7 +21,9 @@ struct CreationHoldReplyBoundTests {
     /// of the person's: at the hold's bound the keys typed after it go on in order to the terminal the person typed into at
     /// the press, also after a script moved the focus (input from the person goes before automation; lead on #35275: one
     /// fact, the person-intent target, no flag per input path). Base: they waited for the reply that never comes.
-    @Test(arguments: [Move.noMove, .script])
+    /// `scriptThenTyping`: after the script's move the person types a second line during the hold; both lines run in the
+    /// press-time terminal, in typing order (lead on #35275: a key typed then is no focus choice of the person's).
+    @Test(arguments: [Move.noMove, .script, .scriptThenTyping])
     func keysTypedAfterCmdNWhoseDaemonNeverAnswersReachThePressTimeTerminalAtTheBound(_ move: Move) async throws {
         try await Self.cmdNNeverAnswered(then: move) { end, read in
             #expect(end == "replyBoundReached", "\(move): the hold ended \(end), not at its reply bound")
@@ -29,6 +31,11 @@ struct CreationHoldReplyBoundTests {
             #expect(pressed.ran, "\(move): the press-time terminal did not get the typed line in order; its screen: \(pressed.screen.debugDescription)")
             let other = try await read(.other, false)
             #expect(!other.ran, "\(move): the line ran in the other terminal: \(other.screen.debugDescription)")
+            guard move == .scriptThenTyping else { return }
+            let lines = pressed.screen.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+            let held = lines.firstIndex(of: "held"), also = lines.firstIndex(of: "also")
+            #expect(held != nil && also != nil && held! < also!, "the two lines did not run in typing order: \(pressed.screen.debugDescription)")
+            #expect(!other.screen.contains("echo also"), "the second line ran in the terminal the script focused")
         }
     }
 
@@ -37,7 +44,7 @@ struct CreationHoldReplyBoundTests {
     /// order): a click on another pane's view, a tab of the strip or a sidebar row; the Window menu's numbered workspace
     /// item; a palette pick. And a script's focus move.
     enum Move: String, CaseIterable, Sendable, CustomTestStringConvertible {
-        case noMove, paneClick, tabClick, workspaceClick, numberedWorkspaceItem, paletteWorkspacePick, script
+        case noMove, paneClick, tabClick, workspaceClick, numberedWorkspaceItem, paletteWorkspacePick, script, scriptThenTyping
         var testDescription: String { rawValue }
     }
 
@@ -74,7 +81,7 @@ struct CreationHoldReplyBoundTests {
         }) { services, connection in
             let router = services.keyRouter
             let coordinator = router.creationInputCoordinator
-            coordinator.replyWaitLimit = .seconds(1)
+            coordinator.replyWaitLimit = move == .scriptThenTyping ? .seconds(3) : .seconds(1) // room to type during the hold
             let controller = try #require(services.windows.active)
             let content = try #require(controller.workspaceContent)
             let window = try #require(content.layoutView.window)
@@ -129,14 +136,17 @@ struct CreationHoldReplyBoundTests {
             }
             try await focus(pressed)
             let ticket = try #require(coordinator.beginWorkspace(in: controller), "a person's new workspace opened no key hold")
-            for character in "echo held\r" {
-                let text = String(character)
-                let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
-                                                          timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
-                                                          context: nil, characters: text, charactersIgnoringModifiers: text,
-                                                          isARepeat: false, keyCode: text == "\r" ? 36 : 0))
-                #expect(router.interceptKeyDown(event, in: window), "the hold did not take \(text.debugDescription)")
+            @MainActor func typeLine(_ line: String) throws {
+                for character in line {
+                    let text = String(character)
+                    let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                                              timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                              context: nil, characters: text, charactersIgnoringModifiers: text,
+                                                              isARepeat: false, keyCode: text == "\r" ? 36 : 0))
+                    #expect(router.interceptKeyDown(event, in: window), "the hold did not take \(text.debugDescription)")
+                }
             }
+            try typeLine("echo held\r")
             switch move {
             case .noMove: break
             case .paneClick: // a click in the other pane's view: the window's report of its new first responder, from a mouse-down
@@ -157,15 +167,19 @@ struct CreationHoldReplyBoundTests {
                 // or click that picked it inside the app's dispatch, which package tests do not run: the tab click covers it)
                 let workspace = try #require(secondWorkspace)
                 PaletteSourcesBridge.WorkspaceSource(services: services).selectWorkspace(id: workspace)
-            case .script: // a script's focus move (the CLI): not the person's, still not the press-time target
+            case .script, .scriptThenTyping: // a script's focus move (the CLI): not the person's, still not the press-time target
                 controller.focus.send(.focusPane(other.pane.paneKey, source: .cli))
             }
             if move != .noMove { // the move ran: the keys' target, as a key typed now sees it, is not the press-time terminal
                 try await PasswordManagerRouteTests.until({ controller.focus.currentState().typingTab != pressed.tab }, within: .seconds(4),
                                                           report: { "\(move) left the typing target on the press-time terminal" })
             }
+            if move == .scriptThenTyping { // more keys typed during the hold, after the script's move
+                #expect(coordinator.isHolding(in: window), "the hold ended before the second line")
+                try typeLine("echo also\r")
+            }
             // Within the bound and a margin, the hold ends.
-            try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: window) }, within: .seconds(4),
+            try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: window) }, within: .seconds(6),
                                                       report: { "the hold did not end at its reply bound" })
             let end = coordinator.lastHoldEnd(in: window).map { "\($0)" } ?? "none"
             coordinator.resolve(ticket, landed: false, in: window) // a reply after the bound belongs to no hold
