@@ -59,8 +59,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'labeled' && github.event.action != 'unlabeled' }}
 
 jobs:
-  # A secretless bootstrap reads the fresh runner-state publication and gives this
-  # short routing job a live fleet Linux or idle mini before hosted/paid overflow.
+  # A Linux-only bootstrap reads the fresh runner-state publication and gives this
+  # short routing job a live fleet Linux before hosted/paid overflow. `changes`
+  # mints routing credentials later, so this bootstrap never places it on a mini.
   # The base copy is trusted, and the placement script fails open: stale capacity
   # or the kill switch leaves the existing fallback route unchanged.
   portable-placement:
@@ -70,7 +71,6 @@ jobs:
     timeout-minutes: 4
     permissions:
       contents: read
-      actions: read
     outputs:
       linux_runner: ${{ steps.place.outputs.linux_runner }}
       linux_jobs: ${{ steps.place.outputs.linux_jobs }}
@@ -101,7 +101,6 @@ jobs:
           FLEET_LINUX: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER }}
           REQUIRE_LIVE_CAPACITY: '1'
           SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER }}
-          SNAPSHOT_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/portable_job_placement.py
 
   changes:
