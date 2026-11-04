@@ -211,18 +211,23 @@ open press as unfinished (`--key-interval` keeps keys apart).
   but they are recorded only for a terminal that had a traced key press in the last 10 s
   (`cmux_flow_trace::hop_on_traced`): with a thousand busy terminals they filled the ring and it dropped key-press
   records (3.8 M records dropped in one typing run). A hop with a flow id and a terminal opens that window; a hop
-  with no terminal (`daemon.send.read`) opens none.
+  with no terminal (`daemon.send.read`) opens none. At most the last 16 traced terminals keep a window (the slots
+  are reused in turn).
 - `daemon.req.begin.<command>` and `daemon.req.end.<command>` (flow 0, no terminal) are not press stages. They are
-  only in the flow files (`OUT/flows/flows-<pid>.jsonl`): trace.py does not draw them, so read them by thread id.
-  Each connection's `mux-control-dispatch` thread records them around every request it runs itself: the requests a
-  terminal view sends by name (send, send-key, resize-attached-view, resize-surface, set-client-sizing,
-  set-size-policy, snapshot-request, release-attached-view-size, set-size-counts, set-attach-visibility,
-  detach-attached-view, scroll-surface), every other as `other`. A key whose `daemon.send.write` is late after its
-  `daemon.send.read` waited in its connection's queue; the begin and end records on the same thread id before it
-  name the request it waited for. Three waits have no record: a terminal create that the dispatcher runs inline
-  (when the terminal work pool is full), a request that waits off the dispatcher, and a clear-history, which runs
-  on its own worker and holds later requests to its terminal until it ends. A late key with no request named
-  before it waited for one of these.
+  only in the flow files (`flows/flows-<pid>.jsonl` in the `--out` folder): trace.py does not draw them, so read
+  them by thread id. Each connection's `mux-control-dispatch` thread records them around every request it runs
+  itself: the requests a terminal view sends by name (send, send-key, resize-attached-view, resize-surface,
+  set-client-sizing, set-size-policy, snapshot-request, release-attached-view-size, set-size-counts,
+  set-attach-visibility, detach-attached-view, scroll-surface), every other as `other`.
+- A traced key comes on its terminal view's own connection (only the view's `send` carries a flow id). Its queue
+  and dispatcher are that connection's. On that thread, the begin and end records before the key's own
+  `daemon.req.begin.send` name the requests it waited behind. A late key with no begin and end pair there waited
+  for the dispatcher thread to wake up. A gap between its own begin and its `daemon.send.write` is in the `send`
+  handler before the write (the terminal lookup, and the creating-input wait while a terminal is being created).
+- Creates, `wait-for` and `clear-history` come on other connections (the app's control connection, a CLI), never
+  on a terminal view's. There the dispatcher records nothing while it hands one off, or while it runs a create
+  inline because the terminal work pool is full. A clear-history also holds later requests to its surface on that
+  connection until it ends.
 
 ## How to open it
 
