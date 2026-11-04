@@ -258,7 +258,10 @@ struct CloudMachineChangeStateTests {
         #expect(await resolver.attempts == 1)
         await resolver.release()
 
-        for await ended in ObservationStream({ session.linkEnded != nil }) where ended { break }
+        // The old cancellation guard settles at idle with no link-ended error. Observe the
+        // phase directly so that regression fails immediately instead of waiting for timeout.
+        for await phase in ObservationStream({ session.linkPhase }) where phase != .starting { break }
+        #expect(session.linkEnded != nil, "the user retry failure must remain visible")
         guard case .failed = session.linkPhase else {
             Issue.record("an explicit retry during passive starting was treated as cancellation: \(session.linkPhase)")
             return
