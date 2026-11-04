@@ -13,6 +13,26 @@ impl Translator {
     /// context, nothing stopped), so the hook Claude Code runs is a no-op and the turn goes on.
     pub(super) async fn answer_hook_callback(&self, rid: &str, req: &Value) {
         let id = req.get("callback_id").and_then(Value::as_str).unwrap_or("?");
+        let input = req.get("input").unwrap_or(&Value::Null);
+        if input
+            .get("hook_event_name")
+            .and_then(Value::as_str)
+            .is_some_and(|event| event == "PreToolUse")
+            && let Some(cwd) = input.get("cwd").and_then(Value::as_str)
+        {
+            let cwd = std::path::PathBuf::from(cwd);
+            let result = tokio::task::spawn_blocking(move || {
+                cmux_git::sync_barrier::wait_ready(&cwd, std::time::Duration::from_secs(30))
+            })
+            .await;
+            match result {
+                Ok(Err(error)) => {
+                    tracing::warn!(?error, "claude PreToolUse sync barrier wait failed")
+                }
+                Err(error) => tracing::warn!(?error, "claude PreToolUse sync barrier task failed"),
+                Ok(Ok(())) => {}
+            }
+        }
         tracing::debug!("claude hook_callback {id}: no hook registered, answered with no decision");
         self.stdin_replies.lock().await.push(json!({
             "type": "control_response",

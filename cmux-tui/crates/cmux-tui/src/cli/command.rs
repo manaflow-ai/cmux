@@ -1540,6 +1540,32 @@ fn parse_agent(
                     }
                 }
             };
+            if matches!(
+                native_event.as_str(),
+                "PreToolUse"
+                    | "BeforeTool"
+                    | "preToolUse"
+                    | "beforeShellExecution"
+                    | "beforeMCPExecution"
+                    | "pre_tool_use"
+            ) {
+                let cwd = native
+                    .get("cwd")
+                    .or_else(|| native.get("working_directory"))
+                    .and_then(Value::as_str)
+                    .map(std::path::PathBuf::from)
+                    .or_else(|| std::env::current_dir().ok())
+                    .ok_or_else(|| {
+                        UsageError::new("agent hook has no repository working directory")
+                    })?;
+                cmux_git::sync_barrier::wait_ready(&cwd, std::time::Duration::from_secs(30))
+                    .map_err(|error| {
+                        UsageError::new(format!(
+                            "repository sync barrier for {}: {error}",
+                            cwd.display()
+                        ))
+                    })?;
+            }
             let terminal =
                 flags.take("terminal").or_else(|| std::env::var("CMUX_TUI_TERMINAL_ID").ok());
             terminal.iter().try_for_each(|id| validate_prefixed_id("terminal", "term", id))?;

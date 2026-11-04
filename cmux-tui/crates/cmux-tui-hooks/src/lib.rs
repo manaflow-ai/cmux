@@ -1756,6 +1756,7 @@ fn rewrite_json_hooks_with_helper(
         let entry = if nested {
             let command = if matches!(provider.format, Format::Nested { asynchronous: true, .. })
                 && !delivers_messages(provider.id, event)
+                && !sync_barrier_event(event)
             {
                 json!({"type":"command","command":command,"timeout":timeout,"async":true})
             } else {
@@ -2013,12 +2014,24 @@ pub fn claude_session_hook_settings(
                     handler.insert("command".into(), Value::String(command.clone()));
                     // `agent hook emit` delivers no messages, so nothing
                     // needs Claude to wait for its output.
-                    handler.insert("async".into(), Value::Bool(true));
+                    handler.insert("async".into(), Value::Bool(!sync_barrier_event(event)));
                 }
             }
         }
     }
     Ok(root)
+}
+
+fn sync_barrier_event(event: &str) -> bool {
+    matches!(
+        event,
+        "PreToolUse"
+            | "BeforeTool"
+            | "preToolUse"
+            | "beforeShellExecution"
+            | "beforeMCPExecution"
+            | "pre_tool_use"
+    )
 }
 
 #[cfg(unix)]
