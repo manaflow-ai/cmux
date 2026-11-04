@@ -80,7 +80,8 @@ fn agent_like(s: &str) -> bool {
         && harness.len() <= 32
         && harness.as_bytes()[0].is_ascii_alphanumeric()
         && harness.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"._-".contains(&b))
-        && model.is_none_or(|m| id_like(m, 64))
+        // acpmux's HARNESS[/MODEL], where a model may nest (`opencode/zai/glm-5.1`).
+        && model.is_none_or(|m| m.len() <= 128 && m.split('/').count() <= 4 && m.split('/').all(|seg| id_like(seg, 64)))
 }
 
 /// Parses a platform frame. A chat whose fields are not well formed is
@@ -136,12 +137,30 @@ pub fn session_name(chat: &Chat) -> String {
 pub fn new_args(chat: &Chat, home: &str) -> Vec<String> {
     let cwd = chat.cwd.clone().unwrap_or_else(|| home.to_owned());
     [
-        "acp", "--json", "new", "-d", "--reuse", "-m", &chat.agent, "-n", &session_name(chat),
-        "--cwd", &cwd,
+        "acp",
+        "--json",
+        "new",
+        "-d",
+        "--reuse",
+        "-m",
+        &chat.agent,
+        "-n",
+        &session_name(chat),
+        "--cwd",
+        &cwd,
     ]
     .iter()
     .map(|s| (*s).to_owned())
     .collect()
+}
+
+/// `acp tail`'s arguments: every record of `session` from its start, then what comes live (agent message chunks,
+/// permission asks). `acp --json send --wait` prints only its final object, so the turn's events come from here.
+pub fn tail_args(session: &str) -> Vec<String> {
+    ["acp", "--json", "tail", "--since", "0", "-f", session]
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect()
 }
 
 /// `acp send`'s arguments; the prompt goes on stdin.
@@ -155,18 +174,19 @@ pub fn send_args(chat: &Chat, session: &str) -> Vec<String> {
 /// The acpmux session id `acp --json new` printed, else `None`.
 pub fn created_session(stdout: &str) -> Option<String> {
     let v: Value = serde_json::from_str(stdout.trim()).ok()?;
-    ["sessionId", "id"]
-        .iter()
-        .find_map(|k| v.get(*k).and_then(Value::as_str))
-        .map(str::to_owned)
+    ["sessionId", "id"].iter().find_map(|k| v.get(*k).and_then(Value::as_str)).map(str::to_owned)
 }
 
-/// The relay events of one `acp --json send` stdout line.
+/// The relay events of one `acp --json tail` line: a notification (`{method, params}`), or a logged record
+/// (an object with its `seq` and `cursor`).
 pub fn events_of(line: &str) -> Vec<Value> {
     let Ok(v) = serde_json::from_str::<Value>(line) else { return Vec::new() };
     let (Some(method), Some(params)) = (v.get("method").and_then(Value::as_str), v.get("params"))
     else {
-        return Vec::new();
+        return match v.get("seq").cloned() {
+            Some(seq) if v.is_object() => vec![json!({"kind": "record", "record": v, "seq": seq})],
+            _ => Vec::new(),
+        };
     };
     match method {
         "session/update" => {
@@ -177,7 +197,9 @@ pub fn events_of(line: &str) -> Vec<Value> {
                 .and_then(Value::as_str)
                 .filter(|t| !t.is_empty());
             match (kind, text) {
-                (Some("agent_message_chunk"), Some(text)) => vec![json!({"kind": "text", "text": text})],
+                (Some("agent_message_chunk"), Some(text)) => {
+                    vec![json!({"kind": "text", "text": text})]
+                }
                 _ => Vec::new(),
             }
         }
@@ -193,15 +215,18 @@ pub fn events_of(line: &str) -> Vec<Value> {
     }
 }
 
-/// The final event once `acp send` exited: its pretty-printed result is
-/// the lines that were not events.
-pub fn final_event(exit: Option<i32>, rest: &str, stderr: &str) -> Value {
+/// The final event once `acp --json send --wait` exited: its stdout is one object, `{sessionId, reply, stopReason,
+/// ...}`. `done` carries the whole reply, which stands over the streamed text (a chunk may come before `tail` is
+/// attached).
+pub fn final_event(exit: Option<i32>, stdout: &str, stderr: &str) -> Value {
     if exit == Some(0) {
-        let stop = serde_json::from_str::<Value>(rest.trim())
-            .ok()
-            .and_then(|v| v.get("stopReason").and_then(Value::as_str).map(str::to_owned))
-            .unwrap_or_else(|| "end_turn".to_owned());
-        return json!({"kind": "done", "stop_reason": stop});
+        let v = serde_json::from_str::<Value>(stdout.trim()).unwrap_or(Value::Null);
+        let stop = v.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn");
+        let mut done = json!({"kind": "done", "stop_reason": stop});
+        if let Some(reply) = v.get("reply").and_then(Value::as_str) {
+            done["reply"] = json!(reply);
+        }
+        return done;
     }
     let code = match exit {
         Some(2) | Some(5) => "chat.permission_waiting",
@@ -243,7 +268,8 @@ impl Runner {
             .env("LOGNAME", &self.user)
             .env(
                 "PATH",
-                std::env::var("PATH").unwrap_or_else(|_| crate::daemon_spec::DEFAULT_PATH.to_owned()),
+                std::env::var("PATH")
+                    .unwrap_or_else(|_| crate::daemon_spec::DEFAULT_PATH.to_owned()),
             )
             .current_dir(&self.home)
             .kill_on_drop(true);
@@ -318,13 +344,16 @@ fn run<H: Http>(
 /// One connection, until it drops. `Ok` once it was up.
 async fn serve(url: &str, token: &str, runner: &Runner, stop: &AtomicBool) -> Result<(), String> {
     let mut request = url.into_client_request().map_err(|e| format!("request: {e}"))?;
-    let bearer = HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| "bearer".to_owned())?;
+    let bearer =
+        HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| "bearer".to_owned())?;
     request.headers_mut().insert("authorization", bearer);
     let (ws, _) = tokio::time::timeout(CONNECT_TIMEOUT, tokio_tungstenite::connect_async(request))
         .await
         .map_err(|_| "connect timed out".to_owned())?
         .map_err(|e| match e {
-            tokio_tungstenite::tungstenite::Error::Http(r) => format!("refused: HTTP {}", r.status()),
+            tokio_tungstenite::tungstenite::Error::Http(r) => {
+                format!("refused: HTTP {}", r.status())
+            }
             e => format!("connect: {e}"),
         })?;
     let (mut sink, mut stream) = ws.split();
@@ -383,8 +412,10 @@ async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::UnboundedSender<String>)
         None => {
             let out = runner.command(&new_args(&chat, &home)).stdin(Stdio::null()).output().await;
             match out {
-                Ok(out) if out.status.success() => created_session(&String::from_utf8_lossy(&out.stdout))
-                    .unwrap_or_else(|| session_name(&chat)),
+                Ok(out) if out.status.success() => {
+                    created_session(&String::from_utf8_lossy(&out.stdout))
+                        .unwrap_or_else(|| session_name(&chat))
+                }
                 Ok(out) => {
                     let err = String::from_utf8_lossy(&out.stderr).into_owned();
                     return send(final_event(Some(1), "", &err));
@@ -394,6 +425,26 @@ async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::UnboundedSender<String>)
         }
     };
     send(json!({"kind": "started", "session": session, "prompt_id": chat.prompt_id}));
+    // The turn's events, from before the prompt goes in.
+    let tail = runner
+        .command(&tail_args(&session))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn();
+    let mut tail = tail.ok();
+    let events = tail.as_mut().and_then(|t| t.stdout.take()).map(|out| {
+        let tx = tx.clone();
+        let id = chat.id.clone();
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(out).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                for e in events_of(&line) {
+                    let _ = tx.send(up(&id, e));
+                }
+            }
+        })
+    });
     let child = runner
         .command(&send_args(&chat, &session))
         .stdin(Stdio::piped())
@@ -419,27 +470,24 @@ async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::UnboundedSender<String>)
         }
         s
     });
-    let mut rest = String::new();
+    let mut out = String::new();
     if let Some(stdout) = child.stdout.take() {
-        let mut lines = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            let events = events_of(&line);
-            if events.is_empty() {
-                if rest.len() < 64 * 1024 {
-                    rest.push_str(&line);
-                    rest.push('\n');
-                }
-                continue;
-            }
-            for e in events {
-                send(e);
-            }
-        }
+        let _ = stdout.take(4 * 1024 * 1024).read_to_string(&mut out).await;
     }
     let exit = child.wait().await.ok().and_then(|s| s.code());
     let err = err_task.await.unwrap_or_default();
-    send(final_event(exit, &rest, &err));
+    // The turn's last events reach `tail` just after `send` returns: a moment for them, then it stops.
+    if let Some(events) = events {
+        let _ = tokio::time::timeout(TAIL_GRACE, events).await;
+    }
+    if let Some(mut tail) = tail {
+        let _ = tail.kill().await;
+    }
+    send(final_event(exit, &out, &err));
 }
+
+/// How long `tail` may go on after the turn ended, for its last events.
+const TAIL_GRACE: Duration = Duration::from_millis(300);
 
 #[cfg(test)]
 #[path = "relay_tests.rs"]
