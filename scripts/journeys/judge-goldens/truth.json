@@ -305,6 +305,48 @@
      "absent_finding": "shell inside the pane"
     }
    ]
+  },
+  {
+   "id": "3d-held-key-120x1-clock-plus-one",
+   "film": "sweep-d9ef49f-120x1-120x1/px-keys-held-2-s1",
+   "why": "FRAME OWNER REFACTOR (agent pixel-perfect, 2026-11-03, judge_pixel item 3d): FrameScheduler.deliver ticks its clients in Dictionary hash order, so in some films the debug.motion trace client and the layout client of one frame run in the other order, and judge_pixel's fixed clock (a frame at t shows the trace sample of t minus one refresh) is one sample off for the whole film. The owner saw the tab strip and the page window one frame late in every moving frame of the 1x held-key film, and lag 0 in the 2x film of the same journey. Film: FEAT DOGFOOD BUILD e0e34bd6 (tag chrome-parity-feat-d9ef49f8c40f-v1, built from feat d9ef49f8c40f), filmed by the FRAME OWNER with kit 0d2cf84acb9 on cmux22, round sweep-d9ef49f-120x1-20261103T201621Z-cmux22 (gallery folder sweep-d9ef49f-120x1-120x1). R-HARNESS read the stored film's edges against the trace at each offset (2026-11-04, /work/tmp/r-harness/3d/explore-red.txt): over the frames whose candidate samples differ, p0 (tui) hi is within 1 px of the trace in 23 of 24 at +1 and 9 of 24 at the fixed clock; the divider p0|p1 (the middle of its two content edges) in 8 of 8 at +1 and 5 of 8 at the fixed clock. So the clock is +1, and against it p0 hi has no lag.",
+   "expect": [
+    {
+     "judge": "judge_pixel",
+     "clock_offset": 1
+    },
+    {
+     "judge": "judge_pixel",
+     "pixel_row": {
+      "label": "p0",
+      "side": "hi",
+      "line": "row@303",
+      "what": "pane"
+     },
+     "absent_finding": "lag"
+    },
+    {
+     "judge": "judge_pixel",
+     "pixel_row": {
+      "label": "p0",
+      "side": "hi",
+      "line": "row@670",
+      "what": "pane"
+     },
+     "absent_finding": "lag"
+    }
+   ]
+  },
+  {
+   "id": "3d-held-key-120x2-clock-zero",
+   "film": "sweep-d9ef49f-120x2-120x2/px-keys-held-2-s1",
+   "why": "FRAME OWNER REFACTOR (agent pixel-perfect, 2026-11-03, judge_pixel item 3d): FrameScheduler.deliver ticks its clients in Dictionary hash order, so in some films the debug.motion trace client and the layout client of one frame run in the other order, and judge_pixel's fixed clock (a frame at t shows the trace sample of t minus one refresh) is one sample off for the whole film. The owner saw the tab strip and the page window one frame late in every moving frame of the 1x held-key film, and lag 0 in the 2x film of the same journey. Film: FEAT DOGFOOD BUILD e0e34bd6 (tag chrome-parity-feat-d9ef49f8c40f-v1, built from feat d9ef49f8c40f), filmed by the FRAME OWNER with kit 0d2cf84acb9 on cmux22, round sweep-d9ef49f-120x2-20261103T193701Z-cmux22 (gallery folder sweep-d9ef49f-120x2-120x2), the 2x film of the same journey. R-HARNESS (2026-11-04, /work/tmp/r-harness/3d/explore-red.txt): p0 (tui) hi is within 1 px of the trace in 22 of 22 moving frames at the fixed clock, 10 of 22 at +1 and 8 of 22 at -1. The page p1 is held by the K3 hold (its content keeps its first-press size), so p1's edges and the divider beside it follow no offset; the terminal's edge sets the clock, and it is the fixed clock's.",
+   "expect": [
+    {
+     "judge": "judge_pixel",
+     "clock_offset": 0
+    }
+   ]
   }
  ]
 }

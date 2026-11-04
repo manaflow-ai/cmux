@@ -19,9 +19,13 @@ sides are not found, never A's rings), cue (the divider's drag cue, a 6 px band 
 and 2 while the divider moves: a cue, not a gap or a hidden ring), held (A's pane grows while its content keeps its
 rest width and B shows nothing: the shell inside A's pane, A's gap capped at A's own rect, B not found),
 reduce-drag (a drag under Reduce Motion: input-driven, no finding) and reduce-keys (a key press whose motion takes 20
-samples under Reduce Motion: a finding). blip: B's page 4 px right of its pane edge in frames 35-36 and 1 px in frame 40,
+samples under Reduce Motion: a finding). The clock films (3d): clock-late shows every layer one refresh later than the
+fixed clock (offset +1), clock-early one refresh earlier (-1), clock-late2 two refreshes later (no offset of -1, 0, +1
+fits: clock not found, judged on the fixed clock), clock-late-inset is clock-late with both edges 1 px inside their pane
+edges while they move (device-pixel rounding: still the sample they show), strip-clock-late is clock-late with the tab strips, and still has no motion. blip: B's page 4 px right of its pane edge in frames 35-36 and 1 px in frame 40,
 after the divider has landed (B's own defect; the divider is not read there and does not settle late).
 """
+import collections
 import json
 import math
 import shutil
@@ -91,6 +95,8 @@ def draw_strip(img, x0, x1, pill_x0):
 
 def a_width(k, variant):
     """Pane A's width (device px, float) in trace sample k."""
+    if variant == "still":
+        return float(A_REST)
     if variant.startswith("spring"):
         t = (k - MOVE[0] + 1) * P
         if k < MOVE[0]:
@@ -143,15 +149,22 @@ def draw_page(img, x0, w, y0=0, fill=GREEN):
         inset += width
 
 
+# The clock films: how many refreshes later than the fixed clock each frame shows its sample (+ later, - earlier).
+CLOCK_SHIFT = {"clock-late": 1, "strip-clock-late": 1, "clock-early": -1, "clock-late2": 2, "clock-late-inset": 1}
+
+
 def frame(k, variant):
-    """The picture shown at refresh k (sample k - 1 committed)."""
-    s = max(k - 1, 0)
+    """The picture shown at refresh k (sample k - 1 committed; the clock films shift it by CLOCK_SHIFT)."""
+    s = min(max(k - 1 - CLOCK_SHIFT.get(variant, 0), 0), N - 1)
     aw = a_width(s, variant)
     img = np.zeros((H, W, 3), np.uint8)
     img[:] = MAGENTA
     a_view = aw
     if variant == "gap2" and 20 <= k <= 25:
         a_view = aw - 2  # A's content stops 2 px short: the shell shows
+    inset = variant == "clock-late-inset" and MOVE[0] <= s < MOVE[1]
+    if inset:
+        a_view = aw - 1  # while moving, A's content 1 px inside its pane edge (device-pixel rounding)
     y0 = STRIP_PX if has_strip(variant) else 0
     if variant == "held" and 12 <= k <= 40:
         a_view = A_REST  # A's content keeps its rest width while its pane grows
@@ -162,7 +175,7 @@ def frame(k, variant):
         if 30 <= k <= 33:
             # A's right rings and ground strip gone (its view shrank before the program redrew): the shell after the fill.
             img[:, int(round(aw)) - 60:int(round(aw))] = MAGENTA
-    b_x = aw + DIV_PX
+    b_x = aw + DIV_PX + (1 if inset else 0)  # and B's 1 px inside its own
     if variant == "lag1":
         b_x = a_width(max(k - 2, 0), variant) + DIV_PX  # B's page one frame late
     if variant == "hidden" and 30 <= k <= 32:
@@ -715,6 +728,109 @@ class JudgePixelTests(unittest.TestCase):
         row = next(l for l in lines if l.startswith("| p0 (tui) | hi | row@180 |"))
         self.assertIn("6 (20-25)", row)  # off >= 1 px: 6 frames
         self.assertIn("-2.0", row)
+
+
+class ClockTests(unittest.TestCase):
+    """3d (FRAME OWNER): judge_pixel fits the film's clock (the trace sample a frame shows: the fixed clock's, or one
+    refresh later or earlier) from the edges that follow the trace over the moving frames, reports an offset as the
+    finding "presentation offset", and judges every layer against that clock; when no offset fits it judges nothing
+    ("clock not found": judged on the fixed clock, its lags in motion can be one refresh off). The fixed clock alone
+    showed every layer of the 1x held-key film one frame late."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="judge-pixel-clock-")
+        cls.reports = {v: jp.judge(build(cls.tmp, v, v)) for v in ("clean", "lag1", "clock-late", "clock-early",
+                                                                    "clock-late2", "strip-clock-late", "still",
+                                                                    "clock-late-inset")}
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    @staticmethod
+    def checks(report):
+        return [f["check"] for f in report["findings"]]
+
+    def test_a_film_in_step_keeps_the_fixed_clock(self):
+        r = self.reports["clean"]
+        self.assertEqual(r["clock"]["offset"], 0)
+        self.assertNotIn("presentation offset", self.checks(r))
+        self.assertIn("clock", [f["check"] for f in r["info"]])
+
+    def test_a_film_shown_one_refresh_late_is_judged_on_its_own_clock(self):
+        r = self.reports["clock-late"]
+        self.assertEqual(r["clock"]["offset"], 1)
+        late = [f for f in r["findings"] if f["check"] == "presentation offset"]
+        self.assertEqual(len(late), 1, r["findings"])
+        self.assertIn("+1 refresh", late[0]["detail"])
+        for row in r["summary"].values():
+            if row["what"] == "pane":
+                self.assertEqual((row["off_frames"], row["max_lag_frames"]), (0, 0), row)
+        self.assertNotIn("lag", self.checks(r))
+        self.assertNotIn("content edge off", self.checks(r))
+        # Measured again on its clock: each pane's visible span is the shown sample's, so no shell inside the pane.
+        self.assertNotIn("shell inside the pane", self.checks(r))
+
+    def test_an_edge_1_px_inside_its_pane_edge_follows_its_sample(self):
+        # Within 1 px, as the lag search matches a sample (the real col-drag film: 1584 px against the trace's 1585).
+        self.assertEqual(self.reports["clock-late-inset"]["clock"]["offset"], 1)
+
+    def test_an_edge_votes_for_the_offset_more_than_half_its_frames_follow(self):
+        self.assertEqual(jp.track_vote({-1: 0, 0: 1, 1: 3}, 4), 1)
+        self.assertIsNone(jp.track_vote({-1: 0, 0: 1, 1: 2}, 4))  # half, not more
+        self.assertIsNone(jp.track_vote({-1: 0, 0: 3, 1: 3}, 4))  # two offsets: no vote
+
+    def test_the_clock_is_the_smallest_offset_voted_for(self):
+        def track(vote, frames=10, within=8, any_offset=8):
+            return {"track": "t", "frames": frames, "within_1px": {"-1": 0, "+0": within, "+1": within},
+                    "any_offset": any_offset, "vote": vote}
+
+        got = jp.clock_verdict(collections.Counter({0: 1, 1: 3}), [track(0), track(1), track(1), track(1)])
+        self.assertEqual((got["offset"], got["status"]), (0, "fitted"))
+        got = jp.clock_verdict(collections.Counter(), [track(None, any_offset=6)])
+        self.assertEqual((got["offset"], got["status"]), (0, "fixed: not confirmed"))
+        got = jp.clock_verdict(collections.Counter(), [track(None, any_offset=5)])
+        self.assertEqual((got["offset"], got["status"]), (None, "not found"))
+        got = jp.clock_verdict(collections.Counter(), [])
+        self.assertEqual((got["offset"], got["status"]), (0, "fixed: no motion"))
+
+    def test_a_film_shown_one_refresh_early_is_minus_one(self):
+        r = self.reports["clock-early"]
+        self.assertEqual(r["clock"]["offset"], -1)
+        self.assertNotIn("lag", self.checks(r))
+        self.assertNotIn("content edge off", self.checks(r))
+
+    def test_a_late_layer_is_late_against_the_films_own_clock(self):
+        # lag1: A on time, B one refresh late. A frame shows its own sample's geometry and a layer can only be older,
+        # so the smallest offset the edges follow (A's, 0) is the clock; B's lag stays B's finding.
+        r = self.reports["lag1"]
+        self.assertEqual((r["clock"]["offset"], r["clock"]["votes"]), (0, {"+0": 2, "+1": 2}))
+        self.assertIn(("lag", "p1 (page) lo on row@110"), [(f["check"], f["where"]) for f in r["findings"]])
+
+    def test_no_offset_that_fits_is_clock_not_found_and_the_fixed_clock(self):
+        # Every layer two refreshes late: no offset of -1, 0, +1 fits. The film is judged on the fixed clock (its
+        # rest findings do not depend on the clock), and "clock not found" says its lags in motion can be one refresh
+        # off: the layers' lag is reported, not hidden.
+        r = self.reports["clock-late2"]
+        self.assertIsNone(r["clock"]["offset"])
+        self.assertEqual(r["clock"]["status"], "not found")
+        self.assertEqual(self.checks(r)[0], "clock not found")
+        self.assertIn("lag", self.checks(r))
+        self.assertEqual(side(r, "p1", "row@110", "lo")["max_lag_frames"], 2)
+
+    def test_the_tab_strips_are_judged_against_the_films_clock(self):
+        r = self.reports["strip-clock-late"]
+        self.assertEqual(r["clock"]["offset"], 1)
+        strips = [row for row in r["summary"].values() if row["what"] == "strip"]
+        self.assertTrue(strips)
+        self.assertEqual({(row["off_frames"], row["max_lag_frames"]) for row in strips}, {(0, 0)})
+        self.assertNotIn("tab strip edge off", self.checks(r))
+
+    def test_a_film_with_no_motion_keeps_the_fixed_clock(self):
+        r = self.reports["still"]
+        self.assertEqual(r["clock"]["offset"], 0)
+        self.assertIn("no edge moved", r["clock"]["why"])
 
 
 class TuiBorderFrameTest(unittest.TestCase):

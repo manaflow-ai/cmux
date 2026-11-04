@@ -42,18 +42,22 @@ def judge(base, all_frames=False):
            "off_frames": count, "off_ranges": off, "frames": 9, "max_gap_px": 0.0, "shell_in_frames": 0,
            "shell_in_ranges": ""}
     findings = [{"check": c, "where": "p1 (page) hi on row@10", "detail": "x"} for c in note.get("findings", [])]
-    return {"case": Path(str(base)).name, "base": str(base), "frames": 9, "summary": {"p1:pane_x:row@10:hi": row},
-            "findings": findings, "info": [], "notes": []}
+    out = {"case": Path(str(base)).name, "base": str(base), "frames": 9, "summary": {"p1:pane_x:row@10:hi": row},
+           "findings": findings, "info": [], "notes": []}
+    if "clock" in note:  # the fitted clock (3d): an offset, or None (clock not found)
+        out["clock"] = {"offset": note["clock"], "why": "stand-in"}
+    return out
 '''
 
 
-def fixture_workspace(off="3-6", findings=()):
-    """The runner tests' workspace plus one fixture film (meta notes carry `pixel`) and the judge_pixel stand-in."""
+def fixture_workspace(off="3-6", findings=(), **clock):
+    """The runner tests' workspace plus one fixture film (meta notes carry `pixel`) and the judge_pixel stand-in.
+    clock=OFFSET: the stand-in reports that fitted clock (None: clock not found); without it, no clock."""
     w = base.Workspace()
     folder = w.gallery / "build-p-120x2"
     base.write_film(folder, "px-col-drag", frames=9)
     (folder / "px-col-drag.meta.json").write_text(json.dumps(
-        {"start": {"scale": 2}, "notes": {"pixel": {"off": off, "findings": list(findings)}}}))
+        {"start": {"scale": 2}, "notes": {"pixel": {"off": off, "findings": list(findings), **clock}}}))
     (w.judges / "video-cases" / "judge_pixel.py").write_text(STUB_PIXEL)
     return w
 
@@ -293,6 +297,64 @@ class AbsentFindingTests(unittest.TestCase):
                              ("an empty check", {"judge": "judge_pixel", "pixel_row": ROW, "absent_finding": ""})):
             with self.subTest(case=name):
                 w = self.blessed(expect)
+                try:
+                    code, out = w.cli("bless", "--judges", str(w.judges), "--reason", "t", "--jobs", "2",
+                                      "--no-git-check")
+                    self.assertEqual(code, 2, out)
+                    self.assertIn("px-off", out)
+                finally:
+                    w.close()
+
+
+class ClockOffsetTests(unittest.TestCase):
+    """A judge_pixel TRUTH fact can pin the film's fitted clock (3d, FRAME OWNER): clock_offset -1, 0 or 1 holds only
+    when the result's clock has exactly that offset; another offset, or clock not found, is a TRUTH failure; a result
+    with no clock (a judge before the fit) is NO VERDICT; a malformed fact is NO VERDICT."""
+
+    def blessed(self, expect, **clock):
+        w = fixture_workspace(**clock)
+        write_pixel_fact(w, expect)
+        self.assertEqual(w.snapshot()[0], 0)
+        return w
+
+    def test_the_offset_the_judge_fits_meets_the_fact(self):
+        w = self.blessed({"judge": "judge_pixel", "clock_offset": 1}, clock=1)
+        try:
+            self.assertEqual(w.bless()[0], 0)
+            code, out = w.run()
+            self.assertEqual(code, 0, out)
+            self.assertIn("truth: 1 of 1", out)
+        finally:
+            w.close()
+
+    def test_another_offset_or_no_clock_found_is_a_truth_failure(self):
+        for got in (0, None):
+            with self.subTest(got=got):
+                w = self.blessed({"judge": "judge_pixel", "clock_offset": 1}, clock=got)
+                try:
+                    code, out = w.bless()
+                    self.assertEqual(code, 2, out)
+                    self.assertIn("TRUTH", out)
+                    self.assertIn("clock offset", out)
+                finally:
+                    w.close()
+
+    def test_a_result_without_a_clock_is_no_verdict(self):
+        w = self.blessed({"judge": "judge_pixel", "clock_offset": 0})
+        try:
+            code, out = w.bless()
+            self.assertEqual(code, 2, out)
+            self.assertIn("no clock", out)
+        finally:
+            w.close()
+
+    def test_a_malformed_clock_fact_is_no_verdict(self):
+        for name, expect in (("text", {"judge": "judge_pixel", "clock_offset": "1"}),
+                             ("two refreshes", {"judge": "judge_pixel", "clock_offset": 2}),
+                             ("a row too", {"judge": "judge_pixel", "clock_offset": 1, "pixel_row": ROW}),
+                             ("another judge", {"judge": "video_judge", "clock_offset": 1})):
+            with self.subTest(case=name):
+                w = self.blessed(expect, clock=1)
                 try:
                     code, out = w.cli("bless", "--judges", str(w.judges), "--reason", "t", "--jobs", "2",
                                       "--no-git-check")

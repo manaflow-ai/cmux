@@ -1031,6 +1031,14 @@ def _expectation(result, expect):
     answer it."""
     if not isinstance(result, dict) or result.get("error") and len(result) == 1:
         return f"the judge gave no result: {json.dumps(result)[:200]}"
+    if "clock_offset" in expect:  # judge_pixel: the film's fitted clock (3d), exactly; also a film it did not judge
+        clock = result.get("clock")
+        if not isinstance(clock, dict) or "offset" not in clock:
+            raise Unchecked("judge_pixel's result has no clock (a judge before the clock fit)")
+        if clock["offset"] == expect["clock_offset"]:
+            return None
+        return (f"clock offset {clock['offset'] if clock['offset'] is None else format(clock['offset'], '+d')}, "
+                f"expected {expect['clock_offset']:+d}: {str(clock.get('why'))[:200]}")
     listed = KIND_LIST.get(expect.get("judge"))
     if listed and not isinstance(result.get(listed), list):
         raise Unchecked(f"{expect.get('judge')}'s result has no {listed} list")
@@ -1116,9 +1124,10 @@ def load_truth(manifest):
     return doc
 
 
-EXPECT_KINDS = ("check", "defect_frames", "absent_check", "kind", "absent_kind", "off_frames", "absent_finding")
+EXPECT_KINDS = ("check", "defect_frames", "absent_check", "kind", "absent_kind", "off_frames", "absent_finding",
+                "clock_offset")
 EXPECT_KEYS = {"judge", "check", "frames", "defect_frames", "absent_check", "kind", "count", "absent_kind",
-               "pixel_row", "off_frames", "absent_finding"}
+               "pixel_row", "off_frames", "absent_finding", "clock_offset"}
 # judge_pixel's summary rows are named by these four fields; a judge_pixel fact names one row with all four.
 PIXEL_ROW_KEYS = ("label", "side", "line", "what")
 RULER_KEYS = {"line", "at", "class", "x", "frames", "min_run_px"}
@@ -1127,7 +1136,7 @@ FACT_KEYS = {"id", "film", "why", "ruler", "expect"}
 # on any other judge would read a list that result does not have: it checks nothing (review 3 of #33930, finding A).
 KIND_JUDGE = {"check": "video_judge", "defect_frames": "video_judge", "absent_check": "video_judge",
               "kind": "judge_trace", "absent_kind": "judge_trace", "off_frames": "judge_pixel",
-              "absent_finding": "judge_pixel"}
+              "absent_finding": "judge_pixel", "clock_offset": "judge_pixel"}
 KIND_LIST = {"video_judge": "findings", "judge_trace": "defects"}
 # The names each judge reports (video_judge's finding checks; judge_trace's defect kinds), as their source writes them
 # (a test pins these sets to the source). A fact that names anything else checks nothing: NO VERDICT. A judge PR that
@@ -1221,6 +1230,11 @@ def truth_problems(manifest, films_doc):
                     problems.append(f"{fid}: defect_frames is empty: it checks nothing")
                 else:
                     problems += [f"{fid}: defect_frames {why}" for why in map(_span_problem, spans) if why]
+            if kinds == ["clock_offset"]:
+                if type(expect["clock_offset"]) is not int or not -1 <= expect["clock_offset"] <= 1 or "pixel_row" in expect:
+                    problems.append(f"{fid}: clock_offset is the film's clock offset: -1, 0 or 1, with no pixel_row: "
+                                    f"{json.dumps(expect)[:160]}")
+                continue
             pixel = (expect.get("judge") == "judge_pixel", kinds in (["off_frames"], ["absent_finding"]),
                      "pixel_row" in expect)
             if any(pixel) and not all(pixel):
