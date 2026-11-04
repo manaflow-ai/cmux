@@ -71,6 +71,8 @@ import { usePopupHost } from "../../ui/UiProvider";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { isMousePress } from "../../ui/pressRelease";
 import { focusAfterEscape } from "../../ui/escapeFocus";
+import { experimentArm } from "../../experiments/experiment";
+import { contextRingLook } from "./contextRingLook.experiment";
 import {
   type ModeIconName,
   RECOMMENDED_BADGE,
@@ -1157,8 +1159,10 @@ export function ComposerPickers({
       )}
       {/* A custom harness's other settings: each config option no chip above owns, picked like the
           effort level. Codex's collaboration mode stays on its command/mode paths. */}
+      {/* A chat still opening, or starting another harness, carries its last session's options
+          (another chat's recap and suggestions switches), so Options waits for this chat's own. */}
       <AgentOptionsMenu
-        options={extraOptions}
+        options={opening || snapshot.switching?.phase === "starting" ? [] : extraOptions}
         managed={fullAccessManaged}
         managedReason={t(PICKER_LABELS.fullAccessManaged)}
         onPick={(configId, value) => onEffort(configId, value)}
@@ -1404,6 +1408,25 @@ export function isPlan(modeId: string): boolean {
 const TABBABLE =
   'a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex]:not([tabindex="-1"])';
 
+/// The context ring's looks (experiment `context-ring-look`), in the ring's 14-unit viewBox.
+const CONTEXT_RING_LOOKS: Record<
+  "track" | "arc" | "percent" | "fill-quiet",
+  { radius: number; width: number; trackOpacity: number; usedStroke: string; usedOpacity: number; roundEnds: boolean }
+> = {
+  // Shipped: the remaining share at half the used arc's ink, flat ends, so the circle is one gauge.
+  track: { radius: 6, width: 1.75, trackOpacity: 0.5, usedStroke: "currentColor", usedOpacity: 1, roundEnds: false },
+  arc: { radius: 6, width: 1.75, trackOpacity: 0.3, usedStroke: "currentColor", usedOpacity: 1, roundEnds: true },
+  percent: { radius: 6, width: 1.75, trackOpacity: 0.3, usedStroke: "currentColor", usedOpacity: 1, roundEnds: true },
+  "fill-quiet": {
+    radius: 5.5,
+    width: 2.75,
+    trackOpacity: 0.3,
+    usedStroke: "var(--agent-text)",
+    usedOpacity: 0.7,
+    roundEnds: false,
+  },
+};
+
 /// How much of the context window the session has used, as a neutral ring that fills. Resting the pointer
 /// on it, or focusing it, shows the context card with no click (ContextCard.tsx; Leo 2026-10-21,
 /// after Claude's and Codex's): the share and tokens used, the window as a stacked bar, and
@@ -1467,9 +1490,13 @@ export function ContextRing({
     setPinned(false);
     dismissHover();
   }, [dismissHover]);
-  // As Claude desktop's: a 14 px ring, a faint track with the share used drawn over it as an arc
-  // from twelve o'clock (round ends), not a pie and not a spinner.
-  const arcRadius = 6;
+  // As Claude desktop's: a small ring with the share used drawn over its track as an arc from
+  // twelve o'clock; never a pie and never a spinner. Leo (2026-11-03) read the faint-track arc at 68%
+  // as a loading spinner, so the shipped look (`track`) draws the remaining share as a clearly visible
+  // track with flat arc ends: the whole circle reads as one gauge with no gap. The ring never animates.
+  const look = experimentArm(contextRingLook);
+  const ring = CONTEXT_RING_LOOKS[look];
+  const arcRadius = ring.radius;
   const arcCircumference = 2 * Math.PI * arcRadius;
   useEffect(() => {
     // Keep the automation path truthful too: before the first usage report the ring is
@@ -1583,29 +1610,37 @@ export function ContextRing({
       >
         <svg width={14} height={14} viewBox="0 0 14 14" aria-hidden="true" focusable="false">
           <circle
+            className="acpmux-context-track"
             cx="7"
             cy="7"
             r={arcRadius}
             fill="none"
             stroke="currentColor"
-            strokeOpacity={0.3}
-            strokeWidth={1.75}
+            strokeOpacity={ring.trackOpacity}
+            strokeWidth={ring.width}
           />
           {fraction > 0 && (
             <circle
+              className="acpmux-context-used"
               cx="7"
               cy="7"
               r={arcRadius}
               fill="none"
-              stroke="currentColor"
-              strokeWidth={1.75}
-              strokeLinecap={fraction >= 1 ? "butt" : "round"}
+              stroke={ring.usedStroke}
+              strokeOpacity={ring.usedOpacity}
+              strokeWidth={ring.width}
+              strokeLinecap={fraction >= 1 || !ring.roundEnds ? "butt" : "round"}
               strokeDasharray={`${arcCircumference * fraction} ${arcCircumference}`}
               transform="rotate(-90 7 7)"
             />
           )}
         </svg>
       </button>
+      {look === "percent" && known && (
+        <span className="acpmux-context-caption" aria-hidden="true">
+          {percent}%
+        </span>
+      )}
       <AnchoredCard
         anchor={shown ? trigger.current : null}
         // AnchoredCard makes it the shared glass hover card (ui-tooltip ui-card ui-glass).

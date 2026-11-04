@@ -10492,6 +10492,15 @@ and leave no file. A write stream there also takes `permissions`, as the
 line op does. Without these fields every write is as above, and a client
 sends them only to a server that advertises the capability.
 
+A server that also advertises `fs-write-nofollow-v1` takes `"no_follow":true`
+on an `fs.write` line (any mode, `append` included) or write stream: a
+symlink as any component of `path` below its root, the last included, is
+refused with `fs.symlink_in_path` and nothing is written. The check is made
+on the walk to the folder, again on the target when the write begins, and
+once more right before the rename. A copy that listed a folder can then
+write its files without an `fs.stat` of each one first: a symlink the
+machine put there since stops that file with this code.
+
 ## Guest browser opening
 
 ### url-open
