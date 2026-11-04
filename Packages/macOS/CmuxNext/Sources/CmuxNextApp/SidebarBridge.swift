@@ -157,7 +157,7 @@ final class SidebarBridge {
             let pages = Self.newTabPages(agentTabs, in: machines.local.store), muted = notifications.preferences.mutedWorkspaces
             feed.beginPass(inputs: [pages, muted, DesignSettings.shared.attention.showsOnSidebar] as [AnyHashable])
             let (listed, launching, failed) = Self.liveSections(
-                machines, doc: services.sidebarDoc, registry: registry, window: windowState, creations: creations, hidesHome: Self.hidesHome(layout.document),
+                machines, doc: services.sidebarDoc, registry: registry, window: windowState, creations: creations, hidesHome: layout.document.hidesHome,
                 newTabPages: pages, muted: muted,
                 top: .make(layout, machines: machines, room: windowState.profileID.rawValue), pageFace: services.sidebarPageFace,
                 tabTitle: Self.tabTitle(services), rows: feed.laneRowSource(chiefAvatar: { [weak services] in SidebarChiefAvatar(home: services?.home.chiefFaces[$0]) }),
@@ -195,7 +195,7 @@ final class SidebarBridge {
             guard let windowState else { return [] }
             return spaceCache.sections(for: key) {
                 Self.sections(machines, doc: services.sidebarDoc, members: registry.members(of: windowState.id), profile: ProfileID(rawValue: key.rawValue),
-                              hidesHome: Self.hidesHome(layout.document), selection: windowState.selection,
+                              hidesHome: layout.document.hidesHome, selection: windowState.selection,
                               newTabPages: Self.newTabPages(agentTabs, in: machines.local.store), muted: notifications.preferences.mutedWorkspaces,
                               top: SidebarTopProjection.make(layout, machines: machines, room: key.rawValue), pageFace: services.sidebarPageFace,
                               tabTitle: Self.tabTitle(services), harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none })
@@ -241,7 +241,7 @@ final class SidebarBridge {
         }
         let shownAt = services.sidebarDoc.store?.shownChanges
         let (sections, launching, failed) = Self.liveSections(services.machines, doc: services.sidebarDoc, registry: windows.registry, window: state, creations: services.cloud.creations,
-                                                              hidesHome: Self.hidesHome(services.sidebarLayout.document),
+                                                              hidesHome: services.sidebarLayout.document.hidesHome,
                                                               newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store),
                                                               muted: services.notifications.preferences.mutedWorkspaces,
                                                               top: .make(services.sidebarLayout, machines: services.machines, room: state.profileID.rawValue),
@@ -368,10 +368,6 @@ final class SidebarBridge {
     static func tabTitle(_ services: AppServices) -> TabTitle {
         let titles = TabTitleResolver(services: services)
         return { [weak services] workspace, tab in titles.title(tab, incognito: services?.windows.isIncognito(workspace: workspace)) }
-    }
-
-    static func hidesHome(_ layout: SidebarLayoutDocument) -> Bool {
-        layout.firstItem(with: SidebarLayoutDocument.homeRef) != nil
     }
 
     /// One section per machine: the local daemon, then each Cloud machine

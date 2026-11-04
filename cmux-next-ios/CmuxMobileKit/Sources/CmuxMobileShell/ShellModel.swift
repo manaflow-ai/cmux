@@ -168,10 +168,24 @@ final class ShellModel {
         terminalTabs.macName = { [weak store] workspace in
             store?.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name
         }
+        // Voice mode on a terminal while an agent runs in it (it replaced the dictation
+        // mic): the agent's Feed events are read aloud; the user's words are typed in.
+        terminalTabs.voiceSourceProvider = { [weak store, weak terminalTabs] tab, workspace, _ in
+            let workspaceID = workspace.id, tabID = tab.id
+            return TerminalVoiceSource(
+                macID: workspace.macID, workspaceID: workspaceID, tabID: tabID, feed: .shared,
+                currentTab: { store?.workspace(id: workspaceID)?.tabs.first { $0.id == tabID } },
+                currentModel: { terminalTabs?.model(forTabID: tabID) })
+        }
         creator.onFailure = { [weak self] placeholder, message in
             self?.workspaceCreationFailed(placeholder, message: message)
         }
         creator.onManageFailure = { [weak self] _, what, message in
+            self?.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: what)
+            theme.haptics.error()
+            shellLog.error("\(what, privacy: .public): \(message, privacy: .public)")
+        }
+        creator.onGroupFailure = { [weak self] _, what, message in
             self?.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: what)
             theme.haptics.error()
             shellLog.error("\(what, privacy: .public): \(message, privacy: .public)")
@@ -259,7 +273,12 @@ final class ShellModel {
         if live == nil, mockMode { deviceDirectory = MockDeviceDirectory(store: store) }
         #endif
         live?.onMacRemoved = { [weak self] macID in self?.macRemoved(macID) }
+        #if DEBUG
+        // Mock mode shows Screen Sharing's entries too (its hub can't be reached there).
+        attachScreenSharing(signedIn: live != nil || mockMode)
+        #else
         attachScreenSharing(signedIn: live != nil)
+        #endif
         updateShownMacs()
         if let live {
             // Tab ids repeat across Macs: every call names the tab's Mac, and
@@ -689,6 +708,9 @@ final class ShellModel {
                 switchTeam(to: team.id)
             } catch ServiceTeamCreation.Failure.unavailable {
                 toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Your account can't create teams")
+                theme.haptics.error()
+            } catch ServiceTeamCreation.Failure.invalidName {
+                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Team names are 1 to 120 characters")
                 theme.haptics.error()
             } catch {
                 toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Couldn't create the team")

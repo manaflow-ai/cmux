@@ -50,7 +50,8 @@ A lane branch's head is read over git (`git ls-remote` on CMUX_TUI_REF_REMOTE,
 which the workflow sets to the repository's clone URL), not the REST API: a
 git ref read spends none of the installation's GITHUB_TOKEN budget, which ran
 out every hour on 2026-10-26 with this workflow at about 260 runs an hour.
-Without CMUX_TUI_REF_REMOTE the REST read is used, as before. For every
+Whether a pull request has the head is read the same way (refs/pull/*/head), not
+commits/{sha}/pulls. Without CMUX_TUI_REF_REMOTE the REST reads are used, as before. For every
 non-trunk branch the head is read first, so a moved branch is superseded
 without the pull request and dispatch lookups.
 
@@ -113,20 +114,36 @@ def api(path: str) -> tuple[int, object]:
         raise ApiError(f"GET {path}: {error}") from error
 
 
+def ls_remote(remote: str, *patterns: str) -> str:
+    command = ["git"]
+    token = os.environ.get("GH_TOKEN", "")
+    if token and remote.startswith("https://"):
+        basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+        command += ["-c", f"http.extraHeader=Authorization: Basic {basic}"]
+    command += ["ls-remote", remote, *patterns]
+    try:
+        return subprocess.run(command, capture_output=True, text=True, timeout=30, check=True).stdout
+    except (OSError, subprocess.SubprocessError) as error:
+        raise ApiError(f"git ls-remote {' '.join(patterns)}: {type(error).__name__}") from error
+
+
+def has_pull_request_head(sha: str) -> bool | None:
+    """Whether some pull request's head ref (refs/pull/N/head, over git) is SHA; None without
+    CMUX_TUI_REF_REMOTE. The refs stay after a pull request closes and include forks', so a
+    closed or fork pull request at SHA also keeps the run: a lookup that can only keep extra
+    runs, at no REST cost (it replaced commits/{sha}/pulls, ~200 calls an hour)."""
+    remote = os.environ.get("CMUX_TUI_REF_REMOTE", "")
+    if not remote:
+        return None
+    listed = ls_remote(remote, "refs/pull/*/head")
+    return any(line.partition("\t")[0] == sha for line in listed.splitlines())
+
+
 def branch_head(branch: str) -> str | None:
     """BRANCH's head sha, or None when the branch does not exist."""
     remote = os.environ.get("CMUX_TUI_REF_REMOTE", "")
     if remote:
-        command = ["git"]
-        token = os.environ.get("GH_TOKEN", "")
-        if token and remote.startswith("https://"):
-            basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
-            command += ["-c", f"http.extraHeader=Authorization: Basic {basic}"]
-        command += ["ls-remote", "--heads", remote, f"refs/heads/{branch}"]
-        try:
-            listed = subprocess.run(command, capture_output=True, text=True, timeout=20, check=True).stdout
-        except (OSError, subprocess.SubprocessError) as error:
-            raise ApiError(f"git ls-remote {branch}: {type(error).__name__}") from error
+        listed = ls_remote(remote, "--heads", f"refs/heads/{branch}")
         for line in listed.splitlines():
             head, _, name = line.partition("\t")
             if name == f"refs/heads/{branch}" and re.fullmatch(r"[0-9a-f]{40}", head):
@@ -165,13 +182,17 @@ def unreviewed_verdict(ref: str, sha: str) -> tuple[bool, str] | None:
     """Superseded when no open pull request of this repository has SHA at its head; None asks lane_verdict."""
     if asks_for_daemon_tests(sha):
         return None
-    status, data = api(f"commits/{sha}/pulls?per_page=100")
-    if status != 200 or not isinstance(data, list):
-        raise ApiError(f"GET commits/{sha}/pulls: HTTP {status}")
-    repo = os.environ["GITHUB_REPOSITORY"]
-    if any(pr.get("state") == "open" and (pr.get("head") or {}).get("sha") == sha
-           and ((pr.get("head") or {}).get("repo") or {}).get("full_name") == repo for pr in data):
+    has_pull = has_pull_request_head(sha)
+    if has_pull:
         return None
+    if has_pull is None:
+        status, data = api(f"commits/{sha}/pulls?per_page=100")
+        if status != 200 or not isinstance(data, list):
+            raise ApiError(f"GET commits/{sha}/pulls: HTTP {status}")
+        repo = os.environ["GITHUB_REPOSITORY"]
+        if any(pr.get("state") == "open" and (pr.get("head") or {}).get("sha") == sha
+               and ((pr.get("head") or {}).get("repo") or {}).get("full_name") == repo for pr in data):
+            return None
     # A cmux-next dispatch on the branch (#22303) probes this exact commit's tree with no base fallback,
     # so a head some dispatch already asked about keeps its publisher.
     status, data = api(f"actions/workflows/cmux-next.yml/runs?head_sha={sha}&event=workflow_dispatch&per_page=1")
