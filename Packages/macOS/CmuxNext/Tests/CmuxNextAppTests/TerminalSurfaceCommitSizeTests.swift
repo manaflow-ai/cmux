@@ -80,12 +80,12 @@ struct TerminalSurfaceCommitSizeTests {
                 "no frame went to the screen off the main thread after the new scale landed (host_off_main_presents stays \(offMain))")
     }
 
-    /// FRAME OWNER S3 + S4 (S4 ON PR defect (b); Codex review at 15c88481831): in a key resize the host follows its pane
-    /// (S3, ``PaneMotionHoldFollowing``) and gives the surface its size on the hold's still edges
-    /// (``PaneMotionHold/producerFrame(_:in:)``). While a new size waits for its frame, the kept frame stays on those same
-    /// edges: a trailing hold keeps the kept frame's trailing edge, a bottom hold its bottom edge. Before, the kept frame
-    /// rode the wanted frame's leading edge, and its top edge unless the surface hold said bottom, so the old frame moved
-    /// off the still edge for the refreshes until the new size showed.
+    /// FRAME OWNER S3 + S4 in a key resize (cmux-ad m6; first found as S4 defect (b), red step d509169a15477622073341e5):
+    /// the host follows its pane (S3, ``PaneMotionHoldFollowing``) on a hold that keeps the pane's trailing or bottom
+    /// edge still, and the pane's size changes while the terminal's new size waits for its frame. The kept frame is
+    /// anchored top-left (the lead's m6 contract: the previous size's frame, clipped and anchored top-left, never
+    /// stretched): its top-left stays on the area's top-left, and the new size lands with its frame. Before, the kept
+    /// frame rode another edge than the pane's content did for the refreshes until the new size showed.
     @Test func aKeptFrameStaysOnTheEdgesItsHoldNames() async throws {
         let fixture = try await Fixture()
         defer { fixture.close() }
@@ -95,43 +95,41 @@ struct TerminalSurfaceCommitSizeTests {
         let rest = surface.frame
         try #require(rest.width > 200 && rest.height > 100, "the terminal's rest frame is \(rest)")
 
-        // A trailing hold: the pane's trailing edge stands still; the press asks a narrower final size.
+        // A trailing hold: the pane's trailing edge stands still and the pane narrows (its left edge moves).
         host.followPaneMotion(PaneMotionHold(trailing: true, bottom: false, containersFollow: true), heldSize: host.bounds.size)
         fixture.layoutNow()
-        let narrower = CGSize(width: rest.width - 80, height: rest.height)
-        host.holdSurface(size: narrower, anchor: .top)
-        try #require(presenter.isWaiting(surface), "\(narrower.width) pt did not wait for its frame")
+        fixture.container.terminalWidth -= 80
+        fixture.layoutNow()
+        try #require(presenter.isWaiting(surface), "the narrower size did not wait for its frame (frame \(surface.frame))")
         #expect(surface.frame.size == rest.size, "while its new size waits the terminal is \(surface.frame.size), it keeps \(rest.size)")
-        #expect(surface.frame.maxX == rest.maxX,
-                "a trailing hold: the kept frame's trailing edge is at \(surface.frame.maxX), the still edge is at \(rest.maxX)")
-        #expect(surface.frame.maxY == rest.maxY, "a top hold: the kept frame's top edge is at \(surface.frame.maxY), the still edge is at \(rest.maxY)")
-        let narrowShown = await fixture.waitShown(width: narrower.width)
-        #expect(narrowShown, "\(narrower.width) pt never showed its own frame")
-        #expect(surface.frame == CGRect(x: rest.maxX - narrower.width, y: rest.minY, width: narrower.width, height: rest.height),
+        #expect(surface.frame.minX == host.bounds.minX && surface.frame.maxY == host.bounds.maxY,
+                "a trailing hold: the kept frame \(surface.frame) is not anchored on its area's top-left \(host.bounds)")
+        let narrowShown = await fixture.waitShown(width: rest.width - 80)
+        #expect(narrowShown, "the narrower size never showed its own frame")
+        #expect(surface.frame == CGRect(x: rest.minX, y: rest.minY, width: rest.width - 80, height: rest.height),
                 "the landed frame is \(surface.frame)")
-        host.releaseSurfaceHold()
         host.followPaneMotion(nil, heldSize: nil)
+        fixture.container.terminalWidth += 80
         fixture.layoutNow()
         let restShown = await fixture.waitShown(width: rest.width)
         #expect(restShown, "the rest size never showed again")
 
-        // A bottom hold: the pane's bottom edge stands still; the press asks a shorter final size.
+        // A bottom hold: the pane's bottom edge stands still and the pane gets shorter (its top edge moves).
         host.followPaneMotion(PaneMotionHold(trailing: false, bottom: true, containersFollow: true), heldSize: host.bounds.size)
         fixture.layoutNow()
-        let shorter = CGSize(width: rest.width, height: rest.height - 40)
-        host.holdSurface(size: shorter, anchor: .top)
-        try #require(presenter.isWaiting(surface), "\(shorter.height) pt high did not wait for its frame")
+        fixture.container.terminalHeight -= 40
+        fixture.layoutNow()
+        try #require(presenter.isWaiting(surface), "the shorter size did not wait for its frame (frame \(surface.frame))")
         #expect(surface.frame.size == rest.size, "while its new size waits the terminal is \(surface.frame.size), it keeps \(rest.size)")
-        #expect(surface.frame.minY == rest.minY,
-                "a bottom hold: the kept frame's bottom edge is at \(surface.frame.minY), the still edge is at \(rest.minY)")
-        #expect(surface.frame.minX == rest.minX, "a leading hold: the kept frame's leading edge is at \(surface.frame.minX), the still edge is at \(rest.minX)")
+        #expect(surface.frame.minX == host.bounds.minX && surface.frame.maxY == host.bounds.maxY,
+                "a bottom hold: the kept frame \(surface.frame) is not anchored on its area's top-left \(host.bounds)")
         let deadline = ContinuousClock.now.advanced(by: .seconds(2))
         while ContinuousClock.now < deadline, presenter.isWaiting(surface) { await fixture.commits(1) }
         #expect(!presenter.isWaiting(surface), "the shorter size still waits for its frame after 2 s")
-        #expect(surface.frame == CGRect(x: rest.minX, y: rest.minY, width: rest.width, height: shorter.height),
+        #expect(surface.frame == CGRect(x: rest.minX, y: rest.minY, width: rest.width, height: rest.height - 40),
                 "the landed frame is \(surface.frame)")
-        host.releaseSurfaceHold()
         host.followPaneMotion(nil, heldSize: nil)
+        fixture.container.terminalHeight += 40
         fixture.layoutNow()
         #expect(fixture.mismatches.isEmpty,
                 "\(fixture.mismatches.count) turns ended with the layer at one size and its frame at another: \(fixture.mismatches.prefix(8))")
@@ -368,11 +366,12 @@ struct TerminalSurfaceCommitSizeTests {
     /// The window's content: its `layout()` gives the terminal the width asked for, as a pane's layout does.
     final class ResizingContainer: NSView {
         var terminalWidth: CGFloat = 600
+        var terminalHeight: CGFloat = 300
         weak var terminal: NSView?
 
         override func layout() {
             super.layout()
-            terminal?.frame = NSRect(x: 0, y: 0, width: terminalWidth, height: 300)
+            terminal?.frame = NSRect(x: 0, y: 0, width: terminalWidth, height: terminalHeight)
         }
     }
 
