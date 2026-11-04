@@ -1240,6 +1240,30 @@ button.cv-subagent > :last-child {
   }
 }
 
+/* What a running agent did last (AgentLine.tsx `latest`, trayLatest.experiment.ts): one quiet
+   line under the title, cut with an ellipsis, so a new step changes its words and never the
+   line's height. The title, state and time keep the first line (Leo, 2026-11-03: "Tray only,
+   richer"). */
+.acpmux-agent-line__latest {
+  display: block;
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__latest) > .acpmux-agent-line__button {
+  height: auto;
+  min-height: calc(var(--ui-row-height, 28px) + 16px);
+  align-items: start;
+  padding-block: 6px;
+}
+.acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__latest) .acpmux-agent-line__button > .acpmux-lineage__icon {
+  margin-top: 2px;
+}
+
 /* Counts and warnings remain readable even when the name or action needs truncation. */
 .acpmux-agent-line__progress {
   display: block;
@@ -1379,4 +1403,13 @@ button.cv-subagent > :last-child {
 .cv-subagent-done-row[data-look="grid"] > .cv-subagent-done__chevron {
   grid-column: 6;
   grid-row: 1;
+}
+
+/* Narrow, the title and its latest line take the first row, the controls the second. */
+@container running-tray (max-width: 400px) {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__latest) > .acpmux-agent-line__button {
+    grid-template-rows: auto var(--ui-row-height, 28px);
+    height: auto;
+    padding-block: 6px 0;
+  }
 }

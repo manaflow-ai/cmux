@@ -9,7 +9,7 @@ import { Icon } from "../icons/Icon";
 import { usePaneLanguage, useT, type PaneLanguage, type Translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { formatDuration } from "../conversation/turns";
-import type { Subagent } from "./subagentFold";
+import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import { agentTone, AgentTonesContext } from "./agentTones";
 import { AgentIdentity, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "./AgentIdentity";
 import { subagentProgress } from "./subagentProgress";
@@ -46,7 +46,9 @@ export const STATE_LABEL = {
 } as const;
 
 /// Milliseconds a subagent has run: until it ended, or until `now`.
-export const elapsed = (agent: Subagent, now: number) => Math.max(0, (agent.endedAt ?? now) - agent.startedAt);
+/// One waiting on background work of its own has not ended: its time keeps going.
+export const elapsed = (agent: Subagent, now: number) =>
+  Math.max(0, (awaitsOwnWork(agent) ? now : (agent.endedAt ?? now)) - agent.startedAt);
 
 /// The group's time: from its first start to its last end, or to `now` while one runs.
 export function groupElapsed(agents: readonly Subagent[], now: number): number {

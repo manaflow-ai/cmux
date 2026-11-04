@@ -14,7 +14,7 @@ import { useT, type StringKey, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { elapsed, running, STATE_LABEL, SubagentHarnessContext, useNow } from "../subagents/SubagentGroup";
-import type { Subagent } from "../subagents/subagentFold";
+import { awaitsOwnWork, type Subagent } from "../subagents/subagentFold";
 import { IDLE_AFTER_MS } from "../subagents/idle";
 import { retrying, retryLabel, sessionRetry } from "../subagents/retryState";
 import { Spinner } from "../conversation/icons";
@@ -47,13 +47,15 @@ export type SubagentStatus = "running" | "waiting" | "idle" | "done" | "failed" 
 export const STATUS_LABEL: Record<SubagentStatus, StringKey> = {
   running: "subagents.state.running",
   waiting: "subagents.state.waiting",
-  idle: "subagents.state.idle",
+  idle: "subagents.state.ownWork",
   done: "subagents.state.completed",
   failed: "subagents.state.failed",
   stopped: "subagents.state.cancelled",
 };
 
 export function subagentStatus(agent: Subagent, waiting: ReadonlySet<string>, now?: number): SubagentStatus {
+  // Its end was interim: it waits on background work of its own, its report still to come.
+  if (awaitsOwnWork(agent)) return waiting.has(agent.id) ? "waiting" : "idle";
   if (running(agent)) {
     if (waiting.has(agent.id)) return "waiting";
     return now !== undefined && isIdle(agent, now) ? "idle" : "running";
