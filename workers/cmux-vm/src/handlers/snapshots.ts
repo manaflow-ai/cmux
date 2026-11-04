@@ -172,7 +172,7 @@ export const snapshotsHandlers = HttpApiBuilder.group(CmuxVmApi, "snapshots", (h
                 // Already gone upstream (for example, its retention expired): finish the delete here.
                 Effect.catchIf((error) => error.status === 404, () => Effect.void),
                 Effect.mapError((error) =>
-                  error.status === 409 ? new Conflict({ message: "This snapshot cannot be deleted right now" }) : unavailable(),
+                  error.status === 409 ? new Conflict({ message: "This snapshot cannot be deleted right now" }) : unavailable(error),
                 ),
               );
               const now = new Date(yield* Clock.currentTimeMillis);

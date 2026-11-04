@@ -252,7 +252,7 @@ const ruleCreateError = (error: { readonly status: number | null }) =>
     ? new QuotaExceeded({ message: "The platform's firewall rule limit is reached; try again later", retryAfterSeconds: 300, budget: "firewallRule.account" })
     : error.status === 404
       ? new Conflict({ message: "A device or VM left the mesh during the change; apply again" })
-      : unavailable();
+      : unavailable(error);
 
 /**
  * Makes the mesh's provider rules equal `desired`: creates every missing rule
@@ -1114,7 +1114,7 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
                     .attachVm(mesh, vm, { ownsMesh: proofs.owns, ownsVm, meshScope: proofs.scope, vmScope })
                     .pipe(
                       Effect.mapError((error) =>
-                        error.status === 404 ? vmNotFound() : error.status === 409 ? new Conflict({ message: "This VM cannot join the mesh right now" }) : unavailable(),
+                        error.status === 404 ? vmNotFound() : error.status === 409 ? new Conflict({ message: "This VM cannot join the mesh right now" }) : unavailable(error),
                       ),
                     );
                   const row = { meshId: mesh.value, vmId: vm.value, ipv4: attached.ipv4, attachedAt: yield* now };
