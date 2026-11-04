@@ -34,7 +34,9 @@ import CmuxNextWakeups
 ///   took 148 calls and 109 web-process sleep and wake cycles in two minutes (2026-10-21). Frames
 ///   the page waits on go at most every ``hiddenInterval``, on the fallback deadline. Twenty mostly
 ///   hidden chats each streaming a call per frame interval kept the main thread busy until the app
-///   beachballed (2026-10-20).
+///   beachballed (2026-10-20). A reply to the page's own request (``schedule(urgent:answers:_:)``)
+///   skips that interval and is paced like a visible pane's frames: its page is awake, and a chat
+///   opening while nobody saw it waited 250 ms for each read.
 @MainActor public final class AgentPaneFramePacer: AgentPaneTransportPacer {
     /// One display frame at the slowest rate the pacer assumes.
     public static let frameInterval: TimeInterval = 1.0 / 120
@@ -64,6 +66,8 @@ import CmuxNextWakeups
     private(set) var held = false
     /// The waiting frames include ones the page waits on (``schedule(urgent:_:)``) or a backlog.
     private var urgent = false
+    /// The waiting frames include a reply to the page's own request: no hidden interval.
+    private var answers = false
     /// The pane's ``AgentPaneVisibilityProbe``.
     private var probe: NSView?
     /// The last delivery found frames waiting within one frame interval of its call's start.
@@ -108,7 +112,12 @@ import CmuxNextWakeups
     }
 
     public func schedule(urgent: Bool, _ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush) {
+        schedule(urgent: urgent, answers: false, flush)
+    }
+
+    public func schedule(urgent: Bool, answers: Bool, _ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush) {
         self.flush = flush
+        self.answers = self.answers || answers
         pending = true
         // Frames the page waits on stay waiting until a call takes them.
         self.urgent = self.urgent || urgent
@@ -117,6 +126,11 @@ import CmuxNextWakeups
         if held {
             guard urgent else { return }
             held = false
+        }
+        // A reply cuts a running hidden wait short.
+        if answers, waitingWhileHidden {
+            waitingWhileHidden = false
+            fallback.cancel()
         }
         guard !inFlight, !waitingForFrame, !waitingForInterval, !nextTurnScheduled, !waitingWhileHidden else { return }
         call()
@@ -157,6 +171,7 @@ import CmuxNextWakeups
         waitingWhileHidden = false
         held = false
         urgent = false
+        answers = false
         loadedBefore = false
         fallback.cancel()
         frames.deactivate()
@@ -197,7 +212,7 @@ import CmuxNextWakeups
                 return
             }
             let wait = Self.hiddenInterval - (now() - lastCall)
-            if wait > 0.001 {
+            if wait > 0.001, !answers {
                 waitingWhileHidden = true
                 fallback.schedule(after: .nanoseconds(Int64(wait * 1e9))) { [weak self] in self?.hiddenIntervalPassed() }
                 return
@@ -207,6 +222,7 @@ import CmuxNextWakeups
         waitingWhileHidden = false
         pending = false
         urgent = false
+        answers = false
         inFlight = true
         lastCall = now()
         let result = flush()

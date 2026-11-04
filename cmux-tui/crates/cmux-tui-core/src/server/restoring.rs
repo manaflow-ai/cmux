@@ -123,9 +123,13 @@ impl RestoringServer {
         mux.start_default_settings_owner();
         mux.start_default_keybindings_owner();
         mux.connection_stats().note_socket(&self.path);
+        // Publish the actual endpoint before any parked request is served.
+        // A Cloud daemon may have been started with a custom --socket.
+        let _ = mux.bound_socket_path.set(self.path.clone());
         self.slot.attach(ServedSession {
             mux: mux.clone(),
             render_service: Arc::new(RenderService::new()),
+            terminal_sessions: Default::default(),
         });
         self.attached = true;
         PendingServer::from_parts(std::mem::take(&mut self.path), mux, self.shutdown.clone())

@@ -362,7 +362,7 @@ fn spawn(
     stop_owner: impl Fn(&dyn OrphanFacts) -> bool + Send + 'static,
 ) -> OrphanExit {
     let observer = Arc::downgrade(&watch);
-    mux.set_client_presence_observer(move || {
+    mux.add_client_presence_observer(move || {
         if let Some(watch) = observer.upgrade() {
             watch.clients_changed();
         }

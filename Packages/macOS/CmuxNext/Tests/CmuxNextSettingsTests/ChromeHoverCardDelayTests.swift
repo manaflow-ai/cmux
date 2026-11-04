@@ -9,12 +9,16 @@ import Testing
 /// width, waits `kMaximumTriggerDelay` 800 ms plus `kTabHoverCardAdditionalMaxWidthDelay` 500 ms;
 /// a hover within `kShowWithoutDelayTimeBuffer` 300 ms after the card went shows at once, and an
 /// open card moves to the next tab at once.
+///
+/// Leo 2026-11-01: "i need these hover previews to appear a hell of a lot faster than they do
+/// now". The cold delay is 400 ms (Chrome's narrow-tab floor plus a beat); the warm rules stay
+/// Chrome's.
 struct ChromeHoverCardDelayTests {
-    @Test func aConfigWithoutADelayWaitsChromesStandardWidthDelay() throws {
+    @Test func aConfigWithoutADelayWaitsTheFastDelay() throws {
         let snapshot = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
-        #expect(snapshot.hoverCards.delayMilliseconds == 1300)
-        #expect(SettingsSchema.descriptor(for: HoverCardSettings.delayPath)?.defaultValue == .number(1300))
-        #expect(HoverCardTiming.showDelay == .milliseconds(1300))
+        #expect(snapshot.hoverCards.delayMilliseconds == 400)
+        #expect(SettingsSchema.descriptor(for: HoverCardSettings.delayPath)?.defaultValue == .number(400))
+        #expect(HoverCardTiming.showDelay == .milliseconds(400))
     }
 
     @Test func theWarmWindowAfterACardGoesIsChromes() {

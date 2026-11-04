@@ -36,13 +36,17 @@ from typing import Any, Callable
 ROOT = Path(__file__).resolve().parents[3]
 COMMENT_MARKER = "<!-- cmux-next:tour-media -->"
 TOURS_DIR = "scripts/cmux-next/media/tours"
-# Frames are taken about every 0.5 s; played at 4 per second the video runs at 2x.
-VIDEO_FPS = 4
-GIF_FPS = 4
+# Native window recordings carry their own timestamps and are encoded at that rate. The still-frame
+# fallback uses the manifest's measured interval. This is the target rate for any downstream reel
+# normalisation; it must never turn a real recording into a four-frame-per-second clip.
+VIDEO_FPS = 60
+# tour.py's FRAME_INTERVAL, for a manifest that names none.
+DEFAULT_FRAME_INTERVAL = 0.5
 VIDEO_SIZE = (1280, 800)
-# tour.py's MAX_FRAMES: a larger artifact does not make a longer video.
-MAX_FRAMES = 600
+# The GIF's frame rate comes from pr_media.gif_attempts: 50 fps from a 60 Hz recording when it fits, else 30,
+# stepping down width first and then rate until it fits under the inline limit (never above the clip's rate).
 GIF_WIDTHS = (720, 560, 440)
+VIDEO_NAME = "capture.mov"
 TOUR_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
 # A step's main-window shot, or one of its other windows (tour.py: <shot>--w<window number>).
 SHOT_PATH = re.compile(r"shots/[0-9]{2}-[a-z0-9-]{1,40}(?:-failed)?(?:--w[0-9]{1,9})?\.png")
@@ -130,27 +134,66 @@ def shot_file(directory: Path, shot: Any) -> Path | None:
     return path
 
 
+def input_framerate(manifest: dict[str, Any]) -> str:
+    """ffmpeg's -framerate for the tour's frames: one over the seconds between them, so the video runs in
+    real time. A missing or unreasonable frame_interval falls back to tour.py's default."""
+    interval = manifest.get("frame_interval")
+    if isinstance(interval, bool) or not isinstance(interval, (int, float)) or not 1 / 120 <= interval <= 60:
+        interval = DEFAULT_FRAME_INTERVAL
+    return f"{1 / interval:.6g}"
+
+
+def capture_file(directory: Path, manifest: dict[str, Any]) -> Path | None:
+    """Return tour.py's native window recording when it is a safe local file.
+
+    The manifest is untrusted job output. Keep the publisher inside the tour directory and reject
+    links so a malformed capture cannot make the media job read another artifact.
+    """
+    name = manifest.get("video")
+    if name != VIDEO_NAME or not isinstance(name, str):
+        return None
+    path = directory / name
+    try:
+        if path.is_symlink() or not path.is_file() or path.parent.resolve() != directory.resolve():
+            return None
+    except OSError:
+        return None
+    return path
+
+
 def make_video(directory: Path, manifest: dict[str, Any], into: Path, pr_media: Any,
                run: Callable[..., Any] = subprocess.run) -> tuple[Path | None, Path | None]:
-    """(mp4, gif) from the tour's frames; (None, None) with fewer than two frames."""
-    if len(manifest.get("frames") or []) < 2 or not shutil.which("ffmpeg"):
+    """(mp4, gif) from a native recording, or measured-rate still frames."""
+    native = capture_file(directory, manifest)
+    frames = manifest.get("frames") or []
+    if (native is None and len(frames) < 2) or not shutil.which("ffmpeg"):
         return None, None
     mp4 = into / "tour.mp4"
     env = pr_media.tool_env()
-    done = run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-framerate", str(VIDEO_FPS),
-                "-i", str(directory / "frames/frame-%05d.jpg"),
-                "-frames:v", str(MAX_FRAMES),
+    if native is not None:
+        # ScreenCaptureKit writes a window-only MOV at the display's real rate (normally 60 Hz).
+        # Do not add an input -framerate: that would discard its timestamps and create 4 fps video.
+        source = ["-i", str(native)]
+        rate = ["-fps_mode", "passthrough"]
+    else:
+        source = ["-framerate", input_framerate(manifest), "-i",
+                  str(directory / "frames/frame-%05d.jpg")]
+        rate = []
+    done = run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", *source, "-t", "300",
                 # A fixed output size: a frame of another size cannot break the stream.
                 "-vf", f"scale={VIDEO_SIZE[0]}:{VIDEO_SIZE[1]}:force_original_aspect_ratio=decrease,"
                        f"pad={VIDEO_SIZE[0]}:{VIDEO_SIZE[1]}:(ow-iw)/2:(oh-ih)/2:color=white",
-                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(mp4)],
+                *rate, "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(mp4)],
                capture_output=True, text=True, env=env)
     if done.returncode != 0 or not mp4.is_file():
         print(f"warning: no video for {directory.name}: {done.stderr.strip()}", file=sys.stderr)
         return None, None
     gif = into / "tour.gif"
-    for width in GIF_WIDTHS:
-        done = run(pr_media.gif_argv(mp4, gif, GIF_FPS, width), capture_output=True, text=True, env=env)
+    # The rate is known, so nothing is probed: a native recording runs at the display's rate (a variable-rate
+    # capture's average undercounts it, and must not cap the gif below 30), the still fallback at its measured one.
+    source_rate = float(VIDEO_FPS) if native is not None else float(input_framerate(manifest))
+    for fps, width in pr_media.gif_attempts(GIF_WIDTHS, None, source_rate):
+        done = run(pr_media.gif_argv(mp4, gif, fps, width), capture_output=True, text=True, env=env)
         if done.returncode == 0 and gif.is_file() and gif.stat().st_size <= pr_media.INLINE_MAX_BYTES - 512 * 1024:
             return mp4, gif
     return mp4, None

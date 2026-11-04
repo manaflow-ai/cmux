@@ -11,11 +11,11 @@ import Observation
 /// on its top), or on the trailing edge (`sidebar.side`, R109; the traffic
 /// lights then sit over the top-left tab strip), and the workspace layout
 /// beside it. `window.titlebar`
-/// "minimal" (the default) has no titlebar strip: the layout reaches the
+/// "minimal" has no titlebar strip: the layout reaches the
 /// window's top edge, the traffic lights sit in the top row (the sidebar
 /// header, or with the sidebar hidden the top-left tab strip, which starts
 /// after them), and that row's empty space moves the window. "standard"
-/// adds a compact titlebar across the content column with the workspace
+/// (the default) adds a compact titlebar across the content column with the workspace
 /// name. Every surface is the one surface token
 /// (`Palette.surfaceBackground`), so sidebar, titlebar, tab strip and
 /// terminal read as one sheet with no panel edges or seams. In a
@@ -126,7 +126,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     ///   radius (the backdrop's ``WindowBackdrop/windowBlurRadius``).
     /// - Parameter revealClock: Times the collapsed band's close delay.
     init(sidebar: SidebarContainerView, activeLook: ActiveLookScope? = nil,
-         reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
+         reduceTransparency: @escaping @MainActor () -> Bool = { ReduceTransparency.shared.isEnabled },
          applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) },
          revealClock: any Clock<Duration> = ContinuousClock()) {
         (self.sidebar, backdropView) = (sidebar, WindowMaterialView(frame: .zero, images: .shared, activeLook: activeLook))
@@ -262,8 +262,11 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         (window as? ShellWindow)?.overlayLayer.setSidebarResizeBand(sidebar.resizeBandInWindow)
         guard let window, let host = WindowOverlayHost.existingHost(for: window) else { return }
         host.repairAgentCursorOrder()
-        let shows = sidebar.frame.width > 0.5 && !sidebar.isHidden
-        host.setOccluder(id: "sidebar", rect: shows ? sidebar.convert(sidebar.bounds, to: nil) : nil)
+        host.setOccluder(id: "sidebar", rect: sidebar.occluderRectInWindow)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        sidebar.routePaneReach(super.hitTest(point), at: convert(point, from: superview), in: self)
     }
 
     override func layout() {
@@ -281,6 +284,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         // Every frame is final here: the shade follows the card even when the
         // shade's own autoresizing landed after the card's frame change.
         updateMainPaneShade()
+        sidebar.updateResizeLine(cardMaxY: contentHost.frame.maxY)
         // The band starts after the traffic lights (which never move) and is
         // as wide as the sidebar's on-screen share: 0 wide, with no gap
         // after the lights, while the sidebar is hidden (cx-uxdr).

@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// A pane that is in no window yet and shows a view that is in a window takes the view when it
@@ -10,7 +11,7 @@ import Testing
 /// the window; a Chromium page's view out of its window orders its page window out, and AppKit
 /// waited for the window server (`-[NSWindow _doOrderWindow:]`): 88-110 ms per Cmd-N on
 /// cmux8s-Mac-mini (instant-new-surfaces bench with --hang-stacks, 2026-10-24).
-@MainActor @Suite(.serialized) struct PaneShowKeepsViewInWindowTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PaneShowKeepsViewInWindowTests {
     /// Counts each time it leaves its window.
     final class TabView: NSView {
         private(set) var windowExits = 0

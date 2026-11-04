@@ -1,4 +1,4 @@
-// The thread minimap as the Codex desktop app's prompt rail (minimap-ref SPEC): it shows from four
+// The thread minimap as the Codex desktop app's prompt rail (minimap-ref SPEC): it shows from one
 // prompts at any pane width (a narrow one: thread-minimap-narrow.test.tsx); hover magnifies like
 // the Dock and opens a preview card at once; every row is a tab stop whose focus opens
 // the card at once; a click or Return jumps; a drag scrubs; bookmarks show as a dot past the tick,
@@ -163,9 +163,12 @@ const landing = (index: number) => {
   return Math.max(0, Math.min(16 + rowTop(`user-${index + 1}`) - 35, total - VIEWPORT));
 };
 
-test("the rail shows from four prompts, at any pane width", async () => {
+test("the rail shows from one prompt, at any pane width", async () => {
   for (const [prompts, width, shown] of [
-    [3, 1040, false],
+    [0, 1040, false],
+    [1, 1040, true],
+    [1, 800, true],
+    [3, 1040, true],
     [4, 1040, true],
     // An 800 px pane starts the column 40 px in: the narrow rail (thread-minimap-narrow.test.tsx).
     [6, 800, true],
@@ -384,6 +387,56 @@ test("wheel browsing belongs to the rail and is not snapped back by transcript s
   }
 });
 
+test("the wheel over the rail's pane-edge padding scrolls the rail, not the transcript", async () => {
+  // Leo, 2026-10-28: "I said me scroll on it, cover area, it scroll, plus the padding". The strip
+  // between the pane edge and the rail reveals it on hover, so the wheel over it is the rail's too.
+  const view = await mount(70);
+  try {
+    const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    const strip = document.querySelector<HTMLElement>(".acpmux-minimap__strip")!;
+    expect(list.hasAttribute("data-rail-scrolls")).toBe(true);
+    expect(strip.hasAttribute("data-rail-scrolls")).toBe(true);
+    const before = view.scroller.scrollTop;
+    const heard: string[] = [];
+    view.scroller.addEventListener("wheel", () => heard.push("transcript"));
+    const down = new dom.window.WheelEvent("wheel", { deltaY: 120, bubbles: true, cancelable: true });
+    await act(async () => {
+      strip.dispatchEvent(down);
+    });
+    expect(list.scrollTop).toBe(120);
+    expect(down.defaultPrevented).toBe(true);
+    expect(heard).toEqual([]);
+    expect(view.scroller.scrollTop).toBe(before);
+    // A line-mode wheel moves it by lines, and back up.
+    await act(async () => {
+      strip.dispatchEvent(
+        new dom.window.WheelEvent("wheel", { deltaY: -3, deltaMode: 1, bubbles: true, cancelable: true }),
+      );
+    });
+    expect(list.scrollTop).toBe(72);
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("the wheel over the padding of a rail that fits its prompts reaches the transcript", async () => {
+  const view = await mount(4);
+  try {
+    const strip = document.querySelector<HTMLElement>(".acpmux-minimap__strip")!;
+    expect(strip.hasAttribute("data-rail-scrolls")).toBe(false);
+    const heard: number[] = [];
+    view.scroller.addEventListener("wheel", (event) => heard.push((event as WheelEvent).deltaY));
+    const wheel = new dom.window.WheelEvent("wheel", { deltaY: 120, bubbles: true, cancelable: true });
+    await act(async () => {
+      strip.dispatchEvent(wheel);
+    });
+    expect(heard).toEqual([120]);
+    expect(wheel.defaultPrevented).toBe(false);
+  } finally {
+    await view.unmount();
+  }
+});
+
 test("a wheel over a rail that scrolls itself is not the reader's: the transcript keeps following", async () => {
   const { followTrace } = await import("../src/agent-session/acpmux/followTrace");
   const view = await mount(70);
@@ -572,15 +625,25 @@ test("a press released off the rail ends there: a later hover does not scrub", a
   }
 });
 
-test("a bookmark shows as the tick's dot; the dot and the card toggle it; a prompt's row has no Pin", async () => {
+test("a bookmark shows as the tick's dot; the prompt row, dot and card share its state", async () => {
   const view = await mount(8);
   try {
-    // Leo's prompt row (2026-10-21): check, age, Copy, Retry, Fork; no Pin under a prompt.
-    expect(document.querySelector('.acpmux-row[data-row-id^="user-"] .cv-message-pin')).toBeNull();
+    const promptButton = document.querySelector<HTMLButtonElement>(
+      '.acpmux-row[data-row-id="user-1"] .cv-message-pin',
+    )!;
+    expect(promptButton).not.toBeNull();
+    expect(promptButton.getAttribute("aria-pressed")).toBe("false");
+    await act(async () => promptButton.click());
+    expect(tick(0).hasAttribute("data-bookmarked")).toBe(true);
+    expect(tick(0).querySelector(".acpmux-minimap__dot")).not.toBeNull();
+    await act(async () => tick(0).focus());
+    const cardButton = () => card()!.querySelector<HTMLElement>(".acpmux-minimap__bookmark")!;
+    expect(cardButton().getAttribute("aria-pressed")).toBe("true");
+    await act(async () => cardButton().click());
+    expect(promptButton.getAttribute("aria-pressed")).toBe("false");
     expect(tick(2).hasAttribute("data-bookmarked")).toBe(false);
     // The card marks it: the rail's tick gets its dot.
     await act(async () => tick(2).focus());
-    const cardButton = () => card()!.querySelector<HTMLElement>(".acpmux-minimap__bookmark")!;
     await act(async () => cardButton().click());
     expect(tick(2).hasAttribute("data-bookmarked")).toBe(true);
     expect(tick(2).querySelector(".acpmux-minimap__dot")).not.toBeNull();
@@ -718,6 +781,22 @@ test("the wheel and the scrolling keys over the card reach the transcript's own 
     expect(heard).toEqual(["key PageDown"]);
   } finally {
     input.mockRestore();
+    await view.unmount();
+  }
+});
+
+test("a layout correction rebases an in-flight rail jump", async () => {
+  const { animateScroll, stopScroll } = await import("../src/agent-session/acpmux/threadMinimap/scrollMotion");
+  const view = await mount(8);
+  try {
+    view.scroller.scrollTop = 1000;
+    animateScroll(view.scroller, () => 5000, 60_000, [0, 0, 1, 1]);
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    view.scroller.scrollTop += 10_000;
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    expect(view.scroller.scrollTop).toBeGreaterThan(9000);
+  } finally {
+    stopScroll(view.scroller);
     await view.unmount();
   }
 });

@@ -10,8 +10,10 @@ import CmuxNextIcons
 /// two buttons (the call to action filled, the others quiet) with an
 /// optional shortcut beside them, and an x. Rows a notice does not use take
 /// no room. Hidden without a notice. It sits on the composer's surface
-/// (`CardSurfaceView`, Leo 2026-10-13), as every sidebar card does: the
-/// theme's text tint over the wallpaper, opaque under Reduce Transparency.
+/// (`CardSurfaceView`, Leo 2026-10-13), as every sidebar card does, its
+/// veil in the theme's glass tint (``CardSurfaceView/takesThemeTint``, as
+/// the Updated card's): opaque under Reduce Transparency. Leo 2026-11-03,
+/// on the Downloading Update card: "will this be themeed properly?"
 final class SidebarNoticeCardView: NSView {
     /// A button: the notice's id and the action's id.
     var onAction: ((String, String) -> Void)?
@@ -25,12 +27,18 @@ final class SidebarNoticeCardView: NSView {
     private var lineLabels: [ChromeLabel] = []
     private let icon = DecorativeImageView() // the card's title says what it is
     private let spinner = StatusIndicatorView.spinner()
-    private let track = CALayer()
-    private let bar = CALayer()
+    /// The progress row: the bar fills the track in the theme's accent.
+    let track = CALayer()
+    let bar = CALayer()
     private(set) var actionButtons: [SidebarUpdateButton] = []
     /// The action drawn as a switch (``SidebarNoticeCard/Action/isSwitch``), right of the buttons; nil until one shows.
     private(set) var actionSwitch: SidebarCardSwitch?
+    /// The notice the card shows (or last showed, during its exit) has a switch action.
+    private var hasSwitch = false
     let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 9 }, label: "")
+    /// The control on the right, vertically centred in the card (``SidebarNoticeCard/trailing``):
+    /// a running download's cancel.
+    let trailingButton = SidebarIconButton(symbol: "xmark.circle.fill", pointSize: { SidebarNoticeCardView.trailingGlyph }, label: "")
     /// The text button that replaces the x when the notice names one (``SidebarNoticeCard/dismissTitle``).
     let dismissButton = SidebarCardTextButton()
     /// The card's surface: the composer's, opaque under Reduce Transparency.
@@ -54,6 +62,7 @@ final class SidebarNoticeCardView: NSView {
         self.motionPolicy = motionPolicy
         super.init(frame: frame)
         wantsLayer = true
+        surface.takesThemeTint = true
         addSubview(surface)
         addSubview(content)
         for label in [eyebrowLabel, titleLabel, shortcutLabel] {
@@ -67,6 +76,9 @@ final class SidebarNoticeCardView: NSView {
         shortcutLabel.alignment = .right
         icon.imageScaling = .scaleProportionallyDown
         content.wantsLayer = true
+        // Nothing draws past the card's rounded edge: a card laid out narrower than its rows (a sidebar laid out
+        // small) drew its switch past its leading edge, alone, with no card around it (Lawrence msg 19185).
+        content.layer?.masksToBounds = true
         track.cornerRadius = 1.5
         bar.cornerRadius = 1.5
         // The bar lives in the track, which clips it: the unmeasured sweep never leaves the track.
@@ -76,7 +88,16 @@ final class SidebarNoticeCardView: NSView {
         closeButton.takesKeyFocus = true
         closeButton.onPress = { [weak self] in self?.closePressed() }
         dismissButton.onPress = { [weak self] in if let id = self?.notice?.id { self?.onDismiss?(id) } }
-        [eyebrowLabel, titleLabel, detailLabel, shortcutLabel, icon, spinner, closeButton, dismissButton].forEach(content.addSubview)
+        trailingButton.takesKeyFocus = true
+        trailingButton.takesFirstClick = true
+        trailingButton.showsLabelToolTip = true
+        trailingButton.onPress = { [weak self] in
+            guard let id = self?.notice?.id, let action = self?.notice?.trailing?.id else { return }
+            self?.onAction?(id, action)
+        }
+        trailingButton.isHidden = true
+        [eyebrowLabel, titleLabel, detailLabel, shortcutLabel, icon, spinner, closeButton, dismissButton, trailingButton].forEach(content.addSubview)
+        trailingButton.setAccessibilityIdentifier("cmux.sidebar.notice.trailing")
         closeButton.setAccessibilityIdentifier("cmux.sidebar.notice.close")
         dismissButton.setAccessibilityIdentifier("cmux.sidebar.notice.dismiss")
         setAccessibilityElement(false)
@@ -128,7 +149,7 @@ final class SidebarNoticeCardView: NSView {
         }
         shortcutLabel.stringValue = notice.shortcut ?? ""
         shortcutLabel.isHidden = notice.shortcut == nil || notice.actions.isEmpty
-        let spins = notice.progress == .indeterminate
+        let spins = notice.progress == .indeterminate && notice.leadingSpinner
         icon.isHidden = notice.symbol == nil || spins
         spinner.spin(spins)
         closeButton.isHidden = notice.dismissLabel == nil || notice.dismissTitle != nil
@@ -136,6 +157,12 @@ final class SidebarNoticeCardView: NSView {
         dismissButton.isHidden = notice.dismissTitle == nil
         dismissButton.configure(title: notice.dismissTitle ?? "", help: notice.dismissLabel)
         if previous?.actions != notice.actions { rebuildButtons(notice.actions) }
+        trailingButton.isHidden = notice.trailing == nil
+        if let trailing = notice.trailing {
+            trailingButton.setSymbol(trailing.symbol)
+            trailingButton.label = trailing.label
+            trailingButton.setAccessibilityIdentifier("cmux.sidebar.notice.action.\(trailing.id)")
+        }
         let help = [notice.title, notice.detail].compactMap { $0 }.joined(separator: ". ")
         for (button, action) in zip(actionButtons, notice.actions.filter { !$0.isSwitch }) {
             button.configure(title: action.title, enabled: true, help: help)
@@ -215,6 +242,7 @@ final class SidebarNoticeCardView: NSView {
             content.addSubview(control)
             actionSwitch = control
         }
+        hasSwitch = toggle != nil
         actionSwitch?.isHidden = toggle == nil
         actionSwitch?.configure(title: toggle?.title ?? "", identifier: toggle.map { "cmux.sidebar.notice.action.\($0.id)" })
         actionSwitch?.onFlip = { [weak self] in
@@ -240,7 +268,7 @@ final class SidebarNoticeCardView: NSView {
     static func changesMessage(from old: SidebarNoticeCard, to new: SidebarNoticeCard) -> Bool {
         let ticking = old.progress != nil && new.progress != nil && old.title == new.title
         return old.id != new.id || old.title != new.title || (old.detail != new.detail && !ticking) || old.symbol != new.symbol
-            || old.eyebrow != new.eyebrow || old.lines != new.lines || old.actions != new.actions
+            || old.eyebrow != new.eyebrow || old.lines != new.lines || old.actions != new.actions || old.trailing != new.trailing
             || (old.progress == nil) != (new.progress == nil)
     }
 
@@ -254,6 +282,9 @@ final class SidebarNoticeCardView: NSView {
     /// List lines a notice shows.
     static let maxLines = 4
     private static let closeSide: CGFloat = 16
+    /// The right-hand control's glyph and hit square: well above the x's, on the shared spacing tokens.
+    static var trailingGlyph: CGFloat { Metrics.space6 + Metrics.space1 }
+    static var trailingSide: CGFloat { Metrics.space6 + Metrics.space4 + Metrics.space2 }
 
     /// The card's height for `notice`: padding, the heading, the title, two
     /// detail lines, the progress bar and the button row when present.
@@ -287,7 +318,13 @@ final class SidebarNoticeCardView: NSView {
         dismissButton.frame = NSRect(x: b.width - pad / 2 - dismissWidth, y: titleY + (line.body - dismissHeight) / 2,
                                      width: dismissWidth, height: dismissHeight)
         let width = max(0, b.width - 2 * pad)
-        let closeRoom = !dismissButton.isHidden ? dismissWidth + Metrics.space1 : closeButton.isHidden ? 0 : close
+        // The right-hand control, vertically centred in the whole card; the text and the bar stop
+        // a grid step short of it.
+        let trailingSide = Self.trailingSide
+        let trailingRoom = trailingButton.isHidden ? 0 : trailingSide + Metrics.space4
+        trailingButton.frame = NSRect(x: b.width - pad - trailingSide, y: ((b.height - trailingSide) / 2).rounded(),
+                                      width: trailingSide, height: trailingSide)
+        let closeRoom = !dismissButton.isHidden ? dismissWidth + Metrics.space1 : closeButton.isHidden ? trailingRoom : close
         var y = pad
         if !eyebrowLabel.isHidden {
             eyebrowLabel.frame = NSRect(x: pad, y: y, width: max(0, width - closeRoom), height: line.caption)
@@ -307,7 +344,7 @@ final class SidebarNoticeCardView: NSView {
         closeButton.frame = NSRect(x: b.width - pad / 2 - close, y: ((capMid - close / 2) * scale).rounded() / scale,
                                    width: close, height: close)
         y += line.body
-        let textWidth = max(0, b.width - pad - textX)
+        let textWidth = max(0, b.width - pad - textX - trailingRoom)
         if !detailLabel.isHidden {
             detailLabel.preferredMaxLayoutWidth = textWidth
             detailLabel.frame = NSRect(x: textX, y: y + Metrics.space1, width: textWidth, height: 2 * line.caption)
@@ -333,10 +370,14 @@ final class SidebarNoticeCardView: NSView {
             button.frame = NSRect(x: x, y: rowY, width: buttonWidth, height: SidebarUpdateButton.height)
             x = button.frame.maxX + Metrics.space2
         }
-        if let actionSwitch, !actionSwitch.isHidden {
+        if let actionSwitch {
+            // The switch shows whole on the button row, after the buttons, or not at all: squeezed, it drew its
+            // control past its own leading edge (Lawrence msg 19185).
             let size = actionSwitch.fittingSize
-            actionSwitch.frame = NSRect(x: max(x, b.width - pad - size.width), y: rowY + (SidebarUpdateButton.height - size.height) / 2,
-                                        width: min(size.width, max(0, b.width - pad - x)), height: size.height)
+            let fits = hasSwitch && b.width - pad - x >= size.width
+            actionSwitch.isHidden = !fits
+            actionSwitch.frame = fits ? NSRect(x: b.width - pad - size.width, y: rowY + (SidebarUpdateButton.height - size.height) / 2,
+                                               width: size.width, height: size.height) : .zero
         }
         shortcutLabel.frame = NSRect(x: x, y: rowY + (SidebarUpdateButton.height - line.caption) / 2,
                                      width: max(0, b.width - pad - x), height: line.caption)
@@ -437,7 +478,8 @@ final class SidebarNoticeCardView: NSView {
             icon.contentTintColor = Palette.textSecondary
             icon.image = notice?.symbol.map { NSImage.icon(symbol: $0, size: .iconRowSize(forLabelPointSize: Typography.bodyEmphasized.pointSize)) }
             track.backgroundColor = Palette.hoverFill.cgColor
-            bar.backgroundColor = Palette.textSecondary.cgColor
+            // The bar is the theme's accent (the primary text with none chosen), never a fixed gray.
+            bar.backgroundColor = Palette.accentFill.cgColor
         }
     }
 

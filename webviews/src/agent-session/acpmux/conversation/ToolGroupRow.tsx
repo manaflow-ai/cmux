@@ -11,19 +11,21 @@ import { toolFiles } from "../diff";
 import type { AcpmuxActivity } from "../model";
 import { CommandRow } from "./CommandRow";
 import { EditCounts, useEditTotals } from "./EditCounts";
+import { FailedCount } from "./FailedCount";
+import { BackgroundStatusLine, backgroundCounts } from "./BackgroundStatusLine";
 import { EditDiff } from "./EditDiff";
 import { StepThought, ThoughtRow } from "./ThoughtRow";
 import { ToolRow } from "./ToolRow";
-import { ChevronRight, Magnifier, OpenBook, Pencil, Spinner, TerminalSquare } from "./icons";
-import { isQuietThought } from "./thoughts";
-import { groupCalls, isFailed, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
+import { ChevronRight, Magnifier, OpenBook, Pencil, TerminalSquare } from "./icons";
+import { isQuietThought, isThought } from "./thoughts";
+import { countsFailed, groupCalls, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
 import { useT } from "../i18n";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure, useTranscriptViewContext } from "./transcriptDisclosure";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { WriteLabel, writeCall } from "./WriteLabel";
 import { ToolLabel } from "./ToolVerb";
 import { toolFailure } from "./toolFailure";
-import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
+import { failureWord, InlineFailureCause, InStep, ToolFailureCause } from "./ToolFailureCause";
 
 function groupIcon(kind: ToolGroupKind): ReactNode {
   switch (kind) {
@@ -182,7 +184,11 @@ export function ToolGroupRow({
   thoughtId?: (n: number) => string;
 }) {
   const t = useT();
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, kind !== "edits" && !folded);
+  // The Verbose transcript view opens every group, edits included. Thinking opens a group that
+  // holds a thought, so the thought it opens is on screen.
+  const thinking = useTranscriptViewContext() === "thinking";
+  const holdsThought = useMemo(() => thinking && items.some(isThought), [thinking, items]);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, (kind !== "edits" && !folded) || holdsThought, true);
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   useFindReveal(items, () => setOpen(true));
   // Every step shows, as Claude Code desktop lists a run's: no "+K more" behind the latest few.
@@ -194,7 +200,9 @@ export function ToolGroupRow({
   // `contentsUnknown`), as the edited-files card does: its written text is not lines added.
   const totals = useEditTotals(items);
   const running = tools.some(isRunning);
-  const failures = tools.filter(isFailed).length;
+  // While a background command still runs, the opened steps end with how they stand there.
+  const background = useMemo(() => (kind === "commands" ? backgroundCounts(items) : undefined), [kind, items]);
+  const failures = tools.filter(countsFailed).length;
   // A lone Write reads as what it wrote, "Wrote notes.md +18", not as an edit (WriteLabel.tsx).
   const write = kind === "edits" && tools.length === 1 ? writeCall(tools[0]!) : undefined;
   // A group of one call says why it failed as a lone call does (toolFailure.ts); several say how many.
@@ -203,14 +211,14 @@ export function ToolGroupRow({
     <>
       <button
         type="button"
-        className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
+        className={`cv-tool is-toggle is-run${running ? " is-live" : " is-strong"}`}
         data-tool-group={disclosureKey}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
         ref={fold.headerRef}
         onClick={fold.toggle}
       >
-        <span className="cv-tool__icon">{running ? <Spinner size={16} /> : groupIcon(kind)}</span>
+        <span className="cv-tool__icon">{groupIcon(kind)}</span>
         {write ? (
           <span className="cv-tool__text" data-find-skip>
             <WriteLabel tool={tools[0]!} write={write} t={t} />
@@ -240,11 +248,12 @@ export function ToolGroupRow({
               />
             </span>
             {totals && <EditCounts totals={totals} zero={kind === "edits"} />}
-            {failures > 0 && (
-              <span className="cv-tool__failed">
-                {" "}
-                {failure ? failureWord(t, failure) : t("tools.failedCount", { n: failures })}
-              </span>
+            {/* One call says why it failed in a word; several say how many, "(2 failed)", as Claude
+                Code desktop's header does (FailedCount.tsx). */}
+            {failures > 0 && failure ? (
+              <span className="cv-tool__failed"> {failureWord(t, failure)}</span>
+            ) : (
+              <FailedCount n={failures} />
             )}
             <InlineFailureCause failure={failure} />
           </span>
@@ -276,16 +285,20 @@ export function ToolGroupRow({
               data-kind={kind}
               data-tool-group-items={disclosureKey}
             >
-              {entries.map(({ at, key, thought }) => (
-                <Step
-                  key={thought < 0 ? key : thoughtId(thought)}
-                  probeKey={key}
-                  item={items[at]!}
-                  commands={kind === "commands"}
-                  thoughtId={thought < 0 ? "" : thoughtId(thought)}
-                  lead={at === 0 && thought === 0}
-                />
-              ))}
+              {/* Every call here is a step: a failure reads as one plain line (InStep). */}
+              <InStep.Provider value>
+                {entries.map(({ at, key, thought }) => (
+                  <Step
+                    key={thought < 0 ? key : thoughtId(thought)}
+                    probeKey={key}
+                    item={items[at]!}
+                    commands={kind === "commands"}
+                    thoughtId={thought < 0 ? "" : thoughtId(thought)}
+                    lead={at === 0 && thought === 0}
+                  />
+                ))}
+              </InStep.Provider>
+              {background && <BackgroundStatusLine counts={background} />}
             </div>
           )}
         </div>

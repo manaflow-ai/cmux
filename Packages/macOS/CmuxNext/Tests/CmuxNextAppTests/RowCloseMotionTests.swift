@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextLayout
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// Closing the bottom row springs the surviving row back into view from where it showed. Since
@@ -8,6 +9,7 @@ import Testing
 /// a shift") the change that drops the row already takes the camera's first spring step, so the
 /// surviving pane moves a little toward its rest in that frame, and never jumps.
 @MainActor
+@Suite(.closesItsWindows)
 struct RowCloseMotionTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
@@ -30,6 +32,7 @@ struct RowCloseMotionTests {
         root.context.reduceMotionOverride = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         window.contentView = root
         root.layoutSubtreeIfNeeded()
         // The test is the clock: the display link never ticks.

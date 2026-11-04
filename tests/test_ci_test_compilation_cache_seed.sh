@@ -6,7 +6,10 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CI_FILE="$ROOT_DIR/.github/workflows/ci-macos.yml"
-NIGHTLY_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
+# nightly.yml with its scripts/ci/nightly-steps/ step scripts inline (tests/nightly_workflow_text.py).
+NIGHTLY_FILE="$(mktemp "${TMPDIR:-/tmp}/nightly-expanded.XXXXXX")"
+trap 'rm -f "$NIGHTLY_FILE"' EXIT  # the TMP_DIR trap below removes it too
+python3 "$ROOT_DIR/tests/nightly_workflow_text.py" > "$NIGHTLY_FILE"
 SCRIPT="$ROOT_DIR/scripts/ci/compile-app-host-test-product.sh"
 
 # Prints one job's body.
@@ -98,7 +101,7 @@ echo "PASS: the seeder runs on the cache-warming schedule"
 
 # Exercise the script against a stub xcodebuild.
 TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT
+trap 'rm -rf "$TMP_DIR" "$NIGHTLY_FILE"' EXIT
 mkdir -p "$TMP_DIR/bin" "$TMP_DIR/work"
 cat > "$TMP_DIR/bin/xcodebuild" <<'STUB'
 #!/usr/bin/env bash

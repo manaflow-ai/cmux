@@ -13,18 +13,22 @@ public struct LinkFileArtifactSource: ArtifactSource {
     /// Resolves relative references (the session's working directory).
     let baseDirectory: String?
     let macName: String
+    /// Explicit account/Mac/resource identity supplied by the authenticated
+    /// owner, never inferred from a display name or the file path.
+    public let thumbnailCacheScope: String?
     private let availableCapacity: PreviewStorage.Capacity
     var fileStore: PreviewFileStore = .shared
     /// Largest text, image or PDF the preview decodes in memory; a larger one
     /// opens in Quick Look from its local copy (not a size cap).
     public static let inMemoryBytes: Int64 = 24 << 20
 
-    public init(macName: String, baseDirectory: String?,
+    public init(macName: String, baseDirectory: String?, thumbnailCacheScope: String? = nil,
                 availableCapacity: (@Sendable (URL) throws -> Int64)? = nil,
                 link: @escaping @Sendable () async -> (any MacLink)?) {
         self.link = link
         self.baseDirectory = baseDirectory
         self.macName = macName
+        self.thumbnailCacheScope = thumbnailCacheScope
         self.availableCapacity = availableCapacity ?? PreviewStorage.availableCapacity
     }
 
@@ -311,6 +315,10 @@ public struct ArtifactLocalCopy: Sendable {
 public struct InlineArtifactSource: ArtifactSource {
     let inline: [String: ArtifactContent]
     let fallback: any ArtifactSource
+
+    /// Inline bytes can vary by chat even at the same path. An empty overlay
+    /// delegates safely to the fallback's owner; a nonempty one stays uncached.
+    public var thumbnailCacheScope: String? { inline.isEmpty ? fallback.thumbnailCacheScope : nil }
 
     public init(inline: [String: ArtifactContent], fallback: any ArtifactSource) {
         self.inline = inline

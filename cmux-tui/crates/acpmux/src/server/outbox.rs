@@ -30,7 +30,7 @@ use crate::no_panic::JsonExt;
 use std::time::Duration;
 
 use super::*;
-use crate::hub::outbox::{Delivery, RETRY_DELAYS_SECS, State};
+use crate::hub::outbox::{Delivery, RETRY_DELAYS_SECS, RETRY_FOR_MS, State};
 
 /// What an attempt that did not deliver leaves the delivery as.
 #[derive(Debug, PartialEq)]
@@ -48,7 +48,6 @@ pub(super) enum Next {
 
 /// How long one attempt waits for the target's acceptance.
 const ATTEMPT_WAIT: Duration = Duration::from_secs(120);
-/// The waits before each attempt after the first: about 34 minutes in all, then it fails.
 /// The longest a `send_status` waits for a delivery to settle.
 const MAX_STATUS_WAIT_MS: u64 = 10_000;
 
@@ -75,7 +74,7 @@ pub(super) async fn handle(
         .ok_or_else(|| RpcError::invalid_params("request.sessionId is required"))?
         .to_owned();
     // Team-scoped addresses are always hub-routed and are never resolved as
-    // local session names. The mesh sender applies the Labs gate and address
+    // local session names. The mesh sender applies the team-messaging gate and address
     // validation before posting them.
     if target.starts_with('@') {
         if let Some(mesh) = hub.mesh.get() {
@@ -147,7 +146,16 @@ pub(super) async fn handle(
             .map_err(|e| RpcError::internal(e.to_string()))?
             .map_err(|e| RpcError::internal(format!("cannot keep the attachments: {e:#}")))?;
     }
-    let delivery = hub.outbox.add(new.clone());
+    // The send's one durable write (the whole of outbox.json, a group commit with other
+    // changes): on the blocking pool at the on-screen CPU tier (`qos.rs`), so a loaded machine or
+    // a slow disk never holds an async worker that serves other connections, and agent work at
+    // its clamped priority never starves the write the sender waits on.
+    let delivery = {
+        let (hub, new) = (hub.clone(), new.clone());
+        tokio::task::spawn_blocking(move || crate::qos::on_screen(|| hub.outbox.add(new)))
+            .await
+            .map_err(|e| RpcError::internal(e.to_string()))?
+    };
     // The same prompt id again: the first delivery, already on its way.
     if delivery.id == new.id {
         spawn(hub.clone(), delivery.id.clone());
@@ -397,7 +405,26 @@ async fn drop_own_uploads(hub: &Arc<Hub>, new: &Delivery, kept: &Delivery) {
     }
 }
 
+/// The most `send_status {list: true}` answers.
+const LIST_LIMIT: usize = 200;
+
 async fn status(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value, RpcError> {
+    // `{list: true, caller?, limit?}`: this daemon's messages to deliver, newest first, each as
+    // its status (`acpmux send --status` with no id, `acpmux session inbox`). Only the unix
+    // socket reads the list: it names other sessions' targets.
+    if params.get("list").and_then(Value::as_bool) == Some(true) {
+        if conn.origin != Origin::Local {
+            return Err(crate::hub::outbox::local_only());
+        }
+        let caller = str_param(params, "caller");
+        let limit = params
+            .get("limit")
+            .and_then(Value::as_u64)
+            .map_or(LIST_LIMIT, |n| usize::try_from(n).unwrap_or(LIST_LIMIT).min(LIST_LIMIT));
+        let (deliveries, pending) = hub.outbox.list(caller, limit);
+        let deliveries: Vec<Value> = deliveries.iter().map(Delivery::status).collect();
+        return Ok(json!({"deliveries": deliveries, "pending": pending}));
+    }
     let id = str_param(params, "deliveryId")
         .ok_or_else(|| RpcError::invalid_params("deliveryId is required"))?;
     if id.starts_with(super::mesh_send::PREFIX)
@@ -417,6 +444,9 @@ async fn status(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
 /// `_acpmux/send_status` of an outbox delivery `id`, waiting up to `waitMs` for it to settle.
 async fn outbox_status(hub: &Arc<Hub>, id: &str, params: &Value) -> Result<Value, RpcError> {
     let wait = params.get("waitMs").and_then(Value::as_u64).unwrap_or(0).min(MAX_STATUS_WAIT_MS);
+    // `firstAttempt`: also end once an attempt failed and the delivery waits for its retry (a
+    // peer that is down): the sender learns nothing more by waiting (`acpmux send`'s quick wait).
+    let first = params.get("firstAttempt").and_then(Value::as_bool) == Some(true);
     let deadline = tokio::time::Instant::now() + Duration::from_millis(wait);
     loop {
         let changed = hub.outbox.changed.notified();
@@ -424,7 +454,8 @@ async fn outbox_status(hub: &Arc<Hub>, id: &str, params: &Value) -> Result<Value
             RpcError::invalid_params(format!("no delivery {id}"))
                 .with_data(json!({"reason": "outbox.unknown", "deliveryId": id}))
         })?;
-        if delivery.settled() || tokio::time::Instant::now() >= deadline {
+        let retrying = first && delivery.state == State::Queued && delivery.attempts > 0;
+        if delivery.settled() || retrying || tokio::time::Instant::now() >= deadline {
             return Ok(delivery.status());
         }
         let _ = tokio::time::timeout_at(deadline, changed).await;
@@ -495,6 +526,22 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         if delivery.settled() {
             return;
         }
+        // Past its day (a restart resumes old ones too): failed, never sent this late.
+        if expired(&delivery, crate::store::now_ms()) {
+            hub.outbox.update(id, |d| {
+                if !d.settled() {
+                    d.state = State::Failed;
+                    let last =
+                        d.error.take().map(|e| format!("; last error: {e}")).unwrap_or_default();
+                    d.error = Some(format!("not delivered within a day of being sent{last}"));
+                    crate::attach::strip(&mut d.request);
+                }
+            });
+            if let Some(path) = hub.outbox.attachments_path(&delivery) {
+                forget_attachments(path).await;
+            }
+            return;
+        }
         let attempt = delivery.attempts + 1;
         hub.outbox.update(id, |d| {
             if !d.settled() {
@@ -560,7 +607,9 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 return;
             }
             Err((error, next)) => {
-                let delay = delays.next().filter(|_| matches!(next, Next::Retry | Next::Unsent));
+                let delay = matches!(next, Next::Retry | Next::Unsent)
+                    .then(|| retry_delay(&mut delays, &delivery, crate::store::now_ms()))
+                    .flatten();
                 hub.outbox.update(id, |d| {
                     if d.settled() {
                         return;
@@ -586,10 +635,57 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                     }
                     return;
                 };
-                tokio::time::sleep(Duration::from_secs(*secs)).await;
+                // A peer whose link is ready again ends the wait (`Outbox::peer_ready`): a message
+                // to a machine that was down goes the moment it is reachable. A projection intent
+                // keeps its bounded schedule: another peer's reconnects must not use it up. A
+                // message's wait never runs past its day; an intent's delays are never cut, so an
+                // intent older than a day after a restart does not spend its retries at once.
+                let sleep =
+                    tokio::time::sleep(retry_sleep(&delivery, secs, crate::store::now_ms()));
+                let ready = hub.outbox.peer_ready.notified();
+                if delivery.projection_only() {
+                    sleep.await;
+                } else {
+                    tokio::select! {
+                        () = sleep => {}
+                        () = ready => {}
+                    }
+                }
             }
         }
     }
+}
+
+/// How long `delivery` sleeps before its next attempt, given the schedule's `secs`: a message
+/// no longer than what is left of its day ([`RETRY_FOR_MS`]), a projection intent the whole delay.
+fn retry_sleep(delivery: &Delivery, secs: u64, now: u64) -> Duration {
+    let delay = Duration::from_secs(secs);
+    if delivery.projection_only() {
+        return delay;
+    }
+    let left = delivery.created_at.saturating_add(RETRY_FOR_MS).saturating_sub(now);
+    delay.min(Duration::from_millis(left))
+}
+
+/// Whether `delivery`, a message (not a projection intent, which keeps its own schedule), is
+/// past [`RETRY_FOR_MS`] since it was handed over and still not delivered.
+fn expired(delivery: &Delivery, now: u64) -> bool {
+    !delivery.projection_only() && now >= delivery.created_at.saturating_add(RETRY_FOR_MS)
+}
+
+/// The wait before the next attempt of `delivery`: the next of [`RETRY_DELAYS_SECS`], then
+/// the last one again until [`RETRY_FOR_MS`] after the message was handed over. A projection
+/// intent keeps the bounded schedule alone. None: it fails.
+fn retry_delay(
+    delays: &mut std::slice::Iter<'_, u64>,
+    delivery: &Delivery,
+    now: u64,
+) -> Option<u64> {
+    if let Some(secs) = delays.next() {
+        return Some(*secs);
+    }
+    let within = now < delivery.created_at.saturating_add(RETRY_FOR_MS);
+    (within && !delivery.projection_only()).then(|| RETRY_DELAYS_SECS.last().copied()).flatten()
 }
 
 /// One attempt through the mesh relay (`mesh_send.rs` `relay`): the hub's acceptance, or why
@@ -745,6 +841,80 @@ fn next(e: &RpcError) -> Next {
         Some(false) => Next::Fail,
         None if e.code != RpcError::invalid_params("").code => Next::Retry,
         None => Next::Fail,
+    }
+}
+
+#[cfg(test)]
+mod retry_delay_tests {
+    use super::*;
+
+    fn delivery(created_at: u64, projection: bool) -> Delivery {
+        let mut request = json!({"sessionId": "gone/lane", "_meta": {"acpmux": {"promptId": "p"}}});
+        if projection {
+            request["_meta"]["acpmux"]["forwardProjection"] = json!({"text": "x"});
+        }
+        Delivery {
+            id: "d".into(),
+            target: "gone/lane".into(),
+            request,
+            caller: None,
+            state: State::Queued,
+            attempts: 0,
+            never_sent: true,
+            relay_post: None,
+            error: None,
+            accepted: None,
+            created_at,
+            updated_at: created_at,
+        }
+    }
+
+    /// A message to a machine that stays down keeps being tried after the schedule runs out,
+    /// for a day; a projection intent keeps the bounded schedule.
+    #[test]
+    fn a_message_keeps_trying_for_a_day_after_the_schedule_runs_out() {
+        let d = delivery(1_000, false);
+        let mut delays = RETRY_DELAYS_SECS.iter();
+        for want in RETRY_DELAYS_SECS {
+            assert_eq!(retry_delay(&mut delays, &d, 2_000), Some(*want));
+        }
+        let last = RETRY_DELAYS_SECS.last().copied();
+        assert_eq!(retry_delay(&mut delays, &d, 2_000), last, "still within the day");
+        assert_eq!(retry_delay(&mut delays, &d, 1_000 + RETRY_FOR_MS - 1), last);
+        assert_eq!(
+            retry_delay(&mut delays, &d, 1_000 + RETRY_FOR_MS),
+            None,
+            "a day later it fails"
+        );
+        let intent = delivery(1_000, true);
+        let mut delays = RETRY_DELAYS_SECS.iter();
+        for _ in RETRY_DELAYS_SECS {
+            assert!(retry_delay(&mut delays, &intent, 2_000).is_some());
+        }
+        assert_eq!(retry_delay(&mut delays, &intent, 2_000), None);
+    }
+
+    /// A message's wait stops at the end of its day; a projection intent's wait is never cut,
+    /// even when the intent is older than a day (a restart resumed it).
+    #[test]
+    fn only_a_messages_wait_is_cut_at_the_end_of_its_day() {
+        let day_end = 1_000 + RETRY_FOR_MS;
+        assert_eq!(retry_sleep(&delivery(1_000, false), 900, 2_000), Duration::from_secs(900));
+        assert_eq!(
+            retry_sleep(&delivery(1_000, false), 900, day_end - 5_000),
+            Duration::from_secs(5)
+        );
+        assert_eq!(retry_sleep(&delivery(1_000, false), 900, day_end + 1), Duration::ZERO);
+        assert_eq!(retry_sleep(&delivery(1_000, true), 900, day_end + 1), Duration::from_secs(900));
+    }
+
+    /// A message a day old is not sent (after a restart too); a projection intent is not timed.
+    #[test]
+    fn a_message_past_its_day_is_expired() {
+        let d = delivery(1_000, false);
+        assert!(!expired(&d, 1_000 + RETRY_FOR_MS - 1));
+        assert!(expired(&d, 1_000 + RETRY_FOR_MS));
+        assert!(!expired(&delivery(1_000, true), 1_000 + 10 * RETRY_FOR_MS));
     }
 }
 

@@ -2,8 +2,8 @@
 // settled run) open and close in one motion: the body's height and opacity, over the shared fold
 // duration, easing out, while the chevron turns with it (conversation.css `.cv-rotor`). Reduce
 // Motion, the host's animation switches (`data-agent-motion="off"`, a 0 ms token) and a page with no
-// Web Animations open and close at once. The clicked line itself never moves: VirtualTranscript
-// holds it in place while the fold plays (`FoldAnchor`, App.tsx).
+// Web Animations open and close at once. Away from the bottom, VirtualTranscript holds the clicked
+// line. A tool fold at the bottom lays out at once here and uses one thread transform in App.tsx.
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { isAgentMotionOff } from "../../shared/motion";
 
@@ -96,7 +96,7 @@ export function clipFold(node: HTMLElement, on: boolean): void {
 /// midway starts from where it was drawn, as `from` is read while it plays.
 export function playResize(node: HTMLElement, from: number): void {
   resizing.get(node)?.cancel();
-  const ms = foldMs(node);
+  const ms = node.closest("[data-bottom-fold]") ? 0 : foldMs(node);
   const to = node.getBoundingClientRect().height;
   if (ms <= 0 || Math.abs(to - from) < 0.5) return;
   // The rows below are placed before paint while it plays, as a fold's are (`heightFoldInFlight`).
@@ -216,9 +216,13 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
     const node = ref.current;
     // A box a close left pinned shut (below) opens from its own size again.
     if (node) pin(node, undefined);
-    const ms = animates() ? foldMs(node) : 0;
+    // At the bottom VirtualTranscript owns the one stack transform. Settle this body before
+    // measurement instead of relaying a height animation through ResizeObserver on every frame.
+    const stack = node?.closest("[data-bottom-fold]");
+    const ms = !stack && animates() ? foldMs(node) : 0;
     if (!node || ms <= 0) {
       cancelRunning();
+      if (node && !open) pin(node, 0);
       setClosing(false);
       return;
     }

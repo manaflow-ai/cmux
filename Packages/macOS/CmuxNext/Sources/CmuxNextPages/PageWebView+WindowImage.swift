@@ -25,6 +25,14 @@ extension PageWebView {
         guard let page = chromiumSession?.page else { return [] }
         return page.occlusionRects.map { page.contentView.convert($0, to: nil) }
     }
+
+    /// Where the page window shows the page at all, in window coordinates (``PageChromiumPage/windowClip``):
+    /// a window image paints the page's image only inside it, so a chat scrolled under Home's
+    /// docked column leaves Home showing, as the screen does. Nil on a WebKit page and when the
+    /// page shows as a plain rectangle.
+    public var chromiumWindowClip: CGPath? {
+        chromiumSession?.page.windowClip
+    }
 }
 
 extension PageRegistry {

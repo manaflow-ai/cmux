@@ -97,7 +97,7 @@ describe("cloud ops through the Worker", { timeout: 60_000 }, () => {
     sameShape("machine.delete", del)
     sameShape("machine.delete.tombstone", await op(t, "cloud.machine.delete", { machine: id }, "key-delete-2"))
     sameShape("machine.get.gone", await read(t, "cloud.machine.get", { machine: id }))
-    sameShape("machine.create.size_locked", await op(t, "cloud.machine.create", { name: "huge box", size: { cpu: 16, memory_mb: 65536, disk_mb: 262144 } }))
+    sameShape("machine.create.size_locked", await op(t, "cloud.machine.create", { name: "huge box", size: { cpu: 16, memory_mb: 131072, disk_mb: 262144 } }))
   })
 
   it("refuses create with cloud.plan.required for a team not on CLOUD_ALLOWED_TEAMS (P1-1)", async () => {

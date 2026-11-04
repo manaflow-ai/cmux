@@ -550,8 +550,7 @@ async fn a_pool_claim_in_a_mode_that_does_not_ask_refuses_a_web_prompt() {
     assert!(taken(&daemon, &claimed), "the session came from the pool");
     // A Web connection (the dashboard token only).
     let ready: Value = serde_json::from_str(&daemon.ready).unwrap();
-    let ws_url = ready["webUrl"].as_str().unwrap().replace("http://", "ws://");
-    let (mut ws, _) = tokio_tungstenite::connect_async(ws_url).await.unwrap();
+    let (mut ws, _) = tokio_tungstenite::connect_async(web_request(&ready)).await.unwrap();
     let prompt = json!({"jsonrpc": "2.0", "id": 1, "method": "session/prompt",
         "params": {"sessionId": claimed, "prompt": [{"type": "text", "text": "from the web"}]}});
     ws.send(Frame::Text(prompt.to_string().into())).await.unwrap();
@@ -606,8 +605,7 @@ async fn a_pooled_claude_session_claimed_in_bypass_refuses_a_web_prompt() {
     let info = rpc.call("_acpmux/info", json!({"sessionId": claimed})).await;
     assert_eq!(info["modes"]["currentModeId"], "bypassPermissions", "{info}");
     let ready: Value = serde_json::from_str(&daemon.ready).unwrap();
-    let ws_url = ready["webUrl"].as_str().unwrap().replace("http://", "ws://");
-    let (mut ws, _) = tokio_tungstenite::connect_async(ws_url).await.unwrap();
+    let (mut ws, _) = tokio_tungstenite::connect_async(web_request(&ready)).await.unwrap();
     let prompt = json!({"jsonrpc": "2.0", "id": 1, "method": "session/prompt",
         "params": {"sessionId": claimed, "prompt": [{"type": "text", "text": "from the web"}]}});
     ws.send(Frame::Text(prompt.to_string().into())).await.unwrap();
@@ -1493,4 +1491,15 @@ async fn a_released_hint_ends_its_pooled_session() {
     // The next chat there starts cold: nothing was left to take.
     let (id, _) = new_session(&mut rpc, &home, "fake").await;
     assert!(!taken(&daemon, &id));
+}
+
+/// A WebSocket request to the listener of a readiness line, with the token of
+/// its `webUrl` (`http://host/#token=t`) as a bearer token.
+fn web_request(ready: &Value) -> tokio_tungstenite::tungstenite::handshake::client::Request {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    let url = ready["webUrl"].as_str().unwrap();
+    let (base, token) = url.split_once("#token=").unwrap();
+    let mut req = base.replace("http://", "ws://").into_client_request().unwrap();
+    req.headers_mut().insert("authorization", format!("Bearer {token}").parse().unwrap());
+    req
 }

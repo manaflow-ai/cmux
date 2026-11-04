@@ -124,7 +124,7 @@ extension AppActionContext {
         explicitTarget(invocation, kinds: [.tab, .pane]) != nil
     }
 
-    private func explicitTarget(_ invocation: ActionInvocation, kinds: Set<ActionTargetKind>) -> ActionTargetRef? {
+    func explicitTarget(_ invocation: ActionInvocation, kinds: Set<ActionTargetKind>) -> ActionTargetRef? {
         for candidate in [invocation.target, invocation["tab"]?.targetValue, invocation["pane"]?.targetValue] {
             if let candidate, kinds.contains(candidate.kind) { return candidate }
         }
@@ -139,12 +139,13 @@ extension AppActionContext {
         guard let target = explicitTarget(invocation, kinds: [.tab, .pane]) else {
             return services.windows.active?.focusedPane ?? refuse(MiscHandlerStrings.noPane)
         }
+        if target.kind == .pane {
+            guard let model = targetPane(target.id, invocation) else { return notFound(RefusalStrings.noPaneID(target.id)) }
+            return services.paneController(for: model) ?? refuse(RefusalStrings.notShownInAnyWindow(String(describing: target)))
+        }
         for window in services.windows.controllers {
-            for pane in window.content?.panes.values.map({ $0 }) ?? [] {
-                let hit = target.kind == .pane
-                    ? pane.paneKey == target.id
-                    : pane.stripModel.tab(StripTabID(target.id)) != nil
-                if hit { return pane }
+            for pane in window.content?.panes.values.map({ $0 }) ?? [] where invocation.targetMachineID.map({ pane.daemon.machineID == $0 }) ?? true {
+                if pane.stripModel.tab(StripTabID(target.id)) != nil { return pane }
             }
         }
         return refuse(RefusalStrings.notShownInAnyWindow(String(describing: target)))
@@ -169,32 +170,34 @@ extension AppActionContext {
     /// selected tabs, every selected tab that may move, in strip order (`tab` among them); else `tab`.
     func movingTabs(_ invocation: ActionInvocation, _ tab: TabModel) -> [TabModel] {
         guard let pane = services.locateTab(model: tab).flatMap({ services.paneController(for: $0.1) }) else { return [tab] }
-        return actingTabs(invocation, pane, StripTabID(tab.id)).compactMap { pane.tab($0) }.filter { $0.id == tab.id || TabPromotion.refusal(tab: $0.id, services: services) == nil }
+        return actingTabs(invocation, pane, StripTabID(tab.id)).compactMap { pane.tab($0) }.filter { $0.id == tab.id || TabPromotion.refusal(tab: $0, services: services) == nil }
+    }
+
+    /// The tab `id` names, on the invocation's machine when it names one (forks keep tab ids, cmuxterm-hq#5338); callers refuse.
+    func targetTab(_ id: String, _ invocation: ActionInvocation) -> (TabModel, PaneModel)? {
+        if let machine = invocation.targetMachineID { return services.locateTab(id, onMachine: machine) }
+        return services.locateTab(id)
     }
 
     /// The targeted daemon tab, found in any workspace (shown or not).
     func daemonTab(_ invocation: ActionInvocation) -> (tab: TabModel, pane: PaneModel)? {
         if let target = explicitTarget(invocation, kinds: [.tab]) {
-            if let machine = invocation.targetMachineID {
-                guard let store = services.machines.daemon(machine: machine)?.store,
-                      let tab = store.tab(idOrResource: target.id), let pane = store.pane(holding: tab) else {
-                    return notFound(RefusalStrings.noTab(target.id))
-                }
-                return (tab, pane)
-            }
-            return services.locateTab(target.id) ?? notFound(RefusalStrings.noTab(target.id))
+            return targetTab(target.id, invocation) ?? notFound(RefusalStrings.noTab(target.id))
         }
         guard let (pane, id) = tab(invocation) else { return nil }
         guard let tab = pane.tab(id) else { return refuseQuietly(RefusalStrings.noTab(id.rawValue)) }
         return (tab, pane.pane)
     }
 
+    /// The pane `id` names, as `targetTab` finds a tab; callers refuse.
+    func targetPane(_ id: String, _ invocation: ActionInvocation) -> PaneModel? {
+        if let machine = invocation.targetMachineID { return services.locatePane(id, onMachine: machine) }
+        return services.locatePane(id)
+    }
     /// The targeted daemon pane, found in any workspace.
     func daemonPane(_ invocation: ActionInvocation) -> PaneModel? {
         if let target = explicitTarget(invocation, kinds: [.pane]) {
-            // Any machine's pane, as `daemonTab` finds any machine's tab.
-            let panes = services.machines.daemons.flatMap(\.store.workspaces).flatMap(\.screens).flatMap(\.panes)
-            return panes.first { $0.id == target.id } ?? notFound(RefusalStrings.noPaneID(target.id))
+            return targetPane(target.id, invocation) ?? notFound(RefusalStrings.noPaneID(target.id))
         }
         if explicitTarget(invocation, kinds: [.tab]) != nil { return daemonTab(invocation)?.pane }
         return paneController(invocation)?.pane

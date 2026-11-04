@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { AgentMark } from "../../shared/AgentMark";
-import type { HarnessHealth } from "../HarnessHealthNotice";
+import { Spinner } from "../conversation/icons";
+import { type HarnessHealth, needsLogin } from "../HarnessHealthNotice";
 import { type StringKey, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxSnapshot } from "../model";
@@ -173,7 +174,7 @@ export function HarnessesScreen({
         ids.map((id) =>
           callNative("harness.health", { id, refresh: true })
             .then((reply) => {
-              if (remember(id, reply)?.auth !== "signedOut") mark(id, undefined);
+              if (!needsLogin(remember(id, reply)?.auth)) mark(id, undefined);
             })
             .catch(() => {
               remember(id, { health: { id, auth: "unknown" } });
@@ -391,7 +392,7 @@ export function HarnessesScreen({
                 doing && (doing.kind !== "waiting" || row.status === "signIn") ? doing.kind : row.status
               }
             >
-              <AgentMark agent={row.mark} size={18} reserve />
+              <AgentMark agent={row.mark} size={20} reserve />
               <span className="acpmux-harness-text">
                 <span className="acpmux-harness-name">{row.name}</span>
                 <span
@@ -404,7 +405,7 @@ export function HarnessesScreen({
               {(doing?.kind === "installing" ||
                 doing?.kind === "waiting" ||
                 doing?.kind === "launching" ||
-                row.status === "checking") && <span className="acpmux-harness-spinner" aria-hidden="true" />}
+                row.status === "checking") && <Spinner size={12} className="acpmux-harness-spinner" loading />}
               {label && (
                 <button
                   type="button"

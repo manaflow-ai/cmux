@@ -22,6 +22,7 @@ fn item(
         at,
         text: text.to_owned(),
         details: None,
+        tool_notice: None,
         noticed: false,
         read: false,
         answer: None,
@@ -142,20 +143,116 @@ fn a_notice_is_one_line_per_thread_blockers_first_then_the_newest() {
     let refs: Vec<&Item> = items.iter().collect();
     let (text, parts) = render(&refs);
     let lines: Vec<&str> = text.lines().collect();
-    assert!(lines[0].starts_with("[inbox] New messages from other agents in 3 threads."), "{text}");
+    // Short: every message whole, and no instructions (the tools say what the inbox is).
+    assert_eq!(lines[0], "[inbox] New messages from other agents in 3 threads.", "{text}");
     assert_eq!(
         lines[1],
         "- [blocker] 1 new in \"plan\" from lane-d: which branch? (thread topic:plan)"
     );
     assert_eq!(lines[2], "- 1 new in messages from lane-b: fyi (thread from:lane-b)");
+    assert_eq!(lines[3], "- 2 new in #9 from lane-a, lane-c (thread pr:9):");
     assert_eq!(
-        lines[3],
-        format!("- 2 new in #9 from lane-a, lane-c: {}… (thread pr:9)", "x".repeat(120))
+        lines[4..],
+        ["  > lane-a: first", "  >", &format!("  > lane-c: {}", "x".repeat(130)), "  > more"]
     );
     assert_eq!(
         parts[2],
-        json!({"threadId": "pr:9", "new": 2, "from": ["lane-a", "lane-c"], "promptIds": ["a1", "a2"]})
+        json!({
+            "threadId": "pr:9", "label": "#9", "new": 2, "from": ["lane-a", "lane-c"],
+            "promptIds": ["a1", "a2"], "blocker": false,
+            "preview": format!("{}…", "x".repeat(120)), "newestAt": 3,
+            "messages": [
+                {"promptId": "a1", "from": "lane-a", "at": 1, "text": "first"},
+                {"promptId": "a2", "from": "lane-c", "at": 3, "text": format!("{}\nmore", "x".repeat(130))},
+            ],
+        })
     );
+    assert_eq!(parts[0]["blocker"], true);
+    assert_eq!(parts[0]["label"], "\"plan\"");
+}
+
+#[test]
+fn a_long_notice_has_previews_and_says_how_to_read_a_thread_from_any_harness() {
+    let long = format!("landed\n{}", "y".repeat(WHOLE_BYTES));
+    let mut sent = item("a1", "pr:9", "lane-a", PromptClass::Result, 1, &long);
+    sent.from_session = Some("s-a".into());
+    let items = [sent];
+    let refs: Vec<&Item> = items.iter().collect();
+    let (text, parts) = render(&refs);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 2, "{text}");
+    assert!(
+        lines[0].starts_with("[inbox] New messages from other agents in 1 thread. Read one whole")
+    );
+    assert!(
+        lines[0].contains("acpmux session inbox \"$ACPMUX_SESSION_ID\" --thread ID --mark-read"),
+        "the shell form, for an agent with no inbox_read tool: {text}"
+    );
+    assert_eq!(lines[1], "- 1 new in #9 from lane-a: landed (thread pr:9)");
+    assert_eq!(parts[0]["fromSession"], "s-a");
+    assert_eq!(parts[0]["preview"], "landed");
+    assert!(parts[0].get("messages").is_none(), "previews only: {}", parts[0]);
+}
+
+#[test]
+fn a_whole_notice_keeps_every_message_as_it_was_sent() {
+    let items = [
+        item("a1", "pr:9", "lane-a", PromptClass::Result, 1, "   \n"),
+        item("b1", "pr:7", "lane-b", PromptClass::Result, 2, "\n    let x = 1;\n    x\n\n"),
+    ];
+    let refs: Vec<&Item> = items.iter().collect();
+    let (text, parts) = render(&refs);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        lines[1..],
+        [
+            "- 1 new in #7 from lane-b (thread pr:7):",
+            "  >     let x = 1;",
+            "  >     x",
+            "- 1 new in #9 from lane-a (thread pr:9):",
+            "  >",
+        ],
+        "a blank message keeps its line, an indented one its indent: {text}"
+    );
+    assert_eq!(parts[0]["messages"][0]["text"], "\n    let x = 1;\n    x\n\n");
+    assert_eq!(parts[1]["messages"][0]["text"], "   \n");
+    // The 4 KB counts the text as sent, blank lines and spaces too.
+    let padded = format!("ok{}", " ".repeat(WHOLE_BYTES));
+    let items = [item("c1", "pr:9", "lane-a", PromptClass::Result, 1, &padded)];
+    let refs: Vec<&Item> = items.iter().collect();
+    assert!(render(&refs).1[0].get("messages").is_none());
+}
+
+/// A tool's notice in the inbox (`prompt_provenance::notice`) keeps its structure in the notice's
+/// thread parts, and a thread says its loudest severity, so a fold never hides a fire.
+#[test]
+fn a_tools_notice_keeps_its_structure_in_the_inbox_notice() {
+    let notice =
+        |severity: &str| json!({"sender": "base-red-watch", "severity": severity, "title": "t"});
+    let mut warn = item("n1", "from:base-red-watch", "base-red-watch", PromptClass::Result, 1, "w");
+    warn.tool_notice = Some(notice("warn"));
+    let mut fire = item("n2", "from:base-red-watch", "base-red-watch", PromptClass::Result, 2, "f");
+    fire.tool_notice = Some(notice("fire"));
+    let plain = item("m1", "from:lane-a", "lane-a", PromptClass::Result, 3, "merged");
+    let items = [warn, fire, plain];
+    let refs: Vec<&Item> = items.iter().collect();
+    let (_, parts) = render(&refs);
+    let thread =
+        |key: &str| parts.as_array().unwrap().iter().find(|p| p["threadId"] == key).unwrap();
+    let notices = thread("from:base-red-watch");
+    assert_eq!(notices["severity"], "fire", "{notices}");
+    assert_eq!(notices["messages"][0]["notice"], notice("warn"));
+    assert_eq!(notices["messages"][1]["notice"], notice("fire"));
+    let messages = thread("from:lane-a");
+    assert!(messages.get("severity").is_none(), "{messages}");
+    assert!(messages["messages"][0].get("notice").is_none(), "{messages}");
+    // A notice's provenance is a plain message from another agent: it joins the inbox.
+    assert!(plain_kind(Some(&crate::prompt_provenance::notice(&notice("info"), "s"))));
+    assert_eq!(
+        tool_notice_of(Some(&crate::prompt_provenance::notice(&notice("info"), "s"))),
+        Some(notice("info"))
+    );
+    assert_eq!(tool_notice_of(Some(&json!({"kind": "agent_message", "notice": {}}))), None);
 }
 
 #[test]
@@ -331,4 +428,20 @@ async fn a_notice_reader_has_tools_only_by_its_last_launch_and_its_next_spawn() 
         let session = hub.resolve("inbox-reader").unwrap();
         assert_eq!(hub.notice_reader_has_tools(&session).await, has, "{case}");
     }
+}
+
+/// Only the person's own prompt makes a turn theirs (`persons_prompt`): never another agent's
+/// message, nor acpmux's own prompts (a notice, a digest, the turn cap's notice, a subagent's
+/// retry, a cut turn's continuation), whose turns take notices as before.
+#[test]
+fn only_the_persons_own_prompt_makes_a_turn_theirs() {
+    assert!(persons_prompt(None, None));
+    assert!(persons_prompt(None, Some(&json!({"kind": "something_else"}))));
+    assert!(!persons_prompt(Some("lane-a"), None));
+    let retry = super::super::subagent_retry::PROVENANCE_KIND;
+    for kind in [NOTICE_KIND, "inbox_digest", "auto_resume", retry] {
+        assert!(!persons_prompt(None, Some(&json!({"kind": kind}))), "{kind}");
+    }
+    let cap = json!({"kind": super::super::turn_cap::NOTICE_KIND});
+    assert!(!persons_prompt(None, Some(&cap)), "{cap}");
 }

@@ -118,8 +118,9 @@ test("the check and time show only on hover or focus; the failure mark always", 
 });
 
 // Leo (2026-10-21): "let's only show the green/red checkmark + time on hover for ours". A failed
-// call that is not a shell still says so in red at rest; a running one keeps its spinner.
-test("a failed tool call keeps its red mark at rest; a running one its spinner", () => {
+// call that is not a shell still says so in red at rest. A running one shows no spinner (Leo,
+// 2026-10-31: "I FUCKING HATE THESE SPINNERS FOR TOOL CALLS AND SHIT").
+test("a failed tool call keeps its red mark at rest; a running one no spinner", () => {
   const failed = renderToStaticMarkup(
     <ToolRow item={shell("bad", { command: undefined, title: "Fetch docs", kind: "fetch", status: "failed" })} />,
   );
@@ -128,7 +129,7 @@ test("a failed tool call keeps its red mark at rest; a running one its spinner",
   const running = renderToStaticMarkup(
     <CommandRow item={shell("live", { status: "in_progress", endedAt: undefined })} />,
   );
-  expect(running).toContain("cv-spinner");
+  expect(running).not.toContain("cv-spinner");
   expect(running).not.toContain("cv-command__ok");
   expect(running).not.toContain("cv-command__time");
 });

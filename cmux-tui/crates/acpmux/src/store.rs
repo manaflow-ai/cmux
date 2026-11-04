@@ -23,6 +23,9 @@ mod superseded;
 pub use superseded::{Superseded, starts_prompt};
 mod kind_index;
 pub use kind_index::INDEXED_KINDS;
+mod shared_value;
+mod text_index;
+pub use shared_value::SharedValue;
 
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -106,6 +109,25 @@ pub struct WatchedTurn {
     pub answered: bool,
 }
 
+/// Daemon-validated edit boundary and durable fork request identity.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkBefore {
+    pub prompt_id: String,
+    pub request_id: String,
+    pub prompt_seq: u64,
+    pub through_seq: Option<u64>,
+    pub ready: bool,
+}
+
+/// Reserved before creating a child; retained even if the child is purged.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkRequest {
+    pub prompt_id: String,
+    pub child_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
@@ -124,6 +146,12 @@ pub struct SessionMeta {
     /// it (`harness_argv` is the creation's). None before any start (#23322, review 36).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spawn_argv: Option<Vec<String>>,
+    /// `HarnessProfile::launch_digest` of the profile its agent last started from: a profile
+    /// reload that changes it respawns the agent at its turn end, on the same conversation
+    /// (`hub/profile_respawn.rs`). Kept on disk, so an agent host the next daemon adopts is
+    /// judged too. None before any start, or for a start by an older build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_digest: Option<String>,
     /// Model family of the profile at creation (`claude`, `codex`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
@@ -135,6 +163,11 @@ pub struct SessionMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_request: Option<String>,
     pub cwd: PathBuf,
+    /// Folders the chat sees beside `cwd` (ACP `session/new` `additionalDirectories`, its
+    /// Sources): every start of its harness gets them (`hub/additional_dirs.rs`). Absolute,
+    /// canonical, each once, never `cwd` itself.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub additional_directories: Vec<PathBuf>,
     #[serde(default)]
     pub agent_session_id: Option<String>,
     /// Claude Code can replace its native session id when a chat is forked. Keep ids this
@@ -158,10 +191,19 @@ pub struct SessionMeta {
     pub updated_at: u64,
     #[serde(default)]
     pub last_seq: u64,
+    /// The seq of the newest record `hub/paging.rs` `is_transcript` keeps (the summary's
+    /// `transcriptSeq`). 0 from an older daemon's `session.json`: no client compares across
+    /// that, since one bump past the value it read is all a client asks of it.
+    #[serde(default)]
+    pub transcript_seq: u64,
     #[serde(default)]
     pub parent_id: Option<String>,
     #[serde(default)]
     pub fork_seq: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_before: Option<ForkBefore>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub fork_requests: std::collections::BTreeMap<String, ForkRequest>,
     /// Whether this daemon verified the local parent link when the fork was made. Imported
     /// metadata is explicitly unverified, even when an old bundle happened to carry parent ids.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -187,7 +229,7 @@ pub struct SessionMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode_set_by_cmux: Option<String>,
     #[serde(default)]
-    pub config_options: Option<Value>,
+    pub config_options: Option<SharedValue>,
     #[serde(default)]
     pub models: Option<Value>,
     #[serde(default)]
@@ -266,6 +308,10 @@ pub struct SessionMeta {
     /// before the restart, and the wake's log says how long it slept.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub hibernated_ms: u64,
+    /// What the idle census knew of its hosted harness's MCP servers, for the next daemon that
+    /// adopts that host (`hub/idle_census.rs`, `StoredLaunch`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_launch: Option<crate::hub::StoredLaunch>,
     /// Where the chat went when it moved to another daemon (`hub/transfer_out.rs` commit:
     /// `{host?, sessionId, cwd?, branch?, commit?, socket?}`). Set once, never cleared here: a
     /// moved chat takes no prompt and never starts its agent on this daemon again (one writer),
@@ -281,6 +327,10 @@ pub struct SessionMeta {
     /// errorText?, errorSource?, endedAt}.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_turn: Option<Value>,
+    /// An explicit login replaced this account's credentials after this turn. Kept separately
+    /// from history so replay and daemon upgrades do not revive an obsolete auth refusal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_change: Option<AuthChange>,
     /// Classified harness attempts, projected from turn results; old stores default empty.
     #[serde(default)]
     pub harness_failures: crate::session_liveness::HarnessFailures,
@@ -395,6 +445,15 @@ pub struct SessionMeta {
     /// parent's do. Never copied to a fork.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delegator: Option<String>,
+}
+
+/// The turn whose auth evidence a credential replacement made obsolete. It proves a change,
+/// not that the new credential works; the next turn supplies that evidence.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AuthChange {
+    pub at: u64,
+    pub turn_id: Option<String>,
+    pub ended_at: Option<u64>,
 }
 
 /// Where a session sits in the tree of sessions that started each other
@@ -777,6 +836,21 @@ pub trait Store: Send + Sync {
     /// log four times, and parsing every line held big-red's daemon at a full core for minutes.
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         self.scan(id, 0, &mut |rec| visit(&RecordHead::parsed(&rec)))
+    }
+    /// The log's messages (`session_search.rs`), oldest first. A file store reads each segment's
+    /// text copy (`store/text_index.rs`) and only the bytes appended past it.
+    fn text_entries(
+        &self,
+        id: &str,
+        visit: &mut dyn FnMut(crate::session_search::Entry),
+    ) -> Result<()> {
+        let mut projector = crate::session_search::Projector::default();
+        self.scan_kinds(id, crate::session_search::KINDS, &mut |rec| {
+            projector.feed(&rec);
+            true
+        })?;
+        projector.entries.into_iter().for_each(visit);
+        Ok(())
     }
     /// Make every appended record durable (called on shutdown).
     fn flush(&self) -> Result<()> {
@@ -1596,6 +1670,14 @@ impl Store for LocalStore {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.scan_kinds_in(id, kinds, true, visit)
+    }
+
+    fn text_entries(
+        &self,
+        id: &str,
+        visit: &mut dyn FnMut(crate::session_search::Entry),
+    ) -> Result<()> {
+        self.text_entries_in(id, visit)
     }
 
     /// Segments newest first, so a page from the end reads only the segments it
