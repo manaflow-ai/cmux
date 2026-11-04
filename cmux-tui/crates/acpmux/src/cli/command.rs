@@ -225,12 +225,17 @@ pub enum Command {
         no_steer: bool,
         /// Hand the message to this daemon and return at once, for a session here or on a
         /// peer: it prints the delivery id, and the daemon delivers it in the background,
-        /// trying again while the peer is down (`acpmux send --status ID`).
-        #[arg(long)]
+        /// trying again while the peer is down (`acpmux send --status ID`). The default for an
+        /// agent's send and for one with --class; the person's own send waits for the reply.
+        #[arg(long, conflicts_with = "wait")]
         no_wait: bool,
-        /// Print the state of a delivery `--no-wait` printed: queued, delivering, delivered or
-        /// failed.
-        #[arg(long, value_name = "ID", conflicts_with_all = ["session", "no_wait"])]
+        /// Wait for the reply and stream it, even for an agent's send or one with --class,
+        /// which otherwise return once the message is queued here. --quiet and --timeout wait too.
+        #[arg(long)]
+        wait: bool,
+        /// Print the state of a delivery a queued send printed: queued, delivering, delivered,
+        /// held or failed. With no ID, every message this daemon was handed, newest first.
+        #[arg(long, value_name = "ID", num_args = 0..=1, default_missing_value = "", conflicts_with_all = ["session", "no_wait", "wait"])]
         status: Option<String>,
         /// Do not stream; print only the final assistant text.
         #[arg(long, short)]
@@ -241,8 +246,8 @@ pub enum Command {
         /// What to do when the turn asks for a permission: wait (default), deny, or fail (exit 5).
         #[arg(long, default_value = "wait")]
         on_permission: String,
-        /// Report prompt_stalled (exit 1) when nothing happens for this many seconds after sending; 0 disables.
-        #[arg(long, default_value_t = 30)]
+        /// Report prompt_stalled (exit 1) when nothing happens for this many seconds after sending; 0 disables. The default waits for the live peer.
+        #[arg(long, default_value_t = 0)]
         stall: u64,
         /// Send this prompt id again (from a `daemon_closed` error): the daemon runs an id once and
         /// answers a repeat with the first run's outcome.
@@ -271,6 +276,8 @@ pub enum Command {
         /// session's machine, a peer's too. Any size and number: large ones are uploaded first.
         #[arg(long, value_name = "FILE")]
         attach: Vec<PathBuf>,
+        #[command(flatten)]
+        notice: Box<SendNotice>,
     },
     /// Team-scoped durable messages. Needs a team hub (`meshRelay`); on there by default.
     Inbox(InboxArgs),
@@ -453,6 +460,8 @@ pub enum Command {
     #[command(hide = true)]
     TagCmd { session: String, assignments: Vec<String>, remove: Vec<String>, ttl: Option<u64> },
     #[command(hide = true)]
+    SessionSearch(crate::cli::session_search::SearchArgs),
+    #[command(hide = true)]
     RulesCmd { session: String, rules: Option<String>, clear: bool },
     #[command(hide = true)]
     LimitsCmd { session: String, max: Option<u32>, clear: bool },
@@ -544,6 +553,7 @@ pub enum Command {
         leave_dirty: bool,
         cwd: Option<String>,
         dry_run: bool,
+        from: Option<String>,
     },
     #[command(hide = true)]
     Transfer {
@@ -573,6 +583,14 @@ pub enum Command {
     DaemonStart { person_key_fd: Option<i32>, show_token: bool },
     #[command(hide = true)]
     DaemonRestart,
+    #[command(hide = true)]
+    DaemonService {
+        #[command(subcommand)]
+        action: crate::cli::daemon_service::ServiceAction,
+    },
+    /// App sign-out: clear peer tails without starting an agent or daemon.
+    #[command(hide = true, name = "__clear-peer-snapshots")]
+    ClearPeerSnapshots,
     #[command(hide = true, alias = "kill-server")]
     Shutdown {
         /// Accepted for callers of older builds; hosted agents keep running anyway.
@@ -590,7 +608,9 @@ pub enum Command {
         #[arg(long)]
         show_token: bool,
         /// Set a daemon host-wide setting as KEY=VALUE (for example,
-        /// `session.memory_mb=6144`, `session.swap_mb=2048`,
+        /// `permissions.default=yolo` (yolo, standard, ask or default) for the
+        /// permission mode every new chat starts in, `permissions.codex=ask` for
+        /// one harness, `session.memory_mb=6144`, `session.swap_mb=2048`,
         /// `session.tasks_max=8192`, `session.sessions_tasks_max=131072` or
         /// `session.cpu_class=normal`).
         #[arg(long, value_name = "KEY=VALUE")]
@@ -633,6 +653,12 @@ pub enum Command {
         /// (or in a debug build). Release launchers never pass it.
         #[arg(long)]
         dev: bool,
+        /// This daemon is the home's supervised owner (the systemd unit passes it): when another
+        /// daemon of this home holds the lock and serves this same socket, ask it to hand over
+        /// (its agents keep running for this daemon to adopt) instead of exiting. A lock refusal
+        /// then exits 1, never 75, so the unit keeps retrying.
+        #[arg(long)]
+        take_over: bool,
     },
 }
 
@@ -948,6 +974,11 @@ pub enum SessionCmd {
         /// Say where each chat would go and change nothing.
         #[arg(long)]
         dry_run: bool,
+        /// The machine the chats are on, when not this one: this machine drives the move over
+        /// ssh to it and to the target, so two machines that cannot reach each other trade
+        /// chats. With it, `--machine local` brings them here.
+        #[arg(long, value_name = "MACHINE")]
+        from: Option<String>,
     },
     /// Move a chat, with its history, queue and draft, to the daemon at another socket.
     Transfer {
@@ -1038,6 +1069,8 @@ pub enum SessionCmd {
         #[arg(long, short = 'n', default_value_t = 20)]
         limit: usize,
     },
+    /// Find the session's messages that hold every word of TEXT, newest first.
+    Search(crate::cli::session_search::SearchArgs),
     /// The prompts waiting for the running turn: list, remove PROMPT_ID..., clear --from-agents.
     #[command(subcommand)]
     Queue(crate::cli::session_queue::QueueCmd),
@@ -1046,6 +1079,34 @@ pub enum SessionCmd {
 // The inbox's flags (`hub/inbox.rs`) are `Args` of their own, flattened: each builds in its own
 // frame. Inline, the derived builder's one frame for every command's flags overflowed libtest's
 // 2 MiB thread in a debug build.
+
+/// `acpmux send --notice`: a tool's or reconciler's notice (`_meta.acpmux.notice`,
+/// `prompt_provenance::notice_of`). The chat draws it as a notice row (severity, sender, title,
+/// links); its agent, and a daemon or page that knows no notice, read the rendered text
+/// `[notice from SENDER on HOST · FIRE] TITLE`, the body, then `Links: …`.
+#[derive(clap::Args, Debug, Default, Clone)]
+pub struct SendNotice {
+    /// Send it as a tool's notice, with --severity and --title (the prompt text is its body).
+    /// It is a named sender's message, never the person's.
+    #[arg(long, requires_all = ["severity", "title"])]
+    pub notice: bool,
+    /// How loud the notice is: info, warn or fire.
+    #[arg(long, value_name = "SEVERITY", value_parser = ["info", "warn", "fire"], requires = "notice")]
+    pub severity: Option<String>,
+    /// The notice's one-line title (at most 200 characters).
+    #[arg(long, value_name = "TITLE", requires = "notice")]
+    pub title: Option<String>,
+    /// Who sends the notice, a tool or role (default: --from, ACPMUX_FROM, else this session's
+    /// name).
+    #[arg(long, value_name = "NAME", requires = "notice")]
+    pub sender: Option<String>,
+    /// The machine it comes from (default: this one).
+    #[arg(long, value_name = "HOST", requires = "notice")]
+    pub host: Option<String>,
+    /// A link the notice carries, `URL` or `URL=LABEL`, https only (repeatable, at most 16).
+    #[arg(long = "link", value_name = "URL[=LABEL]", requires = "notice")]
+    pub links: Vec<String>,
+}
 
 /// `acpmux send --pr N | --thread T`: the receiver's inbox thread.
 #[derive(Args, Default)]
@@ -1145,6 +1206,12 @@ pub enum DaemonCmd {
         /// (or in a debug build). Release launchers never pass it.
         #[arg(long)]
         dev: bool,
+        /// This daemon is the home's supervised owner (the systemd unit passes it): when another
+        /// daemon of this home holds the lock and serves this same socket, ask it to hand over
+        /// (its agents keep running for this daemon to adopt) instead of exiting. A lock refusal
+        /// then exits 1, never 75, so the unit keeps retrying.
+        #[arg(long)]
+        take_over: bool,
     },
     /// Daemon status, hosts, and the web URL (without its token).
     Status {
@@ -1166,6 +1233,12 @@ pub enum DaemonCmd {
     },
     /// Restart the daemon, preserving hosted sessions so they resume on startup.
     Restart,
+    /// The service that keeps this machine's daemon running: the LaunchAgent on macOS, the
+    /// user systemd unit on Linux (the files `host setup` writes on an ssh host).
+    Service {
+        #[command(subcommand)]
+        action: crate::cli::daemon_service::ServiceAction,
+    },
     /// Stop the daemon. Hosted agents keep running for the next daemon to
     /// adopt (a restart or an update); pooled hosts end. `--end-agents` ends
     /// every agent process too, agent hosts included, returns once they all
@@ -1278,17 +1351,25 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Transfer { session, to, cwd, name, interrupt } => {
                 Command::Transfer { session, to, cwd, name, interrupt }
             }
-            SessionCmd::Move { sessions, host, all_idle, interrupt, leave_dirty, cwd, dry_run } => {
-                Command::MoveSessions {
-                    sessions,
-                    host,
-                    all_idle,
-                    interrupt,
-                    leave_dirty,
-                    cwd,
-                    dry_run,
-                }
-            }
+            SessionCmd::Move {
+                sessions,
+                host,
+                all_idle,
+                interrupt,
+                leave_dirty,
+                cwd,
+                dry_run,
+                from,
+            } => Command::MoveSessions {
+                sessions,
+                host,
+                all_idle,
+                interrupt,
+                leave_dirty,
+                cwd,
+                dry_run,
+                from,
+            },
             SessionCmd::Tail { session, last, follow, since } => {
                 Command::Tail { session, last, follow, since }
             }
@@ -1310,6 +1391,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::RulesCmd { session, rules, clear }
             }
             SessionCmd::History { session, limit } => Command::History { session, limit },
+            SessionCmd::Search(args) => Command::SessionSearch(args),
             SessionCmd::Queue(q) => Command::QueueCmd(q),
         },
         Command::Daemon(dc) => match dc {
@@ -1323,6 +1405,7 @@ pub fn flatten(c: Command) -> Command {
                 person_key_fd,
                 allow_dev_origin,
                 dev,
+                take_over,
             } => Command::DaemonRun {
                 listen,
                 token,
@@ -1333,6 +1416,7 @@ pub fn flatten(c: Command) -> Command {
                 person_key_fd,
                 allow_dev_origin,
                 dev,
+                take_over,
             },
             DaemonCmd::Status { show_token } => Command::Status { show_token },
             DaemonCmd::Start { person_key_fd, show_token } => {
@@ -1342,6 +1426,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::Shutdown { keep_agents, end_agents, restart }
             }
             DaemonCmd::Restart => Command::DaemonRestart,
+            DaemonCmd::Service { action } => Command::DaemonService { action },
             DaemonCmd::Config { show_token, set } => Command::Config { show_token, set },
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,
@@ -1695,6 +1780,50 @@ mod help_contract_tests {
         assert!(parse(&["acpmux", "send", "c", "x", "--pr", "12", "--thread", "t"]).is_err());
     }
 
+    /// `send --notice`: --severity and --title with it, its other flags only with it.
+    #[test]
+    fn send_notice_takes_a_severity_and_a_title_and_its_flags_only_with_it() {
+        use super::{Command, SendNotice, flatten};
+        let parse = |argv: &[&str]| Cli::try_parse_from(argv).map(|c| flatten(c.command.unwrap()));
+        let full = parse(&[
+            "acpmux",
+            "send",
+            "coord",
+            "body",
+            "--notice",
+            "--severity",
+            "fire",
+            "--title",
+            "T",
+            "--sender",
+            "base-red-watch",
+            "--host",
+            "mini-3",
+            "--link",
+            "https://x.dev/pull/1=#1",
+            "--link",
+            "https://x.dev/run/2",
+        ]);
+        let Ok(Command::Send { notice, .. }) = full else { panic!("did not parse") };
+        let SendNotice { notice, severity, title, sender, host, links } = *notice;
+        assert!(notice);
+        assert_eq!(severity.as_deref(), Some("fire"));
+        assert_eq!(title.as_deref(), Some("T"));
+        assert_eq!(sender.as_deref(), Some("base-red-watch"));
+        assert_eq!(host.as_deref(), Some("mini-3"));
+        assert_eq!(links, ["https://x.dev/pull/1=#1", "https://x.dev/run/2"]);
+        for bad in [
+            &["acpmux", "send", "c", "x", "--notice", "--title", "T"][..],
+            &["acpmux", "send", "c", "x", "--notice", "--severity", "fire"][..],
+            &["acpmux", "send", "c", "x", "--notice", "--severity", "loud", "--title", "T"][..],
+            &["acpmux", "send", "c", "x", "--title", "T"][..],
+            &["acpmux", "send", "c", "x", "--link", "https://x.dev"][..],
+        ] {
+            assert!(parse(bad).is_err(), "{bad:?} parsed");
+        }
+        assert!(parse(&["acpmux", "send", "c", "x"]).is_ok());
+    }
+
     /// `machine dedicated [NAME] [on|off]` (old spelling `host vm-host`): the state is on or
     /// off only.
     #[test]
@@ -1736,6 +1865,29 @@ mod help_contract_tests {
     fn peer_alias_still_parses_after_host_becomes_canonical() {
         let parsed = Cli::try_parse_from(["acpmux", "peer", "status"]);
         assert!(parsed.is_ok(), "peer alias stopped working");
+    }
+
+    #[test]
+    fn first_contact_host_key_trust_is_an_explicit_enroll_option() {
+        for word in ["machine", "host", "hosts", "peer"] {
+            let argv = ["acpmux", word, "enroll", "user@box", "--accept-new-host-key"];
+            assert!(Cli::try_parse_from(argv).is_ok(), "{argv:?} did not parse");
+            for verb in ["doctor", "setup", "update"] {
+                let argv = ["acpmux", word, verb, "box", "--accept-new-host-key"];
+                assert!(Cli::try_parse_from(argv).is_err(), "{argv:?} must not accept keys");
+            }
+            assert!(
+                Cli::try_parse_from([
+                    "acpmux",
+                    word,
+                    "doctor",
+                    "box",
+                    "--fix",
+                    "--accept-new-host-key"
+                ])
+                .is_err()
+            );
+        }
     }
 
     /// docs/naming.md: `machine` is the command; `host`, `hosts` and `peer` stay hidden aliases
@@ -1848,6 +2000,30 @@ mod config_set_tests {
                 assert_eq!(value, "session.memory_mb=6144")
             }
             _ => panic!("unexpected command"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod deadline_defaults_tests {
+    use super::{Cli, Command};
+    use clap::Parser;
+
+    #[test]
+    fn send_waits_for_a_live_peer_by_default() {
+        let cli = Cli::try_parse_from(["acpmux", "send", "session", "slow reply"]).unwrap();
+        match cli.command {
+            Some(Command::Send { stall, .. }) => assert_eq!(stall, 0),
+            _ => panic!("expected send command"),
+        }
+    }
+
+    #[test]
+    fn explicit_stall_remains_a_caller_choice() {
+        let cli = Cli::try_parse_from(["acpmux", "send", "session", "--stall", "7"]).unwrap();
+        match cli.command {
+            Some(Command::Send { stall, .. }) => assert_eq!(stall, 7),
+            _ => panic!("expected send command"),
         }
     }
 }

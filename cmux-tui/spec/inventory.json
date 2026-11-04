@@ -463,6 +463,7 @@
       "set-default-colors",
       "set-frontend-browser-history",
       "set-host-size-policy",
+      "set-layout-sizes",
       "set-personal-terminal",
       "set-personal-workspace",
       "set-profile-follows",
@@ -537,7 +538,8 @@
       "terminal-clipboard-subscribe",
       "terminal-clipboard-reply",
       "snapshot-request",
-      "set-attach-visibility"
+      "set-attach-visibility",
+      "chief-work"
     ],
     "local-admin": [
       "server-stats",
@@ -919,6 +921,18 @@
     },
     {
       "name": "screen-changed",
+      "streams": [
+        "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "selection-changed",
+      "streams": [
+        "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "workspace-presentation-changed",
       "streams": [
         "subscribe-deltas"
       ]

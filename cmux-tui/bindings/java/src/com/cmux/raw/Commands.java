@@ -31,6 +31,7 @@ public final class Commands {
     public static final CommandMetadata BROWSER_WHEEL = new CommandMetadata("browser-wheel", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_WHEEL_GUARDED = new CommandMetadata("browser-wheel-guarded", Authority.FRONTEND, 10, "browser-pointer-frame-guard-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CHIEF_INSPECT = new CommandMetadata("chief-inspect", Authority.LOCAL_ADMIN, 12, "chief-inspect-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CHIEF_WORK = new CommandMetadata("chief-work", Authority.FRONTEND, 12, "chief-work-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLEAR_HISTORY = new CommandMetadata("clear-history", Authority.CONTROL, 9, "clear-history-v1", StreamKind.NONE, Map.ofEntries(Map.entry("fallback_key", 9L)), Map.ofEntries(Map.entry("fallback_key", "clear-history-key-v1")));
     public static final CommandMetadata CLEAR_WINDOW_TITLE = new CommandMetadata("clear-window-title", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLIENT_FOCUS = new CommandMetadata("client-focus", Authority.CONTROL, 12, "client-focus-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -169,7 +170,7 @@ public final class Commands {
     public static final CommandMetadata MOVE_TAB_GROUP_TO_COLUMN = new CommandMetadata("move-tab-group-to-column", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_TAB_GROUP_TO_NEW_WORKSPACE = new CommandMetadata("move-tab-group-to-new-workspace", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_TAB_GROUP_TO_SPLIT = new CommandMetadata("move-tab-group-to-split", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata MOVE_TAB_TO_COLUMN = new CommandMetadata("move-tab-to-column", Authority.CONTROL, 12, "tab-drag-v1", StreamKind.NONE, Map.ofEntries(Map.entry("dock", 12L), Map.entry("keep_focus", 12L), Map.entry("respawn", 12L)), Map.ofEntries(Map.entry("dock", "dock-columns-v1"), Map.entry("keep_focus", "tab-split-keep-focus-v1"), Map.entry("respawn", "tab-column-respawn-v1")));
+    public static final CommandMetadata MOVE_TAB_TO_COLUMN = new CommandMetadata("move-tab-to-column", Authority.CONTROL, 12, "tab-drag-v1", StreamKind.NONE, Map.ofEntries(Map.entry("dock", 12L), Map.entry("keep_focus", 12L), Map.entry("pane_id", 12L), Map.entry("respawn", 12L)), Map.ofEntries(Map.entry("dock", "dock-columns-v1"), Map.entry("keep_focus", "tab-split-keep-focus-v1"), Map.entry("pane_id", "tab-column-client-pane-v1"), Map.entry("respawn", "tab-column-respawn-v1")));
     public static final CommandMetadata MOVE_TAB_TO_NEW_WORKSPACE = new CommandMetadata("move-tab-to-new-workspace", Authority.CONTROL, 12, "tab-drag-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("name", "tab-workspace-name-v1")));
     public static final CommandMetadata MOVE_TAB_TO_SPLIT = new CommandMetadata("move-tab-to-split", Authority.CONTROL, 12, "tab-drag-v1", StreamKind.NONE, Map.ofEntries(Map.entry("keep_focus", 12L), Map.entry("respawn", 12L)), Map.ofEntries(Map.entry("keep_focus", "tab-split-keep-focus-v1"), Map.entry("respawn", "tab-split-respawn-v1")));
     public static final CommandMetadata MOVE_TAB_TO_WORKSPACE = new CommandMetadata("move-tab-to-workspace", Authority.CONTROL, 12, "tab-workspace-move-v1", StreamKind.NONE, Map.ofEntries(Map.entry("transaction", 12L)), Map.ofEntries(Map.entry("transaction", "tab-drag-v1")));
@@ -241,6 +242,7 @@ public final class Commands {
     public static final CommandMetadata SET_DEFAULT_COLORS = new CommandMetadata("set-default-colors", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("complete", 9L), Map.entry("cursor", 9L), Map.entry("cursor_blink", 9L), Map.entry("cursor_style", 9L), Map.entry("palette", 9L), Map.entry("selection_bg", 9L), Map.entry("selection_fg", 9L)), Map.of());
     public static final CommandMetadata SET_FRONTEND_BROWSER_HISTORY = new CommandMetadata("set-frontend-browser-history", Authority.CONTROL, 12, "frontend-browser-history-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_HOST_SIZE_POLICY = new CommandMetadata("set-host-size-policy", Authority.CONTROL, 12, "host-size-policy-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata SET_LAYOUT_SIZES = new CommandMetadata("set-layout-sizes", Authority.CONTROL, 12, "layout-sizes-batch-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_PERSONAL_TERMINAL = new CommandMetadata("set-personal-terminal", Authority.CONTROL, 12, "personal-terminals-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_PERSONAL_WORKSPACE = new CommandMetadata("set-personal-workspace", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.ofEntries(Map.entry("remote_localhost", 12L)), Map.ofEntries(Map.entry("remote_localhost", "personal-remote-localhost-v1")));
     public static final CommandMetadata SET_PROFILE_FOLLOWS = new CommandMetadata("set-profile-follows", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -323,6 +325,7 @@ public final class Commands {
         values.put("browser-wheel", BROWSER_WHEEL);
         values.put("browser-wheel-guarded", BROWSER_WHEEL_GUARDED);
         values.put("chief-inspect", CHIEF_INSPECT);
+        values.put("chief-work", CHIEF_WORK);
         values.put("clear-history", CLEAR_HISTORY);
         values.put("clear-window-title", CLEAR_WINDOW_TITLE);
         values.put("client-focus", CLIENT_FOCUS);
@@ -533,6 +536,7 @@ public final class Commands {
         values.put("set-default-colors", SET_DEFAULT_COLORS);
         values.put("set-frontend-browser-history", SET_FRONTEND_BROWSER_HISTORY);
         values.put("set-host-size-policy", SET_HOST_SIZE_POLICY);
+        values.put("set-layout-sizes", SET_LAYOUT_SIZES);
         values.put("set-personal-terminal", SET_PERSONAL_TERMINAL);
         values.put("set-personal-workspace", SET_PERSONAL_WORKSPACE);
         values.put("set-profile-follows", SET_PROFILE_FOLLOWS);

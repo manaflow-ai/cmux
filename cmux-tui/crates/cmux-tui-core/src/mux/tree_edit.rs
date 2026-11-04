@@ -403,7 +403,7 @@ pub(super) fn layout_undo_confirmation_details(
     }
     let confirmation_token =
         hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect::<String>();
-    let revision = registry.resource_topology_snapshot()?.revision;
+    let revision = registry.resource_revision()?;
     Ok(serde_json::json!({
         "revision":revision.to_string(),
         "confirmation_token":confirmation_token,

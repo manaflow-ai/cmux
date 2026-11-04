@@ -11,5 +11,5 @@
 }
 .cv-subagent-empty h3 {
   color: var(--cv-text);
-  font-weight: 500;
+  font-weight: var(--weight-emphasis);
 }

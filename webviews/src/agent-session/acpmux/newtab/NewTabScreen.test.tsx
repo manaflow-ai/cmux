@@ -5,6 +5,7 @@ import { JSDOM } from "jsdom";
 import { noChat } from "../../../gallery/fixtures/acpmux";
 import { ClosedList } from "./ClosedList";
 import { NewTabScreen } from "./NewTabScreen";
+import { CloudStartView } from "../CloudStartView";
 import { registerHarnessesPage } from "../harnesses/harnessesPage";
 import type { SavedEnvironment } from "../environments";
 import type { RunMode } from "../sandboxRun";
@@ -12,6 +13,8 @@ import type { MarkdownFieldElement } from "../MarkdownField";
 import { proseMirrorGlobals } from "../promptFieldTesting";
 import { inlineToken, type ComposerAttachment } from "../attachments";
 import { translate } from "../i18n";
+import { seedLastPicks } from "../lastPick";
+import { EMPTY_OMNIBAR } from "../omnibar";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -456,6 +459,39 @@ test("Return on a typed address still opens it without a harness", async () => {
   }
 });
 
+// A last pick names the chip's harness before acpmux lists its harnesses (or when that read failed
+// and nothing has read again), so the chip read "Opus 5.5" over a list with no Ask row, and Return
+// took the prompt to Google. Whatever the chip names, Return asks.
+test("with a remembered pick and no catalog, the Ask row leads and Return asks instead of searching", async () => {
+  const asked: string[] = [];
+  const searched: string[] = [];
+  saved.set("localStorage", scope.localStorage);
+  Object.assign(scope, { localStorage: dom!.window.localStorage });
+  seedLastPicks({ global: { harness: "claude", model: "claude-opus-5-5" } });
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        omnibar={EMPTY_OMNIBAR}
+        onAsk={(harness, text, _cwd, model) => void asked.push(`${harness} ${model}: ${text}`)}
+        onSearch={(text) => void searched.push(text)}
+      />,
+    );
+  });
+  const field = await promptField();
+  await act(async () => {
+    field.acpmuxMarkdownField!.focus();
+    field.acpmuxMarkdownField!.type("look at the ios connection failures");
+  });
+  const rows = [...document.querySelectorAll(".nt-row")].map((row) => row.textContent ?? "");
+  expect(rows[0]).toContain("Claude Code");
+  expect(rows.some((row) => row.includes("Search the web"))).toBe(true);
+  await press(field, "Enter");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(searched).toEqual([]);
+  expect(asked).toEqual(["claude claude-opus-5-5: look at the ios connection failures"]);
+});
+
 test("the `/` menu opens mid-prompt with the skills and writes the pick in place, as in chat", async () => {
   const snapshot = noChat([], {
     catalog: [],
@@ -798,6 +834,7 @@ test("while a Cloud start is out the box takes no edits, and takes them again on
       environments
       runMode={{ mode: "cloud", onMode: () => {} }}
       onCloud={() => false}
+      cloudStatus={<output data-testid="cloud-shell">Preparing machine</output>}
       cloudStarting={cloudStarting}
     />
   );
@@ -809,15 +846,53 @@ test("while a Cloud start is out the box takes no edits, and takes them again on
   const field = () => promptValue();
   await act(async () => root!.render(page(true)));
   await promptField();
+  expect(container.querySelector('[data-testid="cloud-shell"]')?.textContent).toBe("Preparing machine");
+  expect(container.querySelector(".nt-composer")?.getAttribute("data-cloud-starting")).toBe("true");
+  // The box keeps its space while the shell is visible, so sending does not move the page.
+  expect(container.querySelector(".nt-box")).toBeTruthy();
   expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(true);
   // Typing on the page (outside the field) goes nowhere while the start is out.
   await typeOnPage("x");
   expect(field()).toBe("");
   // A failed start keeps the prompt here to edit and send again.
   await act(async () => root!.render(page(false)));
+  expect(container.querySelector(".nt-composer")?.getAttribute("data-cloud-starting")).toBeNull();
   expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(false);
   await typeOnPage("x");
   expect(field()).toBe("x");
+});
+
+test("a failed Cloud start leaves one retry send in the composer", async () => {
+  const clouded: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        environments
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        cloudStarting={false}
+        cloudStatus={
+          <CloudStartView
+            start={{ key: "retry", task: "first attempt", state: "failed", message: "No machine free" }}
+            bubble={false}
+          />
+        }
+        onCloud={(...args) => (clouded.push(args), false)}
+      />,
+    );
+  });
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("No machine free");
+  await typePrompt("retry once");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(clouded).toHaveLength(1);
+  expect(clouded[0]?.[1]).toBe("retry once");
 });
 
 test("picking Cloud drops a saved environment picked before: the send names the folder chip's folder, not the tab's inherited one", async () => {
