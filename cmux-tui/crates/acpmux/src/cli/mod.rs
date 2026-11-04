@@ -41,6 +41,7 @@ pub mod hosts;
 pub mod join_input;
 pub mod ls_table;
 pub(crate) mod machine_consent;
+pub mod machine_deps;
 pub mod mesh_control;
 pub mod mesh_node_key;
 pub mod orchestrate;

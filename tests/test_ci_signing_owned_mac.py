@@ -375,9 +375,6 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                     failures.append(f"{label}: reads {read} other than as `{route_shape}`, so a re-run could stay on the fleet")
             steps = [step for step in keychain_guard.inline_step_scripts(job).get("steps") or []
                      if isinstance(step, dict)]
-            publication = workflow == "nightly.yml" and name in {
-                "publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names"
-            }
             gate_index = next((index for index, step in enumerate(steps)
                                if str(step.get("id", "")) == CLAIM_GATE_ID), None)
             gate = steps[gate_index] if gate_index is not None else {}
@@ -386,19 +383,10 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                        and str(gate.get("shell", "bash")) == "bash"
                        and gate.get("id") == CLAIM_GATE_ID)
             if not gate_ok:
-                if publication:
-                    failures.append(f"{label}: the claim gate ({CLAIM_GATE_NAME}) must copy CLAIM_GATE word for word, "
-                                    f"id {CLAIM_GATE_ID}, with no if, uses, env or continue-on-error")
-                else:
-                    failures.append(f"{label}: the first step must be the claim gate ({CLAIM_GATE_NAME}); CLAIM_GATE "
-                                    f"word for word, id {CLAIM_GATE_ID}, with no if, uses, env or continue-on-error")
-            elif not publication and gate_index != 0:
+                failures.append(f"{label}: the first step must be the claim gate ({CLAIM_GATE_NAME}); CLAIM_GATE "
+                                f"word for word, id {CLAIM_GATE_ID}, with no if, uses, env or continue-on-error")
+            elif gate_index != 0:
                 failures.append(f"{label}: the first step must be the claim gate ({CLAIM_GATE_NAME}) before the checkout's token")
-            elif publication:
-                checkout_index = next((index for index, step in enumerate(steps)
-                                       if "actions/checkout@" in str(step.get("uses", ""))), None)
-                if checkout_index is None or gate_index <= checkout_index:
-                    failures.append(f"{label}: publication claim gate must run after checkout and before release credentials")
             failures.extend(f"{label}: {why}" for why in twin_failures(jobs, name, owned_reads, workflow))
             claim = next((index for index, step in enumerate(steps) if CLAIM in str(step.get("run", ""))), None)
             first_secret = next((index for index, step in enumerate(steps) if "secrets." in json.dumps(step)), None)

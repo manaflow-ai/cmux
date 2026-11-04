@@ -3,7 +3,8 @@
 //! machine daemon's `fs-v1` ops (Move to Cloud, cmuxterm-hq#1874 slice 2).
 //! `--socket` is the machine daemon's socket as this Mac reaches it (the
 //! machine link's local socket); `REMOTE` is an absolute folder under the
-//! machine's home. What goes is in [`local`]. `cmux link sync pull` brings
+//! machine's home. What goes is in [`local`]; git's loose objects go as
+//! packs ([`packs`]). `cmux link sync pull` brings
 //! it back by a three-way merge against the push ([`pull`]).
 //!
 //! A manifest on the machine (`REMOTE/.git/cmux-sync.json` in a git
@@ -16,6 +17,11 @@
 //! while the machine still has it as this push left it. Files the machine
 //! made or changed itself are never deleted. This Mac keeps a copy of the
 //! manifest ([`base`]); a pull trusts only that copy.
+//!
+//! A symlink whose target stays inside the folder is kept as a symlink both
+//! ways, its text in the manifest's `links` ([`links`]); one pointing
+//! outside, at nothing or into a repository folder is skipped and named.
+//! A machine without `fs-symlink-v1` gets none, each named as skipped.
 //!
 //! The manifest is also saved as a push goes (every [`SAVE_EVERY_FILES`]
 //! files or [`SAVE_EVERY_BYTES`] written), so a push cut off partway is
@@ -37,8 +43,12 @@ use cmux_json::JsonSet as _;
 
 mod base;
 mod git_back;
+mod history;
+mod links;
 mod local;
+mod merge;
 mod names;
+mod packs;
 mod place;
 mod pull;
 mod remote;
@@ -63,7 +73,7 @@ use sha2::{Digest as _, Sha256};
 use local::{LocalFile, Source};
 use remote::{Remote, RemoteEntry};
 
-const USAGE: &str = "usage: cmux link sync push|pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER";
+const USAGE: &str = "usage: cmux link sync push|pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER\n       cmux link sync history|undo LOCAL_FOLDER REMOTE_FOLDER\n       cmux link sync restore LOCAL_FOLDER REMOTE_FOLDER SNAPSHOT";
 
 /// What the machine holds of earlier pushes; this Mac keeps a copy
 /// ([`base`]), which is what a pull trusts.
@@ -74,6 +84,20 @@ struct Manifest {
     /// The git state the push left; None outside git and from older pushes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     git: Option<git_back::GitBase>,
+    /// The symlinks kept as symlinks ([`links`]), by path; none from older
+    /// pushes.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    links: BTreeMap<String, Linked>,
+}
+
+/// A symlink the sync keeps: its text on the machine, relative and inside
+/// the folder, and this Mac's own text when that differs (an absolute one
+/// the push wrote relative), which is what a pull compares this Mac's with.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct Linked {
+    target: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    here: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -172,6 +196,9 @@ pub(super) fn run(args: &[String]) -> i32 {
         println!("{USAGE}");
         return 0;
     }
+    if let Some(code) = run_history(args) {
+        return code;
+    }
     let Some((action, socket, local, remote)) = parse(args) else {
         eprintln!("{USAGE}");
         return 64;
@@ -229,9 +256,9 @@ pub(super) fn pull_back(
             error: format!("{} is in a git working copy now", local.display()),
         };
     }
-    match pull::pull_kept(socket, local, remote_root, keep_new) {
+    match pull::pull_kept(socket, local, remote_root, keep_new, false) {
         Ok(pull::Pulled::Done(summary)) => Back::Done(summary),
-        Ok(pull::Pulled::Conflict(conflicts, reasons)) => Back::Conflict(conflicts, reasons),
+        Ok(pull::Pulled::Conflict(conflicts, reasons, _)) => Back::Conflict(conflicts, reasons),
         Err(error) => {
             Back::Failed { code: pull::failure_code(&error), error: format!("{error:#}") }
         }
@@ -243,7 +270,7 @@ pub(super) fn pull_back(
 pub(super) fn pull_into(socket: &Path, local: &Path, remote_root: &str) -> Back {
     match pull::pull(socket, local, remote_root) {
         Ok(pull::Pulled::Done(summary)) => Back::Done(summary),
-        Ok(pull::Pulled::Conflict(conflicts, reasons)) => Back::Conflict(conflicts, reasons),
+        Ok(pull::Pulled::Conflict(conflicts, reasons, _)) => Back::Conflict(conflicts, reasons),
         Err(error) => {
             Back::Failed { code: pull::failure_code(&error), error: format!("{error:#}") }
         }
@@ -301,7 +328,7 @@ pub(super) fn copy_file_with_progress(
         source: Source::File(local.to_path_buf()),
         permissions: local::permissions_of(meta.permissions().mode()),
     };
-    let mut remote = Remote::connect(socket)?;
+    let mut remote = Remote::connect_negotiated(socket)?;
     let (parent, _) = remote::split(target)?;
     remote.mkdir_all(parent)?;
     write_with_progress(&mut remote, target, &file, progress).map(|_| ())
@@ -337,7 +364,7 @@ pub(super) fn upload(
     }
     let read = std::rc::Rc::new(std::cell::Cell::new(0));
     let mut reader = Counted { inner: file, read: read.clone() };
-    let mut remote = Remote::connect(socket)?;
+    let mut remote = Remote::connect_negotiated(socket)?;
     let (parent, _) = remote::split(target)?;
     remote.mkdir_all(parent)?;
     remote.write_with_progress(target, &mut reader, 0o600, &mut || progress(read.get()))?;
@@ -357,7 +384,7 @@ fn finish_pull(pulled: anyhow::Result<pull::Pulled>) -> i32 {
             println!("{summary}");
             return 0;
         }
-        Ok(pull::Pulled::Conflict(conflicts, reasons)) => {
+        Ok(pull::Pulled::Conflict(conflicts, reasons, merge_files)) => {
             let mut error = format!(
                 "{} changed both here and on the machine; nothing was brought back",
                 conflicts.join(", ")
@@ -366,13 +393,61 @@ fn finish_pull(pulled: anyhow::Result<pull::Pulled>) -> i32 {
                 error = format!("{error} ({})", reasons.join("; "));
             }
             json!({ "ok": false, "error": error, "error_code": "sync_conflict",
-                    "conflicts": conflicts })
+                    "conflicts": conflicts, "merge_files": merge_files })
         }
         Err(error) => json!({ "ok": false, "error": format!("{error:#}"),
                               "error_code": pull::failure_code(&error) }),
     };
     println!("{line}");
     1
+}
+
+/// `history`, `undo` and `restore`: this Mac's snapshots of a synced
+/// folder ([`history`]); no machine is reached. None for another action.
+fn run_history(args: &[String]) -> Option<i32> {
+    let [action, rest @ ..] = args else { return None };
+    if !matches!(action.as_str(), "history" | "undo" | "restore") {
+        return None;
+    }
+    let usage = || {
+        eprintln!("{USAGE}");
+        Some(64)
+    };
+    if rest.iter().any(|arg| arg.starts_with('-')) {
+        return usage();
+    }
+    let (local, remote, which) = match (action.as_str(), rest) {
+        ("history" | "undo", [local, remote]) => (local, remote, history::Which::Undo),
+        ("restore", [local, remote, seq]) => match seq.parse() {
+            Ok(seq) => (local, remote, history::Which::Seq(seq)),
+            Err(_) => return usage(),
+        },
+        _ => return usage(),
+    };
+    if !remote.starts_with('/') {
+        return usage();
+    }
+    let remote = remote.trim_end_matches('/');
+    let local = PathBuf::from(local);
+    let answer = if action == "history" {
+        history::history_line(&local, remote)
+    } else {
+        history::restore(&local, remote, &which)
+    };
+    let line = match answer {
+        Ok(line) => {
+            println!("{line}");
+            return Some(0);
+        }
+        Err(error) => match error.downcast_ref::<history::Refused>() {
+            Some(refused) => json!({ "ok": false, "error": refused.error,
+                                     "error_code": refused.code, "paths": refused.paths }),
+            None => json!({ "ok": false, "error": format!("{error:#}"),
+                            "error_code": "sync_failed" }),
+        },
+    };
+    println!("{line}");
+    Some(1)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -471,11 +546,35 @@ fn push_inner(
     let in_git = set.git;
     set.files.retain(|relative, _| keep(relative, in_git));
     set.skipped += (before - set.files.len()) as u64;
+    // A share of files (`cmux link access`) takes no symlink.
+    if files_only {
+        for relative in std::mem::take(&mut set.links).into_keys() {
+            set.skips.note(&relative, skips::Why::SymlinkInside);
+        }
+    }
     let git_record = set.git && !files_only;
     let manifest_name = if git_record { ".git/cmux-sync.json" } else { ".cmux-sync.json" };
-    // The manifest's own name is never pushed over it.
-    if set.files.remove(manifest_name).is_some() {
+    // A pull's conflict merges stay here, and so does anything by that name.
+    let merges: Vec<String> = set
+        .files
+        .keys()
+        .chain(set.links.keys())
+        .filter(|relative| merge::is_conflict_file(relative))
+        .cloned()
+        .collect();
+    for relative in merges {
+        set.files.remove(&relative);
+        set.links.remove(&relative);
+        set.skips.note(&relative, skips::Why::ConflictMerge);
+    }
+    // The manifest's own name is never pushed over it, as a file or a symlink.
+    if set.files.remove(manifest_name).is_some() | set.links.remove(manifest_name).is_some() {
         set.skips.note(manifest_name, skips::Why::Reserved);
+    }
+    // Loose objects go as packs ([`packs`]).
+    if git_record {
+        let dirs = local::GitDirs::of(&local)?.context("the folder is no longer in git")?;
+        packs::pack_loose(&mut set.files, &dirs.common, &base::packs_dir(&local, remote_root)?)?;
     }
     set.skips.unnamed(set.skipped);
     let (skipped_files, skipped_counts) = set.skips.json();
@@ -491,7 +590,7 @@ fn push_inner(
     }
     // What a pull compares the machine's branch and staged changes with.
     let git = if git_record { Some(git_back::base_of(&local)?) } else { None };
-    let mut remote = Remote::connect(socket)?;
+    let mut remote = Remote::connect_negotiated(socket)?;
     remote.mkdir_all(remote_root)?;
     let manifest_path = format!("{remote_root}/{manifest_name}");
     let mut previous: Manifest = remote
@@ -501,7 +600,9 @@ fn push_inner(
     // A key that is not a plain relative path (empty, absolute, `.` or `..`
     // parts) names nothing this push made: it is dropped, never deleted.
     previous.files.retain(|relative, _| plain_relative(relative));
+    previous.links.retain(|relative, _| plain_relative(relative));
     let mut listings = Listings::default();
+    let mut links = LinkSync::default();
 
     // Deletes first, so a file that became a folder (or the reverse) is out
     // of the way. Only a file still as this push left it goes; one the
@@ -518,10 +619,25 @@ fn push_inner(
         let (parent, name) = remote::split(&target)?;
         remote.delete(&[format!("{parent}/.{name}.cmux-sync-part")])?;
     }
+    // A symlink this push made that is gone here (or points elsewhere now)
+    // goes, while the machine still has it as this push left it.
+    for (relative, linked) in &previous.links {
+        if set.links.get(relative).map(|kept| &kept.target) == Some(&linked.target) {
+            continue;
+        }
+        let target = format!("{remote_root}/{relative}");
+        if links.ours(&mut remote, &target, &linked.target)? {
+            remote.delete(std::slice::from_ref(&target))?;
+            if !set.links.contains_key(relative) && !set.files.contains_key(relative) {
+                summary.deleted += 1;
+            }
+        }
+    }
     listings.clear();
 
     let mut made: BTreeSet<String> = BTreeSet::new();
-    let mut next = Manifest { version: 1, files: BTreeMap::new(), git };
+    let mut folder_links: BTreeMap<String, bool> = BTreeMap::new();
+    let mut next = Manifest { version: 1, files: BTreeMap::new(), git, links: BTreeMap::new() };
     let save_every_files = SAVE_EVERY_FILES.max(done.files_total / 20);
     let (mut files_since_save, mut bytes_since_save) = (0u64, 0u64);
     for (relative, file) in &set.files {
@@ -537,10 +653,29 @@ fn push_inner(
             summary.unchanged += 1;
             next.files.insert(relative.clone(), pushed.clone());
         } else {
+            // A symlink of the machine's on the way to it: the write would
+            // land wherever that link points, so this Mac's file stays.
+            if through_link(&mut remote, remote_root, parent, &mut folder_links)? {
+                set.skips.note(relative, skips::Why::SymlinkTaken);
+                done.files_done += 1;
+                done.bytes_done += bytes;
+                continue;
+            }
             if made.insert(parent.to_string()) {
                 remote.mkdir_all(parent)?;
             }
-            let revision = write(&mut remote, &target, file)?;
+            let revision = match write(&mut remote, &target, file) {
+                Ok(revision) => revision,
+                // A symlink of the machine's at its path: a file written
+                // there would go through it, so this Mac's file stays.
+                Err(error) if error.is::<LinkInTheWay>() => {
+                    set.skips.note(relative, skips::Why::SymlinkTaken);
+                    done.files_done += 1;
+                    done.bytes_done += bytes;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             summary.written += 1;
             summary.bytes += bytes;
             next.files.insert(
@@ -561,13 +696,94 @@ fn push_inner(
         }
     }
 
+    // A link whose target is a link not made yet waits for the next pass;
+    // passes go on while one makes something.
+    let mut waiting: Vec<(&String, &Linked)> = set.links.iter().collect();
+    let mut skipped: Vec<(String, skips::Why)> = Vec::new();
+    loop {
+        let mut again = Vec::new();
+        skipped.clear();
+        let mut placed_any = false;
+        for (relative, kept) in waiting {
+            let target = format!("{remote_root}/{relative}");
+            match links.place(&mut remote, &target, &kept.target)? {
+                Placed::Made => {
+                    placed_any = true;
+                    summary.written += 1;
+                    next.links.insert(relative.clone(), kept.clone());
+                }
+                Placed::Already => {
+                    placed_any = true;
+                    summary.unchanged += 1;
+                    next.links.insert(relative.clone(), kept.clone());
+                }
+                Placed::Skipped(skips::Why::SymlinkBroken) => {
+                    again.push((relative, kept));
+                    skipped.push((relative.clone(), skips::Why::SymlinkBroken));
+                }
+                Placed::Skipped(why) => skipped.push((relative.clone(), why)),
+            }
+        }
+        if !placed_any || again.is_empty() {
+            break;
+        }
+        // Only the ones that waited go round again.
+        skipped.retain(|(_, why)| *why != skips::Why::SymlinkBroken);
+        for (relative, why) in skipped.drain(..) {
+            set.skips.note(&relative, why);
+        }
+        waiting = again;
+    }
+    for (relative, why) in skipped {
+        set.skips.note(&relative, why);
+    }
+    // Links skipped since the summary began are named too.
+    let (skipped_files, skipped_counts) = set.skips.json();
+    summary.skipped = set.skips.total();
+    summary.skipped_files = skipped_files;
+    summary.skipped_counts = skipped_counts;
+
     let manifest = serde_json::to_vec(&next)?;
     remote
         .write(&manifest_path, &mut manifest.as_slice(), 0o600)
         .context("cannot save the sync manifest")?;
     // A pull's base is this copy, never the machine's.
     base::save(&local, remote_root, &next).context("cannot keep the sync record on this Mac")?;
+    // What this push left, for `cmux link sync undo`: every file's blob this
+    // Mac does not keep yet, and a snapshot ([`history`]). Neither can fail
+    // the push.
+    snapshot_push(&local, remote_root, &next, &set.files, git_record);
     Ok(summary)
+}
+
+/// Keeps the blobs and the snapshot of a push that left `next`.
+fn snapshot_push(
+    local: &Path,
+    remote_root: &str,
+    next: &Manifest,
+    files: &BTreeMap<String, LocalFile>,
+    git: bool,
+) {
+    let Ok(root) = place::Dir::open(local) else { return };
+    for (relative, pushed) in &next.files {
+        if history::is_worktree_path(relative)
+            && matches!(files.get(relative).map(|file| &file.source), Some(Source::File(_)))
+            && history::blob(&pushed.sha256).is_none()
+        {
+            history::keep_blob(&root, relative, &pushed.sha256);
+        }
+    }
+    let git = if git { history::git_now(local) } else { None };
+    // A push changes nothing here: nothing it records is ever put back.
+    let _ = history::record(
+        local,
+        remote_root,
+        "push",
+        history::paths_of(next),
+        git,
+        None,
+        history::Changed::default(),
+    );
 }
 
 /// Saves the manifest of a push still going on the machine: what it wrote
@@ -589,12 +805,83 @@ fn save_partway(
         .map(|(relative, pushed)| (relative.clone(), pushed.clone()))
         .collect();
     files.extend(next.files.iter().map(|(relative, pushed)| (relative.clone(), pushed.clone())));
-    let partway = Manifest { version: 1, files, git: previous.git.clone() };
+    let partway =
+        Manifest { version: 1, files, git: previous.git.clone(), links: previous.links.clone() };
     let bytes = serde_json::to_vec(&partway)?;
     remote
         .write(manifest_path, &mut bytes.as_slice(), 0o600)
         .context("cannot save the sync manifest")?;
     Ok(())
+}
+
+/// What [`LinkSync::place`] did with one symlink.
+enum Placed {
+    Made,
+    /// The machine already has it with this text.
+    Already,
+    Skipped(skips::Why),
+}
+
+/// The symlinks of one push on the machine, through `fs-symlink-v1`; once
+/// the machine shows it lacks those ops, every symlink is skipped with why.
+#[derive(Default)]
+struct LinkSync {
+    unsupported: bool,
+}
+
+impl LinkSync {
+    /// Whether the machine's entry at `target` is a symlink with `text`.
+    fn ours(&mut self, remote: &mut Remote, target: &str, text: &str) -> anyhow::Result<bool> {
+        if self.unsupported || remote.kind(target)?.as_deref() != Some("symlink") {
+            return Ok(false);
+        }
+        match remote.readlink(target) {
+            Ok(found) => Ok(found.as_deref() == Some(text)),
+            Err(error) if is_refusal(&error) => {
+                self.unsupported |= remote::lacks_symlinks(&error);
+                Ok(false)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Makes the symlink `target` with `text` on the machine, unless it is
+    /// there already. Something else there (the machine's own) stays.
+    fn place(&mut self, remote: &mut Remote, target: &str, text: &str) -> anyhow::Result<Placed> {
+        if self.unsupported {
+            return Ok(Placed::Skipped(skips::Why::SymlinkUnsupported));
+        }
+        match remote.kind(target)?.as_deref() {
+            None => {}
+            Some("symlink") if self.ours(remote, target, text)? => return Ok(Placed::Already),
+            // A folder that became a symlink here leaves an empty one.
+            Some("dir") if remote.list(target)?.is_some_and(|entries| entries.is_empty()) => {
+                remote.delete(&[target.to_string()])?;
+            }
+            _ if self.unsupported => return Ok(Placed::Skipped(skips::Why::SymlinkUnsupported)),
+            _ => return Ok(Placed::Skipped(skips::Why::SymlinkTaken)),
+        }
+        let (parent, _) = remote::split(target)?;
+        remote.mkdir_all(parent)?;
+        match remote.symlink(target, text) {
+            Ok(()) => Ok(Placed::Made),
+            Err(error) if remote::refusal_code(&error) == Some("fs.exists") => {
+                Ok(Placed::Skipped(skips::Why::SymlinkTaken))
+            }
+            // The daemon follows the text through the machine's own links.
+            Err(error) if remote::refusal_code(&error) == Some("fs.permission_denied") => {
+                Ok(Placed::Skipped(skips::Why::SymlinkOutside))
+            }
+            Err(error) if remote::refusal_code(&error) == Some("params.invalid") => {
+                Ok(Placed::Skipped(skips::Why::SymlinkBroken))
+            }
+            Err(error) if is_refusal(&error) => {
+                self.unsupported |= remote::lacks_symlinks(&error);
+                Ok(Placed::Skipped(skips::Why::SymlinkUnsupported))
+            }
+            Err(error) => Err(error),
+        }
+    }
 }
 
 /// Writes `file` to `target`. An empty folder in the way (left by a folder
@@ -611,14 +898,63 @@ fn write_with_progress(
     file: &LocalFile,
     progress: &mut dyn FnMut(),
 ) -> anyhow::Result<String> {
-    if remote.kind(target)?.as_deref() == Some("dir")
-        && remote.list(target)?.is_some_and(|entries| entries.is_empty())
-    {
-        remote.delete(&[target.to_string()])?;
+    // Asked right before each write, never from a listing read earlier: a
+    // symlink the machine put there since must stop this file.
+    match remote.kind(target)?.as_deref() {
+        Some("dir") if remote.list(target)?.is_some_and(|entries| entries.is_empty()) => {
+            remote.delete(&[target.to_string()])?;
+        }
+        Some("symlink") => return Err(LinkInTheWay.into()),
+        _ => {}
     }
     let mut reader = open(file)?;
     remote.write_with_progress(target, &mut reader, file.permissions, progress)
 }
+
+/// Whether a folder of `parent` below `remote_root` is a symlink on the
+/// machine (each folder looked at once per push, in `seen`).
+fn through_link(
+    remote: &mut Remote,
+    remote_root: &str,
+    parent: &str,
+    seen: &mut BTreeMap<String, bool>,
+) -> anyhow::Result<bool> {
+    let Some(below) = parent.strip_prefix(remote_root) else { return Ok(false) };
+    let mut folder = remote_root.to_string();
+    for name in below.split('/').filter(|name| !name.is_empty()) {
+        folder.push('/');
+        folder.push_str(name);
+        let is_link = match seen.get(&folder) {
+            Some(is_link) => *is_link,
+            None => {
+                let kind = remote.kind(&folder)?;
+                let is_link = kind.as_deref() == Some("symlink");
+                seen.insert(folder.clone(), is_link);
+                if kind.is_none() {
+                    return Ok(false);
+                }
+                is_link
+            }
+        };
+        if is_link {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// A symlink on the machine where a file would be written: never written
+/// through.
+#[derive(Debug)]
+struct LinkInTheWay;
+
+impl std::fmt::Display for LinkInTheWay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a symlink is at that path on the machine")
+    }
+}
+
+impl std::error::Error for LinkInTheWay {}
 
 /// A relative path of plain names: no empty, `.` or `..` part.
 fn plain_relative(relative: &str) -> bool {
@@ -633,16 +969,24 @@ impl Listings {
     /// The revision of the file at `target`; None when it is missing or not
     /// a file.
     fn revision(&mut self, remote: &mut Remote, target: &str) -> anyhow::Result<Option<String>> {
+        Ok(self
+            .entry(remote, target)?
+            .filter(|entry| entry.kind == "file")
+            .and_then(|entry| entry.revision))
+    }
+
+    fn entry(&mut self, remote: &mut Remote, target: &str) -> anyhow::Result<Option<RemoteEntry>> {
         let (parent, name) = remote::split(target)?;
         if !self.0.contains_key(parent) {
             let listing = remote.list(parent)?;
             self.0.insert(parent.to_string(), listing);
         }
-        Ok(self.0[parent]
-            .as_ref()
+        Ok(self
+            .0
+            .get(parent)
+            .and_then(Option::as_ref)
             .and_then(|entries| entries.get(name))
-            .filter(|entry| entry.kind == "file")
-            .and_then(|entry| entry.revision.clone()))
+            .cloned())
     }
 
     fn clear(&mut self) {

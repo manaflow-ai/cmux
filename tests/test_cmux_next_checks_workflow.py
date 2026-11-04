@@ -1205,8 +1205,8 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
         # The nightly-next requests read LINUX_RUNNER (Blacksmith Linux, never GitHub-hosted).
-        self.assertEqual(sorted(checked), ["checks", "cmux-scheme-compile", "daemon-test", "fast-tier", "generated-files",
-                                           "portable-placement", "release-compile", "request-nightly-next",
+        self.assertEqual(sorted(checked), ["checks", "cmux-scheme-compile", "daemon-test", "fast-tier", "generated-files", "path_route",
+                                           "release-compile", "request-nightly-next",
                                            "request-nightly-next-fast",
                                            "swift-canary", "swift-test", "web-bundles"])
 
@@ -1487,6 +1487,8 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
                 # Always, unless the job reused a pass (JobsReuseAPassOnTheSameInputs) and wrote none, or
                 # the fast tier only reports its build-fleet client's verdict (GatewayRunsOnlyTheFleetClient).
                 guard = f"(always()) && {REUSE_GUARD}"
+                if name == "fast-tier-cargo":
+                    guard += " && steps.planner-reuse.outputs.hit != 'true'"
                 if name == "fast-tier":
                     guard = f"env.CMUX_FAST_TIER_FLEET != 'report' && ({guard})"
                 self.assertEqual(upload.get("if"), f"${{{{ {guard} }}}}")
@@ -1674,6 +1676,34 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
                 self.assertIs(lookup.get("continue-on-error"), True)
                 # No actions/cache store: a cache entry of one pull request is unreadable from the others.
                 self.assertFalse([s for s in steps if JOB_PASS_DIR in json.dumps(s)])
+
+    def test_cargo_planner_reuse_requires_the_promoted_mode_and_trusted_push(self):
+        steps = self.steps("fast-tier-cargo")
+        evidence = steps[index_of(steps, lambda s: s.get("id") == "planner-evidence")]
+        self.assertIn("vars.CI_REBUILD_MIRROR) == 'enforce'", evidence["if"])
+        self.assertIn("verify-evidence", evidence["run"])
+        self.assertIn("--evidence-json", evidence["run"])
+        self.assertEqual(evidence["env"]["CI_REBUILD_MIRROR_EVIDENCE"], "${{ vars.CI_REBUILD_MIRROR_EVIDENCE }}")
+        self.assertIs(evidence.get("continue-on-error"), True)
+        lookup = steps[index_of(steps, lambda s: s.get("id") == "planner-reuse")]
+        self.assertIn("vars.CI_REBUILD_MIRROR) == 'enforce'", lookup["if"])
+        self.assertIn("steps.planner-evidence.outputs.eligible == 'true'", lookup["if"])
+        self.assertIn("steps.reuse-key.outputs.candidate_key != ''", lookup["if"])
+        self.assertIn("--trusted-branch feat-cmux-next", lookup["run"])
+        self.assertIn("--trusted-event push", lookup["run"])
+        self.assertIn("--trusted-workflow .github/workflows/cmux-next.yml", lookup["run"])
+        self.assertIn("\n", lookup["run"], "the planner command must stay a YAML block scalar for shell continuations")
+        argv = shlex.split(lookup["run"])
+        self.assertEqual(argv[argv.index("--trusted-workflow") + 1], ".github/workflows/cmux-next.yml")
+        self.assertIn("steps.reuse-key.outputs.candidate_key", lookup["env"]["KEY"])
+        self.assertEqual(lookup.get("env", {}).get("GH_TOKEN"), "${{ github.token }}")
+        self.assertIs(lookup.get("continue-on-error"), True)
+        trusted = steps[index_of(steps, lambda s: s.get("name") == "Reuse the trusted planner pass")]
+        self.assertIn("planner-reuse.outputs.hit", trusted["if"])
+        for step in steps:
+            text = json.dumps(step)
+            if any(marker in text for marker in ("fast-tier.py", "rust-cache", "ghostty-zig-packages")):
+                self.assertIn("steps.planner-reuse.outputs.hit != 'true'", text, step.get("name"))
 
     def test_the_lookup_reads_the_artifact_list(self):
         for job in self.JOBS:
@@ -2308,6 +2338,26 @@ def evaluate(expression: str, context: dict):
         "format": lambda template, *values: re.sub(r"\{(\d+)\}", lambda match: str(values[int(match.group(1))]), template),
     }
     return eval(text, {"__builtins__": {}}, names)  # noqa: S307 - this repository's workflow, not input
+
+
+class PortablePlacementBootstrapAdmission(unittest.TestCase):
+    def test_stale_fleet_label_cannot_block_the_router_before_placement_runs(self):
+        jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text())["jobs"]
+        bootstrap = jobs["portable-placement"]["runs-on"]
+        for fleet in ("", "cmux-fleet-linux-x64", "stale-fleet-label"):
+            for attempt, overflow, expected in ((1, "", "ubuntu-24.04"),
+                                                (1, "1", "ubuntu-24.04"),
+                                                (2, "", "blacksmith-8vcpu-ubuntu-2404"),
+                                                (2, "1", "blacksmith-16vcpu-ubuntu-2404")):
+                with self.subTest(fleet=fleet, attempt=attempt, overflow=overflow):
+                    context = {"github.repository_owner": "manaflow-ai",
+                               "github.event_name": "pull_request",
+                               "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
+                               "github.repository": "manaflow-ai/cmux",
+                               "github.run_attempt": attempt,
+                               "vars.LINUX_RUNNER": fleet,
+                               "vars.CI_CLOUD_OVERFLOW_SAVED": overflow}
+                    self.assertEqual(evaluate(bootstrap, context), expected)
 
 
 class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
