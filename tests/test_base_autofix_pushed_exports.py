@@ -652,6 +652,13 @@ sys.exit(subprocess.run(["jq", "-r", query], input=json.dumps(body), text=True).
                 admitted += not deferred
             print(f"export waiter admissions after failed primary read: {admitted}/9")
             self.assertEqual(admitted, 1)
+            # The kill switch restores admission even with a positively known older carrier.
+            out = work / "disabled-output"
+            done = subprocess.run(["bash", "-c", step.get("run", "")], cwd=ROOT,
+                                  env={**common, "GH_TOKEN": "app-read-token", "GITHUB_RUN_ID": "9",
+                                       "COALESCE": "0", "GITHUB_OUTPUT": str(out)}, capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertEqual(out.read_text(), "mac_busy=false\n")
 
     def pack_step_on(self, event: str, payload: dict) -> str:
         """Run the producer step's dispatch gate with a fake event and a fake pack script."""
@@ -681,7 +688,12 @@ sys.exit(subprocess.run(["jq", "-r", query], input=json.dumps(body), text=True).
         self.assertIn("needs.pushed-exports.outputs.hit != 'true'", mac["if"])
         # Only the run that carries the exports waits for a pack; the others defer and repair the rest at once.
         self.assertIn("needs.action-areas.outputs.mac_busy != 'true'", AUTOFIX["jobs"]["pushed-exports"]["if"])
-        self.assertEqual(AUTOFIX["jobs"]["mac-exports-deferred"]["if"], "needs.action-areas.outputs.mac_busy == 'true'")
+        self.assertIn("needs.pushed-exports.outputs.deferred != 'true'", mac["if"])
+        marker = AUTOFIX["jobs"]["mac-exports-deferred"]
+        self.assertEqual(marker["needs"], ["action-areas", "pushed-exports"])
+        self.assertIn("!cancelled()", marker["if"])
+        self.assertIn("needs.action-areas.outputs.mac_busy == 'true'", marker["if"])
+        self.assertIn("needs.pushed-exports.outputs.deferred == 'true'", marker["if"])
 
     def test_the_consumer_reads_only_and_its_wait_is_bounded(self):
         job = AUTOFIX["jobs"]["pushed-exports"]
@@ -689,6 +701,9 @@ sys.exit(subprocess.run(["jq", "-r", query], input=json.dumps(body), text=True).
         step = next(s for s in job["steps"] if s.get("id") == "lookup")
         # It polls, so only through the App's own budget, never github.token's shared one.
         self.assertEqual(step["env"]["GH_TOKEN"], "${{ steps.read-token.outputs.token }}")
+        self.assertIn("steps.carrier.outputs.mac_busy != 'true'", step["if"])
+        carrier = next(s for s in job["steps"] if s.get("id") == "carrier")
+        self.assertEqual(carrier["env"]["GH_TOKEN"], step["env"]["GH_TOKEN"])
         mint = next(s for s in job["steps"] if s.get("id") == "read-token")
         self.assertEqual(mint["with"]["permission-actions"], "read")
         self.assertTrue(step["continue-on-error"])

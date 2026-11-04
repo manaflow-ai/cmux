@@ -67,9 +67,11 @@ class BaseAutofixFinishes(unittest.TestCase):
             self.assertNotIn("mac_busy", str(step.get("if", "")))
         job = DOC["jobs"]["mac-exports-deferred"]
         self.assertEqual(job["name"], "Mac exports deferred")
-        # A deferred run looks for no pack (pushed-exports is skipped while another run carries the exports).
-        self.assertEqual(job["needs"], "action-areas")
-        self.assertEqual(job["if"], "needs.action-areas.outputs.mac_busy == 'true'")
+        # The primary check skips pushed-exports; its App recheck completes without looking for a pack.
+        self.assertEqual(job["needs"], ["action-areas", "pushed-exports"])
+        self.assertIn("!cancelled()", job["if"])
+        self.assertIn("needs.action-areas.outputs.mac_busy == 'true'", job["if"])
+        self.assertIn("needs.pushed-exports.outputs.deferred == 'true'", job["if"])
         self.assertNotIn("continue-on-error", job)
         run = "\n".join(s.get("run", "") for s in job["steps"])
         self.assertIn("GITHUB_STEP_SUMMARY", run)
