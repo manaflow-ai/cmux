@@ -88,6 +88,32 @@ impl DialCode {
     }
 }
 
+/// A refused dial: its typed code and, when the link sent one, the
+/// `error_detail` that says what failed (which lookup, which handshake).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Refusal {
+    pub code: DialCode,
+    pub detail: Option<String>,
+}
+
+impl From<DialCode> for Refusal {
+    fn from(code: DialCode) -> Self {
+        Self { code, detail: None }
+    }
+}
+
+/// The longest `error_detail` kept: one display line.
+const MAX_DETAIL_CHARS: usize = 300;
+
+/// The link's `error_detail`, one line of at most [`MAX_DETAIL_CHARS`]
+/// printable characters; None when it is absent or empty.
+pub fn clip_detail(text: &str) -> Option<String> {
+    let line: String =
+        text.chars().filter(|c| !c.is_control()).take(MAX_DETAIL_CHARS).collect::<String>();
+    let line = line.trim();
+    (!line.is_empty()).then(|| line.to_owned())
+}
+
 /// The dial's reply line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DialReply {
@@ -95,7 +121,7 @@ pub enum DialReply {
     Connected {
         path_state: String,
     },
-    Refused(DialCode),
+    Refused(Refusal),
 }
 
 /// Reads the dial's first stderr line. Anything that is not a reply (an
@@ -105,21 +131,27 @@ pub fn parse_reply(line: &str) -> DialReply {
     let text = line.trim();
     let Ok(value) = serde_json::from_str::<Value>(text) else {
         let shown: String = text.chars().take(200).collect();
-        return DialReply::Refused(DialCode::Unavailable(if shown.is_empty() {
-            "cmux link gave no reply".into()
-        } else {
-            format!("cmux link: {shown}")
-        }));
+        return DialReply::Refused(
+            DialCode::Unavailable(if shown.is_empty() {
+                "cmux link gave no reply".into()
+            } else {
+                format!("cmux link: {shown}")
+            })
+            .into(),
+        );
     };
     match value["ok"].as_bool() {
         Some(true) => DialReply::Connected {
             path_state: value["path_state"].as_str().unwrap_or("direct").to_owned(),
         },
-        Some(false) => DialReply::Refused(
-            value["error_code"]
+        Some(false) => DialReply::Refused(Refusal {
+            code: value["error_code"]
                 .as_str()
                 .map_or_else(|| DialCode::Unavailable("cmux link refused".into()), DialCode::parse),
-        ),
-        None => DialReply::Refused(DialCode::Unavailable("cmux link sent no ok field".into())),
+            detail: value["error_detail"].as_str().and_then(clip_detail),
+        }),
+        None => {
+            DialReply::Refused(DialCode::Unavailable("cmux link sent no ok field".into()).into())
+        }
     }
 }

@@ -93,11 +93,25 @@ pub struct DialReply {
     pub relay_available: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_code: Option<DialError>,
+    /// What failed, in one line (which lookup, which handshake, the
+    /// backend's refusal code): `error_code` keeps the typed retry
+    /// contract, this says why. Never a credential.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_detail: Option<String>,
 }
+
+/// The longest [`DialReply::error_detail`]: one display line.
+pub const MAX_ERROR_DETAIL_CHARS: usize = 300;
 
 impl DialReply {
     pub fn connected(path_state: PathState) -> Self {
-        Self { ok: true, path_state, relay_available: RELAY_AVAILABLE, error_code: None }
+        Self {
+            ok: true,
+            path_state,
+            relay_available: RELAY_AVAILABLE,
+            error_code: None,
+            error_detail: None,
+        }
     }
 
     pub fn failed(error: DialError) -> Self {
@@ -106,6 +120,19 @@ impl DialReply {
             path_state: PathState::Unreachable,
             relay_available: RELAY_AVAILABLE,
             error_code: Some(error),
+            error_detail: None,
+        }
+    }
+
+    /// A failure with what failed: control characters dropped, at most
+    /// [`MAX_ERROR_DETAIL_CHARS`].
+    pub fn failed_because(error: DialError, detail: &str) -> Self {
+        let detail: String =
+            detail.chars().filter(|c| !c.is_control()).take(MAX_ERROR_DETAIL_CHARS).collect();
+        let detail = detail.trim();
+        Self {
+            error_detail: (!detail.is_empty()).then(|| detail.to_owned()),
+            ..Self::failed(error)
         }
     }
 }
@@ -274,6 +301,16 @@ mod tests {
             line(&DialReply::failed(DialError::HostPaused)),
             "{\"ok\":false,\"path_state\":\"unreachable\",\"relay_available\":false,\"error_code\":\"host_paused\"}\n"
         );
+        assert_eq!(
+            line(&DialReply::failed_because(
+                DialError::Unreachable,
+                "connect_info: cloud.machine.not_bound\n"
+            )),
+            "{\"ok\":false,\"path_state\":\"unreachable\",\"relay_available\":false,\"error_code\":\"unreachable\",\"error_detail\":\"connect_info: cloud.machine.not_bound\"}\n"
+        );
+        let long = DialReply::failed_because(DialError::Unreachable, &"x".repeat(1000));
+        assert_eq!(long.error_detail.map(|d| d.len()), Some(MAX_ERROR_DETAIL_CHARS));
+        assert_eq!(DialReply::failed_because(DialError::Unreachable, " \n").error_detail, None);
     }
 
     #[test]

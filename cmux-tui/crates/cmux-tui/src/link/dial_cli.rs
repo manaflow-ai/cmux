@@ -61,12 +61,21 @@ impl Failure {
 
     /// The stderr JSON line for this failure.
     pub(super) fn line(self) -> String {
-        line(&json!({
+        self.line_because(None)
+    }
+
+    /// The stderr JSON line, with the link's `error_detail` when it sent one.
+    pub(super) fn line_because(self, detail: Option<&str>) -> String {
+        let mut value = json!({
             "ok": false,
             "error_code": self.error_code(),
             "path_state": PathState::Unreachable,
             "relay_available": cmux_link::dial::RELAY_AVAILABLE,
-        }))
+        });
+        if let Some(detail) = detail {
+            value["error_detail"] = json!(detail);
+        }
+        line(&value)
     }
 }
 
@@ -133,16 +142,28 @@ pub(super) fn chosen_socket(explicit: Option<&Path>) -> Result<PathBuf, Failure>
 }
 
 /// Dial through the link at `socket`.
+#[cfg(test)]
 pub(super) async fn connect(
     socket: &Path,
     host: &str,
     service: Service,
 ) -> Result<OverlayStream, Failure> {
+    connect_because(socket, host, service).await.map_err(|(failure, _)| failure)
+}
+
+/// [`connect`], with the link's `error_detail` of a refusal.
+pub(super) async fn connect_because(
+    socket: &Path,
+    host: &str,
+    service: Service,
+) -> Result<OverlayStream, (Failure, Option<String>)> {
     match dial_link(socket, host, service).await {
         Ok(stream) => Ok(stream),
-        Err(OverlayDialError::Refused { error, .. }) => Err(Failure::Refused(error)),
+        Err(OverlayDialError::Refused { error, detail, .. }) => {
+            Err((Failure::Refused(error), detail))
+        }
         Err(OverlayDialError::LinkUnavailable(_) | OverlayDialError::Protocol) => {
-            Err(Failure::LinkUnavailable)
+            Err((Failure::LinkUnavailable, None))
         }
     }
 }
@@ -170,9 +191,12 @@ pub(super) fn run(args: &[String]) -> i32 {
     };
     let Ok(runtime) = super::tokio_runtime() else { return report(Failure::LinkUnavailable) };
     let code = runtime.block_on(async {
-        let stream = match connect(&socket, &host, service).await {
+        let stream = match connect_because(&socket, &host, service).await {
             Ok(stream) => stream,
-            Err(failure) => return report(failure),
+            Err((failure, detail)) => {
+                eprint!("{}", failure.line_because(detail.as_deref()));
+                return failure.exit_code();
+            }
         };
         eprint!("{}", connected_line(&stream));
         bridge(stream).await;
