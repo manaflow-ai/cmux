@@ -184,6 +184,45 @@ struct CloudWelcomeTests {
         #expect(fractions == fractions.sorted())
     }
 
+    /// The Sentry stack this guards: TimelineView body, `progress`, `fraction`,
+    /// `-[AVPlayerItem currentTime]`, which waits on an AVFoundation mutex while
+    /// the player is busy. This renders the shipped welcome with its real clip,
+    /// so it covers the view body that `playbackFractionDoesNotQueryPlayer` does not.
+    @Test("the rendered welcome pager advances with its movie without reading the player's time")
+    @MainActor
+    func renderedPagerNeverReadsPlayerTime() async throws {
+        let counter = CarouselPlayheadReadCounter.install()
+        defer { counter.uninstall() }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 720),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: CloudWelcomeView(nextStep: .upgrade, onNotNow: {}, onNext: { _ in }))
+        window.orderFrontRegardless()
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        // The wall-clock fallback also moves the fill, so the movie must be on screen first.
+        let movieReady = await pump(seconds: 30) {
+            renderedMovieLayers(in: window).contains { $0.isReadyForDisplay && $0.player?.currentItem?.status == .readyToPlay }
+        }
+        #expect(movieReady)
+
+        var fills = Set<Int>()
+        let advanced = await pump(seconds: 15) {
+            fills.formUnion(renderedFillOffsets(in: window))
+            return fills.count >= 10
+        }
+        #expect(advanced, "the pager fill took \(fills.count) positions, so its TimelineView body did not keep rendering")
+        #expect(counter.reads == 0)
+    }
+
     @Test("a cached playhead holds while stopped, clamps at the end and clears on detach")
     @MainActor
     func cachedPlayheadLifecycle() {
@@ -498,6 +537,87 @@ struct CloudWelcomeTests {
         await CloudWelcomeWindowController.resume({ resumed += 1 }, after: failing)
         #expect(failing.state == .failed(.serviceUnavailable))
         #expect(resumed == 1)
+    }
+}
+
+/// Runs the main run loop until `condition` holds or the time is up.
+@MainActor
+private func pump(seconds: TimeInterval, until condition: () -> Bool) async -> Bool {
+    let deadline = Date().addingTimeInterval(seconds)
+    while Date() < deadline {
+        if condition() { return true }
+        RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
+        await Task.yield()
+    }
+    return condition()
+}
+
+@MainActor
+private func renderedViews(in window: NSWindow) -> [NSView] {
+    var views: [NSView] = []
+    var pending = window.contentView.map { [$0] } ?? []
+    while let view = pending.popLast() {
+        views.append(view)
+        pending.append(contentsOf: view.subviews)
+    }
+    return views
+}
+
+@MainActor
+private func renderedMovieLayers(in window: NSWindow) -> [AVPlayerLayer] {
+    renderedViews(in: window).compactMap { $0.layer as? AVPlayerLayer }
+}
+
+/// Where each pager fill's layer sits, in whole points. The fill slides in as progress rises.
+@MainActor
+private func renderedFillOffsets(in window: NSWindow) -> [Int] {
+    renderedViews(in: window)
+        .filter { String(describing: type(of: $0)).contains("FillView") }
+        .compactMap { $0.layer?.sublayers?.first.map { Int($0.frame.minX.rounded()) } }
+}
+
+/// Counts `-[AVPlayerItem currentTime]` calls made from the welcome carousel,
+/// across the real AVFoundation path, by exchanging the method for one test.
+private final class CarouselPlayheadReadCounter {
+    private nonisolated(unsafe) static var current: CarouselPlayheadReadCounter?
+    private let lock = NSLock()
+    private var count = 0
+
+    var reads: Int { lock.withLock { count } }
+
+    static func install() -> CarouselPlayheadReadCounter {
+        let counter = CarouselPlayheadReadCounter()
+        current = counter
+        exchange()
+        return counter
+    }
+
+    func uninstall() {
+        Self.exchange()
+        Self.current = nil
+    }
+
+    fileprivate static func recordIfFromCarousel() {
+        guard let current, Thread.callStackSymbols.contains(where: { $0.contains("CloudWelcomeMediaCarousel") }) else { return }
+        current.lock.withLock { current.count += 1 }
+    }
+
+    private static func exchange() {
+        guard let original = class_getInstanceMethod(AVPlayerItem.self, #selector(AVPlayerItem.currentTime)),
+              let counting = class_getInstanceMethod(AVPlayerItem.self, #selector(AVPlayerItem.countingCurrentTime))
+        else {
+            Issue.record("AVPlayerItem.currentTime could not be exchanged")
+            return
+        }
+        method_exchangeImplementations(original, counting)
+    }
+}
+
+private extension AVPlayerItem {
+    /// After the exchange this name runs the original `currentTime`.
+    @objc dynamic func countingCurrentTime() -> CMTime {
+        CarouselPlayheadReadCounter.recordIfFromCarousel()
+        return countingCurrentTime()
     }
 }
 
