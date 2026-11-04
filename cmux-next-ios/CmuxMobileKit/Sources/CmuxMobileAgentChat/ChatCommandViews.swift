@@ -122,7 +122,8 @@ struct SessionStatusSheet: View {
                     } description: {
                         Text(message)
                     } actions: {
-                        Button("Try Again") { Task { await read() } }
+                        // read() swaps this view for the spinner first; keep it out of the button's task.
+                        RetryButton("Try Again") { Task { await read() } }
                     }
                 case .loaded(let status):
                     List {

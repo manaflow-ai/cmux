@@ -242,6 +242,8 @@
       "reads no picker output and so waits on one fixed label (scripts/ci/runner_routing_table.py). All three",
       "lists only shrink."
     ],
+    "pr-red-checks-comment.yml#comment": "portable-checks",
+    "ci-guards.yml#guard-status": "portable-checks",
     "pr-checks.yml#size": "portable-checks",
     "pr-checks.yml#ui-review": "portable-checks",
     "pr-checks.yml#split": "portable-checks",
@@ -292,6 +294,7 @@
       "class": "apple-app-build",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
+    "cloud-chat-proof.yml#proof": {"class": "apple-app-build", "picker_followup": "builds and runs the tagged app while holding the dev stack pair: an ephemeral Blacksmith Mac from the declared macos_26 pool only, never a persistent owned Mac; an owned route needs the per-job secret isolation the signing pickers use"},
     "cmux-mobile-ffi.yml#apple": {
       "class": "apple-swift-tests",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
@@ -595,6 +598,8 @@
       "Secretless placement bootstraps are admitted as light jobs so their short runner-state read cannot queue behind the paid overflow.",
       "They fail open to the workflow's existing hosted or Blacksmith fallback when CI_RUNNER_STATE is stale or unavailable."
     ],
+    "pr-red-checks-comment.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
+    "ci-guards.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap after guard completion"},
     "pr-checks.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
     "cmux-next-fast-gates.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
     "web-validation.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"}
