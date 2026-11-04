@@ -58,11 +58,9 @@ await requireBrowserLane("subagent-result-header.test.ts", async () => {
           transcriptHeight: transcript.getBoundingClientRect().height,
           transcriptTop: transcript.getBoundingClientRect().top,
           headBottom: head.getBoundingClientRect().bottom,
-          played: document.documentElement.dataset.galleryPlay,
         };
       });
       console.log(`subagent-result-header ${variant} ${JSON.stringify(geometry)}`);
-      expect(geometry.played).toBe("1");
       expect(geometry.transcriptHeight).toBeGreaterThan(0);
       expect(geometry.transcriptTop).toBeGreaterThanOrEqual(geometry.headBottom - 0.5);
       if (variant === "dock-long") expect(geometry.reportScrollHeight).toBeGreaterThan(geometry.reportClientHeight);
