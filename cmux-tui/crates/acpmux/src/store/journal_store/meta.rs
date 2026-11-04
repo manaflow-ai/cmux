@@ -130,7 +130,13 @@ fn session_json_lsn(dir: &Path) -> Lsn {
 
 /// Writes `meta` (the image of LSN `lsn`) to `dir`'s `session.json`, durably.
 fn write_session_json(dir: &Path, meta: &SessionMeta, lsn: Lsn) -> Result<()> {
-    crate::config::write_atomic(&dir.join("session.json"), &session_json(meta, lsn)?)
+    let written = crate::config::write_atomic(&dir.join("session.json"), &session_json(meta, lsn)?);
+    // Tests: `write_atomic` syncs the file and its folder (two drive flushes on macOS).
+    #[cfg(test)]
+    if written.is_ok() {
+        log_sync::FULL_SYNCS.fetch_add(2, std::sync::atomic::Ordering::SeqCst);
+    }
+    written
 }
 
 impl super::repair::Replay {

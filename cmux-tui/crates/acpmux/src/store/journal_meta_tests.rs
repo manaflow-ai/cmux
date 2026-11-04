@@ -353,3 +353,46 @@ fn the_checkpoint_never_makes_a_folder_removed_outside_the_store_again() {
         "a removed chat still reads"
     );
 }
+
+// ---------------------------------------------------------------- the open's syncs
+
+/// An open that replays many chats flushes the drive's cache a bounded number of times, not a
+/// few times per chat: on macOS each flush (`F_FULLFSYNC`) costs milliseconds, and at 29 ms per
+/// replayed chat (fleet ead05e82, aws-m4pro-5) an open after a kill with 300 active chats took
+/// 8.8 s, past the daemon's 8 s start budget. Every file is still made durable (the order of the
+/// writes is kept with a barrier sync, and one full flush ends the open).
+#[test]
+fn an_open_that_replays_many_chats_flushes_the_drive_a_bounded_number_of_times() {
+    use super::log_sync::FULL_SYNCS;
+    use std::sync::atomic::Ordering;
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(70);
+    let store = open(home.path(), &journal);
+    let chats = 40;
+    for chat in 0..chats {
+        let id = format!("chat-{chat}");
+        store.save(&meta(&id, "chat", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+        store.append(&id, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for chat in 0..chats {
+        let id = format!("chat-{chat}");
+        store.append(&id, &record(2, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+        store.save(&meta(&id, "renamed", 2)).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    let before = FULL_SYNCS.load(Ordering::SeqCst);
+    let store = open(home.path(), &killed);
+    let flushes = FULL_SYNCS.load(Ordering::SeqCst).saturating_sub(before);
+    for chat in 0..chats {
+        let id = format!("chat-{chat}");
+        assert_eq!(seqs(store.as_ref(), &id), vec![1, 2], "{id} lost a line");
+    }
+    assert!(
+        flushes <= 8,
+        "the open flushed the drive {flushes} times for {chats} replayed chats (one or two per open, not per chat)"
+    );
+}

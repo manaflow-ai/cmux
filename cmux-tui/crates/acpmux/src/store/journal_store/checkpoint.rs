@@ -63,7 +63,7 @@ fn write_checkpoint(home: &Path, lsn: Lsn) -> Result<()> {
     }
     let mut file = options.open(&tmp).with_context(|| format!("write {}", tmp.display()))?;
     file.write_all(&bytes)?;
-    file.sync_all()?;
+    log_sync::sync_full(&file)?;
     drop(file);
     std::fs::rename(&tmp, &path).with_context(|| format!("rename to {}", path.display()))?;
     sync_directory(home)

@@ -1803,7 +1803,7 @@ fn sync_directory(path: &Path) -> Result<()> {
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
         .open(path)?;
-    dir.sync_all().map_err(SyncFailed)?;
+    log_sync::sync_full(&dir).map_err(SyncFailed)?;
     Ok(())
 }
 

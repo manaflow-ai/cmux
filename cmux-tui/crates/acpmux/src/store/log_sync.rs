@@ -10,6 +10,11 @@ thread_local! {
     pub(crate) static FAIL_NEXT_LOG_SYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+/// Tests: the syncs that flush the drive's cache (on macOS every `sync_all`/`sync_data` is an
+/// `F_FULLFSYNC`), counted.
+#[cfg(test)]
+pub(crate) static FULL_SYNCS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Syncs one log segment: its data, or with `all` its metadata too. The tests' crash model
 /// follows each sync (`store/sync_model.rs`).
 pub(super) fn sync_segment(file: &File, all: bool) -> std::io::Result<()> {
@@ -20,8 +25,22 @@ pub(super) fn sync_segment(file: &File, all: bool) -> std::io::Result<()> {
         return Err(std::io::Error::other("a failed sync (a test)"));
     }
     let result = if all { file.sync_all() } else { file.sync_data() };
+    #[cfg(test)]
+    if result.is_ok() {
+        FULL_SYNCS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
     #[cfg(all(test, unix))]
     super::sync_model::synced(file, result.is_ok());
+    result
+}
+
+/// `sync_all` of a file or folder (the drive's cache flushed on macOS), counted in tests.
+pub(super) fn sync_full(file: &File) -> std::io::Result<()> {
+    let result = file.sync_all();
+    #[cfg(test)]
+    if result.is_ok() {
+        FULL_SYNCS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
     result
 }
 
