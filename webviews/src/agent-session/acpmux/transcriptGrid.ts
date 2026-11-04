@@ -78,15 +78,17 @@ export function rowMark(row: MarkedRow): number {
     return MARK_FOOTER_SLOT;
   // The live line (turns.ts WORKING and THINKING, by value: this module stays import-free).
   if (row.kind === "working" || row.kind === "thinking") return MARK_INDICATOR;
-  if (row.kind === "turnSummary")
+  if (row.kind === "turnSummary") {
     // turns.ts isEmptyFooter's inverse, inline so this module stays import-free.
+    const endsOnWork = row.retryable === true && (row.turnCopy?.length ?? 0) > 0;
+    const offersRetry = row.retryable === true && Boolean(row.prompt) && Boolean(row.retryRowId);
     return row.status !== "failed" &&
       row.status !== "error" &&
       !row.resumable &&
-      ((row.text?.length ?? 0) > 0 ||
-        (row.retryable === true && ((row.turnCopy?.length ?? 0) > 0 || (Boolean(row.prompt) && Boolean(row.retryRowId)))))
+      ((row.text?.length ?? 0) > 0 || endsOnWork || offersRetry)
       ? MARK_FOOTER_ROW
       : MARK_FOOTER;
+  }
   return MARK_OTHER;
 }
 
