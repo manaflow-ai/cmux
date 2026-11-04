@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextFocus
+import CmuxNextFocusUI
 
 // A web page keeps the shortcuts it handles. Chrome gives a page every key but its reserved
 // window keys first; Google Sheets takes Cmd-F for its own search with `preventDefault`. cmux
@@ -41,7 +42,7 @@ extension KeyRouter {
 
     /// Holds `candidate` until the page of `tab` reports `event` unhandled.
     func offerToPage(_ event: NSEvent, candidate: Candidate, context: KeyContext, window: String, tab: ObjectIdentifier) {
-        pageFirstOffer.offer(event, PageFirstKeyOffer.Held(candidate: candidate, context: context, window: window, tab: tab))
+        pageFirstOffer.offer(event, HeldPageAction(candidate: candidate, context: context, window: window), tab: tab)
         trace?("dispatcher: the page gets the key first; \(candidate.id.rawValue) runs if it is left unhandled")
     }
 

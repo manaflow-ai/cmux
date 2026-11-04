@@ -370,7 +370,14 @@ final class KeyRouter: BrowserKeyRouting {
     var chords = ChordTracker()
 
     /// The key-down a page has first, with the action to run if it reports the key unhandled.
-    var pageFirstOffer = PageFirstKeyOffer()
+    var pageFirstOffer = PageFirstKeyOffer<HeldPageAction>()
+
+    /// The cmux action a page-first key runs if its page leaves the key unhandled.
+    struct HeldPageAction {
+        var candidate: Candidate
+        var context: KeyContext
+        var window: String
+    }
 
     /// Whether a chord, the Cmd-J leader included, may arm in `focus`:
     /// where content shortcuts run (a terminal, a page, an agent chat, the
