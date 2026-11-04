@@ -401,6 +401,9 @@ def test_themes_and_gobject_get_pinned_texts() -> None:
 Z2D_NEXT = "z2d-0.12.1-j5P_Hsw8EQAKyZTQICCQnAH2xYkLDW8k9uefbsYdfPZ-"
 THEMES_NEXT = "N-V-__8AAM94BAAFk_hn4UW0x_OBD2g0vOwexeAAyWNNo4eB"
 GOBJECT_NEXT = "gobject-0.3.2-Skun7F6HogCMynX2JqeSHS7xr-8pK4ob-qRFIcEasVi3"
+# ghostty-next a6b9048e (upstream Ghostty c7f68a7f merged): newer themes and gobject releases.
+THEMES_NEXT_2 = "N-V-__8AAIs9BgCF_swp81fS2tAWIJytW8NCUa6EbSOygPE3"
+GOBJECT_NEXT_2 = "gobject-0.3.2-Skun7LuIogBbEh-6WrLeEzMaRCnOMB3eOf__RaPYSMCZ"
 
 
 def test_ghostty_next_packages_get_pinned_texts() -> None:
@@ -410,24 +413,25 @@ def test_ghostty_next_packages_get_pinned_texts() -> None:
     other two reuse texts that are byte-equal upstream."""
     manifest = json.loads((PINNED / "MANIFEST.json").read_text())
     assert manifest["packages"]["z2d@0.12.1"]["packages"] == [Z2D_NEXT]
-    with tempfile.TemporaryDirectory(prefix="cmux-ghostty-next-") as raw:
-        work = Path(raw)
-        source, cache = build_fixture(work)
-        add_themes_and_gobject(source, THEMES_NEXT, GOBJECT_NEXT)
-        output = work / "collected"
-        assert collect_in_process(source, cache, output, z2d=Z2D_NEXT) == 0
-        collected = json.loads((output / "SOURCE-MANIFEST.json").read_text())
-        assert collected["unresolved_packages"] == []
-        z2d = {e["source"]: e for e in collected["license_files"] if e["package"] == Z2D_NEXT}
-        for item in manifest["packages"]["z2d@0.12.1"]["files"]:
-            entry = z2d[item["upstream"]]
-            assert (output / entry["destination"]).read_bytes() == (PINNED / item["path"]).read_bytes()
-        offer = (output / z2d[f"source-offer:{Z2D_NEXT}"]["destination"]).read_text()
-        assert "z2d 0.12.1 is licensed under the Mozilla Public License 2.0" in offer
-        assert "7dbae85c81784dba9988320bf9543ed9a81350c8" in offer
-        assert "upstream tag v0.12.1" in offer
-        packages = {e["package"] for e in collected["license_files"]}
-        assert THEMES_NEXT in packages and GOBJECT_NEXT in packages
+    for themes, gobject in ((THEMES_NEXT, GOBJECT_NEXT), (THEMES_NEXT_2, GOBJECT_NEXT_2)):
+        with tempfile.TemporaryDirectory(prefix="cmux-ghostty-next-") as raw:
+            work = Path(raw)
+            source, cache = build_fixture(work)
+            add_themes_and_gobject(source, themes, gobject)
+            output = work / "collected"
+            assert collect_in_process(source, cache, output, z2d=Z2D_NEXT) == 0, themes
+            collected = json.loads((output / "SOURCE-MANIFEST.json").read_text())
+            assert collected["unresolved_packages"] == []
+            z2d = {e["source"]: e for e in collected["license_files"] if e["package"] == Z2D_NEXT}
+            for item in manifest["packages"]["z2d@0.12.1"]["files"]:
+                entry = z2d[item["upstream"]]
+                assert (output / entry["destination"]).read_bytes() == (PINNED / item["path"]).read_bytes()
+            offer = (output / z2d[f"source-offer:{Z2D_NEXT}"]["destination"]).read_text()
+            assert "z2d 0.12.1 is licensed under the Mozilla Public License 2.0" in offer
+            assert "7dbae85c81784dba9988320bf9543ed9a81350c8" in offer
+            assert "upstream tag v0.12.1" in offer
+            packages = {e["package"] for e in collected["license_files"]}
+            assert themes in packages and gobject in packages
 
 
 def test_vendored_directory_without_license_is_unresolved() -> None:
