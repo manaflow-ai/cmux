@@ -54,7 +54,9 @@ describe("the running tray header counts each kind", () => {
       [agent("d", "completed"), agent("f", "failed"), agent("x", "cancelled")],
       { waiting: new Set(["w"]) },
     );
-    expect(counts.text).toBe("2 subagents running · 1 session · 1 waiting · 1 command · 1 subagent done");
+    expect(counts.text).toBe(
+      "2 subagents running · 1 session · 1 waiting · 1 command · 1 subagent done · 1 stopped",
+    );
     expect(counts.failed).toBe(1);
     // A Codex subagent under a Claude chat is named by its mark; the chat's own family is not.
     expect(counts.marks).toEqual(["codex"]);

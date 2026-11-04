@@ -348,6 +348,8 @@ export const SubagentTray = memo(function SubagentTray({
   // top bit aka what the collapsed area shows i think can show much more interesting stuf fthan it
   // does now").
   const counts = headCounts;
+  const stacked = new Set(headMarks.map((mark) => mark.harness).filter(Boolean));
+  const trailingMarks = counts.marks.filter((harness) => !stacked.has(harness));
   const title = counts.text;
   // Its subagents and the chats it started run, or a command does: the header's mark is lit.
   const commands = items.filter((item) => item.kind === "command").length;
@@ -497,9 +499,10 @@ export const SubagentTray = memo(function SubagentTray({
               {t("summary.subagents.failed", { n: counts.failed })}
             </span>
           )}
-          {!named && counts.marks.length > 0 && (
+          {/* A family the stacked marks already draw is not drawn again here. */}
+          {!named && trailingMarks.length > 0 && (
             <span className="acpmux-running-tray__marks" data-tray-marks>
-              {counts.marks.map((harness) => (
+              {trailingMarks.map((harness) => (
                 <AgentMark key={harness} agent={harness} size={ROW_ICON} label={harness} />
               ))}
             </span>
