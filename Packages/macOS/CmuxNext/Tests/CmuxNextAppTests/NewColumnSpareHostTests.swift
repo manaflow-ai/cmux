@@ -90,6 +90,11 @@ import Testing
             return seen
         }
         let before = inWindow()
+        // A probe in the pane views made ahead: AppKit's window walk on them would call viewWillMove(toWindow:).
+        let spare = try #require(content.paneSpare.ready, "no pane views were made ahead while the app was still")
+        let probe = WindowMoveProbe(frame: .zero)
+        spare.view.addSubview(probe)
+        probe.moves = 0
 
         // The key's turn of New Column (`WorkspaceContentController.newColumn` -> `createInKeysTurn`).
         let provisional = ProvisionalPane(columnWidth: 0.5, left: false)
@@ -103,5 +108,15 @@ import Testing
         #expect(before.contains(ObjectIdentifier(host)), "the key's turn put a new pane host in the window (AppKit's window walk)")
         #expect(before.contains(ObjectIdentifier(made.view)), "the key's turn put a new pane view in the window")
         #expect(!host.isHidden && !made.view.isHiddenOrHasHiddenAncestor, "the new column's pane does not show")
+        #expect(probe.moves == 0, "the key's turn moved the new pane's views between windows \(probe.moves) times")
+    }
+}
+
+/// Counts window moves (AppKit's `_setWindow` walk reaches every view of a subtree that changes window).
+private final class WindowMoveProbe: NSView {
+    var moves = 0
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        moves += 1
+        super.viewWillMove(toWindow: newWindow)
     }
 }
