@@ -35,15 +35,21 @@ def artifact(run_id: int, *, name: str = KEY, head_repo: int = REPO_ID, repo: in
                              "head_branch": branch, "event": event, "head_sha": sha}}
 
 
-def lookup(artifacts: list[dict] | str, key: str = KEY, **env: str) -> tuple[dict, str, int]:
+def lookup(artifacts: list[dict] | str, key: str = KEY, *, trusted_branch: str | None = None,
+           trusted_event: str | None = None, **env: str) -> tuple[dict, str, int]:
     with tempfile.TemporaryDirectory() as tmp:
         listing = Path(tmp) / "artifacts.json"
         listing.write_text(artifacts if isinstance(artifacts, str) else json.dumps(
             {"total_count": len(artifacts), "artifacts": artifacts}))
         environment = {"PATH": os.environ.get("PATH", ""), "GITHUB_REPOSITORY": "manaflow-ai/cmux",
                        "GITHUB_REPOSITORY_ID": str(REPO_ID), "GITHUB_SERVER_URL": "https://github.com", **env}
-        result = subprocess.run([sys.executable, "-I", str(SCRIPT), "lookup", "--key", key,
-                                 "--artifacts-json", str(listing)],
+        argv = [sys.executable, "-I", str(SCRIPT), "lookup", "--key", key,
+                "--artifacts-json", str(listing)]
+        if trusted_branch is not None:
+            argv.extend(["--trusted-branch", trusted_branch])
+        if trusted_event is not None:
+            argv.extend(["--trusted-event", trusted_event])
+        result = subprocess.run(argv,
                                 capture_output=True, text=True, timeout=60, env=environment)
     outputs = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
     return outputs, result.stderr, result.returncode
