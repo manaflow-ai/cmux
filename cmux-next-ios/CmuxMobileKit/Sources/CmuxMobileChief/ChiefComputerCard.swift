@@ -10,24 +10,24 @@ struct ChiefComputerSection: View {
     let computer: ChiefComputer
 
     var body: some View {
-            if let shown = computer.shown {
-                Section {
-                    ChiefComputerScreen(state: shown.state, frame: computer.frame, title: shown.title)
-                        .listRowInsets(EdgeInsets())
-                    HStack {
-                        Text(shown.state.title)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("chief.settings.computer.state")
-                } header: {
-                    Text(shown.title)
-                        .accessibilityAddTraits(.isHeader)
-                        .accessibilityIdentifier("chief.settings.computer")
+        if let shown = computer.shown {
+            Section {
+                ChiefComputerScreen(state: shown.state, frame: computer.frame, title: shown.title)
+                    .listRowInsets(EdgeInsets())
+                HStack {
+                    Text(shown.state.title)
+                        .foregroundStyle(.secondary)
+                    Spacer()
                 }
-                .listRowBackground(ChiefInfoGeometry.card)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("chief.settings.computer.state")
+            } header: {
+                Text(shown.title)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("chief.settings.computer")
             }
+            .listRowBackground(ChiefInfoGeometry.card)
+        }
     }
 }
 

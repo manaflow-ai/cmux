@@ -107,9 +107,8 @@ final class HomeHostView: NSView {
         petRows.onRefusal = { [settingsView] in settingsView.showNote($0) }  // why an upload was refused
         petRows.install(in: self, addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) },
                         open: { [weak self] in self?.toggleChiefSettings(openOnly: true) ?? false })
-        settingsView.computer.source = .init(paid: { [weak services] in services?.machines.cloudLimits?.paysForCloud == true },
-            chief: { [weak service] in service?.chiefName(of: id) ?? HomeStrings.chiefName },
-            route: HomeChiefComputerRoute(agent: { [weak self] in self?.control.cloudAgentID }, send: service.hostedChief.brainRoute))
+        settingsView.computer.source = .init(paid: { [weak services] in services?.machines.cloudLimits?.paysForCloud == true }, chief: { [weak service] in service?.chiefName(of: id) ?? HomeStrings.chiefName },
+            route: HomeChiefComputerRoute(agent: { [weak services] in services?.home.cloudChiefs.chief(for: conversation)?.id }, send: service.hostedChief.brainRoute))
         settingsView.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()
             // Each Chief's tile reads its own brain home: this re-reads them, so only the

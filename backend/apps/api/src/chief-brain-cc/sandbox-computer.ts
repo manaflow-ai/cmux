@@ -17,14 +17,20 @@ import { execAs } from "./sandbox-access.ts"
  *   (`GET /v1/chiefs/<agent>/computer/screen`, chief-brain/routes.ts), which checks the owner first.
  * - Typed text and URLs reach the VM as environment values, never inside the command line; coordinates and key
  *   names are checked before they are used.
- * - The owner's view never wakes the computer: a paused one answers asleep (409), and costs nothing.
+ * - The owner's view never wakes the computer: a paused one answers asleep (409). Nor does it keep one awake: after
+ *   IDLE_MS without a Chief action the view shows the last frame instead of asking the VM, so an open profile does not
+ *   hold off the sandbox's idle pause.
  */
 export const COMPUTER_KEY = "cc_computer"
 export const COMPUTER_USED_KEY = "cc_computer_used_at"
+/** When the Chief last acted on its computer (ms): the owner's live view follows only recent work. */
+export const COMPUTER_ACTIVE_KEY = "cc_computer_active_at"
 export const SCREEN = { width: 1280, height: 800 }
 const DISPLAY = ":1"
 /** A frame the owner's view may reuse instead of asking the VM again (several viewers, one shot). */
 const SHOT_REUSE_MS = 700
+/** No Chief action for this long: the owner's view stops asking the VM for frames. */
+const IDLE_MS = 10 * 60_000
 const TEXT_MAX = 2000
 const URL_MAX = 2000
 
@@ -52,6 +58,12 @@ export const computerUsedAt = (b: ChiefBrainDO): number | null => {
 }
 
 /** The sandbox `id` is gone: when it was the computer, the Chief has none until the next setup. */
+/** Whether the Chief acted on its computer within IDLE_MS (the owner's view refreshes only then). */
+export const computerIdle = (b: ChiefBrainDO, now = Date.now()): boolean => {
+  const n = Number(configValue(b, COMPUTER_ACTIVE_KEY))
+  return !(Number.isFinite(n) && now - n < IDLE_MS)
+}
+
 export const forgetComputer = (b: ChiefBrainDO, id?: string) => {
   const c = computerOf(b)
   if (c && (id === undefined || c.id === id)) b.sql.exec(`DELETE FROM cb_config WHERE name = ?`, COMPUTER_KEY)
@@ -67,12 +79,13 @@ id chief >/dev/null 2>&1 || useradd -m -s /bin/bash chief
 need=""
 for c in Xvfb xdotool fluxbox import xdpyinfo xsetroot; do command -v "$c" >/dev/null 2>&1 || need=1; done
 if [ -n "$need" ]; then
-  apt-get update -qq
-  apt-get install -y -qq --no-install-recommends xvfb xdotool fluxbox imagemagick x11-utils x11-xserver-utils fonts-dejavu-core fonts-noto-color-emoji wget ca-certificates >/dev/null
+  # A fresh VM's unattended upgrades can hold the dpkg lock for a few minutes: wait for it, don't fail.
+  apt-get -o DPkg::Lock::Timeout=120 update -qq
+  apt-get -o DPkg::Lock::Timeout=120 install -y -qq --no-install-recommends xvfb xdotool fluxbox imagemagick x11-utils x11-xserver-utils fonts-dejavu-core fonts-noto-color-emoji wget ca-certificates >/dev/null
 fi
 if ! command -v google-chrome >/dev/null 2>&1; then
   wget -q -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-  apt-get install -y -qq /tmp/chrome.deb >/dev/null
+  apt-get -o DPkg::Lock::Timeout=120 install -y -qq /tmp/chrome.deb >/dev/null
   rm -f /tmp/chrome.deb
 fi
 cat > /usr/local/bin/chief-desktop <<'EOF'
@@ -149,7 +162,10 @@ export const inputCommand = (op: string, req: Req): { command: string; env?: Rec
       const url = typeof req.url === "string" ? req.url : ""
       if (!/^https?:\/\/\S+$/.test(url) || url.length > URL_MAX) return "url must be an http or https address"
       return {
-        command: `${x} setsid nohup google-chrome --no-first-run --no-default-browser-check --disable-dev-shm-usage --start-maximized --user-data-dir="$HOME/.chief-chrome" -- "$CHIEF_URL" >/dev/null 2>&1 < /dev/null & sleep 2`,
+        // Done when a Chrome window shows (xdotool waits on X for it, bounded); otherwise the error is Chrome's own log.
+        command:
+          `${x} setsid nohup google-chrome --no-first-run --no-default-browser-check --disable-dev-shm-usage --start-maximized --user-data-dir=/home/chief/.chief-chrome -- "$CHIEF_URL" >>/tmp/chief-chrome.log 2>&1 < /dev/null &` +
+          ` timeout 30 xdotool search --sync --onlyvisible --class google-chrome >/dev/null || { tail -c 1000 /tmp/chief-chrome.log >&2; exit 1; }`,
         env: { CHIEF_URL: url }
       }
     }
@@ -160,7 +176,8 @@ export const inputCommand = (op: string, req: Req): { command: string; env?: Rec
 const shot = async (b: ChiefBrainDO, id: string): Promise<string> => {
   const r = await execAs(b, id, { command: SHOT, timeout_ms: 30_000, user: "chief" })
   const image = r.stdout.trim()
-  if (r.exit !== 0 || !/^[A-Za-z0-9+/=]{100,}$/.test(image)) throw new CcError(`the screenshot failed${r.stderr ? `: ${r.stderr.slice(0, 200)}` : ""}`)
+  // A whole JPEG only: base64 in full quads, starting with the JPEG marker (a cut-off stdout fails here).
+  if (r.exit !== 0 || image.length % 4 !== 0 || !image.startsWith("/9j/") || !/^[A-Za-z0-9+/=]{100,}$/.test(image)) throw new CcError(`the screenshot failed${r.stderr ? `: ${r.stderr.slice(0, 200)}` : ""}`)
   return image
 }
 
@@ -172,10 +189,11 @@ export const computerVerb = async (b: ChiefBrainDO, id: string, state: string, r
     const r = await execAs(b, id, { command: script(SETUP), timeout_ms: 290_000, user: "root" })
     if (r.exit !== 0) return { status: 502, json: { error: `the desktop did not install (exit ${r.exit})`, stderr: r.stderr.slice(-2000) } }
     const now = Date.now()
-    writeConfig(b.sql, { [COMPUTER_KEY]: JSON.stringify({ id, since: now } satisfies Computer), ...(computerUsedAt(b) ? {} : { [COMPUTER_USED_KEY]: String(now) }) })
+    writeConfig(b.sql, { [COMPUTER_KEY]: JSON.stringify({ id, since: now } satisfies Computer), [COMPUTER_ACTIVE_KEY]: String(now), ...(computerUsedAt(b) ? {} : { [COMPUTER_USED_KEY]: String(now) }) })
     return { status: 200, json: { computer: id, screen: SCREEN, image: await shot(b, id) } }
   }
   if (computerOf(b)?.id !== id) return { status: 409, json: { error: `${id} has no desktop; chief-vm computer setup ${id} first` } }
+  writeConfig(b.sql, { [COMPUTER_ACTIVE_KEY]: String(Date.now()) })
   if (op === "screenshot") return { status: 200, json: { screen: SCREEN, image: await shot(b, id) } }
   const input = inputCommand(op, req)
   if (typeof input === "string") return { status: 400, json: { error: input } }
@@ -185,13 +203,19 @@ export const computerVerb = async (b: ChiefBrainDO, id: string, state: string, r
   return { status: 200, json: { done: op, screen: SCREEN, ...(req.shot === false ? {} : { image: await shot(b, id) }) } }
 }
 
-/** The owner's view of the screen: one shot shared by viewers within SHOT_REUSE_MS, never more than one in flight. */
+/**
+ * The owner's view of the screen: one shot shared by viewers within SHOT_REUSE_MS, never more than one in flight.
+ * While the Chief is idle (computerIdle), the last frame stays the answer, so watching does not keep the VM busy.
+ */
 const recent = new WeakMap<object, { at: number; image: Promise<string>; id: string }>()
 export const ownerShot = (b: ChiefBrainDO, id: string): Promise<string> => {
   const last = recent.get(b.sql)
-  if (last && last.id === id && Date.now() - last.at < SHOT_REUSE_MS) return last.image
+  if (last && last.id === id && (Date.now() - last.at < SHOT_REUSE_MS || computerIdle(b))) return last.image
   const image = shot(b, id)
-  recent.set(b.sql, { at: Date.now(), image, id })
-  image.catch(() => recent.delete(b.sql))
+  const entry = { at: Date.now(), image, id }
+  recent.set(b.sql, entry)
+  image.catch(() => {
+    if (recent.get(b.sql) === entry) recent.delete(b.sql)
+  })
   return image
 }

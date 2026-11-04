@@ -179,7 +179,8 @@ if (verb === "list" || verb === undefined) {
     closeSync(fd)
     await fsc("upload_commit", { upload_id })
     console.log(`${a} -> ${b2} (${size} bytes, sha256 ${sha256.slice(0, 12)})`)
-  } else if (verb === "computer") {
+  } else fail(USAGE, 2)
+} else if (verb === "computer") {
   const [op, id, ...args] = rest
   if (!op || !id) fail(USAGE, 2)
   const n = (v) => (/^[0-9]+$/.test(v ?? "") ? Number(v) : fail(USAGE, 2))
@@ -206,7 +207,6 @@ if (verb === "list" || verb === undefined) {
     writeFileSync(file, Buffer.from(j.image, "base64"))
     console.log(`screen ${j.screen.width}x${j.screen.height}: ${file}`)
   } else if (j.done) console.log(`${j.done} done`)
-} else fail(USAGE, 2)
 } else if (verb === "snapshot") {
   const want = flags(rest.slice(1), { settings: true })
   const j = await call({ action: "snapshot", id: idOf(rest), ...(want.name ? { name: want.name } : {}), ...(want.ttl_seconds ? { ttl_seconds: want.ttl_seconds } : {}) })

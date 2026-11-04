@@ -108,6 +108,8 @@ public final class ChiefComputer {
             show(nil)
             return
         }
+        // A frame from an earlier look is not this one's: the screen shows only what this follow reads.
+        frame = nil
         var sinceStatus = Self.statusInterval
         while !Task.isCancelled {
             if sinceStatus >= Self.statusInterval {

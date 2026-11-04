@@ -514,6 +514,7 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
         seen.type = await call(s, { action: "computer", id, op: "type", text: "hello'; reboot; echo '" })
         seen.key = await call(s, { action: "computer", id, op: "key", keys: "ctrl+l; reboot" })
         seen.open = await call(s, { action: "computer", id, op: "open", url: "javascript:alert(1)" })
+        seen.browse = await call(s, { action: "computer", id, op: "open", url: "https://example.com/?q='x'" })
         seen.off = await call(s, { action: "computer", id, op: "click", x: 5000, y: 1 })
         seen.foreign = await call(s, { action: "computer", id: s.vm, op: "setup" })
       }
@@ -540,6 +541,12 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     // Key names, URLs and coordinates are checked before anything runs.
     expect([seen.key.status, seen.open.status, seen.off.status]).toEqual([400, 400, 400])
     expect(cloud.execs.some((e) => e.command.includes("reboot") || JSON.stringify(e.env ?? {}).includes("javascript:"))).toBe(false)
+    // A page opens in Chrome, done once its window shows (no fixed sleep), the URL only in the environment.
+    expect(seen.browse.status).toBe(200)
+    const browsed = cloud.execs.find((e) => e.env?.CHIEF_URL !== undefined)!
+    expect(browsed.env!.CHIEF_URL).toBe("https://example.com/?q='x'")
+    expect(browsed.command).toContain("xdotool search --sync --onlyvisible --class google-chrome")
+    expect(browsed.command).not.toMatch(/sleep|example\.com/)
     // Only its own sandboxes can become its computer.
     expect(seen.foreign.status).toBe(404)
     // The owner sees it and its screen; anyone else gets the same answer as for no Chief at all.

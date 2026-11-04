@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextHomeEngine
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -32,32 +33,52 @@ import Testing
         #expect(HomeChiefComputer.Status(json: Data(#"{"ok":false,"error":{"code":"not_found"}}"#.utf8)) == nil)
     }
 
-    @Test func aRunningComputerRefreshesOnlyWhileTheCardIsOpen() async {
+    @Test func aRunningComputerRefreshesOnlyWhileTheCardIsOpen() async throws {
         let rig = Rig(status: .init(used: true, computer: ("vm", "running")))
         #expect(rig.section.isHidden)
         rig.section.open()
+        await until { rig.section.frames >= 1 }
+        try await rig.tick(HomeChiefComputerSection.frameInterval)
+        await until { rig.section.frames >= 2 }
+        try await rig.tick(HomeChiefComputerSection.frameInterval)
         await until { rig.section.frames >= 3 }
         #expect(!rig.section.isHidden)
         #expect(rig.section.shown?.title == "Ada’s Computer")
-        #expect(rig.feed.image != nil)
         #expect(rig.section.screen.layer?.contents != nil)
         rig.section.close()
         let shots = rig.feed.screens
+        rig.clock.advance(by: .seconds(60))
         await settle()
         #expect(rig.feed.screens == shots)
         #expect(rig.section.screen.layer?.contents == nil)
     }
 
-    @Test func anAsleepComputerIsNeverRead() async {
+    @Test func anAsleepComputerIsNeverRead() async throws {
         let rig = Rig(status: .init(used: true, computer: ("vm", "suspended")))
         rig.section.open()
         await until { rig.section.shown?.state == .asleep }
+        try await rig.tick(HomeChiefComputerSection.statusInterval)
+        await until { rig.feed.statuses >= 2 }
         await settle()
         #expect(rig.feed.screens == 0)
         #expect(!rig.section.isHidden)
         // It wakes: the next status read starts the frames.
         rig.feed.status = .init(used: true, computer: ("vm", "running"))
+        try await rig.tick(HomeChiefComputerSection.statusInterval)
         await until { rig.section.frames >= 1 }
+        rig.section.close()
+    }
+
+    @Test func aFailedStatusReadKeepsTheSectionAsUnavailable() async throws {
+        let rig = Rig(status: .init(used: true, computer: ("vm", "running")))
+        rig.section.open()
+        await until { rig.section.frames >= 1 }
+        rig.feed.status = nil
+        // The state is read again once a status interval of frames has passed.
+        for _ in 0..<9 { try await rig.tick(HomeChiefComputerSection.frameInterval) }
+        await until { rig.feed.statuses >= 2 }
+        #expect(!rig.section.isHidden)
+        #expect(rig.section.shown?.state == .unavailable)
         rig.section.close()
     }
 
@@ -71,14 +92,15 @@ import Testing
         rig.section.close()
     }
 
-    @Test func showingAndHidingResizesTheCard() async {
+    @Test func showingAndHidingResizesTheCard() async throws {
         let rig = Rig(status: .init(used: true, computer: ("vm", "paused")))
         var resizes = 0
         rig.section.onResize = { resizes += 1 }
         rig.section.open()
         await until { rig.section.shown != nil }
         #expect(resizes == 1)
-        rig.feed.status = nil
+        rig.feed.status = .init(used: false, computer: nil)
+        try await rig.tick(HomeChiefComputerSection.statusInterval)
         await until { rig.section.shown == nil }
         #expect(resizes == 2)
         #expect(rig.section.isHidden)
@@ -103,16 +125,22 @@ import Testing
 
     @MainActor struct Rig {
         let feed: Feed
+        let clock = ManualClock()
         let section = HomeChiefComputerSection()
 
         init(status: HomeChiefComputer.Status?, paid: Bool = true) {
             let feed = Feed(status: status)
             self.feed = feed
-            // Every wait is one turn, and every status wait reads again: the test drives the timing.
             section.source = .init(paid: { paid }, chief: { "Ada" },
                                    status: { feed.statuses += 1; return feed.status },
                                    screen: { feed.screens += 1; return feed.image },
-                                   pause: { _ in await Task.yield() })
+                                   clock: clock)
+        }
+
+        /// The next read is due: waits for the section's timer, then moves the clock by `interval`.
+        func tick(_ interval: Duration) async throws {
+            try await clock.waitForSleeper()
+            clock.advance(by: interval)
         }
     }
 

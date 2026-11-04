@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// The Chief Settings card's Computer section (cmux issue 31488), in the place of Messages' Find
 /// My on a contact: "<name>'s Computer", the Chief's own computer's screen (16:10, view only),
@@ -10,31 +11,32 @@ import CmuxNextDesign
 @MainActor
 public final class HomeChiefComputerSection: NSStackView {
     /// What the app gives the section; read only while the card is open.
-    public struct Source {
+    public struct Source: Sendable {
         /// Whether the plan pays for cmux Cloud.
-        public var paid: @MainActor () -> Bool
+        public var paid: @MainActor @Sendable () -> Bool
         /// The Chief's name, for "<name>'s Computer".
-        public var chief: @MainActor () -> String
+        public var chief: @MainActor @Sendable () -> String
         /// The computer's status (``HomeChiefComputerRoute/status()``); nil when not known.
-        public var status: @MainActor () async -> HomeChiefComputer.Status?
+        public var status: @MainActor @Sendable () async -> HomeChiefComputer.Status?
         /// The screen now (``HomeChiefComputerRoute/screen()``); nil while it sleeps or is not reached.
-        public var screen: @MainActor () async -> CGImage?
-        /// Waits between two reads (the injected clock; tests resume it themselves).
-        public var pause: @MainActor (Duration) async throws -> Void
+        public var screen: @MainActor @Sendable () async -> CGImage?
+        /// Paces the reads (a ``DemandTimer`` on it; tests pass a manual clock).
+        public var clock: any Clock<Duration>
 
-        public init(paid: @escaping @MainActor () -> Bool, chief: @escaping @MainActor () -> String,
-                    status: @escaping @MainActor () async -> HomeChiefComputer.Status?,
-                    screen: @escaping @MainActor () async -> CGImage?,
-                    pause: @escaping @MainActor (Duration) async throws -> Void = { try await ContinuousClock().sleep(for: $0) }) {
+        public init(paid: @escaping @MainActor @Sendable () -> Bool, chief: @escaping @MainActor @Sendable () -> String,
+                    status: @escaping @MainActor @Sendable () async -> HomeChiefComputer.Status?,
+                    screen: @escaping @MainActor @Sendable () async -> CGImage?,
+                    clock: any Clock<Duration> = ContinuousClock()) {
             self.paid = paid
             self.chief = chief
             self.status = status
             self.screen = screen
-            self.pause = pause
+            self.clock = clock
         }
 
         /// The Chief's computer through its owner route.
-        public init(paid: @escaping @MainActor () -> Bool, chief: @escaping @MainActor () -> String, route: HomeChiefComputerRoute) {
+        public init(paid: @escaping @MainActor @Sendable () -> Bool, chief: @escaping @MainActor @Sendable () -> String,
+                    route: HomeChiefComputerRoute) {
             self.init(paid: paid, chief: chief, status: { await route.status() }, screen: { await route.screen() })
         }
     }
@@ -57,7 +59,10 @@ public final class HomeChiefComputerSection: NSStackView {
     /// Frames shown since the card opened (tests).
     private(set) var frames = 0
     private var isOpen = false
+    /// The read in flight (one status and, while it runs, one frame).
     private var watch: Task<Void, Never>?
+    /// The next read, on the source's clock.
+    private var next: DemandTimer?
 
     private let header = ThemedLabel(labelWithString: "")
     let screen = NSView()
@@ -120,50 +125,70 @@ public final class HomeChiefComputerSection: NSStackView {
     /// The card opened: read the computer's state, and while it runs, its screen.
     func open() {
         isOpen = true
-        watch?.cancel()
+        stop()
         guard let source else { return show(nil) }
-        // task-owner: the open card's computer watch; cancelled when the card closes
-        watch = Task { [weak self] in
-            await self?.follow(source)
-        }
+        let timer = DemandTimer(owner: "home.chief.computer", clock: source.clock)
+        next = timer
+        read(source, timer, sinceStatus: nil)
     }
 
     /// The card closed: the screen stops refreshing, so nothing reads the computer.
     func close() {
         isOpen = false
-        watch?.cancel()
-        watch = nil
+        stop()
         frames = 0
         screen.layer?.contents = nil
         redraw()
     }
 
-    /// Reads the state every ``statusInterval`` and, while it runs, a frame every ``frameInterval``,
-    /// until the card closes.
-    private func follow(_ source: Source) async {
-        var statusDue = true
-        var sinceStatus: Duration = .zero
-        while isOpen, !Task.isCancelled {
-            if statusDue {
+    /// The window went away without the card closing: stop reading all the same.
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil, isOpen { close() }
+    }
+
+    private func stop() {
+        watch?.cancel()
+        watch = nil
+        next?.cancel()
+        next = nil
+    }
+
+    /// One read: the state when ``statusInterval`` has passed since the last (`sinceStatus` nil:
+    /// now), then while it runs a frame; then the next read on `timer`, after ``frameInterval``
+    /// while it runs and ``statusInterval`` otherwise. Stops when the card closes.
+    private func read(_ source: Source, _ timer: DemandTimer, sinceStatus: Duration?) {
+        // task-owner: one read of the open card's computer; cancelled by stop() when the card closes
+        watch = Task { [weak self] in
+            var since = sinceStatus ?? Self.statusInterval
+            if since >= Self.statusInterval {
                 let status = await source.status()
-                guard isOpen, !Task.isCancelled else { return }
-                show(HomeChiefComputer(status: status, paid: source.paid(), chief: source.chief()))
-                statusDue = false
-                sinceStatus = .zero
+                guard let self, self.isOpen, !Task.isCancelled else { return }
+                self.show(self.section(for: status, source))
+                since = .zero
             }
-            let wait: Duration
-            if shown?.state == .live {
+            guard let self else { return }
+            var wait = Self.statusInterval
+            if self.shown?.state == .live {
                 let image = await source.screen()
-                guard isOpen, !Task.isCancelled else { return }
-                if shown?.state == .live { frame(image) }
+                guard self.isOpen, !Task.isCancelled else { return }
+                if self.shown?.state == .live { self.frame(image) }
                 wait = Self.frameInterval
-            } else {
-                wait = Self.statusInterval
             }
-            do { try await source.pause(wait) } catch { return }
-            sinceStatus += wait
-            if sinceStatus >= Self.statusInterval { statusDue = true }
+            let after = since + wait
+            timer.schedule(after: wait) { @MainActor [weak self] in
+                guard let self, self.isOpen, self.next === timer else { return }
+                self.read(source, timer, sinceStatus: after)
+            }
         }
+    }
+
+    /// The section for a status read. A read that failed (nil) keeps a shown section, as
+    /// unavailable, instead of hiding it until the next read.
+    private func section(for status: HomeChiefComputer.Status?, _ source: Source) -> HomeChiefComputer? {
+        guard source.paid() else { return nil }
+        guard let status else { return shown.map { HomeChiefComputer(machineID: $0.machineID, title: $0.title, state: .unavailable) } }
+        return HomeChiefComputer(status: status, paid: true, chief: source.chief())
     }
 
     /// Shows `computer` (nil hides the section).

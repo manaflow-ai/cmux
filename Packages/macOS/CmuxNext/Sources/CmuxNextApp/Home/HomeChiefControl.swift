@@ -43,9 +43,6 @@ struct HomeChiefControl {
         isCloud ? services.home.cloudChiefPlacement(of: conversation.rawValue).flatMap { $0.placed ? nil : $0.id } : nil
     }
 
-    /// This Chief's Cloud agent id (any placement), whose computer the settings card shows (31488).
-    var cloudAgentID: String? { services.home.cloudChiefs.chief(for: conversation.rawValue)?.id }
-
     /// The paired server that runs this cloud Chief's brain (`brain_place`).
     var server: ServerMachineSession? {
         guard isCloud, let host = services.home.cloudChiefs.chief(for: conversation.rawValue)?.brainPlace?.host else { return nil }
