@@ -176,13 +176,13 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
           }
           // A prompt whose turn keeps running: acpmux takes it at once and answers when the turn ends,
           // which here is never.
-          const params = message.params as { promptId?: string } | undefined;
+          const params = message.params as { _meta?: { acpmux?: { promptId?: string } } } | undefined;
           if (/prompt/i.test(message.method) && JSON.stringify(params ?? null).includes(RUNNING_TURN)) {
             ws.send(
               JSON.stringify({
                 jsonrpc: "2.0",
                 method: "_acpmux/prompt_accepted",
-                params: { promptId: params?.promptId },
+                params: { promptId: params?._meta?.acpmux?.promptId },
               }),
             );
             return;
