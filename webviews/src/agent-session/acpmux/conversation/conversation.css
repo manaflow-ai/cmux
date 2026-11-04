@@ -84,7 +84,9 @@
      button, the buttons touching, the first glyph's box on the prose's left edge (Leo, 2026-11-02,
      of the 20 glyphs in 32 buttons: "WHY ARE THESE SO BIG"). */
   --cv-footer-row: var(--grid-transcript-footer-control);
-  --cv-footer-button: var(--grid-transcript-action-control);
+  /* Claude Code desktop's 24 buttons, touching, pitch 24 (Leo, 2026-11-04, beside Claude's: "spaing
+     bad"): the row action box's 28 spread Copy, Read aloud and More a sixth wider than Claude's. */
+  --cv-footer-button: calc(24px * var(--cmux-interface-scale, 1));
   --cv-footer-glyph: var(--grid-transcript-icon-box);
   /* Their ink at rest, a step under the muted text, full ink under the pointer (Leo, 2026-11-02:
      "AND THEY'RE REDUCED OPACITY A BIT TOO"). */
@@ -4288,7 +4290,7 @@ a.cv-sha:focus-visible {
 .cv-turn-actions .cv-iconbtn:not(.cv-turn-retry-menu) {
   width: var(--cv-meta-row);
 }
-/* A reply's footer buttons: Claude's 28 squares (their 7 radius on the grid's 6), each around a 16 glyph, in the
+/* A reply's footer buttons: Claude's 24 squares (their radius on the grid's 6), each around a 16 glyph, in the
    muted footer ink until pointed at (--cv-footer-ink). */
 .cv-turn-actions:not(.cv-turn-actions--empty) .cv-iconbtn {
   height: var(--cv-footer-button);
@@ -4334,7 +4336,7 @@ a.cv-sha:focus-visible {
 .acpmux-row.acpmux-turnSummary {
   contain: layout;
 }
-/* The buttons touch, 28px squares side by side, then the time 8px on (.cv-turn-actions' gap). */
+/* The buttons touch, squares side by side (a reply's 24, --cv-footer-button), then the time 8px on (.cv-turn-actions' gap). */
 .cv-turn-action-group {
   display: inline-flex;
   align-items: center;
