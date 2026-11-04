@@ -55,15 +55,19 @@ export function createNoticeQueue(limit = STACK_LIMIT): NoticeQueue {
       const id = spec.id ?? `toast-${++next}`;
       const at = entries.findIndex((entry) => entry.spec.id === id);
       const entry: NoticeEntry = { spec: { ...spec, id }, version: ++shown };
+      // The queue changes before any onClose runs, so a callback that shows or closes a toast
+      // works on the queue as it now is, not on an index this call has already read.
+      let left: readonly NoticeEntry[];
       if (at >= 0) {
-        entries[at]!.spec.onClose?.("replaced");
+        left = [entries[at]!];
         entries = entries.map((old, index) => (index === at ? entry : old));
       } else {
         const kept = [...entries, entry];
         const evicted = Math.max(0, kept.length - keep);
-        for (const pushed of kept.slice(0, evicted)) pushed.spec.onClose?.("replaced");
+        left = kept.slice(0, evicted);
         entries = kept.slice(evicted);
       }
+      for (const gone of left) gone.spec.onClose?.("replaced");
       emit();
       return id;
     },
