@@ -443,6 +443,52 @@ export function stubCodexAuth(seed = randomBytes(16).toString("hex"), now = new 
   return JSON.stringify({ OPENAI_API_KEY: null, tokens: { id_token: jwt({}), access_token: jwt({ jti: `journeystub-${seed}` }), refresh_token: `journeystub-refresh-${seed}`, account_id: "acct_journeystub" }, last_refresh: now.toISOString() });
 }
 
+/**
+ * --model stub, Codex: the Python program (argv: the stub's port, then config.toml, by default the work user's) that
+ * points Codex at the stub. A model provider on the stub's /v1 that uses the ChatGPT sign-in, and:
+ * - model "stub-model": a catalog model (the default) gets Code Mode, one JavaScript exec tool sent as an
+ *   additional_tools input item the stub cannot answer; a model Codex does not know gets the plain exec_command tool;
+ * - chatgpt_base_url on the stub, the apps, plugins and remote_plugin features off and analytics off, so the made-up
+ *   sign-in never reaches chatgpt.com (whose 401s would also send Codex to refresh it at auth.openai.com).
+ * An active profile's model and provider would win over these, so the root profile key goes (the [profiles.*] tables
+ * stay). The image's other settings stay. TOML refuses a table defined twice, so the keys go into the [features] and
+ * [analytics] tables the file already has, and a second run replaces its own provider table.
+ */
+export const CODEX_STUB_CONFIG = String.raw`import pathlib, re, sys
+port = sys.argv[1]
+p = pathlib.Path(sys.argv[2] if len(sys.argv) > 2 else '/home/cmux/.codex/config.toml')
+lines = p.read_text().splitlines() if p.exists() else []
+header = re.compile(r'\s*\[\s*([^\]]+?)\s*\]\s*(#.*)?$')
+tables = {'features': {'apps': 'false', 'plugins': 'false', 'remote_plugin': 'false'}, 'analytics': {'enabled': 'false'}}
+root = {'model': '"stub-model"', 'model_provider': '"journeystub"', 'chatgpt_base_url': '"http://127.0.0.1:' + port + '/backend-api/"'}
+def assigns(line, keys):
+    m = re.match(r'\s*([A-Za-z0-9_-]+)\s*=', line)
+    return bool(m) and m.group(1) in keys
+out, table, seen = [], None, set()
+for line in lines:
+    m = header.match(line)
+    if m:
+        table = m.group(1)
+        if table == 'model_providers.journeystub':
+            continue
+        out.append(line)
+        if table in tables and table not in seen:
+            seen.add(table)
+            out += [k + ' = ' + v for k, v in tables[table].items()]
+        continue
+    if table == 'model_providers.journeystub' or assigns(line, {**root, 'profile': ''} if table is None else tables.get(table, {})):
+        continue
+    out.append(line)
+out = [k + ' = ' + v for k, v in root.items()] + out
+for name in tables:
+    if name not in seen:
+        out += ['', '[' + name + ']'] + [k + ' = ' + v for k, v in tables[name].items()]
+out += ['', '[model_providers.journeystub]', 'name = "journey stub"', 'base_url = "http://127.0.0.1:' + port + '/v1"',
+        'wire_api = "responses"', 'requires_openai_auth = true']
+p.parent.mkdir(parents=True, exist_ok=True)
+p.write_text('\n'.join(out) + '\n')
+print('stub-ready')`;
+
 /** The bearer a harness sends the model endpoint for a copied login: Claude's token, Codex's ChatGPT access token. */
 export function loginBearer(provider: "claude" | "codex", value: string): string {
   return provider === "codex" ? (JSON.parse(value).tokens.access_token as string) : value;
@@ -492,11 +538,14 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
   // could match. Only the id the create answered is ever deleted; after a `pending` answer the machines
   // that appeared since the create are named for a person to check, never deleted (another create in the
   // same account may be one of them).
-  const listIds = (): string[] => {
+  // null when the list could not be read (exit code, or the app's list not loaded yet): never diffed as empty.
+  const listIds = (): string[] | null => {
     const r = run(["cloud", "list-machines", "--json"], 60_000);
+    if (r.code !== 0 || r.json?.loaded === false) return null;
     return machineIds(r.json?.machines ?? r.json?.items ?? (Array.isArray(r.json) ? r.json : []));
   };
   let before: string[] | null = null;
+  let createRan = false;
   let machine: string | null = null;
   try {
     await J.step("app cli: signed in (cloud list-machines)", async () => {
@@ -510,6 +559,7 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
     });
     machine = await J.step("app cli: cloud new-machine", async () => {
       before = listIds();
+      createRan = true;
       const r = must("cloud new-machine", run(["cloud", "new-machine", "--json"], 600_000));
       const id = r.json?.machine_id ?? r.json?.machine?.id ?? r.json?.id;
       if (!id) throw new Error(`no machine id in ${short(r.json)}${r.json?.status === "creating" ? " (pending: the create goes on; this run deletes nothing it did not get an id for)" : ""}`);
@@ -538,10 +588,12 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
       return { value: null, detail: reply.slice(0, 280) };
     });
   } finally {
-    if (!machine && before) {
-      const prior = before;
+    if (!machine && createRan) {
+      const prior = before as string[] | null; // set inside the create step's closure
       await J.step("app cli: no machine id to delete", async () => {
-        const fresh = newMachineIds(prior, listIds());
+        const after = listIds();
+        if (!prior || !after) throw new Error(`the machine list could not be read ${prior ? "after" : "before"} the create; check the account's machines by hand`);
+        const fresh = newMachineIds(prior, after);
         throw new Error(fresh.length
           ? `machines new since the create, not deleted (another create may own one): ${fresh.join(", ")}`
           : "no machine is new since the create");
@@ -809,7 +861,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (modelStub && provider && !only.has("chat")) {
       // The stub listens on the machine's loopback only; the harness's own settings point it there, after the login
       // copy (whose installer refuses a custom endpoint), so the forwarded login is sent nowhere but the stub:
-      // Claude Code's settings.json ANTHROPIC_BASE_URL, or a Codex model provider that uses the ChatGPT sign-in.
+      // Claude Code's settings.json ANTHROPIC_BASE_URL, or a Codex model provider that uses the ChatGPT sign-in (CODEX_STUB_CONFIG).
       await J.step("model stub on the machine", async () => {
         const file = "/home/cmux/.cmux/journey-model-stub.py";
         const script = "/home/cmux/.cmux/journey-model-stub.json";
@@ -820,7 +872,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
         // Port 0: the stub binds a free port and writes it to the ready file.
         const point = provider === "codex"
-          ? `python3 - "$port" <<'PY'\nimport pathlib, re, sys\np = pathlib.Path('/home/cmux/.codex/config.toml')\nold = p.read_text() if p.exists() else ''\nold = re.sub(r'(?m)^model_provider\\s*=.*\\n?', '', old)\np.write_text('model_provider = "journeystub"\\n' + old + '\\n[model_providers.journeystub]\\nname = "journey stub"\\nbase_url = "http://127.0.0.1:' + sys.argv[1] + '/v1"\\nwire_api = "responses"\\nrequires_openai_auth = true\\n')\nprint('stub-ready')\nPY`
+          ? `python3 - "$port" <<'PY'\n${CODEX_STUB_CONFIG}\nPY`
           : `python3 - "$port" <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.write_text(json.dumps(c))\nprint('stub-ready')\nPY`;
         const r = await exec(
           `rm -f ${shq(stubLog)} ${shq(ready)}; (nohup python3 ${shq(file)} --port 0 --script ${shq(script)} --nonce ${shq(nonce)} --log ${shq(stubLog)} --ready-file ${shq(ready)} >${shq(stubLog)}.out 2>&1 &); ` +
