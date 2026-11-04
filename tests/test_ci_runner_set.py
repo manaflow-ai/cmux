@@ -44,6 +44,8 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'admit'}),
     'auto-resume-nightly-notarization.yml': ('nightly signing and notarization: an ephemeral label the signing rule checks literally',
      {'preflight', 'poll', 'wait-and-staple', 'poll-outer', 'staple-outer', 'poll-stapled', 'staple-stapled', 'verify-stapled', 'publish', 'generate-deltas', 'republish-deltas'}),
+    'cloud-journey-prod.yml': ('holds the production journey environment secrets: the fork-routing secret rule forbids a variable-movable runner',
+     {'journey'}),
     'build-ghosttykit.yml': ('not yet on a pool; moves in its own PR',
      {'build-ghosttykit'}),
     'cmux-next-dev-daily.yml': ('DEV signing and publish: an ephemeral label the signing rule checks literally',

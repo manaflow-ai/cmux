@@ -832,6 +832,17 @@ class ShardsAndStatusJobs(unittest.TestCase):
         self.assertEqual(tests, {"markdown table keys > Cmd-A selects the cell's text, then the whole table",
                                  "check-layers > this checkout passes with its baseline"})
 
+    def test_display_named_swift_testing_failures_are_failing_test_names(self):
+        # PR 35296's app-host shard 2: `@Test("…")` names print quoted, with no `()`; unread, the job was
+        # compared by its app log's error lines, whose pointers differ on every run.
+        job = shard_job(9, 1, HEAD, 1)
+        _, tests, _ = excuse.signature(job, log(f"{RAC} (1)", SHARD_STEP,
+            '✘ Test "A capped plan shows used/limit" recorded an issue at X.swift:25:9: Expectation failed',
+            '✘ Test "Hovering shows help" recorded an issue with 2 arguments n → 1 at X.swift:1:2: Expectation failed',
+            ISSUE))
+        self.assertEqual(tests, {'"A capped plan shows used/limit"', '"Hovering shows help"',
+                                 "writesTheRequestAfterTheReadyMarkerAndReturnsTheReply()"})
+
     def test_a_red_test_in_another_shard_on_the_base_is_excused(self):
         self.base_shards(40, TIP, red_shard=4, lines=(TABLE.replace("18.20ms", "25.71ms"),))
         text = "\n".join(self.judge())
