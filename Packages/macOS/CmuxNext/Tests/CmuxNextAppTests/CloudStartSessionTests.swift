@@ -6,11 +6,14 @@ import CmuxNextCloudCredentials
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDesign
+import CmuxNextSettings
 import Foundation
 import Testing
 
 /// `cmux cloud start-session` (Lawrence: "start new VMs from acp chat"): its arguments are checked
-/// before anything starts, an agent's run asks in its own chat, and every failure names the machine
+/// before anything starts, an agent's run asks nobody by default and, with
+/// `cloud.agentsStartWithoutAsking` off, asks in its own chat, and every failure names the machine
 /// and the agent and gives the command to run next.
 @MainActor @Suite(.serialized)
 struct CloudStartSessionTests {
@@ -21,6 +24,19 @@ struct CloudStartSessionTests {
     }
 
     static let account: [String?] = ["user-1", "team-1"]
+
+    /// The person turned `cloud.agentsStartWithoutAsking` off (it is on by default): an agent's run asks first.
+    static func askingFirst(_ services: AppServices) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-start-ask-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("cmux.json")
+        try Data(#"{"cloud":{"agentsStartWithoutAsking":false}}"#.utf8).write(to: url)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await settings.reload()
+        services.settings = settings
+        try #require(!CloudAgentStartSetting().delegated(in: settings.snapshot.root))
+    }
 
     static let asked = CloudStartSession.Request(machineID: "vm-x", name: nil, agent: "claude", cwd: nil).asked(machine: "dev")
 
@@ -95,6 +111,26 @@ struct CloudStartSessionTests {
         }
     }
 
+    /// A terminal's or a script's start (the CLI `cmux cloud start-chat` runs `cloud start-session`)
+    /// creates its machine as the person's would, never waiting on the "Create a Cloud machine?" card,
+    /// unless the person turned `cloud.agentsStartWithoutAsking` off.
+    @Test func aCLIStartCreatesWithoutTheCardUnlessThePersonTurnedAskingOn() async throws {
+        func startsAsPerson(_ origin: ActionOrigin, delegated: Bool) -> Bool {
+            let invocation = Self.invocation(["agent": .string("claude")], origin: origin)
+            return CloudStartCore().startsAsPerson(byPerson: CloudHandlers.origin(of: invocation) == .user, delegated: delegated)
+        }
+        for origin in [ActionOrigin.cli, .script, .remote] {
+            #expect(startsAsPerson(origin, delegated: true), "a \(origin) start would wait on the create card")
+            #expect(!startsAsPerson(origin, delegated: false), "asking turned on, a \(origin) start still asks")
+        }
+        #expect(startsAsPerson(.user, delegated: false), "the person's own run never asks")
+        // The create flow's own question (Leo, 2026-11-04: "just auto/bypass permissions by default").
+        let services = Self.fixture().services
+        #expect(services.settings?.cloudAgentsSkipAsking != false, "by default a CLI start would wait on the create card")
+        try await Self.askingFirst(services)
+        #expect(services.settings?.cloudAgentsSkipAsking == false, "asking turned on, a CLI start would not ask")
+    }
+
     // MARK: Refusals before anything starts
 
     @Test func aScriptRunWithoutAMachineSaysHowToNameOne() throws {
@@ -104,8 +140,9 @@ struct CloudStartSessionTests {
         #expect(refusal?.contains("cmux cloud start-session --target machine:<id> --agent claude") == true)
     }
 
-    @Test func anAgentOutsideAChatIsRefusedBeforeAnyCard() throws {
+    @Test func anAgentOutsideAChatIsRefusedBeforeAnyCard() async throws {
         let f = Self.fixture()
+        try await Self.askingFirst(f.services)
         let refusal = try Self.refusal(f.services, Self.invocation(target: f.session.machineID, ["agent": .string("claude")], agent: "session-not-here"))
         let byID = CloudStartSession.Request(machineID: f.session.machineID, name: nil, agent: "claude", cwd: nil)
         #expect(refusal == CloudStartSessionStrings.notInChat(byID.asked(machine: f.session.machine.title)))
@@ -147,6 +184,7 @@ struct CloudStartSessionTests {
     /// while it asks (``CloudService``'s account observer) refuses the run and clears the card.
     @Test func anAccountChangeWhileTheAgentsCardAsksRefusesAndClearsIt() async throws {
         let f = Self.fixture()
+        try await Self.askingFirst(f.services)
         var chat = TabSnapshot(surface: SurfaceID(rawValue: 8), kind: .conversation, cwd: nil)
         chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "registry:\(f.session.machineID)", session: "asking-session", harness: "claude"))
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [chat])])
@@ -514,21 +552,21 @@ struct CloudStartSessionTests {
     @Test func onlyAFreshListOfThisAccountIsCurrent() {
         let now = ContinuousClock.now
         let account = Self.account
-        #expect(CloudService.listIsCurrent(loadedAt: now - .seconds(5), loadedFor: account, account: account, now: now, within: CloudStartSession.listFresh))
+        #expect(CloudListFreshness.isCurrent(loadedAt: now - .seconds(5), loadedFor: account, account: account, now: now, within: CloudStartSession.listFresh))
         // A failed or superseded refresh leaves the last landing time: an old list is not current.
-        #expect(!CloudService.listIsCurrent(loadedAt: now - .seconds(60), loadedFor: account, account: account, now: now, within: CloudStartSession.listFresh))
+        #expect(!CloudListFreshness.isCurrent(loadedAt: now - .seconds(60), loadedFor: account, account: account, now: now, within: CloudStartSession.listFresh))
         // Never loaded, or dropped at a sign-out.
-        #expect(!CloudService.listIsCurrent(loadedAt: nil, loadedFor: account, account: account, now: now, within: CloudStartSession.listFresh))
+        #expect(!CloudListFreshness.isCurrent(loadedAt: nil, loadedFor: account, account: account, now: now, within: CloudStartSession.listFresh))
         // A team switch keeps the user: the previous team's list is not this team's.
-        #expect(!CloudService.listIsCurrent(loadedAt: now, loadedFor: ["user-1", "team-0"], account: account, now: now, within: CloudStartSession.listFresh))
+        #expect(!CloudListFreshness.isCurrent(loadedAt: now, loadedFor: ["user-1", "team-0"], account: account, now: now, within: CloudStartSession.listFresh))
     }
 
     @Test func theRetryCommandKeepsTheNameOneShellWord() {
-        #expect(CloudStartSession.shellQuoted("dev-1") == "dev-1")
-        #expect(CloudStartSession.shellQuoted("my dev") == "'my dev'")
-        #expect(CloudStartSession.shellQuoted("it's") == "'it'\\''s'")
-        #expect(CloudStartSession.shellQuoted("a;rm -rf ~") == "'a;rm -rf ~'")
-        let message = CloudStartSessionStrings.createFailed("my dev", quoted: CloudStartSession.shellQuoted("my dev"), agent: "claude", reason: "x")
+        #expect(CloudStartCore.shellQuoted("dev-1") == "dev-1")
+        #expect(CloudStartCore.shellQuoted("my dev") == "'my dev'")
+        #expect(CloudStartCore.shellQuoted("it's") == "'it'\\''s'")
+        #expect(CloudStartCore.shellQuoted("a;rm -rf ~") == "'a;rm -rf ~'")
+        let message = CloudStartSessionStrings.createFailed("my dev", quoted: CloudStartCore.shellQuoted("my dev"), agent: "claude", reason: "x")
         #expect(message.contains("`cmux cloud start-session --name 'my dev' --agent claude`"))
         #expect(message.hasPrefix("Couldn't create Cloud machine `my dev` (x)"))
     }

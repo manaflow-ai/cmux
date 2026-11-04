@@ -30,7 +30,7 @@ export function commandWorkLabel(text: string): string | undefined {
   if (!/\$\(|`/.test(text)) return undefined;
   const commands = shellCommands(text);
   if (!commands.some((command) => command.runs?.length)) return undefined;
-  const pending: (ShellCommand | string)[] = commands.toReversed();
+  const pending: (ShellCommand | string)[] = [...commands].reverse();
   const labels: string[] = [];
   while (pending.length) {
     const command = pending.pop()!;
@@ -50,8 +50,8 @@ export function commandWorkLabel(text: string): string | undefined {
     if (label) pending.push(label);
     // Stack order puts each substitution before the command that consumes its answer. Iterative,
     // so deeply nested shell input does not grow the JavaScript call stack.
-    for (const run of command.runs?.toReversed() ?? [])
-      for (const nested of shellCommands(run).toReversed()) pending.push(nested);
+    for (const run of [...(command.runs ?? [])].reverse())
+      for (const nested of [...shellCommands(run)].reverse()) pending.push(nested);
   }
   return labels.join(" · ") || undefined;
 }

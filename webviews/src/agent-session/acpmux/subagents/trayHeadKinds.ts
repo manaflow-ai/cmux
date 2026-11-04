@@ -17,11 +17,12 @@ import { subagentStatus } from "../summary/SubagentStatusList";
 import { sessionRetry } from "./retryState";
 import { harnessFamily } from "./agentRuns";
 import type { TrayItem } from "./runningTray";
+import { COMMAND_KINDS, COMMAND_KIND_COUNT, type CommandKind, commandKind } from "./trayCommandKinds";
 
 export type TrayHeadKindsArm = "kinds" | "plain" | "sub" | "running";
 
 export type TrayHead = {
-  /// The counts, joined with " · ".
+  /// The counts, joined with the separator (" · " by default).
   text: string;
   /// What ended failed: drawn after the text in the danger colour ("1 failed"); 0 draws nothing.
   failed: number;
@@ -41,6 +42,7 @@ export function trayHead(
     working,
     chatHarness,
     arm,
+    separator = " · ",
   }: {
     items: readonly TrayItem[];
     finished: readonly TrayItem[];
@@ -48,6 +50,8 @@ export function trayHead(
     working: boolean;
     chatHarness: string | undefined;
     arm: TrayHeadKindsArm;
+    /// Between the counts (trayKindLine.experiment.ts): " · " by default.
+    separator?: string;
   },
 ): TrayHead {
   // Sessions the agent started read as sessions, except in the `sub` and `running` arms, which count
@@ -57,9 +61,15 @@ export function trayHead(
   let sessions = 0;
   let waitingOnYou = 0;
   let commands = 0;
+  // The commands by what they do (trayCommandKinds.ts), except in the `running` arm, which keeps the
+  // one count it had before (Leo, 2026-11-03: "you can split up commands/waits/bg tasks/subagents").
+  const byKind = new Map<CommandKind, number>();
   for (const item of items) {
-    if (item.kind === "command") commands += 1;
-    else if (
+    if (item.kind === "command") {
+      commands += 1;
+      const kind = commandKind(item.command.command);
+      byKind.set(kind, (byKind.get(kind) ?? 0) + 1);
+    } else if (
       item.kind === "agent" ? subagentStatus(item.agent, waiting) === "waiting" : item.session.state === "waiting"
     )
       waitingOnYou += 1;
@@ -71,14 +81,19 @@ export function trayHead(
     !working && agents > 0 && t("subagents.count", { n: agents }),
     sessions > 0 && t("turn.working.sessions", { n: sessions }),
     waitingOnYou > 0 && t("summary.subagents.waiting", { n: waitingOnYou }),
-    commands > 0 && t("turn.working.commands", { n: commands }),
+    ...(arm === "running"
+      ? [commands > 0 && t("turn.working.commands", { n: commands })]
+      : COMMAND_KINDS.map(
+          (kind) => (byKind.get(kind) ?? 0) > 0 && t(COMMAND_KIND_COUNT[kind], { n: byKind.get(kind)! }),
+        )),
   ];
-  if (arm === "running") return { text: joined(parts) || t("summary.subagents"), failed: 0, marks: [] };
-  // What ended and stays in the list: done (a session whose turn ended is done) and failed. A stopped
-  // one (cancelled, disconnected) is neither: the person or the link ended it, and its line says so.
+  if (arm === "running") return { text: joined(parts, separator) || t("summary.subagents"), failed: 0, marks: [] };
+  // What ended and stays in the list: done (a session whose turn ended is done), failed, and stopped
+  // (cancelled or disconnected: the person or the link ended it), each counted apart.
   let done = 0;
   let doneSessions = 0;
   let failed = 0;
+  let stopped = 0;
   for (const item of finished) {
     const status =
       item.kind === "agent"
@@ -91,6 +106,7 @@ export function trayHead(
               : undefined
           : undefined;
     if (status === "failed") failed += 1;
+    else if (status === "stopped") stopped += 1;
     else if (status === "done") {
       done += 1;
       if (item.kind === "session") doneSessions += 1;
@@ -102,16 +118,18 @@ export function trayHead(
       (doneSessions === 0 || !sessionsApart
         ? t("subagents.allDone", { n: done })
         : t("summary.subagents.done", { n: done })),
+    // What the person or the link stopped, so a list of only those never heads as a bare "Subagents".
+    stopped > 0 && t("summary.subagents.stopped", { n: stopped }),
   );
   return {
-    text: joined(parts) || (failed > 0 ? "" : t("summary.subagents")),
+    text: joined(parts, separator) || (failed > 0 ? "" : t("summary.subagents")),
     failed,
     marks: arm === "kinds" ? otherFamilies(items, chatHarness) : [],
   };
 }
 
-const joined = (parts: readonly (string | false)[]) =>
-  parts.filter((part): part is string => typeof part === "string" && part.length > 0).join(" · ");
+const joined = (parts: readonly (string | false)[], separator: string) =>
+  parts.filter((part): part is string => typeof part === "string" && part.length > 0).join(separator);
 
 /// The harnesses of the running work of another model family than the chat's (a Codex subagent or
 /// session under a Claude chat), each family once.

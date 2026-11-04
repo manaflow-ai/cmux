@@ -355,7 +355,7 @@ impl Hub {
         let (cwd, _) = super::adoption::session_cwd(Some(cwd), None, &family, &[])?;
         let spawn_model = profile_takes_model_at_spawn(&r.profile)
             || r.defaults.env.values().any(|v| v.contains("${model}"));
-        let draft = super::resolve::draft_meta(super::resolve::Draft {
+        let mut draft = super::resolve::draft_meta(super::resolve::Draft {
             id: String::new(),
             agent: &r.agent,
             profile: &r.profile,
@@ -367,6 +367,8 @@ impl Hub {
             policy: r.defaults.policy,
             remote: false,
         });
+        draft.cmux_preset_prompt =
+            crate::context_inventory::preset_override(&draft, &*self.config.read().await);
         self.pool_spec_for(&draft, &r.profile, &r.defaults.env).await
     }
 

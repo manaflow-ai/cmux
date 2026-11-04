@@ -665,10 +665,16 @@ body {
   color: var(--md-tok-light);
 }
 
+/* The token scheme is the paper's: a fixed `markdown.theme` paper (light or dark) wins over the App
+   Theme's appearance, which `prefers-color-scheme` follows (colorScheme.ts picks the same for diagrams). */
 @media (prefers-color-scheme: dark) {
-  .md-code [style*="--md-tok-dark"] {
+  :root:not([data-cmux-md-theme="light"]) .md-code [style*="--md-tok-dark"] {
     color: var(--md-tok-dark);
   }
+}
+
+:root[data-cmux-md-theme="dark"] .md-code [style*="--md-tok-dark"] {
+  color: var(--md-tok-dark);
 }
 
 .md-diagram {
