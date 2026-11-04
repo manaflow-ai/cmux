@@ -131,6 +131,22 @@ class Declared(unittest.TestCase):
         self.assertLess(names.index(checkout["name"]), names.index(step["name"]))
 
 
+    def test_hosted_light_rescue_runs_without_the_overflow_probe(self) -> None:
+        # A queued probe must not hold the recovery that moves other queued light jobs.
+        path = ROOT / ".github/workflows/ci-hosted-light-rescue.yml"
+        self.assertTrue(path.is_file(), "hosted light rescue needs an independent scheduler")
+        workflow = yaml.safe_load(path.read_text())
+        events = workflow.get("on", workflow.get(True))
+        self.assertEqual(events["schedule"], [{"cron": "*/5 * * * *"}])
+        self.assertNotEqual(workflow["concurrency"]["group"], "ci-cloud-overflow-probe")
+        self.assertFalse(workflow["concurrency"]["cancel-in-progress"])
+        rescue = workflow["jobs"]["rescue"]
+        self.assertNotIn("needs", rescue)
+        self.assertEqual(rescue["permissions"], {"actions": "write", "contents": "read"})
+        self.assertNotIn("secrets.", path.read_text())
+        old = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
+        self.assertNotIn("hosted_light_rescue.py", str(old["jobs"]))
+
     def test_the_watch_runs_the_pinned_hosted_light_rescue_without_failing(self) -> None:
         # cmux#32023, #32120: a hosted light job GitHub never assigns fails over to its re-run route.
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
