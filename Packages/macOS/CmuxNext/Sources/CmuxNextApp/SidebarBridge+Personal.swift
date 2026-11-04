@@ -102,7 +102,7 @@ extension SidebarBridge {
             // `sections` retains this intent's neighbors. The planner now reads
             // personal order containing every successful preceding write.
             let regroup = statePersonal ? plan.regroup : []
-            let moving = plan.steps.filter(\.moves).map(\.workspace), life = self.life
+            let moving = plan.steps.filter(\.moves).map(\.workspace), life = self.life, writes = life.personal.writes
             let ending = life.emptied(by: moving, into: group)
             let sent = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                 var finished = false
@@ -113,8 +113,8 @@ extension SidebarBridge {
                 }
                 life.commit("set-personal-workspace", ending: ending, recheck: { ending.filter(life.isEmptyUnpinned) }, until: claim,
                             unanswered: { await queue.releaseHeld(on: home) }, failed: report, completed: { finish($0) }) { sending in
-                    for step in plan.steps {
-                        do {
+                    for step in plan.steps { // a step a later move took is that move's to send (last write wins)
+                        guard await writes.isCurrent(claim, workspace: step.workspace.session, step.workspace.key.rawValue) else { continue }; do {
                             try await SidebarFoldPersist.resending(owner: "sidebar.placementSave", mayHaveApplied: DaemonError.missedDeadline) {
                                 try await sending.state.placePersonalWorkspace(session: step.workspace.session, key: step.workspace.key,
                                                                                   resource: step.workspace.resource,

@@ -7,7 +7,7 @@
 /// Every write retried here sets absolute values (a group, an index, a name), so sending it again lands the same state.
 ///
 /// The ledger also says which pending write is the newest for each thing it sets: a newer write to the same workspace (or group
-/// field) supersedes a write still being retried, so the last write wins and an older retry never puts back what the
+/// field) supersedes that part of a write still being retried, so the last write wins and an older retry never puts back what the
 /// person changed since.
 @MainActor
 public final class PersonalWriteLedger {
@@ -35,9 +35,19 @@ public final class PersonalWriteLedger {
     /// Claims `fields` of personal group `id`.
     public func claim(group id: String, _ fields: String...) -> Claim { claim(fields.map { Self.group(id, $0) }) }
 
-    /// Whether a later write claimed any of `claim`'s keys.
+    /// Whether later writes claimed every one of `claim`'s keys, so nothing is left for it to send. A write that set
+    /// several workspaces still goes for the ones no later write took: a move of [a, b] followed by a move of a alone
+    /// keeps b where the person put it.
     public func isSuperseded(_ claim: Claim) -> Bool {
-        claim.keys.contains { (latest[$0] ?? 0) > claim.generation }
+        claim.keys.allSatisfy { !isCurrent(claim, $0) }
+    }
+
+    /// Whether `claim` is still the newest write to `key`; a write sends only its current keys.
+    public func isCurrent(_ claim: Claim, _ key: String) -> Bool { (latest[key] ?? 0) <= claim.generation }
+
+    /// Whether `claim` is still the newest write to a session-qualified workspace's group and place.
+    public func isCurrent(_ claim: Claim, workspace session: String, _ key: String) -> Bool {
+        isCurrent(claim, Self.workspace(session: session, key: key))
     }
 
     /// The key of a session-qualified workspace's group and place.
