@@ -471,17 +471,26 @@ button.cv-subagent > :last-child {
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-detail--letter-spacing);
 }
-/* A subagent's own pane: where the chat's composer would be, the line naming the chat that takes
-   messages (SubagentPaneFooter.tsx). */
-.cv-subagent-pane-footer {
-  margin: 0;
-  padding: 12px 16px;
+/* A subagent's own pane: its composer's quiet row names the chat that passes the message on
+   (SubagentComposer.tsx), over the row's middle where a chat's look dots sit (composerLook.css). */
+.cv-subagent-composer-via {
+  position: absolute;
+  /* Clear of Send (16px inset, 28px button) with a 12px gap, so a long chat name truncates before it. */
+  right: 56px;
+  bottom: 12px;
+  left: 16px;
+  overflow: hidden;
   font-family: var(--cv-font);
   font-size: var(--text-detail);
+  line-height: 24px;
   color: var(--cv-text-muted);
+  letter-spacing: var(--text-detail--letter-spacing);
+  text-overflow: ellipsis;
+  white-space: nowrap;
   text-align: center;
   user-select: none;
-  letter-spacing: var(--text-detail--letter-spacing);
+  /* The row's controls under it stay clickable. */
+  pointer-events: none;
 }
 
 /* ---------- The tray of running work above the composer (SubagentTray.tsx) ---------- */
@@ -1647,10 +1656,10 @@ button.cv-subagent > :last-child {
 
 /* ---------- Tucking the hat away (SubagentTray.tsx `onTuck`, TrayPullTab.tsx) ----------
    Leo, 2026-11-04: "what if you wanted to collapse that one line? ... at the top of the hat, there's
-   some sort of little thing ... a special kind of chevron". The hat's chevron sits at its top middle
-   and shows while the pointer is over the hat (or it has keyboard focus); tucked, the hat leaves only
-   a faint grabber at the composer's top middle, in the accent while something runs, which turns into
-   an up chevron on hover. */
+   some sort of little thing ... a special kind of chevron". The hat's chevron sits on its top edge
+   (left, middle or right, agentPane.display.trayHandle) and shows while the pointer is over the hat
+   (or it has keyboard focus); tucked, the hat leaves only a faint grabber at the same place on the
+   composer's top edge, in the accent while something runs, which turns into an up chevron on hover. */
 .acpmux-running-tray[data-tucks] {
   position: relative;
 }
@@ -1672,23 +1681,25 @@ button.cv-subagent > :last-child {
 }
 /* Only the hat's top 8px band takes the tuck's clicks: the button starts 12px above the hat, whose clip
    hides that part, and its chevron sits at its foot. A click on the header's middle (its row is 24px or
-   more) still opens the hat, never tucks it. */
+   more) still opens the hat, never tucks it, and at the left or right the band stays above the header's
+   leading icon and fold chevron. The pull tab's width, so the handle stays put between tucked and
+   shown; it takes clicks only while it shows. */
 .acpmux-running-tray__tuck {
   top: -12px;
-  width: 40px;
+  width: 96px;
   height: 20px;
   align-items: flex-end;
   opacity: 0;
-  /* The transcript's hover fade (conversation.css --cv-actions-*): out quickly, in after a beat. */
-  transition: opacity var(--cv-actions-out);
+  pointer-events: none;
+  /* The transcript's shared hover-reveal fade (transcript-hover-fade.test.ts). */
+  transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
 }
 .acpmux-running-tray:hover > .acpmux-running-tray__tuck,
 .acpmux-running-tray:has([data-popup-open]) > .acpmux-running-tray__tuck,
 .acpmux-running-tray__tuck:focus-visible {
   opacity: 1;
-}
-.acpmux-running-tray:hover > .acpmux-running-tray__tuck {
-  transition: opacity var(--cv-actions-in) var(--cv-actions-in-delay);
+  pointer-events: auto;
+  transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
 }
 .acpmux-running-tray__tuck:hover,
 .acpmux-tray-pull__tab:hover {
@@ -1728,6 +1739,42 @@ button.cv-subagent > :last-child {
 .acpmux-tray-pull[data-running] .acpmux-tray-pull__tab::before {
   border-top-color: var(--agent-accent);
   opacity: 0.6;
+}
+/* Left or right along the edge (agentPane.display.trayHandle; Leo, 2026-11-04: "maybe the left… or
+   the right…"), 12px in from the card's corner, the hat's chevron with it. */
+.acpmux-running-tray[data-tucks="left"] > .acpmux-running-tray__tuck,
+.acpmux-tray-pull[data-side="left"] > .acpmux-tray-pull__tab {
+  left: var(--ds-space-3, 12px);
+  transform: none;
+}
+.acpmux-running-tray[data-tucks="right"] > .acpmux-running-tray__tuck,
+.acpmux-tray-pull[data-side="right"] > .acpmux-tray-pull__tab {
+  right: var(--ds-space-3, 12px);
+  left: auto;
+  transform: none;
+}
+
+/* Tucked, the tab still says what needs the person: a dot while something waits on them, else a
+   small count of what runs, at the grabber's end, at rest and on hover. */
+.acpmux-tray-pull__dot,
+.acpmux-tray-pull__count {
+  position: absolute;
+  top: 50%;
+  left: calc(50% + 16px);
+  transform: translateY(-50%);
+}
+.acpmux-tray-pull__dot {
+  --acpmux-tray-pull-dot: 6px;
+  width: var(--acpmux-tray-pull-dot);
+  height: var(--acpmux-tray-pull-dot);
+  border-radius: 999px;
+  background: var(--acpmux-needs-you-mark);
+}
+.acpmux-tray-pull__count {
+  color: var(--agent-accent);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 /* The up chevron, on hover or keyboard focus, in the grabber's place. */
 .acpmux-tray-pull__tab > svg {

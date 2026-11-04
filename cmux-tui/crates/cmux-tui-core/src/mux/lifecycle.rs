@@ -67,29 +67,11 @@ impl Mux {
         self.agent_prompts.lock().unwrap().forget(terminal_id);
         self.output_store.forget(terminal_id);
         // Terminal lifecycle does not flow through `agent.*` journal events
-        // yet, so a closed terminal retires its roster entry explicitly.
-        // The snapshot persists so a restart does not resurrect the entry.
-        // The fold lock orders this save with `fold_agent_roster`'s, so
-        // neither writes an older snapshot over the other's. The write takes
-        // the registry connection alone, never the workspace registry lock,
-        // so state commits do not wait behind it (issue 23038).
-        let fold = self.agent_roster_fold.lock().unwrap_or_else(PoisonError::into_inner);
-        let retired = {
-            let mut host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
-            let retired = host.roster.retire_terminal(terminal_id.as_str());
-            retired.then(|| (host.cursor, host.roster.snapshot().to_string()))
-        };
-        if let Some((cursor, snapshot)) = retired
-            && let Err(error) = self.registry_connection.put_journal_reducer_state(
-                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
-                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
-                cursor,
-                &snapshot,
-            )
-        {
-            eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
-        }
-        drop(fold);
+        // yet, so a closed terminal retires its roster entry explicitly, and
+        // the snapshot persists so a restart does not resurrect it. The
+        // roster's owner thread does both; the close only records it
+        // (cmux-ad m11 2, `agent_roster_worker.rs`).
+        self.retire_roster_terminal(terminal_id);
         // Read the terminal's open local items and drop its ring together.
         self.close_terminal_feed_items(terminal_id);
     }
@@ -142,6 +124,9 @@ impl Mux {
         if !self.journal_hook_runtime.shutdown_until(hook_deadline) {
             eprintln!("cmux-tui: journal hook workers did not stop before the shutdown deadline");
         }
+        // The roster's owner saves what closes and hooks asked of it while
+        // the journal writer still runs; then it ends.
+        self.stop_agent_roster_worker();
         self.finalize_terminal_journal("shutdown", screen_checkpoint);
         self.journal_kernel.shutdown();
         if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {

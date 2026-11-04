@@ -87,10 +87,10 @@ reads the PR's diff with git and takes the cheapest path. A web-only PR goes str
 `web-overlay.sh follow`, so the running app shows it in seconds with no build. A PR that changes
 only CI, tests or docs is reported as nothing to try. A PR that changes the daemon, Swift, a
 resource or a manifest needs a new binary: the script says why (a stored property, a changed
-signature, a new file, and so on), and with `--build` it requests the fleet dev build tagged `pr-<N>`.
+signature, a new type in an existing file, and so on), and with `--build` it requests the fleet dev build tagged `pr-<N>`.
 The rules are in `scripts/cmux-next/live_apply.py`. Over the last 3,895 NEXT-era PRs, about half of
 the ones that touch the app changed only web code or nothing in the app, so they need no new binary.
-A Swift change confined to function bodies could be injected live once the app takes live code
+A Swift change confined to function bodies and new files could be injected live once the app takes live code
 (the view shell does today); until then it takes the dev build.
 
 ### No dev server: built bundles

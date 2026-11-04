@@ -186,6 +186,7 @@
       "build-sign-notarize-nightly": {
         "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Yield the sign slot to a newer build": {"nightly_only": "reads the in-progress nightly-next push runs' sign jobs through the Actions API, only on attempt 1 of a nightly-next push; the decision and its wiring are checked by tests/test_nightly_sign_yield.py"},
         "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true},
         "Install the current signing keychain controls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate unsigned nightly resume provenance and routing"},
         "Initialize cmux-next notices submodule": {"plumbing": true},

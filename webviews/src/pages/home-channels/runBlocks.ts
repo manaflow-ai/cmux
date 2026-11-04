@@ -60,10 +60,17 @@ export function homeToolKind(step: HomeRunStep): HomeToolKind {
   const name = step.tool?.name ?? "";
   if (/^todowrite$/i.test(name)) return "tool";
   const value = `${step.tool?.kind ?? ""} ${name}`;
-  const tokens = value.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const tokens = value
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
   const has = (...words: string[]) => words.some((word) => tokens.includes(word));
   if (has("shell", "bash", "zsh", "fish", "sh", "command", "terminal", "exec", "execute", "run")) return "command";
-  if (has("edit", "write", "patch", "delete", "move", "rename") || step.tool?.files.some((file) => file.newText !== undefined))
+  if (
+    has("edit", "write", "patch", "delete", "move", "rename") ||
+    step.tool?.files.some((file) => file.newText !== undefined)
+  )
     return "edit";
   if (has("search", "grep", "glob", "find", "query")) return "search";
   if (has("read", "cat", "open", "list", "stat")) return "read";

@@ -211377,134 +211377,1058 @@
         }
       }
     },
-    "subagents.paneReadOnly": {
-      "comment": "Agent pane: where a subagent's own pane would show the chat's composer; {name} is the chat that takes messages",
+    "subagents.messageFailed": {
+      "comment": "Agent pane: a message from a subagent's own composer did not reach its chat",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Read only · messages go to {name}"
+            "value": "Not sent"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "للقراءة فقط · تُرسل الرسائل إلى {name}"
+            "value": "لم يُرسَل"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Samo za čitanje · poruke idu u {name}"
+            "value": "Nije poslano"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skrivebeskyttet · beskeder går til {name}"
+            "value": "Ikke sendt"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nur lesen · Nachrichten gehen an {name}"
+            "value": "Nicht gesendet"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Solo lectura · los mensajes van a {name}"
+            "value": "No enviado"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lecture seule · les messages vont à {name}"
+            "value": "Non envoyé"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sola lettura · i messaggi vanno a {name}"
+            "value": "Non inviato"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "閲覧のみ · メッセージは {name} へ"
+            "value": "送信されませんでした"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "អានតែប៉ុណ្ណោះ · សារទៅកាន់ {name}"
+            "value": "មិនបានផ្ញើ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "읽기 전용 · 메시지는 {name}(으)로"
+            "value": "보내지 못함"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skrivebeskyttet · meldinger går til {name}"
+            "value": "Ikke sendt"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tylko do odczytu · wiadomości trafiają do {name}"
+            "value": "Nie wysłano"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Somente leitura · as mensagens vão para {name}"
+            "value": "Não enviado"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Только чтение · сообщения уходят в {name}"
+            "value": "Не отправлено"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "อ่านอย่างเดียว · ข้อความไปที่ {name}"
+            "value": "ไม่ได้ส่ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Salt okunur · mesajlar {name} sohbetine gider"
+            "value": "Gönderilmedi"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Лише читання · повідомлення йдуть у {name}"
+            "value": "Не надіслано"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chỉ đọc · tin nhắn gửi tới {name}"
+            "value": "Chưa gửi"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "只读 · 消息发送到 {name}"
+            "value": "未发送"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "唯讀 · 訊息傳送到 {name}"
+            "value": "未傳送"
+          }
+        }
+      }
+    },
+    "subagents.messagePlaceholder": {
+      "comment": "Agent pane: the placeholder of a subagent's own composer in its pane; {name} is the subagent",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message {name}"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "راسِل {name}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poruka za {name}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Besked til {name}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachricht an {name}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mensaje para {name}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message à {name}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Messaggio a {name}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} にメッセージ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើសារទៅ {name}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name}에게 메시지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melding til {name}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiadomość do {name}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mensagem para {name}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сообщение для {name}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งข้อความถึง {name}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} adlı alt ajana mesaj"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повідомлення для {name}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhắn cho {name}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "给 {name} 发消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳訊息給 {name}"
+          }
+        }
+      }
+    },
+    "subagents.messageSend": {
+      "comment": "Agent pane: the Send button of a subagent's own composer; {name} is the subagent",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send to {name}"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أرسل إلى {name}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pošalji za {name}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send til {name}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An {name} senden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar a {name}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer à {name}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia a {name}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} に送信"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើទៅ {name}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name}에게 보내기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send til {name}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyślij do {name}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar para {name}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить {name}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งถึง {name}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} adlı alt ajana gönder"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надіслати {name}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gửi cho {name}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送给 {name}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送給 {name}"
+          }
+        }
+      }
+    },
+    "subagents.messageVia": {
+      "comment": "Agent pane: under a subagent's own composer, the chat that takes the message and passes it on to the subagent; {name} is the chat",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sent through {name}"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُرسَل عبر {name}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Šalje se preko {name}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sendes via {name}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geht über {name}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se envía a través de {name}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyé via {name}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inviato tramite {name}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} 経由で送信"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើតាម {name}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name}을(를) 통해 전송"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sendes via {name}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wysyłane przez {name}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviado por meio de {name}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправляется через {name}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งผ่าน {name}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} üzerinden gönderilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надсилається через {name}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gửi qua {name}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "经由 {name} 发送"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "經由 {name} 傳送"
+          }
+        }
+      }
+    },
+    "subagents.relay": {
+      "comment": "Agent pane: the prompt a subagent's own composer sends its chat when no id for the subagent is known; {name} is the subagent, {message} what the person typed, kept as is on the lines after",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send your subagent \"{name}\" the message below, word for word. If it can no longer take messages, say so.\n\n{message}"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أرسل إلى الوكيل الفرعي \"{name}\" الرسالة أدناه حرفيًا. إن لم يعد يستقبل الرسائل، فقل ذلك.\n\n{message}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pošalji podagentu \"{name}\" poruku ispod, doslovno. Ako više ne prima poruke, reci to.\n\n{message}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send din underagent \"{name}\" beskeden nedenfor, ord for ord. Hvis den ikke længere kan modtage beskeder, så sig det.\n\n{message}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sende deinem Subagenten \"{name}\" die Nachricht unten, Wort für Wort. Kann er keine Nachrichten mehr annehmen, sag das.\n\n{message}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envía a tu subagente \"{name}\" el mensaje de abajo, palabra por palabra. Si ya no puede recibir mensajes, dilo.\n\n{message}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoie à ton sous-agent \"{name}\" le message ci-dessous, mot pour mot. S'il ne peut plus recevoir de messages, dis-le.\n\n{message}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia al tuo subagente \"{name}\" il messaggio qui sotto, parola per parola. Se non può più ricevere messaggi, dillo.\n\n{message}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブエージェント「{name}」 に下のメッセージをそのまま送ってください。もうメッセージを受け取れない場合は、そう伝えてください。\n\n{message}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើសារខាងក្រោមទៅភ្នាក់ងាររង \"{name}\" ពាក្យដោយពាក្យ។ បើវាលែងទទួលសារបាន សូមប្រាប់។\n\n{message}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 에이전트 \"{name}\"에게 아래 메시지를 그대로 보내세요. 더 이상 메시지를 받을 수 없다면 그렇다고 말해 주세요.\n\n{message}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send underagenten \"{name}\" meldingen nedenfor, ord for ord. Hvis den ikke lenger kan ta imot meldinger, si fra.\n\n{message}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyślij podagentowi \"{name}\" poniższą wiadomość, słowo w słowo. Jeśli nie może już przyjmować wiadomości, powiedz o tym.\n\n{message}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envie ao seu subagente \"{name}\" a mensagem abaixo, palavra por palavra. Se ele não puder mais receber mensagens, diga isso.\n\n{message}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправь своему субагенту \"{name}\" сообщение ниже, слово в слово. Если он больше не принимает сообщения, так и скажи.\n\n{message}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งข้อความด้านล่างถึงเอเจนต์ย่อย \"{name}\" แบบคำต่อคำ หากรับข้อความไม่ได้แล้ว ให้บอก\n\n{message}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\"{name}\" adlı alt ajanına aşağıdaki mesajı kelimesi kelimesine gönder. Artık mesaj alamıyorsa bunu söyle.\n\n{message}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надішли своєму субагенту \"{name}\" повідомлення нижче, слово в слово. Якщо він більше не приймає повідомлень, так і скажи.\n\n{message}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gửi cho subagent \"{name}\" tin nhắn bên dưới, nguyên văn. Nếu nó không còn nhận tin nhắn được, hãy nói vậy.\n\n{message}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把下面的消息原样发给你的子代理“{name}”。如果它已无法再接收消息，请说明。\n\n{message}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把下面的訊息原樣傳給你的子代理「{name}」。如果它已無法再接收訊息，請說明。\n\n{message}"
+          }
+        }
+      }
+    },
+    "subagents.relayClaude": {
+      "comment": "Agent pane: the prompt a subagent's own composer sends its Claude Code chat when the subagent's agentId is not known yet (keep SendMessage as is); {name} is the subagent, {message} what the person typed, kept as is on the lines after",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use SendMessage to send your subagent \"{name}\" the message below, word for word. If it has finished, SendMessage resumes it.\n\n{message}"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم SendMessage لإرسال الرسالة أدناه حرفيًا إلى الوكيل الفرعي \"{name}\". إن كان قد انتهى، فإن SendMessage يستأنفه.\n\n{message}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristi SendMessage da podagentu \"{name}\" pošalješ poruku ispod, doslovno. Ako je završio, SendMessage ga nastavlja.\n\n{message}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug SendMessage til at sende din underagent \"{name}\" beskeden nedenfor, ord for ord. Hvis den er færdig, genoptager SendMessage den.\n\n{message}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sende deinem Subagenten \"{name}\" mit SendMessage die Nachricht unten, Wort für Wort. Ist er fertig, setzt SendMessage ihn fort.\n\n{message}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa SendMessage para enviar a tu subagente \"{name}\" el mensaje de abajo, palabra por palabra. Si ya terminó, SendMessage lo reanuda.\n\n{message}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilise SendMessage pour envoyer à ton sous-agent \"{name}\" le message ci-dessous, mot pour mot. S'il a terminé, SendMessage le relance.\n\n{message}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa SendMessage per inviare al tuo subagente \"{name}\" il messaggio qui sotto, parola per parola. Se ha finito, SendMessage lo riprende.\n\n{message}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SendMessage を使って、サブエージェント「{name}」 に下のメッセージをそのまま送ってください。終了している場合は SendMessage が再開します。\n\n{message}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើ SendMessage ដើម្បីផ្ញើសារខាងក្រោមទៅភ្នាក់ងាររង \"{name}\" ពាក្យដោយពាក្យ។ បើវាបានបញ្ចប់ SendMessage នឹងបន្តវា។\n\n{message}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SendMessage로 하위 에이전트 \"{name}\"에게 아래 메시지를 그대로 보내세요. 이미 끝났다면 SendMessage가 다시 이어 갑니다.\n\n{message}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk SendMessage til å sende underagenten \"{name}\" meldingen nedenfor, ord for ord. Hvis den er ferdig, gjenopptar SendMessage den.\n\n{message}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użyj SendMessage, aby wysłać podagentowi \"{name}\" poniższą wiadomość, słowo w słowo. Jeśli skończył, SendMessage go wznowi.\n\n{message}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use SendMessage para enviar ao seu subagente \"{name}\" a mensagem abaixo, palavra por palavra. Se ele já terminou, SendMessage o retoma.\n\n{message}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "С помощью SendMessage отправь своему субагенту \"{name}\" сообщение ниже, слово в слово. Если он завершился, SendMessage его возобновит.\n\n{message}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ SendMessage ส่งข้อความด้านล่างถึงเอเจนต์ย่อย \"{name}\" แบบคำต่อคำ หากทำงานเสร็จแล้ว SendMessage จะให้ทำงานต่อ\n\n{message}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SendMessage ile \"{name}\" adlı alt ajanına aşağıdaki mesajı kelimesi kelimesine gönder. Bitmişse SendMessage onu sürdürür.\n\n{message}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За допомогою SendMessage надішли своєму субагенту \"{name}\" повідомлення нижче, слово в слово. Якщо він завершився, SendMessage його відновить.\n\n{message}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng SendMessage để gửi cho subagent \"{name}\" tin nhắn bên dưới, nguyên văn. Nếu nó đã xong, SendMessage sẽ tiếp tục nó.\n\n{message}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 SendMessage 把下面的消息原样发给你的子代理“{name}”。如果它已结束，SendMessage 会让它继续。\n\n{message}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 SendMessage 把下面的訊息原樣傳給你的子代理「{name}」。如果它已結束，SendMessage 會讓它繼續。\n\n{message}"
+          }
+        }
+      }
+    },
+    "subagents.relayClaudeId": {
+      "comment": "Agent pane: the prompt a subagent's own composer sends its Claude Code chat, to pass the message on with SendMessage (keep SendMessage and agentId as is); {name} is the subagent, {id} its agentId, {message} what the person typed, kept as is on the lines after",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use SendMessage to send your subagent \"{name}\" (agentId {id}) the message below, word for word. If it has finished, SendMessage resumes it.\n\n{message}"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم SendMessage لإرسال الرسالة أدناه حرفيًا إلى الوكيل الفرعي \"{name}\" (agentId {id}). إن كان قد انتهى، فإن SendMessage يستأنفه.\n\n{message}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristi SendMessage da podagentu \"{name}\" (agentId {id}) pošalješ poruku ispod, doslovno. Ako je završio, SendMessage ga nastavlja.\n\n{message}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug SendMessage til at sende din underagent \"{name}\" (agentId {id}) beskeden nedenfor, ord for ord. Hvis den er færdig, genoptager SendMessage den.\n\n{message}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sende deinem Subagenten \"{name}\" (agentId {id}) mit SendMessage die Nachricht unten, Wort für Wort. Ist er fertig, setzt SendMessage ihn fort.\n\n{message}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa SendMessage para enviar a tu subagente \"{name}\" (agentId {id}) el mensaje de abajo, palabra por palabra. Si ya terminó, SendMessage lo reanuda.\n\n{message}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilise SendMessage pour envoyer à ton sous-agent \"{name}\" (agentId {id}) le message ci-dessous, mot pour mot. S'il a terminé, SendMessage le relance.\n\n{message}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa SendMessage per inviare al tuo subagente \"{name}\" (agentId {id}) il messaggio qui sotto, parola per parola. Se ha finito, SendMessage lo riprende.\n\n{message}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SendMessage を使って、サブエージェント「{name}」(agentId {id}) に下のメッセージをそのまま送ってください。終了している場合は SendMessage が再開します。\n\n{message}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើ SendMessage ដើម្បីផ្ញើសារខាងក្រោមទៅភ្នាក់ងាររង \"{name}\" (agentId {id}) ពាក្យដោយពាក្យ។ បើវាបានបញ្ចប់ SendMessage នឹងបន្តវា។\n\n{message}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SendMessage로 하위 에이전트 \"{name}\"(agentId {id})에게 아래 메시지를 그대로 보내세요. 이미 끝났다면 SendMessage가 다시 이어 갑니다.\n\n{message}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk SendMessage til å sende underagenten \"{name}\" (agentId {id}) meldingen nedenfor, ord for ord. Hvis den er ferdig, gjenopptar SendMessage den.\n\n{message}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użyj SendMessage, aby wysłać podagentowi \"{name}\" (agentId {id}) poniższą wiadomość, słowo w słowo. Jeśli skończył, SendMessage go wznowi.\n\n{message}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use SendMessage para enviar ao seu subagente \"{name}\" (agentId {id}) a mensagem abaixo, palavra por palavra. Se ele já terminou, SendMessage o retoma.\n\n{message}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "С помощью SendMessage отправь своему субагенту \"{name}\" (agentId {id}) сообщение ниже, слово в слово. Если он завершился, SendMessage его возобновит.\n\n{message}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ SendMessage ส่งข้อความด้านล่างถึงเอเจนต์ย่อย \"{name}\" (agentId {id}) แบบคำต่อคำ หากทำงานเสร็จแล้ว SendMessage จะให้ทำงานต่อ\n\n{message}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SendMessage ile \"{name}\" adlı alt ajanına (agentId {id}) aşağıdaki mesajı kelimesi kelimesine gönder. Bitmişse SendMessage onu sürdürür.\n\n{message}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За допомогою SendMessage надішли своєму субагенту \"{name}\" (agentId {id}) повідомлення нижче, слово в слово. Якщо він завершився, SendMessage його відновить.\n\n{message}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng SendMessage để gửi cho subagent \"{name}\" (agentId {id}) tin nhắn bên dưới, nguyên văn. Nếu nó đã xong, SendMessage sẽ tiếp tục nó.\n\n{message}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 SendMessage 把下面的消息原样发给你的子代理“{name}”（agentId {id}）。如果它已结束，SendMessage 会让它继续。\n\n{message}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 SendMessage 把下面的訊息原樣傳給你的子代理「{name}」（agentId {id}）。如果它已結束，SendMessage 會讓它繼續。\n\n{message}"
+          }
+        }
+      }
+    },
+    "subagents.relayId": {
+      "comment": "Agent pane: the prompt a subagent's own composer sends its chat (a harness other than Claude Code) to pass the message on; {name} is the subagent, {id} the id the harness knows it by, {message} what the person typed, kept as is on the lines after",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send your subagent \"{name}\" (id {id}) the message below, word for word. If it can no longer take messages, say so.\n\n{message}"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أرسل إلى الوكيل الفرعي \"{name}\" (المعرّف {id}) الرسالة أدناه حرفيًا. إن لم يعد يستقبل الرسائل، فقل ذلك.\n\n{message}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pošalji podagentu \"{name}\" (id {id}) poruku ispod, doslovno. Ako više ne prima poruke, reci to.\n\n{message}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send din underagent \"{name}\" (id {id}) beskeden nedenfor, ord for ord. Hvis den ikke længere kan modtage beskeder, så sig det.\n\n{message}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sende deinem Subagenten \"{name}\" (ID {id}) die Nachricht unten, Wort für Wort. Kann er keine Nachrichten mehr annehmen, sag das.\n\n{message}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envía a tu subagente \"{name}\" (id {id}) el mensaje de abajo, palabra por palabra. Si ya no puede recibir mensajes, dilo.\n\n{message}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoie à ton sous-agent \"{name}\" (id {id}) le message ci-dessous, mot pour mot. S'il ne peut plus recevoir de messages, dis-le.\n\n{message}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia al tuo subagente \"{name}\" (id {id}) il messaggio qui sotto, parola per parola. Se non può più ricevere messaggi, dillo.\n\n{message}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブエージェント「{name}」(id {id}) に下のメッセージをそのまま送ってください。もうメッセージを受け取れない場合は、そう伝えてください。\n\n{message}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើសារខាងក្រោមទៅភ្នាក់ងាររង \"{name}\" (id {id}) ពាក្យដោយពាក្យ។ បើវាលែងទទួលសារបាន សូមប្រាប់។\n\n{message}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 에이전트 \"{name}\"(id {id})에게 아래 메시지를 그대로 보내세요. 더 이상 메시지를 받을 수 없다면 그렇다고 말해 주세요.\n\n{message}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send underagenten \"{name}\" (id {id}) meldingen nedenfor, ord for ord. Hvis den ikke lenger kan ta imot meldinger, si fra.\n\n{message}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyślij podagentowi \"{name}\" (id {id}) poniższą wiadomość, słowo w słowo. Jeśli nie może już przyjmować wiadomości, powiedz o tym.\n\n{message}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envie ao seu subagente \"{name}\" (id {id}) a mensagem abaixo, palavra por palavra. Se ele não puder mais receber mensagens, diga isso.\n\n{message}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправь своему субагенту \"{name}\" (id {id}) сообщение ниже, слово в слово. Если он больше не принимает сообщения, так и скажи.\n\n{message}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งข้อความด้านล่างถึงเอเจนต์ย่อย \"{name}\" (id {id}) แบบคำต่อคำ หากรับข้อความไม่ได้แล้ว ให้บอก\n\n{message}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\"{name}\" adlı alt ajanına (id {id}) aşağıdaki mesajı kelimesi kelimesine gönder. Artık mesaj alamıyorsa bunu söyle.\n\n{message}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надішли своєму субагенту \"{name}\" (id {id}) повідомлення нижче, слово в слово. Якщо він більше не приймає повідомлень, так і скажи.\n\n{message}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gửi cho subagent \"{name}\" (id {id}) tin nhắn bên dưới, nguyên văn. Nếu nó không còn nhận tin nhắn được, hãy nói vậy.\n\n{message}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把下面的消息原样发给你的子代理“{name}”（id {id}）。如果它已无法再接收消息，请说明。\n\n{message}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把下面的訊息原樣傳給你的子代理「{name}」（id {id}）。如果它已無法再接收訊息，請說明。\n\n{message}"
           }
         }
       }
@@ -251177,7 +252101,17 @@
     "cloudStartup.folderHome": {"comment":"Agent pane: Cloud startup checklist. A Cloud start refused on this Mac because its folder is the home folder or a folder above it, which Cloud never copies.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud doesn't copy your home folder or a folder above it; pick a project folder."}},"ar":{"stringUnit":{"state":"translated","value":"لا ينسخ Cloud مجلد المنزل أو مجلدًا أعلى منه؛ اختر مجلد مشروع."}},"bs":{"stringUnit":{"state":"translated","value":"Cloud ne kopira vaš početni folder niti folder iznad njega; odaberite folder projekta."}},"da":{"stringUnit":{"state":"translated","value":"Cloud kopierer ikke din hjemmemappe eller en mappe over den; vælg en projektmappe."}},"de":{"stringUnit":{"state":"translated","value":"Cloud kopiert weder deinen Benutzerordner noch einen Ordner darüber; wähle einen Projektordner aus."}},"es":{"stringUnit":{"state":"translated","value":"Cloud no copia tu carpeta de inicio ni una carpeta superior; elige una carpeta de proyecto."}},"fr":{"stringUnit":{"state":"translated","value":"Cloud ne copie pas votre dossier personnel ni un dossier au-dessus ; choisissez un dossier de projet."}},"it":{"stringUnit":{"state":"translated","value":"Cloud non copia la cartella Inizio né una cartella superiore; scegli una cartella di progetto."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud はホームフォルダやその上位のフォルダをコピーしません。プロジェクトフォルダを選んでください。"}},"km":{"stringUnit":{"state":"translated","value":"Cloud មិនចម្លងថតផ្ទះរបស់អ្នក ឬថតខាងលើវាទេ។ ជ្រើសរើសថតគម្រោង។"}},"ko":{"stringUnit":{"state":"translated","value":"Cloud는 홈 폴더나 그 상위 폴더를 복사하지 않습니다. 프로젝트 폴더를 선택하세요."}},"nb":{"stringUnit":{"state":"translated","value":"Cloud kopierer ikke hjemmemappen din eller en mappe over den; velg en prosjektmappe."}},"pl":{"stringUnit":{"state":"translated","value":"Cloud nie kopiuje folderu domowego ani folderu nad nim; wybierz folder projektu."}},"pt-BR":{"stringUnit":{"state":"translated","value":"O Cloud não copia sua pasta pessoal nem uma pasta acima dela; escolha uma pasta de projeto."}},"ru":{"stringUnit":{"state":"translated","value":"Cloud не копирует домашнюю папку и папки выше неё; выберите папку проекта."}},"th":{"stringUnit":{"state":"translated","value":"Cloud ไม่คัดลอกโฟลเดอร์บ้านหรือโฟลเดอร์ที่อยู่เหนือกว่า เลือกโฟลเดอร์โปรเจกต์"}},"tr":{"stringUnit":{"state":"translated","value":"Cloud ana klasörünüzü veya onun üstündeki bir klasörü kopyalamaz; bir proje klasörü seçin."}},"uk":{"stringUnit":{"state":"translated","value":"Cloud не копіює домашню папку чи папки над нею; виберіть папку проєкту."}},"vi":{"stringUnit":{"state":"translated","value":"Cloud không sao chép thư mục nhà hoặc thư mục phía trên nó; hãy chọn một thư mục dự án."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Cloud 不会复制你的个人文件夹或其上级文件夹；请选择一个项目文件夹。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Cloud 不會複製你的個人資料夾或其上層資料夾；請選擇一個專案資料夾。"}}}},
     "cloudStartup.folderSecret": {"comment":"Agent pane: Cloud startup checklist. A Cloud start refused on this Mac because its folder is, or holds, a folder of keys or credentials. {folder} is that folder, spelled from the home folder (~/.ssh).","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud never copies {folder}, which holds keys or credentials; pick a project folder."}},"ar":{"stringUnit":{"state":"translated","value":"لا ينسخ Cloud المجلد {folder} أبدًا لأنه يحتوي على مفاتيح أو بيانات اعتماد؛ اختر مجلد مشروع."}},"bs":{"stringUnit":{"state":"translated","value":"Cloud nikad ne kopira {folder} jer sadrži ključeve ili vjerodajnice; odaberite folder projekta."}},"da":{"stringUnit":{"state":"translated","value":"Cloud kopierer aldrig {folder}, som indeholder nøgler eller loginoplysninger; vælg en projektmappe."}},"de":{"stringUnit":{"state":"translated","value":"Cloud kopiert {folder} nie, da dort Schlüssel oder Zugangsdaten liegen; wähle einen Projektordner aus."}},"es":{"stringUnit":{"state":"translated","value":"Cloud nunca copia {folder}, que contiene claves o credenciales; elige una carpeta de proyecto."}},"fr":{"stringUnit":{"state":"translated","value":"Cloud ne copie jamais {folder}, qui contient des clés ou des identifiants ; choisissez un dossier de projet."}},"it":{"stringUnit":{"state":"translated","value":"Cloud non copia mai {folder}, che contiene chiavi o credenziali; scegli una cartella di progetto."}},"ja":{"stringUnit":{"state":"translated","value":"{folder} には鍵や認証情報があるため、Cloud はコピーしません。プロジェクトフォルダを選んでください。"}},"km":{"stringUnit":{"state":"translated","value":"Cloud មិនដែលចម្លង {folder} ទេ ព្រោះវាមានសោ ឬព័ត៌មានសម្ងាត់។ ជ្រើសរើសថតគម្រោង។"}},"ko":{"stringUnit":{"state":"translated","value":"{folder}에는 키나 자격 증명이 있어 Cloud가 복사하지 않습니다. 프로젝트 폴더를 선택하세요."}},"nb":{"stringUnit":{"state":"translated","value":"Cloud kopierer aldri {folder}, som inneholder nøkler eller påloggingsinformasjon; velg en prosjektmappe."}},"pl":{"stringUnit":{"state":"translated","value":"Cloud nigdy nie kopiuje {folder}, bo zawiera klucze lub dane logowania; wybierz folder projektu."}},"pt-BR":{"stringUnit":{"state":"translated","value":"O Cloud nunca copia {folder}, que contém chaves ou credenciais; escolha uma pasta de projeto."}},"ru":{"stringUnit":{"state":"translated","value":"Cloud никогда не копирует {folder}: там ключи или учётные данные; выберите папку проекта."}},"th":{"stringUnit":{"state":"translated","value":"Cloud ไม่คัดลอก {folder} เพราะมีคีย์หรือข้อมูลรับรอง เลือกโฟลเดอร์โปรเจกต์"}},"tr":{"stringUnit":{"state":"translated","value":"Cloud, anahtar veya kimlik bilgileri içerdiği için {folder} klasörünü asla kopyalamaz; bir proje klasörü seçin."}},"uk":{"stringUnit":{"state":"translated","value":"Cloud ніколи не копіює {folder}, бо там ключі або облікові дані; виберіть папку проєкту."}},"vi":{"stringUnit":{"state":"translated","value":"Cloud không bao giờ sao chép {folder} vì chứa khóa hoặc thông tin xác thực; hãy chọn một thư mục dự án."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"{folder} 中有密钥或凭据，Cloud 从不复制它；请选择一个项目文件夹。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"{folder} 中有金鑰或憑證，Cloud 從不複製它；請選擇一個專案資料夾。"}}}},
     "cloudStartup.folderNotOpen": {"comment":"Agent pane: Cloud startup checklist. A Cloud start refused on this Mac because its folder is not one of the tab's folders.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This folder isn't open in this tab; pick it to send it to Cloud."}},"ar":{"stringUnit":{"state":"translated","value":"هذا المجلد غير مفتوح في علامة التبويب هذه؛ اختره لإرساله إلى Cloud."}},"bs":{"stringUnit":{"state":"translated","value":"Ovaj folder nije otvoren u ovoj kartici; odaberite ga da ga pošaljete u Cloud."}},"da":{"stringUnit":{"state":"translated","value":"Denne mappe er ikke åben i denne fane; vælg den for at sende den til Cloud."}},"de":{"stringUnit":{"state":"translated","value":"Dieser Ordner ist in diesem Tab nicht geöffnet; wähle ihn aus, um ihn an Cloud zu senden."}},"es":{"stringUnit":{"state":"translated","value":"Esta carpeta no está abierta en esta pestaña; elígela para enviarla a Cloud."}},"fr":{"stringUnit":{"state":"translated","value":"Ce dossier n'est pas ouvert dans cet onglet ; choisissez-le pour l'envoyer vers Cloud."}},"it":{"stringUnit":{"state":"translated","value":"Questa cartella non è aperta in questa scheda; sceglila per inviarla a Cloud."}},"ja":{"stringUnit":{"state":"translated","value":"このフォルダはこのタブで開かれていません。Cloud に送るにはフォルダを選んでください。"}},"km":{"stringUnit":{"state":"translated","value":"ថតនេះមិនបានបើកនៅក្នុងផ្ទាំងនេះទេ។ ជ្រើសរើសវាដើម្បីផ្ញើវាទៅ Cloud។"}},"ko":{"stringUnit":{"state":"translated","value":"이 폴더는 이 탭에서 열려 있지 않습니다. Cloud로 보내려면 폴더를 선택하세요."}},"nb":{"stringUnit":{"state":"translated","value":"Denne mappen er ikke åpen i denne fanen; velg den for å sende den til Cloud."}},"pl":{"stringUnit":{"state":"translated","value":"Ten folder nie jest otwarty w tej karcie; wybierz go, aby wysłać go do Cloud."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Esta pasta não está aberta nesta aba; escolha-a para enviá-la ao Cloud."}},"ru":{"stringUnit":{"state":"translated","value":"Эта папка не открыта в этой вкладке; выберите её, чтобы отправить в Cloud."}},"th":{"stringUnit":{"state":"translated","value":"โฟลเดอร์นี้ไม่ได้เปิดอยู่ในแท็บนี้ เลือกโฟลเดอร์เพื่อส่งไปยัง Cloud"}},"tr":{"stringUnit":{"state":"translated","value":"Bu klasör bu sekmede açık değil; Cloud'a göndermek için klasörü seçin."}},"uk":{"stringUnit":{"state":"translated","value":"Ця папка не відкрита в цій вкладці; виберіть її, щоб надіслати в Cloud."}},"vi":{"stringUnit":{"state":"translated","value":"Thư mục này chưa được mở trong tab này; hãy chọn nó để gửi lên Cloud."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"此文件夹未在此标签页中打开；请选择它以发送到 Cloud。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"此資料夾未在此分頁中開啟；請選擇它以傳送到 Cloud。"}}}},
-    "cloudStartup.harnessStarting": {"comment":"Agent pane: Cloud startup checklist","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Starting {harness}"}},"ar":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"da":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"de":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"es":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"it":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"ja":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"km":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"ko":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"th":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}}}}
+    "cloudStartup.harnessStarting": {"comment":"Agent pane: Cloud startup checklist","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Starting {harness}"}},"ar":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"da":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"de":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"es":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"it":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"ja":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"km":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"ko":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"th":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Starting {harness}"}}}},
+    "bgTask.state.expired": {"comment":"Agent pane Session Info, Background tasks: a recurring cron job that ran out its lifetime and was removed","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Expired"}},"ar":{"stringUnit":{"state":"needs_review","value":"منتهية الصلاحية"}},"bs":{"stringUnit":{"state":"needs_review","value":"Isteklo"}},"da":{"stringUnit":{"state":"needs_review","value":"Udløbet"}},"de":{"stringUnit":{"state":"needs_review","value":"Abgelaufen"}},"es":{"stringUnit":{"state":"needs_review","value":"Caducada"}},"fr":{"stringUnit":{"state":"needs_review","value":"Expirée"}},"it":{"stringUnit":{"state":"needs_review","value":"Scaduta"}},"ja":{"stringUnit":{"state":"needs_review","value":"期限切れ"}},"km":{"stringUnit":{"state":"needs_review","value":"ផុតកំណត់"}},"ko":{"stringUnit":{"state":"needs_review","value":"만료됨"}},"nb":{"stringUnit":{"state":"needs_review","value":"Utløpt"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wygasło"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Expirada"}},"ru":{"stringUnit":{"state":"needs_review","value":"Истекло"}},"th":{"stringUnit":{"state":"needs_review","value":"หมดอายุ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Süresi doldu"}},"uk":{"stringUnit":{"state":"needs_review","value":"Минуло"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã hết hạn"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已过期"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已過期"}}}},
+    "cron.everyMinute": {"comment":"Agent pane Session Info, Background tasks: a cron job that runs every minute","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"every minute"}},"ar":{"stringUnit":{"state":"needs_review","value":"كل دقيقة"}},"bs":{"stringUnit":{"state":"needs_review","value":"svake minute"}},"da":{"stringUnit":{"state":"needs_review","value":"hvert minut"}},"de":{"stringUnit":{"state":"needs_review","value":"jede Minute"}},"es":{"stringUnit":{"state":"needs_review","value":"cada minuto"}},"fr":{"stringUnit":{"state":"needs_review","value":"chaque minute"}},"it":{"stringUnit":{"state":"needs_review","value":"ogni minuto"}},"ja":{"stringUnit":{"state":"needs_review","value":"毎分"}},"km":{"stringUnit":{"state":"needs_review","value":"រៀងរាល់នាទី"}},"ko":{"stringUnit":{"state":"needs_review","value":"매분"}},"nb":{"stringUnit":{"state":"needs_review","value":"hvert minutt"}},"pl":{"stringUnit":{"state":"needs_review","value":"co minutę"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"a cada minuto"}},"ru":{"stringUnit":{"state":"needs_review","value":"каждую минуту"}},"th":{"stringUnit":{"state":"needs_review","value":"ทุกนาที"}},"tr":{"stringUnit":{"state":"needs_review","value":"her dakika"}},"uk":{"stringUnit":{"state":"needs_review","value":"щохвилини"}},"vi":{"stringUnit":{"state":"needs_review","value":"mỗi phút"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"每分钟"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"每分鐘"}}}},
+    "cron.everyMinutes": {"comment":"Agent pane Session Info, Background tasks: a cron job's schedule; {n} is the number of minutes between runs (2 or more), abbreviated","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"every {n} min"}},"ar":{"stringUnit":{"state":"needs_review","value":"كل {n} د"}},"bs":{"stringUnit":{"state":"needs_review","value":"svakih {n} min"}},"da":{"stringUnit":{"state":"needs_review","value":"hver {n}. min"}},"de":{"stringUnit":{"state":"needs_review","value":"alle {n} Min."}},"es":{"stringUnit":{"state":"needs_review","value":"cada {n} min"}},"fr":{"stringUnit":{"state":"needs_review","value":"toutes les {n} min"}},"it":{"stringUnit":{"state":"needs_review","value":"ogni {n} min"}},"ja":{"stringUnit":{"state":"needs_review","value":"{n} 分ごと"}},"km":{"stringUnit":{"state":"needs_review","value":"រៀងរាល់ {n} នាទី"}},"ko":{"stringUnit":{"state":"needs_review","value":"{n}분마다"}},"nb":{"stringUnit":{"state":"needs_review","value":"hvert {n}. min"}},"pl":{"stringUnit":{"state":"needs_review","value":"co {n} min"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"a cada {n} min"}},"ru":{"stringUnit":{"state":"needs_review","value":"каждые {n} мин"}},"th":{"stringUnit":{"state":"needs_review","value":"ทุก {n} นาที"}},"tr":{"stringUnit":{"state":"needs_review","value":"{n} dk'da bir"}},"uk":{"stringUnit":{"state":"needs_review","value":"кожні {n} хв"}},"vi":{"stringUnit":{"state":"needs_review","value":"mỗi {n} phút"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"每 {n} 分钟"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"每 {n} 分鐘"}}}},
+    "cron.hourly": {"comment":"Agent pane Session Info, Background tasks: a cron job that runs once an hour; {minute} is the minute past the hour, two digits (\"hourly at :17\")","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"hourly at :{minute}"}},"ar":{"stringUnit":{"state":"needs_review","value":"كل ساعة عند :{minute}"}},"bs":{"stringUnit":{"state":"needs_review","value":"svaki sat u :{minute}"}},"da":{"stringUnit":{"state":"needs_review","value":"hver time kl. :{minute}"}},"de":{"stringUnit":{"state":"needs_review","value":"stündlich um :{minute}"}},"es":{"stringUnit":{"state":"needs_review","value":"cada hora a los :{minute}"}},"fr":{"stringUnit":{"state":"needs_review","value":"toutes les heures à :{minute}"}},"it":{"stringUnit":{"state":"needs_review","value":"ogni ora al minuto :{minute}"}},"ja":{"stringUnit":{"state":"needs_review","value":"毎時 :{minute}"}},"km":{"stringUnit":{"state":"needs_review","value":"រៀងរាល់ម៉ោង នៅ :{minute}"}},"ko":{"stringUnit":{"state":"needs_review","value":"매시 :{minute}"}},"nb":{"stringUnit":{"state":"needs_review","value":"hver time kl. :{minute}"}},"pl":{"stringUnit":{"state":"needs_review","value":"co godzinę o :{minute}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"a cada hora aos :{minute}"}},"ru":{"stringUnit":{"state":"needs_review","value":"каждый час в :{minute}"}},"th":{"stringUnit":{"state":"needs_review","value":"ทุกชั่วโมงที่ :{minute}"}},"tr":{"stringUnit":{"state":"needs_review","value":"her saat :{minute}'da"}},"uk":{"stringUnit":{"state":"needs_review","value":"щогодини о :{minute}"}},"vi":{"stringUnit":{"state":"needs_review","value":"hằng giờ lúc :{minute}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"每小时 :{minute}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"每小時 :{minute}"}}}},
+    "cron.everyHours": {"comment":"Agent pane Session Info, Background tasks: a cron job's schedule; {n} is the hours between runs (2 or more), {minute} the minute past the hour, two digits","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"every {n} h at :{minute}"}},"ar":{"stringUnit":{"state":"needs_review","value":"كل {n} س عند :{minute}"}},"bs":{"stringUnit":{"state":"needs_review","value":"svakih {n} h u :{minute}"}},"da":{"stringUnit":{"state":"needs_review","value":"hver {n}. time kl. :{minute}"}},"de":{"stringUnit":{"state":"needs_review","value":"alle {n} Std. um :{minute}"}},"es":{"stringUnit":{"state":"needs_review","value":"cada {n} h a los :{minute}"}},"fr":{"stringUnit":{"state":"needs_review","value":"toutes les {n} h à :{minute}"}},"it":{"stringUnit":{"state":"needs_review","value":"ogni {n} h al minuto :{minute}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{n} 時間ごと :{minute}"}},"km":{"stringUnit":{"state":"needs_review","value":"រៀងរាល់ {n} ម៉ោង នៅ :{minute}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{n}시간마다 :{minute}"}},"nb":{"stringUnit":{"state":"needs_review","value":"hver {n}. time kl. :{minute}"}},"pl":{"stringUnit":{"state":"needs_review","value":"co {n} godz. o :{minute}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"a cada {n} h aos :{minute}"}},"ru":{"stringUnit":{"state":"needs_review","value":"каждые {n} ч в :{minute}"}},"th":{"stringUnit":{"state":"needs_review","value":"ทุก {n} ชม. ที่ :{minute}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{n} saatte bir :{minute}'da"}},"uk":{"stringUnit":{"state":"needs_review","value":"кожні {n} год о :{minute}"}},"vi":{"stringUnit":{"state":"needs_review","value":"mỗi {n} giờ lúc :{minute}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"每 {n} 小时 :{minute}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"每 {n} 小時 :{minute}"}}}},
+    "cron.daily": {"comment":"Agent pane Session Info, Background tasks: a cron job that runs once a day; {time} is the time of day","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"daily at {time}"}},"ar":{"stringUnit":{"state":"needs_review","value":"يوميًا عند {time}"}},"bs":{"stringUnit":{"state":"needs_review","value":"svaki dan u {time}"}},"da":{"stringUnit":{"state":"needs_review","value":"dagligt kl. {time}"}},"de":{"stringUnit":{"state":"needs_review","value":"täglich um {time}"}},"es":{"stringUnit":{"state":"needs_review","value":"a diario a las {time}"}},"fr":{"stringUnit":{"state":"needs_review","value":"tous les jours à {time}"}},"it":{"stringUnit":{"state":"needs_review","value":"ogni giorno alle {time}"}},"ja":{"stringUnit":{"state":"needs_review","value":"毎日 {time}"}},"km":{"stringUnit":{"state":"needs_review","value":"រៀងរាល់ថ្ងៃ នៅ {time}"}},"ko":{"stringUnit":{"state":"needs_review","value":"매일 {time}"}},"nb":{"stringUnit":{"state":"needs_review","value":"daglig kl. {time}"}},"pl":{"stringUnit":{"state":"needs_review","value":"codziennie o {time}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"diariamente às {time}"}},"ru":{"stringUnit":{"state":"needs_review","value":"ежедневно в {time}"}},"th":{"stringUnit":{"state":"needs_review","value":"ทุกวันเวลา {time}"}},"tr":{"stringUnit":{"state":"needs_review","value":"her gün {time}"}},"uk":{"stringUnit":{"state":"needs_review","value":"щодня о {time}"}},"vi":{"stringUnit":{"state":"needs_review","value":"hằng ngày lúc {time}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"每天 {time}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"每天 {time}"}}}},
+    "cron.weekdays": {"comment":"Agent pane Session Info, Background tasks: a cron job that runs Monday to Friday; {time} is the time of day","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"weekdays at {time}"}},"ar":{"stringUnit":{"state":"needs_review","value":"أيام العمل عند {time}"}},"bs":{"stringUnit":{"state":"needs_review","value":"radnim danima u {time}"}},"da":{"stringUnit":{"state":"needs_review","value":"hverdage kl. {time}"}},"de":{"stringUnit":{"state":"needs_review","value":"werktags um {time}"}},"es":{"stringUnit":{"state":"needs_review","value":"entre semana a las {time}"}},"fr":{"stringUnit":{"state":"needs_review","value":"en semaine à {time}"}},"it":{"stringUnit":{"state":"needs_review","value":"nei giorni feriali alle {time}"}},"ja":{"stringUnit":{"state":"needs_review","value":"平日 {time}"}},"km":{"stringUnit":{"state":"needs_review","value":"ថ្ងៃធ្វើការ នៅ {time}"}},"ko":{"stringUnit":{"state":"needs_review","value":"평일 {time}"}},"nb":{"stringUnit":{"state":"needs_review","value":"hverdager kl. {time}"}},"pl":{"stringUnit":{"state":"needs_review","value":"w dni robocze o {time}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"em dias úteis às {time}"}},"ru":{"stringUnit":{"state":"needs_review","value":"по будням в {time}"}},"th":{"stringUnit":{"state":"needs_review","value":"วันธรรมดาเวลา {time}"}},"tr":{"stringUnit":{"state":"needs_review","value":"hafta içi {time}"}},"uk":{"stringUnit":{"state":"needs_review","value":"у будні о {time}"}},"vi":{"stringUnit":{"state":"needs_review","value":"ngày thường lúc {time}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"工作日 {time}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"平日 {time}"}}}},
+    "cron.weekly": {"comment":"Agent pane Session Info, Background tasks: a cron job that runs once a week; {day} is the weekday's name, {time} the time of day","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"weekly on {day} at {time}"}},"ar":{"stringUnit":{"state":"needs_review","value":"أسبوعيًا يوم {day} عند {time}"}},"bs":{"stringUnit":{"state":"needs_review","value":"sedmično, {day} u {time}"}},"da":{"stringUnit":{"state":"needs_review","value":"ugentligt, {day} kl. {time}"}},"de":{"stringUnit":{"state":"needs_review","value":"wöchentlich, {day} um {time}"}},"es":{"stringUnit":{"state":"needs_review","value":"semanal, {day} a las {time}"}},"fr":{"stringUnit":{"state":"needs_review","value":"chaque semaine, {day} à {time}"}},"it":{"stringUnit":{"state":"needs_review","value":"ogni settimana, {day} alle {time}"}},"ja":{"stringUnit":{"state":"needs_review","value":"毎週{day} {time}"}},"km":{"stringUnit":{"state":"needs_review","value":"រៀងរាល់សប្ដាហ៍ {day} នៅ {time}"}},"ko":{"stringUnit":{"state":"needs_review","value":"매주 {day} {time}"}},"nb":{"stringUnit":{"state":"needs_review","value":"ukentlig, {day} kl. {time}"}},"pl":{"stringUnit":{"state":"needs_review","value":"co tydzień, {day} o {time}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"semanalmente, {day} às {time}"}},"ru":{"stringUnit":{"state":"needs_review","value":"еженедельно, {day}, в {time}"}},"th":{"stringUnit":{"state":"needs_review","value":"ทุกสัปดาห์ {day} เวลา {time}"}},"tr":{"stringUnit":{"state":"needs_review","value":"her hafta {day} {time}"}},"uk":{"stringUnit":{"state":"needs_review","value":"щотижня, {day}, о {time}"}},"vi":{"stringUnit":{"state":"needs_review","value":"hằng tuần, {day} lúc {time}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"每周{day} {time}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"每週{day} {time}"}}}},
+    "cron.monthly": {"comment":"Agent pane Session Info, Background tasks: a cron job that runs once a month; {day} is the day of the month (a number), {time} the time of day","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"monthly on day {day} at {time}"}},"ar":{"stringUnit":{"state":"needs_review","value":"شهريًا في اليوم {day} عند {time}"}},"bs":{"stringUnit":{"state":"needs_review","value":"mjesečno, {day}. dan u {time}"}},"da":{"stringUnit":{"state":"needs_review","value":"månedligt d. {day} kl. {time}"}},"de":{"stringUnit":{"state":"needs_review","value":"monatlich am {day}. um {time}"}},"es":{"stringUnit":{"state":"needs_review","value":"mensual, el día {day} a las {time}"}},"fr":{"stringUnit":{"state":"needs_review","value":"tous les mois le {day} à {time}"}},"it":{"stringUnit":{"state":"needs_review","value":"ogni mese il giorno {day} alle {time}"}},"ja":{"stringUnit":{"state":"needs_review","value":"毎月{day}日 {time}"}},"km":{"stringUnit":{"state":"needs_review","value":"រៀងរាល់ខែ ថ្ងៃទី {day} នៅ {time}"}},"ko":{"stringUnit":{"state":"needs_review","value":"매월 {day}일 {time}"}},"nb":{"stringUnit":{"state":"needs_review","value":"månedlig den {day}. kl. {time}"}},"pl":{"stringUnit":{"state":"needs_review","value":"co miesiąc, {day}. dnia o {time}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"mensalmente no dia {day} às {time}"}},"ru":{"stringUnit":{"state":"needs_review","value":"ежемесячно, {day}-го числа в {time}"}},"th":{"stringUnit":{"state":"needs_review","value":"ทุกเดือนวันที่ {day} เวลา {time}"}},"tr":{"stringUnit":{"state":"needs_review","value":"her ay {day}. gün {time}"}},"uk":{"stringUnit":{"state":"needs_review","value":"щомісяця, {day}-го о {time}"}},"vi":{"stringUnit":{"state":"needs_review","value":"hằng tháng ngày {day} lúc {time}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"每月 {day} 日 {time}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"每月 {day} 日 {time}"}}}},
+    "cron.onDate": {"comment":"Agent pane Session Info, Background tasks: a cron job pinned to one date; {date} is the month and day, {time} the time of day","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"on {date} at {time}"}},"ar":{"stringUnit":{"state":"needs_review","value":"في {date} عند {time}"}},"bs":{"stringUnit":{"state":"needs_review","value":"{date} u {time}"}},"da":{"stringUnit":{"state":"needs_review","value":"{date} kl. {time}"}},"de":{"stringUnit":{"state":"needs_review","value":"am {date} um {time}"}},"es":{"stringUnit":{"state":"needs_review","value":"el {date} a las {time}"}},"fr":{"stringUnit":{"state":"needs_review","value":"le {date} à {time}"}},"it":{"stringUnit":{"state":"needs_review","value":"il {date} alle {time}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{date} {time}"}},"km":{"stringUnit":{"state":"needs_review","value":"នៅ {date} ម៉ោង {time}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{date} {time}"}},"nb":{"stringUnit":{"state":"needs_review","value":"{date} kl. {time}"}},"pl":{"stringUnit":{"state":"needs_review","value":"{date} o {time}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"em {date} às {time}"}},"ru":{"stringUnit":{"state":"needs_review","value":"{date} в {time}"}},"th":{"stringUnit":{"state":"needs_review","value":"{date} เวลา {time}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{date} {time}"}},"uk":{"stringUnit":{"state":"needs_review","value":"{date} о {time}"}},"vi":{"stringUnit":{"state":"needs_review","value":"ngày {date} lúc {time}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{date} {time}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{date} {time}"}}}}
   },
   "version": "1.0"
 }
