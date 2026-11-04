@@ -180,13 +180,14 @@ fn start_owner_keepers(
         crate::client_log::stderr_log!(
             "lifecycle",
             "{BIN}: stopped the owner of session {}: its app left and nothing keeps it \
-             (clients {}, terminals {:?}, browser host {}, app servers {}); its terminals and \
-             state stay for the next owner",
+             (clients {}, terminals {:?}, browser host {}, app servers {}, Chief brains {}); its \
+             terminals and state stay for the next owner",
             mux.session,
             keepers.clients,
             keepers.terminals,
             keepers.browser_host,
-            keepers.app_servers
+            keepers.app_servers,
+            keepers.chief_brains
         );
     });
     match watched {

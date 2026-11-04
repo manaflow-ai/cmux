@@ -28,7 +28,11 @@
 //! - its running browser host (an agent in one of its terminals may use it);
 //! - a running app server (an `always` server, or an on-demand server until
 //!   its idle stop), and an `always` server that crashed and waits for its
-//!   restart.
+//!   restart;
+//! - in a Chief session, a brain the owner supervises (`chief_brains.rs`)
+//!   that runs or waits for its restart, and a signal that may start one:
+//!   the owner's stop ends every brain and cuts its turn, and a brain is a
+//!   client only while its link is up.
 //!
 //! When none holds, it stops as a plain `server stop` does
 //! ([`stop_orphaned_owner`]): no terminal is ended (none is live) and no
@@ -63,6 +67,8 @@ pub struct Keepers {
     pub browser_host: bool,
     /// Running app server processes.
     pub app_servers: usize,
+    /// Supervised Chief brains that run or wait for a start ([`crate::chief_brains`]).
+    pub chief_brains: usize,
     /// Terminals that keep the owner (`Mux::kept_terminal_count`: 0 exactly
     /// when none does); `None` when not read (a cheaper keeper held, or the
     /// owner is not armed) or unreadable.
@@ -77,13 +83,18 @@ impl Keepers {
             && self.clients == 0
             && !self.browser_host
             && self.app_servers == 0
+            && self.chief_brains == 0
             && self.terminals == Some(0)
     }
 
     /// Whether every keeper but the terminals is gone, so the terminal count
     /// decides.
     fn terminals_decide(&self) -> bool {
-        self.armed && self.clients == 0 && !self.browser_host && self.app_servers == 0
+        self.armed
+            && self.clients == 0
+            && !self.browser_host
+            && self.app_servers == 0
+            && self.chief_brains == 0
     }
 }
 
@@ -95,6 +106,7 @@ pub(crate) fn owner_keepers(mux: &Mux) -> Keepers {
         clients: mux.control_clients.user_client_count(),
         browser_host: mux.control_clients.browser_host.is_running(),
         app_servers: mux.control_clients.apps().kept_servers(),
+        chief_brains: mux.chiefs().brains.kept(),
         terminals: None,
     };
     if keepers.terminals_decide() {
@@ -103,7 +115,9 @@ pub(crate) fn owner_keepers(mux: &Mux) -> Keepers {
     keepers
 }
 
-/// What the watch thread and its wakers share.
+/// What the watch thread and its wakers share. The Chief brain supervisor
+/// wakes the watch through the client presence observers when its count
+/// changes (`chief_brains.rs` `publish_kept`).
 struct Shared {
     stopping: AtomicBool,
     /// The thread's event subscription: wakers push into it. Replaced when
@@ -207,7 +221,14 @@ mod tests {
     use super::Keepers;
 
     fn idle() -> Keepers {
-        Keepers { armed: true, clients: 0, browser_host: false, app_servers: 0, terminals: Some(0) }
+        Keepers {
+            armed: true,
+            clients: 0,
+            browser_host: false,
+            app_servers: 0,
+            chief_brains: 0,
+            terminals: Some(0),
+        }
     }
 
     #[test]
@@ -225,6 +246,7 @@ mod tests {
         assert!(!Keepers { clients: 1, ..idle() }.none());
         assert!(!Keepers { browser_host: true, ..idle() }.none());
         assert!(!Keepers { app_servers: 1, ..idle() }.none());
+        assert!(!Keepers { chief_brains: 1, ..idle() }.none());
         assert!(!Keepers { terminals: Some(1), ..idle() }.none());
     }
 
@@ -240,5 +262,6 @@ mod tests {
         assert!(!Keepers { clients: 1, ..idle() }.terminals_decide());
         assert!(!Keepers { browser_host: true, ..idle() }.terminals_decide());
         assert!(!Keepers { app_servers: 2, ..idle() }.terminals_decide());
+        assert!(!Keepers { chief_brains: 1, ..idle() }.terminals_decide());
     }
 }
