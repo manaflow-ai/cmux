@@ -567,3 +567,100 @@ fn an_always_server_waiting_for_its_crash_restart_keeps_the_owner() {
         std::thread::sleep(Duration::from_millis(5));
     }
 }
+
+/// An on-demand server that appends `start` to its marker (its first
+/// argument), answers nothing, and exits by itself once `<marker>.go` exists.
+fn self_ending_server(dir: &Path, marker: &Path) -> Value {
+    write_script(
+        dir,
+        "self-ending-server",
+        "#!/bin/sh\necho start >> \"$1\"\nwhile [ ! -e \"$1.go\" ]; do sleep 0.02; done\nexit 0\n",
+    );
+    let mut server = native_server(marker, json!({ "start": "onDemand" }));
+    server["binaries"] = json!({ "darwin-arm64": "self-ending-server", "darwin-x64": "self-ending-server", "linux-arm64": "self-ending-server", "linux-x64": "self-ending-server" });
+    server
+}
+
+/// R-LIFECYCLE S1b (review of #34188, finding 1): two emits race. One reads
+/// the kept count (0) and is held before it tells the observers; meanwhile a
+/// call starts a server (1). When the held emit goes on, a later end of that
+/// server must still reach the owner's observers: a count told out of order
+/// must never hide a change, or the owner runs on with nothing kept.
+#[test]
+fn a_late_emit_never_hides_the_end_of_an_app_server_from_the_owner() {
+    let root = temp_dir();
+    let marker = root.0.join("ending.marker");
+    let server = self_ending_server(&root.0.join("servers"), &marker);
+    write_server_app(&root.0.join("bundled"), "srv", server);
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    let woken = Arc::new(Mutex::new(Vec::<usize>::new()));
+    let observers: crate::apps::ServerObservers = Arc::default();
+    let (seen, supervisor) = (woken.clone(), Arc::downgrade(&f.supervisor));
+    // What a woken owner reads: the count at the wake.
+    observers.lock().unwrap().push(Box::new(move || {
+        if let Some(supervisor) = supervisor.upgrade() {
+            seen.lock().unwrap().push(supervisor.kept_servers());
+        }
+    }));
+    f.supervisor.observe_kept_servers(observers);
+    f.install("cmux/srv");
+    assert_eq!(f.supervisor.kept_servers(), 0, "an on-demand server waits for its first call");
+
+    // Emit A reads 0 and is held before it tells anyone.
+    let (held_tx, held_rx) = channel::<()>();
+    let (go_tx, go_rx) = channel::<()>();
+    let late = {
+        let supervisor = f.supervisor.clone();
+        std::thread::spawn(move || {
+            *supervisor.emit_pause.lock().unwrap() = Some((
+                std::thread::current().id(),
+                Box::new(move || {
+                    held_tx.send(()).unwrap();
+                    go_rx.recv().unwrap();
+                }),
+            ));
+            supervisor.emit(Vec::new());
+        })
+    };
+    held_rx.recv_timeout(Duration::from_secs(10)).expect("emit A never reached its pause");
+
+    // A call starts the server: 1 is told.
+    let (answer_tx, _answer_rx) = channel();
+    f.supervisor.run(
+        run_request("cmux/srv", "srv.ping", None, Origin::User, None),
+        Box::new(move |r| {
+            let _ = answer_tx.send(r);
+        }),
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while std::fs::read_to_string(&marker).unwrap_or_default().is_empty() {
+        assert!(Instant::now() < deadline, "the on-demand server never started");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(f.supervisor.kept_servers(), 1);
+
+    // Emit A goes on with its old read, then the server ends by itself.
+    go_tx.send(()).unwrap();
+    late.join().unwrap();
+    let told_before_the_end = woken.lock().unwrap().len();
+    std::fs::write(format!("{}.go", marker.display()), b"").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while f.supervisor.kept_servers() > 0 {
+        assert!(Instant::now() < deadline, "the server never ended");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let woken = woken.lock().unwrap().clone();
+        if woken.len() > told_before_the_end && woken.last() == Some(&0) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the server's end reached no observer: wakes {woken:?}, {told_before_the_end} before \
+             the end; the owner would read {} kept servers only at its next unrelated wake",
+            f.supervisor.kept_servers()
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}

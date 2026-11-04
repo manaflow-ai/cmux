@@ -264,6 +264,10 @@ pub struct Supervisor {
     server_observers: OnceLock<super::ServerObservers>,
     /// The last [`Self::kept_servers`] the observers were told of.
     kept_servers_told: Mutex<usize>,
+    /// Test hook: the emit on this thread runs this right after its locked
+    /// read, before it tells the observers (a race of two emits).
+    #[cfg(test)]
+    pub(super) emit_pause: Mutex<Option<(std::thread::ThreadId, Box<dyn FnOnce() + Send>)>>,
 }
 
 pub(super) fn now_ms() -> u64 {
@@ -370,6 +374,8 @@ impl Supervisor {
             deployments: super::deploy::Deployments::load(config_state_dir.as_deref()),
             server_observers: OnceLock::new(),
             kept_servers_told: Mutex::new(0),
+            #[cfg(test)]
+            emit_pause: Mutex::new(None),
         });
         if seeded {
             let _ = supervisor.persist(&supervisor.inner.lock().unwrap().mirror);
@@ -586,12 +592,29 @@ impl Supervisor {
         }
     }
 
+    /// Runs the test's pause when it is armed for this thread.
+    #[cfg(test)]
+    fn run_emit_pause(&self) {
+        let pause = {
+            let mut armed = self.emit_pause.lock().recover_poison();
+            match armed.as_ref() {
+                Some((thread, _)) if *thread == std::thread::current().id() => armed.take(),
+                _ => None,
+            }
+        };
+        if let Some((_, pause)) = pause {
+            pause();
+        }
+    }
+
     pub(super) fn emit(&self, mut outs: Vec<Out>) {
         let (sinks, kept) = {
             let mut inner = self.inner.lock().unwrap();
             outs.extend(Self::inventory_demand_locked(&mut inner));
             (inner.sinks.clone(), Self::kept_servers_locked(&inner))
         };
+        #[cfg(test)]
+        self.run_emit_pause();
         self.notify_kept_servers(kept);
         if outs.is_empty() {
             return;
