@@ -247,7 +247,7 @@ export type ComposerHandle = {
   quoteReply(markdown: string): void;
   /// What it holds that acpmux's draft does not, for a page about to let go (`pane.wakeState`):
   /// file chips and shell mode's unrun command. Shell runs and move chips stay with their page.
-  wakeState(): ComposerWake;
+  wakeState(options?: { includeShell?: boolean }): ComposerWake;
   /// Sends the typed text now and resolves once the host holds it: acpmux's draft for a chat with
   /// a session, `chat.unsentDraft` (its 300 ms throttle flushed) for a new chat. Asked before a quit.
   settleDraft(): Promise<void>;
@@ -901,8 +901,10 @@ export function Composer({
           field.current?.focus();
         }
       },
-      wakeState: () => ({
-        attachments: attachmentsRef.current.filter((chip) => !chip.shellRun),
+      wakeState: (options) => ({
+        attachments: options?.includeShell
+          ? attachmentsRef.current
+          : attachmentsRef.current.filter((chip) => !chip.shellRun),
         shell: shellRef.current.shell,
         shellText: shellRef.current.shellText,
       }),

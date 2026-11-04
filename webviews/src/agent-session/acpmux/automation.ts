@@ -5,6 +5,7 @@ import { pathKey, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { permissionKeys, permissionOption } from "./permissionKeys";
 import type { PermissionDecision } from "./permissions/protocol";
 import type { RunMode } from "./sandboxRun";
+import { raceChoices, type RaceClient, type RaceRecord, type RaceTarget } from "./races/model";
 
 // Automation verbs for the DEBUG `debug.agent_pane` socket method (window.cmuxAcpmuxDebug).
 // Each verb runs the same page action a click or key runs (callNative and its
@@ -21,6 +22,10 @@ export type AutomationHost = {
   selectSession(sessionId: string): void;
   /// The edited-files card's "View changes" path.
   openDiff(rowId: string): void;
+  /// The page's current race client. Race verbs use this typed client rather than arbitrary RPC.
+  raceClient?(): RaceClient | undefined;
+  /// Opens the real race panel with the record returned by the start call.
+  openRace?(race: RaceRecord): void;
   /// The location row's folder pick (startFolder.tsx: the host takes it or asks first).
   pickFolder?(cwd: string): void;
   /// The composer itself: what Return sends, and where a new chat runs (composeSend, runMode).
@@ -309,4 +314,139 @@ export function openChanges(host: AutomationHost) {
   if (!edited) return { error: "no turn with edited files" };
   host.openDiff(edited.id);
   return { opened: edited.id, files: turnFiles([edited]).map((file) => file.path) };
+}
+
+type RaceStartInput = {
+  prompt?: unknown;
+  candidates?: unknown;
+  reviewer?: unknown;
+};
+
+const TERMINAL_RACE_STATES = new Set<RaceRecord["state"]>(["completed", "failed", "cancelled"]);
+const MAX_RACE_WAIT_MS = 45_000;
+
+function raceTarget(value: unknown): { target?: RaceTarget; error?: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { error: "race target must be an object" };
+  const input = value as Record<string, unknown>;
+  if (typeof input.harness !== "string" || !input.harness)
+    return { error: "race target harness must be a non-empty string" };
+  if (input.model !== undefined && typeof input.model !== "string")
+    return { error: "race target model must be a string" };
+  if (input.effort !== undefined && typeof input.effort !== "string")
+    return { error: "race target effort must be a string" };
+  return {
+    target: {
+      harness: input.harness,
+      ...(input.model !== undefined ? { model: input.model } : {}),
+      ...(input.effort !== undefined ? { effort: input.effort } : {}),
+    },
+  };
+}
+
+function validateRaceTarget(
+  target: RaceTarget,
+  choices: ReturnType<typeof raceChoices>,
+): { target?: RaceTarget; error?: string } {
+  const matches = choices.filter(
+    (choice) =>
+      choice.target.harness === target.harness && (target.model === undefined || choice.target.model === target.model),
+  );
+  if (matches.length === 0)
+    return {
+      error: `race target ${JSON.stringify({ harness: target.harness, model: target.model ?? null })} is not offered`,
+    };
+  if (matches.length > 1 && target.model === undefined)
+    return { error: `race target ${JSON.stringify(target.harness)} is ambiguous; include model` };
+  const offered = matches[0].target;
+  return { target: { ...offered, ...(target.effort !== undefined ? { effort: target.effort } : {}) } };
+}
+
+/// Starts a real model race for the currently attached parent chat. The target list is checked
+/// against the same live catalog as the race form, so capture scripts cannot invent a model ID.
+export async function startRace(host: AutomationHost, input: RaceStartInput) {
+  const parent = host.snapshot().sessionId;
+  if (!parent) return { error: "the page has no current session" };
+  const client = host.raceClient?.();
+  if (!client) return { error: "the page has no race client" };
+  if (typeof input.prompt !== "string" || !input.prompt.trim()) return { error: "empty prompt" };
+  if (!Array.isArray(input.candidates) || input.candidates.length < 2)
+    return { error: "candidates must contain at least two targets" };
+  const choices = raceChoices(host.snapshot().catalog);
+  const candidates: RaceTarget[] = [];
+  for (const value of input.candidates) {
+    const parsed = raceTarget(value);
+    if (parsed.error) return { error: parsed.error };
+    const checked = validateRaceTarget(parsed.target!, choices);
+    if (checked.error) return { error: checked.error };
+    candidates.push(checked.target!);
+  }
+  const reviewer = raceTarget(input.reviewer);
+  if (reviewer.error) return { error: reviewer.error };
+  const checkedReviewer = validateRaceTarget(reviewer.target!, choices);
+  if (checkedReviewer.error) return { error: checkedReviewer.error };
+  const race = await client.startRace({
+    parent,
+    prompt: input.prompt,
+    candidates,
+    reviewer: checkedReviewer.target!,
+  });
+  if (host.snapshot().sessionId !== parent)
+    return { race, error: "the current session changed while starting the race" };
+  host.openRace?.(race);
+  return { race };
+}
+
+/// Reads an actual race record and engine stats. With `waitMs`, the wait is driven by the page's
+/// race event stream and one bounded timer; there is no status polling loop.
+export async function raceState(host: AutomationHost, requestedRaceId?: string, waitMs = 0) {
+  const parent = host.snapshot().sessionId;
+  if (!parent) return { error: "the page has no current session" };
+  if (!Number.isFinite(waitMs) || waitMs < 0) return { error: "waitMs must be a non-negative number" };
+  const client = host.raceClient?.();
+  if (!client) return { error: "the page has no race client" };
+  let raceId = requestedRaceId?.trim() ?? "";
+  if (!raceId) {
+    const races = await client.listRaces(parent);
+    raceId =
+      races.reduce<RaceRecord | undefined>(
+        (latest, candidate) => (!latest || candidate.createdAt > latest.createdAt ? candidate : latest),
+        undefined,
+      )?.id ?? "";
+  }
+  if (!raceId) return { error: "the page has no current race" };
+  const boundedWait = Math.min(Math.floor(waitMs), MAX_RACE_WAIT_MS);
+  let timedOut = false;
+  let unsubscribe: () => void = () => {};
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  let completion: Promise<"event"> | undefined;
+  if (boundedWait > 0) {
+    completion = new Promise((resolve) => {
+      unsubscribe = client.watchRaces((next) => {
+        if (next.parent === parent && next.id === raceId && TERMINAL_RACE_STATES.has(next.state)) resolve("event");
+      });
+    });
+  }
+  try {
+    let race = await client.getRace(parent, raceId);
+    if (host.snapshot().sessionId !== parent) return { error: "the page session changed while reading the race" };
+    if (!TERMINAL_RACE_STATES.has(race.state) && completion) {
+      const timeout = new Promise<"timeout">((resolve) => {
+        timeoutHandle = setTimeout(() => resolve("timeout"), boundedWait);
+      });
+      const outcome = await Promise.race([completion, timeout]);
+      timedOut = outcome === "timeout";
+      race = await client.getRace(parent, raceId);
+      if (host.snapshot().sessionId !== parent) return { error: "the page session changed while waiting for the race" };
+      // A completion event may have arrived just before the final read. The read remains the source of truth;
+      // `timedOut` is only an indication that the bounded wait elapsed before that event was observed.
+      if (TERMINAL_RACE_STATES.has(race.state)) timedOut = false;
+    }
+    if (host.snapshot().sessionId !== parent) return { error: "the page session changed before reading race stats" };
+    const stats = await client.getRaceStats(parent);
+    if (host.snapshot().sessionId !== parent) return { error: "the page session changed while reading race stats" };
+    return { race, stats, ...(timedOut ? { timedOut: true } : {}) };
+  } finally {
+    unsubscribe();
+    if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+  }
 }

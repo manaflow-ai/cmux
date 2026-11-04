@@ -1,5 +1,8 @@
 import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP } from "./transcriptGrid";
 import { composerHealthHarness } from "./composerPickerEntries";
+import { RacePanel } from "./races/RacePanel";
+import type { RaceRecord } from "./races/model";
+import { raceToolsMenu } from "./races/menu";
 import { forkMenuRows } from "./header/forkMenu";
 import { openFork } from "./conversation/openFork";
 import { setSessionRefResolver } from "./conversation/sessionRefs";
@@ -6213,6 +6216,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [newSession, setNewSession] = useState(false);
   /// The chat whose recorded history plays back read-only in place of it (chat menu Replay, cx-osmw).
   const [replaying, setReplaying] = useState<string | undefined>();
+  const [raceParent, setRaceParent] = useState<string>();
+  const [raceInitial, setRaceInitial] = useState<RaceRecord>();
+  const raceWake = useRef<ComposerWake | undefined>(undefined);
   /// The focused pane's rail visibility. The experiment still chooses compact/full when visible;
   /// this local switch is only the command-palette toggle and does not write shared experiment state.
   const [minimapVisible, setMinimapVisible] = useState(true);
@@ -8671,6 +8677,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     runModePicked.current = false;
     // Another chat shows here: a Cloud start's card belongs to the new chat it was sent from.
     setCloudStart(undefined);
+    raceWake.current = undefined;
+    setRaceParent(undefined);
+    setRaceInitial(undefined);
   }, [snapshot.sessionId, newTabGeneration]);
   /// The person picked another place to run after a Cloud start failed: its card goes.
   useEffect(() => {
@@ -8683,6 +8692,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     composerHandle.current?.send();
   }, [sandbox.mode]);
   const viewedSandbox = sandboxViewing && snapshot.sessionId ? sandboxView : undefined;
+  const raceVisible = !!raceParent && raceParent === snapshot.sessionId && !!directClient.current;
   /// The chat view shows the tab's run as a card (SandboxRunView), which offers its own Check again.
   const sandboxCard =
     viewedSandbox !== undefined ||
@@ -9707,7 +9717,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   ) => {
     const composer = closing ? undefined : composerHandle.current;
     // The chips the shown chat's composer keeps, which its kept chips are now (keptAttachments.ts).
-    const shownChips = closing ? (composerHandle.current?.wakeState().attachments ?? []) : undefined;
+    const shownChips = closing
+      ? (composerHandle.current?.wakeState().attachments ?? raceWake.current?.attachments ?? [])
+      : undefined;
     const where = whereHeldGoes(entries, snapshot.sessionId, Boolean(composer));
     const writes: Promise<unknown>[] = [];
     // `restore` puts what comes back first: the last one goes in first, so they read in order;
@@ -10707,6 +10719,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       sessionId: () => directClient.current?.selectedSession,
       automation: {
         snapshot: () => automationView.current!.snapshot,
+        raceClient: () => directClient.current ?? undefined,
+        openRace: (race) => {
+          if (!raceWake.current) raceWake.current = composerHandle.current?.wakeState({ includeShell: true });
+          setRaceInitial(race);
+          setRaceParent(race.parent);
+        },
         // The chat's own actions only, once it connects: never the native host (automation.ts pageAction).
         call: async (method, params) => (await pageAction(() => window.cmuxAcpmuxActions, method))(params ?? {}),
         ready: async (method) => void (await pageAction(() => window.cmuxAcpmuxActions, method)),
@@ -11953,7 +11971,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             const chips = released.length ? await giveBackTrustHeld.current(released, false, true, until) : [];
             await settleDraftWithin(composerHandle.current, Math.max(0, until - Date.now()));
             const anchor = transcriptAnchor.current?.();
-            const composer = composerHandle.current?.wakeState();
+            const composer = composerHandle.current?.wakeState() ?? raceWake.current;
             const attachments = [...chips, ...(composer?.attachments ?? [])];
             return {
               ...composer,
@@ -12819,17 +12837,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...replay,
       ...(instructions ? [instructions] : []),
       ...(projectFiles ? [projectFiles] : []),
-      {
-        key: "inspector",
-        label: t("inspector.title"),
-        icon: "code",
-        onSelect: () => {
+      raceToolsMenu(
+        () => {
           inspectorOpener.current = Array.from(
             document.querySelectorAll<HTMLElement>(".acpmux-header-tools button"),
           ).find((button) => button.getAttribute("aria-label") === t("chatMenu.open"));
           toggleInspector(true);
         },
-      },
+        snapshot.sessionId && directClient.current
+          ? () => {
+              if (!raceVisible) raceWake.current = composerHandle.current?.wakeState({ includeShell: true });
+              setRaceParent(snapshot.sessionId);
+            }
+          : undefined,
+        t,
+      ),
       // Quick Chat's panel has no right column for it.
       ...(quick
         ? []
@@ -15038,7 +15060,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     {snapshot.handoff.error}
                   </p>
                 )}
-                {viewedSandbox ? (
+                {raceParent === snapshot.sessionId && raceParent && directClient.current ? (
+                  <RacePanel
+                    key={raceParent}
+                    parent={raceParent}
+                    catalog={snapshot.catalog}
+                    client={directClient.current}
+                    initialRace={raceInitial}
+                    onOpenSession={openOfferChat}
+                    onClose={() => {
+                      pendingWake.current = raceWake.current ?? pendingWake.current;
+                      raceWake.current = undefined;
+                      setRaceParent(undefined);
+                      setRaceInitial(undefined);
+                    }}
+                  />
+                ) : viewedSandbox ? (
                   // The person opened the tab's Sandboxed Run: it shows whatever the chat's state
                   // (its composer is hidden while it does).
                   <SandboxRunView
@@ -15149,7 +15186,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   fallback={snapshot.presence}
                 />
                 {/* A draft a refusal put back stays in reach even once the tab's run shows. */}
-                {(!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && composer}
+                {(!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && !raceVisible && composer}
               </div>
             </>
           )}

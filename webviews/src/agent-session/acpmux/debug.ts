@@ -60,6 +60,8 @@ export type AcpmuxDebug = {
     decision?: PermissionDecision;
   }): Promise<Record<string, unknown>>;
   openChanges(): Record<string, unknown>;
+  raceStart(input?: { prompt?: unknown; candidates?: unknown; reviewer?: unknown }): Promise<Record<string, unknown>>;
+  raceState(raceId?: string, waitMs?: number): Promise<Record<string, unknown>>;
   setModel(model: string, effort?: string): Promise<Record<string, unknown>>;
   models(): Record<string, unknown>;
   /** What moved on the page after it first showed its content, watched for `ms` (layoutWatch.ts). */
@@ -371,6 +373,14 @@ export function createAcpmuxDebug(
     },
     openChanges() {
       return host.automation ? automation.openChanges(host.automation) : NO_AUTOMATION;
+    },
+    async raceStart(input = {}) {
+      return host.automation ? automation.startRace(host.automation, input) : NO_AUTOMATION;
+    },
+    async raceState(raceId, waitMs = 0) {
+      return host.automation
+        ? automation.raceState(host.automation, raceId ? String(raceId) : undefined, Number(waitMs) || 0)
+        : NO_AUTOMATION;
     },
     async setModel(model, effort) {
       return host.automation

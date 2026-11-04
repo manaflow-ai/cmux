@@ -49,7 +49,11 @@ import WebKit
 /// omitted toggles it and returns `inspector_open`). Every action first stops WebKit from
 /// pausing the page while another window covers it, so a tagged build can
 /// be measured behind the user's windows.
-/// `session_info_action` (`id`) sends a page-owned native Session Info action through the same
+/// `race_start` (`prompt`, `candidates` and `reviewer`, each target `{harness, model?, effort?}`)
+/// starts a real model race for the current chat through the page's typed RaceClient; targets must
+/// be in the live catalog. `race_state` (`raceId` optional, `waitMs` optional up to 45 s) reads the
+/// actual race record and engine stats, waiting on race events when requested. An omitted raceId
+/// reads the latest race for the current chat. `session_info_action` (`id`) sends a page-owned native Session Info action through the same
 /// bridge as a native row click (DEBUG capture tours only).
 @MainActor
 enum DebugAgentPane {
@@ -65,13 +69,14 @@ enum DebugAgentPane {
         "set_model": "setModel", "models": "models", "stream": "stream", "pick_folder": "pickFolder",
         "compose_send": "composeSend", "run_mode": "runMode",
         "load_seed": "loadSeed", "load_run": "loadRun", "layout_watch": "layoutWatch", "idle_probe": "idleProbe",
+        "race_start": "raceStart", "race_state": "raceState",
     ]
 
     /// The chat verbs drive the chat as a person does, so each records a user gesture first (as
     /// `click` delivers a real click): the relay then treats a folder the verb names, a send, a
     /// pick or an answer as the user's, and automation reaches what a person sees (the trust
     /// question, not `transport.path_outside_roots`; cx-nn3e P0b). Measuring verbs record none.
-    static let userVerbs: Set<String> = ["new_chat", "send_prompt", "select_session", "answer_permission", "pick_folder", "compose_send", "run_mode"]
+    static let userVerbs: Set<String> = ["new_chat", "send_prompt", "select_session", "answer_permission", "pick_folder", "compose_send", "run_mode", "race_start"]
 
     static func actAsUser(_ action: String, gestures: AgentPaneUserGestures) {
         if userVerbs.contains(action) { gestures.record() }
@@ -226,7 +231,7 @@ enum DebugAgentPane {
             }
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, compose_send, run_mode, answer_permission, open_changes, set_model, models, stream, layout_watch, idle_probe, readiness, cloud_auth, engine, focus_composer, composer_focused, click, open_subagent, pid, full_rate, gesture_state, session_info_action or inspector")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, compose_send, run_mode, answer_permission, open_changes, set_model, models, stream, layout_watch, idle_probe, race_start, race_state, readiness, cloud_auth, engine, focus_composer, composer_focused, click, open_subagent, pid, full_rate, gesture_state, session_info_action or inspector")])
         }
         do {
             let result = try await view.callPageScript(script, arguments: ["fn": function, "args": arguments(action, params)])
@@ -305,6 +310,19 @@ enum DebugAgentPane {
             if let allow = params["allow"]?.boolValue { options["allow"] = allow }
             if let decision = params["decision"]?.stringValue { options["decision"] = decision }
             return [options]
+        case "race_start":
+            var input: [String: Any] = ["prompt": params["prompt"]?.stringValue ?? ""]
+            input["candidates"] = (params["candidates"]?.arrayValue ?? []).map { value in
+                (value.objectValue ?? [:]).reduce(into: [String: Any]()) { result, entry in
+                    if let string = entry.value.stringValue { result[entry.key] = string }
+                }
+            }
+            input["reviewer"] = (params["reviewer"]?.objectValue ?? [:]).reduce(into: [String: Any]()) { result, entry in
+                if let string = entry.value.stringValue { result[entry.key] = string }
+            }
+            return [input]
+        case "race_state":
+            return [params["raceId"]?.stringValue ?? NSNull(), params["waitMs"]?.doubleValue ?? 0]
         default:
             return []
         }
