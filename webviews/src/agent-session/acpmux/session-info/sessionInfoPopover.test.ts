@@ -49,7 +49,9 @@ describe("sessionInfoPopover", () => {
       for (const paneWidth of [900, 1017, 1021, 1100, 1401]) {
         let lastStage = 0;
         for (let width = SESSION_INFO_WIDTH.min; width <= SESSION_INFO_WIDTH.max; width++) {
-          const stage = order.indexOf(sessionInfoStage("overlay", { width: paneWidth, height: 960 }, width, undefined, false, overflow));
+          const stage = order.indexOf(
+            sessionInfoStage("overlay", { width: paneWidth, height: 960 }, width, undefined, false, overflow),
+          );
           expect(stage).toBeGreaterThanOrEqual(lastStage);
           lastStage = stage;
         }
