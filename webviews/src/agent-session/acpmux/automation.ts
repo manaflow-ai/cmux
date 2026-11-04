@@ -420,6 +420,7 @@ export async function raceState(host: AutomationHost, requestedRaceId?: string, 
   }
   try {
     let race = await client.getRace(parent, raceId);
+    if (host.snapshot().sessionId !== parent) return { error: "the page session changed while reading the race" };
     if (!TERMINAL_RACE_STATES.has(race.state) && completion) {
       const timeout = new Promise<"timeout">((resolve) => {
         timeoutHandle = setTimeout(() => resolve("timeout"), boundedWait);
@@ -427,10 +428,12 @@ export async function raceState(host: AutomationHost, requestedRaceId?: string, 
       const outcome = await Promise.race([completion, timeout]);
       timedOut = outcome === "timeout";
       race = await client.getRace(parent, raceId);
+      if (host.snapshot().sessionId !== parent) return { error: "the page session changed while waiting for the race" };
       // A completion event may have arrived just before the final read. The read remains the source of truth;
       // `timedOut` is only an indication that the bounded wait elapsed before that event was observed.
       if (TERMINAL_RACE_STATES.has(race.state)) timedOut = false;
     }
+    if (host.snapshot().sessionId !== parent) return { error: "the page session changed before reading race stats" };
     const stats = await client.getRaceStats(parent);
     return { race, stats, ...(timedOut ? { timedOut: true } : {}) };
   } finally {
