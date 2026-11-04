@@ -59,7 +59,10 @@ Cases (layouts: T terminal fixture, P page fixture, A agent pane; | a vertical d
                      back after each film); p0's fill is blue (the outline is yellow)                   T(3 tabs)|P
   px-new-column-*    New Column (action newColumn), then Cmd-W on the new column                   columns T|P
   px-new-row-*       New Row (action newRow) under p0, then Cmd-W on the new row                   columns T|P
-  px-close-pane-*    Cmd-W on the middle split pane; it comes back before the next speed            T|T|P
+  px-close-pane-3   Cmd-W on the middle split pane p1, nested with p2 (p0 | (p1 | p2)): the p0|p1 divider stays;
+                     p1 comes back the same way (splitLeft on p2) before the next speed            T|T|P
+  px-close-pane-3t  the same close with p1 nested with p0 ((p0 | p1) | p2): the p1|p2 divider stays, on the
+                     closing pane's trailing side (stage S3d case (a)); p1 comes back by splitRight on p0  T|T|P
   px-close-column-*  Cmd-W on the middle column's only pane; it comes back before the next speed    columns T|T|A
   px-window-resize-* the window's bottom-right corner 300 x 150 pt in and back in 0.6 s each       T|P|(A/T)
   px-keys-then-drag-3, px-keys-then-split-drag-2s  stage S2b: Ctrl-Shift-L on p0, then 60 ms after its key-down a real
@@ -268,6 +271,12 @@ T6 = Layout("6", "columns (p0 T / p3 T) | (p1 P / p4 A) | (p2 T / p5 P)",
             window=[0.0, 0.05, 1.0, 0.9], widths="column.widthOneThird")
 T3S = Layout("3", "p0 T | p1 T | p2 P (splits)",
              [("p0", "tui", YELLOW, None), ("p1", "tui", GREEN, ("splitRight", None)), ("p2", "page", YELLOW, ("splitRight", None))])
+# The split tree is binary (SplitNode), so the order of the splits decides which divider a close keeps. T3S splits p1 right
+# into p2: (p0 | (p1 | p2)), and closing p1 keeps the p0|p1 divider (on its leading side). T3T makes p2 first, then splits
+# p0 right into p1: ((p0 | p1) | p2), and closing p1 keeps the p1|p2 divider, on the closing pane's trailing side (stage
+# S3d case (a), frame-owner-s3b 2026-11-04). The app makes the three widths equal after each split and close in both.
+T3T =Layout("3t", "p0 T | p1 T | p2 P (splits, p1 nested with p0)",
+             [("p0", "tui", YELLOW, None), ("p2", "page", YELLOW, ("splitRight", None)), ("p1", "tui", GREEN, ("splitRight", "p0"))])
 C2 = Layout("c2", "columns p0 T | p1 P", [("p0", "tui", YELLOW, None), ("p1", "page", GREEN, ("newColumn", None))])
 # Stage S2b, the layouts of SharedEdgeDuringSpringTests (A | B | C, B split): strip columns, each a third of the viewport, a
 # full-width window. 3 columns: the key on p0 springs every edge right of it (p0|p1, p1|p2). 2 columns: column 2 holds p1
@@ -450,8 +459,18 @@ def cases():
     play, secs = new_and_close_play("newRow", "New Row")
     out.append(Case(f"px-new-row-{C2.key}", f"New Row under p0, then Cmd-W on it ({C2.text})", C2, play, "split", "new row",
                     before=[focus("p0")], play_seconds=secs))
-    out.append(Case(f"px-close-pane-{T3S.key}", f"Cmd-W on the middle split p1; it comes back after each speed ({T3S.text})", T3S,
+    # p1 comes back nested with p2, as the layout built it (splitLeft on p2: split right, then swap), so every film closes the
+    # same split. Until 2026-11-04 the rebuild split p0, so every film after the first closed p1 nested with p0 and kept the
+    # other divider (ab-s3-sw-a6d4037: off-s1 kept the divider at x 589, the other 3 films the one at x 973).
+    out.append(Case(f"px-close-pane-{T3S.key}", f"Cmd-W on the middle split p1, nested with p2 (the p0|p1 divider stays); it comes "
+                    f"back after each speed ({T3S.text})", T3S,
                     close_play, "split", "close pane", before=[focus("p1")],
+                    rebuild=[focus("p2")] + new_pane("p1", "splitLeft") + start_tui("p1", GREEN) + [G.settle(1.0)],
+                    play_seconds=lambda s: 0.2 + land(s, "split")))
+    # Stage S3d case (a): the divider on the closing pane's trailing side stays.
+    out.append(Case(f"px-close-pane-{T3T.key}", f"Cmd-W on the middle split p1, nested with p0 (the p1|p2 divider stays, S3d case "
+                    f"(a)); it comes back after each speed ({T3T.text})", T3T,
+                    close_play, "split", "close pane (the trailing divider stays)", before=[focus("p1")],
                     rebuild=[focus("p0")] + new_pane("p1", "splitRight") + start_tui("p1", GREEN) + [G.settle(1.0)],
                     play_seconds=lambda s: 0.2 + land(s, "split")))
     out.append(Case(f"px-close-column-{C3.key}", f"Cmd-W on the middle column's only pane p1; it comes back after each speed ({C3.text})",

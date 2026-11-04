@@ -1,7 +1,7 @@
 {
  "id": "px-close-pane-3-s1r",
  "priority": "P1",
- "title": "PIXEL: Cmd-W on the middle split p1; it comes back after each speed (p0 T | p1 T | p2 P (splits)), at x1, Reduce Motion (x1 and Reduce Motion: any bench build)",
+ "title": "PIXEL: Cmd-W on the middle split p1, nested with p2 (the p0|p1 divider stays); it comes back after each speed (p0 T | p1 T | p2 P (splits)), at x1, Reduce Motion (x1 and Reduce Motion: any bench build)",
  "why": "Lawrence 2026-11-03: resizing columns and splits is not pixel perfect when animated. Loud fixture colors (shell #FF00FF, terminal ground #00FFFF, tab strips #000000, rings #FF0000/#FFFFFF/#000000) make any gap, overlap or lag visible; judge_pixel.py reads every pane edge, tab strip and divider per film frame from the exact scan lines.",
  "source": "PIXEL PERFECT kit (video-cases/gen_pixel.py)",
  "budget_seconds": 80,
@@ -252,13 +252,13 @@
    "after": [
     {
      "do": "rk_focus",
-     "pane": "p0",
-     "title": "set-up: focus p0 (cmux pane focus)"
+     "pane": "p2",
+     "title": "set-up: focus p2 (cmux pane focus)"
     },
     {
      "do": "action",
-     "action": "splitRight",
-     "title": "set-up: splitRight (p1)"
+     "action": "splitLeft",
+     "title": "set-up: splitLeft (p1)"
     },
     {
      "do": "adopt_pane",

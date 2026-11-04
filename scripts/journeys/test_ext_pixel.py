@@ -1208,7 +1208,24 @@ class PixelCasesTests(unittest.TestCase):
             self.assertEqual(next(st for st in film_steps if st["do"] == "px_record_start")["input"], "window resize (window_drag)")
             self.assertFalse([s["id"] for s in specs if "-sw-" in s["id"]], "switch variants only with --switch")
             s1r = {s["id"]: s for s in specs if s["id"].endswith("-s1r")}
-            self.assertEqual(len(s1r), 12)  # one per case (px-keys-held-2-tabclose the 12th)
+            self.assertEqual(len(s1r), 13)  # one per case (px-keys-held-2-tabclose the 12th, px-close-pane-3t the 13th)
+            # The split tree is binary: every film of a close case closes the same split, so the pane comes back the way the
+            # layout made it. px-close-pane-3: p1 nested with p2 (splitLeft on p2); px-close-pane-3t (S3d case (a)): p1
+            # nested with p0 (p2 made first, then splitRight on p0), and back by splitRight on p0.
+            def set_up(spec):
+                return [(st["do"], st.get("pane") or st.get("action") or st.get("as")) for st in spec["steps"]
+                        if st["do"] in ("rk_focus", "action", "adopt_pane")]
+
+            def rebuild(spec):
+                film = next(f for f in spec["steps"] if f["do"] == "px_film")
+                return [(st["do"], st.get("pane") or st.get("action") or st.get("as")) for st in film.get("after", [])
+                        if st["do"] in ("rk_focus", "action", "adopt_pane")]
+            self.assertEqual(rebuild(s1r["px-close-pane-3-s1r"]), [("rk_focus", "p2"), ("action", "splitLeft"), ("adopt_pane", "p1")])
+            self.assertEqual(rebuild(s1r["px-close-pane-3t-s1r"]), [("rk_focus", "p0"), ("action", "splitRight"), ("adopt_pane", "p1")])
+            made = [x for x in set_up(s1r["px-close-pane-3t-s1r"]) if x[0] != "rk_focus" or x[1] == "p0"]
+            self.assertLess(made.index(("adopt_pane", "p2")), made.index(("adopt_pane", "p1")))
+            self.assertEqual(made[made.index(("adopt_pane", "p1")) - 2:made.index(("adopt_pane", "p1")) + 1],
+                             [("rk_focus", "p0"), ("action", "splitRight"), ("adopt_pane", "p1")])
             self.assertTrue(all([n.rsplit("-", 1)[1] for n in s["recordings"]] == ["s1", "reduce"] for s in s1r.values()))
             for trio in (("px-keys-single-3k-s1r", "px-col-drag-2-s1r", "px-close-pane-3-s1r"),
                          ("px-window-resize-4-s1r", "px-row-drag-3r-s1r", "px-close-column-c3-s1r")):
