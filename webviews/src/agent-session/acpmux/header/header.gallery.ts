@@ -64,8 +64,9 @@ const soloTab =
 const TOOLS = ".acpmux-stage[data-solo-tab]>.acpmux-header[data-tab-row] .acpmux-header-tools";
 const CIRCLES = `${TOOLS}::before{content:none}
 ${TOOLS} .acpmux-header-tool{position:relative;isolation:isolate}
-${TOOLS} .acpmux-header-tool::before{content:"";position:absolute;inset:-1px;z-index:-1;border-radius:50%;pointer-events:none;background:color-mix(in srgb,var(--glass-surface,Canvas) var(--ds-glass-plain-tint,60%),transparent);-webkit-backdrop-filter:var(--ds-glass-popover-blur);backdrop-filter:var(--ds-glass-popover-blur);box-shadow:inset 0 0 0 .5px var(--glass-edge),var(--elevation-1);opacity:var(--acpmux-header-glass-rest,0)}
-.acpmux-stage[data-solo-tab]:has(>.acpmux-scroll[data-fade-top])>.acpmux-header[data-tab-row] .acpmux-header-tool::before{opacity:1}`;
+${TOOLS} .acpmux-header-tool::before{content:"";position:absolute;inset:-1px;z-index:var(--layer-backdrop);border-radius:50%;pointer-events:none;background:color-mix(in srgb,var(--glass-surface,Canvas) var(--ds-glass-plain-tint,60%),transparent);-webkit-backdrop-filter:var(--ds-glass-popover-blur);backdrop-filter:var(--ds-glass-popover-blur);box-shadow:inset 0 0 0 .5px var(--glass-edge),var(--elevation-1);opacity:var(--acpmux-header-glass-rest,0)}
+.acpmux-stage[data-solo-tab]:has(>.acpmux-scroll[data-fade-top])>.acpmux-header[data-tab-row] .acpmux-header-tool::before{opacity:1}
+@media (prefers-reduced-transparency:reduce){${TOOLS} .acpmux-header-tool::before{-webkit-backdrop-filter:none;backdrop-filter:none}}`;
 const glass =
   (scroll: number, options: { rest?: number; shape?: "pill" | "circles" | "none" } = {}): Play =>
   async (ctx) => {
@@ -77,7 +78,7 @@ const glass =
       style.textContent = options.shape === "circles" ? CIRCLES : `${TOOLS}::before{content:none}`;
       ctx.document.head.append(style);
     }
-    // The capsule's fade (160ms) has run.
+    // The capsule's fade has run.
     const tools = ctx.document.querySelector<HTMLElement>(TOOLS)!;
     const target = scroll > 0 ? 1 : (options.rest ?? 0);
     if (options.shape !== "none" && options.shape !== "circles")
