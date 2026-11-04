@@ -49,7 +49,7 @@ import {
   PromptRetry,
   ROW_ICON,
 } from "./MessageActions";
-import { TurnActionsContext } from "./turnActions";
+import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalog } from "../slashCommands";
 import { SkillWordsContext } from "./skillWords";
 import { SentVideoTile } from "./SentVideoTile";
@@ -77,7 +77,7 @@ export function UserBubble({
 }: {
   row: AcpmuxRow;
   text: string;
-  pending?: (actions: ReactNode) => ReactNode;
+  pending?: (actions: ReactNode, queued: QueuedActions) => ReactNode;
 }) {
   // A video's frames and their note went to the agent only; the bubble draws the video's tile. A
   // Codex skill reads `/name` as typed, not `/$name` as sent (slashCommands.ts withoutSkillDollars):
@@ -177,6 +177,14 @@ export function UserBubble({
       />
     );
   }
+  // The sent row's Retry and Fork; a waiting steer's queue row shows the same two (PendingSteer.tsx).
+  // Retry not while it is still on its way: a second send would duplicate it.
+  const retry =
+    !row.pending && row.delivery?.state !== "sending" ? <PromptRetry rowId={row.id} prompt={resend} /> : null;
+  const forkButton =
+    forkThrough !== undefined ? (
+      <ForkButton throughSeq={forkThrough} onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
+    ) : null;
   return (
     <>
       {!hasInterleaved && (Boolean(row.images?.length) || videos.length > 0) && (
@@ -229,7 +237,7 @@ export function UserBubble({
         {!row.failed && (text || pending) && (
           <UserFooter
             className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
-            pending={pending}
+            pending={pending && ((actions) => pending(actions, { retry, fork: forkButton }))}
           >
             <MessageFooterRow>
               {branch && branches && (
@@ -279,14 +287,8 @@ export function UserBubble({
                   <Pencil size={ROW_ICON} />
                 </button>
               )}
-              {/* Not while it is still on its way: a second send would duplicate it. */}
-              {!row.pending && row.delivery?.state !== "sending" && <PromptRetry rowId={row.id} prompt={resend} />}
-              {forkThrough !== undefined && (
-                <ForkButton
-                  throughSeq={forkThrough}
-                  onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))}
-                />
-              )}
+              {retry}
+              {forkButton}
             </MessageFooterRow>
           </UserFooter>
         )}

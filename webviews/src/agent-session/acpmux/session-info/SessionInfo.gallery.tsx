@@ -1502,6 +1502,17 @@ export default componentEntry<Props>({
         await ctx.hover({ selector: "a.acpmux-session-info-source__link" });
       },
     },
+    "sources-folders": {
+      note: "A chat started with two folders beside its own (acpmux additionalDirectories): Sources lists them first, by name with the path on hover, then what it read.",
+      props: {
+        ...full,
+        summary: { ...summary, additionalDirectories: ["/Users/you/notes", "/Users/you/design/specs"] },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('[data-kind="folder"]') !== null);
+        ctx.document.querySelector('[data-section="sources"]')?.scrollIntoView({ block: "center" });
+      },
+    },
     "subagents-open": {
       note: "A click on the ended row (40 done · 1 failed) opens their lines, the failed one first; each opens its subagent or chat.",
       props: full,

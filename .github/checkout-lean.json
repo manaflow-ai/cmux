@@ -10,8 +10,14 @@
     "ci-compile-attribution.yml": {
       "analyze": "main_compile_attribution.py reads git objects (rev-list, diff-tree, show), never the worktree"
     },
+    "ci.yml": {
+      "changes": "routing reads names, trees and the CI scripts and workflows it opens (scripts/ci, .github, tests); build_input_fingerprint.py hashes `git ls-tree -r`, which lists verify/ from the tree; the change-area walk's `git grep` no longer sees verify/ files, which run no CI helper, so they no longer send a helper change to every area"
+    },
     "cmux-next-batch.yml": {
       "batch": "next_batch.py merges in a worktree that inherits the sparse patterns; regenerate() adds with `git add -A -- .`, which skips skip-worktree paths; touches_tree reads scripts/cmux-next/cmux-tui-tree-inputs.txt"
+    },
+    "cmux-vm.yml": {
+      "migrate-production": "works in scripts/cmux-next/release; the rails read workers/cmux-vm/migrations, the lock and schema-requirements.ts from git objects (git archive) and git grep a release tag, never cmux-next-ios/verify/"
     },
     "cmux-next-car-guards.yml": {
       "plan": "focused_tests.plan reads Package.swift files, webviews/ and tests/; verify/ holds none of them",
@@ -21,7 +27,6 @@
       "catch-up": "the generated patterns and regenerate-web-bundles.sh cover webviews and resources only; a conflict under verify/ is written out and left to the author as before"
     },
     "cmux-next-pr-autofix.yml": {
-      "action-areas": "git diff, rev-list and archive plus path-list classification only",
       "action-exports": "web-bundle-key.py inputs are webviews, schemas and CmuxNext xcstrings; nothing there imports cmux-next-ios",
       "repair": "repairs are scoped to Swift sources, Packages, cmux-tui and webviews; the patch diff and add are limited to the changed paths computed before read-tree"
     },

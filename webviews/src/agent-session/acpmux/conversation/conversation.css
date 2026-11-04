@@ -763,7 +763,7 @@
 .acpmux-artifact-versions {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--grid-half-step);
 }
 .acpmux-artifact-version {
   min-width: 26px;
@@ -775,18 +775,18 @@
 }
 .acpmux-artifact-tabs {
   display: inline-flex;
-  padding: 2px;
-  border-radius: 8px;
+  padding: var(--grid-half-step);
+  border-radius: var(--ds-radius-popup);
   background: var(--acpmux-composer-tray);
 }
 .acpmux-artifact-tab {
   all: unset;
   cursor: default;
-  height: 24px;
+  height: var(--grid-pill);
   padding: 0 var(--ds-space-2);
   border-radius: var(--ds-radius-control);
   font-size: var(--text-detail);
-  line-height: 24px;
+  line-height: var(--grid-pill);
   color: var(--agent-muted);
   letter-spacing: var(--text-detail--letter-spacing);
 }
@@ -803,7 +803,7 @@
 }
 .acpmux-artifact-actions {
   display: flex;
-  gap: 2px;
+  gap: var(--grid-half-step);
   margin-left: auto;
 }
 .acpmux-artifact-body {
@@ -814,7 +814,7 @@
   overflow: auto;
 }
 .acpmux-artifact-body > .cv-codeblock {
-  margin: 0 12px 12px;
+  margin: 0 var(--ds-space-3) var(--ds-space-3);
 }
 .acpmux-artifact-doc {
   padding: var(--ds-space-1) var(--ds-space-5) var(--ds-space-5);
@@ -2117,14 +2117,11 @@ pre.cv-math-source {
    keeps the footer's 4px meta gap) and 20px under a tool row, as the Codex and Claude desktop apps
    space it, never flush under the text (Leo, 2026-10-21: "THE RUNNING A COMMAND IS WAY TOO CLOSE").
    The line reserves the normal turn gap below it, so the end-of-turn swap does not move anything. */
-/* The live line keeps the shared icon slot empty: its words start on the text column every iconed
-   status row's words start on, never 24px left of them on the icon column (Leo, 2026-11-03, on
-   "Writing a command" under "Subagent finished" and over "1 message from 1 session": "weird
-   indenting /cut off text?"; design/chat-transcript.md "One icon column"). A folded turn's
-   "Worked for" line keeps col-left. */
-.cv-worked.cv-worked--live {
-  padding-inline-start: var(--cv-tool-text-inset);
-}
+/* The live line has no icon slot: its words start on the icon column, the transcript's left edge,
+   as the shimmer stands in the Claude and ChatGPT apps, never indented under the row above it as
+   if it were that row's second line (Leo, 2026-11-03, on "Thinking · 1m 23s total" under "Sent a
+   message, finished 3 background tasks": "the indent looks bad"). It took the text column after
+   "weird indenting /cut off text?" earlier that day (#33157). */
 .cv-worked.is-below {
   /* The footer's slot (transcriptGrid.ts MARK_FOOTER_SLOT): its 32 line, 8 under a reply. */
   height: var(--cv-footer-row);
@@ -3630,7 +3627,9 @@ button.cv-video-frames__frame:focus-visible {
   font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0.045px);
   -webkit-font-smoothing: antialiased;
-  color: var(--cv-activity-text);
+  /* The transcript's text tone, as every message row between agents (AgentMessageRow.css "One line,
+     inline"; Leo, 2026-11-03: "idk why everything is grey other than the recieving message bubble"). */
+  color: var(--cv-text);
 }
 /* Another agent's message (IncomingMessageCard.tsx): the shared DisclosureRow's line, on the tool
    rows' line with no margins of its own (its row's frame, `.acpmux-row--line`, gives the room and
@@ -3652,7 +3651,7 @@ button.cv-video-frames__frame:focus-visible {
   position: relative;
   height: var(--cv-message-line);
   min-height: 0;
-  color: var(--cv-activity-text);
+  color: var(--cv-text);
   /* The hover plate keeps its inset while the sender's mark stays in the shared icon column. */
   margin-inline-start: calc(-1 * var(--ds-space-1));
   padding-inline: var(--ds-space-1);
@@ -3728,10 +3727,12 @@ button.cv-video-frames__frame:focus-visible {
    every tool row's words do: the slot plus the gap, 24px (grid.md 5.5; transcript-icon-column.test.ts). */
 .cv-received__sender {
   display: inline-flex;
-  flex: none;
+  /* Its whole name: the first line after it gives way first (`.cv-disclosure__label`, shrink 1000;
+     Leo, 2026-11-03: "idk why names are ellipses'd so early"). Only a name wider than the line is cut. */
+  flex: 0 0.0001 auto;
   align-items: center;
-  max-width: 45%;
   min-width: 0;
+  max-width: 100%;
   height: var(--cv-message-line);
   gap: var(--cv-row-icon-gap);
 }
@@ -3762,8 +3763,8 @@ button.cv-video-frames__frame:focus-visible {
   white-space: nowrap;
   color: var(--cv-activity-text);
 }
-/* The sender span already caps the name at 45% of the line: its tag takes the span's room (less
-   the mark), never a percentage of a percentage that cuts the name short beside an empty gap. */
+/* Its tag takes the sender span's room (less the mark), never AgentTag.css's 40% of it, which cut the
+   name short beside an empty gap. */
 .cv-received__sender > .cv-agent-tag {
   flex: 0 1 auto;
   max-width: 100%;
@@ -3828,12 +3829,12 @@ button.cv-received__host:focus-visible > .cv-received__host-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--cv-text-dim);
+  color: var(--cv-text-muted);
 }
 /* Opened: the whole message, wrapped, never cut. */
 .cv-received__text {
   margin-top: 4px;
-  color: var(--cv-activity-text);
+  color: var(--cv-text);
   line-height: var(--cv-line-height);
   overflow-wrap: anywhere;
   user-select: text;
@@ -3842,8 +3843,9 @@ button.cv-received__host:focus-visible > .cv-received__host-name {
 /* One steady tone: pointing at or focusing a received line, its opened card or its sender changes
    no text's colour, opacity or filter; hover only reveals the line's controls and its plate (Leo,
    2026-11-03: "i dont think this should light up/dim based off if ur hovered onit or otherwise").
-   The line, its sender and its card keep the activity tone the tool rows rest at (#27074), the
-   preview its dim one (received-message-steady-tone-browser.test.ts). */
+   The line, its sender and its card keep the transcript's text tone, the preview its muted one
+   (received-message-steady-tone-browser.test.ts; Leo, 2026-11-03: "idk why everything is grey other
+   than the recieving message bubble" replaced #27074's activity tone for message rows). */
 /* Markdown and headings set the primary tone themselves (.cv-md, .cv-h): inside a message from or
    to another agent they take the container's tone instead. */
 .cv-received__text :is(.cv-md, .cv-h),
@@ -5156,7 +5158,7 @@ a.cv-sha:focus-visible {
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
-  min-height: 36px;
+  min-height: calc(var(--grid-row) + var(--grid-half-step) * 2);
   box-sizing: border-box;
   padding: var(--ds-space-1) calc(var(--ds-space-3) - var(--cv-action-overhang)) var(--ds-space-1) var(--ds-space-3);
   box-shadow: inset 0 -1px 0 var(--agent-border);
@@ -5919,9 +5921,12 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   white-space: nowrap;
   letter-spacing: var(--text-caption--letter-spacing);
 }
+/* Send now is the row's last control and its text ends on the bubble's right edge, as a glyph's ink
+   does in its slot (the row overhangs the bubble by that inset). */
 .cv-user__send-now {
   border: 0;
   padding: 0;
+  padding-inline: calc((var(--cv-footer-control-slot) - var(--cv-glyph-slot)) / 2);
   background: none;
   font: inherit;
   color: inherit;
@@ -5935,6 +5940,30 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 .cv-user__actions:has(.cv-user__pending) {
   opacity: 1;
   transition: none;
+}
+/* A waiting steer's Copy, Retry, Fork and X (PendingSteer.tsx) show only on hover or focus, as a sent
+   prompt's row does, with its fade; hidden, they keep their room so Send now never moves (Leo,
+   2026-11-03: "the copy is always showing for no reason... plus the order is wrong"). */
+.cv-user__queued-hover {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cv-footer-gap);
+  opacity: 0;
+}
+.cv-user:hover .cv-user__queued-hover,
+.cv-user:has([data-popup-open]) .cv-user__queued-hover,
+.cv-user__pending:focus-within .cv-user__queued-hover,
+.cv-user__queued-hover:has([aria-haspopup="menu"][aria-expanded="true"]) {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
+  .cv-user__queued-hover {
+    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  }
+  .cv-user:hover .cv-user__queued-hover,
+  .cv-user:has([data-popup-open]) .cv-user__queued-hover {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
 }
 /* The X that takes a waiting steer back to edit (PendingSteer.tsx): a plain glyph, as muted as
    Send now's text, on the same centred line. */
@@ -6037,6 +6066,22 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
    reads as a call to act, not the muted "Thinking" it replaces. It holds still: no mark, no clock. */
 .cv-waiting {
   color: var(--cv-text);
+}
+
+/* The live line while the harness retries a failed model request (Thinking.tsx `retryParts`):
+   the cause in the line's text color, the count and error muted, the error the part that gives way. */
+.cv-retrying {
+  flex: 0 0 auto;
+  color: var(--cv-text);
+}
+.cv-retrying__error {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.cv-retrying__words {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Interleaved sent attachments stay in the prompt's reading order, as macOS Messages does. */
