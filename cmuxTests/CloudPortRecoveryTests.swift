@@ -14,6 +14,43 @@ import Testing
 @MainActor
 @Suite("Cloud port recovery", .timeLimit(.minutes(1)))
 struct CloudPortRecoveryTests {
+    @Test("Reconnect on a paused machine's pane wakes it, then re-reads the fleet")
+    func reconnectWakesPausedMachine() async {
+        let probe = ReconnectWakeProbe()
+        let links = CloudMachineLinkManager(clientURL: nil, resumeMachine: { id in
+            await probe.recordResume(id)
+            return "running"
+        }, hostThemeColors: { nil })
+        await links.setMachineStatus("paused", for: "vm-paused")
+        let provider = CmuxTuiSurfaceProvider(
+            summary: VMSummary(id: "vm-paused", provider: "freestyle", status: "paused", image: "fixture", createdAt: 0,
+                base: nil, addressIPv4: "10.75.105.9"),
+            links: links, catalog: SurfaceCatalog()
+        )
+
+        await provider.wakeForReconnect(refreshFleet: { await probe.recordRefresh() })?.value
+
+        #expect(await probe.resumed == ["vm-paused"])
+        #expect(await probe.refreshes == 1)
+    }
+
+    @Test("Reconnect on a running machine leaves waking to nobody")
+    func reconnectOnRunningMachineDoesNotWake() async {
+        let probe = ReconnectWakeProbe()
+        let links = CloudMachineLinkManager(clientURL: nil, resumeMachine: { id in
+            await probe.recordResume(id)
+            return "running"
+        }, hostThemeColors: { nil })
+        let provider = CmuxTuiSurfaceProvider(
+            summary: VMSummary(id: "vm-running", provider: "freestyle", status: "running", image: "fixture", createdAt: 0,
+                base: nil, addressIPv4: "10.75.105.9"),
+            links: links, catalog: SurfaceCatalog()
+        )
+
+        #expect(provider.wakeForReconnect(refreshFleet: { await probe.recordRefresh() }) == nil)
+        #expect(await probe.resumed.isEmpty)
+    }
+
     @Test("Retry reads one machine's metadata and installs its current private route")
     func refreshMissingAddress() async throws {
         let catalog = SurfaceCatalog()
@@ -434,4 +471,11 @@ private actor UnreachableLinks: RemoteTuiLinkManaging {
     func privateAddresses(for machineID: String) async -> [String] { [] }
     func setPrivateAddresses(_ addresses: [String], for machineID: String) async {}
     func browserProxy(machineID: String, remoteNetwork: Bool) async throws -> CloudBrowserProxyEndpoint { throw URLError(.cannotConnectToHost) }
+}
+
+private actor ReconnectWakeProbe {
+    private(set) var resumed: [String] = []
+    private(set) var refreshes = 0
+    func recordResume(_ id: String) { resumed.append(id) }
+    func recordRefresh() { refreshes += 1 }
 }
