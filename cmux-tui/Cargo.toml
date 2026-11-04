@@ -101,6 +101,7 @@ members = [
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
     "crates/cmux-host-budget",
+    "crates/cmux-vault-egress",
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
 ]
@@ -225,6 +226,7 @@ cmux-agent-pane-policy = { path = "crates/cmux-agent-pane-policy" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
 cmux-host-budget = { path = "crates/cmux-host-budget" }
+cmux-vault-egress = { path = "crates/cmux-vault-egress" }
 cmux-url-input = { path = "crates/cmux-url-input" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }

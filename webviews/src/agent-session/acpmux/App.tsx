@@ -54,6 +54,7 @@ import {
   nextDrawnRow,
   prevDrawnRow,
   isBeforeFooter,
+  finalFooterId,
   hasReplyActions,
   keepsReplyRoom,
   statusEdge,
@@ -373,7 +374,7 @@ import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { MessageFooterRow, PromptActions, ReceivedActions, ReplyActions } from "./conversation/MessageActions";
 import { AgentNamesContext, AgentOpenContext, agentNames, agentViews } from "./conversation/agentNames";
 import { setReadAloudState, stopReadingAloud } from "./conversation/readAloud";
-import { heightFoldInFlight } from "./conversation/fold";
+import { heightFoldInFlight, heightFoldPlaying } from "./conversation/fold";
 import {
   ANCHORED_COLLAPSE_EVENT,
   atFoldBottom,
@@ -3853,11 +3854,15 @@ export function VirtualTranscript({
   /// The disclosure line the reader just clicked, held where they clicked it while its fold plays
   /// (conversation/foldAnchor.ts).
   const foldAnchor = useRef<FoldAnchor | undefined>(undefined);
-  // A bottom disclosure lays out once, then the whole thread slides to that layout. Its row
-  // marker tells useFold to skip the competing height animation; away from the end nothing changes.
-  // The rows under what opened hold their pixels against that slide, and what rises is cut at the
-  // line they hold, so only the text above moves: no room opens under the line first and closes
-  // again (Leo 2026-11-03: "you guys adding fake space or whatever / it grows and shrinks right").
+  // A disclosure at the very bottom keeps the bottom pinned while it opens or closes. A body in its
+  // row (a tool group, a command, a received message) plays its own height (fold.ts), and each frame
+  // of it is placed before paint with the offset moved to the new end, so the text above glides up
+  // (or down) as one stack, on the fold's own clock, and the rows under the line keep their pixels
+  // (Leo, 2026-10-31: "ANIMATION FOR IT GRACEFULLY ALL MOVING UP AS A STACK TOO FAST NO FLICKER
+  // SMOOTH"). A toggle that adds or removes whole rows ("Worked for", `rows`) has no height to play:
+  // that lays out once and the thread slides to it, its row marked so useFold settles at once. The
+  // rows under it hold their pixels against that slide, and what rises is cut at the line they hold
+  // (Leo 2026-11-03: "you guys adding fake space or whatever / it grows and shrinks right").
   type BottomStackFold = {
     toggle: HTMLElement;
     row: HTMLElement;
@@ -3866,6 +3871,8 @@ export function VirtualTranscript({
     from: number;
     /// Each drawn row's viewport top at the click.
     drawn: Map<Element, number>;
+    /// The toggle adds or removes whole rows (toggleRow): the thread slides instead.
+    rows?: boolean;
     animation?: Animation;
     /// The line the held rows start at, in the thread's own coordinates.
     line?: number;
@@ -3882,6 +3889,7 @@ export function VirtualTranscript({
     bottomStackFold.current = undefined;
     foldAnchor.current = undefined;
     stack.row.removeAttribute("data-bottom-fold");
+    stack.row.removeAttribute("data-bottom-stack");
     clearTimeout(stack.cleanupTimer);
     if (stack.animation) {
       stack.animation.onfinish = null;
@@ -4501,7 +4509,9 @@ export function VirtualTranscript({
       settleFollowBottom(node, latest);
       const delta = layoutScrollTop(node) - stack.beforeTop;
       const host = thread.current;
-      if (host && Math.abs(delta - stack.delta) > 0.5) {
+      // A body's own height fold: this pass, run on each of its frames before paint, already moved
+      // the offset with it. Nothing else plays.
+      if (host && stack.rows && Math.abs(delta - stack.delta) > 0.5) {
         if (stack.animation) {
           const effect = stack.animation.effect as KeyframeEffect;
           const progress = effect.getComputedTiming().progress;
@@ -4617,10 +4627,12 @@ export function VirtualTranscript({
         // A glide holding the rows back further than the room now under the last row (the live line
         // came into view to name a call) rests at once, so nothing stays under the bottom stack.
         followGlide.current?.fit(room);
+        // A disclosure's height fold moves the rows on its own frames: easing them too lagged it.
         if (
           !jumping &&
           !bottomStacking &&
           !resizing &&
+          !heightFoldPlaying() &&
           rose > 0.5 &&
           rows.length === oldRows.length &&
           rows.at(-2)?.id === oldRows.at(-2)?.id
@@ -4803,8 +4815,15 @@ export function VirtualTranscript({
       const shown = rowsRef.current;
       const host = thread.current;
       settleTurnFold(host, turnFold.current, foldGhosts.current);
+      // At the very bottom (`beginBottomStackFold`, from this click) whole rows come or go: the
+      // thread slides to their layout, and a body in the row settles at once.
+      const stack = bottomStackFold.current;
+      if (stack) {
+        stack.rows = true;
+        stack.row.setAttribute("data-bottom-fold", "");
+      }
       const fold =
-        node && !bottomStackFold.current
+        node && !stack
           ? startTurnFold(
               host,
               id,
@@ -5486,7 +5505,8 @@ export function VirtualTranscript({
         drawn,
       };
       bottomStackFold.current = stack;
-      row.setAttribute("data-bottom-fold", "");
+      // The gallery's shift gate reads this: the text above this row rises or falls on purpose.
+      row.setAttribute("data-bottom-stack", "");
       // The explicit toggle reacquires follow even a few pixels from the end. Streaming never does.
       followIntent(true);
       stack.cleanupTimer = setTimeout(
@@ -5611,6 +5631,7 @@ export function VirtualTranscript({
       if (rows[index]!.kind === "turnSummary") return rows[index]!.retryRowId;
     return undefined;
   }, [rows]);
+  const finalFooter = useMemo(() => finalFooterId(rows), [rows]);
   const markTurns = useCallback(() => {
     for (const node of thread.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? []) {
       node.toggleAttribute("data-retryable", node.dataset.rowId === retryPromptId);
@@ -5853,7 +5874,7 @@ export function VirtualTranscript({
                       replyActions={keepsReplyRoom(row, next)}
                       status={statusEdge(row, next, prevDrawnRow(rows, absoluteIndex))}
                       lastFooter={isLastFooter(row, next)}
-                      finalFooter={row.kind === "turnSummary" && !next}
+                      finalFooter={row.id === finalFooter}
                       continuationFooter={isContinuationFooter(row, next)}
                       lastTurn={row.lastTurn === true}
                       index={absoluteIndex}
@@ -7835,9 +7856,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // so the client knows it as `local` (ownMachineFolders).
   const paneMachine =
     snapshot.summary?.peer || (snapshot.summary?.hostKind === "cloud" && snapshot.summary.host) || "local";
+  // Only a start here takes them: a Cloud or Sandboxed start carries no extra folders (cmux#34403).
+  const extraFoldersSent = sandbox.mode === "persistent" ? extraFolderDraft : undefined;
   useEffect(() => {
-    directClient.current?.setNewChatFolders(ownMachineFolders(extraFolderDraft, paneMachine));
-  }, [extraFolderDraft, paneMachine, clientEpoch]);
+    directClient.current?.setNewChatFolders(ownMachineFolders(extraFoldersSent, paneMachine));
+  }, [extraFoldersSent, paneMachine, clientEpoch]);
   const continuationProject = useRef(projectDraft);
   const continuationProjectGeneration = useRef(0);
   useLayoutEffect(() => {

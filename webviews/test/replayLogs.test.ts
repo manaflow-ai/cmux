@@ -1,7 +1,7 @@
 // The replay bench's logs line up with acpmux's: seq 1, 2, 3... per session, and its pure judging.
 import { describe, expect, test } from "bun:test";
-import { checkSeq, longLog, mockLogs, parseLog, recordedLog, rowsIn, slope, toRecord } from "./replayLogs";
-import { judge, movedPx } from "./transcript-replay.bench";
+import { checkSeq, longLog, mockLogs, parseLog, recordedLog, rowsIn, slope, toRecord } from "../bench/replayLogs";
+import { judge, movedPx } from "../bench/transcript-replay.bench";
 
 describe("replay logs", () => {
   test("every log is keyed by seq from 1, one session, time never going back", () => {

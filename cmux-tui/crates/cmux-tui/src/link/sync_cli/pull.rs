@@ -50,6 +50,7 @@ use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
 use super::git_back::{self, GitPlan};
+use super::history::{self, Held};
 use super::local::{self, GitDirs};
 use super::place::{self, Dir, Entry, Expected, Transaction};
 use super::remote::{self, Remote};
@@ -319,6 +320,32 @@ pub(super) fn pull_kept(
         plan.fetch(&local)?;
     }
 
+    // What this pull changes here, before and after, for the snapshots
+    // `cmux link sync undo` puts back ([`history`]). This Mac's files keep
+    // their blobs before they are replaced or deleted.
+    let changing: Vec<(String, Option<Held>, Option<Held>)> = planned
+        .iter()
+        .filter(|step| !matches!(step.step, Step::Settle(_) | Step::SettleLink(_)))
+        .map(|step| (step.relative.clone(), held(&step.local), held_after(&step.step)))
+        .collect();
+    let snapshots = !changing.is_empty() || git_plan.is_some();
+    let before = if snapshots {
+        for (relative, now, _) in &changing {
+            if let Some(Held::File { sha256, .. }) = now {
+                history::keep_blob(&root, relative, sha256);
+            }
+        }
+        let paths = history::on_top(
+            &local,
+            remote_root,
+            &manifest,
+            changing.iter().map(|(relative, now, _)| (relative.clone(), now.clone())),
+        );
+        Some((paths, history::git_now(&local)))
+    } else {
+        None
+    };
+
     let mut next = manifest;
     let mut transaction = Transaction::new(&local, &staging.0)?;
     let applied = apply(&mut transaction, &staging, planned, &mut next);
@@ -331,6 +358,47 @@ pub(super) fn pull_kept(
         Err(error) => return undone(transaction, &staging, error),
     };
     transaction.finish();
+    if let Some((paths, git_before)) = before {
+        let mut after = paths.clone();
+        for (relative, _, then) in &changing {
+            if !history::is_worktree_path(relative) {
+                continue;
+            }
+            match then {
+                Some(held) => {
+                    if let Held::File { sha256, .. } = held {
+                        history::keep_blob(&root, relative, sha256);
+                    }
+                    after.insert(relative.clone(), held.clone());
+                }
+                None => {
+                    after.remove(relative);
+                }
+            }
+        }
+        // A snapshot that could not be kept never undoes the pull.
+        let touched: BTreeSet<String> =
+            changing.iter().map(|(relative, _, _)| relative.clone()).collect();
+        let git_after = history::git_now(&local);
+        let _ = history::record(
+            &local,
+            remote_root,
+            "before_pull",
+            paths,
+            git_before,
+            None,
+            history::Changed::default(),
+        );
+        let _ = history::record(
+            &local,
+            remote_root,
+            "pull",
+            after,
+            git_after,
+            None,
+            history::Changed { paths: touched, git: git_plan.is_some() },
+        );
+    }
     let (skipped_files, skipped_counts) = skips.json();
     let head = git_plan.as_ref().and_then(|plan| plan.settled.head.clone());
     if let Some(plan) = git_plan {
@@ -438,6 +506,31 @@ fn apply(
         }
     }
     Ok((written, deleted, bytes))
+}
+
+/// One side's path as a snapshot holds it.
+fn held(side: &Side) -> Option<Held> {
+    match side {
+        Side::File { sha256, permissions } => {
+            Some(Held::File { sha256: sha256.clone(), permissions: *permissions })
+        }
+        Side::Link(text) => Some(Held::Link { text: text.clone() }),
+        Side::Missing | Side::Other => None,
+    }
+}
+
+/// What a step leaves here.
+fn held_after(step: &Step) -> Option<Held> {
+    match step {
+        Step::Write { sha256, permissions, .. } => {
+            Some(Held::File { sha256: sha256.clone(), permissions: *permissions })
+        }
+        Step::Link(text) | Step::SettleLink(text) => Some(Held::Link { text: text.clone() }),
+        Step::Settle(Some(pushed)) => {
+            Some(Held::File { sha256: pushed.sha256.clone(), permissions: pushed.permissions })
+        }
+        Step::Delete | Step::Settle(None) => None,
+    }
 }
 
 /// What this Mac's file must still be when it is replaced or deleted.
@@ -745,10 +838,10 @@ impl Staged {
 
 /// This pull's own folder, removed when the pull ends, unless it holds a
 /// file a failed pull could not put back (or the pull panicked).
-struct Staging(PathBuf, std::cell::Cell<u64>, std::cell::Cell<bool>);
+pub(super) struct Staging(pub(super) PathBuf, std::cell::Cell<u64>, std::cell::Cell<bool>);
 
 impl Staging {
-    fn make(parent: &Path) -> anyhow::Result<Self> {
+    pub(super) fn make(parent: &Path) -> anyhow::Result<Self> {
         // A name of its own: a folder a failed pull kept is never reused.
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -762,8 +855,41 @@ impl Staging {
     }
 
     /// Keeps the folder when the pull ends.
-    fn keep(&self) {
+    pub(super) fn keep(&self) {
         self.2.set(true);
+    }
+
+    /// Copies this Mac's blob at `blob` here with `permissions`, checked
+    /// against `sha256`; its name here.
+    pub(super) fn copy_in(
+        &self,
+        blob: &Path,
+        sha256: &str,
+        permissions: u32,
+    ) -> anyhow::Result<String> {
+        let number = self.1.get() + 1;
+        self.1.set(number);
+        let name = format!("file-{number}");
+        let path = self.0.join(&name);
+        let mut source = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(blob)
+            .with_context(|| format!("cannot read {}", blob.display()))?;
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&path)?;
+        let mut out = Hashing { file, hasher: Sha256::new() };
+        std::io::copy(&mut source, &mut out)?;
+        if hex(&out.hasher.finalize()) != sha256 {
+            bail!("{} is not the file it names", blob.display());
+        }
+        out.file.set_permissions(std::fs::Permissions::from_mode(permissions))?;
+        out.file.sync_all()?;
+        Ok(name)
     }
 
     /// Copies the machine's file at `target` here, with its hash, synced
