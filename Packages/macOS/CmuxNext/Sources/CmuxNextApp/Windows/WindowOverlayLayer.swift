@@ -71,7 +71,7 @@ final class WindowOverlayLayer {
     /// A parent move or resize reported during the layout pass.
     private var geometryAfterLayout = false
     /// In a live resize: one page update per applied drag, catcher panels still until the end (FRAME OWNER S7).
-    private lazy var liveResize = LiveResizePageUpdates { [weak self] in (self?.window as? ShellWindow)?.liveResizeInput.isFramed == true }
+    private lazy var liveResize = LiveResizePageUpdates { [weak self] in (self?.window as? ShellWindow)?.liveResizeInput }
     /// Reorders done (for `debug.layers`).
     var reorderCount: Int { WindowOverlayHost.existingHost(for: window)?.reorderCount ?? 0 }
 
