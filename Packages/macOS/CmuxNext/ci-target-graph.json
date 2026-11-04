@@ -141,6 +141,7 @@
         "CmuxNextIcons",
         "CmuxNextPalette",
         "CmuxNextSidebar",
+        "CmuxNextTabs",
         "CmuxNextWakeups"
       ],
       "packages": [

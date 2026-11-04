@@ -421,7 +421,9 @@ extension SidebarListViewComponents {
             view.standingGroup = row.standsForGroup ? row.group.map(standingGroupAccess) : nil
         case let (.item(id), view as SidebarItemListRowView):
             guard let item = listItems[id] else { return }
-            view.configure(item, favicon: item.iconAddress.flatMap { model.itemFavicon?($0) }, row: row)
+            // A built-in (the Chief) keeps its band look here: its picture, status and badge.
+            let info = item.ref.builtIn == nil ? nil : model.resolvedItemInfo[LayoutItemID(item.id)]
+            view.configure(item, favicon: item.iconAddress.flatMap { model.itemFavicon?($0) }, info: info, row: row)
         case let (.block(id), view as SidebarBlockRowView):
             guard let content = blockContent(id, includeGap: true) else { return }
             view.region.activeItem = activeTopItem
