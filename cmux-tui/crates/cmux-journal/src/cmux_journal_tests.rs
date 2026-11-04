@@ -474,6 +474,24 @@ fn a_crash_inside_the_quarantine_step_never_reuses_a_quarantined_lsn() {
             .iter()
             .any(|damage| matches!(damage, Damage::Corrupt { lost_through: 40, .. }))
     };
+    // And tells it once (N1 of the third review): no reported loss lies inside another one.
+    let reports_it_once = |report: &OpenReport| {
+        let ranges: Vec<(Lsn, Lsn)> = report
+            .damage
+            .iter()
+            .filter_map(|damage| match damage {
+                Damage::Corrupt { lost_after, lost_through, .. } => {
+                    Some((*lost_after, *lost_through))
+                }
+                _ => None,
+            })
+            .collect();
+        ranges.iter().enumerate().all(|(i, (after, through))| {
+            ranges.iter().enumerate().all(|(j, (other_after, other_through))| {
+                i == j || !(other_after <= after && through <= other_through)
+            })
+        })
+    };
     // Every storage operation of the open is a crash point once.
     let probe = damaged.snapshot(Crash::Process);
     let (journal, report, _) = open_at(&probe, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
@@ -503,6 +521,7 @@ fn a_crash_inside_the_quarantine_step_never_reuses_a_quarantined_lsn() {
                 "{crash:?} at op {at}: {report:?}"
             );
             assert!(reports_the_loss(&report), "{crash:?} at op {at}: {report:?}");
+            assert!(reports_it_once(&report), "{crash:?} at op {at}: {report:?}");
         }
     }
     assert!(crashed_after_a_move > 0, "no crash point fell after a move");
@@ -675,6 +694,73 @@ fn an_open_after_a_finished_quarantine_reads_no_quarantined_segment() {
         assert_eq!(restarted.reads(&quarantine.join(name)), 0, "{name} was read");
     }
     assert_eq!(journal.append(3, Class::Ack, b"after"), Ok(41));
+}
+
+/// The newest segment after a finished quarantine, and the storage once that open has ended.
+fn after_a_finished_quarantine(seed: u64) -> (SimStorage, Config, String) {
+    let (damaged, config) = damaged_in_the_middle(seed);
+    let (journal, report, _) =
+        open_at(&damaged, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
+    assert!(matches!(report.damage.first(), Some(Damage::Corrupt { .. })), "{report:?}");
+    drop(journal);
+    let storage = damaged.restart(Crash::Process);
+    let newest = storage
+        .names_in(&dir())
+        .into_iter()
+        .filter(|name| name.ends_with(".seg"))
+        .max()
+        .unwrap_or_else(|| panic!("no segment"));
+    (storage, config, newest)
+}
+
+/// G7 of the third review, scenario A: after a finished quarantine, the empty segment the open
+/// made gets one damaged header byte. The next open must still count the quarantined LSNs.
+#[test]
+fn a_damaged_header_after_a_quarantine_never_reuses_a_quarantined_lsn() {
+    let (storage, config, newest) = after_a_finished_quarantine(56);
+    // One byte of the journal id in the header of the empty newest segment.
+    storage.corrupt(&dir().join(&newest), 20);
+    let (journal, report, _) =
+        open_at(&storage.restart(Crash::Process), config, 0).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(journal.append(3, Class::Ack, b"after"), Ok(41), "{report:?}");
+}
+
+/// G7 scenario B: the newest segment holds acked records 41..43, and its header and its first
+/// record are damaged. The loss must be reported through 43, and no LSN of it given out again.
+#[test]
+fn a_damaged_newest_segment_after_a_quarantine_reports_its_records() {
+    let (storage, config, newest) = after_a_finished_quarantine(57);
+    let (journal, _, _) = open_at(&storage, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
+    for lsn in 41..=43 {
+        assert_eq!(journal.append(3, Class::Ack, &payload(lsn)), Ok(lsn));
+    }
+    assert_eq!(journal.seal(WAIT), Ok(43));
+    drop(journal);
+    let storage = storage.restart(Crash::Process);
+    let newest_now = storage
+        .names_in(&dir())
+        .into_iter()
+        .filter(|name| name.ends_with(".seg"))
+        .max()
+        .unwrap_or_else(|| panic!("no segment"));
+    // The segment that holds 41..43 (the open made a new, empty one after it: damage both).
+    for name in [&newest, &newest_now] {
+        storage.corrupt(&dir().join(name), 20);
+        storage.corrupt(&dir().join(name), SEGMENT_HEADER_LEN + 2);
+    }
+    let (journal, report, _) =
+        open_at(&storage.restart(Crash::Process), config, 0).unwrap_or_else(|e| panic!("{e}"));
+    let lost_through = report
+        .damage
+        .iter()
+        .filter_map(|damage| match damage {
+            Damage::Corrupt { lost_through, .. } => Some(*lost_through),
+            _ => None,
+        })
+        .max()
+        .unwrap_or(0);
+    assert!(lost_through >= 43, "the loss of 41..43 is not reported: {report:?}");
+    assert_eq!(journal.append(3, Class::Ack, b"after"), Ok(44), "{report:?}");
 }
 
 // ---------------------------------------------------------------- real file system
