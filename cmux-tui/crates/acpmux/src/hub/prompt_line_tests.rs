@@ -73,3 +73,36 @@ async fn a_tools_notice_reads_as_its_sender_and_title() {
     let m = prompted(&text, "test", Some(p)).await;
     assert_eq!(m.last_prompt.as_deref(), Some("base-red-watch: fast tier failed"));
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn context_inventory_overrides_reach_only_the_first_turn_and_new_sessions_pick_up_edits() {
+    let hub = hub();
+    hub.config.write().await.context_overrides.user = Some("old instruction".into());
+    let req = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let original = hub.new_session(req()).await.unwrap();
+    hub.config.write().await.context_overrides.user = Some("new instruction".into());
+    let next = hub.new_session(req()).await.unwrap();
+    for session in [&original, &next] {
+        for text in ["first words", "second words"] {
+            hub.prompt(session, vec![json!({"type":"text", "text":text})], "test", false)
+                .await.unwrap();
+        }
+    }
+    for (session, expected, absent) in [
+        (&original, "old instruction", "new instruction"),
+        (&next, "new instruction", "old instruction"),
+    ] {
+        let records = hub.events(&session.id, 0, 1_000).unwrap();
+        let replies: String = records.iter()
+            .filter(|e| e.kind == "agent_message_chunk")
+            .filter_map(|e| e.msg.pointer("/params/update/content/text").and_then(Value::as_str))
+            .collect();
+        assert_eq!(replies.matches(expected).count(), 1, "{replies}");
+        assert!(!replies.contains(absent), "{replies}");
+        let prompts: Vec<_> = records.iter().filter(|e| e.kind == "user_message").collect();
+        assert_eq!(prompts.len(), 2);
+        assert_eq!(prompts[0].msg["text"], "first words");
+        assert_eq!(prompts[0].msg["hiddenContext"], true);
+        assert_ne!(prompts[1].msg["hiddenContext"], true);
+    }
+}
