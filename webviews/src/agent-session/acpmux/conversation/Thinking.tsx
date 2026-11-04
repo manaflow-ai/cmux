@@ -286,13 +286,8 @@ export function Thinking({
       </div>
     );
   return (
-    // `cv-worked--live`: its words start on the icon rows' text column (conversation.css), its icon
-    // slot empty (`data-lead-slot`: gallery/invariants.ts reads its lead edge from the box, not the words).
-    <div
-      className={`cv-worked cv-worked--live${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`}
-      data-find-skip
-      data-lead-slot
-    >
+    // `cv-worked--live`: its words start on the icon column, with no icon slot (conversation.css).
+    <div className={`cv-worked cv-worked--live${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`} data-find-skip>
       {waiting ? (
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
           {t(WAITING_LABEL[waiting])}
