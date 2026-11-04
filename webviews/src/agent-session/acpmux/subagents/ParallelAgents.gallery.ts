@@ -66,7 +66,8 @@ const scene = (agents: Subagent[]) =>
 const expanded = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray"));
   const head = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
-  if (head && head.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: ".acpmux-running-tray__head" });
+  if (head && head.getAttribute("aria-expanded") !== "true")
+    await ctx.click({ selector: ".acpmux-running-tray__head" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line"));
 };
 
