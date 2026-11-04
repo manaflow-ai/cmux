@@ -838,6 +838,7 @@ fn gh_auto(args: &[String]) -> u8 {
     let identity = crate::github_cli_identity::identity_applies(
         token_env,
         gh_hosts_text().as_deref(),
+        std::env::var("GH_HOST").ok().as_deref(),
         std::env::var_os(crate::cloud::github_status::GH_OWN_LOGIN_ONLY_ENV)
             .is_some_and(|v| !v.is_empty()),
     );

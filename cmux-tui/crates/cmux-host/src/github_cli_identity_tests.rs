@@ -210,12 +210,26 @@ fn no_answer_leaves_gh_to_run_as_before() {
 
 #[test]
 fn the_persons_own_auth_or_an_own_login_probe_keeps_gh() {
-    assert!(identity_applies(false, None, false));
-    assert!(identity_applies(false, Some(""), false));
-    assert!(identity_applies(false, Some("# no hosts\n"), false));
-    // A token in the env, any host login (github.com or Enterprise), or acpmux's own-login probe.
-    assert!(!identity_applies(true, None, false));
-    assert!(!identity_applies(false, Some("github.com:\n    user: me\n"), false));
-    assert!(!identity_applies(false, Some("ghe.example.com:\n    user: me\n"), false));
-    assert!(!identity_applies(false, None, true));
+    let applies = |hosts: Option<&str>| identity_applies(false, hosts, None, false);
+    assert!(applies(None));
+    assert!(applies(Some("")));
+    assert!(applies(Some("# no hosts\n")));
+    assert!(applies(Some("---\n")));
+    assert!(applies(Some("{}\n")));
+    // Any host login in any form gh reads: github.com, Enterprise, a comment or inline mapping.
+    for hosts in [
+        "github.com:\n    user: me\n",
+        "ghe.example.com:\n    user: me\n",
+        "github.com: # personal account\n    user: me\n",
+        "github.com: {user: me, oauth_token: x}\n",
+        "---\n\"github.com\":\n  user: me\n",
+    ] {
+        assert!(!applies(Some(hosts)), "{hosts}");
+    }
+    // A token in the env, another GH_HOST, or acpmux's own-login probe.
+    assert!(!identity_applies(true, None, None, false));
+    assert!(!identity_applies(false, None, Some("ghe.example.com"), false));
+    assert!(identity_applies(false, None, Some("github.com"), false));
+    assert!(identity_applies(false, None, Some(""), false));
+    assert!(!identity_applies(false, None, None, true));
 }
