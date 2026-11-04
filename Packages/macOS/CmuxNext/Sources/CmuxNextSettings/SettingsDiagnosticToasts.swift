@@ -80,9 +80,10 @@ final class SettingsDiagnosticToasts {
     enum Destination: Equatable { case row, shortcuts, file }
 
     static func destination(_ path: String, file: String? = nil) -> Destination {
-        if path.isEmpty { return .file }
-        // A theme file's entry with no row (a color, an unknown key) shows at the theme file's row.
+        // A theme file's entry with no row (a color, an unknown key, the file itself) shows at the
+        // theme file's row.
         if file != nil { return .row }
+        if path.isEmpty { return .file }
         if SettingsSchema.descriptor(for: CmuxConfigFile.keyPath(from: path))?.isShownOnSettingsPage == true { return .row }
         return path.hasPrefix("shortcuts.") ? .shortcuts : .file
     }
