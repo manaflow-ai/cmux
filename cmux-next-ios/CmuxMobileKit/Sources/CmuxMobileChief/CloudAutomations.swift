@@ -143,7 +143,10 @@ public final class CloudAutomationsModel {
             phase = .failed(String(localized: "Sign in to cmux to see your Cloud automations."))
             return
         }
-        if automations.isEmpty { phase = .loading }
+        // Only a page that has not loaded shows the spinner: a reload after the last automation
+        // was deleted keeps the (empty) list, so a reload that is cancelled never strands it on
+        // "Loading" (live run of this batch).
+        if automations.isEmpty, phase != .loaded { phase = .loading }
         do {
             async let listed = account.read("automation.list", params: ["limit": 100])
             async let ran = account.read("automation.runs.list", params: ["limit": 200])

@@ -110,8 +110,14 @@ def tab(j, name):
 
 
 def settings_row(j, label, ident=None, tries=10):
-    """A Settings row, scrolled to from the top of the page."""
+    """A Settings row, scrolled to from the top of the page (a page pushed earlier is popped first)."""
     tab(j, "Settings")
+    for _ in range(3):
+        back = [e for e in j.sim.find(kind="Button") if e.label in ("Settings", "Back", "Automations") and e.frame[1] < 120]
+        if not back:
+            break
+        j.sim.tap_el(back[0])
+        time.sleep(1.2)
     for _ in range(4):
         j.sim.swipe(200, 250, 200, 700, 0.3)
         time.sleep(0.3)
@@ -531,7 +537,10 @@ def menus(j, label):
     out = {"row": bool(row)}
     if label == "before" or not row:
         return out
+    time.sleep(1.0)
+    row = [e for e in j.sim.find(ident="settings.longPressMenus") if 90 < e.frame[1] < 760][0]
     press(j, row)
+    check(j.sim.wait(label="Workspace rows", timeout=6), f"Long-Press Menus did not open: {labels(j)[:20]}")
     pq.shot("menus-after-page")
     rename = [e for e in j.sim.find(contains="Rename") if 90 < e.frame[1] < 760]
     check(rename, f"no Rename row: {labels(j)[:30]}")
@@ -585,38 +594,32 @@ def github(j, label):
 
 
 def forkcolumn(j, label):
-    """A chat tab on the Panes page › Fork Conversation. After: In a New Column; the Mac shows the
-    copy in a new column (`move-tab-to-column`)."""
-    ws, key, name = p.seed("nrfork", terminals=1)
-    folder = pq.rsh(f"cd {t.PROJ} && pwd -P").stdout.strip()
-    r.acpmux("acp.trust.set", {"cwd": folder, "level": "trusted"})
-    sid = p.start_chat(folder, "Reply with the single word PONG.")
-    pane = t.ws_tabs(ws)[0][0]
-    host = pq.rsh("ps eww -o command -p $(pgrep -f 'newrows.*Contents/Resources/bin/cmux-mobile-host' | head -1) "
-                  "| tr ' ' '\\n' | sed -n 's/^CMUX_MOBILE_AGENT_TAB_HOST=//p'").stdout.strip()
-    check(host, "the rig Mac's agent tab host")
-    t.mac_raw({"cmd": "new-conversation-tab", "pane": pane, "agent_session": {"host": host, "harness": "claude", "session": sid}})
+    """The Panes page › a chat's menu › Fork Conversation. After: In a New Column; the Mac shows
+    the copy in a new column right of the chat's (`new-conversation-tab`, `move-tab-to-column`).
+    The chat is one the phone started (acpmux lets a phone fork only its own chats, D13)."""
+    st = c.chat_seed(j, key="nr_chat", turns=("ONE",))
+    key = st["key"]
     out = {"start": p.mac_layout(key)}
-    t.open_ws(j, name)
+    t.open_ws(j, st["name"])
     p.open_panes(j)
     pq.shot(f"forkcolumn-{label}-panes")
-    chat = [e for e in j.sim.find() if (e.label or "").startswith(("Claude", "PONG")) and e.kind in ("Button", "Cell", "StaticText")]
-    out["panes_rows"] = [e.label for e in j.sim.find(kind="Button") if e.label][:30]
-    if not chat:
-        return out
+    chat = [e for e in j.sim.find() if (e.label or "").startswith("Claude") and e.frame[2] > 200]
+    check(chat, f"no chat row on the Panes page: {labels(j)[:20]}")
     x, y = chat[0].center
     j.sim.long_press(x, y, 1.2)
     time.sleep(1.2)
     if j.sim.find(label="Fork Conversation"):
-        w.menu_item(j, "Fork Conversation")
+        j.sim.tap_el(j.sim.find(label="Fork Conversation")[0])
+        time.sleep(1.2)
     pq.shot(f"forkcolumn-{label}-destinations")
-    out["destinations"] = [e.label for e in j.sim.find(kind="Button") if e.label][:20]
+    out["destinations"] = [e.label for e in j.sim.find(kind="Button") if e.label][:24]
     if label == "before" or not j.sim.find(label="In a New Column"):
         r.dismiss(j)
         return out
-    w.menu_item(j, "In a New Column")
-    columns0 = out["start"]["columns"]
-    out["forked"] = p.fork_outcome(j, key, lambda lay: lay["columns"] > max(columns0, 1) or len(lay["panes"]) > len(out["start"]["panes"]))
+    j.sim.tap_el(j.sim.find(label="In a New Column")[0])
+    out["forked"] = p.fork_outcome(j, key, lambda lay: lay["columns"] > out["start"]["columns"]
+                                   or len(lay["panes"]) > len(out["start"]["panes"]))
+    time.sleep(2)
     pq.shot("forkcolumn-after-forked")
     return out
 

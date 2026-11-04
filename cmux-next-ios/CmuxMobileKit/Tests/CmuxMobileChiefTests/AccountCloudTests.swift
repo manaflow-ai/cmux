@@ -125,6 +125,22 @@ import Testing
         #expect(model.failure == "It changed elsewhere.")
     }
 
+    @Test func deletingTheLastAutomationKeepsTheLoadedPage() async throws {
+        Service.reset(["automation.list": (200, #"{"value":{"automations":[{"id":"auto_a","name":"A","enabled":true,"version":1,"triggers":[],"body":{}}]}}"#),
+                       "automation.runs.list": (200, #"{"value":{"runs":[]}}"#),
+                       "automation.delete": (200, #"{"value":{"automation":"auto_a"}}"#)])
+        let account = Self.account()
+        let model = CloudAutomationsModel { account }
+        await model.load()
+        let row = try #require(model.automation("auto_a"))
+        Service.reset(["automation.list": (200, #"{"value":{"automations":[]}}"#), "automation.runs.list": (200, #"{"value":{"runs":[]}}"#),
+                       "automation.delete": (200, #"{"value":{"automation":"auto_a"}}"#)])
+        await model.delete(row)
+        #expect(model.phase == .loaded)
+        #expect(model.automations.isEmpty)
+        #expect(Service.ops.contains("automation.delete"))
+    }
+
     @Test func aBusyPageChangesNothingItCannotSend() async throws {
         Service.reset(["automation.list": (200, Self.list), "automation.runs.list": (200, Self.runs)])
         let model = CloudAutomationsModel { nil }
