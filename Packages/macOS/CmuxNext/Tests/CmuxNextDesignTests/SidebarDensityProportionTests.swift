@@ -44,6 +44,17 @@ import Testing
         }
     }
 
+    /// At an Interface Size the base sizes are off the grid: Normal must not round them.
+    @Test func normalKeepsAScaledBaseExactly() {
+        let scaled = SidebarRowTokens(density: .normal, textSize: .small, base: .init(
+            rowHeight: 28.8, space1: 2.4, space2: 4.8, space3: 7.2, space4: 9.6, cornerRadius: 7.2, body: 14.4, caption: 12.6,
+            listRowHeight: 33.6, rowTitle: 15.6, rowDetail: 14.4))
+        #expect(scaled.rowHeight == 33.6)
+        #expect(scaled.horizontalInset == 9.6)
+        #expect(scaled.titleSize == 15.6)
+        #expect(scaled.captionSize == 14.4)
+    }
+
     @Test func customSizesStillWin() {
         let custom = SidebarRowTokens(density: .ultraCompact, textSize: .small, base: .init(
             rowHeight: 24, space1: 2, space2: 4, space3: 6, space4: 8, cornerRadius: 6, body: 12, caption: 10.5,
