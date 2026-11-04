@@ -428,6 +428,24 @@ impl Remote {
         }
     }
 
+    /// The text of the symlink at `path` (`fs-symlink-v1`): None when
+    /// nothing is there.
+    pub(super) fn readlink(&mut self, path: &str) -> anyhow::Result<Option<String>> {
+        match self.call("fs.readlink", json!({ "path": path })) {
+            Ok(answer) => Ok(Some(
+                answer["target"].as_str().context("fs.readlink answered no target")?.to_string(),
+            )),
+            Err(error) if refusal_code(&error) == Some("fs.not_found") => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Makes a symlink at `path` whose text is `target` (`fs-symlink-v1`);
+    /// nothing may be there.
+    pub(super) fn symlink(&mut self, path: &str, target: &str) -> anyhow::Result<()> {
+        self.call("fs.symlink", json!({ "path": path, "target": target })).map(drop)
+    }
+
     /// Deletes the files or folders at `paths`; ones already gone are fine.
     pub(super) fn delete(&mut self, paths: &[String]) -> anyhow::Result<()> {
         for path in paths {
@@ -439,6 +457,15 @@ impl Remote {
         }
         Ok(())
     }
+}
+
+/// Whether `error` says the machine's daemon has no symlink ops
+/// (`fs-symlink-v1`): it refused the op itself (unknown to it, or denied by
+/// an older link gate), not the one path.
+pub(super) fn lacks_symlinks(error: &anyhow::Error) -> bool {
+    refusal_code(error).is_some_and(|code| {
+        code == "fs.unavailable" || !(code.starts_with("fs.") || code == "params.invalid")
+    })
 }
 
 pub(super) fn refusal_code(error: &anyhow::Error) -> Option<&str> {
