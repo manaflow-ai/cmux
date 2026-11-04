@@ -54,8 +54,7 @@ extension MainThreadWatchdog {
     }
 
     /// A stall just crossed the hang threshold (once per stall): samples the main thread and
-    /// every other thread, opens the hang file, hands the hang to ``fatalHangs`` (every one),
-    /// reports the episode (``onHangEpisode``, every one), and reports the hang (``onHang``) at
+    /// every other thread, opens the hang file, reports the episode (``onHangEpisode``, every one), and reports the hang (``onHang``) at
     /// most once per `hangReportInterval`. Watchdog thread only.
     func reportHang(beat: UInt64, elapsedNanos: UInt64, now: UInt64, sampler: ThreadStackSampler?, crashKeys: CrashKeySlots?,
                     trace: TraceRuntime?, state: inout HangState) {
@@ -64,14 +63,12 @@ extension MainThreadWatchdog {
         let due = state.lastReportNanos.map { now >= $0 &+ hangIntervalNanos } ?? true
         let sink = due ? onHang : nil
         let recorder = episodes
-        let fatal = fatalHangs
         let episodeSink = onHangEpisode
-        guard sink != nil || recorder != nil || fatal != nil || episodeSink != nil else { return }
+        guard sink != nil || recorder != nil || episodeSink != nil else { return }
         // A fresh sample: the stall sample is from the first threshold, this one from the hang.
         let sampled = sampleHang(beat: beat, duration: duration, now: now, sampler: sampler, crashKeys: crashKeys, trace: trace)
         let hang = sampled.hang
         recorder?.begin(beat: beat, elapsed: duration, main: hang.addresses, others: hang.otherThreads, phase: hang.phase)
-        if sampled.stillBlocked { fatal?.began(hang, now &- elapsedNanos) }
         if let episodeSink {
             state.episodeReport = hang
             episodeSink(.blocked(hang, previous: nil))
@@ -124,7 +121,7 @@ extension MainThreadWatchdog {
         public var startupTask: String?
     }
 
-    /// A hang episode's checkpoint or end, to its file, to ``fatalHangs`` and to ``onHangEpisode``
+    /// A hang episode's checkpoint or end, to its file and to ``onHangEpisode``
     /// (``HangEpisodeTracker/Event/began`` is
     /// ``reportHang(beat:elapsedNanos:now:sampler:crashKeys:trace:state:)``, in `checkHang`). An ended
     /// stall's duration is the exact one the main thread recorded when it resumed. A checkpoint samples
@@ -137,7 +134,6 @@ extension MainThreadWatchdog {
         case let .progressed(beat, elapsed):
             let duration = Duration.nanoseconds(Int64(clamping: elapsed))
             episodes?.update(beat: beat, duration: duration, ongoing: true)
-            fatalHangs?.progressed(elapsed)
             guard let episodeSink = onHangEpisode else { return }
             let sampled = sampleHang(beat: beat, duration: duration, now: uptime(), sampler: sampler, crashKeys: crashKeys, trace: trace)
             guard sampled.stillBlocked else { return }
@@ -145,7 +141,6 @@ extension MainThreadWatchdog {
             state.episodeReport = sampled.hang
             episodeSink(.blocked(sampled.hang, previous: previous))
         case let .ended(beat, lastElapsed):
-            fatalHangs?.ended() // first: the run is not stuck any more, before the episode file is rewritten
             let duration = Duration.nanoseconds(Int64(clamping: closeEpisode(beat: beat, lastElapsedNanos: lastElapsed)))
             episodes?.update(beat: beat, duration: duration, ongoing: false)
             let lastReport = state.episodeReport

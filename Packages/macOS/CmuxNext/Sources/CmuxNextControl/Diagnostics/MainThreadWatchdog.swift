@@ -42,8 +42,6 @@ public final class MainThreadWatchdog: Sendable {
         set { stallSink.withLock { $0 = newValue } }
     }
     private let stallSink = Mutex<(@Sendable (HangRecord) -> Void)?>(nil)
-    /// ``fatalHangs``' sink (+FatalHang): set once at launch, read on the watchdog thread once per hang episode event.
-    let fatalHangSink = Mutex<FatalHangSink?>(nil)
     let mainTurnMinimumNanos = Atomic<UInt64>(.max), turnStartNanos = Atomic<UInt64>(0) // +MainTurns
     let mainTurnSink = Mutex<(@Sendable (UInt64, UInt64) -> Void)?>(nil)
     let fieldMetrics: MainThreadFieldMetrics // main.turn and hang.over250.per_hour (+MainTurns, MainTurnHistogram)

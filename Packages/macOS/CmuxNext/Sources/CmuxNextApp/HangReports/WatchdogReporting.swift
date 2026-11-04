@@ -81,17 +81,6 @@ enum WatchdogReporting {
         }
         // ~/Library/Logs/<bundle id>/hangs, listed in Debug Settings > Hangs.
         watchdog.episodes = HangFileTunables.recorder(bundleID: Bundle.main.bundleIdentifier)
-        // A hang the app does not survive: the previous run's record goes out now. This run's is
-        // kept on disk while each hang lasts by the sink set before Sentry started (WatchdogHangSinks).
-        let bundleID = services.environment.launch.bundleID, markerFolder = AppRunMarker.standardDirectory(bundleID: bundleID)
-        let fatalHangReports = services.features.isEnabled(.fatalHangReports)
-        if let marker = services.crashRecovery.marker {
-            // With the kill switch off, an earlier run's record is still cleared, and nothing is sent.
-            reporter.reportPreviousFatalHang(in: markerFolder, run: marker.previousUnreported.map { (pid: $0.pid, launched: $0.launched) },
-                                             enabled: fatalHangReports, traceDirectory: TraceBlackBoxFileSteps.appDirectory(bundleID: bundleID),
-                                             hangReportsOptIn: UserDefaults.standard.object(forKey: HangReportsController.consentKey) is Date,
-                                             work: services.work)
-        }
         let lagSpikes = LagSpikeReporter(reporter: reporter)
         lagSpikes.setContextProvider {
             // The watchdog's run-loop observer on the main run loop reads it; never off main.

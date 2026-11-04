@@ -74,8 +74,7 @@ public final class CrashReporter: Sendable {
         case sentry
         /// The process's one hang watcher, the main-thread watchdog, reports each hang
         /// (`MainThreadWatchdog.onHang`), each episode of ``CrashReporter/appHangThreshold`` and up as an app
-        /// hang (``AppHangReporter``), and with feature `fatalHangReports` keeps the fatal-hang
-        /// record the next launch reports; Sentry's tracker is off. The app sets these
+        /// hang (``AppHangReporter``); Sentry's tracker is off. The app sets these
         /// sinks before ``CrashReporter/start(profile:)`` (`WatchdogHangSinks`), so a launch hang is reported too.
         case watchdog
     }

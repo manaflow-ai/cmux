@@ -814,11 +814,7 @@ final class AppServices {
         if let launchStartup { crashRecovery.marker?.observe(launchStartup) }  // its last task and completion in run.json
         self.features = launchFeatures
         launchPanes = LaunchPaneGate(startup: self.features.isEnabled(.launchVisiblePanesOnly) ? launchStartup : nil)
-        // The fatal-hang record needs the run marker, whose folder the next launch reads.
-        let hangSinks = watchdog.map { [features = self.features, marker = crashRecovery.marker] in
-            WatchdogHangSinks(watchdog: $0, keepsFatalHangRecord: features.isEnabled(.fatalHangReports) && marker != nil,
-                              markerFolder: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID))
-        }
+        let hangSinks = watchdog.map { WatchdogHangSinks(watchdog: $0) }
         crashReporting = AppCrashReporting(environment: environment, features: CrashFeatureScope(FeatureFlagsPage.report(self.features, tunables: TunableStore.shared, daemon: environment.daemonFeatureHello).fieldState), afterStartup: .init(handlersFirst: self.features.isEnabled(.sentryHandlersFirst), startup: launchStartup), hangSinks: hangSinks, forwardersAfterStartup: self.features.isEnabled(.crashForwardersAfterStartup) ? launchStartup : nil, runMarker: crashRecovery.marker)  // after the run marker's handlers
         DebugTimings.markLaunch("services.crash_reporting")
         // The engines' Keychain calls run on the system lane; the remembered HTTP sign-ins are listed there now.

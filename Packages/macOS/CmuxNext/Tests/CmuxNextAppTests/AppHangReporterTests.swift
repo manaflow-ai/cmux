@@ -10,8 +10,7 @@ import Testing
 @Suite struct AppHangEventTests {
     /// The reporter as the app builds it: its hang tracking from the watchdog's sinks (`AppCrashReporting`).
     private static func reporter() -> CrashReporter {
-        let sinks = WatchdogHangSinks(watchdog: MainThreadWatchdog(), keepsFatalHangRecord: false,
-                                      markerFolder: FileManager.default.temporaryDirectory)
+        let sinks = WatchdogHangSinks(watchdog: MainThreadWatchdog())
         return CrashReporter(policy: CrashReportingPolicy(bundleID: "com.cmuxterm.next.nightly", shortVersion: "1.0", build: "1",
                                                           isDebugBuild: false, telemetryOptIn: true, managedDisablesTelemetry: false,
                                                           processEnvironment: [:]),
@@ -140,7 +139,7 @@ import Testing
         let watchdog = MainThreadWatchdog(configuration: .init(sampleStacks: false, logStalls: false, hangAssertThreshold: nil))
         let unwired = watchdog.onHangEpisode == nil
         #expect(unwired)
-        let sinks = WatchdogHangSinks(watchdog: watchdog, keepsFatalHangRecord: false, markerFolder: FileManager.default.temporaryDirectory)
+        let sinks = WatchdogHangSinks(watchdog: watchdog)
         sinks.install(reporter: CrashReporter(policy: LaunchHangChild.policy(), hangTracking: sinks.hangTracking))
         let wired = watchdog.onHangEpisode != nil
         #expect(wired)

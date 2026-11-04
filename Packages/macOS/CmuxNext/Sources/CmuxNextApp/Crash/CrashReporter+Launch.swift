@@ -16,7 +16,6 @@ extension CrashReporter {
     /// forced `DisableTelemetry` from the managed domains, all read once.
     /// `previousRun`: the previous run's crash keys and black box for its
     /// crash event (``previousRunEvidence(marker:bundleID:)``).
-    /// `hangTracking` follows feature `fatalHangReports`.
     static func forThisLaunch(
         bundleID: String?,
         hangTracking: CrashReporter.HangTracking = .sentry,
