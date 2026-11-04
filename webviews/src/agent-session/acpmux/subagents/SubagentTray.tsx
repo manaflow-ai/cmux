@@ -87,6 +87,7 @@ import { retrying, retryLabel, sessionRetry } from "./retryState";
 import { AgentMark } from "../../shared/AgentMark";
 import { AgentLine } from "./AgentLine";
 import { AgentIdentity, foreignHarness, SUBAGENT_FALLBACK } from "./AgentIdentity";
+import { harnessFamily } from "./agentRuns";
 import { agentTone } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
 import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
@@ -348,8 +349,8 @@ export const SubagentTray = memo(function SubagentTray({
   // top bit aka what the collapsed area shows i think can show much more interesting stuf fthan it
   // does now").
   const counts = headCounts;
-  const stacked = new Set(headMarks.map((mark) => mark.harness).filter(Boolean));
-  const trailingMarks = counts.marks.filter((harness) => !stacked.has(harness));
+  const stacked = new Set(headMarks.flatMap((mark) => (mark.harness ? [harnessFamily(mark.harness)] : [])));
+  const trailingMarks = counts.marks.filter((harness) => !stacked.has(harnessFamily(harness)));
   const title = counts.text;
   // Its subagents and the chats it started run, or a command does: the header's mark is lit.
   const commands = items.filter((item) => item.kind === "command").length;
