@@ -278,7 +278,7 @@ INPUT_CHECK_S = 1.0  # a key re-reads the window list at most once a second (dia
 
 def _window_rows(j):
     """The on-screen windows (CuaDriver list_windows, frontmost first): app, pid, layer, title, bounds [x, y, w, h] (screen
-    points from the top-left). [] when the list cannot be read (the guard then lets the input go, as before it)."""
+    points from the top-left). [] when the list cannot be read (require_input_clear then gives not run: it fails closed)."""
     bad, data, raw = _session(j).call("list_windows", {})
     rows = []
     for w in (data or {}).get("windows") or []:
