@@ -63,6 +63,25 @@ export function replyTime(at: number, now: number, locale?: string): string {
   }
 }
 
+/// The reply menu's quiet header, as ChatGPT writes it: today's or yesterday's time,
+/// otherwise the exact date. Format on opening only; no clock or idle work is needed.
+export function replyMenuTime(at: number, now: number, locale?: string): string {
+  const date = new Date(at);
+  if (!Number.isFinite(date.getTime())) return "";
+  const today = new Date(now);
+  const day = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const current = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const delta = Math.round((day - current) / 86_400_000);
+  if (delta !== 0 && delta !== -1) return exactTime(at, locale);
+  try {
+    const relative = new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(delta, "day");
+    const label = relative.charAt(0).toLocaleUpperCase(locale) + relative.slice(1);
+    return `${label}, ${new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" }).format(date)}`;
+  } catch {
+    return exactTime(at, locale);
+  }
+}
+
 /** First shared wall-clock minute where relativeTime's unit or rounded count changes. */
 export function nextRelativeTime(at: number, now: number): number {
   if (!Number.isFinite(at)) return Infinity;
