@@ -16,11 +16,11 @@ export const actorOf = (createdBy: string): Option.Option<Principal["actor"]> =>
 /** A live owner and its known expiry; None refuses, Some(null) has no known deadline. */
 export const ownerLease = (tenantId: Principal["tenantId"], actor: Principal["actor"], fresh = false) => Effect.gen(function* () {
   if (actor.kind === "session") {
-    const active = yield* (yield* TeamMembership).isMember(tenantId, actor.userId, { fresh }).pipe(Effect.mapError(() => unavailable()));
+    const active = yield* (yield* TeamMembership).isMember(tenantId, actor.userId, { fresh }).pipe(Effect.mapError(unavailable));
     return active ? Option.some<number | null>(null) : Option.none<number | null>();
   }
   if (actor.kind === "service") return Option.none<number | null>();
-  const key = yield* (yield* ApiKeyStore).findActiveById(tenantId, actor.keyId, new Date(yield* Clock.currentTimeMillis)).pipe(Effect.mapError(() => unavailable()));
+  const key = yield* (yield* ApiKeyStore).findActiveById(tenantId, actor.keyId, new Date(yield* Clock.currentTimeMillis)).pipe(Effect.mapError(unavailable));
   return Option.map(key, (held) => held.expiresAt === null ? null : held.expiresAt.getTime());
 });
 

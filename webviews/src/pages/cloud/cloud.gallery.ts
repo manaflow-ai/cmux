@@ -73,6 +73,13 @@ export default cloudPageEntry({
       snapshots,
       ports: samplePorts,
     },
+    "ports-shared": {
+      note: "A Cloud preview port after Share creates and copies an expiring link; Revoke stays available.",
+      action: "ports-shared",
+      machines,
+      snapshots,
+      ports: samplePorts,
+    },
     "many-machines": {
       note: "Twenty-four machines with long names for scrolling.",
       layout: "cards",

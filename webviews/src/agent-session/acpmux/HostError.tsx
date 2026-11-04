@@ -1,12 +1,14 @@
 import { type ReactNode, useId, useState } from "react";
 import { DialogButton } from "../../ui/DialogButton";
+import { Notice } from "../../ui/Notice";
 import { HOST_ERROR_DEADLINE_MS } from "./hostRetry";
 import { useNow } from "./subagents/SubagentGroup";
 import { useT } from "./i18n";
 
 /// A chat acpmux would not start (a folder harness without its Enable or Trust): the reason above
-/// the composer in a card, with its own `hint` (null: none) and button (`action`, the label for
-/// `onRetry`); without `onRetry` it has no button.
+/// the composer as the shared notice (ui/Notice.tsx), with its own `hint` (null: none) and button
+/// (`action`, the label for `onRetry`); without `onRetry` it has no button. With its own action it is
+/// a warning that waits for that step; with plain Retry it is an error whose Retry leads.
 export function HostError({
   message,
   retrying,
@@ -21,19 +23,18 @@ export function HostError({
   action?: string;
 }) {
   const t = useT();
+  const label = action ?? t(retrying ? "host.retryQueued" : "host.retry");
   return (
-    <div className="acpmux-host-error" role="alert">
-      <div className="acpmux-host-error-card">
-        <p className="acpmux-host-error-message selectable">{message}</p>
-        {hint && <p className="acpmux-host-error-hint">{hint}</p>}
-        {onRetry && (
-          <div className="acpmux-host-error-actions">
-            <button type="button" onClick={onRetry} disabled={retrying}>
-              {action ?? t(retrying ? "host.retryQueued" : "host.retry")}
-            </button>
-          </div>
-        )}
-      </div>
+    <div className="acpmux-host-error">
+      <Notice
+        kind={action ? "warning" : "error"}
+        title={hint ? message : undefined}
+        message={hint ?? message}
+        retry={!action && onRetry ? { label, onRetry, disabled: retrying } : undefined}
+        actions={
+          action && onRetry ? [{ id: "action", label, onSelect: onRetry, disabled: retrying, primary: true }] : []
+        }
+      />
     </div>
   );
 }

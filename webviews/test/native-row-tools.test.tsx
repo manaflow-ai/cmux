@@ -55,7 +55,7 @@ test("native descriptors preserve quick-action order, toolbar symbols, state and
   });
   expect(bindings.map(({ tool }) => tool.id)).toEqual(["summary", ...ids]);
   expect(bindings.map(({ tool }) => tool.symbol)).toEqual([
-    "list.bullet",
+    "view.list.short",
     "sidebar.right",
     "plusminus",
     "folder",

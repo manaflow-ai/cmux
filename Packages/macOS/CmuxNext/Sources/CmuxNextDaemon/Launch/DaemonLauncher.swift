@@ -196,11 +196,18 @@ public struct DaemonLauncher: Sendable {
 
     /// The Chief owner's `server ensure` environment: the user's basic
     /// variables only, never a build's `CMUX_*` identity; the brain's tools socket (chief.*) and
-    /// what the owner needs to run the other Chiefs' brains (`CMUX_TUI_CHIEF_BRAINS`).
+    /// what the owner needs to run the other Chiefs' brains (`CMUX_TUI_CHIEF_BRAINS`). Also the
+    /// R-LIFECYCLE keepers switch from the app's launch knob (``DaemonDiagnosticKnobs``): the Chief
+    /// owner follows the same rule as the app's own daemon, so its off switch must reach it too.
     static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
         let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", "CMUX_TUI_CHIEF_TOOLS_SOCKET",
                     "CMUX_TUI_CHIEF_BRAINS"]
-        return base.filter { kept.contains($0.key) }
+        var environment = base.filter { kept.contains($0.key) }
+        let knobs = DaemonDiagnosticKnobs(processEnvironment: base).daemonEnvironment
+        if let keepers = knobs[DaemonDiagnosticKnobs.ownerKeepersDaemonName] {
+            environment[DaemonDiagnosticKnobs.ownerKeepersDaemonName] = keepers
+        }
+        return environment
     }
 
     /// The app launcher's `server ensure` environment: the login

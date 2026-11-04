@@ -19,7 +19,7 @@ export const continueCancellation = <C>(caller: Named<C, Principal>, scope: KeyH
   if (fork !== null) return fork;
   const status = yield* readVmCreation(caller, key);
   if (status.state === "cancelled" && status.id !== null) {
-    const record = yield* (yield* TenantLimits).inspect(caller.value.tenantId, yield* scopedCreationKey(caller.value, key)).pipe(Effect.mapError(() => unavailable()));
+    const record = yield* (yield* TenantLimits).inspect(caller.value.tenantId, yield* scopedCreationKey(caller.value, key)).pipe(Effect.mapError(unavailable));
     if (record?.progress.phase === "cancelled" && record.progress.vmId === status.id && record.progress.snapshotId !== undefined) yield* cleanupForkSnapshot(caller, scope, record.progress.snapshotId);
     return status;
   }
@@ -28,13 +28,13 @@ export const continueCancellation = <C>(caller: Named<C, Principal>, scope: KeyH
     const cancelling = yield* cancellingVmCreation(caller, vm, key);
     if (cancelling === null) return yield* readVmCreation(caller, key);
     const retained = cancellingVmCreationEvidenceOf(cancelling), store = yield* OwnershipStore, limits = yield* TenantLimits;
-    const allocation = yield* store.allocationStatus(caller.value.tenantId, vm.value).pipe(Effect.mapError(() => unavailable()));
+    const allocation = yield* store.allocationStatus(caller.value.tenantId, vm.value).pipe(Effect.mapError(unavailable));
     if (allocation !== "deleted") {
       const upstream = yield* UpstreamClient;
-      const found = yield* upstream.inspectCancellingCreation(caller, vm, { cancelling, scope }).pipe(Effect.mapError(() => unavailable()));
+      const found = yield* upstream.inspectCancellingCreation(caller, vm, { cancelling, scope }).pipe(Effect.mapError(unavailable));
       // Nothing at the exact slug: settle only once no earlier send can still be allocating.
       if (found === null && allocation === "absent") {
-        if (!(yield* limits.settleAbsentCancellation(caller.value.tenantId, retained.key, vm.value).pipe(Effect.mapError(() => unavailable())))) return status;
+        if (!(yield* limits.settleAbsentCancellation(caller.value.tenantId, retained.key, vm.value).pipe(Effect.mapError(unavailable)))) return status;
         if (retained.snapshotId !== undefined) yield* cleanupForkSnapshot(caller, scope, retained.snapshotId);
         return yield* readVmCreation(caller, key);
       }
@@ -43,14 +43,14 @@ export const continueCancellation = <C>(caller: Named<C, Principal>, scope: KeyH
         yield* store.record({ tenantId: caller.value.tenantId, kind: "vm", cmuxId: vm.value, upstreamId: found.upstreamId,
           createdBy: retained.createdBy, createdAt: new Date(retained.intent.createdAt), displayName: receipt.displayName, labels: receipt.labels,
           creation: { key: retained.key, receipt }, committed: false,
-        }).pipe(Effect.mapError(() => unavailable()));
+        }).pipe(Effect.mapError(unavailable));
       }
-      const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.mapError(() => unavailable()));
+      const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.mapError(unavailable));
       if (owns === null) return yield* Effect.fail(unavailable());
-      yield* upstream.deleteCancellingCreation(caller, vm, { cancelling, owns, scope }).pipe(Effect.mapError(() => unavailable()));
-      yield* store.markDeleted(caller.value.tenantId, "vm", vm.value, new Date(yield* Clock.currentTimeMillis)).pipe(Effect.mapError(() => unavailable()));
+      yield* upstream.deleteCancellingCreation(caller, vm, { cancelling, owns, scope }).pipe(Effect.mapError(unavailable));
+      yield* store.markDeleted(caller.value.tenantId, "vm", vm.value, new Date(yield* Clock.currentTimeMillis)).pipe(Effect.mapError(unavailable));
     }
-    yield* limits.settleCancellation(caller.value.tenantId, retained.key, vm.value).pipe(Effect.mapError(() => unavailable()));
+    yield* limits.settleCancellation(caller.value.tenantId, retained.key, vm.value).pipe(Effect.mapError(unavailable));
     if (retained.snapshotId !== undefined) yield* cleanupForkSnapshot(caller, scope, retained.snapshotId);
     return yield* readVmCreation(caller, key);
   }));
@@ -62,9 +62,9 @@ export const cancelVmCreation = (key: string) => withCaller("vm:write", "write",
   if (status.state === "cancelling" || status.state === "cancelled") return yield* continueCancellation(caller, scope, key);
   if (status.state !== "pending" || status.id === null) return yield* Effect.fail(conflict("Only a pending creation can be cancelled; delete a completed VM by its id"));
   const limits = yield* TenantLimits, scoped = yield* scopedCreationKey(caller.value, key);
-  const prior = yield* limits.inspect(caller.value.tenantId, scoped).pipe(Effect.mapError(() => unavailable()));
+  const prior = yield* limits.inspect(caller.value.tenantId, scoped).pipe(Effect.mapError(unavailable));
   if (prior?.progress.phase === "capturing" && prior.progress.vmId === status.id) {
-    const decision = yield* limits.cancelCreation(caller.value.tenantId, scoped, status.id).pipe(Effect.mapError(() => unavailable()));
+    const decision = yield* limits.cancelCreation(caller.value.tenantId, scoped, status.id).pipe(Effect.mapError(unavailable));
     if (decision !== "accepted") return yield* Effect.fail(conflict("The creation changed; inspect its status"));
     return yield* continueCancellation(caller, scope, key);
   }
@@ -72,7 +72,7 @@ export const cancelVmCreation = (key: string) => withCaller("vm:write", "write",
     const pending = yield* pendingVmCreation(caller, vm, key);
     if (pending === null) return yield* Effect.fail(conflict("The creation changed; inspect its status"));
     const retained = pendingVmCreationEvidenceOf(pending);
-    const decision = yield* (yield* TenantLimits).cancelCreation(caller.value.tenantId, retained.key, vm.value).pipe(Effect.mapError(() => unavailable()));
+    const decision = yield* (yield* TenantLimits).cancelCreation(caller.value.tenantId, retained.key, vm.value).pipe(Effect.mapError(unavailable));
     if (decision === "legacy") return yield* Effect.fail(conflict("This legacy creation has no send receipt; reconcile it and delete the VM by its id"));
     if (decision === "finished") return yield* Effect.fail(conflict("The creation finished; inspect its status"));
 

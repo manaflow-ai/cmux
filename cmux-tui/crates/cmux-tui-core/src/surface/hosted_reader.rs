@@ -326,7 +326,7 @@ struct WakeInputOnReaderEnd(Arc<Surface>);
 impl Drop for WakeInputOnReaderEnd {
     fn drop(&mut self) {
         if let Some(pty) = self.0.as_pty() {
-            pty.stream_progress.notify();
+            pty.reader_gave_up();
             // A reader that gave up on its host leaves the terminal `failed`:
             // push the tab here, with no lock held, so clients show it.
             if matches!(

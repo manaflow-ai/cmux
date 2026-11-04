@@ -285,7 +285,10 @@ export function ReadReceipt({ row }: { row: AcpmuxRow }) {
 /// Retry, and Retry with another model when the harness has several: sends prompt row `rowId`
 /// (`prompt`, as the agent got it) again. Only the Messages view's prompts draw it, sent or queued;
 /// in the transcript the last turn's Retry is its reply footer's (TurnRows.tsx TurnFooter).
-export function PromptRetry({ rowId, prompt }: { rowId: string; prompt: string }) {
+/// `held`: the prompt is a steer the agent has not read yet (PendingSteer.tsx's row). Its Retry
+/// stays in the row, as the sent row's does, but cannot be pressed and has no model menu: a resend
+/// while the steer still waits would reach the agent twice (cmux#34613, #34614).
+export function PromptRetry({ rowId, prompt, held = false }: { rowId: string; prompt: string; held?: boolean }) {
   const t = useT();
   const { retry, retryWith } = useContext(TurnActionsContext);
   const readOnly = useTranscriptReadOnly();
@@ -298,11 +301,12 @@ export function PromptRetry({ rowId, prompt }: { rowId: string; prompt: string }
         aria-label={t("turn.retry")}
         title={t("turn.retry")}
         data-tooltip-detail={t("turn.retryLabel")}
+        disabled={held}
         onClick={() => retry(rowId, prompt)}
       >
         <Retry size={ROW_ICON} />
       </button>
-      {retryWith && retryWith.models.length > 1 && (
+      {!held && retryWith && retryWith.models.length > 1 && (
         <RetryModelMenu retryWith={retryWith} onPick={(model) => retryWith.retry(rowId, prompt, model)} />
       )}
     </span>
@@ -322,16 +326,22 @@ export function PromptActions({
   // Retry is the last turn's reply footer's (TurnFooter), but the Messages view draws no footer for a
   // turn that ended well, so its prompts, sent or queued, keep Retry there.
   const messagesView = useContext(PresentationContext) === "messages";
-  const retry = messagesView ? <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} /> : null;
+  const prompt = row.resend ?? row.text ?? "";
   const actions = (
     <MessageFooterRow>
       <MessageTime at={row.at} className="cv-user__time" />
       <MessageCopy text={text} />
-      {retry}
+      {messagesView && <PromptRetry rowId={row.id} prompt={prompt} />}
       <PinButton rowId={row.id} bookmark />
     </MessageFooterRow>
   );
-  return <div className="cv-user__actions">{pending ? pending(actions, { retry }) : actions}</div>;
+  return (
+    <div className="cv-user__actions">
+      {pending
+        ? pending(actions, { retry: messagesView ? <PromptRetry rowId={row.id} prompt={prompt} held /> : null })
+        : actions}
+    </div>
+  );
 }
 
 /// The hover row at the end of a message this agent sent another one (MessageCard.tsx): Copy,

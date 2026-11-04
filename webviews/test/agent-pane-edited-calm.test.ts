@@ -1,9 +1,8 @@
 // l10n-allow-file: test fixture prompts, replies and file text, not shipped UI.
-// The Edited files card and the turn's diff stay small and calm (cx-ncc.99, Leo: "too big / too
-// tonka toys"): nothing heavier than medium weight, file names in regular weight, paths in the
-// chat's monospace with counts in tabular figures, compact rows, small radii and hairline rims,
-// the card flush with the reply text, and diff lines no taller or larger than the terminal-sized
-// code. The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in
+// The Edited files card stays small and calm (cx-ncc.99, Leo: "too big / too tonka toys"):
+// nothing heavier than medium weight, file names in regular weight, paths in the chat's monospace
+// with counts in tabular figures, compact rows, small radii and hairline rims, and the card flush
+// with the reply text. The turn's diff opens in a tab beside the chat (5c388eb6). The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in
 // acpmux daemon (as agent-pane-edited-side.test.ts).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -237,32 +236,6 @@ await requireBrowserLane("agent-pane-edited-calm.test.ts", async () => {
     const text = await reply.evaluate((node) => node.getBoundingClientRect().left);
     const card = (await style(page, ".acpmux-edited")).left as number;
     expect(Math.abs(card - text)).toBeLessThanOrEqual(1);
-    await page.close();
-  });
-
-  test("the diff: a regular file header, plain-text badges, terminal-sized code lines", async () => {
-    const page = await browser!.newPage({ viewport: { width: 1500, height: 800 } });
-    await page.goto(url(CHAT));
-    await page.getByText("Retry added to the uploader.").waitFor();
-    await page.locator(".acpmux-edited-head .acpmux-review-changes").click();
-    await page.locator(".acpmux-diff-panel .acpmux-file-header").first().waitFor();
-    expect(calm(await looks(page, ".acpmux-diff-panel .acpmux-file-header")).loud).toEqual([]);
-    expect((await style(page, ".acpmux-file-header")).height).toBeLessThanOrEqual(30);
-    const badge = await style(page, ".acpmux-fh-badge", "background-color", "font-size");
-    expect(badge["background-color"]).toBe("rgba(0, 0, 0, 0)");
-    // Pierre draws the lines in its shadow root.
-    const lines = await page.waitForFunction(() => {
-      for (const host of document.querySelectorAll(".acpmux-diff-panel *")) {
-        const line = host.shadowRoot?.querySelector("[data-line]");
-        if (!line) continue;
-        const style = getComputedStyle(line);
-        return { size: parseFloat(style.fontSize), height: line.getBoundingClientRect().height };
-      }
-      return null;
-    });
-    const { size, height } = (await lines.jsonValue())!;
-    expect(size).toBeLessThanOrEqual(12);
-    expect(height).toBeLessThanOrEqual(19);
     await page.close();
   });
 });

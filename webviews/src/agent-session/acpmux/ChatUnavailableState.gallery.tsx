@@ -10,6 +10,8 @@ const base = {
   onResume() {},
   onClose() {},
   onResumeMachine() {},
+  // The settled look; `paused-quick` shows the first 1.5 s (afterDelay.ts).
+  noteDelayMs: 0,
 };
 export default componentEntry<ComponentProps<typeof ChatUnavailableState>>({
   id: "agent-pane.cloud-chat-recovery",
@@ -36,6 +38,26 @@ export default componentEntry<ComponentProps<typeof ChatUnavailableState>>({
         ...base,
         unavailable: { reason: "paused", machine: "Demo machine" },
         resuming: true,
+      },
+    },
+    "paused-quick": {
+      note: "Paused for under 1.5 s (the machine may already be waking): nothing, in the loading layout, so a quick wake never flashes a card.",
+      props: { ...base, noteDelayMs: 3_600_000, unavailable: { reason: "paused", machine: "Demo machine" } },
+    },
+    "slow-resume": {
+      note: "Resuming past 1.5 s: the spinner fades into its slot; nothing else moves.",
+      props: {
+        ...base,
+        unavailable: { reason: "paused", machine: "Demo machine" },
+        resuming: true,
+      },
+    },
+    "resume-failed": {
+      note: "The resume ran out: one plain line says so, Resume machine is back, and the card stays calm.",
+      props: {
+        ...base,
+        unavailable: { reason: "paused", machine: "Demo machine" },
+        error: "The machine did not reconnect. Try resuming it again.",
       },
     },
     deleted: {

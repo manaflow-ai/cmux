@@ -308,7 +308,13 @@ impl Mux {
                 let mut source_record = topology_pane(&topology, &source_pane_id)?.clone();
                 let mut target_record = topology_pane(&topology, &target_pane_id)?.clone();
                 if source_pane == target_pane {
-                    source_record.active_tab = Some(tab_id.clone());
+                    // A move to the place the tab already holds changes nothing in the live
+                    // state (`move_tab_in_state`, the reducer): the pane keeps its active tab.
+                    // Storing the moved tab as active here left the stored pane disagreeing
+                    // with the live one, which a later scoped projection then trusted.
+                    if final_index != old_index {
+                        source_record.active_tab = Some(tab_id.clone());
+                    }
                     target_record = source_record.clone();
                 } else {
                     source_record.active_tab = source_order

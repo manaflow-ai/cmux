@@ -126,6 +126,7 @@ test("a Retry waiting on the attempt in flight says so and holds", async () => {
 
 test("a folder harness keeps its card with its own hint and action", async () => {
   const container = installDom();
+  let enabled = 0;
   await act(async () => {
     root = createRoot(container);
     root.render(
@@ -133,13 +134,19 @@ test("a folder harness keeps its card with its own hint and action", async () =>
         message="Claude Code is not enabled."
         hint={null}
         action="Enable Claude Code"
-        onRetry={() => undefined}
+        onRetry={() => (enabled += 1)}
       />,
     );
   });
-  expect(container.querySelector(".acpmux-host-error-card")).not.toBeNull();
+  const card = container.querySelector(".acpmux-host-error .ui-notice");
+  expect(card?.getAttribute("data-kind")).toBe("warning");
   expect(buttons(container)).toEqual(["Enable Claude Code"]);
-  expect(container.querySelectorAll("p")).toHaveLength(1);
+  const messages = container.querySelectorAll(".ui-notice-message");
+  expect(messages).toHaveLength(1);
+  expect(messages[0]!.textContent).toBe("Claude Code is not enabled.");
+  expect(container.querySelector(".ui-notice-title")).toBeNull();
+  await act(async () => container.querySelector<HTMLButtonElement>("[data-notice-action=action]")!.click());
+  expect(enabled).toBe(1);
 });
 
 // Leo, 2026-10-30, on a red card while a chat's machine was only reconnecting: "it was literally
@@ -147,7 +154,7 @@ test("a folder harness keeps its card with its own hint and action", async () =>
 // Rendered as App.tsx renders the host line: its Notice shows only when hostErrorShows says so,
 // worded by hostLineText.
 const LEOS =
-  "peer_unreachable: <host> (reconnecting, last seen 10s ago: WebSocket protocol error: Handshake not finished); the request was not sent; run `acpmux host ls` and retry after the peer reconnects";
+  "peer_unreachable: <host> (reconnecting, last seen 10s ago: WebSocket protocol error: Handshake not finished); the request was not sent; run `acpmux machine ls` and retry after the peer reconnects";
 
 function PaneHostLine({ error, failingForMs }: { error: unknown; failingForMs: number }) {
   const message = error instanceof Error ? error.message : String(error);
@@ -184,7 +191,7 @@ test("a machine gone for minutes is one plain line with Retry, and acpmux's word
   expect(line.textContent).toBe("Can't reach <host>.");
   expect(buttons(container)).toEqual(["Retry", "Details"]);
   expect(container.textContent).not.toContain("peer_unreachable");
-  expect(container.textContent).not.toContain("acpmux host ls");
+  expect(container.textContent).not.toContain("acpmux machine ls");
   expect(container.querySelector(".acpmux-host-line-detail")).toBeNull();
   const details = [...container.querySelectorAll("button")].find((b) => b.textContent === "Details")!;
   expect(details.getAttribute("aria-expanded")).toBe("false");

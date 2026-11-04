@@ -7,7 +7,8 @@ import Testing
 
 /// A create the person started (the composer's Cloud send, a menu, the palette) is their
 /// confirmation: when the backend holds it for the G8 approval, the flow answers that request
-/// as the person with no second "Create a Cloud machine?" prompt. A create nobody started still
+/// as the person with no second "Create a Cloud machine?" prompt. A create nobody started goes
+/// through the same way while agents may use Cloud without asking (the default); with asking on it
 /// asks first, and a no sends nothing.
 @MainActor @Suite(.serialized) struct CloudPersonCreateApprovalTests {
     @MainActor final class Calls {
@@ -49,6 +50,18 @@ import Testing
         let made = try await flow(calls).create(name: nil, startedByPerson: true)
         #expect(made == Self.machine)
         #expect(calls.prompts.isEmpty, "the person's own click is the confirmation")
+        #expect(calls.approved == ["apr_1"])
+        #expect(calls.ops == ["cloud.machine.create", "cloud.machine.create"])
+    }
+
+    /// While the person lets agents use Cloud without asking (the default), an agent's, the CLI's or a script's
+    /// create goes straight through with no "Create a Cloud machine?" card, the same as their own Send, and the
+    /// backend's hold is answered with no prompt either (Leo, 2026-11-04: "just auto/bypass permissions by default").
+    @Test func aCreateNobodyStartedNeverWaitsOnACardWhileAgentsMayCreate() async throws {
+        let calls = Calls()
+        let made = try await flow(calls).create(name: nil, startedByPerson: false, asksFirst: false, askedBy: "agent-1")
+        #expect(made == Self.machine)
+        #expect(calls.prompts.isEmpty, "a create nobody started waited on a card: \(calls.prompts)")
         #expect(calls.approved == ["apr_1"])
         #expect(calls.ops == ["cloud.machine.create", "cloud.machine.create"])
     }

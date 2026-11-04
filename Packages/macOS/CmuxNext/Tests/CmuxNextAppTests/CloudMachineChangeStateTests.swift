@@ -193,6 +193,11 @@ struct CloudMachineChangeStateTests {
         session.refresher = { _ in reads += 1; session.machine.status = .failed }
         await session.untilRunning(pause: { _ in await Task.yield() })
         #expect(reads == 1, "a machine that failed while provisioning is not read again")
+        reads = 0
+        session.machine.status = .provisioning
+        session.refresher = { _ in reads += 1 }
+        await session.untilRunning(pause: { _ in session.machine.status = .running })
+        #expect(reads == 0, "a machine another read saw running during the pause is not read again")
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -223,14 +228,14 @@ struct CloudMachineChangeStateTests {
         #expect(await resolver.attempts == 1, "later identical records do not restart the connection")
     }
 
-    @Test func transitionsRejectUserConnectAttachAndActionCallers() async throws {
+    @Test func transitionsKeepPauseAndDeleteClosedToUserConnect() async throws {
         let services = MachineIconTests.services()
         let resolver = StartingLinkResolver()
         let session = CloudMachineSession(machine: CloudMachine(id: "transition-gate", status: .running),
             appLink: CloudLinkSession(key: CloudLinkKey(machine: "transition-gate"), resolver: resolver),
             localIdentity: { nil }, mainWork: services.mainWork)
         defer { session.disconnect() }
-        for status: CloudMachine.Status in [.pausing, .starting, .deleting] {
+        for status: CloudMachine.Status in [.pausing, .deleting] {
             session.machine.pendingChange = status
             session.connect(origin: .user)
             session.attach(origin: .user)
@@ -239,6 +244,43 @@ struct CloudMachineChangeStateTests {
             #expect(throws: ActionFailure.self) { try CloudHandlers.requireAttachableState(session) }
         }
         #expect(await resolver.attempts == 0)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func userConnectRetriesAnAppLinkDuringPassiveStarting() async throws {
+        let services = MachineIconTests.services()
+        let resolver = HeldFailingLinkResolver()
+        let session = CloudMachineSession(machine: CloudMachine(id: "passive-start", status: .starting),
+            appLink: CloudLinkSession(key: CloudLinkKey(machine: "passive-start"), resolver: resolver),
+            localIdentity: { nil }, mainWork: services.mainWork)
+        defer { session.disconnect() }
+
+        // This is the authoritative raw `starting` record from a passive wake. The user's
+        // connect must survive the provider's asynchronous failure, rather than being treated
+        // as a transition cancellation with no mutation id to recover.
+        session.connect(origin: .user)
+        await resolver.waitForOpen()
+        #expect(await resolver.attempts == 1)
+        await resolver.release()
+
+        // The old cancellation guard settles at idle with no link-ended error. Observe the
+        // phase directly so that regression fails immediately instead of waiting for timeout.
+        for await phase in ObservationStream({ session.linkPhase }) where phase != .starting { break }
+        #expect(session.linkEnded != nil, "the user retry failure must remain visible")
+        guard case .failed = session.linkPhase else {
+            Issue.record("an explicit retry during passive starting was treated as cancellation: \(session.linkPhase)")
+            return
+        }
+
+        // The provider's failed resume is now authoritative: the machine is paused with its
+        // reason, and the same app link remains available for an explicit retry.
+        session.applyRecord(CloudMachine(id: session.machineID, status: .paused,
+                                         lastChangeFailure: .init(code: "cloud.provider.unavailable", message: "provider refused")))
+        #expect(session.machine.status == .paused)
+        #expect(session.machine.lastChangeFailure?.text == "provider refused")
+        session.retryNow()
+        await resolver.waitForAttempts(2)
+        #expect(await resolver.attempts == 2)
     }
 
     @Test func killAcknowledgementReportsPendingDeletion() {

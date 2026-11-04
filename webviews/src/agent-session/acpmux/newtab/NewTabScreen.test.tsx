@@ -5,6 +5,7 @@ import { JSDOM } from "jsdom";
 import { noChat } from "../../../gallery/fixtures/acpmux";
 import { ClosedList } from "./ClosedList";
 import { NewTabScreen } from "./NewTabScreen";
+import { CloudStartView } from "../CloudStartView";
 import { registerHarnessesPage } from "../harnesses/harnessesPage";
 import type { SavedEnvironment } from "../environments";
 import type { RunMode } from "../sandboxRun";
@@ -14,6 +15,8 @@ import { inlineToken, type ComposerAttachment } from "../attachments";
 import { translate } from "../i18n";
 import { seedLastPicks } from "../lastPick";
 import { EMPTY_OMNIBAR } from "../omnibar";
+import { CloudTypingPrewarm, CLOUD_TYPING_PREWARM_REFRESH_MS, cloudTypingMachineID } from "../cloudTypingPrewarm";
+import type { CloudMachine } from "../cloudMachines";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -833,6 +836,7 @@ test("while a Cloud start is out the box takes no edits, and takes them again on
       environments
       runMode={{ mode: "cloud", onMode: () => {} }}
       onCloud={() => false}
+      cloudStatus={<output data-testid="cloud-shell">Preparing machine</output>}
       cloudStarting={cloudStarting}
     />
   );
@@ -844,15 +848,53 @@ test("while a Cloud start is out the box takes no edits, and takes them again on
   const field = () => promptValue();
   await act(async () => root!.render(page(true)));
   await promptField();
+  expect(container.querySelector('[data-testid="cloud-shell"]')?.textContent).toBe("Preparing machine");
+  expect(container.querySelector(".nt-composer")?.getAttribute("data-cloud-starting")).toBe("true");
+  // The box keeps its space while the shell is visible, so sending does not move the page.
+  expect(container.querySelector(".nt-box")).toBeTruthy();
   expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(true);
   // Typing on the page (outside the field) goes nowhere while the start is out.
   await typeOnPage("x");
   expect(field()).toBe("");
   // A failed start keeps the prompt here to edit and send again.
   await act(async () => root!.render(page(false)));
+  expect(container.querySelector(".nt-composer")?.getAttribute("data-cloud-starting")).toBeNull();
   expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(false);
   await typeOnPage("x");
   expect(field()).toBe("x");
+});
+
+test("a failed Cloud start leaves one retry send in the composer", async () => {
+  const clouded: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        environments
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        cloudStarting={false}
+        cloudStatus={
+          <CloudStartView
+            start={{ key: "retry", task: "first attempt", state: "failed", message: "No machine free" }}
+            bubble={false}
+          />
+        }
+        onCloud={(...args) => (clouded.push(args), false)}
+      />,
+    );
+  });
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("No machine free");
+  await typePrompt("retry once");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(clouded).toHaveLength(1);
+  expect(clouded[0]?.[1]).toBe("retry once");
 });
 
 test("picking Cloud drops a saved environment picked before: the send names the folder chip's folder, not the tab's inherited one", async () => {
@@ -1165,3 +1207,83 @@ test("a project picked on the page is reported on its click (onProjectPicked), s
   await act(async () => option!.click());
   expect(picked).toEqual(["/Users/you/src/cmux"]);
 });
+
+test.each(["project", "saved"] as const)(
+  "a direct %s selection clears the prior Cloud typing target",
+  async (selection) => {
+    // The App retains the account-machine choice outside NewTabScreen. A direct project/card
+    // or saved-environment pick must clear that same target before the next prompt edit.
+    let target: CloudMachine | null | undefined = {
+      id: "cloud-draft",
+      name: "Draft machine",
+      stage: "paused",
+    };
+    let now = 0;
+    const wakes: string[] = [];
+    const prewarm = new CloudTypingPrewarm(
+      {
+        prewarm: (id) => {
+          wakes.push(id);
+          return true;
+        },
+      },
+      () => now,
+    );
+    const environment: SavedEnvironment = {
+      id: "local-worktree",
+      name: "Local worktree",
+      kind: "local",
+      folder: "/repo/local",
+      worktree: true,
+      updatedAt: 1,
+    };
+    await act(async () => {
+      root!.render(
+        <NewTabScreen
+          {...firstRunProps}
+          snapshot={noChat()}
+          cwd="/repo/original"
+          pageWidgets={new Set(["projects"])}
+          projects={[{ cwd: "/repo/local", label: "Local project" }]}
+          environments
+          savedEnvironments={{
+            list: async () => [environment],
+            save: async () => environment,
+            remove: async () => {},
+          }}
+          onCloudMachinePicked={(machine) => {
+            target = machine ?? null;
+          }}
+          onPromptTyped={(text) => {
+            const machineID = cloudTypingMachineID(target === null ? null : target?.id, "previous-cloud");
+            prewarm.typed(text, machineID ? { machineID } : undefined);
+          }}
+        />,
+      );
+    });
+    await typePrompt("first edit");
+    expect(wakes).toEqual(["cloud-draft"]);
+    now += CLOUD_TYPING_PREWARM_REFRESH_MS;
+
+    if (selection === "project") {
+      await act(async () => container.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button")!.click());
+      const row = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) =>
+        item.textContent?.includes("Local project"),
+      );
+      expect(row).toBeTruthy();
+      await act(async () => row!.click());
+    } else {
+      const button = container.querySelector<HTMLButtonElement>(
+        '.acpmux-location-picker[data-kind="computer"] button',
+      )!;
+      await openMachines(button);
+      const row = document.querySelector<HTMLElement>(".acpmux-env-popover .acpmux-env-saved")!;
+      expect(row).toBeTruthy();
+      await act(async () => (row.closest<HTMLElement>('[role="option"]') ?? row).click());
+    }
+
+    expect(target).toBeNull();
+    await typePrompt("edit on the local destination");
+    expect(wakes).toEqual(["cloud-draft"]);
+  },
+);

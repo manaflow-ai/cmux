@@ -534,7 +534,7 @@ final class TopHomePageView: NSView {
     /// the conversation shown before comes back, with the keyboard only when the page had it.
     func closeNewMessage() {
         guard let page = newMessage else { return }
-        let (wasShowing, hadKeyboard) = (!page.isHidden, (window?.firstResponder as? NSView)?.isDescendant(of: page) == true)
+        let (wasShowing, hadKeyboard) = (!page.isHidden, page.holdsKeyboard)
         endNewMessage()
         if wasShowing, let shown { list.select(shown) }
         if wasShowing, hadKeyboard { focusPrimaryInput() }

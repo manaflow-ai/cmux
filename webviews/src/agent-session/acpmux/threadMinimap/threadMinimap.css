@@ -342,8 +342,8 @@
      preview, the tooltips): the tooltip tint over the shared blur, never an opaque fill (Leo
      2026-10-21). Reduce Transparency turns the tint into the solid popup surface and the blur off
      (pages/shared/desktop.css). */
-  padding: 8px;
-  border-radius: 12px;
+  padding: var(--ds-space-2);
+  border-radius: var(--ds-radius-xl);
   background: var(--tooltip-tint, var(--surface-popup, var(--acpmux-minimap-card)));
   -webkit-backdrop-filter: var(--surface-blur);
   backdrop-filter: var(--surface-blur);
@@ -351,7 +351,8 @@
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-minimap-rim, var(--acpmux-minimap-card-ring)),
     var(--elevation-2);
   color: var(--agent-text);
-  font: var(--text-body, 13px) / 20px var(--font-ui);
+  font: var(--text-body) / var(--text-body--line-height) var(--font-ui);
+  letter-spacing: var(--text-body--letter-spacing);
   -webkit-font-smoothing: antialiased;
   cursor: default;
 }
@@ -367,9 +368,9 @@
 .acpmux-minimap__title {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  min-height: 20px;
-  font-weight: 500;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-control-compact);
+  font-weight: var(--weight-emphasis);
 }
 .acpmux-minimap__prompt {
   flex: 1;
@@ -389,7 +390,7 @@
   width: 60%;
   height: 0.75em;
   margin-top: 0.375em;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: color-mix(in srgb, var(--agent-muted) 24%, transparent);
 }
 /* Its words arriving under the open card fade in where the line was: opacity only, no slide. */
@@ -402,54 +403,41 @@
 :root[data-cmux-motion="reduced"] .acpmux-minimap__card[data-arrived] :where(.acpmux-minimap__prompt, .acpmux-minimap__reply) {
   animation: none;
 }
-.acpmux-minimap__bookmark {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: none;
+/* Shared Button owns the hit box, hover/press fill and keyboard focus. The mark stays
+   secondary until selected or hovered; the highlight covers this control alone. */
+.acpmux-minimap__bookmark.ui-button.ui-btn {
   color: var(--agent-muted);
-  cursor: default;
 }
-.acpmux-minimap__bookmark:hover {
-  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+.acpmux-minimap__bookmark.ui-button.ui-btn:hover,
+.acpmux-minimap__bookmark.ui-button.ui-btn[aria-pressed="true"] {
   color: var(--agent-text);
-}
-.acpmux-minimap__bookmark[aria-pressed="true"] {
-  color: var(--agent-text);
-}
-.acpmux-minimap__bookmark:focus-visible {
-  outline: 1.5px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
-  outline-offset: 1px;
 }
 .acpmux-minimap__reply {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 4;
   overflow: hidden;
-  margin-top: 4px;
+  margin-top: var(--ds-space-1);
   color: var(--agent-muted);
+  line-height: var(--text-title--line-height);
 }
 .acpmux-minimap__card[data-prompt] .acpmux-minimap__reply {
   height: auto;
-  max-height: calc(var(--acpmux-minimap-reply-lines, 1) * var(--acpmux-minimap-reply-line-height, 20px));
-  min-height: var(--acpmux-minimap-reply-line-height, 20px);
+  /* Callers provide the measured body line height so a capped reply never exposes a partial row. */
+  max-height: calc(var(--acpmux-minimap-reply-lines, 1) * var(--acpmux-minimap-reply-line-height, var(--text-title--line-height)));
+  min-height: var(--acpmux-minimap-reply-line-height, var(--text-title--line-height));
 }
 .acpmux-minimap__metadata {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 8px;
-  margin-top: 5px;
+  gap: var(--ds-space-1) var(--ds-space-2);
+  margin-top: var(--ds-space-1);
   color: var(--agent-muted);
   font-size: var(--text-detail);
-  line-height: 16px;
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+  font-variant-numeric: tabular-nums;
 }
 .acpmux-minimap__meta-link {
   max-width: 100%;
@@ -467,13 +455,13 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   overflow: hidden;
-  margin-top: 5px;
+  margin-top: var(--ds-space-1);
   color: var(--agent-status-failure, var(--agent-muted));
   overflow-wrap: anywhere;
 }
 .acpmux-minimap__failure-icon {
-  margin-right: 5px;
-  vertical-align: -2px;
+  margin-right: var(--ds-space-1);
+  vertical-align: middle;
 }
 .acpmux-minimap__reply p {
   margin: 0;
@@ -482,7 +470,7 @@
   margin-top: 0;
 }
 .acpmux-minimap__reply strong {
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 .acpmux-minimap__reply code {
   font-family: var(--font-mono);
@@ -496,13 +484,13 @@
   pointer-events: none;
 }
 .acpmux-minimap__item {
-  padding-left: 14px;
-  text-indent: -10px;
+  padding-left: var(--ds-space-4);
+  text-indent: calc(-1 * var(--ds-space-3));
 }
 .acpmux-minimap__item::before {
   content: "\2022";
   display: inline-block;
-  width: 10px;
+  width: var(--ds-space-3);
   text-indent: 0;
 }
 /* The landing highlight's first color (scrollMotion.ts highlightBubble): the bubble's own glass

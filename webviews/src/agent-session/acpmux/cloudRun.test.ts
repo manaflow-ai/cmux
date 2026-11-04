@@ -170,6 +170,27 @@ test("a second Return while a start waits on the host starts nothing; after the 
   expect(calls).toEqual(["one", "three"]);
 });
 
+test("the first message crosses the Cloud handoff exactly once while the shell waits", async () => {
+  const calls: Record<string, unknown>[] = [];
+  let finish!: (answer: { machine: string }) => void;
+  const start = oneCloudStart(async (_method, params) => {
+    calls.push(params);
+    return new Promise<{ machine: string }>((resolve) => {
+      finish = resolve;
+    });
+  });
+  const request = { task: "fix the build", cwd: "/Users/me/paint", harness: "codex" };
+  const first = start(request, "handoff-key");
+  expect(first).toBeDefined();
+  // A second Return while the origin shell is visible is held by the same serialized start;
+  // it cannot issue a second seed/send to the remote chat.
+  expect(start(request, "handoff-key")).toBeUndefined();
+  finish({ machine: "paint-dev" });
+  await expect(first).resolves.toEqual({ ok: true });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({ task: request.task, key: "handoff-key" });
+});
+
 test("a Cloud chat copies its project; with none (or home) it starts in the machine's own folder", () => {
   expect(cloudStartFolder("/Users/me/src/paint")).toEqual({ cwd: "/Users/me/src/paint" });
   expect(cloudStartFolder("/Users/me/src/paint/")).toEqual({ cwd: "/Users/me/src/paint" });
@@ -404,7 +425,7 @@ test("the pane builds its Cloud start from grantedCloudStart and hands every Clo
   const source = readFileSync(join(import.meta.dir, "App.tsx"), "utf8");
   expect(source).toMatch(/const \[cloudFolderGrant\] = useState\(\(\) => cloudFolderGrants\(\)\);/);
   expect(source).toMatch(
-    /const \[startCloud\] = useState\(\(\) => grantedCloudStart\(callNative, cloudFolderGrant\)\);/,
+    /const \[startCloud\] = useState\(\(\) =>\s*grantedCloudStart\(reservedCloudCall\(callNative, cloudReservation\), cloudFolderGrant\),?\s*\);/,
   );
   expect(source).toMatch(/cloudFolderGrant\.granting\(\s*folder\.cwd,\s*pickFolder\(callNative, folder\.cwd/);
   expect(source).toMatch(/newTabProjectPick\(callNative, sandboxOfferable, cloudFolderGrant\.granting\)/);

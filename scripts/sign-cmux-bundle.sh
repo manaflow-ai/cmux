@@ -178,7 +178,7 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
     fi
     # The remote browser host (Contents/Helpers, embed-remote-browser-host.sh), after
     # the app's CEF framework, which it links through a symlink: its five helper apps
-    # with CEF's per-helper entitlements (allow-jit for GPU and Renderer), then the host
+    # with CEF's per-helper entitlements (allow-jit for the plain, GPU and Renderer helpers), then the host
     # app, all with the hardened runtime and a secure timestamp (rbh_sign).
     for rb_host in "$APP_PATH/Contents/Helpers/"*.app; do
       [[ -d "$rb_host" ]] || continue

@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileLive
 import CmuxMobileModel
+import CmuxMobileRealtime
 import CmuxMobileTerminal
 import CmuxMobileTransport
 import CmuxMobileWorkspaces
@@ -157,6 +158,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// Live mode: Files and Links previews from the Mac.
     var artifactSourceProvider: (@MainActor (WorkspaceTab, _ macID: String) -> (any ArtifactSource)?)?
     /// Live mode: uploads a terminal attachment to the Mac, returning its path there.
+    /// Voice mode's source for a tab's terminal (its agent's Feed events in, typed prompts out).
+    var voiceSourceProvider: (@MainActor (WorkspaceTab, Workspace, TerminalModel) -> (any AgentVoiceSource)?)?
     var uploaderProvider: (@MainActor (WorkspaceTab, _ macID: String) -> (@MainActor (LinkUpload.Payload, String) async throws -> String)?)?
     /// DEBUG mock mode (Settings → Developer → Mock): tabs with no live
     /// session run the scripted mock. Ignored outside DEBUG builds.
@@ -213,6 +216,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             self?.liveDataChanged()
         }
         model.uploader = live == nil ? nil : uploaderProvider?(tab, workspace.macID)
+        model.voiceSource = voiceSourceProvider?(tab, workspace, model)
         // The page shown already keeps opening links where it did (R1-0 swaps the host in place).
         model.linkOpener = previous?.model.linkOpener
         var frame = key.flatMap { lastFrames.removeValue(forKey: $0) } ?? previous.flatMap { $0.model.snapshot ?? $0.model.coldFrame }
@@ -523,6 +527,16 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             TerminalTabAction(title: "Clear", systemImage: "clear", isEnabled: model.canClearScreenAndScrollback) {
                 model.clearScreenAndScrollback()
             },
+            // The Mac's Toggle Copy Mode by touch: the cursor's row selected; vi keys
+            // (Shift-Cmd-M from a hardware keyboard) or the handles move it.
+            TerminalTabAction(title: "Select Text…", systemImage: "character.cursor.ibeam", isEnabled: model.canSelectText) {
+                model.selectText()
+            },
+            TerminalTabAction(title: "Select All", systemImage: "selection.pin.in.out") { model.selectAll() },
+            TerminalTabAction(title: "Send Text…", systemImage: "text.cursor", isEnabled: model.connectionState.isAttached) {
+                model.showSendText()
+            },
+            TerminalTabAction(title: "Scroll to Top", systemImage: "arrow.up.to.line", isEnabled: !model.isTUI) { model.scrollToTop() },
             TerminalTabAction(title: "Scroll to Bottom", systemImage: "arrow.down.to.line", isEnabled: model.isScrolledUp) { model.scrollToBottom() },
         ]
     }

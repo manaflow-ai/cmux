@@ -16,6 +16,8 @@
 // parents and on the surface's own inline style, and a requestAnimationFrame loop that follows the
 // surface while its rect, opacity or visibility changes (its enter and exit, a resize, a move, a
 // banner or Find bar coming in) and stops after STABLE_FRAMES unchanged frames. Each frame reads every rect first and writes only what changed.
+// A change of the surface's own inline style alone (the rail's preview card moving to the next row by
+// its transform) measures once on the next frame, not the loop: the new place is final when written.
 // Closing the surface removes all of it. A window without those observers (a test DOM) gets nothing.
 import { type RefObject, useLayoutEffect } from "react";
 
@@ -204,6 +206,9 @@ export function attachSeeThroughBlur(
   let frame = 0;
   let stable = 0;
   let last = "";
+  /// Whether the frame asked for follows until STABLE_FRAMES unchanged frames (`kick`), or measures
+  /// once (`moved`).
+  let following = false;
   // Re-measure when anything the hole depends on changes: the surface (its size, its transitions),
   // each candidate's size, and the children of each candidate's parent (a banner or a Find bar
   // coming in moves the blocks, or hides the surface through a :has() rule, without resizing them).
@@ -286,18 +291,30 @@ export function attachSeeThroughBlur(
     const key = measure();
     stable = key === last ? stable + 1 : 0;
     last = key;
-    if (stable < STABLE_FRAMES) frame = view.requestAnimationFrame(tick);
+    if (following && stable < STABLE_FRAMES) frame = view.requestAnimationFrame(tick);
+    else following = false;
   };
   const kick = () => {
+    following = true;
     stable = 0;
     if (!frame) frame = view.requestAnimationFrame(tick);
   };
+  /// The surface's inline style changed (a transform written in place, the rail's card reaching the
+  /// next row): one measure on the next frame finds it where it draws. A move animates through CSS,
+  /// whose transitionrun follows it (`kick`), and a size change is the ResizeObserver's. The loop
+  /// restarted on every row a sweep crossed, about every 40 ms, so it never stopped: every frame of
+  /// the sweep re-read the surface's rect and style and each covered element's rect (Leo,
+  /// 2026-11-04: "hover previews kinda lag across me hovering over the sidebar stuff").
+  const moved = () => {
+    if (!frame) frame = view.requestAnimationFrame(tick);
+  };
+  const restyled = new view.MutationObserver(moved);
 
   watch(surface, false);
   watch(parent, true);
   // A surface placed by its own inline style (the rail's preview card follows the pointer from row
   // to row by its transform) moves with no resize or child change: its style measures again.
-  mutations.observe(surface, { attributes: true, attributeFilter: ["style"] });
+  restyled.observe(surface, { attributes: true, attributeFilter: ["style"] });
   measure();
   kick();
   surface.addEventListener("transitionrun", kick);
@@ -310,6 +327,7 @@ export function attachSeeThroughBlur(
     frame = 0;
     resize.disconnect();
     mutations.disconnect();
+    restyled.disconnect();
     surface.removeEventListener("transitionrun", kick);
     surface.removeEventListener("transitionend", kick);
     surface.removeEventListener("animationstart", kick);

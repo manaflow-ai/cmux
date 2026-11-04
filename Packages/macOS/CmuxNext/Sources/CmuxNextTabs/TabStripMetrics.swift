@@ -82,6 +82,8 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var showsSeparators: Bool
     public var separatorHeight: CGFloat
     public var separatorOpacity: CGFloat
+    /// Whether a line ends the pinned group (`tabs.pinnedDivider`), in ``pinnedGroupGap``.
+    public var showsPinnedDivider: Bool
     /// A group chip's icon: the tab icon size, inset inside the pill's height.
     public var groupChipIconSize: CGFloat { max(0, min(iconSize, groupChipHeight - 2 * Metrics.space1)) }
     /// Between a group chip's icon and its name or count.
@@ -182,6 +184,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         showsSeparators = TabTunables.separators.value
         separatorHeight = TabTunables.separatorHeight.value
         separatorOpacity = TabTunables.separatorOpacity.value
+        showsPinnedDivider = TabTunables.pinnedDivider.value
     }
 
     /// Token-derived metrics for the current density.

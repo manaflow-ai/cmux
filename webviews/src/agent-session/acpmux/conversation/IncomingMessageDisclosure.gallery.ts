@@ -69,7 +69,7 @@ const snapshot = chat(
 /// Opens the group of messages that wait (ios-remote's steer, artifacts' queued one), which shows
 /// collapsed after the turn, so all five lines show. Each opening is its own clicked step, settled
 /// before the next: at the transcript's end an opening pushes the rows above it up by design
-/// (#32644), which the shift gate exempts only for the step's own target (`data-bottom-fold`). Two
+/// (#32644), which the shift gate exempts only for the step's own target (`data-bottom-stack-fold`). Two
 /// raw clicks in one task started both openings outside any step, so their push-up was scored as
 /// shift in the wait that followed.
 const openWaiting: Play = async (ctx) => {

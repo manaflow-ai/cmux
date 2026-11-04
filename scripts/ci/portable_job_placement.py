@@ -9,7 +9,9 @@ tests) and the cmux-tui macOS targets, which are Mac builds. They took Blacksmit
 32 vCPU on every pull request and push (about 1.17M vCPU-minutes a day, 2026-10-31).
 
 A workflow's placement step runs this before those jobs, on attempt 1 (and the rescue bot's
-attempt 2) of a trusted run. Each job in JOBS, in priority order, gets:
+attempt 2) of a trusted run. The three lightweight side workflows also opt into the rescue
+bot's attempt 3 with ``PORTABLE_ATTEMPT3_RESCUE=1``; callers without that marker keep their
+paid fallback. Each job in JOBS, in priority order, gets:
 
 1. fleet Linux: vars.LINUX_RUNNER (FLEET_LINUX) when it names one of our own Linux runners
    (not a Blacksmith label, not a GitHub-hosted image). MAC_FIRST jobs skip this step: a macOS
@@ -132,11 +134,24 @@ def queued_on(snapshot: Mapping[str, Any] | None, label: str) -> int:
     return int(entry.get("queued") or 0)
 
 
+PORTABLE_ATTEMPT3_RESCUE = "PORTABLE_ATTEMPT3_RESCUE"
+
+
 def attempt_refusal(env: Mapping[str, str]) -> str:
-    """Why this attempt keeps its Blacksmith route, or "": only a first attempt (or a rescue's second) moves."""
+    """Why this attempt keeps its paid route, or "" when this caller may place.
+
+    The three lightweight side workflows opt into a bot's third attempt after
+    the owned-pool rescue has already retried the run twice.  The marker is
+    deliberately supplied by those workflows instead of inferred from a
+    display name: other callers (including ``ci.yml`` and ``cmux-next.yml``),
+    manual retries, and unknown attempts remain fail-closed.
+    """
     attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
     actor = (env.get("GITHUB_TRIGGERING_ACTOR") or "").strip()
-    if attempt != "1" and not (attempt == "2" and actor in pool.RESCUE_ACTORS):
+    rescue_attempt = attempt == "2" and actor in pool.RESCUE_ACTORS
+    light_attempt3 = (attempt == "3" and actor in pool.RESCUE_ACTORS
+                      and env.get(PORTABLE_ATTEMPT3_RESCUE) == "1")
+    if attempt != "1" and not (rescue_attempt or light_attempt3):
         return f"attempt {attempt} keeps its Blacksmith route"
     return ""
 
@@ -176,6 +191,7 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
     linux_only = set((env.get("LINUX_ONLY") or "").split())
     linux = fleet_linux(env.get("FLEET_LINUX", ""))
     problem = pool.snapshot_problem(snapshot, now)
+    linux_free = len(jobs)
     if linux and env.get("REQUIRE_LIVE_CAPACITY") == "1":
         matching = [runner for runner in runners or [] if linux in pool.runner_labels(runner)]
         # A custom label alone is not proof of Linux: never let a shared Mac
@@ -184,9 +200,10 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
             str(runner.get("os", "")).lower() == "linux" for runner in matching)
         idle = sum(runner.get("status") == "online" and runner.get("busy") is False
                    for runner in matching)
-        if problem or not linux_members or idle <= queued_on(snapshot, linux):
+        linux_free = max(0, idle - queued_on(snapshot, linux))
+        if problem or not linux_members or linux_free == 0:
             linux = ""
-    linux_jobs = tuple(job for job in jobs if linux and job not in mac_first)
+    linux_jobs = tuple(job for job in jobs if linux and job not in mac_first)[:linux_free]
     rest = tuple(job for job in jobs if job not in linux_jobs and job not in linux_only)
     notes = [f"{', '.join(linux_jobs)} take fleet Linux `{linux}`"] if linux_jobs else []
     if not linux:
@@ -258,6 +275,31 @@ def read(env: Mapping[str, str], now: dt.datetime, *, use_state: bool = True
     reserved = env.get("NIGHTLY") == "1" and bool((env.get("NIGHTLY_ONLY_LABEL") or "").strip())
     if not repo or (eligible(env) and not (reserved and not attempt_refusal(env))):
         return runners, snapshot
+
+    # A fresh runner-state publication contains the complete approved census and
+    # its queue snapshot.  Read it before touching either routing App.  This is
+    # the bootstrap path for lightweight controls: the placement job itself can
+    # start with the repository's ordinary token, and a spent App quota cannot
+    # turn an idle owned mini into an unknown capacity.  The census is validated
+    # again and the embedded queue snapshot is read without an API request.
+    # When it is absent or stale, the existing token path below is
+    # retained for callers that explicitly provide one; an empty-token caller
+    # fails open to its workflow's overflow route.
+    state = pool.runner_state(repo, raw=env.get("CI_RUNNER_STATE", ""), now=now) if use_state else None
+    if state is not None and (pool.document_queue_snapshot(state, now=now, branch=pool.SNAPSHOT_BRANCH) is not None
+                              or not any(env.get(name) for name in ("ROUTE_TOKEN", "ROUTE_TOKEN_FALLBACK"))):
+        try:
+            # Read only the validated publication.  Do not instantiate a
+            # client: missing queue data must not fall through to an artifact
+            # API request and spend the installation budget.
+            runners = [*state["repository_runners"],
+                       *(runner for group in state["runner_groups"].values() for runner in group)]
+            snapshot = pool.document_queue_snapshot(state, now=now, branch=pool.SNAPSHOT_BRANCH)
+            return runners, snapshot
+        except Exception as error:  # noqa: BLE001 - fail open to the overflow route
+            print(f"::warning title=portable placement::shared runner state could not be read ({error})")
+            return None, None
+
     retries = pool.RetryBudget(1)
     for name in ("ROUTE_TOKEN", "ROUTE_TOKEN_FALLBACK"):
         token = env.get(name, "")
@@ -265,7 +307,12 @@ def read(env: Mapping[str, str], now: dt.datetime, *, use_state: bool = True
             continue
         try:
             client = pool.GitHub(token, repo, retry_cap=side.SIDE_RETRY_CAP_SECONDS, retries=retries)
-            runners = client.runners(use_state=use_state)
+            # cmux-bot has org runner read, without repository administration.
+            # Do not let the repository endpoint's 403 hide its usable groups.
+            if name == "ROUTE_TOKEN_FALLBACK":
+                runners = client.runners(use_state=use_state, include_repository=False)
+            else:
+                runners = client.runners(use_state=use_state)
             break
         except Exception as error:  # noqa: BLE001 - fail open: every job keeps Blacksmith
             print(f"::warning title=portable placement::could not list runners with {name} ({error})")

@@ -377,6 +377,15 @@ impl Mux {
             .filter(|_| has_host_root)
             .map(|slot| (slot, self.plan_user_restart_locked(&registry, &mut state, slot)));
         drop(state);
+        // A signal exit whose detach waits out the shutdown lead is
+        // scheduled under the registry lock, as the respawn above is planned:
+        // from the commit on, it keeps an app session's owner until it
+        // settles (`kept_terminal_count` reads both under this lock), so a
+        // stop never begins a shutdown that would make the person's kill a
+        // host loss.
+        if let Some(until_ms) = settle_until_ms {
+            self.schedule_exit_settle(terminal_id, until_ms);
+        }
         drop(registry);
         #[cfg(unix)]
         match restart {
@@ -449,9 +458,6 @@ impl Mux {
                     None => self.emit(MuxEvent::TreeChanged),
                 }
             }
-        }
-        if let Some(until_ms) = settle_until_ms {
-            self.schedule_exit_settle(terminal_id, until_ms);
         }
         Ok(!replayed)
     }

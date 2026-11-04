@@ -4,6 +4,7 @@ import CmuxNextAgentLanes
 import CmuxNextApps
 import CmuxNextBridge
 import CmuxNextCompat
+import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextSidebar
@@ -93,6 +94,8 @@ extension SidebarBridge {
         let chiefPicture = { [weak services] in services?.wornUpload(of: nil)?.still }
         let uploads = services.chiefAvatarUploads
         let home = services.home
+        // A band item's site favicon, read in the observation so a favicon that loads replaces the item's globe.
+        let favicon = { [weak services] (workspace: WorkspaceModel, tab: TabModel) in services?.sidebarPageFavicon(workspace, tab: tab) }
         sectionsObservation = Task { [weak self] in
             // Also observed: the apps client (installs, hides), the unread count, Home's unread conversations, the built-ins' shortcuts (tooltips) and
             // the workspaces tiles and top rows name. The selected item comes from the one selection.
@@ -100,7 +103,7 @@ extension SidebarBridge {
                 () -> (SidebarLayoutDocument, Int, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo], URL?, Bool) in
                 _ = (apps.apps, ChiefSidebar.shared.status)
                 return (service.document, NotificationCenterService.unreadCount(store), home.unreadConversations.count,
-                        Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs), chiefPicture(), settings?.snapshot.previewFeatures == true)
+                        Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs, favicon: favicon), chiefPicture(), settings?.snapshot.previewFeatures == true)
             }) {
                 // The window closed: the bridge is gone, stop observing.
                 guard self != nil else { return }

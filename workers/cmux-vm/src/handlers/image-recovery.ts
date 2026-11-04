@@ -17,7 +17,7 @@ export const recoverWithdrawnImage = <C>(
 ) => Effect.gen(function* () {
   if (rawKey === undefined || clientFingerprint === undefined || (originalError._tag !== "Conflict" && originalError._tag !== "NotFound")) return yield* Effect.fail(originalError);
   const key = yield* scopedCreationKey(caller.value, rawKey);
-  const record = yield* (yield* TenantLimits).inspect(caller.value.tenantId, key).pipe(Effect.mapError(() => unavailable()));
+  const record = yield* (yield* TenantLimits).inspect(caller.value.tenantId, key).pipe(Effect.mapError(unavailable));
   // Legacy journals lack this binding; their explicit by-key reconciliation remains available.
   if (record?.clientFingerprint === undefined) return yield* Effect.fail(originalError);
   if (record.clientFingerprint !== clientFingerprint) return yield* Effect.fail(conflict("This Idempotency-Key was already used with a different request"));

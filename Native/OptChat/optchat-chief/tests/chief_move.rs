@@ -1092,7 +1092,13 @@ esac
 fn a_chief_moving_to_a_mini_takes_its_working_subagents_and_rollback_brings_them_back() {
     let dir = tempfile::tempdir().unwrap();
     let src = new_home(dir.path(), "default");
-    drop(chief_home(&src));
+    // The Chief's records of its subagents (host/spawns): the working one and an idle one.
+    chief_home(&src)
+        .execute(
+            "INSERT INTO state VALUES ('host/spawns', ?1)",
+            [r#"{"sp1":{"subs":[{"id":"a1","session_id":"s-work","title":"worker"},{"id":"a2","session_id":"s-idle"}]}}"#],
+        )
+        .unwrap();
     let remote = dir.path().join("remote-user");
     std::fs::create_dir_all(&remote).unwrap();
     let remote = std::fs::canonicalize(remote).unwrap();
@@ -1150,6 +1156,31 @@ fn a_chief_moving_to_a_mini_takes_its_working_subagents_and_rollback_brings_them
             .exists(),
         "the record stays with the Mac that handed them over"
     );
+    // The moved Chief knows where its subagent runs now: the same session, the new place
+    // and a higher epoch, in one write (home-agent-pills-DESIGN.md "Identity").
+    let sub = |home: &Path, id: &str| -> Value {
+        let spawns: Value = serde_json::from_str(
+            &state_value(&home.join("optchat/memory.sqlite3"), "host/spawns").unwrap(),
+        )
+        .unwrap();
+        spawns["sp1"]["subs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["id"] == id)
+            .cloned()
+            .unwrap()
+    };
+    let moved_home = remote.join(".cmux/chief/default");
+    let a1 = sub(&moved_home, "a1");
+    assert_eq!(a1["session_id"], "s-work", "{a1}");
+    assert_eq!(a1["place"], "mini-peer", "{a1}");
+    assert_eq!(a1["epoch"], 1, "{a1}");
+    let a2 = sub(&moved_home, "a2");
+    assert!(
+        a2["place"].is_null() && a2["epoch"].is_null(),
+        "an idle subagent stays: {a2}"
+    );
 
     let back = run_move(&["move", "rollback", "--remote-bin", BIN, "--home", home]);
     assert!(
@@ -1163,6 +1194,13 @@ fn a_chief_moving_to_a_mini_takes_its_working_subagents_and_rollback_brings_them
         "{calls}"
     );
     assert!(!src.join("state/subagents-moved.json").exists());
+    let a1 = sub(&src, "a1");
+    assert_eq!(a1["session_id"], "s-work", "{a1}");
+    assert!(
+        a1["place"].is_null(),
+        "back on the Chief's own machine: {a1}"
+    );
+    assert_eq!(a1["epoch"], 2, "every move raises the epoch: {a1}");
 }
 
 #[test]

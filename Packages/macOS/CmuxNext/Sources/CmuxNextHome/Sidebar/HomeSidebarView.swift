@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxHomeCore
 public import CmuxNextDesign
 import MessagesLabSidebar
+import Observation
 
 /// The Home page's left column: MessagesLab's conversation list
 /// (`CmuxSidebarView`, vendored byte-identical) drawing a `HomeSidebarModel`
@@ -66,18 +67,20 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
                                         label: CmuxSidebarView.unreadTitle, identifier: "cmux.home.sidebar.unread", glass: true)
     /// The Unread toggle's glass circle, under it in the header (Messages' round glass filter
     /// button, the user 2026-10-28): Liquid Glass on macOS 26 and later, the frosted material before.
-    let filterGlass = GlassPanelView(style: .regular, cornerRadius: HomeSidebarHeaderLayout.side / 2)
+    let filterGlass = GlassPanelView(style: .regular, cornerRadius: HomeSidebarHeaderMetrics.standard.side / 2)
     /// The avatar-only list's search: Messages' magnifier on a glass circle (`searchGlass`) beside
     /// the Unread toggle; a click opens the search over the band, as ⌘F does.
     let searchButton = HomeHeaderButton(symbol: "magnifyingglass", label: CmuxSidebarView.searchTitle,
                                         identifier: "cmux.home.sidebar.searchIcon", glass: true)
     /// The search circle's glass, under it in the header.
-    let searchGlass = GlassPanelView(style: .regular, cornerRadius: HomeSidebarHeaderLayout.side / 2)
+    let searchGlass = GlassPanelView(style: .regular, cornerRadius: HomeSidebarHeaderMetrics.standard.side / 2)
     /// Compose at the chat's top-left at every list width, as in Messages (`HomeChatColumnView`,
     /// which `HomeSidebarSplitView` places beside this list); the list's `compose` stays hidden.
     let chatCompose = HomeChatComposeButton(label: HomeConversationStrings.newMessage)
+    /// The header's sizes at the sidebar's density and text size (`followHeaderMetrics`).
+    private(set) var headerMetrics = HomeSidebarHeaderMetrics.current
     /// The on filter's chip under the search row (Unread ×): a click turns the filter off.
-    let filterChip = HomeFilterChip(title: CmuxSidebarView.unreadTitle)
+    let filterChip = HomeFilterChip(title: CmuxSidebarView.unreadTitle, metrics: .current)
     /// The search field's glass capsule (Messages' search field, the user 2026-10-28); a hairline
     /// rim shows while the field edits (the composer's focus, #22114), never AppKit's blue ring.
     let searchCapsule = HomeSearchCapsule()
@@ -102,6 +105,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         addSubview(list)
         SystemScrollers.follow(list.scrollView)
         installHeader()
+        followHeaderMetrics()
         noteLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         noteLabel.lineBreakMode = .byTruncatingTail
         noteLabel.isHidden = true
@@ -397,7 +401,8 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         chipFill = debugFilterLook == .banner
         chipCentered = debugFilterLook == .centeredChip
         #endif
-        let h = HomeSidebarHeaderLayout(width: bounds.width, searchOpen: searchOpen, windowControls: controls, filterOn: chipRow)
+        let h = HomeSidebarHeaderLayout(width: bounds.width, searchOpen: searchOpen, windowControls: controls, filterOn: chipRow,
+                                        metrics: headerMetrics)
         header = h
         filterChip.isHidden = h.filterChip.isEmpty
         if !h.filterChip.isEmpty {
@@ -439,6 +444,22 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         // Compose is the chat's (`chatCompose`) at every width.
         compose.isHidden = true
         return h.listTop
+    }
+
+    /// `sidebar.density` and `sidebar.textSize`, live: the filter circle, the search field, the
+    /// Unread chip and the empty list's text take the new sizes, and the header lays out again.
+    private func followHeaderMetrics() {
+        let metrics = withObservationTracking {
+            HomeSidebarHeaderMetrics.current
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.followHeaderMetrics() }
+        }
+        filterChip.metrics = metrics
+        list.emptyTextStep = metrics.emptyTextStep
+        // Another sidebar setting changed (the same sizes): no new layout.
+        guard metrics != headerMetrics else { return }
+        headerMetrics = metrics
+        list.headerView.needsLayout = true
     }
 
     /// Focus moves into or out of the field: the ring steps, the caret takes the accent, and in

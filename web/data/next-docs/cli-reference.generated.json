@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 797,
-    "mcp": 712
+    "verbs": 800,
+    "mcp": 715
   },
   "nouns": [
     {
@@ -1490,6 +1490,20 @@
           "id": "cloudPrepareSCP",
           "mcp": true,
           "mcpTool": "app_cloud_prepare_scp"
+        },
+        {
+          "command": "cmux cloud preview-revoke",
+          "title": "Revoke Machine Preview Link…",
+          "id": "cloudPreviewRevoke",
+          "mcp": true,
+          "mcpTool": "app_cloud_preview_revoke"
+        },
+        {
+          "command": "cmux cloud preview-share",
+          "title": "Share Machine Preview…",
+          "id": "cloudPreviewShare",
+          "mcp": true,
+          "mcpTool": "app_cloud_preview_share"
         },
         {
           "command": "cmux cloud promote-machine-to-template",
@@ -5762,6 +5776,13 @@
           "id": "workspaceGroup.setIcon",
           "mcp": true,
           "mcpTool": "app_workspace_group_set_icon"
+        },
+        {
+          "command": "cmux workspace-group set-sort",
+          "title": "Set Workspace Group Sort Order…",
+          "id": "workspaceGroup.setSort",
+          "mcp": true,
+          "mcpTool": "app_workspace_group_set_sort"
         },
         {
           "command": "cmux workspace-group sort-by-directory",

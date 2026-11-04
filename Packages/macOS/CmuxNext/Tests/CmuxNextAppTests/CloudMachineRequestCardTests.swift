@@ -15,6 +15,8 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows) struct CloudMachineRequestCardTests {
     static let machine = CloudMachineCreateFlow.Machine(name: "builder", cpu: 2, memoryMB: 4096, diskMB: 16384)
 
+    @MainActor final class Stops { var count = 0 }
+
     func make() -> (AppServices, NSWindow) {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless], backing: .buffered, defer: false)
@@ -22,10 +24,10 @@ import Testing
         return (AppServices(environment: AppEnvironment.current([:])), window)
     }
 
-    /// Starts the agent's request and returns it once its card is up.
-    func ask(_ services: AppServices, in window: NSWindow?) async throws -> (Task<Bool, Never>, SidebarNoticeCard) {
+    /// Starts the agent's request and returns it once its card is up; `stopAsking` is the card's Don't Ask Again.
+    func ask(_ services: AppServices, in window: NSWindow?, stopAsking: (@MainActor () async -> Void)? = {}) async throws -> (Task<Bool, Never>, SidebarNoticeCard) {
         let asks = services.machineAsks
-        let answer = Task { await CloudPresenter.confirmCreate(.agentRequest(Self.machine), in: window, asks: asks) }
+        let answer = Task { await CloudPresenter.confirmCreate(.agentRequest(Self.machine), in: window, asks: asks, stopAsking: stopAsking) }
         let deadline = ContinuousClock.now + .seconds(5)
         while asks.card == nil, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(5)) // test-only: waits for the request's task, bounded
@@ -40,8 +42,9 @@ import Testing
         #expect(card.title == CloudStrings.createConfirmTitle)
         #expect(card.detail == CloudStrings.createRequestDetail, "the card does not say who asked or that it counts against the plan")
         #expect(card.lines == [CloudStrings.createConfirmName("builder"), CloudStrings.createConfirmSize(cpu: 2, memoryGB: 4, diskGB: 16)])
-        #expect(card.actions.map(\.title) == [CloudStrings.createConfirmButton, CloudStrings.cancel])
+        #expect(card.actions.map(\.title) == [CloudStrings.createConfirmButton, CloudStrings.cancel, CloudStrings.createStopAsking])
         #expect(card.actions.filter(\.prominent).map(\.title) == [CloudStrings.createConfirmButton])
+        #expect(card.actions.filter(\.isSwitch).map(\.title) == [CloudStrings.createStopAsking], "Don't Ask Again is the card's switch")
         #expect(card.awaitsAnswer)
         #expect(SidebarCardFeed.noticeCard(services.updater, registry: nil) != card, "the update feed owns the request card")
 
@@ -53,6 +56,40 @@ import Testing
         SidebarCardFeed.handle(.noticeAction(card: card.id, action: create.id), services: services)
         #expect(await answer.value, "Create on the card did not approve the request")
         #expect(services.machineAsks.card == nil, "the answered card stays")
+    }
+
+    /// The card shows only while the person turned asking on; its Don't Ask Again switch creates the machine
+    /// and turns asking back off (Leo, 2026-11-04: "a cute toggle or checkmark idk if they want").
+    @Test func dontAskAgainCreatesAndStopsAsking() async throws {
+        let (services, window) = make()
+        defer { window.close() }
+        let stopped = Stops()
+        let (answer, card) = try await ask(services, in: window, stopAsking: { stopped.count += 1 })
+        let toggle = try #require(card.actions.first { $0.isSwitch })
+        SidebarCardFeed.handle(.noticeAction(card: card.id, action: toggle.id), services: services)
+        #expect(await answer.value, "Don't Ask Again did not create the machine")
+        #expect(stopped.count == 1, "Don't Ask Again left asking on")
+        #expect(services.machineAsks.card == nil)
+    }
+
+    /// A managed preference that sets the key leaves the card without the switch: Create and Cancel only.
+    @Test func aManagedSettingShowsNoSwitch() async throws {
+        let (services, window) = make()
+        defer { window.close() }
+        let (answer, card) = try await ask(services, in: window, stopAsking: nil)
+        defer { answer.cancel() }
+        #expect(card.actions.map(\.title) == [CloudStrings.createConfirmButton, CloudStrings.cancel])
+    }
+
+    /// The person's Don't Ask Again writes `cloud.agentsStartWithoutAsking` on, so the next create asks nobody.
+    @Test func dontAskAgainTurnsTheSettingBackOn() async throws {
+        let (services, window) = make()
+        defer { window.close() }
+        try await CloudStartSessionTests.askingFirst(services)
+        let settings = try #require(services.settings)
+        await settings.stopAskingCloudAgents?()
+        await settings.reload()
+        #expect(CloudAgentStartSetting().delegated(in: settings.snapshot.root), "the switch did not turn asking off")
     }
 
     @Test func cancelOrTheXDeclinesTheRequest() async throws {

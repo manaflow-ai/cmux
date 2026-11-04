@@ -515,7 +515,7 @@ class Decide(unittest.TestCase):
                                    GITHUB_OUTPUT=str(output)))
             lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
             self.assertEqual(lines["owned_jobs"], " cmux-scheme-compile ")
-            bot.runners.assert_called_once_with()
+            bot.runners.assert_called_once_with(include_repository=False)
 
     def test_timeout_publishes_default_route_instead_of_hanging(self):
         with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):

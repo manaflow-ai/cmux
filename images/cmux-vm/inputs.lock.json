@@ -50,8 +50,8 @@
   },
   "apt": {
     "ubuntu": {
-      "uri": "https://snapshot.ubuntu.com/ubuntu/20261022T000000Z/",
-      "snapshot": "20261022T000000Z",
+      "uri": "https://snapshot.ubuntu.com/ubuntu/20261104T000000Z/",
+      "snapshot": "20261104T000000Z",
       "suites": ["noble", "noble-updates", "noble-backports", "noble-security"],
       "components": ["main", "restricted", "universe", "multiverse"],
       "signedBy": "/usr/share/keyrings/ubuntu-archive-keyring.gpg",
@@ -60,9 +60,9 @@
         "arping": "2.24-1build2",
         "at-spi2-common": "2.52.0-1build1",
         "at-spi2-core": "2.52.0-1build1",
-        "bind9-dnsutils": "1:9.18.39-0ubuntu0.24.04.8",
-        "bind9-host": "1:9.18.39-0ubuntu0.24.04.8",
-        "bind9-libs": "1:9.18.39-0ubuntu0.24.04.8",
+        "bind9-dnsutils": "1:9.18.39-0ubuntu0.24.04.9",
+        "bind9-host": "1:9.18.39-0ubuntu0.24.04.9",
+        "bind9-libs": "1:9.18.39-0ubuntu0.24.04.9",
         "bubblewrap": "0.9.0-1ubuntu0.3",
         "ca-certificates": "20260816ubuntu0.24.04.1",
         "curl": "8.5.0-2ubuntu10.16",
@@ -383,27 +383,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "5e5772376d6039333ad40d5ac5a7ca2ce12900a1",
-      "url": "https://files.cmux.com/cmux-tui/5e5772376d6039333ad40d5ac5a7ca2ce12900a1/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "552fb001af10a04c7edc8e4ae888b05dc186e05c244048d9b54c50990b0bf393",
-      "size": 151860976,
+      "version": "b1f8fc4d83eac93615caa8e5ccfe0d92ad71426b",
+      "url": "https://files.cmux.com/cmux-tui/b1f8fc4d83eac93615caa8e5ccfe0d92ad71426b/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "94ee8737c906539f62a12fe7c12c96b747138efb5d629c23eda779c580ffa689",
+      "size": 155115904,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "acpmux": "cmux-tui", "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/5e5772376d6039333ad40d5ac5a7ca2ce12900a1/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/41697043654; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/b1f8fc4d83eac93615caa8e5ccfe0d92ad71426b/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/41847723856; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "5e5772376d6039333ad40d5ac5a7ca2ce12900a1",
-      "url": "https://files.cmux.com/cmux-tui/5e5772376d6039333ad40d5ac5a7ca2ce12900a1/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "6c0a8823ba975f57d0eb51ec3369be6679e291b25e8cfb67e5fba9498eff81ad",
-      "size": 4243864,
+      "version": "b1f8fc4d83eac93615caa8e5ccfe0d92ad71426b",
+      "url": "https://files.cmux.com/cmux-tui/b1f8fc4d83eac93615caa8e5ccfe0d92ad71426b/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "188fbb959ad96294bd08abc6d708111ea0dbc03920e017c4bac3384541d0fe3b",
+      "size": 4255584,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/5e5772376d6039333ad40d5ac5a7ca2ce12900a1/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/41697043654; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/b1f8fc4d83eac93615caa8e5ccfe0d92ad71426b/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/41847723856; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "coderouter",

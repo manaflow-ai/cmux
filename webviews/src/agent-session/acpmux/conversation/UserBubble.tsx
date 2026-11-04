@@ -248,7 +248,14 @@ export function UserBubble({
         {!row.failed && (text || pending) && (
           <UserFooter
             className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
-            pending={pending && ((actions) => pending(actions, { retry, fork: forkButton }))}
+            pending={
+              pending &&
+              ((actions) =>
+                pending(actions, {
+                  retry: retry && <PromptRetry rowId={row.id} prompt={resend} held />,
+                  fork: forkButton,
+                }))
+            }
           >
             <MessageFooterRow>
               {branch && branches && (

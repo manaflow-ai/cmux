@@ -114,7 +114,9 @@ export function PermissionCard({
   focusComposer,
   shortcuts = true,
   waiting = 0,
+  alwaysAtSource = false,
   fullAccessMode,
+  onDraft,
 }: {
   permission: AcpmuxPermission;
   /// Sends the answer. A promise that rejects means acpmux refused it (already answered elsewhere,
@@ -130,8 +132,15 @@ export function PermissionCard({
   shortcuts?: boolean;
   /// More asks waiting behind this one, answered after it.
   waiting?: number;
+  /// A peer's chat: the peer takes only a one-time Allow and a Deny from this Mac, never a lasting
+  /// grant (acpmux mac_approvers.rs), so Always allow stays on the card, disabled, saying why,
+  /// instead of failing after the click.
+  alwaysAtSource?: boolean;
   /// The chat's mode label while it runs its highest mode (Bypass permissions, Full access).
   fullAccessMode?: string;
+  /// Told when the deny's instructions open (true) and close, sent or not (false; also on unmount),
+  /// so the pane keeps this card up while something is typed on it (permissionKeys.ts `heldOnCard`).
+  onDraft?(open: boolean): void;
 }) {
   const t = useT();
   const command = permissionCommand(permission);
@@ -192,6 +201,13 @@ export function PermissionCard({
     if (!writing) setDraft({ permissionId: permission.permissionId, text: "" });
   };
   const fieldOpen = writing !== undefined;
+  const draftListener = useRef(onDraft);
+  draftListener.current = onDraft;
+  useEffect(() => {
+    if (!fieldOpen) return;
+    draftListener.current?.(true);
+    return () => draftListener.current?.(false);
+  }, [fieldOpen]);
   // Opened by the person's own click or key, so the field takes the keyboard.
   useEffect(() => {
     if (fieldOpen) field.current?.focus();
@@ -299,7 +315,7 @@ export function PermissionCard({
         deny(true);
         return true;
       }
-      const option = action === "allow_once" ? allowOnce : allowAlways;
+      const option = action === "allow_once" ? allowOnce : alwaysAtSource ? undefined : allowAlways;
       if (!option) return false;
       answerByKey(option);
       return true;
@@ -425,9 +441,10 @@ export function PermissionCard({
           {allowAlways && allowAlwaysLabel && (
             <PermissionActionButton
               label={allowAlwaysLabel}
-              shortcut={shortcuts ? allowChatShortcut : undefined}
-              title={alwaysScope}
+              shortcut={shortcuts && !alwaysAtSource ? allowChatShortcut : undefined}
+              title={alwaysAtSource ? t("permission.alwaysAtSource") : alwaysScope}
               aria-describedby={[scopeText && targetId, alwaysScope && ruleId].filter(Boolean).join(" ") || undefined}
+              disabled={alwaysAtSource}
               onClick={() => answer(allowAlways)}
             />
           )}

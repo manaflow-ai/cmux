@@ -8,6 +8,7 @@ import {
   toggleTurnFold,
   toggleViewTurnFold,
   turnFoldFor,
+  SUPERSEDED,
   turnView,
   WORKED,
 } from "../src/agent-session/acpmux/conversation/turns";
@@ -247,7 +248,8 @@ test("a completed turn of only replies and the person's own steer has no work to
     turnView(rows, new Set())
       .filter((entry) => entry.kind !== "date")
       .map((entry) => entry.id),
-  ).toEqual(["prompt", "reply", "steer", "done", "summary"]);
+    // The reply the person came in on ends on its stretch's footer (turns.ts supersededFooters).
+  ).toEqual(["prompt", "reply", `${SUPERSEDED}-steer`, "steer", "done", "summary"]);
 });
 
 test("Find in Thinking or Verbose opens a turn closed by hand, steer keys included", () => {

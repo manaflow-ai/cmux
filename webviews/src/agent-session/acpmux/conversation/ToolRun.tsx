@@ -23,16 +23,16 @@ function runIcon(category: ToolRunCategory | "mixed" | undefined): ReactNode {
     case "mixed":
       return <MultiTool />;
     case "edited":
-      return <Pencil size={16} strokeWidth={1.1} />;
+      return <Pencil size={16} />;
     case "read":
     case "searched":
       return <Magnifier />;
     case "web":
-      return <Globe size={16} strokeWidth={1.1} />;
+      return <Globe size={16} />;
     case "ran":
       return <TerminalSquare />;
     default:
-      return <ToolGroup size={16} strokeWidth={1.2} />;
+      return <ToolGroup size={16} />;
   }
 }
 
@@ -89,11 +89,7 @@ export function ToolRun({
           {totals && <EditCounts totals={totals} />}
           <FailedCount n={failures} />
         </span>
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {fold.present && (
         <div {...fold.bodyProps}>

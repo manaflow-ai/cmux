@@ -77,6 +77,9 @@ struct PlacementStaleRowsGalleryTests {
             attempts += 1
             if mode == 'disconnect':
                 sys.exit(0)
+            if mode == 'timeout' and attempts == 1:
+                # A daemon busy past the 2 s deadline (Leo, 2026-11-03): the first placement gets no answer.
+                continue
             if mode == 'fail':
                 print(json.dumps({'id': request['id'], 'ok': False, 'error': 'placement refused'}), flush=True)
                 continue
