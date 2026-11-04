@@ -52,6 +52,13 @@ public final class LiveResizeDragInput {
     /// Drags given to AppKit from a frame tick and drags a newer one replaced, cumulative (diagnostics and tests).
     public private(set) var tickDeliveries = 0, replaced = 0
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// `debug.motion`'s timing of each frame of the resize, and the drag AppKit applies next: its event time and whether
+    /// a frame tick gave it.
+    private lazy var probe = LiveResizeFrameProbe()
+    private var nextApplied: (eventTime: TimeInterval, atTick: Bool)?
+    #endif
+
     /// `deliver` gives an event to AppKit for `window` (its `super.sendEvent`); `frameApplied` runs after each `setFrame`
     /// of its live resize (``applyingFrame(_:)``).
     public init(window: NSWindow, frameApplied: @escaping @MainActor () -> Void = {}, deliver: @escaping @MainActor (NSEvent) -> Void) {
@@ -73,12 +80,16 @@ public final class LiveResizeDragInput {
         }
         let on = latched ?? MotionTunables.frameOwnerLiveResize.value
         latched = on
-        guard on else { return false }
+        guard on else {
+            noteApplying(event, atTick: false)
+            return false
+        }
         ticksLeft = Self.tickTail
         client.activate()
         // The display frame's first drag: AppKit applies it in this turn.
         guard appliedThisFrame else {
             appliedThisFrame = true
+            noteApplying(event, atTick: false)
             return false
         }
         if let waiting {
@@ -95,6 +106,12 @@ public final class LiveResizeDragInput {
     /// then `frameApplied` runs.
     public func applyingFrame(_ apply: () -> Void) {
         defer { frameApplied() }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let applied = nextApplied
+        nextApplied = nil
+        let frame = window.flatMap { probe.frameWillApply(in: $0, eventTime: applied?.eventTime, atTick: applied?.atTick == true) }
+        defer { if let frame { probe.frameDidApply(frame) } }
+        #endif
         guard isFramed, let window else { return apply() }
         FollowedViews.of(window).holdingFrameNotices(apply)
     }
@@ -113,7 +130,7 @@ public final class LiveResizeDragInput {
         appliedThisFrame = waiting != nil
         if waiting != nil {
             tickDeliveries += 1
-            flush()
+            flush(atTick: true)
             ticksLeft = Self.tickTail
             return true
         }
@@ -121,10 +138,19 @@ public final class LiveResizeDragInput {
         return ticksLeft > 0
     }
 
-    private func flush() {
+    private func flush(atTick: Bool = false) {
         guard let waiting else { return }
         self.waiting = nil
-        deliver(Self.carrying(waiting.event, dx: waiting.dx, dy: waiting.dy))
+        let event = Self.carrying(waiting.event, dx: waiting.dx, dy: waiting.dy)
+        noteApplying(event, atTick: atTick)
+        deliver(event)
+    }
+
+    /// AppKit applies `event` next (``LiveResizeFrameProbe``; nothing in a shipped build).
+    private func noteApplying(_ event: NSEvent, atTick: Bool) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        nextApplied = (event.timestamp, atTick)
+        #endif
     }
 
     /// `event` with the pointer travel of the drags it replaced added to its own deltas, so a gesture that reads deltas

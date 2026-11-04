@@ -117,6 +117,9 @@ public final class FrameScheduler: NSObject {
     var sightObserver: MainActorObservation?
     /// Frames delivered since creation (debug).
     public private(set) var frames: UInt64 = 0
+    /// The last frame delivered while the link runs (diagnostics: the S7 live-resize probe places a window `setFrame` on
+    /// the display's refresh from it); nil while paused.
+    public private(set) var lastTick: FrameTick?
     /// Display links made since creation (debug: a link that stays up through a backlog makes one per burst).
     public private(set) var linksMade: UInt64 = 0
     /// The budget its budgeted clients draw on: only a ``MainWorkScheduler``'s scheduler has one
@@ -197,7 +200,7 @@ public final class FrameScheduler: NSObject {
     func pause() {
         link?.invalidate()
         link = nil
-        (lastTimestamp, lastTarget) = (nil, nil)
+        (lastTimestamp, lastTarget, lastTick) = (nil, nil, nil)
         stall.cancel()
         stalls = 0
     }
@@ -211,7 +214,7 @@ public final class FrameScheduler: NSObject {
         link?.invalidate()
         link = nil
         // A window shown again (Reopen Closed Window) keeps its scheduler: its next first frame is one refresh.
-        (lastTimestamp, lastTarget) = (nil, nil)
+        (lastTimestamp, lastTarget, lastTick) = (nil, nil, nil)
         closeObserver = nil
     }
 
@@ -310,6 +313,7 @@ public final class FrameScheduler: NSObject {
         lastTarget = max(lastTarget ?? target, target)
         let tick = FrameTick(timestamp: now, elapsed: min(max(elapsed, 1.0 / 240.0), 1.0 / 30.0),
                              refreshInterval: refreshInterval, targetTimestamp: target, frameElapsed: shown)
+        lastTick = tick
         // Visible motion (not batch work) explains CPU use to the busy watchdog.
         if clients.values.contains(where: { $0.isActive && $0.isAnimation }) {
             ExpectedActivity.shared.note(.animationFrame)
