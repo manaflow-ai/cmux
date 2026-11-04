@@ -32,6 +32,8 @@ struct TabSeparatorVisibility {
         for id in ids { if let i = at(id) { lines.formUnion([i - 1, i]) } }
         for line in lines where line >= 0 && line < row.count {
             let shows = strip.metrics.showsSeparators && !emphasized.contains(line) && !emphasized.contains(line + 1)
+                && !endsPinnedGroup(strip.cells[row[line]]?.item.isPinned,
+                                    before: line + 1 < row.count ? strip.cells[row[line + 1]]?.item.isPinned : nil, metrics: strip.metrics)
             strip.cells[row[line]]?.showsSeparator = shows
         }
     }
@@ -51,9 +53,18 @@ struct TabSeparatorVisibility {
             dragged: index(of: strip.drag?.id) ?? index(of: TabStripView.placeholderID),
             multiSelected: Set(strip.model.multiSelection.ids.compactMap { index(of: $0) })
         )
-        let shown = strip.metrics.showsSeparators ? Set(visible.map { row[$0].id }) : []
+        let shown = strip.metrics.showsSeparators
+            ? Set(visible.filter { !endsPinnedGroup(row[$0].isPinned, before: $0 + 1 < row.count ? row[$0 + 1].isPinned : nil,
+                                                    metrics: strip.metrics) }.map { row[$0].id })
+            : []
         for slot in strip.result.slots {
             strip.cells[slot.id]?.showsSeparator = shown.contains(slot.id)
         }
+    }
+
+    /// The line after the last pinned tab: the pinned group's divider stands there instead
+    /// (`TabStripView+PinnedDivider.swift`), so the tab separator would double it.
+    private static func endsPinnedGroup(_ isPinned: Bool?, before nextIsPinned: Bool?, metrics: TabStripMetrics) -> Bool {
+        metrics.showsPinnedDivider && isPinned == true && nextIsPinned == false
     }
 }

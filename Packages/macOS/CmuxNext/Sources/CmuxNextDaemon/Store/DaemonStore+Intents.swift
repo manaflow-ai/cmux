@@ -117,7 +117,7 @@ extension DaemonStore {
         overlayLifted = true
         liftOverlay()
         let result = body()
-        for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: { ProvisionalSplit.awaitsRecords($0, in: self) }) {
+        for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: { ProvisionalSplit.awaitsRecords($0, snapshot: snapshot, in: self) }) {
             intentSettlements.append((intent.transaction, .applied))
             noteIntentLeft(intent, rejected: false)
         }

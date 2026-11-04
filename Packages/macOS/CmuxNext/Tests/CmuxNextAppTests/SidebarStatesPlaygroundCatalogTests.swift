@@ -16,13 +16,14 @@ import Testing
         ("group header expanded", .groupExpanded), ("group header collapsed with roll-ups", .groupCollapsed),
         ("Home row", .home), ("empty group +", .emptyGroup),
         ("left selection/accent bar", .accentBar), ("group rail", .groupRail), // Lawrence msg 19775
-        ("GitHub mono favicon", .faviconMono), ("colourful favicon", .faviconColorful), ("missing-favicon fallback", .faviconMissing),
+        ("GitHub mono favicon", .faviconMono), ("colourful favicon", .faviconColorful), ("no-favicon globe placeholder", .faviconMissing),
+        ("pinned summary at each density", .pinnedHoverCard), // Lawrence 2026-11-03, the pinned row's hover card
     ]
 
     /// The row view class each state must be drawn by.
     static func rowView(_ state: SidebarStatesPlaygroundState) -> String {
         switch state {
-        case .pinned, .home: "SidebarItemRowView"
+        case .pinned, .pinnedHoverCard, .home: "SidebarItemRowView"
         case .groupExpanded, .groupCollapsed, .emptyGroup: "GroupHeaderRowView"
         default: "WorkspaceRowView"
         }
@@ -67,7 +68,7 @@ import Testing
             case .home: #expect(!marks.isEmpty, "Home's unread dot: \(marks)")
             case .emptyGroup: #expect(has("SidebarIconButton"), "the empty group's +: \(marks)")
             case .pinned, .renaming, .archived, .remote, .selected, .accentBar, .groupRail, .faviconMono, .faviconColorful,
-                 .faviconMissing: break
+                 .faviconMissing, .pinnedHoverCard: break
             }
             // Lawrence msg 19775: the colored selected, hovered and resting rows show their leading accent bar.
             if [.selected, .hovered, .accentBar].contains(state) {
@@ -77,6 +78,15 @@ import Testing
                 #expect(mark.frame.width > 0 && mark.frame.height > 0, "\(state): \(mark.view) laid out empty")
             }
         }
+        // The pinned row's hover card: the real card drawn beside its row (to the sidebar's right, its top on the
+        // row's), with tab rows, at this density's sizes.
+        let pinned = try #require(cells[.pinnedHoverCard])
+        let card = try #require(pinned.card, "the pinned row's hover card was not drawn")
+        #expect(card.frame.minX >= pinned.rowFrame.maxX - 0.5, "the card sits beside its row: \(card.frame) vs \(pinned.rowFrame)")
+        #expect(abs(card.frame.minY - pinned.rowFrame.minY) < 1, "the card's top is on its row's top")
+        #expect(card.frame.width > 100 && card.frame.height > 40, "card \(card.frame.size)")
+        #expect(!card.tabRowHeights.isEmpty && card.tabRowHeights.allSatisfy { $0 > 0 }, "tab rows \(card.tabRowHeights)")
+        #expect(pinned.size.width >= card.frame.maxX, "the cell holds the card")
         // The favicon slot: each favicon row's leading icon draws its own favicon (or the fallback), so the three
         // rows' pixels left of the title differ.
         let leading = try [SidebarStatesPlaygroundState.faviconMono, .faviconColorful, .faviconMissing].map { state in
@@ -86,13 +96,19 @@ import Testing
         #expect(leading[0] != leading[1] && leading[1] != leading[2] && leading[0] != leading[2], "two favicon rows draw the same icon")
     }
 
-    /// The favicon styles sheet (Lawrence msg 19869): one column per `sidebar.faviconStyle`, each drawn with its style.
+    /// The favicon styles sheets (Lawrence msg 19869): one sheet per `sidebar.faviconStyle`, each at every density and
+    /// text size and drawn with its style.
     /// On the dark sheet the dark mono favicon reads differently as fetched and with the default adaptive tint, and the
     /// renderer puts the person's own style back after each column.
     @Test func everyFaviconStyleIsAColumnDrawnWithItsStyle() throws {
-        #expect(SidebarStatesPlaygroundColumn.faviconStyles.compactMap(\.faviconStyle) == SidebarFaviconStyle.allCases)
-        #expect(Set(SidebarStatesPlaygroundColumn.faviconStyles.map(\.title)).count == SidebarFaviconStyle.allCases.count,
-                "two favicon style columns share a caption")
+        for style in SidebarFaviconStyle.allCases {
+            let columns = SidebarStatesPlaygroundColumn.favicons(style)
+            #expect(columns.allSatisfy { $0.faviconStyle == style }, "\(style): a column draws another style")
+            #expect(Set(columns.map { [$0.density.rawValue, $0.textSize.rawValue] }).count
+                        == SidebarDensity.allCases.count * SidebarTextSize.allCases.count, "\(style): a density and text size is missing")
+        }
+        #expect(Set(SidebarFaviconStyle.allCases.map(SidebarStatesPlaygroundColumn.title)).count == SidebarFaviconStyle.allCases.count,
+                "two favicon style sheets share a title")
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
         let key = SidebarFaviconStyle.tunable.key
@@ -101,7 +117,7 @@ import Testing
         defer { TunableStore.shared.set(key, nil) }
         let renderer = SidebarStatesPlaygroundRenderer(design: .shared, themes: SidebarStatesPlaygroundThemes(colors: [:]))
         var leading: [SidebarFaviconStyle: [UInt8]] = [:]
-        for column in SidebarStatesPlaygroundColumn.faviconStyles where [.current, .adaptive].contains(column.faviconStyle) {
+        for column in [SidebarFaviconStyle.current, .adaptive].compactMap({ SidebarStatesPlaygroundColumn.favicons($0).first }) {
             let cells = renderer.cells(column, .dark)
             #expect(TunableStore.shared.override(key) == mine, "the renderer did not put the person's favicon style back")
             let cell = try #require(cells[.faviconMono], "\(column.title): no favicon row")

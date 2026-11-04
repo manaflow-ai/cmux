@@ -7,7 +7,10 @@ import {
   AGENT_SCRIPT,
   LOGIN_VAR,
   NONCE_VAR,
+  PLACEHOLDER,
   PROMPT,
+  ALLOWED_HOST,
+  EGRESS_CAPABILITY,
   VAULT_CAPABILITY,
   type ChildResult,
   type Deps,
@@ -28,6 +31,7 @@ const ACCESS = "eyJhbGciOiJFUzI1NiIsImtpZCI6ImsxIn0.eyJzdWIiOiJ1c2VyXzEifQ.YWNjZ
 const LOGIN = "sk-ant-oat01-FAKEloginVALUEfor-tests-0123456789"
 const NONCE = "0123456789abcdef0123456789abcdef"
 const HOME = "/Users/cmuxvault11"
+const GOOD = `env=${PLACEHOLDER}\nallowed=${NONCE}\ndenied=${PLACEHOLDER}\nHello from a vault test run.`
 
 const opts: Options = {
   origin: DEV_PLATFORM,
@@ -45,6 +49,7 @@ const opts: Options = {
 interface Knobs {
   noCapability?: boolean
   vaultEnv?: string[]
+  envDelivery?: boolean
   reply?: string
   addExit?: number
   /** pgrep's exit for the user's acpmux and claude processes after cleanup (1: none left). */
@@ -187,14 +192,14 @@ function fakes(k: Knobs = {}) {
           await aborted(signal)
           return { code: null, stdout: "", stderr: "" }
         }
-        return ok(JSON.stringify({ sessionId: "s", name: "n", reply: k.reply ?? `nonce=${NONCE}\nHello from a vault test run.\n`, stopReason: "end_turn" }, null, 2))
+        return ok(JSON.stringify({ sessionId: "s", name: "n", reply: k.reply ?? `${GOOD}\n`, stopReason: "end_turn" }, null, 2))
       }
       if (argv[0] === "/usr/bin/pgrep") return { code: k.holdersExit ?? 1, stdout: "", stderr: "" }
       if (argv[0] === "sudo") {
         if (text.includes("/bin/kill")) return ok()
-        if (text.endsWith("acpmux capabilities")) return ok(k.noCapability ? "machine.join.stdin.v1\n" : `machine.join.stdin.v1\n${VAULT_CAPABILITY}\n`)
+        if (text.endsWith("acpmux capabilities")) return ok(k.noCapability ? "machine.join.stdin.v1\n" : `machine.join.stdin.v1\n${VAULT_CAPABILITY}\n${EGRESS_CAPABILITY}\n`)
         if (text.includes("machine vault status")) {
-          return ok(JSON.stringify({ joined: true, secretStore: "keychain", lastResult: "ok", env: (k.vaultEnv ?? [NONCE_VAR]).map((name) => ({ name, revision: 1 })) }, null, 2))
+          return ok(JSON.stringify({ joined: true, secretStore: "keychain", lastResult: "ok", env: (k.vaultEnv ?? [NONCE_VAR]).map((name) => ({ name, revision: 1, delivery: k.envDelivery ? "env" : "proxy" })) }, null, 2))
         }
         if (text.includes("/usr/bin/find")) return { code: 0, stdout: "", stderr: "" }
         if (text.includes("/usr/bin/tar")) {
@@ -223,14 +228,17 @@ describe("machine-vault-e2e", () => {
   test("passes when the subscription-signed-in agent replies with the nonce, and cleans up", async () => {
     const f = fakes()
     const e = await runE2E(opts, env(), f.deps)
-    expect(e.reason).toBe("vault set, joined over ssh, vault on the machine, the agent signed in with the subscription read it and replied, cleaned up, no secrets found")
+    expect(e.reason).toBe("vault set, joined over ssh, vault on the machine, the agent signed in with the subscription saw only the placeholder, the allowed host got the value and the other host the placeholder, cleaned up, no secrets found")
     expect(e.result).toBe("pass")
     expect(e.agentResult).toBe("pass")
-    expect(e.agentReply).toBe(`nonce=${NONCE}\nHello from a vault test run.`)
+    expect(e.agentReply).toBe(GOOD)
     expect(e.claudeLogin).toEqual({ delivery: "ssh-stdin", daemonRestarted: true })
     expect(e.nonce).toBe(NONCE)
     // Values go on stdin, never argv: the nonce to the vault, the login to the ssh session alone.
     expect(f.stdins[NONCE_VAR]).toBe(`${NONCE}\n`)
+    // The nonce is proxy-delivered and allowed to the one echo host.
+    const set = f.calls.find((a) => a.includes("set"))!
+    expect(set.slice(set.indexOf("set") + 1, set.indexOf("set") + 4)).toEqual([NONCE_VAR, "--host", ALLOWED_HOST])
     expect(f.stdins.ssh).toBe(`${LOGIN}\n`)
     for (const argv of f.calls) expect(argv.join(" ")).not.toContain(LOGIN)
     // The login never enters the vault.
@@ -293,16 +301,30 @@ describe("machine-vault-e2e", () => {
     expect(e.agentResult).toBe("mismatch")
     expect(e.agentReply).toBe("something else")
     expect(e.result).toBe("fail")
-    // The nonce alone, with no sentence of the model's own, is not a real reply.
-    const bare = await runE2E(opts, env(), fakes({ reply: `nonce=${NONCE}` }).deps)
+    // The three values alone, with no sentence of the model's own, are not a real reply.
+    const bare = await runE2E(opts, env(), fakes({ reply: `env=${PLACEHOLDER}\nallowed=${NONCE}\ndenied=${PLACEHOLDER}` }).deps)
     expect(bare.agentResult).toBe("mismatch")
   })
 
-  test("the reply must carry this run's nonce line and a sentence", () => {
-    expect(replyPasses(`nonce=${NONCE}\nHi there, all good here.`, NONCE)).toBe(true)
-    expect(replyPasses(`\`nonce=${NONCE}\`\n\nHello from Claude Code today.`, NONCE)).toBe(true)
-    expect(replyPasses(`nonce=${NONCE}`, NONCE)).toBe(false)
-    expect(replyPasses(`nonce=other\nHi there, all good here.`, NONCE)).toBe(false)
+  test("the reply must show the placeholder in the env, the nonce at the allowed host only, and a sentence", () => {
+    const ok = (env: string, allowed: string, denied: string, rest = "Hi there, all good here.") =>
+      replyPasses(`env=${env}\nallowed=${allowed}\ndenied=${denied}\n${rest}`, NONCE)
+    expect(ok(PLACEHOLDER, NONCE, PLACEHOLDER)).toBe(true)
+    expect(replyPasses(`\`env=${PLACEHOLDER}\`\n\`allowed=${NONCE}\`\n\`denied=${PLACEHOLDER}\`\n\nHello from Claude Code today.`, NONCE)).toBe(true)
+    expect(ok(PLACEHOLDER, NONCE, PLACEHOLDER, "")).toBe(false)
+    // The agent saw the value: the old env delivery.
+    expect(ok(NONCE, NONCE, NONCE)).toBe(false)
+    // The value reached the host it does not allow.
+    expect(ok(PLACEHOLDER, NONCE, NONCE)).toBe(false)
+    // The proxy did not put the value in for the allowed host.
+    expect(ok(PLACEHOLDER, PLACEHOLDER, PLACEHOLDER)).toBe(false)
+    expect(ok(PLACEHOLDER, "other", PLACEHOLDER)).toBe(false)
+  })
+
+  test("the nonce on env delivery, or an acpmux without the egress proxy, fails", async () => {
+    const env1 = await runE2E(opts, env(), fakes({ envDelivery: true }).deps)
+    expect(env1.result).toBe("fail")
+    expect(env1.reason).toContain(`${NONCE_VAR} is not delivered through the proxy`)
   })
 
   test("a process still holding the login after cleanup fails the run", async () => {
@@ -339,7 +361,7 @@ describe("machine-vault-e2e", () => {
   })
 
   test("a reply in the login's shape is never written as evidence", async () => {
-    const f = fakes({ reply: `nonce=${NONCE}\nsk-ant-oat01-something else here` })
+    const f = fakes({ reply: `env=${PLACEHOLDER}\nallowed=${NONCE}\ndenied=${PLACEHOLDER}\nsk-ant-oat01-something else here` })
     const e = await runE2E(opts, env(), f.deps)
     expect(e.result).toBe("fail")
     expect(f.files.get(opts.evidence)).not.toContain("sk-ant-")

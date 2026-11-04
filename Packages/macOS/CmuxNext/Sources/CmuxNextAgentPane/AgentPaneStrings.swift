@@ -177,10 +177,40 @@ extension AgentPaneView {
                               bundle: .module), peer, reason)
     }
 
-    /// An always-allow (or an answer with notes) for a peer's prompt: only a one-time allow counts.
+    /// An Always allow for a peer's prompt: only a one-time allow counts from this Mac.
     static var peerApprovalsOnceOnly: String {
-        String(localized: "agentPane.peerApprovals.onceOnly.title", defaultValue: "Only a one-time Allow works from this Mac",
+        String(localized: "agentPane.peerApprovals.alwaysOff.title",
+               defaultValue: "Always allow isn't available from this Mac; Allow once and Deny work.", bundle: .module)
+    }
+
+    /// An answer with notes for a peer's prompt: this Mac signs none.
+    static var peerApprovalsNotes: String {
+        String(localized: "agentPane.peerApprovals.notes.title",
+               defaultValue: "Answers with notes aren't available from this Mac; Allow once and Deny work.", bundle: .module)
+    }
+
+    /// An Allow once for a peer's prompt that did not come from a click (a key).
+    static var peerApprovalsNotClicked: String {
+        String(localized: "agentPane.peerApprovals.notClicked.title",
+               defaultValue: "Click Allow once to answer this from this Mac.", bundle: .module)
+    }
+
+    /// This Mac's approver key could not sign a peer's Allow once.
+    static var peerApprovalsNoKeyTitle: String {
+        String(localized: "agentPane.peerApprovals.noKey.title", defaultValue: "This Mac couldn't sign that Allow once",
                bundle: .module)
+    }
+
+    static var peerApprovalsNoKeyDetail: String {
+        String(localized: "agentPane.peerApprovals.noKey.detail",
+               defaultValue: "Its approval key isn't available. Enroll this Mac on the other machine, then choose Allow once again.",
+               bundle: .module)
+    }
+
+    /// A peer's prompt this Mac had no record of when the person answered: the ask is still open.
+    static var peerApprovalsNotRecorded: String {
+        String(localized: "agentPane.peerApprovals.notRecorded.title",
+               defaultValue: "This Mac hadn't received that request yet. Choose Allow once again.", bundle: .module)
     }
 
     static func remoteApprovalsRestartFailed(_ machine: String, _ failure: AgentPaneRemoteApprovals.Failure) -> String {

@@ -18,6 +18,9 @@ pub(crate) const REMOTE_ENV_POLICY_ID: &str = "remote-env-v4";
 /// Reserved legacy projection marker. A profile cannot control internal
 /// environment projection even if an older config used this valid env name.
 const REMOTE_ENV_CLEARED_KEY: &str = "__ACPMUX_REMOTE_ENV_CLEARED";
+/// Claude Code's switch for its TaskCreate and TaskUpdate tools in a `-p`
+/// session (Claude Code 2.1.312 offers neither them nor TodoWrite without it).
+const TODO_TOOLS_ENV: &str = "CLAUDE_CODE_ENABLE_TODO_TOOLS";
 
 /// The harness command line and environment, as acpmux runs it: the login
 /// environment, no nested-agent markers, the session's `ACPMUX_*` caller
@@ -225,6 +228,13 @@ pub(crate) fn harness_command(
     if claude_code {
         let env = command_env_with(&cmd, !remote_environment);
         let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        // Claude Code 2.1 offers its task tools (TaskCreate, TaskUpdate) in a
+        // `-p` session only when asked, and has no TodoWrite there: without
+        // them a chat keeps no list for the agent pane's checklist
+        // (claude_stdio/task_plan.rs). A value the profile or login set wins.
+        if get(TODO_TOOLS_ENV).is_none() {
+            cmd.env(TODO_TOOLS_ENV, "1");
+        }
         if let Some(headers) = crate::subrouter_session::custom_headers(get) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
