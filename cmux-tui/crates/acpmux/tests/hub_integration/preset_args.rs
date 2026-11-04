@@ -420,7 +420,7 @@ async fn context_inventory_preset_edits_apply_to_new_sessions_and_keep_presets_s
     // The live session's snapshot and launch stay at A despite the saved setting.
     assert!(saved["parts"].as_array().unwrap().iter().any(|p| p["id"] == "cmux-system-prompt"
         && p["text"] == PROMPT_A
-        && p["channel"] == "system-prompt"));
+        && p["channel"] == "system-prompt-file"));
     let argv = argv_of(&hub, &mut c, id).await;
     let file = argv.windows(2).find(|a| a[0] == "--system-prompt-file").unwrap();
     assert_eq!(std::fs::read_to_string(&file[1]).unwrap(), PROMPT_A);

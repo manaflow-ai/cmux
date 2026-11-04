@@ -280,11 +280,44 @@ pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
             editable: true,
             measurement: "estimated".into(),
             source_bytes: Some(text.len() as u64),
-            channel: Some("system-prompt".into()),
+            channel: Some("system-prompt-file".into()),
             text: Some(text),
         });
     }
     parts
+}
+
+fn preset_part(text: String) -> ContextPart {
+    ContextPart {
+        id: "cmux-system-prompt".into(),
+        source: "cmux-preset".into(),
+        label: "Preset system prompt".into(),
+        tokens: estimated_tokens(&text),
+        included: true,
+        editable: false,
+        measurement: "estimated".into(),
+        source_bytes: Some(text.len() as u64),
+        channel: Some("system-prompt-file".into()),
+        text: Some(text),
+    }
+}
+
+/// Refresh only the preset part from the actual launch argv, after preset
+/// resolution. Reading later settings would describe a future launch instead.
+pub fn preset_source(argv: &[String]) -> Option<ContextPart> {
+    let file = argv.windows(2).rev().find_map(|words| match words {
+        [flag, file] if flag == "--system-prompt-file" => Some(file),
+        _ => None,
+    })?;
+    std::fs::read_to_string(file).ok().map(preset_part)
+}
+
+pub fn record_preset_source(meta: &mut SessionMeta, part: Option<ContextPart>) {
+    let snapshot = meta.cmux_context.get_or_insert_with(Vec::new);
+    snapshot.retain(|part| part.source != "cmux-preset");
+    if let Some(part) = part {
+        snapshot.push(part);
+    }
 }
 
 /// Append the captured default or override on the first written turn. All guidance
@@ -301,6 +334,13 @@ pub fn append_snapshot(parts: Option<&[ContextPart]>, blocks: &mut Vec<Value>) {
             blocks.push(override_block(text, scope));
         }
     }
+}
+
+/// Refresh launch-derived rows while preserving creation-time guidance/preset bytes.
+pub fn record_tool_sources(meta: &mut SessionMeta, parts: Vec<ContextPart>) {
+    let snapshot = meta.cmux_context.get_or_insert_with(Vec::new);
+    snapshot.retain(|part| !part.id.starts_with("cmux-source-"));
+    snapshot.extend(parts);
 }
 
 /// Capture settings once when the session is created. Project text replaces user text.
@@ -443,5 +483,50 @@ mod tests {
         assert_eq!(overrides.for_project(cwd), Some(("project", "p")));
         overrides.set("project", Some(cwd), None).unwrap();
         assert_eq!(overrides.for_project(cwd), Some(("user", "u")));
+    }
+    #[test]
+    fn tool_source_snapshots_are_replaced_without_reinjecting_or_replacing_guidance() {
+        let mut meta: SessionMeta = serde_json::from_value(json!({"schema":"acpmux.session.v1","id":"s","name":"s","harness":"claude","cwd":"/repo","status":"idle","createdAt":0,"updatedAt":0})).unwrap();
+        let mut cfg = Config::default();
+        cfg.context_overrides.user = Some("read concurrently".into());
+        meta.cmux_context = Some(snapshot(&cfg, &meta.cwd));
+        let mut description = meta.cmux_context.as_ref().unwrap()[0].clone();
+        description.id = "cmux-source-skill-example".into();
+        description.source = "cmux-skill-listing".into();
+        description.editable = false;
+        description.text = Some("name: example\ndescription: skill listing only".into());
+        description.channel = Some("skill-listing".into());
+        record_tool_sources(&mut meta, vec![description.clone()]);
+        record_tool_sources(&mut meta, vec![description]);
+        let snapshot = meta.cmux_context.as_deref().unwrap();
+        assert_eq!(snapshot.len(), 2);
+        let mut blocks = Vec::new();
+        append_snapshot(Some(snapshot), &mut blocks);
+        assert_eq!(blocks.len(), 1);
+        assert!(blocks[0]["text"].as_str().unwrap().contains("read concurrently"));
+        record_tool_sources(&mut meta, Vec::new());
+        assert_eq!(meta.cmux_context.as_ref().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn preset_context_follows_actual_launch_file_after_edits_and_removal() {
+        let mut meta: SessionMeta = serde_json::from_value(json!({"schema":"acpmux.session.v1","id":"s","name":"s","harness":"claude","cwd":"/repo","status":"idle","createdAt":0,"updatedAt":0})).unwrap();
+        let dir =
+            std::env::temp_dir().join(format!("context-source-preset-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("prompt.md");
+        let argv =
+            vec!["claude".into(), "--system-prompt-file".into(), path.to_string_lossy().into()];
+        std::fs::write(&path, "first preset").unwrap();
+        record_preset_source(&mut meta, preset_source(&argv));
+        assert_eq!(meta.cmux_context.as_ref().unwrap()[0].text.as_deref(), Some("first preset"));
+        // A settings/file edit alone cannot change what the current launch received.
+        std::fs::write(&path, "next preset").unwrap();
+        assert_eq!(meta.cmux_context.as_ref().unwrap()[0].text.as_deref(), Some("first preset"));
+        record_preset_source(&mut meta, preset_source(&argv));
+        assert_eq!(meta.cmux_context.as_ref().unwrap()[0].text.as_deref(), Some("next preset"));
+        record_preset_source(&mut meta, preset_source(&["claude".into()]));
+        assert!(meta.cmux_context.as_ref().unwrap().is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
