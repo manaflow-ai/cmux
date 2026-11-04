@@ -169,6 +169,15 @@ struct CloudStartChatMachineTests {
         #expect(ensure["local"] as? String == "/Users/me/src/paint")
         #expect(ensure["environment"] as? String == "env_0123456789abcdef01234567")
         #expect(ensure["credential_on_stdin"] as? Bool == true)
+        let reservation = UUID().uuidString
+        let warm = CloudStartChat.planRequest(key: "K", account: [Self.me, "team-a"], workspace: nil, user: Self.me, machines: [],
+                                              stored: [], access: true, reservationKey: reservation,
+                                              platform: "https://cmux-platform.debussy.workers.dev", team: "team_0123456789abcdef0123", ensureProject: false)
+        let reserved = try #require(try JSONSerialization.jsonObject(with: Data(warm.utf8)) as? [String: Any])
+        #expect(reserved["reservation_key"] as? String == reservation)
+        #expect(reserved["platform"] as? String == "https://cmux-platform.debussy.workers.dev")
+        #expect(reserved["team"] as? String == "team_0123456789abcdef0123")
+        #expect(reserved["ensure_project"] as? Bool == false)
     }
 
     /// Router review at 6beb0f2: with no `cwd` the tab's own folder is copied, and its `.git` file
