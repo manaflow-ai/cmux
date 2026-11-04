@@ -126,6 +126,10 @@ extension InputVerificationService {
         }
     }
 
+    /// The app was asked to reopen (a Dock click, the Tag Opener or Finder opening the running
+    /// app): under `CMUX_NEXT_NO_ACTIVATE=1` the activation it brings is the user's and stays.
+    func noteReopenRequested() { keyboardGuard?.reopenRequested() }
+
     /// Ends an update relaunch's startup behind the user's app: the guard stops and the app
     /// activates as always. `activating` (a Dock click) activates it too, in case the front went back
     /// before the reopen arrived. False when no such startup runs.

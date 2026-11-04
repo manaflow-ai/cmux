@@ -15,6 +15,12 @@ public final class NoActivateKeyboardGuard {
         var commandHeld: Bool { get }
         var isAppActive: Bool { get }
         var now: ContinuousClock.Instant { get }
+        /// A real mouse button went down within `window` and the pointer is now on one of this
+        /// app's windows or on the Dock: a click there activated the app, though its event may not
+        /// have reached the app yet (a quick click is released before the activation is seen).
+        func recentClickOnAppOrDock(within window: Duration) -> Bool
+        /// Runs `body` once after `delay` (an injected clock in the app; tests run it by hand).
+        func schedule(after delay: Duration, _ body: @escaping @MainActor @Sendable () -> Void)
         /// Hands activation back to `app` (nil: the next app in line).
         /// The object is already supplied by LaunchServices notifications;
         /// implementations must not resolve it from a PID on the main actor.
@@ -34,6 +40,12 @@ public final class NoActivateKeyboardGuard {
 
     /// Input this recent counts as the user choosing the app.
     public static let userInputWindow: Duration = .seconds(1)
+    /// How long an activation with no intent seen yet waits for the input that caused it before
+    /// the front goes back (https://github.com/manaflow-ai/cmux/issues/34575): macOS posts the
+    /// activation before the app dispatches the click's mouse-down, and a Dock click or an open
+    /// (Tag Opener, Finder) reaches the app as a reopen after it. Without the wait, every click on
+    /// an agent-launched build handed the front straight back to the app the user came from.
+    public static let intentArrivalWindow: Duration = .milliseconds(300)
 
     /// Most recent give-backs (bounded), for `debug.focus`.
     public private(set) var giveBacks: [GiveBack] = []
@@ -69,10 +81,15 @@ public final class NoActivateKeyboardGuard {
     /// further notifications of that activation (didBecomeKey,
     /// didBecomeActive) step aside again without counting.
     private var inGivenBackActivation = false
+    /// The activation waiting for its intent (``intentArrivalWindow``), by the trigger seen first.
+    private var waitingTrigger: Trigger?
+    /// Bumped whenever a wait ends, so a wait's deadline only settles its own activation.
+    private var waitGeneration: UInt64 = 0
 
     /// Checks once when the observers are in place: macOS may have
-    /// activated the app before anything observed it.
-    public func start() { check(.appActivated) }
+    /// activated the app before anything observed it. A launch activation
+    /// goes back at once (nothing the user did caused it).
+    public func start() { check(.appActivated, waits: false) }
 
     /// Another app became frontmost: that is where the keyboard goes back.
     public func beginOtherAppActivation() -> UInt64 {
@@ -88,7 +105,17 @@ public final class NoActivateKeyboardGuard {
     }
 
     /// A key press or mouse press reached this app.
-    public func userInput() { lastUserInput = host.now }
+    public func userInput() {
+        lastUserInput = host.now
+        guard waitingTrigger != nil, isEnabled, host.isAppActive else { return }
+        endWait()
+        onUserChose?()
+    }
+
+    /// The app was asked to reopen: a Dock click, or an open of the running app (the Tag Opener,
+    /// Finder, `open`). The person asked for this app, so an activation it brings (just before or
+    /// just after) stays. An `open -g` reopens without activating, and that leaves nothing to keep.
+    public func reopenRequested() { userInput() }
 
     public func appDidBecomeActive() { check(.appActivated) }
 
@@ -97,20 +124,24 @@ public final class NoActivateKeyboardGuard {
     public func windowDidBecomeKey() { check(.windowKey) }
 
     /// The app really resigned active: the next activation is a new one.
-    public func appDidResignActive() { inGivenBackActivation = false }
+    public func appDidResignActive() {
+        inGivenBackActivation = false
+        endWait()
+    }
 
     /// The user chose this app: a click on its window (the mouse is still
     /// down at activation), Cmd-Tab (Command held), or input this recent.
     private var userIntends: Bool {
         let heldCounts = ignoresHeldInputUntil.map { host.now >= $0 } ?? true
         if heldCounts, host.mouseButtonDown || host.commandHeld { return true }
-        guard let lastUserInput else { return false }
-        return host.now - lastUserInput <= Self.userInputWindow
+        if let lastUserInput, host.now - lastUserInput <= Self.userInputWindow { return true }
+        return heldCounts && host.recentClickOnAppOrDock(within: Self.userInputWindow)
     }
 
-    private func check(_ trigger: Trigger) {
+    private func check(_ trigger: Trigger, waits: Bool = true) {
         guard isEnabled, host.isAppActive else { return }
         if userIntends {
+            endWait()
             onUserChose?()
             return
         }
@@ -119,6 +150,33 @@ public final class NoActivateKeyboardGuard {
             host.giveActivationBack(to: previousApp)
             return
         }
+        guard waits else { return giveBack(trigger) }
+        // The activation's other notification while it waits: one wait settles it.
+        guard waitingTrigger == nil else { return }
+        waitingTrigger = trigger
+        let generation = waitGeneration
+        host.schedule(after: Self.intentArrivalWindow) { [weak self] in self?.settleWait(generation) }
+    }
+
+    /// The wait ended with no intent seen: the front goes back unless the app resigned meanwhile.
+    private func settleWait(_ generation: UInt64) {
+        guard generation == waitGeneration, let trigger = waitingTrigger else { return }
+        endWait()
+        guard isEnabled, host.isAppActive else { return }
+        if userIntends {
+            onUserChose?()
+            return
+        }
+        giveBack(trigger)
+    }
+
+    private func endWait() {
+        guard waitingTrigger != nil else { return }
+        waitingTrigger = nil
+        waitGeneration &+= 1
+    }
+
+    private func giveBack(_ trigger: Trigger) {
         inGivenBackActivation = true
         let giveBack = GiveBack(trigger: trigger, cause: "no_user_input", restoredTo: previousAppPID)
         host.giveActivationBack(to: previousApp)
