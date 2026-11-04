@@ -329,8 +329,11 @@ def _git_has_builder_script(repo: str) -> bool | None:
         return None
     if fetched.returncode != 0:
         return None
-    found = subprocess.run(["git", "-C", repo, "ls-tree", "--name-only", ref, "--", BUILDER_SCRIPT],
-                           capture_output=True, text=True)
+    try:
+        found = subprocess.run(["git", "-C", repo, "ls-tree", "--name-only", ref, "--", BUILDER_SCRIPT],
+                               capture_output=True, text=True, timeout=60)
+    except (subprocess.TimeoutExpired, OSError):
+        return None
     if found.returncode != 0:
         return None
     return found.stdout.strip() == BUILDER_SCRIPT

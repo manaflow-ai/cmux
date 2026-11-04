@@ -330,7 +330,8 @@ class BuilderScriptProbeTests(unittest.TestCase):
                 return gh_answer
             return real_run(args, *a, **kw)
 
-        with mock.patch.object(ib.subprocess, "run", side_effect=run):
+        with mock.patch.object(ib.subprocess, "run", side_effect=run), \
+                mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "manaflow-ai/cmux"}):
             answer = ib.builder_has_script(str(clone))
         return answer, api_calls
 
