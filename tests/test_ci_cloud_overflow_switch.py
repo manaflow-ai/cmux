@@ -17,10 +17,19 @@ import yaml
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# The watch's own bounded CI_TRUSTED_RUNNER selector: ephemeral labels only, never a probed size.
+WATCH_SELECTOR = (
+    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('"
+    '["blacksmith-2vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'
+    "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}"
+)
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import check_repo_variables as check  # noqa: E402
 import cloud_overflow_switch as switch  # noqa: E402
+sys.path.insert(0, str(ROOT / "tests"))
+from test_ci_fork_runner_routing import (  # noqa: E402
+    ADVERSARIAL_VARIABLE_VALUES, evaluate_runs_on, parse_expression, runner_label_errors)
 import signing_runner_variables as signing  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "ci-cloud-overflow-probe.yml"
@@ -825,15 +834,29 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("if: always() && steps.switch.outputs.outcome != 'started'", self.text)
 
     def test_watch_runs_off_blacksmith_and_passes_every_switched_variable(self) -> None:
-        # Never GitHub-hosted Ubuntu: on 2026-10-27 the watch queued 94 minutes there behind the
-        # switch's own failover and held the concurrency group, so no later run decided anything.
+        # Its own bounded selector, never a single label: on 2026-11-03 the literal
+        # blacksmith-6vcpu-macos-26 was dead and the watch queued 19 minutes (run 41688532704),
+        # so the hosted light rescue it carries ran every 20-25 minutes (cmuxterm-hq#6671).
         runs_on = re.search(r"name: Watch the probe and switch overflow\n(?:.*\n)*?\s+runs-on: (.*)", self.text).group(1)
-        self.assertNotIn("ubuntu-24.04", runs_on)
-        self.assertNotIn("ubuntu-latest", runs_on)
-        self.assertNotIn("github-hosted-required", runs_on)
-        # Blacksmith macOS: never a size the probes ask for, so it never queues behind them.
-        self.assertEqual(runs_on, "blacksmith-6vcpu-macos-26")
-        self.assertNotIn("ubuntu", runs_on)
+        runs_on, _, comment = runs_on.partition(" # ")
+        self.assertEqual(runs_on, WATCH_SELECTOR)
+        self.assertTrue(comment.startswith("ephemeral-required:"), comment)
+        self.assertEqual(runner_label_errors(runs_on), [])
+        # Whatever CI_TRUSTED_RUNNER holds (unset, a stray value, a probed size the switch's
+        # alternate failover may write, hosted Ubuntu set by hand), the watch never takes a size
+        # the probes ask for, so it never queues beside a stalled probe and holds the group
+        # (2026-10-28), and never GitHub-hosted Ubuntu: on 2026-10-27 the watch queued 94 minutes
+        # there behind the switch's own failover.
+        tree = parse_expression(runs_on[3:-2])
+        values = {"", *ADVERSARIAL_VARIABLE_VALUES, *switch.PROBE_LABELS, switch.TRUSTED_FAILOVER,
+                  *switch.ALTERNATE_FAILOVERS.values(), "blacksmith-2vcpu-ubuntu-2404",
+                  "blacksmith-8vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"}
+        for value in sorted(values):
+            label = evaluate_runs_on(tree, {"github.repository_owner": "manaflow-ai",
+                                            "vars.CI_TRUSTED_RUNNER": value})
+            with self.subTest(CI_TRUSTED_RUNNER=value):
+                self.assertNotIn(label, switch.PROBE_LABELS)
+                self.assertIn(label, {"blacksmith-2vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"})
         names = set(switch.SWITCHED_VARIABLES) | {switch.RECORD_VARIABLE, switch.OVERRIDES_VARIABLE,
                                                   "CMUX_CI_XCODE_APP_PR"}
         for name in names:
@@ -845,10 +868,12 @@ class WorkflowTests(unittest.TestCase):
     def test_the_job_with_the_variable_write_key_runs_on_a_literal_ephemeral_label(self) -> None:
         # The watch mints the GLAEDA_ROUTE_APP_KEY token that writes repository variables. #27022 let
         # CI_CONTROL_RUNNER pick its runner, an owned (reused) Mac for one, so a variable could put that
-        # key on a machine where it outlives the job, and the job could write the variable that picks
-        # its own runner. Only a literal ephemeral label may carry it, as for promote-nightly-next.
+        # key on a machine where it outlives the job. Only a literal ephemeral label, or the trusted
+        # selector whose expression bounds CI_TRUSTED_RUNNER to ephemeral labels, may carry it.
         for name, job in yaml.safe_load(self.text)["jobs"].items():
             if "secrets." not in json.dumps(job) and "create-github-app-token" not in json.dumps(job):
+                continue
+            if job["runs-on"] == WATCH_SELECTOR:
                 continue
             self.assertNotIn("${{", job["runs-on"], name)
             self.assertTrue(job["runs-on"].startswith(switch.CLOUD_PREFIX), name)
@@ -928,6 +953,68 @@ class RepoVariableCheckTests(unittest.TestCase):
         env = self.env(CI_CLOUD_OVERFLOW_SAVED=json.dumps(record),
                        CMUX_CI_RUNNER_VARIABLES="MACOS_RUNNER_26=glaeda-std-xcode-26.6\n")
         self.assertTrue(any("MACOS_RUNNER_26" in p for p in check.problems(env)))
+
+
+class ReadTokenTests(unittest.TestCase):
+    """The watch's reads go out on cmux-bot's token, its writes and refused reads on the workflow token."""
+
+    def client(self, refuse: int | None = None) -> tuple[switch.GitHub, list[tuple[str, str, str]]]:
+        import urllib.error
+        api = switch.GitHub("bot", "manaflow-ai/cmux", "workflow")
+        sent: list[tuple[str, str, str]] = []
+
+        def send(method: str, path: str, data: bytes | None, token: str) -> dict:
+            sent.append((method, path.split("?")[0], token))
+            if refuse is not None and token == "bot":
+                raise urllib.error.HTTPError(path, refuse, "refused", {}, None)  # type: ignore[arg-type]
+            return {"jobs": [], "workflow_runs": []}
+
+        api._send = send  # type: ignore[method-assign]
+        return api, sent
+
+    def test_reads_use_the_bot_and_writes_the_workflow_token(self) -> None:
+        api, sent = self.client()
+        api.jobs(7, 1)
+        api.runs("queued")
+        api.force_cancel(8)
+        api.rerun(8)
+        self.assertEqual([token for *_, token in sent], ["bot", "bot", "workflow", "workflow"])
+
+    def test_a_refused_read_is_asked_once_on_the_workflow_token(self) -> None:
+        for code in (401, 403, 429):
+            api, sent = self.client(refuse=code)
+            self.assertEqual(api.jobs(7, 1), [])
+            self.assertEqual([token for *_, token in sent], ["bot", "workflow"], code)
+
+    def test_other_read_errors_are_not_retried(self) -> None:
+        api, sent = self.client(refuse=404)
+        with self.assertRaises(RuntimeError):
+            api.jobs(7, 1)
+        self.assertEqual(len(sent), 1)
+
+    def test_without_a_fallback_everything_uses_the_one_token(self) -> None:
+        api = switch.GitHub("only", "manaflow-ai/cmux")
+        sent: list[str] = []
+        api._send = lambda method, path, data, token: sent.append(token) or {}  # type: ignore[method-assign]
+        api.request("GET", "/actions/runs/1")
+        api.request("POST", "/actions/runs/1/rerun")
+        self.assertEqual(sent, ["only", "only"])
+
+    def test_the_watch_reads_as_cmux_bot_with_the_workflow_token_as_fallback(self) -> None:
+        steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["watch"]["steps"]
+        [mint] = [s for s in steps if s.get("id") == "cmux-bot-token"]
+        self.assertEqual(mint["with"]["app-id"], "${{ vars.CMUX_BOT_APP_ID }}")
+        self.assertEqual(mint["with"]["private-key"], "${{ secrets.CMUX_BOT_APP_KEY }}")
+        # Read-only: the bot token can never cancel, re-run or write a variable.
+        self.assertEqual({k: v for k, v in mint["with"].items() if k.startswith("permission-")},
+                         {"permission-actions": "read"})
+        self.assertTrue(mint["continue-on-error"])
+        [step] = [s for s in steps if s.get("id") == "switch"]
+        self.assertEqual(step["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
+        self.assertEqual(step["env"]["GH_FALLBACK_TOKEN"], "${{ github.token }}")
+        self.assertEqual(step["env"]["SWITCH_TOKEN"], "${{ steps.switch-token.outputs.token }}")
+        self.assertNotIn("GLAEDA_ROUTE", step["env"]["GH_TOKEN"])
+        self.assertLess(steps.index(mint), steps.index(step))
 
 
 if __name__ == "__main__":

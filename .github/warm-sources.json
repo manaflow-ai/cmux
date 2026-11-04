@@ -21,6 +21,7 @@
     "ci-artifact-canary.yml:canary": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "ci-artifact-transport.yml:transport": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "ci-cloud-overflow-probe.yml:watch": {"class": "mac-run-product", "warm": [], "exempt": "a Python probe of the runner pools on a Mac; compiles nothing"},
+    "ci-hosted-light-rescue.yml:rescue": {"class": "tooling", "warm": [], "exempt": "bounded Python and gh queue recovery; compiles nothing"},
     "ci-guards.yml:workflow-guard-tests": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "ci-macos-compat.yml:compat-tests": {"class": "mac-test", "warm": ["actions-cache"]},
     "ci-macos.yml:app-host-unit-tests": {"class": "mac-test", "warm": ["product-reuse"]},

@@ -121,6 +121,12 @@ TRUSTED_RUNNER_EXPRESSION = (
 # Keep that policy valid while other trusted jobs adopt the measured BS8 size.
 CLA_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace(',"blacksmith-8vcpu-ubuntu-2404"', '')
 TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, CLA_TRUSTED_RUNNER_EXPRESSION)
+# Fast checks admission accepts only the smallest measured Blacksmith size (a
+# picker's one re-run route, never 16 or 32 vCPU), with the same hosted
+# default. No input can select a persistent runner.
+FAST_CHECKS_ADMISSION_EXPRESSION = (
+    "${{ contains(fromJSON('[\"blacksmith-8vcpu-ubuntu-2404\"]'), inputs.runner) && inputs.runner || 'ubuntu-24.04' }}"
+)
 TRUSTED_RUNNER_LINE = re.compile(
     r"^\s*runs-on:\s*(?:" + "|".join(map(re.escape, TRUSTED_RUNNER_EXPRESSIONS)) + r")\s*(?:#.*)?$"
 )
@@ -275,7 +281,7 @@ def runner_label_errors(runs_on: str) -> list[str]:
     `github.repository_owner != 'manaflow-ai' && '<hosted label>'`, first, which never runs in
     manaflow-ai. The exact CI_TRUSTED_RUNNER selector is accepted too: its list is ephemeral.
     """
-    if runs_on in TRUSTED_RUNNER_EXPRESSIONS:
+    if runs_on in (*TRUSTED_RUNNER_EXPRESSIONS, FAST_CHECKS_ADMISSION_EXPRESSION):
         return []
     expression = re.fullmatch(r"\$\{\{(.*)\}\}", runs_on.strip(), re.DOTALL)
     if expression is None:
