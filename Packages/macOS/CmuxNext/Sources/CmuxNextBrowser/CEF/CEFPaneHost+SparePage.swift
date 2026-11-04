@@ -49,6 +49,7 @@ extension CEFPaneHost {
             _ = shim.tabActivate(page.browser)
         }
         runtime.register(tab, browser: page.browser)
+        runtime.spareWindow.pageJoined(runtime: runtime)
         if !url.isEmpty { shim.loadURL(page.browser, url) }
         return page.browser
     }

@@ -28,4 +28,10 @@ extension CEFEngine {
 
     /// `none`, `creating`, `live`, `taken` or `closed` (`debug.cef`).
     public var spareWindowState: String { CEFRuntime.shared.spareWindow.state.rawValue }
+
+    /// `waiting` or `none`: the spare page made ahead (`debug.cef` `spare_page`).
+    public var sparePageState: String { CEFRuntime.shared.spareWindow.pageState }
+
+    /// Spare pages a new tab took in this process (`debug.cef` `spare_pages_taken`).
+    public var sparePagesTaken: Int { CEFRuntime.shared.spareWindow.pagesTaken }
 }

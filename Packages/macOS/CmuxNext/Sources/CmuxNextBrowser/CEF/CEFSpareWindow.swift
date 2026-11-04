@@ -74,10 +74,11 @@ final class CEFSpareWindow {
 
     func isSpare(_ candidate: CEFPaneHost) -> Bool { host === candidate }
 
-    /// `waiting` or `none`: the spare page made ahead (`debug.cef` `spare_page`). Not yet wired.
-    var pageState: String { "none" }
-    /// Spare pages a new tab took in this runtime (`debug.cef` `spare_pages_taken`). Not yet wired.
-    var pagesTaken: Int { 0 }
+    /// `waiting` or `none`: the spare page made ahead (`debug.cef` `spare_page`).
+    var pageState: String { page == nil ? "none" : "waiting" }
+    /// Spare pages a new tab took in this runtime (`debug.cef` `spare_pages_taken`); a page the take refused
+    /// (navigated or moved by an extension) is no take.
+    private(set) var pagesTaken = 0
 
     /// Starts the spare window: true when it started. Chromium must run, no
     /// untaken spare may exist, and no other Chromium window may be on its
@@ -178,10 +179,15 @@ final class CEFSpareWindow {
             return nil
         }
         page.freeze.thaw(page.browser, runtime: runtime)
+        return (page.browser, page.host)
+    }
+
+    /// The taken page joined its tab's window and is the tab's browser (`CEFPaneHost.joinSparePage`): one take.
+    func pageJoined(runtime: CEFRuntime) {
+        pagesTaken += 1
         #if DEBUG || CMUX_BENCH_HOOKS
         runtime.benchMarks.point("cef.spare_page_taken")
         #endif
-        return (page.browser, page.host)
     }
 
     /// The waiting page is in the window it was made in: its host's (another tab of that window names it).
