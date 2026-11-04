@@ -50,7 +50,10 @@ impl Hub {
         let mut cmux = tools.tool_rows(claude, claude);
         let all =
             crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd);
-        let sources = tools.listing(all).without_off(&profile.env).context_parts(claude);
+        let source_tools = tools.listing(all);
+        // ACP receives its immutable server list without Claude's off switch.
+        let source_tools = if claude { source_tools.without_off(&profile.env) } else { source_tools };
+        let sources = source_tools.context_parts(claude);
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         crate::context_inventory::record_tool_sources(&mut m, sources);
         for row in &mut cmux {
