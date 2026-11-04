@@ -5,6 +5,7 @@ import CmuxNextWakeups
 @testable import CmuxNextApp
 import CmuxNextDaemon
 @testable import CmuxNextDaemonService
+@testable import CmuxNextNotifications
 import Testing
 
 /// Share Chat with Guest (design chat-multiplayer.md 6): one `agent.share` op behind the palette,
@@ -322,7 +323,7 @@ struct AgentShareTests {
                 daemon.removed.append(account)
                 daemon.shares = []
             }))
-        let card = AgentShareInviteCard(model: model)
+        let card = AgentShareInviteCard(model: model, closeImage: NSImage())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
         card.removeFromSuperview()
         window.contentView?.addSubview(card)
