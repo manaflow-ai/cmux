@@ -60,6 +60,7 @@ import {
   statusEdge,
   type StatusEdge,
   isLastFooter,
+  isLiveLine,
   isContinuationFooter,
   QUEUED_MESSAGE,
   PENDING_MESSAGES,
@@ -4162,8 +4163,13 @@ export function VirtualTranscript({
   // tray coming or going, make room as before; scrolled up the room is held anyway.
   // The rows' own growth: room taken or given above them for older history is none.
   const rowsGrew = measured.layout.totalHeight - (measured.layout.origin ?? 0) - rowsSeen.current;
+  // Never over the running turn's live line, though: while it is the last row, what the reader opens
+  // in the tray makes room at once, so the line stays in sight over the stack from the send to the
+  // reply (Leo, 2026-11-04: "why does it not display Thinking or anything here???", then "it
+  // appears and disappears????", the line under a tray he had opened).
+  const lineLast = rows.length > 0 && isLiveLine(rows[rows.length - 1]!);
   const trayBase =
-    sessionSwitched || !following || dockSpace <= 0 || !trayToggled.current
+    sessionSwitched || !following || dockSpace <= 0 || !trayToggled.current || lineLast
       ? dockTray
       : rowsGrew > 0.5
         ? dockTray - Math.min(0, dockTray - foldBase.current + rowsGrew)
