@@ -6,7 +6,10 @@ import CmuxNextDesign
 /// A workspace may be created by another client without its first terminal,
 /// or may be waiting for the user after a prior terminal was closed. When its
 /// first terminal failed to start, it says why under the title (cx-tzlqb).
-final class EmptyWorkspaceView: NSView {
+/// With no pane there is no tab strip, so its top row is titlebar space: a
+/// press there moves the window (Leo, 2026-11-03: "i also can't drag from
+/// this top area at all").
+final class EmptyWorkspaceView: NSView, TitlebarPressDeciding {
     var onNew: (() -> Void)?
     /// Why the workspace's first terminal did not start; nil hides the line.
     var failure: String? {
@@ -18,6 +21,7 @@ final class EmptyWorkspaceView: NSView {
     }
 
     private let titleLabel = ChromeLabel(labelWithString: EmptyWorkspaceStrings.title)
+    private let artLabel = NSTextField(wrappingLabelWithString: EmptyWorkspaceArt.wordmark)
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
 
     override init(frame frameRect: NSRect) {
@@ -38,6 +42,14 @@ final class EmptyWorkspaceView: NSView {
     override var acceptsFirstResponder: Bool { true }
 
     private func build() {
+        let art = artLabel
+        art.font = Typography.system(.monospaced, size: Typography.title.pointSize, weight: TypeScale.emphasis)
+        art.alignment = .center
+        art.usesSingleLineMode = false
+        art.maximumNumberOfLines = 0
+        art.lineBreakMode = .byClipping
+        art.setAccessibilityLabel("cmux")
+
         let title = titleLabel
         title.font = Typography.header
         title.alignment = .center
@@ -50,7 +62,7 @@ final class EmptyWorkspaceView: NSView {
         detail.isHidden = true
         detail.preferredMaxLayoutWidth = 520
 
-        let stack = NSStackView(views: [title, detail])
+        let stack = NSStackView(views: [art, title, detail])
         stack.orientation = .vertical
         stack.spacing = Metrics.space3
         stack.alignment = .centerX
@@ -87,6 +99,7 @@ final class EmptyWorkspaceView: NSView {
     /// again when the theme or the window changes.
     private func applyColors() {
         performWithTheme {
+            artLabel.textColor = Palette.accent
             titleLabel.textColor = Palette.textPrimary
             detailLabel.textColor = Palette.textSecondary
         }
@@ -107,6 +120,9 @@ final class EmptyWorkspaceView: NSView {
         }
         return super.performKeyEquivalent(with: event)
     }
+
+    /// `TitlebarDragPolicy` asks only for points in the top row.
+    func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress { .movesWindow }
 
     private static func isPlainReturn(_ event: NSEvent) -> Bool {
         (event.keyCode == 36 || event.keyCode == 76)

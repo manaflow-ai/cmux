@@ -317,8 +317,12 @@ jobs:
         run: |
           set -euo pipefail
           test -f scripts/ci/gallery_select.py || exit 0  # a base before this workflow change
-          # A run that finished after a newer push leaves the section to that push's run.
-          live=$(gh api "repos/$REPOSITORY/pulls/$PR" --jq .head.sha)
+          # A run that finished after a newer push leaves the section to that push's run. The head is
+          # read with git (no API call); the REST pull request read is the fallback.
+          live=$(git ls-remote origin "refs/pull/$PR/head" 2>/dev/null | cut -f1 || true)
+          if ! [[ "$live" =~ ^[0-9a-f]{40}$ ]]; then
+            live=$(gh api "repos/$REPOSITORY/pulls/$PR" --jq .head.sha)
+          fi
           if [ "$live" != "$HEAD_SHA" ]; then
             echo "#$PR moved to ${live:0:7}; its own run writes the gallery section"
             exit 0

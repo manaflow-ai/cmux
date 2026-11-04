@@ -2,6 +2,15 @@
   "about": "Which source paths make up each UI surface, and the design spec that surface follows (one spec per surface, in leo-workspace design/<surface>.md). scripts/ci/pr_design_spec_check.py warns, never fails, when a pull request changes a surface's paths and its description does not cite the spec. leo-workspace tools/prior_art.py reads this map to list a surface's open and recently merged PRs before work starts. A path is a file or a directory (everything under it). Tests and gallery files are left out: changing them changes no design. Keep paths current when files move; the check warns about a mapped path that no longer exists.",
   "version": 1,
   "surfaces": {
+    "tooltips": {
+      "spec": "leo-workspace design/overlay-surfaces.md",
+      "aliases": ["tooltip", "hover preview", "tooltip hierarchy"],
+      "paths": [
+        "webviews/src/ui/Tooltip.tsx",
+        "webviews/src/ui/titleTooltips.ts",
+        "webviews/src/ui/tooltipTokens.ts"
+      ]
+    },
     "onboarding": {
       "spec": "leo-workspace design/onboarding.md",
       "aliases": ["onboarding", "bring your history", "memory import"],
@@ -97,6 +106,11 @@
         "webviews/src/agent-session/acpmux/hostRetry.ts",
         "webviews/src/agent-session/acpmux/bottomStack.css"
       ]
+    },
+    "background-tasks": {
+      "spec": "leo-workspace design/background-tasks.md",
+      "aliases": ["background tasks", "background commands", "subagent transcript"],
+      "paths": ["webviews/src/agent-session/acpmux/backgroundTasks/"]
     },
     "running-tray": {
       "spec": "leo-workspace design/running-tray.md",
