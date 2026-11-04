@@ -7702,10 +7702,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const openContextViewer = useCallback(() => {
     if (ownContextPane) return void loadContextViewer();
     const request = contextRequest.current;
-    void openContextPane(callNative).then((opened) => {
+    void openContextPane(callNative, t("context.viewer.title")).then((opened) => {
       if (!opened && request === contextRequest.current) void loadContextViewer();
     });
-  }, [ownContextPane, loadContextViewer]);
+  }, [ownContextPane, loadContextViewer, t]);
   // The Background tasks panel opens from the chat's ⋯ menu and from the running tray's header
   // (SubagentTray.tsx `onOpenPanel`). A workflow's side tab would cover it (a full-height overlay):
   // it closes. Already open, it stays as it is (expanded, cleared and drilled in alike).
