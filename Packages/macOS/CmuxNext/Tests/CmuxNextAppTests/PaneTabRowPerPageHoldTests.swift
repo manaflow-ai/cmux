@@ -80,9 +80,10 @@ struct PaneTabRowPerPageHoldTests {
         let window: NSWindow
         var afterCommit: [@MainActor () -> Void] = []
 
-        init(p1 content: NSView, axis: SplitAxis = .horizontal, p1Below: Bool = false) {
+        init(p1 content: NSView, p2: NSView? = nil, axis: SplitAxis = .horizontal, p1Below: Bool = false) {
             _ = NSApplication.shared
             provider.first["p1"] = content
+            provider.first["p2"] = p2
             let (a, b): (SplitNode, SplitNode) = p1Below ? (.leaf("p2"), .leaf("p1")) : (.leaf("p1"), .leaf("p2"))
             let columns = [LayoutColumn(id: "c0", width: 1, root: .split("x", axis: axis, ratio: 0.5, a: a, b: b))]
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))], activeScreenID: "s", focusedPane: "p1")
@@ -226,5 +227,40 @@ struct PaneTabRowPerPageHoldTests {
         #expect(off.isEmpty, "\(off.count) frames drew the chat's tools off the tab row: \(off.prefix(4))")
         #expect(page.drawnRow > 0 && pane.contentHost.frame == pane.bounds,
                 "after the landing the chat does not share the row: offered \(page.offered.suffix(3)), area \(pane.contentHost.frame) in \(pane.bounds)")
+    }
+
+    /// (c) Codex's review of #34247 at c997a7d3bfe: a chat that shares p2's tab row moves into p1 during a key hold of p1
+    /// (a tab dragged across, a script's move): it comes from another pane with p2's row offer. In no frame does it draw
+    /// its row off p1's strip row; it hears one "no row" when it arrives, and the landing gives it p1's row once.
+    @Test func aChatMovedInFromAnotherPaneDuringAKeyResizeDrawsNoRowUnderTheStrip() throws {
+        let page = RowPage()
+        let rig = Rig(p1: NSView(), p2: page)
+        defer { rig.window.closeAfterTest() }
+        let p1 = try #require(rig.provider.views["p1"])
+        page.report(60)
+        rig.root.layoutSubtreeIfNeeded()
+        try #require(page.drawnRow > 0, "SETUP: the chat does not share p2's row at rest: \(page.offered.suffix(2))")
+
+        #expect(PaneResize.press("p1", .right, model: rig.model, view: rig.root))
+        var off: [String] = [], frames = 0, offersAtMove = 0
+        while frames < 240, rig.root.advanceFrame(1.0 / 120) {
+            frames += 1
+            if frames == 2 {
+                try #require(p1.contentHost.isHolding, "SETUP: p1's area does not hold at the move")
+                offersAtMove = page.offered.count
+                p1.show(page)
+            }
+            rig.root.layoutSubtreeIfNeeded()
+            if frames >= 2, let stray = Self.rowOffStrip(page, in: p1, "frame \(frames)") { off.append(stray) }
+        }
+        try #require(frames > 3, "the press did not spring (\(frames) frames)")
+        let duringHold = Array(page.offered.dropFirst(offersAtMove))
+        rig.root.layoutSubtreeIfNeeded()
+        rig.release()
+        if let stray = Self.rowOffStrip(page, in: p1, "after the landing") { off.append(stray) }
+        #expect(off.isEmpty, "\(off.count) frames drew the moved chat's tools off p1's tab row: \(off.prefix(4))")
+        #expect(duringHold == [0], "the moved chat heard \(duringHold) during the hold, not one \"no row\"")
+        #expect(page.drawnRow > 0 && p1.contentHost.frame == p1.bounds,
+                "after the landing the chat does not share p1's row: offered \(page.offered.suffix(3)), area \(p1.contentHost.frame) in \(p1.bounds)")
     }
 }
