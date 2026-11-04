@@ -54,10 +54,19 @@ impl Hub {
         // ACP receives its immutable server list without Claude's off switch.
         let source_tools = if claude { source_tools.without_off(&profile.env) } else { source_tools };
         let sources = source_tools.context_parts(claude);
+        let preset = if !remote && claude {
+            let argv = profile.argv.clone();
+            tokio::task::spawn_blocking(move || crate::context_inventory::preset_source(&argv))
+                .await
+                .ok()
+                .flatten()
+        } else {
+            None
+        };
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         crate::context_inventory::record_tool_sources(&mut m, sources);
         if !remote && claude {
-            crate::context_inventory::record_preset_source(&mut m, &profile.argv);
+            crate::context_inventory::record_preset_source(&mut m, preset);
         }
         for row in &mut cmux {
             row.enabled = !m.tools.off.contains(&row.id);

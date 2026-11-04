@@ -242,16 +242,18 @@ fn preset_part(text: String) -> ContextPart {
 
 /// Refresh only the preset part from the actual launch argv, after preset
 /// resolution. Reading later settings would describe a future launch instead.
-pub fn record_preset_source(meta: &mut SessionMeta, argv: &[String]) {
+pub fn preset_source(argv: &[String]) -> Option<ContextPart> {
+    let file = argv.windows(2).rev().find_map(|words| {
+        (words[0] == "--system-prompt-file").then(|| &words[1])
+    })?;
+    std::fs::read_to_string(file).ok().map(preset_part)
+}
+
+pub fn record_preset_source(meta: &mut SessionMeta, part: Option<ContextPart>) {
     let snapshot = meta.cmux_context.get_or_insert_with(Vec::new);
     snapshot.retain(|part| part.source != "cmux-preset");
-    let Some(file) = argv.windows(2).rev().find_map(|words| {
-        (words[0] == "--system-prompt-file").then(|| &words[1])
-    }) else {
-        return;
-    };
-    if let Ok(text) = std::fs::read_to_string(file) {
-        snapshot.push(preset_part(text));
+    if let Some(part) = part {
+        snapshot.push(part);
     }
 }
 
@@ -453,14 +455,14 @@ mod tests {
         let path = dir.join("prompt.md");
         let argv = vec!["claude".into(), "--system-prompt-file".into(), path.to_string_lossy().into()];
         std::fs::write(&path, "first preset").unwrap();
-        record_preset_source(&mut meta, &argv);
+        record_preset_source(&mut meta, preset_source(&argv));
         assert_eq!(meta.cmux_context.as_ref().unwrap()[0].text.as_deref(), Some("first preset"));
         // A settings/file edit alone cannot change what the current launch received.
         std::fs::write(&path, "next preset").unwrap();
         assert_eq!(meta.cmux_context.as_ref().unwrap()[0].text.as_deref(), Some("first preset"));
-        record_preset_source(&mut meta, &argv);
+        record_preset_source(&mut meta, preset_source(&argv));
         assert_eq!(meta.cmux_context.as_ref().unwrap()[0].text.as_deref(), Some("next preset"));
-        record_preset_source(&mut meta, &["claude".into()]);
+        record_preset_source(&mut meta, preset_source(&["claude".into()]));
         assert!(meta.cmux_context.as_ref().unwrap().is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }
