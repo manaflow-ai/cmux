@@ -136,25 +136,12 @@ impl Daemon {
         self.home.join("exit")
     }
 
-    /// The next `n` agent hosts never answer hello, as a wedged host.
-    fn stall_hellos(&self, n: usize) {
-        std::fs::create_dir_all(self.stall_dir()).unwrap();
-        for i in 0..n {
-            std::fs::write(self.stall_dir().join(format!("stall-{i}")), "").unwrap();
-        }
-    }
-
     /// The next `n` agent hosts close their controller link before hello.
     fn exit_hellos(&self, n: usize) {
         std::fs::create_dir_all(self.exit_dir()).unwrap();
         for i in 0..n {
             std::fs::write(self.exit_dir().join(format!("exit-{i}")), "").unwrap();
         }
-    }
-
-    /// Stall markers no host took yet.
-    fn stalls_left(&self) -> usize {
-        std::fs::read_dir(self.stall_dir()).map(|d| d.count()).unwrap_or(0)
     }
 
     fn exits_left(&self) -> usize {
