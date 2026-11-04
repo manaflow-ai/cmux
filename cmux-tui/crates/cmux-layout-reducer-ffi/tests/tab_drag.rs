@@ -5,6 +5,8 @@ fn wire_index_matches_same_and_cross_pane_rules() {
     assert_eq!(cmux_tab_move_wire_index(-7, 0, 2), 0);
     assert_eq!(cmux_tab_move_wire_index(2, 1, 2), 2);
     assert_eq!(cmux_tab_move_wire_index(3, 1, 2), 4);
+    assert_eq!(cmux_tab_move_wire_index(-1, 1, -2), 0);
+    assert_eq!(cmux_tab_move_wire_index(-8, 1, -9), -7);
     assert_eq!(cmux_tab_move_wire_index(i64::MAX, 1, 0), i64::MAX);
 }
 

@@ -66,11 +66,10 @@ pub extern "C" fn cmux_tab_move_wire_index(
     has_current_index: u8,
     current_index: i64,
 ) -> i64 {
-    let final_index = final_index.max(0);
     if has_current_index != 0 && final_index > current_index {
         final_index.saturating_add(1)
     } else {
-        final_index
+        final_index.max(0)
     }
 }
 
