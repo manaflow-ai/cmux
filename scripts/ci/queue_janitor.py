@@ -988,7 +988,7 @@ def hosted_light_candidates(raw: str | None, *, now: dt.datetime) -> dict[str, A
                 "jobs_since": jobs_since.isoformat().replace("+00:00", "Z"),
                 "coverage": "partial", "complete": False, "runs": rows,
                 "truncated": True, "total_runs": total_runs}
-    except (ValueError, TypeError, OSError, EOFError, json.JSONDecodeError, zlib.error):
+    except (ValueError, TypeError, OSError, EOFError, OverflowError, json.JSONDecodeError, zlib.error):
         return None
 
 

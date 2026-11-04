@@ -4072,6 +4072,15 @@ class HostedLightCandidatesTests(unittest.TestCase):
         janitor.attach_hosted_light_candidates(snapshot, raw, now=NOW)
         self.assertNotIn("hosted-light-candidates", snapshot)
 
+    def test_timestamp_overflow_omits_optional_source(self):
+        snapshot = {"truncated": False}
+        janitor.attach_hosted_light_candidates(
+            snapshot,
+            self._raw(candidate_overrides={"receiver_last_delivery": "0001-01-01T00:00:00+23:59"}),
+            now=NOW,
+        )
+        self.assertNotIn("hosted-light-candidates", snapshot)
+
     def test_workflow_passes_runner_state_only_through_env(self):
         steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["sweep"]["steps"]
         step = next(item for item in steps if item.get("name") == "Cancel wasted macOS runs")
