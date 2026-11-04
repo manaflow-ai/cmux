@@ -2025,13 +2025,16 @@ pre.cv-math-source {
   margin-inline-start: calc(var(--cv-disclosure-gap) - var(--cv-worked-gap, 2px));
 }
 /* The running line's counts (WorkingFor.tsx), after its label on the same 20px line. They keep
-   to one line and give way at the line's end, never wrapping it to a second. */
+   to one line and give way at the line's end, never wrapping it to a second. The dot sits 4px
+   from what comes before it, as from what follows it: the margin takes back the line's own gap,
+   which had left a wide hole before every "·" (Leo, 2026-11-04, on "2s · 15s total": "same here
+   it's annoying to look at"). */
 .cv-worked__count {
   display: inline-flex;
   flex: 0 1 auto;
   min-width: 0;
   gap: 4px;
-  margin-left: 2px;
+  margin-left: calc(4px - var(--grid-gap));
   white-space: nowrap;
 }
 /* The turn's tokens ("· 679.9K tokens") are secondary to its label and time, as on Claude
@@ -2090,8 +2093,8 @@ pre.cv-math-source {
   flex: none;
   margin-inline-start: 6px;
 }
-/* Past the turn's first step its clock reads as the total ("· 4m total", Thinking.tsx): the words
-   around it sit at the count's own gap. */
+/* Past the turn's first step its clock follows a step's own time after a dot ("2s · 4m",
+   Thinking.tsx), at the count's own gap. */
 .cv-worked__total .cv-worked__time {
   margin-inline: 0;
 }
