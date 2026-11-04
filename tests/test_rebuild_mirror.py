@@ -179,7 +179,10 @@ class CandidateInputs(unittest.TestCase):
             self.assertEqual(mirror.verify_evidence(str(self.root), "HEAD", "release-compile", evidence),
                              (True, "eligible"))
         for field, value in (("policy", "wrong"), ("window_seconds", 86399),
-                             ("false_skip_rate", 0.01), ("complete", 0), ("enabled", False)):
+                             ("false_skip_rate", 0.01), ("complete", 0), ("enabled", False),
+                             ("window_seconds", True), ("window_seconds", float("inf")),
+                             ("false_skip_rate", False), ("false_skip_rate", float("nan")),
+                             ("complete", True)):
             with self.subTest(field=field):
                 changed = dict(base, **{field: value})
                 evidence.write_text(json.dumps(changed))

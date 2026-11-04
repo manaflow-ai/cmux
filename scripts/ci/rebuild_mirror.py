@@ -12,6 +12,7 @@ import argparse
 import datetime
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -206,11 +207,16 @@ def verify_evidence(root: str, rev: str, job: str, evidence: Path | None = None,
             return False, "evidence is not enabled"
         if value.get("policy") != policy_identity(root, rev, job):
             return False, "evidence policy does not match this checkout"
-        if float(value.get("window_seconds", 0)) < 86400:
+        window = value.get("window_seconds")
+        if (isinstance(window, bool) or not isinstance(window, (int, float))
+                or not math.isfinite(window) or window < 86400):
             return False, "evidence window is shorter than 24 hours"
-        if value.get("false_skip_rate") != 0 and value.get("false_skip_rate") != 0.0:
+        rate = value.get("false_skip_rate")
+        if (isinstance(rate, bool) or not isinstance(rate, (int, float))
+                or not math.isfinite(rate) or rate != 0):
             return False, "evidence false-skip rate is not zero"
-        if int(value.get("complete", 0)) <= 0:
+        complete = value.get("complete")
+        if isinstance(complete, bool) or not isinstance(complete, int) or complete <= 0:
             return False, "evidence has no complete observations"
         measured_at = str(value.get("measured_at") or "")
         if not measured_at:

@@ -37,6 +37,7 @@ def artifact(run_id: int, *, name: str = KEY, head_repo: int = REPO_ID, repo: in
 
 def lookup(artifacts: list[dict] | str, key: str = KEY, *, trusted_branch: str | None = None,
            trusted_event: str | None = None, runs: list[dict] | None = None,
+           trusted_workflow: str | None = None,
            **env: str) -> tuple[dict, str, int]:
     with tempfile.TemporaryDirectory() as tmp:
         listing = Path(tmp) / "artifacts.json"
@@ -54,6 +55,8 @@ def lookup(artifacts: list[dict] | str, key: str = KEY, *, trusted_branch: str |
             argv.extend(["--trusted-branch", trusted_branch])
         if trusted_event is not None:
             argv.extend(["--trusted-event", trusted_event])
+        if trusted_workflow is not None:
+            argv.extend(["--trusted-workflow", trusted_workflow])
         if runs_path is not None:
             argv.extend(["--runs-json", str(runs_path)])
         result = subprocess.run(argv,
@@ -129,8 +132,9 @@ class Lookup(unittest.TestCase):
         ]
         runs = [{"id": 90, "event": "push", "status": "completed", "conclusion": "success",
                  "head_branch": "feat-cmux-next", "repository": {"id": REPO_ID},
-                 "head_repository": {"id": REPO_ID}}]
-        outputs, _, code = lookup(artifacts, trusted_branch="feat-cmux-next", trusted_event="push", runs=runs)
+                 "head_repository": {"id": REPO_ID}, "path": ".github/workflows/cmux-next.yml"}]
+        outputs, _, code = lookup(artifacts, trusted_branch="feat-cmux-next", trusted_event="push",
+                                  trusted_workflow=".github/workflows/cmux-next.yml", runs=runs)
         self.assertEqual(code, 0)
         self.assertEqual(outputs["hit"], "true")
         self.assertTrue(outputs["run_url"].endswith("/runs/90"))
@@ -144,27 +148,38 @@ class Lookup(unittest.TestCase):
         source = artifact(92, branch="feat-cmux-next", event="")
         run = {"id": 92, "event": "push", "status": "completed", "conclusion": "success",
                "head_branch": "feat-cmux-next",
-               "repository": {"id": REPO_ID}, "head_repository": {"id": REPO_ID}}
+               "repository": {"id": REPO_ID}, "head_repository": {"id": REPO_ID},
+               "path": ".github/workflows/cmux-next.yml"}
         outputs, _, code = lookup([source], trusted_branch="feat-cmux-next",
-                                  trusted_event="push", runs=[run])
+                                  trusted_event="push", trusted_workflow=".github/workflows/cmux-next.yml", runs=[run])
         self.assertEqual((code, outputs["hit"]), (0, "true"))
 
     def test_planner_lookup_rejects_authoritative_non_push(self):
         source = artifact(93, branch="feat-cmux-next", event="")
         run = {"id": 93, "event": "pull_request", "status": "completed", "conclusion": "success",
                "head_branch": "feat-cmux-next",
-               "repository": {"id": REPO_ID}, "head_repository": {"id": REPO_ID}}
+               "repository": {"id": REPO_ID}, "head_repository": {"id": REPO_ID},
+               "path": ".github/workflows/cmux-next.yml"}
         outputs, _, code = lookup([source], trusted_branch="feat-cmux-next",
-                                  trusted_event="push", runs=[run])
+                                  trusted_event="push", trusted_workflow=".github/workflows/cmux-next.yml", runs=[run])
         self.assertEqual((code, outputs["hit"]), (0, "false"))
 
     def test_planner_lookup_rejects_a_failed_completed_run(self):
         source = artifact(95, branch="feat-cmux-next", event="")
         run = {"id": 95, "event": "push", "status": "completed", "conclusion": "failure",
                "head_branch": "feat-cmux-next", "repository": {"id": REPO_ID},
-               "head_repository": {"id": REPO_ID}}
+               "head_repository": {"id": REPO_ID}, "path": ".github/workflows/cmux-next.yml"}
         outputs, _, code = lookup([source], trusted_branch="feat-cmux-next",
-                                  trusted_event="push", runs=[run])
+                                  trusted_event="push", trusted_workflow=".github/workflows/cmux-next.yml", runs=[run])
+        self.assertEqual((code, outputs["hit"]), (0, "false"))
+
+    def test_planner_lookup_rejects_a_matching_push_from_another_workflow(self):
+        source = artifact(96, branch="feat-cmux-next", event="")
+        run = {"id": 96, "event": "push", "status": "completed", "conclusion": "success",
+               "head_branch": "feat-cmux-next", "repository": {"id": REPO_ID},
+               "head_repository": {"id": REPO_ID}, "path": ".github/workflows/other.yml"}
+        outputs, _, code = lookup([source], trusted_branch="feat-cmux-next", trusted_event="push",
+                                  trusted_workflow=".github/workflows/cmux-next.yml", runs=[run])
         self.assertEqual((code, outputs["hit"]), (0, "false"))
 
     def test_planner_lookup_can_fill_omitted_artifact_identity_from_run(self):
@@ -174,9 +189,10 @@ class Lookup(unittest.TestCase):
         source["workflow_run"].pop("head_branch")
         run = {"id": 94, "event": "push", "status": "completed", "conclusion": "success",
                "head_branch": "feat-cmux-next",
-               "repository": {"id": REPO_ID}, "head_repository": {"id": REPO_ID}}
+               "repository": {"id": REPO_ID}, "head_repository": {"id": REPO_ID},
+               "path": ".github/workflows/cmux-next.yml"}
         outputs, _, code = lookup([source], trusted_branch="feat-cmux-next",
-                                  trusted_event="push", runs=[run])
+                                  trusted_event="push", trusted_workflow=".github/workflows/cmux-next.yml", runs=[run])
         self.assertEqual((code, outputs["hit"]), (0, "true"))
 
 

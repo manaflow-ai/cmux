@@ -40,7 +40,7 @@ class Miss(Exception):
 
 def pick(artifacts: list[dict], key: str, repository_id: str,
          trusted_branch: str | None = None, trusted_event: str | None = None,
-         run_reader=None) -> dict | None:
+         run_reader=None, trusted_workflow: str | None = None) -> dict | None:
     """The newest unexpired artifact from a trusted producer run."""
     trusted = []
     for item in artifacts:
@@ -78,6 +78,8 @@ def pick(artifacts: list[dict], key: str, repository_id: str,
                 if str(head_repo.get("id", details.get("head_repository_id"))) != repository_id:
                     continue
                 if details.get("status") != "completed" or details.get("conclusion") != "success":
+                    continue
+                if trusted_workflow is not None and details.get("path") != trusted_workflow:
                     continue
             else:
                 # A trusted planner lookup never falls back to artifact-list
@@ -185,7 +187,8 @@ def producer_run(run_id: object, fixture: dict[int, dict] | None) -> dict | None
 
 
 def lookup(key: str, path: str | None, trusted_branch: str | None = None,
-           trusted_event: str | None = None, runs_path: str | None = None) -> dict[str, str]:
+           trusted_event: str | None = None, runs_path: str | None = None,
+           trusted_workflow: str | None = None) -> dict[str, str]:
     if not KEY.match(key):
         raise Miss(f"{key!r} is not a pass key")
     repository_id = os.environ.get("GITHUB_REPOSITORY_ID", "").strip()
@@ -193,7 +196,7 @@ def lookup(key: str, path: str | None, trusted_branch: str | None = None,
         raise Miss("GITHUB_REPOSITORY_ID is not set, so no pass can be checked")
     fixture = run_listing(runs_path)
     reader = (lambda run_id: producer_run(run_id, fixture)) if trusted_event is not None else None
-    found = pick(listing(key, path), key, repository_id, trusted_branch, trusted_event, reader)
+    found = pick(listing(key, path), key, repository_id, trusted_branch, trusted_event, reader, trusted_workflow)
     if found is None:
         return {"hit": "false"}
     run = found["workflow_run"]
@@ -211,9 +214,11 @@ def main(argv: list[str] | None = None) -> int:
     find.add_argument("--trusted-branch", help="require the producer run's head branch")
     find.add_argument("--trusted-event", help="require the producer run's event")
     find.add_argument("--runs-json", help="authoritative workflow-run records for offline tests")
+    find.add_argument("--trusted-workflow", help="require the producer workflow path")
     args = parser.parse_args(argv)
     try:
-        outputs = lookup(args.key, args.artifacts_json, args.trusted_branch, args.trusted_event, args.runs_json)
+        outputs = lookup(args.key, args.artifacts_json, args.trusted_branch, args.trusted_event,
+                         args.runs_json, args.trusted_workflow)
     except Miss as why:
         print(f"::notice title=No reused pass::{why}", file=sys.stderr)
         outputs = {"hit": "false"}
