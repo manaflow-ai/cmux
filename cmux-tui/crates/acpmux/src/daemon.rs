@@ -50,6 +50,10 @@ pub(crate) mod owner_exit;
 mod persist_retry;
 #[cfg(unix)]
 mod socket_rebind;
+mod stop_causes;
+#[cfg(unix)]
+use stop_causes::next_signal;
+use stop_causes::{AbortOnDrop, store_asks_to_stop};
 #[cfg(unix)]
 mod term_sender;
 pub(crate) mod unused_exit;
@@ -712,6 +716,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
 
     #[cfg(all(unix, feature = "tailnet"))]
     let tailnet = crate::tailnet::embedded_service::Service::spawn(hub.clone());
+    // The store asks for a restart when it cannot go on safely (`Store::stop_reason`): a frozen
+    // event journal checkpoint, whose logs only the next start's replay writes again.
+    let mut store_stop = std::pin::pin!(store_asks_to_stop(hub.store.stop_reason()));
     let shutdown = async {
         // Every stop names its cause in the log (`app_orphan` and `unused` name their own).
         #[cfg(unix)]
@@ -734,6 +741,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 },
                 _ = next_signal(int.as_mut()) => tracing::warn!("stopping: SIGINT"),
                 _ = hub.shutdown.notified() => tracing::warn!("stopping: a client asked it to"),
+                // A restart handoff: the next start repairs what the store could not.
+                () = &mut store_stop => {
+                    hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
+                },
                 // No build of its app is left to adopt its agents, so they end with it. An app
                 // that only quit or was updated keeps them, as its Quit does
                 // (`daemon/app_orphan.rs`).
@@ -787,6 +798,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             tokio::select! {
                 _ = ctrl_c => {},
                 _ = hub.shutdown.notified() => {},
+                () = &mut store_stop => {
+                    hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
+                },
                 // No build of its app is left to adopt its agents, so they end with it. An app
                 // that only quit or was updated keeps them, as its Quit does
                 // (`daemon/app_orphan.rs`).
@@ -928,26 +942,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
 fn remove_bound_socket(bound: Option<&home_watch::Owned>) {
     if bound.map_or(!cfg!(unix), |s| s.lost().is_none()) {
         let _ = std::fs::remove_file(socket_path());
-    }
-}
-
-/// Aborts a task when dropped.
-struct AbortOnDrop(tokio::task::AbortHandle);
-
-impl Drop for AbortOnDrop {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
-
-/// The next delivery of a registered signal; never, if registration failed.
-#[cfg(unix)]
-async fn next_signal(stream: Option<&mut tokio::signal::unix::Signal>) {
-    match stream {
-        Some(stream) => {
-            stream.recv().await;
-        }
-        None => std::future::pending::<()>().await,
     }
 }
 

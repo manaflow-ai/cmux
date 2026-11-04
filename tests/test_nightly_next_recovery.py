@@ -580,7 +580,7 @@ class RecheckTests(unittest.TestCase):
         # signing/notarization while another run published build 49901. Builds run
         # side by side and publication is latest-wins, so that is a quiet no-op,
         # never a publication and never a failure (run 40825878411).
-        for feeds in (((49901,), (), ()), ((), (49901,), ()), ((), (), (49901,))):
+        for feeds in (((49901,), (), ()), ((), (49901,), ())):
             with self.subTest(feeds=feeds):
                 result = run_recheck(49801, *feeds, source="own")
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -588,6 +588,16 @@ class RecheckTests(unittest.TestCase):
                 self.assertEqual(result.output.get("already_published"), "true")
                 self.assertIn("::notice title=Superseded::", result.stdout)
                 self.assertIsNone(result.published_build)
+
+    def test_a_newer_classic_nightly_never_supersedes_a_next_build(self):
+        # Run 41815641855: classic NIGHTLY published 4181616539301 while NEXT build 4181564185501 was
+        # notarizing, and the NEXT publication ended "superseded" with nothing published.
+        for source in ("own", "recovered"):
+            with self.subTest(source=source):
+                result = run_recheck(49801, (49701,), (49601,), (49901,), source=source)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotEqual(result.output.get("superseded"), "true")
+                self.assertEqual(result.published_build, "49801")
 
     def test_an_own_build_above_every_feed_can_publish(self):
         result = run_recheck(49801, (49701,), (49601,), (49501,), source="own")
@@ -634,7 +644,7 @@ class RecheckTests(unittest.TestCase):
         self.assertIn("already published", result.stdout)
 
     def test_a_nightly_next_build_below_a_feed_is_superseded_not_a_failure(self):
-        for feeds in (((49901,), (), ()), ((49801,), (49601,), (49901,)), ((49801, 49901), (), ())):
+        for feeds in (((49901,), (), ()), ((49801,), (49901,), (49601,)), ((49801, 49901), (), ())):
             with self.subTest(feeds=feeds):
                 result = run_recheck(49801, *feeds)
                 self.assertEqual(result.returncode, 0, result.stderr)

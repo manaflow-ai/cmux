@@ -114,6 +114,9 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         // Both a missing folder and a missing program fail as ENOENT: say which.
         if e.kind() == std::io::ErrorKind::NotFound && !spec.cwd.exists() {
             anyhow!("the folder {} does not exist", spec.cwd.display())
+        } else if e.kind() == std::io::ErrorKind::PermissionDenied && !can_enter(&spec.cwd) {
+            // The start's chdir fails as EACCES too, which read as the program's own.
+            anyhow!("the folder {} cannot be entered by this user", spec.cwd.display())
         } else {
             anyhow!(e).context(format!("spawn harness process {}", spec.program))
         }
@@ -1269,6 +1272,14 @@ fn watch_record(
         let _ = tx.try_send(Event::Term);
     }
     watch
+}
+
+/// This user may chdir into `dir` (search permission, what a spawn's chdir needs).
+fn can_enter(dir: &std::path::Path) -> bool {
+    use std::os::unix::ffi::OsStrExt as _;
+    let Ok(c) = std::ffi::CString::new(dir.as_os_str().as_bytes()) else { return false };
+    // SAFETY: `c` is a valid NUL-terminated path for the call's duration.
+    unsafe { libc::access(c.as_ptr(), libc::X_OK) == 0 }
 }
 
 #[cfg(test)]
