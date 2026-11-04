@@ -59,13 +59,14 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'labeled' && github.event.action != 'unlabeled' }}
 
 jobs:
-  # A Linux-only bootstrap reads the fresh runner-state publication and gives this
-  # short routing job a live fleet Linux before hosted/paid overflow. `changes`
-  # mints routing credentials later, so this bootstrap never places it on a mini.
-  # The base copy is trusted, and the placement script fails open: stale capacity
-  # or the kill switch leaves the existing fallback route unchanged.
   portable-placement:
+    # A Linux-only bootstrap reads the fresh runner-state publication and gives this
+    # short routing job a live fleet Linux before hosted/paid overflow. `changes`
+    # mints routing credentials later, so this bootstrap never places it on a mini.
+    # The base copy is trusted, and the placement script fails open: stale capacity
+    # or the kill switch leaves the existing fallback route unchanged.
     name: portable light placement
+    continue-on-error: true
     if: ${{ vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 4
