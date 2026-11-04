@@ -339,6 +339,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         usage: None,
         context_breakdown: None,
         cmux_context: None,
+        cmux_preset_prompt: None,
         cmux_context_delivered: false,
         usage_limits: None,
         available_commands: None,
