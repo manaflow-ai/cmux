@@ -328,10 +328,14 @@ struct CreationHoldReplyBoundTests {
         #expect(buffer.untypedTerminalKeys == (typesIntoPress ? 0 : typed))
     }
 
-    /// The lines typed for a new workspace before and after a script's focus move go on at the bound as ONE run into the
-    /// press-time terminal, every key in typing order (round 11 of #35275: the second line looked split on the screen; it
-    /// was the shell's echo of typeahead, and the test had read the screen before the second command ran).
-    @Test func thePressTerminalsHeldLinesGoOnAsOneRunInTypingOrder() throws {
+    /// The lines typed for a new workspace before and after a script's focus move go on at the bound as ONE run typed into
+    /// the press-time terminal, every key in typing order (round 11 of #35275: the second line looked split on the screen;
+    /// it was the shell's echo of typeahead, and the test had read the screen before the second command ran). Also when that
+    /// terminal still has its window's keyboard (`focused`): a run again as typed goes to the KEY window, which may be a
+    /// floating panel (the Quick Agent Chat, the Chief pet's reply box) whose Return sends the line to an agent (review of
+    /// #35275 at 2c4f80760117; dogfood v2.2.3).
+    @Test(arguments: ["other_tab", "press_tab"])
+    func thePressTerminalsHeldLinesGoOnAsOneRunInTypingOrder(_ focused: String) throws {
         let buffer = CreationInputBuffer(began: .now)
         let press = CreationInputBuffer.HeldLane(tab: "press_tab", machine: nil)
         _ = buffer.open(generation: 1, newWorkspace: true, pressTerminal: press, personMoves: 3)
@@ -347,10 +351,10 @@ struct CreationHoldReplyBoundTests {
         try capture("echo hel''d\r", focusedTab: press.tab)
         try capture("echo al''so\r", focusedTab: "other_tab") // after a script moved the focus; the person's claim holds
         buffer.endReplyWait(personMoves: 3, shows: { _ in true })
-        let keys = buffer.take(focused: "other_tab", isShortcut: { _, _ in false })
-        #expect(keys.count == 1, "the held keys went on in \(keys.count) runs")
+        let keys = buffer.take(focused: focused, isShortcut: { _, _ in false })
+        #expect(keys.count == 1, "focused \(focused): the held keys went on in \(keys.count) runs")
         guard case .type(let events, let lane)? = keys.first else {
-            Issue.record("the held keys went on as no typed run")
+            Issue.record("focused \(focused): the held keys went on as no typed run: \(keys.first.map { "\($0)" } ?? "none")")
             return
         }
         #expect(lane == press)
