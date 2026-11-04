@@ -54,7 +54,8 @@ const PARALLEL_FILES: usize = 16;
 const TRIES: u32 = 4;
 /// Longest one blob request may take.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
-/// Finished jobs kept for `blob.fetch.status`.
+/// Finished jobs that wrote nothing kept for `blob.fetch.status`; one that
+/// wrote stays until it is forgotten.
 const KEPT_FINISHED: usize = 32;
 /// At most this many fetch workers live at once, a cancelled one counting
 /// until its thread ends; a start past it is refused (`blob.busy`) and the
@@ -554,14 +555,22 @@ impl BlobFetchService {
         Ok(answer)
     }
 
-    /// Keeps at most [`KEPT_FINISHED`] finished jobs.
+    /// Keeps at most [`KEPT_FINISHED`] finished jobs that wrote nothing. A
+    /// job that committed a file stays until `blob.fetch.forget`: its push
+    /// may have died before a manifest named those files, and the next push
+    /// to the folder reads them from it ([`Self::cancel`]), however many jobs
+    /// finished in between.
     fn retire_finished(&self) {
         let mut jobs = self.jobs.lock().unwrap_or_else(PoisonError::into_inner);
         let finished: Vec<String> = jobs
             .by_id
             .iter()
             .filter(|(id, job)| {
+                // Under the jobs lock a job that is not running commits
+                // nothing more (a cancel waits out its commit before it
+                // lets go), so what it wrote is final.
                 job.status.lock().unwrap_or_else(PoisonError::into_inner).state != State::Running
+                    && job.written.lock().unwrap_or_else(PoisonError::into_inner).is_empty()
                     && !jobs.finished.contains(id)
             })
             .map(|(id, _)| id.clone())

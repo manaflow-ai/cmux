@@ -467,9 +467,10 @@ class FailureIssueTests(unittest.TestCase):
     def publication(self, source, **results):
         jobs = ("decide", "build-nightly-ghostty-cli-helper", "build-nightly-app", "build-nightly-remote-daemon", "resolve-nightly-cmux-tui-client",
                 "prepare-nightly-variant", "build-sign-notarize-nightly", "verify-signed-nightly", "verify-final-dmg-nightly",
-                "verify-recovered-nightly-next", "publish-nightly", "generate-nightly-deltas", "republish-nightly-deltas",
-                "sign-release-notes", "publish-release-notes")
+                "verify-recovered-nightly-next", "republish-nightly-next", "publish-nightly", "generate-nightly-deltas",
+                "republish-nightly-deltas", "sign-release-notes", "publish-release-notes")
         outcome = dict.fromkeys(jobs, "success")
+        outcome["republish-nightly-next"] = "skipped"
         if source == "own":
             outcome["verify-recovered-nightly-next"] = "skipped"
         if source == "recovered":
@@ -493,6 +494,12 @@ class FailureIssueTests(unittest.TestCase):
         # build failed; closing then would race the report of that failure.
         self.assertEqual(self.publication("recovered", **{"build-sign-notarize-nightly": "failure"}), (True, False))
         self.assertEqual(self.publication("recovered", **{"build-nightly-app": "failure", "build-sign-notarize-nightly": "skipped"}), (True, False))
+
+    def test_a_failed_republish_fetch_reports(self):
+        # publish-nightly is skipped then, and nothing else failed.
+        self.assertIn("republish-nightly-next", workflow()["jobs"]["report-nightly-failure"]["needs"])
+        self.assertEqual(self.publication("recovered", **{"republish-nightly-next": "failure", "publish-nightly": "skipped"})[0],
+                         True)
 
     def test_a_recovered_publication_that_failed_its_delta_republish_reports(self):
         self.assertEqual(self.publication("recovered", **{"republish-nightly-deltas": "failure"}), (True, False))
@@ -1063,6 +1070,17 @@ class RepublishSourceTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.receipt()
 
+    def test_source_archive_output_is_the_tarball_not_the_artifact(self):
+        # The artifact always carries the license trees; the tarball only while the source offered one.
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "variant/source-archive"
+            (archive / "ghostty-licenses").mkdir(parents=True)
+            self.assertFalse(self.republish.has_source_tarball(Path(tmp)))
+            (archive / "cmux-next-source-abc.tar.gz").write_bytes(b"tar")
+            self.assertTrue(self.republish.has_source_tarball(Path(tmp)))
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertFalse(self.republish.has_source_tarball(Path(tmp)))
+
     def test_no_compiled_source_receipt_refuses(self):
         self.artifacts = [a for a in self.artifacts if not a["name"].startswith("nightly-next-dsyms-")]
         with self.assertRaises(SystemExit):
@@ -1195,10 +1213,51 @@ class RepublishWorkflowTests(unittest.TestCase):
         self.assertEqual(step(job, "Final publication gate")["env"]["RECOVERED_RUN_ID"], "${{ steps.source.outputs.run_id }}")
         self.assertEqual(run_select(**dict(OWN, **RECOVERED, OWN_RESULT="failure"))["run_id"], "498")
         self.assertEqual(run_select(**OWN)["run_id"], "")
+        self.assertEqual(job["outputs"]["source_archive"], "${{ steps.source.outputs.source_archive }}")
+
         # Every guard stays as it is for any other build: none of them names the republish.
         for kept in ("Take the nightly-next publish lease", "Recheck the recovered build against both feeds",
                      "Require every DMG to match a tested digest", "Final publication gate"):
             self.assertNotIn("republish", json.dumps(step(job, kept)), kept)
+
+
+    def test_a_republished_build_publishes_the_pack_its_source_signed(self):
+        republished = dict(OWN, OWN_RESULT="skipped", REPUBLISHED="success", REPUBLISHED_RUN_ID="41815641855",
+                           REPUBLISHED_BUILD="4181564185501", REPUBLISHED_BUILD_SHA="d" * 40,
+                           REPUBLISHED_TIP_SHA="e" * 40, REPUBLISHED_BEHIND="3", REPUBLISHED_BEHIND_HOURS="4.5")
+        for switch, source, want in (("", "true", "true"), ("1", "false", "false"), ("1", "true", "true"), ("", "false", "false")):
+            with self.subTest(switch=switch, source=source):
+                selected = run_select(**dict(republished, CEF_ON_DEMAND=switch, REPUBLISHED_CEF=source))
+                self.assertEqual(selected["cef"], want)
+        # Any other build follows the switch as before.
+        self.assertEqual(run_select(**dict(OWN, CEF_ON_DEMAND="1"))["cef"], "true")
+        self.assertEqual(run_select(**dict(OWN, CEF_ON_DEMAND=""))["cef"], "false")
+        self.assertEqual(run_select(**dict(OWN, **RECOVERED, OWN_RESULT="failure", CEF_ON_DEMAND="1"))["cef"], "true")
+        job = workflow()["jobs"]["publish-nightly"]
+        for name in ("Download the Chromium runtime pack", "Publish the Chromium runtime pack"):
+            self.assertIn("steps.source.outputs.cef == 'true'", step(job, name)["if"])
+            self.assertNotIn("CMUX_NEXT_CEF_ON_DEMAND", step(job, name)["if"])
+        self.assertEqual(workflow()["jobs"]["republish-nightly-next"]["outputs"]["cef"], "${{ steps.fetch.outputs.cef }}")
+
+    def test_a_republished_build_without_a_source_tarball_publishes_none(self):
+        republished = dict(OWN, OWN_RESULT="skipped", REPUBLISHED="success", REPUBLISHED_RUN_ID="41815641855",
+                           REPUBLISHED_BUILD="4181564185501", REPUBLISHED_BUILD_SHA="d" * 40,
+                           REPUBLISHED_TIP_SHA="e" * 40, REPUBLISHED_BEHIND="3", REPUBLISHED_BEHIND_HOURS="4.5")
+        # The switch stays the switch; a republish only drops an archive its source never made.
+        for switch, source, want in (("1", "true", "true"), ("1", "false", "false"), ("", "true", "false"), ("", "false", "false")):
+            with self.subTest(switch=switch, source=source):
+                selected = run_select(**dict(republished, PUBLISH_SOURCE_ARCHIVE=switch, REPUBLISHED_SOURCE_ARCHIVE=source))
+                self.assertEqual(selected["source_archive"], want)
+        self.assertEqual(run_select(**dict(OWN, PUBLISH_SOURCE_ARCHIVE="1"))["source_archive"], "true")
+        self.assertEqual(run_select(**dict(OWN, **RECOVERED, OWN_RESULT="failure", PUBLISH_SOURCE_ARCHIVE="1"))["source_archive"],
+                         "true")
+        github = workflow()["jobs"]["publish-nightly-next-github"]
+        for name in ("Download the cmux-next source archive", "Take the recovered build's source archive",
+                     "Publish the cmux-next source archive"):
+            self.assertIn("needs.publish-nightly.outputs.source_archive == 'true'", step(github, name)["if"])
+            self.assertNotIn("CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE", step(github, name)["if"])
+        self.assertEqual(workflow()["jobs"]["republish-nightly-next"]["outputs"]["source_archive"],
+                         "${{ steps.fetch.outputs.source_archive }}")
 
 
 if __name__ == "__main__":

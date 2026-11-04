@@ -45,6 +45,8 @@ env:
   # Exact trusted head repositories may use the owned minis. Keep this as one
   # list so adding another team account changes one value and nothing else.
   CI_OWNED_HEAD_REPOS: '["manaflow-ai/cmux", "teamleaderleo/cmux"]'
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 concurrency:
   # Adding dev-build gets its own group, so a later label event cannot replace
