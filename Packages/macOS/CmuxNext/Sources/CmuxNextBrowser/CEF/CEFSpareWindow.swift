@@ -55,7 +55,7 @@ final class CEFSpareWindow {
     private(set) var page: (browser: Int32, host: CEFPaneHost, freeze: CEFPageFreeze, loaded: Bool)?
     /// Debug Settings > Browser Page Loading > "Make new Chromium tab pages ahead" (`BrowserPageTunables.all`).
     /// Off (the default) until the real-fork journey `chromium-tab-takes-spare-page` passes (#34252): no
-    /// spare page is made and no tab takes one (`CEFPaneHost.addToWindow`).
+    /// spare page is made, no tab takes one, and one left waiting closes at the next new tab (`takePage`).
     nonisolated static let pageSetting = Tunable<Bool>.toggle(
         "browserPage.sparePage", BrowserPageTunables.section, "Make new Chromium tab pages ahead",
         help: "One Chromium page is made ahead at an idle moment, frozen and hidden, and the next new tab you open takes it instead of waiting for Chromium to make its page. A new page is made at the next idle moment after each take. Off makes each tab's page when the tab opens.",
@@ -165,6 +165,12 @@ final class CEFSpareWindow {
     /// the spare). The page is the tab's from now on. Every such tab asks for the next page, at the next
     /// idle moment, whether or not one was ready: a page an extension closed is made again only here.
     func takePage(for tab: CEFTab, in host: CEFPaneHost) -> (browser: Int32, host: CEFPaneHost)? {
+        // The switch off (Debug Settings `browserPage.sparePage`): no take, and a page left waiting when it was
+        // turned off closes, since nothing will take it.
+        guard Self.makesPages else {
+            if let page { self.page = nil; host.runtime.shim?.close(page.browser) }
+            return nil
+        }
         guard host.visibleTab === tab, !tab.isAgentDriven, !tab.awaitsWindowMove, tab.pendingRestore == nil,
               tab.machineStore == nil, host.key.profile == .default, host.key.machineKey == nil,
               !host.key.offTheRecord, !host.isPopupHost, !host.isSpare else { return nil }
