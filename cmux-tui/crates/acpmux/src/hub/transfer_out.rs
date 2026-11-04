@@ -139,6 +139,16 @@ pub(super) fn check_epoch(expected: u64, supplied: Option<u64>) -> Result<(), Rp
     Ok(())
 }
 
+/// Missing is the legacy protocol; an explicit non-number is malformed and must not be treated
+/// as epoch zero.
+pub(super) fn parse_epoch(value: Option<&Value>) -> Result<Option<u64>, RpcError> {
+    let Some(value) = value else { return Ok(None) };
+    value
+        .as_u64()
+        .map(Some)
+        .ok_or_else(|| transfer_error("epoch", "epoch must be an unsigned integer"))
+}
+
 /// Current protocol calls must carry the lease. Epoch-zero requests are accepted only for
 /// bundles produced by older daemons.
 pub(super) fn require_epoch(expected: u64, supplied: Option<u64>) -> Result<(), RpcError> {
@@ -254,13 +264,13 @@ impl Hub {
                     text("path"),
                     offset,
                     limit,
-                    params.get("epoch").and_then(Value::as_u64),
+                    parse_epoch(params.get("epoch"))?,
                 )
             }
             "renew" => {
                 let transfer_id = text("transferId");
                 let dir = inside(&transfers_dir(), transfer_id)?;
-                require_epoch(transfer_epoch(&dir)?, params.get("epoch").and_then(Value::as_u64))?;
+                require_epoch(transfer_epoch(&dir)?, parse_epoch(params.get("epoch"))?)?;
                 if !dir.is_dir() {
                     return Err(transfer_error("unknown", format!("no move {transfer_id} here")));
                 }
@@ -274,7 +284,7 @@ impl Hub {
                     &session,
                     text("transferId"),
                     to,
-                    params.get("epoch").and_then(Value::as_u64),
+                    parse_epoch(params.get("epoch"))?,
                 )
                 .await
             }
@@ -284,7 +294,7 @@ impl Hub {
                     &session,
                     text("transferId"),
                     None,
-                    params.get("epoch").and_then(Value::as_u64),
+                    parse_epoch(params.get("epoch"))?,
                 )
             }
             "receive" => self.transfer_receive(params).await,
@@ -772,5 +782,13 @@ mod fencing_tests {
         std::fs::write(dir.join("epoch"), "not-an-epoch").unwrap();
         assert!(transfer_epoch_marker(&dir).is_err());
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn epoch_parser_distinguishes_legacy_missing_from_malformed() {
+        assert_eq!(parse_epoch(None).unwrap(), None);
+        assert_eq!(parse_epoch(Some(&json!(7))).unwrap(), Some(7));
+        assert!(parse_epoch(Some(&json!("7"))).is_err());
+        assert!(parse_epoch(Some(&json!(null))).is_err());
     }
 }

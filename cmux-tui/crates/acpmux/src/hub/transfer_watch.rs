@@ -16,7 +16,7 @@
 //! `alive` (touched by begin and each read), `read` (each file read to its end), `to` and
 //! `to-ssh` and `to-host`.
 
-use super::transfer_out::{bundle_files, names_a_move, transfers_dir};
+use super::transfer_out::{bundle_files, names_a_move, transfer_epoch_marker, transfers_dir};
 use super::*;
 use cmux_json::JsonSet as _;
 
@@ -189,10 +189,23 @@ impl Hub {
         transfer_id: &str,
         dir: &Path,
     ) -> bool {
+        let epoch = match transfer_epoch_marker(dir) {
+            Ok(Some(epoch)) => epoch,
+            Ok(None) => session.ownership_epoch(),
+            Err(error) => {
+                tracing::warn!(session = %session.id, transfer_id, "stalled move epoch unreadable: {}", error.message);
+                return false;
+            }
+        };
         {
             let _pages = PAGES.lock().unwrap_or_else(|e| e.into_inner());
             if fully_read(dir) == Some(false) {
-                if let Err(e) = self.transfer_abort(session, transfer_id, Some("stalled")) {
+                if let Err(e) = self.transfer_abort_with_epoch(
+                    session,
+                    transfer_id,
+                    Some("stalled"),
+                    Some(epoch),
+                ) {
                     tracing::warn!(session = %session.id, transfer_id, "ending a stalled move: {}", e.message);
                 }
                 return true;
@@ -222,11 +235,14 @@ impl Hub {
                 if let Ok(host) = std::fs::read_to_string(dir.join("to-host")) {
                     to.set("host", json!(host.trim()));
                 }
-                self.transfer_commit(session, transfer_id, to).await.map(|_| ())
+                self.transfer_commit_with_epoch(session, transfer_id, to, Some(epoch))
+                    .await
+                    .map(|_| ())
             }
             Some(false) => {
                 let _pages = PAGES.lock().unwrap_or_else(|e| e.into_inner());
-                self.transfer_abort(session, transfer_id, Some("stalled")).map(|_| ())
+                self.transfer_abort_with_epoch(session, transfer_id, Some("stalled"), Some(epoch))
+                    .map(|_| ())
             }
             None => return false,
         };

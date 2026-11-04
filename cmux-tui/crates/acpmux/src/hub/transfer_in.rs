@@ -18,8 +18,8 @@
 
 use super::transfer_guard::{Guard, bundle_path_kind};
 use super::transfer_out::{
-    DURABLE_TRANSFER_SCHEMA, MAX_FILES, MAX_PAGE, TRANSFER_SCHEMA, inside, reject_stale_epoch,
-    require_epoch, transfers_dir,
+    DURABLE_TRANSFER_SCHEMA, MAX_FILES, MAX_PAGE, TRANSFER_SCHEMA, inside, parse_epoch,
+    reject_stale_epoch, require_epoch, transfers_dir,
 };
 use super::*;
 use base64::Engine;
@@ -96,8 +96,8 @@ fn receive_manifest(dir: &Path) -> Result<(Value, Vec<(String, u64)>), RpcError>
     Ok((manifest, files))
 }
 
-fn manifest_epoch(manifest: &Value) -> u64 {
-    manifest.get("epoch").and_then(Value::as_u64).unwrap_or(0)
+fn manifest_epoch(manifest: &Value) -> Result<Option<u64>, RpcError> {
+    parse_epoch(manifest.get("epoch"))
 }
 
 impl Hub {
@@ -343,6 +343,8 @@ impl Hub {
 
     pub(super) async fn transfer_receive(&self, params: &Value) -> Result<Value, RpcError> {
         let manifest = params.get("manifest").cloned().unwrap_or(Value::Null);
+        let incoming_epoch = manifest_epoch(&manifest)?;
+        let incoming_floor = incoming_epoch.unwrap_or(0);
         let guard = match params.get("guard") {
             Some(g) => Some(Guard::parse(g).await?),
             None => None,
@@ -377,7 +379,7 @@ impl Hub {
             // A delayed bundle for an older owner must not replace a newer moved copy.
             self.restore_ownership_epoch(existing)
                 .map_err(|e| transfer_error("store", format!("ownership epoch unreadable: {e}")))?;
-            reject_stale_epoch(existing.ownership_epoch(), manifest_epoch(&manifest))?;
+            reject_stale_epoch(existing.ownership_epoch(), incoming_floor)?;
         }
         if here.is_some_and(|s| !self.moved_away(&s)) {
             return Err(transfer_error("exists", format!("chat {id} is here already")));
@@ -438,7 +440,7 @@ impl Hub {
         let text = |k: &str| params.get(k).and_then(Value::as_str).unwrap_or("");
         let dir = receive_dir(text("receiveId"))?;
         let (manifest, files) = receive_manifest(&dir)?;
-        require_epoch(manifest_epoch(&manifest), params.get("epoch").and_then(Value::as_u64))?;
+        require_epoch(manifest_epoch(&manifest)?.unwrap_or(0), parse_epoch(params.get("epoch"))?)?;
         let path = text("path");
         let Some(&(_, size)) = files.iter().find(|(p, _)| p == path) else {
             return Err(transfer_error("path", format!("{path:?} is not in the manifest")));
@@ -481,7 +483,9 @@ impl Hub {
         let _receives = RECEIVES.lock().await;
         let dir = receive_dir(text("receiveId").unwrap_or(""))?;
         let (manifest, files) = receive_manifest(&dir)?;
-        require_epoch(manifest_epoch(&manifest), params.get("epoch").and_then(Value::as_u64))?;
+        let incoming_epoch = manifest_epoch(&manifest)?;
+        let incoming_floor = incoming_epoch.unwrap_or(0);
+        require_epoch(incoming_floor, parse_epoch(params.get("epoch"))?)?;
         let guard = Guard::stored(&dir)?;
         let bundle = dir.join("bundle");
         for (path, size) in &files {
@@ -518,7 +522,7 @@ impl Hub {
             }
             self.restore_ownership_epoch(existing)
                 .map_err(|e| transfer_error("store", format!("ownership epoch unreadable: {e}")))?;
-            reject_stale_epoch(existing.ownership_epoch(), manifest_epoch(&manifest))?;
+            reject_stale_epoch(existing.ownership_epoch(), incoming_floor)?;
         }
         let replacing_durable = old.as_ref().is_some_and(|existing| {
             let existing_meta = existing.meta();
@@ -606,12 +610,12 @@ impl Hub {
             .await
         {
             Ok(session) => {
-                session.restore_ownership_epoch(manifest_epoch(&manifest));
+                session.restore_ownership_epoch(incoming_floor);
                 let (_, appended) = self.append_at(
                     &session,
                     "mux",
                     "transferred_in",
-                    json!({"transferId": transfer_id, "from": from, "epoch": manifest_epoch(&manifest)}),
+                    json!({"transferId": transfer_id, "from": from, "epoch": incoming_floor}),
                     None,
                     None,
                 );
