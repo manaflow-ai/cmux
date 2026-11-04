@@ -70,12 +70,12 @@ export default agentPaneEntry({
       ),
     },
     writing: {
-      note: "The reply paused mid-stream: Writing, with the turn's total.",
+      note: "The reply paused mid-stream a moment ago: Writing, with the turn's total. (One that paused past 5 s reads Thinking again.)",
       snapshot: chat(
         [
           prompt(),
           activity([tool("git log --oneline -5", "execute", "completed", { command: "git log --oneline -5" })], 2),
-          assistant("The signing step waits on a single runner because", 0.2),
+          assistant("The signing step waits on a single runner because", 0),
         ],
         { isWorking: true },
       ),

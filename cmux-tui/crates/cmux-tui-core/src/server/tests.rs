@@ -542,6 +542,7 @@ mod incognito_remote;
 mod input_lane;
 mod layout_receipts_shutdown;
 mod outbound_and_scheduler;
+mod rds_input_lane;
 mod read_barrier;
 mod resource_attach;
 mod resource_waits;

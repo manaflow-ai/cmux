@@ -41,8 +41,17 @@ public struct PaletteWorkspace: Identifiable, Sendable, Hashable {
 }
 
 public protocol PaletteWorkspaceSource: AnyObject {
+    /// Every workspace as a Go to Workspace row (the list page and search build it; a switch by id never does).
     var workspaces: [PaletteWorkspace] { get }
+    /// Whether `id` names a workspace, by one lookup: a switch by id (a palette row, the CLI, MCP, an agent) checks
+    /// its id here, never by building ``workspaces`` (O(session) in the switch's turn).
+    func hasWorkspace(id: String) -> Bool
     func selectWorkspace(id: String)
     func renameWorkspace(id: String, to title: String)
     func closeWorkspace(id: String)
+}
+
+public extension PaletteWorkspaceSource {
+    /// A source with no lookup of its own (tests, small fakes) answers from its list.
+    func hasWorkspace(id: String) -> Bool { workspaces.contains { $0.id == id } }
 }

@@ -23,4 +23,17 @@ extension CloudCredentialTransfer {
         decision.remoteSwitch = remoteSwitch
         return decision.gate
     }
+
+    /// Whether this build may offer the copy at all (the turn card's recovery): a dogfood build by its
+    /// gate; Release unless `cmux.cloud.passHarnessLogin` is NO, the switch and the consent being
+    /// checked when it runs (``CloudLoginCopyGate``).
+    public nonisolated static func offersLoginCopy(isDogfoodBuild: Bool, defaults: UserDefaults) -> Bool {
+        isDogfoodBuild ? passesHarnessLogin(isDogfoodBuild: true, defaults: defaults) : passHarnessLoginSetting(defaults) != false
+    }
+
+    /// Whether a team guest whose creator is the caller may take the login: a dogfood build only.
+    /// A Release copy goes only to an `owner` guest ("never on team machines").
+    public nonisolated static func allowsCreatorTeamGuest(isDogfoodBuild: Bool, defaults: UserDefaults) -> Bool {
+        isDogfoodBuild && passesHarnessLogin(isDogfoodBuild: true, defaults: defaults)
+    }
 }

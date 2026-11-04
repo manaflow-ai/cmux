@@ -502,6 +502,14 @@ impl Hub {
             && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref());
         let trigger = crate::prompt_provenance::is_trigger(opts.provenance.as_ref());
         let trigger_held = trigger || running.as_ref().is_some_and(|t| t.trigger);
+        if steer
+            && opts.steer_only
+            && opts.interrupt_turn.as_deref().is_some_and(|expected| {
+                running.as_ref().is_none_or(|turn| turn.turn_id != expected)
+            })
+        {
+            return Err(super::turn_cap::steer_unavailable(capped));
+        }
         let steer_now = steer
             && !trigger_held
             && session.steering.load(Ordering::SeqCst)
@@ -818,7 +826,9 @@ impl Hub {
         // finishes later. Do not let the stale compaction flag cancel the
         // next, explicit prompt immediately.
         session.compacting.store(false, Ordering::SeqCst);
-        let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
+        // Its control and mobile origin go with it: a restart that finds its turn never started
+        // queues it again as it came (`unstarted_prompt.rs`).
+        let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "cloudMobile": run.cloud_mobile});
         let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
         self.append_prompt(session, msg, &blocks, display_parts.as_ref());
         if trigger {
@@ -2260,6 +2270,7 @@ impl Hub {
                     host_seq: None,
                 }),
                 remote: None,
+                update_line: Default::default(),
             });
             drop(sessions);
         }

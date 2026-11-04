@@ -1,6 +1,272 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "action.debug.allThemesPlayground": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "All Themes Playground"}}, "ja": {"stringUnit": {"state": "translated", "value": "すべてのテーマのプレイグラウンド"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "ساحة تجربة كل السمات"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Igralište svih tema"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Legeplads for alle temaer"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Spielwiese für alle Themes"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Zona de pruebas de todos los temas"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Bac à sable de tous les thèmes"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Area di prova di tutti i temi"}}, "km": {"stringUnit": {"state": "needs_review", "value": "កន្លែងសាកល្បងរូបរាងទាំងអស់"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "모든 테마 플레이그라운드"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Lekeplass for alle temaer"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Plac zabaw wszystkich motywów"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Playground de todos os temas"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Песочница всех тем"}}, "th": {"stringUnit": {"state": "needs_review", "value": "สนามทดลองธีมทั้งหมด"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Tüm temalar deneme alanı"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Пісочниця всіх тем"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Sân thử mọi chủ đề"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "所有主题试验场"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "所有主題試驗場"}}}},
+    "action.chief.moveRollback": {
+      "comment": "Command palette action: undo the Chief's last move so it runs on this Mac again.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roll Back Chief Move"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التراجع عن نقل Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poništi premještanje za Chief"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rul flytning af Chief tilbage"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verschiebung von Chief zurücknehmen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revertir el traslado de Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuler le déplacement de Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annulla lo spostamento di Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief の移動を元に戻す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រឡប់ការផ្លាស់ទី Chief វិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 이동 되돌리기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rull tilbake flytting av Chief"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cofnij przeniesienie Chief"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reverter mudança do Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отменить перенос Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ย้อนการย้าย Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief taşımasını geri al"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скасувати перенесення Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoàn tác chuyển Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回滚 Chief 移动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復原 Chief 移動"
+          }
+        }
+      }
+    },
+    "action.sidebar.revealWorkspace": {"comment": "Command palette and the workspace row menu: shows the current workspace in the sidebar", "extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Reveal Workspace in Sidebar"}}, "ar": {"stringUnit": {"state": "translated", "value": "إظهار مساحة العمل في الشريط الجانبي"}}, "bs": {"stringUnit": {"state": "translated", "value": "Prikaži radni prostor u bočnoj traci"}}, "da": {"stringUnit": {"state": "translated", "value": "Vis arbejdsområde i sidepanelet"}}, "de": {"stringUnit": {"state": "translated", "value": "Arbeitsbereich in der Seitenleiste zeigen"}}, "es": {"stringUnit": {"state": "translated", "value": "Mostrar espacio de trabajo en la barra lateral"}}, "fr": {"stringUnit": {"state": "translated", "value": "Afficher l’espace de travail dans la barre latérale"}}, "it": {"stringUnit": {"state": "translated", "value": "Mostra spazio di lavoro nella barra laterale"}}, "ja": {"stringUnit": {"state": "translated", "value": "サイドバーでワークスペースを表示"}}, "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញកន្លែងធ្វើការនៅក្នុងរបារចំហៀង"}}, "ko": {"stringUnit": {"state": "translated", "value": "사이드바에서 작업 공간 표시"}}, "nb": {"stringUnit": {"state": "translated", "value": "Vis arbeidsområde i sidefeltet"}}, "pl": {"stringUnit": {"state": "translated", "value": "Pokaż obszar roboczy na pasku bocznym"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostrar espaço de trabalho na barra lateral"}}, "ru": {"stringUnit": {"state": "translated", "value": "Показать рабочее пространство в боковой панели"}}, "th": {"stringUnit": {"state": "translated", "value": "แสดงพื้นที่ทำงานในแถบด้านข้าง"}}, "tr": {"stringUnit": {"state": "translated", "value": "Çalışma alanını kenar çubuğunda göster"}}, "uk": {"stringUnit": {"state": "translated", "value": "Показати робочий простір на бічній панелі"}}, "vi": {"stringUnit": {"state": "translated", "value": "Hiện không gian làm việc trong thanh bên"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "在边栏中显示工作区"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "在側邊欄中顯示工作區"}}}},
+    "action.sidebar.revealAndFocusWorkspace": {"comment": "Command palette and the workspace row menu: shows the current workspace in the sidebar", "extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Reveal and Focus Workspace in Sidebar"}}, "ar": {"stringUnit": {"state": "translated", "value": "إظهار مساحة العمل في الشريط الجانبي والتركيز عليها"}}, "bs": {"stringUnit": {"state": "translated", "value": "Prikaži i fokusiraj radni prostor u bočnoj traci"}}, "da": {"stringUnit": {"state": "translated", "value": "Vis og fokuser arbejdsområde i sidepanelet"}}, "de": {"stringUnit": {"state": "translated", "value": "Arbeitsbereich in der Seitenleiste zeigen und fokussieren"}}, "es": {"stringUnit": {"state": "translated", "value": "Mostrar y enfocar espacio de trabajo en la barra lateral"}}, "fr": {"stringUnit": {"state": "translated", "value": "Afficher et activer l’espace de travail dans la barre latérale"}}, "it": {"stringUnit": {"state": "translated", "value": "Mostra e attiva spazio di lavoro nella barra laterale"}}, "ja": {"stringUnit": {"state": "translated", "value": "サイドバーでワークスペースを表示してフォーカス"}}, "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញ និងផ្ដោតលើកន្លែងធ្វើការនៅក្នុងរបារចំហៀង"}}, "ko": {"stringUnit": {"state": "translated", "value": "사이드바에서 작업 공간 표시 및 포커스"}}, "nb": {"stringUnit": {"state": "translated", "value": "Vis og fokuser arbeidsområde i sidefeltet"}}, "pl": {"stringUnit": {"state": "translated", "value": "Pokaż i aktywuj obszar roboczy na pasku bocznym"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostrar e focar espaço de trabalho na barra lateral"}}, "ru": {"stringUnit": {"state": "translated", "value": "Показать рабочее пространство в боковой панели и перейти к нему"}}, "th": {"stringUnit": {"state": "translated", "value": "แสดงและโฟกัสพื้นที่ทำงานในแถบด้านข้าง"}}, "tr": {"stringUnit": {"state": "translated", "value": "Çalışma alanını kenar çubuğunda göster ve odaklan"}}, "uk": {"stringUnit": {"state": "translated", "value": "Показати робочий простір на бічній панелі й перейти до нього"}}, "vi": {"stringUnit": {"state": "translated", "value": "Hiện và chuyển tới không gian làm việc trong thanh bên"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "在边栏中显示并聚焦工作区"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "在側邊欄中顯示並聚焦工作區"}}}},
+    "action.debug.sidebarStatesPlayground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar States Playground"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ساحة تجربة حالات الشريط الجانبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Igralište stanja bočne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legeplads for sidepanelets tilstande"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spielwiese für Seitenleistenzustände"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zona de pruebas de estados de la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bac à sable des états de la barre latérale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Area di prova degli stati della barra laterale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの状態プレイグラウンド"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងសាកល្បងស្ថានភាពរបារចំហៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이드바 상태 플레이그라운드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lekeplass for sidepaneltilstander"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plac zabaw stanów paska bocznego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Playground de estados da barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Песочница состояний боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สนามทดลองสถานะแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kenar çubuğu durumları deneme alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пісочниця станів бічної панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sân thử trạng thái thanh bên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "边栏状态试验场"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "側邊欄狀態試驗場"
+          }
+        }
+      }
+    },
     "action.agent.jumpToNextNeedingInput": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Go to Next Agent Needing Input"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "الانتقال إلى الوكيل التالي الذي ينتظر إدخالًا"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Idi na sljedećeg agenta koji čeka unos"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Gå til næste agent, der venter på input"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Zum nächsten Agenten, der auf Eingabe wartet"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Ir al siguiente agente que necesita respuesta"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Aller à l’agent suivant en attente de réponse"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Vai al prossimo agente in attesa di input"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "入力待ちの次のエージェントへ移動"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ទៅកាន់ភ្នាក់ងារបន្ទាប់ដែលត្រូវការការបញ្ចូល"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "입력이 필요한 다음 에이전트로 이동"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Gå til neste agent som venter på svar"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Przejdź do następnego agenta czekającego na odpowiedź"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ir para o próximo agente aguardando resposta"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Перейти к следующему агенту, ожидающему ввода"}}, "th": {"stringUnit": {"state": "needs_review", "value": "ไปยังเอเจนต์ถัดไปที่รอการตอบ"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Girdi bekleyen sonraki ajana git"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Перейти до наступного агента, що чекає на введення"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Đi tới tác tử tiếp theo cần phản hồi"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "前往下一个等待输入的智能体"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "前往下一個等待輸入的代理程式"}}}},
     "action.artifacts.show": {"comment": "Command palette: opens the Artifacts page", "extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Show Artifacts"}}, "ar": {"stringUnit": {"state": "translated", "value": "إظهار العناصر المحفوظة"}}, "bs": {"stringUnit": {"state": "translated", "value": "Prikaži artefakte"}}, "da": {"stringUnit": {"state": "translated", "value": "Vis artefakter"}}, "de": {"stringUnit": {"state": "translated", "value": "Artefakte anzeigen"}}, "es": {"stringUnit": {"state": "translated", "value": "Mostrar artefactos"}}, "fr": {"stringUnit": {"state": "translated", "value": "Afficher les artefacts"}}, "it": {"stringUnit": {"state": "translated", "value": "Mostra artefatti"}}, "ja": {"stringUnit": {"state": "translated", "value": "アーティファクトを表示"}}, "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញវត្ថុបុរាណ"}}, "ko": {"stringUnit": {"state": "translated", "value": "아티팩트 보기"}}, "nb": {"stringUnit": {"state": "translated", "value": "Vis artefakter"}}, "pl": {"stringUnit": {"state": "translated", "value": "Pokaż artefakty"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostrar artefatos"}}, "ru": {"stringUnit": {"state": "translated", "value": "Показать артефакты"}}, "th": {"stringUnit": {"state": "translated", "value": "แสดงอาร์ติแฟกต์"}}, "tr": {"stringUnit": {"state": "translated", "value": "Yapıtları Göster"}}, "uk": {"stringUnit": {"state": "translated", "value": "Показати артефакти"}}, "vi": {"stringUnit": {"state": "translated", "value": "Hiện tạo phẩm"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "显示制品"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "顯示成品"}}}},
     "action.cloudShareMachine": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Share Machine…"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "مشاركة الجهاز…"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Podijeli mašinu…"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Del maskine…"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Maschine teilen …"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Compartir máquina…"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Partager la machine…"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Condividi macchina…"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "マシンを共有…"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ចែករំលែកម៉ាស៊ីន…"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "기기 공유…"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Del maskin …"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Udostępnij maszynę…"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Compartilhar Máquina…"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Поделиться машиной…"}}, "th": {"stringUnit": {"state": "needs_review", "value": "แชร์เครื่อง…"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Makineyi Paylaş…"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Поділитися машиною…"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Chia sẻ máy…"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "共享机器…"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "共享機器…"}}}},
@@ -657,6 +923,923 @@
         "stringUnit": {
           "state": "translated",
           "value": "Xóa khách"
+        }
+      }
+    }
+  },
+    "action.agent.share.invite": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Invite People to Chat…"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Personen zum Chat einladen…"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Inviter des personnes dans la conversation…"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "دعوة أشخاص إلى الدردشة…"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Invitar a personas al chat…"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "邀請成員加入聊天…"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "邀请成员加入聊天…"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "채팅에 사람 초대…"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "チャットにユーザーを招待…"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Pozovi osobe u chat…"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Inviter personer til chat…"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Invita persone nella chat…"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "អញ្ជើញមនុស្សចូលការជជែក…"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Inviter personer til chatten…"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Zaproś osoby do czatu…"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Convidar pessoas para o chat…"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Пригласить людей в чат…"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "เชิญผู้คนเข้าแชท…"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Sohbete kişi davet et…"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Запросити людей до чату…"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Mời mọi người vào cuộc trò chuyện…"
+        }
+      }
+    }
+  },
+    "action.agent.share.uninvite": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Remove Invited Person"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Eingeladene Person entfernen"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retirer la personne invitée"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "إزالة الشخص المدعو"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Quitar a la persona invitada"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "移除受邀成員"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "移除受邀成员"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "초대한 사람 제거"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "招待したユーザーを削除"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ukloni pozvanu osobu"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Fjern inviteret person"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Rimuovi persona invitata"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ដកមនុស្សដែលបានអញ្ជើញចេញ"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Fjern invitert person"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Usuń zaproszoną osobę"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Remover pessoa convidada"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Удалить приглашённого"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "นำผู้ที่ได้รับเชิญออก"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Davet edilen kişiyi kaldır"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Вилучити запрошену особу"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Xóa người được mời"
+        }
+      }
+    }
+  },
+    "argument.agentShare.account": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Email or @handle"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "E-Mail oder @Handle"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "E-mail ou @identifiant"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "البريد الإلكتروني أو @المعرّف"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Correo o @usuario"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "電子郵件或 @帳號名稱"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "电子邮件或 @用户名"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "이메일 또는 @핸들"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "メールアドレスまたは @ハンドル"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "E-pošta ili @nadimak"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "E-mail eller @brugernavn"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Email o @nome utente"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "អ៊ីមែល ឬ @ឈ្មោះគណនី"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "E-post eller @brukernavn"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "E-mail lub @nazwa"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "E-mail ou @usuário"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Эл. почта или @имя"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "อีเมลหรือ @ชื่อผู้ใช้"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "E-posta veya @kullanıcı adı"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ел. пошта або @імʼя"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Email hoặc @tên người dùng"
+        }
+      }
+    }
+  },
+    "argument.agentShare.role": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Access"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Zugriff"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Accès"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "الوصول"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Acceso"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "存取權"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "访问权限"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "권한"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "アクセス"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Pristup"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Adgang"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Accesso"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "សិទ្ធិចូលប្រើ"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Tilgang"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Dostęp"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Acesso"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Доступ"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "สิทธิ์การเข้าถึง"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Erişim"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Доступ"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Quyền truy cập"
+        }
+      }
+    }
+  },
+    "argument.agentShare.role.talk": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Can talk"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Darf schreiben"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Peut écrire"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "يمكنه التحدث"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Puede escribir"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "可發言"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "可发言"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "대화 가능"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "発言可"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Može pisati"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Kan skrive"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Può scrivere"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "អាចនិយាយ"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Kan skrive"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Może pisać"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Pode conversar"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Может писать"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "พูดคุยได้"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Yazabilir"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Може писати"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Có thể trò chuyện"
+        }
+      }
+    }
+  },
+    "argument.agentShare.role.view": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Can view"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Darf ansehen"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Peut voir"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "يمكنه المشاهدة"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Puede ver"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "可檢視"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "可查看"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "보기 가능"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "閲覧可"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Može gledati"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Kan se"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Può vedere"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "អាចមើល"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Kan se"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Może oglądać"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Pode ver"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Может смотреть"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ดูได้"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Görüntüleyebilir"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Може переглядати"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Có thể xem"
+        }
+      }
+    }
+  },
+    "action.agent.share.invite.menu": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Invite People…"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Personen einladen…"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Inviter des personnes…"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "دعوة أشخاص…"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Invitar a personas…"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "邀請成員…"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "邀请成员…"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "사람 초대…"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ユーザーを招待…"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Pozovi osobe…"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Inviter personer…"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Invita persone…"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "អញ្ជើញមនុស្ស…"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Inviter personer…"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Zaproś osoby…"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Convidar pessoas…"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Пригласить людей…"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "เชิญผู้คน…"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Kişi davet et…"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Запросити людей…"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Mời mọi người…"
         }
       }
     }

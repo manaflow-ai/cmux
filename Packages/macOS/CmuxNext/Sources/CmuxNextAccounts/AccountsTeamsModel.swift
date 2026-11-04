@@ -197,13 +197,15 @@ public final class AccountsTeamsModel {
         }
     }
 
-    /// Joins the team `invitationID` names; it becomes the active team. Returns the failure text, or nil.
+    /// Joins the team `invitationID` names; it becomes the active team when the switch to it
+    /// succeeds, and the notice says which happened. Returns the failure text, or nil.
     @discardableResult
     public func accept(_ invitationID: String) async -> String? {
         let name = received.first { $0.id == invitationID }?.teamName ?? ""
         return await answer(invitationID) {
-            try await self.backend().acceptTeamInvitation(id: invitationID)
+            let joined = try await self.backend().acceptTeamInvitation(id: invitationID)
             await self.services.activeTeam?.refresh()
+            guard self.services.activeTeam?.id == joined.teamID else { return AccountsStrings.teamsJoinedInactive(name) }
             return AccountsStrings.teamsJoined(name)
         }
     }
