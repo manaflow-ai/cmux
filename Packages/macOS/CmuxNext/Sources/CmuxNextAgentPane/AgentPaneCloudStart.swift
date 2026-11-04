@@ -242,6 +242,7 @@ struct AgentPaneHandOff {
             // Reserve the send's click before opening the browser. The callback may take longer
             // than a gesture lives; this hold authorizes only this already-validated request.
             if signingIn {
+                let generation = model.cloudSignInGeneration
                 guard let signIn = model.onCloudSignIn, await signIn() else {
                     replacements.endSandbox()
                     return AgentPaneReply.failure(code: "not_signed_in", message: "Sign in to continue")
@@ -254,6 +255,12 @@ struct AgentPaneHandOff {
                         code: "cloud_chat_already_started",
                         message: "A chat opened while you were signing in. This prompt was not sent to Cloud."
                     )
+                }
+                // The person picked another place to run (or left this chat) while the browser was
+                // open: the sign-in stands, but the prompt stays in the composer for that pick.
+                guard model.cloudSignInGeneration == generation else {
+                    replacements.endSandbox()
+                    return AgentPaneReply.failure(code: "cloud_sign_in_cancelled", message: "cloud_sign_in_cancelled")
                 }
             }
             let reply = await run(start)
