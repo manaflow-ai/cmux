@@ -56,21 +56,21 @@ const sets = {
     license: "First-party",
     image: "",
     note: "An angular cue replaces part of the action silhouette. Unapproved round 2 experiment.",
-    drawings: { "action.copy": earfoldCopy, "action.reload": earfoldRetry, "media.audio": earfoldSpeak },
+    drawings: { "action.copy": earfoldCopy, "action.retry": earfoldRetry, "media.audio": earfoldSpeak },
   },
   tailterm: {
     title: "cmux Tail terminals",
     license: "First-party",
     image: "",
     note: "One contour ends in a small curl. Unapproved round 2 experiment.",
-    drawings: { "action.copy": tailtermCopy, "action.reload": tailtermRetry, "media.audio": tailtermSpeak },
+    drawings: { "action.copy": tailtermCopy, "action.retry": tailtermRetry, "media.audio": tailtermSpeak },
   },
   whisker: {
     title: "cmux Whisker edges",
     license: "First-party",
     image: "",
     note: "Short rays share an exposed edge. Higher recognition risk; unapproved round 2 experiment.",
-    drawings: { "action.copy": whiskerCopy, "action.reload": whiskerRetry, "media.audio": whiskerSpeak },
+    drawings: { "action.copy": whiskerCopy, "action.retry": whiskerRetry, "media.audio": whiskerSpeak },
   },
 } as const;
 type SetName = keyof typeof sets;
@@ -109,7 +109,7 @@ function interfaceScale(density: Density, uiScale: UiScale): number {
 
 const samples = [
   ["action.copy", "Copy"],
-  ["action.reload", "Retry"],
+  ["action.retry", "Retry"],
   ["media.audio", "Speak"],
   ["bookmark", "Bookmark"],
   ["action.pin", "Pin"],
