@@ -2965,10 +2965,21 @@ final class ClaudeHookSessionStore {
             // misroutes from older builds could register a session as active for an
             // unrelated tab or pane, stealing its notifications (isCurrent trusts the
             // surface slot first) and suppressing that pane's own session.
-            return normalizeOptional(record.workspaceId) == workspaceId
+            if normalizeOptional(record.workspaceId) == workspaceId { return true }
+            // A worker can be attached from several panes. The record route
+            // names the newest viewer, but each live lease still owns its pane;
+            // pruning the older pane's slot would prevent detach from restoring
+            // the pre-attach owner. Only leases of this same session qualify.
+            return (record.claudeAttachedViewers ?? []).contains {
+                $0.workspaceID == workspaceId && $0.worker.isAlive && $0.viewer.isAlive
+            }
         }
         state.activeSessionsBySurface = state.activeSessionsBySurface.filter { surfaceId, active in
-            active.updatedAt >= cutoff && normalizeOptional(state.sessions[active.sessionId]?.surfaceId) == surfaceId
+            guard active.updatedAt >= cutoff, let record = state.sessions[active.sessionId] else { return false }
+            if normalizeOptional(record.surfaceId) == surfaceId { return true }
+            return (record.claudeAttachedViewers ?? []).contains {
+                $0.surfaceID == surfaceId && $0.worker.isAlive && $0.viewer.isAlive
+            }
         }
     }
 
