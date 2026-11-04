@@ -65,9 +65,19 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
       request,
       ...((sourceId ?? imageId) === null ? {} : { source: yield* digest(JSON.stringify(["source", sourceId ?? imageId])) }),
     });
+    // A receipt that differs from the request can never be committed: recovery checks the same fields. When the VM it
+    // describes is provably this creation's own (exact slug and every metadata value this request sent, so only its
+    // source image or idle timeout differs), it is deleted before the create fails: a failed create never leaves a VM
+    // running with no ownership row (cmux#35013). A VM at the slug with anyone else's metadata is never touched. A
+    // failed delete is left to the Worker's orphan sweep (src/upstream/orphan-sweep.ts).
+    const discardMismatched = (vm: typeof Receipt.Type) => vm.id && vm.slug === slug && Object.entries(metadata).every(([k, v]) => vm.metadata[k] === v)
+      ? http.json("discardMismatchedVm", "DELETE", `/v5/vms/${encodeURIComponent(vm.id)}`).pipe(Effect.ignore)
+      : Effect.void;
     const checked = (vm: typeof Receipt.Type) => {
       if (!vm.id || vm.slug !== slug || !Object.entries(metadata).every(([k, v]) => vm.metadata[k] === v) ||
-        ((sourceId ?? imageId) !== null && vm.snapshotId !== (sourceId ?? imageId)) || !sameIdleTimeout(vm.idleTimeoutSeconds, spec.idleTimeoutSeconds)) return Effect.fail(new UpstreamError({ operation: "createVmReceipt", status: null }));
+        ((sourceId ?? imageId) !== null && vm.snapshotId !== (sourceId ?? imageId)) || !sameIdleTimeout(vm.idleTimeoutSeconds, spec.idleTimeoutSeconds)) {
+        return discardMismatched(vm).pipe(Effect.zipRight(Effect.fail(new UpstreamError({ operation: "createVmReceipt", status: null }))));
+      }
       return Effect.succeed(vm);
     };
     const recover = http.json("recoverCreateVm", "GET", `/v5/vms/${encodeURIComponent(slug)}`).pipe(
