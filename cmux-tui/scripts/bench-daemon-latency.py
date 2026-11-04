@@ -77,6 +77,11 @@ requests on a connection run in order on one dispatch thread. Under the "journal
 the daemon), and the same `identify` runs on a connection of its own as the control. It reports
 both identify latencies and the closes'.
 
+"journal-step" and "head-of-line" each end their agents (a stop file, then the closes) before
+the next scenario: two scenarios' agents at once take every connection the daemon gives terminal
+processes, and it then refuses the bench's own ("refused: server.busy"). A worker that fails
+(a refused connection, an error reply) fails the run; nothing is retried.
+
 The daemon starts as the app starts it, with `--terminal-reap-grace-seconds 30`
 (--reap-grace-seconds; a negative value leaves the flag out): a closed terminal ends after the
 grace, and at most 16 closed terminals wait it out with their PTY. Without the flag a close leaves
@@ -133,6 +138,9 @@ class Conn:
         self.sock.sendall((json.dumps({"id": rid, "cmd": cmd, **params}) + "\n").encode())
         while True:
             msg = self.read_line()
+            if msg.get("type") == "refused":
+                # The daemon refuses a connection past its connection limit with one line.
+                raise ConnectionError(f"refused: {msg.get('code')}: {msg.get('message')}")
             if msg.get("id") == rid and "ok" in msg:
                 return msg
 
@@ -391,8 +399,9 @@ class Bench:
 
     # -- the "agents" scenario
 
-    def agent_argv(self, index):
-        """A fake agent: the real hook helper for each turn event, and one CLI call per turn."""
+    def agent_argv(self, index, stop=None):
+        """A fake agent: the real hook helper for each turn event, and one CLI call per turn. With
+        `stop` (a path), the agent ends after the turn in which that file appears."""
         bin_q = "'" + self.args.bin.replace("'", "'\\''") + "'"
         events = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "PreToolUse", "PostToolUse", "Stop"]
         loop = "; ".join(
@@ -402,8 +411,32 @@ class Bench:
             for event in events
         )
         cli = f"; {bin_q} workspace list >/dev/null 2>&1" if self.args.agent_cli else ""
-        script = f"while :; do {loop}{cli}; done"
+        if stop is None:
+            script = f"while :; do {loop}{cli}; done"
+        else:
+            stop_q = "'" + stop.replace("'", "'\\''") + "'"
+            script = f"while [ ! -e {stop_q} ]; do {loop}{cli}; done"
         return ["/bin/sh", "-c", script]
+
+    def start_agents(self, c, ws_ids, stop):
+        """`--agents` fake agents that end once `stop` exists; returns their surfaces."""
+        surfaces = []
+        for i in range(self.args.agents):
+            d = must(c.call("create-terminal", workspace=ws_ids[i % len(ws_ids)], argv=self.agent_argv(i, stop),
+                            cols=80, rows=24), "create-terminal")
+            if d.get("surface") is not None:
+                surfaces.append(d["surface"])
+        return surfaces
+
+    def end_agents(self, c, surfaces, stop):
+        """Ends a scenario's agents (each after its turn) and closes their surfaces, so the next
+        scenario starts with none of them (two scenarios' agents at once take every connection the
+        daemon gives terminal processes, and it refuses the bench's own)."""
+        with open(stop, "w"):
+            pass
+        time.sleep(3.0)
+        for surface in surfaces:
+            c.call("close-surface", surface=surface)
 
     def server_stats(self, c):
         r = c.call("server-stats", include=["locks", "write_path"])
@@ -900,9 +933,8 @@ class Bench:
             must(c.call("new-workspace", name=f"j{i}", cols=80, rows=24), "new-workspace")
         tree = must(c.call("list-workspaces"), "list-workspaces")
         ws_ids = [w["id"] for w in tree["workspaces"]]
-        for i in range(self.args.agents):
-            must(c.call("create-terminal", workspace=ws_ids[i % len(ws_ids)], argv=self.agent_argv(i),
-                        cols=80, rows=24), "create-terminal")
+        stop_agents = os.path.join(self.root, f"stop-{name}")
+        agents = self.start_agents(c, ws_ids, stop_agents)
         log_start = os.path.getsize(os.path.join(self.root, "daemon.log"))
         stop = threading.Event()
         kinds = ("put-frontend-projection", "list-workspaces", "identify", "create-terminal", "close-surface")
@@ -966,6 +998,7 @@ class Bench:
         stop.set()
         for t in threads:
             t.join()
+        self.end_agents(c, agents, stop_agents)
         c.close()
         with open(os.path.join(self.root, "daemon.log"), errors="replace") as f:
             f.seek(log_start)
@@ -986,6 +1019,8 @@ class Bench:
             print(f"PERF-DAEMON {name} slow-maintenance {line}", flush=True)
         if errors:
             print(f"PERF-DAEMON {name} errors {errors}", flush=True)
+            # The numbers above are printed for diagnosis; the run fails.
+            raise RuntimeError(f"{name}: {errors}")
 
     # -- the "head-of-line" scenario (cmux-ad m11 2)
 
@@ -1000,16 +1035,28 @@ class Bench:
             must(c.call("new-workspace", name=f"h{i}", cols=80, rows=24), "new-workspace")
         tree = must(c.call("list-workspaces"), "list-workspaces")
         ws_ids = [w["id"] for w in tree["workspaces"]]
-        for i in range(self.args.agents):
-            must(c.call("create-terminal", workspace=ws_ids[i % len(ws_ids)], argv=self.agent_argv(i),
-                        cols=80, rows=24), "create-terminal")
+        stop_agents = os.path.join(self.root, f"stop-{name}")
+        agents = self.start_agents(c, ws_ids, stop_agents)
         stop = threading.Event()
         lat = {"identify-shared-connection": [], "identify-own-connection": [], "close-surface": []}
         lock = threading.Lock()
+        errors = []
 
         def record(kind, ms):
             with lock:
                 lat[kind].append(ms)
+
+        def failing(fn):
+            # A worker that dies stops the scenario and fails the run (no retry).
+            def run():
+                try:
+                    fn()
+                except Exception as e:  # noqa: BLE001
+                    with lock:
+                        errors.append(f"{fn.__name__}: {e!r}")
+                    stop.set()
+            run.__name__ = fn.__name__
+            return run
 
         shared = Conn(self.sock_path, timeout=600)
         shared_lock = threading.Lock()
@@ -1049,7 +1096,7 @@ class Bench:
                 stop.wait(0.02)
             own.close()
 
-        threads = [threading.Thread(target=f) for f in (churn, light_shared, light_own)]
+        threads = [threading.Thread(target=failing(f)) for f in (churn, light_shared, light_own)]
         for t in threads:
             t.start()
         stop.wait(30.0 * self.args.journal_ticks + 5.0)
@@ -1057,12 +1104,18 @@ class Bench:
         for t in threads:
             t.join()
         shared.close()
+        self.end_agents(c, agents, stop_agents)
         c.close()
         res = {k: stats(v) for k, v in lat.items()}
+        res["errors"] = errors
         self.result["scenarios"][name] = res
         for metric, s in res.items():
-            print(f"PERF-DAEMON {name} {metric} n={s['n']} p50={s.get('p50_ms')} p95={s.get('p95_ms')} "
-                  f"p99={s.get('p99_ms')} max={s.get('max_ms')}", flush=True)
+            if isinstance(s, dict) and "n" in s:
+                print(f"PERF-DAEMON {name} {metric} n={s['n']} p50={s.get('p50_ms')} p95={s.get('p95_ms')} "
+                      f"p99={s.get('p99_ms')} max={s.get('max_ms')}", flush=True)
+        if errors:
+            print(f"PERF-DAEMON {name} errors {errors}", flush=True)
+            raise RuntimeError(f"{name}: {errors}")
 
     def scenario(self, name, workspaces, terminals, busy):
         log("scenario", name, workspaces, terminals)
