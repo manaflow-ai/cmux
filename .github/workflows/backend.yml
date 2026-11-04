@@ -542,6 +542,7 @@ jobs:
             tests/fixtures/model-stub
             .github/actions/setup-cmux-tui-rust
             cmux-tui
+            workers/cmux-vm/cli
             ghostty
             ghostty-next
           submodules: false
