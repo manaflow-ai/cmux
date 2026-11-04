@@ -1023,7 +1023,7 @@ fn a_poisoned_peers_lock_gives_no_principal_and_no_local_trust() {
 #[test]
 fn a_poisoned_registry_lock_trusts_no_client_as_local() {
     let fixture = fixture();
-    poison(&fixture.mux.control_clients.state);
+    fixture.mux.control_clients.state.poison_for_test();
     assert!(fixture.mux.control_clients.transport_of(fixture.local).is_none());
     assert!(fixture.mux.is_remote_client(fixture.local));
 }
@@ -1134,7 +1134,7 @@ fn a_remote_bind_on_a_poisoned_bindings_lock_refuses_without_a_panic() {
 fn a_poisoned_registry_trusts_no_unix_client_and_still_removes_a_record() {
     let fixture = fixture();
     let one = remote(&fixture, "inst_1", OWNER);
-    poison(&fixture.mux.control_clients.state);
+    fixture.mux.control_clients.state.poison_for_test();
     assert!(!fixture.mux.control_clients.is_unix(fixture.local));
     assert_eq!(fixture.mux.principal(fixture.local), None);
     assert!(fixture.mux.control_clients.remove(one).is_some());

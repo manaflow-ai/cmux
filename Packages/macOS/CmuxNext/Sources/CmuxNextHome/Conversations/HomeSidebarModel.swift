@@ -40,8 +40,12 @@ public struct HomeSidebarItem: Hashable, Sendable, Identifiable {
     /// by its Chief's participant id, else its `defaultChiefAvatar`); nil
     /// draws the participant's initials.
     public var chiefAvatar: HomeChiefAvatar?
-    /// This row's Chief is working (its turn is running): its avatar shows the working look.
+    /// This row's Chief is working (its turn is running): its avatar shows thinking or a tool.
     public var chiefIsWorking = false
+    /// This row's Chief's running turn is in a tool, not the model: its avatar shows the tool look.
+    public var chiefIsInTool = false
+    /// This row's Chief asked the person something still open: its avatar shows waiting on you.
+    public var chiefWaitsOnYou = false
     /// A message to this row's Chief failed to send: its avatar shows the failed look.
     public var chiefSendFailed = false
     /// A Chief that runs on another engine than the default: that engine's name
@@ -138,6 +142,8 @@ public struct HomeSidebarModel: Hashable, Sendable {
                 let chief = row.summary.participants.first(where: \.isChief)?.id.rawValue
                 item.chiefAvatar = chief.flatMap { chiefAvatars[$0] } ?? defaultChiefAvatar
                 item.chiefIsWorking = row.isTyping
+                item.chiefIsInTool = row.isRunningTool
+                item.chiefWaitsOnYou = row.waitsOnPerson(me: me)
                 item.chiefSendFailed = row.hasFailedSend
                 item.backendBadge = ChiefBackend.badge(for: chief.flatMap { chiefHarnesses[$0] })
                 // The Chief's own name (renamed in its header or Settings), else the title the row has.

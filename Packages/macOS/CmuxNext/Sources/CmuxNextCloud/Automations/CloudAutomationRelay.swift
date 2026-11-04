@@ -19,10 +19,14 @@ public struct CloudAutomationRelay: Sendable {
     /// Reads, answered from `/v1/read`.
     public static let reads: Set<String> = [
         "automation.list", "automation.get", "automation.runs.list", "automation.webhook.get",
-        "run.list", "run.get", "chief.list",
+        "run.list", "run.get", "chief.list", "automation.audit.list",
     ]
-    /// Mutations, sent to `/v1/ops`. `automation.deploy` and `automation.settings.set` stay out.
-    public static let mutations: Set<String> = ["automation.create", "automation.update", "automation.delete", "automation.run"]
+    /// Mutations, sent to `/v1/ops`, with the teleport steps (docs/automations-teleport-teams.md).
+    /// `automation.deploy` and `automation.settings.set` stay out.
+    public static let mutations: Set<String> = [
+        "automation.create", "automation.update", "automation.delete", "automation.run",
+        "automation.import", "automation.teleport.begin", "automation.teleport.complete", "automation.teleport.abort",
+    ]
 
     /// One HTTP POST: the path (`v1/ops` or `v1/read`) and the JSON body; the answer's bytes and HTTP status.
     public typealias Post = @Sendable (String, Data) async throws -> (body: Data, status: Int)
