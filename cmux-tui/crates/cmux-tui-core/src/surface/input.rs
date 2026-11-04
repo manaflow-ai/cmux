@@ -8,13 +8,14 @@ use super::*;
 ///
 /// The wait blocks its caller: one control connection's next request, or
 /// the TUI's input worker. It applies only while a host connection is lost,
-/// and a replacement host usually installs within a second.
-const HOST_INPUT_RECONNECT_WAIT: Duration = Duration::from_secs(5);
+/// and a replacement host usually installs within a second. On the input lane
+/// the terminal's input port waits instead (`surface::input_port`).
+pub(super) const HOST_INPUT_RECONNECT_WAIT: Duration = Duration::from_secs(5);
 
 /// Whether a host send failed because the host connection is gone (the
 /// host died or its stream broke), not because the frame was refused.
 #[cfg(any(unix, windows))]
-fn host_connection_lost(error: &std::io::Error) -> bool {
+pub(super) fn host_connection_lost(error: &std::io::Error) -> bool {
     matches!(
         error.kind(),
         std::io::ErrorKind::BrokenPipe
@@ -33,6 +34,10 @@ impl Surface {
                 "browser surface does not accept PTY bytes",
             ));
         };
+        #[cfg(any(unix, windows))]
+        if let Some(result) = Self::enqueue_on_input_port(pty, MessageKind::Input, bytes) {
+            return result;
+        }
         #[cfg(any(unix, windows))]
         if let Some(result) = Self::send_hosted_input(pty, MessageKind::Input, bytes) {
             return result;
@@ -53,6 +58,40 @@ impl Surface {
             // instead of failing every keystroke on the final screen.
             #[cfg(any(unix, windows))]
             PtyRuntime::ExitedHosted => Ok(()),
+        }
+    }
+
+    /// On the input lane (R-DAEMON-STATE stage S1 step 6): hands interactive input for a hosted terminal to the
+    /// terminal's input port and returns once the port took it; `None` when the lane is off or the terminal is not
+    /// hosted (the caller writes as before). The final screen of an exited host drops the input, as before.
+    #[cfg(any(unix, windows))]
+    fn enqueue_on_input_port(
+        pty: &PtySurface,
+        kind: MessageKind,
+        bytes: &[u8],
+    ) -> Option<std::io::Result<()>> {
+        if !pty.mux.upgrade().is_some_and(|mux| mux.control_clients.input_lane.on()) {
+            return None;
+        }
+        match pty.input_route.load().as_deref() {
+            None => None,
+            Some(input_port::InputRoute::Exited) => Some(Ok(())),
+            Some(input_port::InputRoute::Failed) => Some(Err(std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                "the terminal's host connection failed; input not written",
+            ))),
+            // The reader ended: no host connection will come back, so the input is refused now, as the old path's
+            // write failed then (`cmux send` exits non-zero). `Failed` alone is not that: the reader keeps retrying,
+            // and it installs a live replacement before the state leaves `Failed` (#34544 review 2).
+            Some(input_port::InputRoute::Hosted(_)) if pty.reader_completion.is_complete() => {
+                Some(Err(std::io::Error::new(
+                    std::io::ErrorKind::NotConnected,
+                    "the terminal's host connection ended; input not written",
+                )))
+            }
+            Some(input_port::InputRoute::Hosted(_)) => {
+                Some(pty.input_port.enqueue(&pty.terminal, kind, bytes).map_err(Into::into))
+            }
         }
     }
 
@@ -181,6 +220,10 @@ impl Surface {
         }
         // Keep-on-exit terminals accept and drop paste input the same way
         // as keystrokes: the final screen is read-only, not broken.
+        #[cfg(any(unix, windows))]
+        if let Some(result) = Self::enqueue_on_input_port(pty, MessageKind::Paste, bytes) {
+            return result;
+        }
         #[cfg(any(unix, windows))]
         if let Some(result) = Self::send_hosted_input(pty, MessageKind::Paste, bytes) {
             return result;

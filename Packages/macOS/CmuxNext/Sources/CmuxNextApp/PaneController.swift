@@ -134,6 +134,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.forget(self)
         view.dropParked()
         view.detachContent()
+        view.browserChrome.drop()
         services.surfaceInvariant.noteChange()
     }
 
@@ -362,7 +363,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // Focus follows selection; the coordinator re-targets the keyboard
         // (only when this pane's tabs or selection changed).
         sendTopologyIfChanged()
-        dropClosedParked(snapshot)
+        view.dropClosedParked { snapshot.items.compactMap { existingContent(for: $0.id.rawValue) } }
         remapViewedTab()
     }
 
@@ -388,15 +389,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
         guard current != sentFocusPane else { return }
         sentFocusPane = current
         workspace?.setNeedsTopology()
-    }
-
-    /// Content parked in this pane (`PaneContentView+Parking`) whose tab closed, moved away or
-    /// got a new view leaves the window. Live views come from `existingContent(for:)`, the one
-    /// lookup of every content kind, so a kind that parks (a page tab) is never dropped as closed.
-    private func dropClosedParked(_ snapshot: Snapshot) {
-        guard !view.parked.isEmpty else { return }
-        let live = Set(snapshot.items.compactMap { existingContent(for: $0.id.rawValue)?.view }.map(ObjectIdentifier.init))
-        view.prunePark { live.contains(ObjectIdentifier($0)) }
     }
 
     /// Selects the tab on `surface`, which this app just created here, once
@@ -449,6 +441,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.mark(self, "withdraw")
         // May replace a stale surface, displacing the view shown here.
         let content = BenchSpans.measure("switch.content") { key.flatMap(content(for:)) }
+        if case .browser(let entry) = content {
+            _ = BenchSpans.measure("switch.bindChrome") { view.browserChrome.bind(entry.tab, state: entry.state) }
+        }
         DebugTabSwitch.mark(self, "content")
         if let content { DebugTabSwitch.kind(self, content.switchKind) }
         currentTabKey = key
@@ -468,8 +463,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
             // alpha transition does not reach Chromium's separate child window.
             view.refreshChromiumVisibility()
         }
-        // What shows changed (a frame after selection): focus applies again if this pane has it; a re-show of the same content reports nothing.
-        if workspace?.isParked == false, presentedReport.changes(tab: key, views: [content?.view, view.window], replacing: shownBefore) { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }
+        // What shows changed (a frame after selection; a new page under the pane's one browser chrome counts): focus
+        // applies again if this pane has it; a re-show of the same content reports nothing.
+        if workspace?.isParked == false, presentedReport.changes(tab: key, views: [content?.view, view.browserChrome.page(shown: content?.view), view.window], replacing: shownBefore) { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }
         BenchSpans.measure("switch.invariant") { services.surfaceInvariant.noteChange() }
         BenchSpans.measure("switch.neighbors") { noteNeighbors() }
         windowController?.revalidatePagePresentation() // a page that had the screen was switched away

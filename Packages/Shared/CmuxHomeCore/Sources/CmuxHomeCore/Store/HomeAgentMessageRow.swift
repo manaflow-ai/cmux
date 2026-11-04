@@ -22,12 +22,14 @@ public struct HomeAgentMessageRow: Hashable, Sendable {
 
     /// The row's role in its fold.
     public enum Kind: Hashable, Sendable {
-        /// The fold: `count` messages with `peers` (agent ids, first-seen order), shown in full when `expanded`.
+        /// The agents row (one pill per agent): `count` messages and status notes, one or more, with `peers`
+        /// (agent ids, first-seen order), shown in full after it when `expanded`.
         case fold(count: Int, peers: [String], expanded: Bool)
         /// One message from `from` to `to`; `outgoing` is the Chief's message to the agent, else the agent's report.
         case message(from: String, to: String, outgoing: Bool, text: String)
         /// The fold of `count` status notes (agents that stopped with no report) from `peers`, shown in
-        /// full when `expanded`; `reason` is their one shared reason, nil when they differ.
+        /// full when `expanded`; `reason` is their one shared reason, nil when they differ. `HomeAgentMessages`
+        /// no longer makes it (status notes join the agents row since 2026-11-03); renderers still draw it.
         case notes(count: Int, peers: [String], reason: StatusNote?, expanded: Bool)
         /// One status note from `peer`: why it stopped, and the note's own words (no parentheses).
         case note(peer: String, reason: StatusNote, text: String)
@@ -62,6 +64,38 @@ public struct HomeAgentMessageRow: Hashable, Sendable {
     public var peerStates: [PeerState] = []
     /// For a fold or notes row: the newest message's words (a one-line preview); nil for other rows.
     public var latest: String?
+    /// For a fold or notes row: each agent's title, in the order of its `peers`: the `Title:` line of the
+    /// first message the Chief sent it (a spawn task's first line), else its first clause (``title(of:)``); the agent's id
+    /// when the Chief sent it nothing here. Empty for other rows.
+    public var peerTitles: [String] = []
+
+    /// About how many characters a title keeps before it is cut at a word edge (the pill clips the rest).
+    public static let titleLength = 32
+
+    /// A task's title: its `Title:` line, else its first clause (Markdown marks dropped): the first line cut
+    /// at the first `:`, `,`, `;`, ` - ` or sentence end (`.` before a space), then at a word edge to about
+    /// ``titleLength`` characters, with no trailing punctuation. Nil for a task with no words.
+    public static func title(of text: String) -> String? {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: true).map { $0.trimmingCharacters(in: .whitespaces) }
+        if let line = lines.first(where: { $0.lowercased().hasPrefix("title:") }) {
+            let title = line.dropFirst("title:".count).trimmingCharacters(in: .whitespaces)
+            if !title.isEmpty { return title }
+        }
+        guard let first = lines.first else { return nil }
+        var clause = first.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
+        for mark in [":", ",", ";", " - ", ". "] {
+            if let cut = clause.range(of: mark) { clause = String(clause[..<cut.lowerBound]) }
+        }
+        let words = clause.split(separator: " ")
+        var title = ""
+        for word in words {
+            let next = title.isEmpty ? String(word) : title + " " + word
+            if !title.isEmpty, next.count > titleLength { break }
+            title = next
+        }
+        while let last = title.last, ".,;:!?-–—".contains(last) || last.isWhitespace { title.removeLast() }
+        return title.isEmpty ? nil : title
+    }
 
     /// Creates a row of `group`.
     ///

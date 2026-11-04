@@ -201,6 +201,9 @@ pub fn build_capabilities() -> Vec<&'static str> {
     #[cfg(unix)]
     capabilities.retain(|capability| {
         *capability != crate::fs_ops::FS_CAPABILITY
+            && *capability != crate::fs_ops::FS_SYMLINK_CAPABILITY
+            && *capability != crate::fs_ops::FS_WRITE_DEFLATE_CAPABILITY
+            && *capability != crate::fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_EXPORT_CAPABILITY
             && *capability != BROWSER_RUNTIME_CAPABILITY
@@ -230,6 +233,7 @@ pub(super) fn advertised_capabilities(
         GUARDED_BROWSER_POINTER_CAPABILITY,
         VIEWPORT_SPLITS_CAPABILITY,
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
+        LAYOUT_SIZES_BATCH_CAPABILITY,
         DOCK_COLUMNS_CAPABILITY,
         LAYOUT_DELTA_CAPABILITY,
         EDGE_DOCKS_CAPABILITY,

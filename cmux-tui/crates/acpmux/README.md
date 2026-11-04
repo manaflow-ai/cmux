@@ -449,6 +449,10 @@ responding model produces, such as Claude's stream and thinking or Codex's moder
 notice; the agent's own usage and turn notices do not count) for that long after its
 prompt (a stalled model) logs `turn_silent` {turnId, silentMs} once, so a client can say
 the model has not answered. The model's first sign after it logs `turn_heard` {turnId}.
+A turn whose harness retries a failed model request (Claude Code's `system/api_retry`, Codex's
+stream error with `willRetry`) logs `turn_retrying` {turnId, attempt, maxRetries?, error?,
+errorStatus?, retryDelayMs?, source} for each retry, so a client can say the model cannot be
+reached instead of "Thinking"; the model's next sign logs `turn_heard` {turnId}.
 `stalledTurnMs` (default 600000; 0 turns it off): a running turn with no tool call in
 flight whose model has shown no sign for that long has stalled: `lane.stalledSince` (and
 `turn.stalledSince`) say since when, and the lane's state stays `working`. A long build in
