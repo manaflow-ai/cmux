@@ -126,6 +126,8 @@ describe("a trusted job", () => {
     for (const resources of [{ vcpus: 16, memoryMib: 8192 }, { vcpus: 2, memoryMib: 49152 }, { diskMib: 65536 }]) {
       expect((await create(t, token, { resources })).status, JSON.stringify(resources)).toBe(403);
     }
+    const snapshot = t.addSnapshot(TEAM);
+    expect((await create(t, token, { image: undefined, snapshotId: snapshot.snapshotId })).status).toBe(403);
     expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(0);
     expect((await create(t, token)).status).toBe(201);
   });

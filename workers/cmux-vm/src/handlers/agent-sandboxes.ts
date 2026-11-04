@@ -42,13 +42,13 @@ export const withAgentLabels = (principal: Principal, requested: CreateVmRequest
  * stop: a smaller run cap it asks for stands, no cap or a longer one becomes the cap, and auto-delete is always 0.
  */
 /**
- * A caller on a run cap (a CI trust row) creates VMs only at the default or image size: it cannot ask for resources,
- * and it cannot resize (resize.ts). Its spend is then at most maxVms VMs of a size the operator chose, and the team
+ * A caller on a run cap (a CI trust row) creates VMs only at the default or an approved image's size: it cannot ask
+ * for resources, cannot boot a tenant snapshot (whose size it would not know), and cannot resize (resize.ts). Its spend is then at most maxVms VMs of a size the operator chose, and the team
  * quota (maxVms) is admitted atomically, so concurrent creates cannot pass the read-then-create budget check together.
  */
-export const ciSizeAllowed = (principal: Principal, size: SizeRequest | undefined) =>
-  principal.maxRunSeconds !== undefined && size !== undefined
-    ? Effect.fail(new Forbidden({ message: "A CI job creates VMs at the default or image size; omit resources" }))
+export const ciSizeAllowed = (principal: Principal, requested: Pick<CreateVmRequest, "resources" | "snapshotId">) =>
+  principal.maxRunSeconds !== undefined && (requested.resources !== undefined || requested.snapshotId !== undefined)
+    ? Effect.fail(new Forbidden({ message: "A CI job creates VMs from the base or an approved image at its own size; omit resources and snapshotId" }))
     : Effect.void;
 
 export const withRunCap = (principal: Principal, requested: CreateVmRequest): CreateVmRequest => {

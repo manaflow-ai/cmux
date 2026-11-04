@@ -333,7 +333,7 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
       // An agent key's VMs get its labels without asking; a label naming another agent is refused.
       // A CI trust row's VMs pause within its run cap and are deleted once stopped, whatever was asked.
       const payload = withRunCap(principal, yield* withAgentLabels(principal, requested));
-      yield* ciSizeAllowed(principal, payload.resources);
+      yield* ciSizeAllowed(principal, payload);
       yield* requireServiceLabels(principal, payload.labels ?? {});
       if (payload.image !== undefined && payload.snapshotId !== undefined) return yield* Effect.fail(badRequest("Choose either an approved image or a tenant snapshot"));
       const network = payload.initialNetwork === undefined ? undefined : yield* vmNetworkAllowed(caller, payload.initialNetwork);
