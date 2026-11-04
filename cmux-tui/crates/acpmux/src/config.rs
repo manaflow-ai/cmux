@@ -1963,7 +1963,7 @@ pub mod chief_builtins;
 mod preset_args;
 pub use preset_args::{
     Preset, SYSTEM_PROMPT_FILE, check_preset_args, check_preset_dir_name, checked_system_prompt,
-    parse_preset_args, remove_preset_dir, write_system_prompt,
+    parse_preset_args, preset_dir, remove_preset_dir, write_system_prompt,
 };
 
 /// The stored spelling of a permission mode a person typed: `fullAccess`
