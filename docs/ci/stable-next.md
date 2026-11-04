@@ -53,6 +53,8 @@ A run:
    - `perf-budgets`: `split-spring.sh --suite=budgets --gate` on an exclusive macOS 27 M4 Pro
      measure worker. It fails when a row's p95 is more than 10% over the
      `apple-m4-pro-macos27` baseline.
+     A measured regression blocks. No verdict (no idle M4 Pro measure worker within 3 h, or
+     three steps that ended without measuring) only warns.
    - `sign`: Blacksmith macOS 26. It re-signs the nightly DMG as cmux NEXT Stable
      (`scripts/ci/stable-next-identity.sh`), notarizes and staples the result, and generates
      the Sparkle item.

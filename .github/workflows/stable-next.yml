@@ -17,7 +17,7 @@ name: cmux NEXT Stable
 #                 exclusive macOS 27 M4 Pro measure worker, against apple-m4-pro-macos27's baseline.
 #                 A measured regression blocks; no verdict (no idle worker in 3 h, a host fault) warns.
 # Not a gate: CmuxNext's unit suites. Stable gates on the behavior people use (the UI journey on the
-# signed app, crash classes, perf, soak), not on every unit test of the commit (Aziz 2026-11-04).
+# signed app, crash classes, perf, soak), not on every unit test of the commit (Aziz 2026-11-03).
 #   smoke-27      UI tests of the signed stable app on an owned M4 Pro mini, macOS 27: fresh-home
 #                 launch, then a first session (terminal echo, split, Chromium and WebKit pages,
 #                 palette, Settings, sidebar, close, Home, quit), scripts/ci/stable_next_ui_journey.py
@@ -351,7 +351,6 @@ jobs:
               --timeout 7200 --queue-timeout "$queue" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
             case "$status" in
               0) exit 0 ;;
-              # Still queued: the step keeps its place; never resubmit it.
               # Still queued: no idle M4 Pro measured this build. No verdict is not a regression: warn and
               # let the behavior gates decide; the step keeps its place and is never resubmitted.
               75) echo "::warning title=stable perf::step $KEY-$n still queued after $((queue / 3600)) h (kept); no perf verdict for this build"; exit 0 ;;
