@@ -531,7 +531,17 @@ impl Hub {
             return;
         }
         if m == method::SESSION_REQUEST_PERMISSION {
-            let params = params.unwrap_or(Value::Null);
+            let mut params = params.unwrap_or(Value::Null);
+            // Gemini's plan approval names its plan file only: its card carries the plan
+            // (`gemini_plan.rs`).
+            if super::gemini_plan::names_plan(&params["toolCall"]) {
+                let cwd = session.meta.lock().unwrap_or_else(|e| e.into_inner()).cwd.clone();
+                super::gemini_plan::with_plan(
+                    &mut params["toolCall"],
+                    &cwd,
+                    &super::gemini_plan::gemini_homes(),
+                );
+            }
             let result = self
                 .handle_permission_for(
                     &session,

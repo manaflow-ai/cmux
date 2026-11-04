@@ -611,6 +611,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
           : [];
       })
     : [];
+  const plan = permissionPlan(toolCall);
   return {
     ...(question ? { question } : {}),
     permissionId: String(permissionId),
@@ -645,6 +646,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
     ...(typeof toolCall?.toolCallId === "string" ? { toolCallId: toolCall.toolCallId } : {}),
     scope: permissionScopeFromMessage(raw, toolCall),
     diffs: permissionDiffs(toolCall),
+    ...(plan ? { plan } : {}),
     pending: true,
     options: (raw.options ?? []).map((option: any) => ({
       id: String(option.optionId ?? option.id),
@@ -1138,6 +1140,12 @@ export function inputDiffs(rawInput: any, result?: string, canonical?: string): 
 /// fragment with no old text, which shows the text the Write will put there (`toolFiles`). An edit
 /// tool's input is read only when no diff came: there a Write's content is left out, since before
 /// approval there is no result proving it creates a new file.
+/// A plan approval's plan as acpmux attached it (`_meta.acpmux.plan.markdown`, hub/gemini_plan.rs).
+function permissionPlan(tool: { _meta?: unknown } | undefined): string | undefined {
+  const plan = objectValue(objectValue(objectValue(tool?._meta)?.acpmux)?.plan)?.markdown;
+  return typeof plan === "string" && plan.trim() ? plan.trim() : undefined;
+}
+
 export function permissionDiffs(
   tool: { kind?: unknown; content?: unknown; locations?: unknown; rawInput?: unknown } | undefined,
 ): AcpmuxFileDiff[] | undefined {

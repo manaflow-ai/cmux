@@ -106,6 +106,41 @@ const fourOptions: AcpmuxPermission = {
   ],
 };
 
+const GEMINI_PLAN_PATH = "/Users/you/.gemini/tmp/atlas-web/plans/dark-mode.md";
+
+/// Gemini's plan approval (`exit_plan_mode`) with the plan acpmux read from its plan file
+/// (hub/gemini_plan.rs): the steps as Markdown above the buttons. Gemini 0.66's own options.
+const geminiPlan: AcpmuxPermission = {
+  permissionId: "gallery-gemini-plan",
+  kind: "other",
+  title: `Requesting plan approval for: ${GEMINI_PLAN_PATH}`,
+  plan: [
+    "# Add dark mode to the settings page",
+    "",
+    "## Steps",
+    "1. Read the theme tokens in `src/theme/tokens.ts`",
+    "2. Add a `dark` palette beside `light`, the same keys",
+    "3. Add the Appearance toggle to `SettingsPage.tsx`, saved in local storage",
+    "4. Test: the toggle switches the palette and survives a reload",
+    "",
+    "## Out of scope",
+    "- The marketing site keeps its light theme",
+  ].join("\n"),
+  pending: true,
+  options: [
+    { id: "proceed_once", name: "Allow", kind: "allow_once", allow: true },
+    { id: "cancel", name: "Reject", kind: "reject_once", allow: false },
+  ],
+};
+
+/// The plan draws as Markdown: its heading and its numbered steps.
+const planDrawn: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-plan ol li"));
+  const plan = ctx.document.querySelector(".acpmux-permission-plan")!;
+  if (plan.querySelectorAll("ol li").length !== 4) throw new Error("The plan's four steps are not a numbered list");
+  if ((plan.textContent ?? "").includes("# Add")) throw new Error("The plan's Markdown is drawn raw");
+};
+
 function GalleryPermissionCard({ permission, harness, scopeStyle, rowStyle }: Props) {
   return (
     <div className="acpmux-shell" data-scope-style={scopeStyle} data-row-style={rowStyle} style={{ paddingTop: 12 }}>
@@ -196,6 +231,12 @@ export default componentEntry<Props>({
     "trailing-long-rule": {
       note: "Row variant D: the light hints, the row grouped at the trailing edge.",
       props: { permission: longRule, harness: "claude", rowStyle: "trailing" },
+    },
+    "gemini-plan": {
+      note: "Leo 2026-11-03: Gemini's plans render. Gemini's exit_plan_mode names only its plan file; acpmux reads it and the card draws its steps as Markdown, scrolled inside the card when long.",
+      props: { permission: geminiPlan, harness: "gemini" },
+      height: 520,
+      play: planDrawn,
     },
     "trailing-four-options": {
       note: "Row variant D with four options.",

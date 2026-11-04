@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Markdown } from "./conversation/Markdown";
 import { toolIcon } from "./conversation/ToolRow";
 import { useT } from "./i18n";
 import type { AcpmuxPermission } from "./model";
@@ -370,6 +371,13 @@ export function PermissionCard({
         </div>
         {waiting > 0 && <p className="acpmux-permission-waiting">{t("permission.moreWaiting", { n: waiting })}</p>}
         {detail && <p className="acpmux-permission-request-description">{detail}</p>}
+        {permission.plan && (
+          // A plan approval's plan (Gemini's plan file, hub/gemini_plan.rs): its steps as Markdown,
+          // fences as plain code, scrolled inside the card when long.
+          <div className="acpmux-permission-plan selectable">
+            <Markdown plainCode>{permission.plan}</Markdown>
+          </div>
+        )}
         {command && (
           <div className="acpmux-permission-command" data-expanded={showFull || undefined}>
             {showFull ? (

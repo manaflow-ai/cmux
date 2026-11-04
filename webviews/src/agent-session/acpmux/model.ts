@@ -797,6 +797,9 @@ export type AcpmuxPermission = {
   toolCallId?: string;
   /// Proposed changes from this ask only; these have not been applied to the workspace.
   diffs?: AcpmuxFileDiff[];
+  /// A plan approval's plan, as Markdown: what acpmux read from the plan file Gemini's
+  /// `exit_plan_mode` names (`toolCall._meta.acpmux.plan`, hub/gemini_plan.rs).
+  plan?: string;
   pending: boolean;
   options: {
     id: string;
