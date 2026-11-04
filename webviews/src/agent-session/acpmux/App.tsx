@@ -60,6 +60,7 @@ import {
   statusEdge,
   type StatusEdge,
   isLastFooter,
+  isLiveLine,
   isContinuationFooter,
   QUEUED_MESSAGE,
   PENDING_MESSAGES,
@@ -308,6 +309,7 @@ import {
 } from "./session-info/subagentScope";
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { SubagentTray } from "./subagents/SubagentTray";
+import { TrayPullTab, tuckTray } from "./subagents/TrayPullTab";
 import { agentProgressSource } from "./subagents/agentProgressSource";
 import { AgentProgressContext, AgentProgressStore } from "./subagents/agentProgressStore";
 import { BackgroundTasksPanel } from "./backgroundTasks/BackgroundTasksPanel";
@@ -590,7 +592,7 @@ import { cloudStartBegun, cloudStartEnded, cloudStartPushed, type CloudStartProg
 import { CloudStartView } from "./CloudStartView";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatSizing } from "./chatWidth";
-import { registerChatDisplayHost, useChatDisplay, useChatPinnedPlan } from "./chatDisplay";
+import { registerChatDisplayHost, useChatDisplay, useChatPinnedPlan, useTrayTucked } from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { wrapOutputRow } from "./header/transcriptViewRow";
 import { presentationRow } from "./header/presentationRow";
@@ -4185,12 +4187,19 @@ export function VirtualTranscript({
   // tray coming or going, make room as before; scrolled up the room is held anyway.
   // The rows' own growth: room taken or given above them for older history is none.
   const rowsGrew = measured.layout.totalHeight - (measured.layout.origin ?? 0) - rowsSeen.current;
-  const trayBase =
+  const heldBase =
     sessionSwitched || !following || dockSpace <= 0 || !trayToggled.current
       ? dockTray
       : rowsGrew > 0.5
         ? dockTray - Math.min(0, dockTray - foldBase.current + rowsGrew)
         : foldBase.current;
+  // Never over the running turn's live line, though: while it is the last row, what the reader opens
+  // lies over at most half the line's rest gap, and the rows make room for the rest at once, so the
+  // line stays in sight over the stack from the send to the reply (Leo, 2026-11-04: "why does it
+  // not display Thinking or anything here???", then "it appears and disappears????", the line under
+  // a tray he had opened). What folds still moves no row.
+  const lineLast = rows.length > 0 && isLiveLine(rows[rows.length - 1]!);
+  const trayBase = lineLast ? Math.max(heldBase, dockTray - restExtra / 2) : heldBase;
   const trayHold = Math.min(dockSpace, dockTray - trayBase);
   // Over a floating stack the newest line rests the rest gap over it (`dockRoom`, model.ts `restRoom`);
   // a turn footer's action row lies in the band under its reply, so that band comes first
@@ -7636,6 +7645,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // in Debug Settings, the Quick Composer, a subagent's own view). Once the turn ends its list folds
   // in the transcript, as before.
   const pinnedPlan = useChatPinnedPlan();
+  // The hat tucked away to its pull tab (chatDisplay.ts TRAY_TUCKED_KEY; Leo, 2026-11-04).
+  const trayTucked = useTrayTucked();
   // Debug Settings agent.sessionStatus draws its activity line under the pinned list, so it pins it.
   const planInHat = subagentTray && !pinnedPlan && !sessionStatus && !quick && !childRows && snapshot.isWorking;
   const hatPlanRow = useMemo(() => (planInHat ? liveTurnPlan(turnRowsShown) : undefined), [planInHat, turnRowsShown]);
@@ -9768,6 +9779,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             shown={trayChat}
             enters={trayEnters}
             plan={hatPlan}
+            onTuck={trayPlacement === "tray" ? tuckTray : undefined}
           />
         </SubagentHarnessContext.Provider>
       </SubagentClockContext.Provider>
@@ -14242,7 +14254,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         </Notice>
         {/* The tray (subagents/SubagentTray.tsx): in the bottom stack, right above the composer, every
           running or recently ended subagent, background command and started chat, one card each. */}
-        {trayPlacement === "tray" && trayNode}
+        {/* Tucked away (chatDisplay.ts TRAY_TUCKED_KEY), the hat leaves only its pull tab at the
+            composer's top middle (subagents/TrayPullTab.tsx). */}
+        {trayPlacement === "tray" &&
+          (trayTucked && trayNode ? (
+            <TrayPullTab running={trayList.length > 0 || (hatPlan !== undefined && hatPlan.length > 0)} />
+          ) : (
+            trayNode
+          ))}
         {statusCardOpen && (
           <HarnessStatusCard
             summary={snapshot.summary}

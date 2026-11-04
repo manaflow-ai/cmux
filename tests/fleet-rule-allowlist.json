@@ -1,5 +1,6 @@
 {
   "keychain": {
+    "plans/cmux-next/swift-logic-classes.tsv": {"count": 1, "reason": "safe: a plan table row that names SecItemCopyMatching in prose; it reads no keychain item"},
     "Native/OptChat/optchat-chief/src/toolpacks.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): a tool pack's own keychain service"},
     "cmux-next-ios/scripts/testflight-build.sh": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the App Store Connect credential (service asc)"},
     "workers/cmux-vm/cli/crates/cmux-vm/src/token.rs": {"count": 2, "reason": "safe: reads its own named item (not the fleet sudo item): the cmux VM agent token (service com.cmux.vm.agent-token)"},
@@ -134,6 +135,7 @@
     "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/TabMachineBadgeColorTests.swift": {"count": 2, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
     "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ToastCopyTests.swift": {"count": 1, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
     "Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/MachineColorTests.swift": {"count": 25, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
+    "Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/MachineColorTextEveryThemeTests.swift": {"count": 1, "reason": "safe: a sample machine name in a test fixture, hashed to a colour; nothing connects to it"},
     "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/MachineColorsSettingTests.swift": {"count": 4, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
     "cmux-tui/crates/acpmux/src/agent_link.rs": {"count": 6, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
     "cmux-tui/crates/acpmux/src/attach.rs": {"count": 1, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},

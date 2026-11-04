@@ -36,7 +36,7 @@ fn agent_roster_rederives_from_the_journal_head_without_its_snapshot() {
         };
         append("SessionStart", "rederive-1");
         append("UserPromptSubmit", "rederive-2");
-        let entries = mux.agent_roster.lock().unwrap().roster.entries.clone();
+        let entries = settled(&mux).agent_roster.lock().unwrap().roster.entries.clone();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[terminal_id.as_str()].state, "working");
         mux.shutdown();
@@ -57,7 +57,7 @@ fn agent_roster_rederives_from_the_journal_head_without_its_snapshot() {
         true,
     )
     .unwrap();
-    let rederived = reopened.agent_roster.lock().unwrap().roster.entries.clone();
+    let rederived = settled(&reopened).agent_roster.lock().unwrap().roster.entries.clone();
     assert_eq!(rederived, live_entries);
 
     // Folding the tail after an ended session removes the entry, and
@@ -70,7 +70,7 @@ fn agent_roster_rederives_from_the_journal_head_without_its_snapshot() {
     )
     .unwrap();
     reopened.append_journal_ingress(&ingress, "test", "rederive-3").unwrap();
-    assert!(reopened.agent_roster.lock().unwrap().roster.entries.is_empty());
+    assert!(settled(&reopened).agent_roster.lock().unwrap().roster.entries.is_empty());
     reopened.shutdown();
     drop(reopened);
 
@@ -83,7 +83,7 @@ fn agent_roster_rederives_from_the_journal_head_without_its_snapshot() {
         true,
     )
     .unwrap();
-    assert!(final_mux.agent_roster.lock().unwrap().roster.entries.is_empty());
+    assert!(settled(&final_mux).agent_roster.lock().unwrap().roster.entries.is_empty());
     final_mux.shutdown();
     drop(final_mux);
     std::fs::remove_dir_all(root).unwrap();
@@ -107,7 +107,7 @@ fn assert_agent_views(
 ) {
     assert_eq!(public_agent_state(mux, terminal_id).as_deref(), expected, "public agent row");
     assert_eq!(roster_agent_state(mux, terminal_id).as_deref(), expected, "agent roster");
-    let listed = mux
+    let listed = settled(mux)
         .list_agents(Some(surface), None)
         .into_iter()
         .map(|record| record.state.as_str().to_owned())
@@ -438,9 +438,9 @@ fn invalid_agent_roster_snapshot_replays_from_the_journal_head() {
         )
         .unwrap();
         mux.append_journal_ingress(&ingress, "test", "invalid-snapshot-1").unwrap();
-        let cursor = mux.agent_roster.lock().unwrap().cursor;
+        let cursor = settled(&mux).agent_roster.lock().unwrap().cursor;
         assert_eq!(
-            mux.agent_roster.lock().unwrap().roster.entries[terminal_id.as_str()].state,
+            settled(&mux).agent_roster.lock().unwrap().roster.entries[terminal_id.as_str()].state,
             "working"
         );
         mux.shutdown();
@@ -511,7 +511,7 @@ fn invalid_empty_agent_roster_snapshot_is_repaired_on_restart() {
         true,
     )
     .unwrap();
-    assert!(mux.agent_roster.lock().unwrap().roster.entries.is_empty());
+    assert!(settled(&mux).agent_roster.lock().unwrap().roster.entries.is_empty());
     mux.shutdown();
     drop(mux);
 
@@ -634,7 +634,7 @@ fn failed_raw_agent_report_rolls_back_projection_memory_revision_and_event() {
         )
         .unwrap_err();
     assert!(error.to_string().contains("forced resource patch failure"));
-    assert!(mux.list_agents(None, None).is_empty());
+    assert!(settled(&mux).list_agents(None, None).is_empty());
     assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
     assert_eq!(mux.with_state(|state| state.resource_revision), revision);
     assert_eq!(mux.resource_event_epoch(), epoch);
@@ -657,7 +657,7 @@ fn agent_reports_require_a_terminal_and_never_create_a_default_projection() {
         )
         .unwrap_err();
     assert!(error.to_string().contains("is not a terminal"));
-    assert!(mux.list_agents(None, None).is_empty());
+    assert!(settled(&mux).list_agents(None, None).is_empty());
     assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
     assert_eq!(mux.with_state(|state| state.resource_revision), revision);
     assert_eq!(mux.resource_event_epoch(), epoch);
