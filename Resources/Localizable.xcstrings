@@ -114557,6 +114557,256 @@
         }
       }
     },
+    "cli.tree.output.otherWindows.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(النافذة الحالية فقط، توجد نافذة أخرى واحدة: استخدم --all)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(samo trenutni prozor, još 1 prozor: koristite --all)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(kun det aktuelle vindue, 1 vindue mere: brug --all)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(nur das aktuelle Fenster, 1 weiteres Fenster: --all verwenden)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(current window only, 1 more window: use --all)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(solo la ventana actual, 1 ventana más: usa --all)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(fenêtre actuelle uniquement, 1 autre fenêtre : utilisez --all)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(solo la finestra corrente, 1 altra finestra: usa --all)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(現在のウィンドウのみ。ほかに 1 個のウィンドウがあります: --all を使用)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(តែបង្អួចបច្ចុប្បន្នប៉ុណ្ណោះ បង្អួច 1 ទៀត៖ ប្រើ --all)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(현재 창만 표시, 다른 창 1개: --all 사용)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(bare gjeldende vindu, 1 vindu til: bruk --all)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(tylko bieżące okno, jeszcze 1 okno: użyj --all)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(somente a janela atual, mais 1 janela: use --all)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(только текущее окно, ещё 1 окно: используйте --all)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(เฉพาะหน้าต่างปัจจุบัน อีก 1 หน้าต่าง: ใช้ --all)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(yalnızca geçerli pencere, 1 pencere daha: --all kullanın)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(лише поточне вікно, ще 1 вікно: використайте --all)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(仅当前窗口，另有 1 个窗口：使用 --all)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(僅目前視窗，另有 1 個視窗：使用 --all)"
+          }
+        }
+      }
+    },
+    "cli.tree.output.otherWindows.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(النافذة الحالية فقط، عدد النوافذ الأخرى: %lld؛ استخدم --all)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(samo trenutni prozor, još %lld prozora: koristite --all)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(kun det aktuelle vindue, %lld vinduer mere: brug --all)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(nur das aktuelle Fenster, %lld weitere Fenster: --all verwenden)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(current window only, %lld more windows: use --all)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(solo la ventana actual, %lld ventanas más: usa --all)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(fenêtre actuelle uniquement, %lld autres fenêtres : utilisez --all)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(solo la finestra corrente, altre %lld finestre: usa --all)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(現在のウィンドウのみ。ほかに %lld 個のウィンドウがあります: --all を使用)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(តែបង្អួចបច្ចុប្បន្នប៉ុណ្ណោះ បង្អួច %lld ទៀត៖ ប្រើ --all)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(현재 창만 표시, 다른 창 %lld개: --all 사용)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(bare gjeldende vindu, %lld vinduer til: bruk --all)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(tylko bieżące okno, pozostałe okna: %lld; użyj --all)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(somente a janela atual, mais %lld janelas: use --all)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(только текущее окно, других окон: %lld; используйте --all)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(เฉพาะหน้าต่างปัจจุบัน อีก %lld หน้าต่าง: ใช้ --all)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(yalnızca geçerli pencere, %lld pencere daha: --all kullanın)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(лише поточне вікно, інших вікон: %lld; використайте --all)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(仅当前窗口，另有 %lld 个窗口：使用 --all)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(僅目前視窗，另有 %lld 個視窗：使用 --all)"
+          }
+        }
+      }
+    },
     "cli.uninstall.adminRequired": {
       "extractionState": "manual",
       "localizations": {

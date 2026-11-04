@@ -24611,7 +24611,48 @@ struct CMUXCLI {
         } else {
             let windows = payload["windows"] as? [[String: Any]] ?? []
             print(renderTreeText(windows: windows, idFormat: idFormat))
+            if let hint = treeOtherWindowsHint(options: options, shownWindows: windows, client: client) {
+                print(hint)
+            }
         }
+    }
+
+    /// Plain `cmux tree` lists only the current window; name the windows it
+    /// left out so the output doesn't read as the whole app. Best effort: a
+    /// failed `window.list` prints no hint.
+    private func treeOtherWindowsHint(
+        options: TreeCommandOptions,
+        shownWindows: [[String: Any]],
+        client: SocketClient
+    ) -> String? {
+        guard !options.includeAllWindows,
+              options.windowHandle == nil,
+              options.workspaceHandle == nil,
+              !shownWindows.isEmpty,
+              let listed = (try? client.sendV2(method: "window.list"))?["windows"] as? [[String: Any]] else {
+            return nil
+        }
+        let shownIDs = Set(shownWindows.compactMap { $0["id"] as? String })
+        let otherCount = listed.filter { window in
+            guard let id = window["id"] as? String else { return false }
+            return !shownIDs.contains(id)
+        }.count
+        guard otherCount > 0 else { return nil }
+        if otherCount == 1 {
+            return String(
+                localized: "cli.tree.output.otherWindows.one",
+                defaultValue: "(current window only, 1 more window: use --all)",
+                bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+            )
+        }
+        return String.localizedStringWithFormat(
+            String(
+                localized: "cli.tree.output.otherWindows.other",
+                defaultValue: "(current window only, %lld more windows: use --all)",
+                bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+            ),
+            otherCount
+        )
     }
 
     private func parseTreeCommandOptions(_ args: [String]) throws -> TreeCommandOptions {
