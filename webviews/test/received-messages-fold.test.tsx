@@ -158,18 +158,26 @@ test("a received line that ends a turn is not merged with the next turn's notice
   const rows = projectInboxRows(
     turnView(
       [
-        row("user", { text: "go" }),
+        row("user", { id: "go", text: "go" }),
         received("lane-a", "one"),
         received("lane-b", "two"),
         row("assistant", { text: "done" }),
         row("turnSummary", { status: "completed" } as Partial<AcpmuxRow>),
         inbox(["lane-c", "lane-d"]),
       ],
-      new Set(),
+      // A finished Claude turn folds under one Worked for too (Leo, 2026-11-04): opened here.
+      new Set(["worked-go"]),
       { agentFamily: "claude" },
     ),
   ).filter((r) => r.kind !== "date");
-  expect(rows.map((r) => r.kind)).toEqual(["user", "laneNoticeBatch", "assistant", "turnSummary", "laneNoticeBatch"]);
+  expect(rows.map((r) => r.kind)).toEqual([
+    "user",
+    "worked",
+    "laneNoticeBatch",
+    "assistant",
+    "turnSummary",
+    "laneNoticeBatch",
+  ]);
 });
 
 for (const family of ["claude", "codex"])
@@ -207,14 +215,14 @@ test("a run with a lane report among its received lines still folds as a message
   });
   const rows = turnView(
     [
-      row("user", { text: "go" }),
+      row("user", { id: "go", text: "go" }),
       row("assistant", { text: "Asking the lanes." }),
       received("lane-a", "one"),
       report,
       row("assistant", { text: "done" }),
       row("turnSummary", { status: "completed" } as Partial<AcpmuxRow>),
     ],
-    new Set(),
+    new Set(["worked-go"]),
     { agentFamily: "claude" },
   );
   const run = rows.find((r) => r.kind === "messageRun")?.messageRun;
@@ -229,13 +237,13 @@ test("a message run counts an inbox notice's messages, not its threads", () => {
   };
   const rows = turnView(
     [
-      row("user", { text: "go" }),
+      row("user", { id: "go", text: "go" }),
       row("activity", { items: [send], toolCount: 1 }),
       inbox(["lane-a"], 3, { continues: true }),
       row("assistant", { text: "done" }),
       row("turnSummary", { status: "completed" } as Partial<AcpmuxRow>),
     ],
-    new Set(),
+    new Set(["worked-go"]),
     { agentFamily: "claude" },
   );
   const run = rows.find((r) => r.kind === "messageRun")?.messageRun;

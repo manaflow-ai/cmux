@@ -11,7 +11,7 @@
 //! every symbol, and says which is missing; call it before the first use: after a failed load
 //! every function is a stand-in that returns zero and every data symbol reads as zero.
 
-use std::ffi::{c_char, c_int, c_void, CStr};
+use std::ffi::{CStr, c_char, c_int, c_void};
 
 unsafe extern "C" {
     fn dlopen(path: *const c_char, mode: c_int) -> *mut c_void;
