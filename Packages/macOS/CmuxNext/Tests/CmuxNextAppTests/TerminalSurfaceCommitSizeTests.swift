@@ -96,7 +96,7 @@ struct TerminalSurfaceCommitSizeTests {
         try #require(rest.width > 200 && rest.height > 100, "the terminal's rest frame is \(rest)")
 
         // A trailing hold: the pane's trailing edge stands still and the pane narrows (its left edge moves).
-        host.followPaneMotion(PaneMotionHold(trailing: true, bottom: false, containersFollow: true), heldSize: host.bounds.size)
+        host.followPaneMotion(PaneMotionHold(trailing: true, bottom: false), heldSize: host.bounds.size)
         fixture.layoutNow()
         fixture.container.terminalWidth -= 80
         fixture.layoutNow()
@@ -115,7 +115,7 @@ struct TerminalSurfaceCommitSizeTests {
         #expect(restShown, "the rest size never showed again")
 
         // A bottom hold: the pane's bottom edge stands still and the pane gets shorter (its top edge moves).
-        host.followPaneMotion(PaneMotionHold(trailing: false, bottom: true, containersFollow: true), heldSize: host.bounds.size)
+        host.followPaneMotion(PaneMotionHold(trailing: false, bottom: true), heldSize: host.bounds.size)
         fixture.layoutNow()
         fixture.container.terminalHeight -= 40
         fixture.layoutNow()
