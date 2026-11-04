@@ -35,6 +35,7 @@ import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead
 import { trayHeadKindsLook } from "../agent-session/acpmux/subagents/trayHeadKinds.experiment";
 import { trayOpenLook } from "../agent-session/acpmux/subagents/trayOpen.experiment";
 import { failedLineLook } from "../agent-session/acpmux/subagents/failedLine.experiment";
+import { doneReportLook } from "../agent-session/acpmux/subagents/doneReport.experiment";
 import { traySurfaceLook } from "../agent-session/acpmux/subagents/traySurface.experiment";
 import { chatSwitchMotion } from "../agent-session/acpmux/chatSwitch.experiment";
 import { liveBackground } from "../ui/liveBackground/liveBackground.experiment";
@@ -84,6 +85,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   trayHeadKindsLook,
   trayOpenLook,
   failedLineLook,
+  doneReportLook,
   traySurfaceLook,
   chatSwitchMotion,
   liveBackground,

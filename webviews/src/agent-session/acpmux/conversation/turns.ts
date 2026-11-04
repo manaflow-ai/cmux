@@ -69,6 +69,9 @@ export const RENDER = "render";
 /// card with its answers as buttons (NextStepCard.tsx), right under the answer, which drops the
 /// ask's lines. Its `nextStep` carries the ask and, once a prompt follows the turn, the answer.
 export const NEXT_STEP = "nextStep";
+/// The id prefix of the footer `supersededFooters` adds where the person came in on a stretch of a
+/// turn: before a steer that landed in it, or at the end of a turn a new prompt opened over.
+export const SUPERSEDED = "superseded";
 /// Activity rows shown inside an open disclosure are copies under this suffix, so the
 /// edited-files card after the answer keeps the original id.
 const FOLDED = ":fold";
@@ -114,6 +117,8 @@ export function footerLabel(t: Translate, row: AcpmuxRow): string | undefined {
 }
 const footerSays = (row: AcpmuxRow) =>
   !row.folded &&
+  // A stretch the person came in on (`supersededFooters`) has no time of its own to say.
+  !row.superseded &&
   (row.previous !== undefined || row.durationMs === undefined || row.durationMs >= 1000 || row.status === "cancelled");
 
 /// A footer with nothing to show at rest and only hover controls (Pin, Fork, its time): no answer to
@@ -460,6 +465,8 @@ type ShapedTurn = {
   dated: boolean;
   liveRuns: boolean;
   agentFamily?: string;
+  /// The person's own prompt opened the next turn (`supersededFooters`).
+  endedByPerson: boolean;
   rows: AcpmuxRow[];
 };
 const shapedTurns = new WeakMap<AcpmuxRow, ShapedTurn>();
@@ -527,6 +534,10 @@ function shapedTurn(
   const source = rows
     .slice(start + 1, end)
     .filter((row) => row.inBackground === undefined || !foldedBackground.has(row.inBackground));
+  // The person's own prompt opened the turn after this one: a turn with no summary ended there
+  // (`supersededFooters`). Part of the cache key, since that prompt is not in `source`.
+  const opener = rows[end];
+  const endedByPerson = !live && !last && opener?.kind === "user" && !opener.incoming && !opener.received;
   const cached = live ? undefined : shapedTurns.get(user);
   if (
     cached &&
@@ -539,6 +550,7 @@ function shapedTurn(
     cached.dated === dated &&
     cached.liveRuns === liveRuns &&
     cached.agentFamily === agentFamily &&
+    cached.endedByPerson === endedByPerson &&
     cached.source.length === source.length
   ) {
     let same = true;
@@ -611,7 +623,8 @@ function shapedTurn(
       liveRuns || agentFamily?.startsWith("claude") === true ? foldMessageRuns(shapedBody, expanded) : shapedBody;
     // A run of background-task notifications folds under one line (backgroundRuns.ts; Leo,
     // 2026-11-02: "why do you still do these").
-    const body = foldBackgroundRuns(messaged, expanded);
+    // A stretch the person came in after ends there, with the end-of-turn footer (`supersededFooters`).
+    const body = supersededFooters(foldBackgroundRuns(messaged, expanded), turn, endedByPerson);
     // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
     // waiting for the agent, a prompt that failed to send).
     const line = held.length && body.at(-1)?.below ? body.splice(-1) : [];
@@ -648,6 +661,7 @@ function shapedTurn(
       dated,
       liveRuns,
       agentFamily,
+      endedByPerson,
       rows: shaped,
     });
   return shaped;
@@ -1119,6 +1133,56 @@ function settledWithoutSummary(turn: AcpmuxRow[]): AcpmuxRow[] {
     ),
     ...editsCard(rows.filter(isEdit)),
   ];
+}
+
+/// `drawn` with an end-of-turn footer (copy, pin, read aloud, its time) under each stretch of the
+/// turn the person came in on: the agent's replies and work before a steer that landed (a message sent
+/// into the running turn, or one sent now), and the end of a turn with no summary that a new prompt
+/// of his opened over (`endedByPerson`). Those stretches count as ended once he comes in, though the
+/// turn goes on or never got a clean end, as Claude Code desktop draws them (Leo, 2026-11-03: "i also
+/// think a lot of these should've been counted as "ended"-ish turns that allow me to copy/paste your
+/// stuff / cuz look claude code lets that happen if the user comes in"). Its Copy copies the stretch
+/// (turnCopy.ts). A stretch that said nothing, or whose reply still streams, gets none; nor does one
+/// that already ends on a footer. `turn` is the turn's rows before shaping, in order.
+function supersededFooters(drawn: AcpmuxRow[], turn: readonly AcpmuxRow[], endedByPerson: boolean): AcpmuxRow[] {
+  let out: AcpmuxRow[] | undefined;
+  let from = 0;
+  const close = (to: number, at: number | undefined, key: string) => {
+    const stretch = turn.slice(from, to).filter((row) => row.kind !== "turnSummary");
+    from = to + 1;
+    // Its last reply, also one with work after it: the stretch ended where the person came in.
+    let answer: AcpmuxRow | undefined;
+    for (let back = stretch.length - 1; back >= 0 && !answer; back -= 1)
+      if (isReply(stretch[back]!)) answer = stretch[back];
+    const list = out ?? drawn;
+    const place = at ?? list.length;
+    if (!answer || answer.streaming || list[place - 1]?.kind === "turnSummary") return;
+    const parts = turnCopyParts(stretch);
+    if (!parts) return;
+    out ??= [...drawn];
+    out.splice(place, 0, {
+      id: `${SUPERSEDED}-${key}`,
+      kind: "turnSummary",
+      // The memoized footer redraws when its stretch does.
+      version: stretch.reduce((sum, row) => (sum * 31 + row.version) % 2_147_483_647, stretch.length),
+      at: stretch.at(-1)!.at,
+      status: "completed",
+      superseded: true,
+      text: answer.text,
+      answerId: answer.id,
+      turnCopy: parts,
+    });
+  };
+  for (let index = 0; index < turn.length; index += 1) {
+    const row = turn[index]!;
+    if (row.kind !== "user" || row.incoming || row.received || !continuesTurn(row) || row.steer === "waiting") continue;
+    const at = (out ?? drawn).findIndex((each) => each.id === row.id);
+    if (at < 0) from = index + 1;
+    else close(index, at, row.id);
+  }
+  if (endedByPerson && !turn.some((row) => row.kind === "turnSummary"))
+    close(turn.length, undefined, turn.at(-1)?.id ?? "end");
+  return out ?? drawn;
 }
 
 /// An activity row without the calls it has nothing to show for yet (toolGroups.ts `isDraftCall`),
