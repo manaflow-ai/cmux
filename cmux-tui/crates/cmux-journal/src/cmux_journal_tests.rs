@@ -628,6 +628,115 @@ fn recovery_holds_at_most_two_files_open() {
     );
 }
 
+// ---------------------------------------------------------------- retirement (S2)
+
+/// 60 acked records over many 200-byte segments, sealed; and the config.
+fn many_segments(seed: u64) -> (SimStorage, Config) {
+    let storage = SimStorage::new(seed);
+    let config = Config { segment_bytes: 200, ..quick() };
+    let (journal, _, _) = open_at(&storage, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
+    for lsn in 1..=60 {
+        let got = journal.append(3, Class::Ack, &payload(lsn)).unwrap_or_else(|e| panic!("{e}"));
+        journal.wait_durable(got, WAIT).unwrap_or_else(|e| panic!("{e}"));
+    }
+    assert_eq!(journal.seal(WAIT), Ok(60));
+    drop(journal);
+    (storage.restart(Crash::Process), config)
+}
+
+fn segment_count(storage: &SimStorage) -> usize {
+    storage.names_in(&dir()).iter().filter(|name| name.ends_with(".seg")).count()
+}
+
+#[test]
+fn retirement_deletes_only_the_segments_a_compaction_point_covers() {
+    let (storage, config) = many_segments(60);
+    let (journal, _, _) = open_at(&storage, config.clone(), 40).unwrap_or_else(|e| panic!("{e}"));
+    let before = segment_count(&storage);
+    let retired = journal.retire_through(40).unwrap_or_else(|e| panic!("{e}"));
+    assert!(retired >= 5, "{retired} of {before} segments retired");
+    assert_eq!(segment_count(&storage), before - retired);
+    assert_eq!(journal.stats().segments_retired, u64::try_from(retired).unwrap_or(0));
+    assert_eq!(journal.retire_through(40).unwrap_or_else(|e| panic!("{e}")), 0, "covered once");
+    drop(journal);
+    // The deletes were made durable: an OS crash keeps them, and every record after 40 is kept.
+    let restarted = storage.restart(Crash::Os);
+    assert_eq!(segment_count(&restarted), before - retired);
+    let (journal, report, seen) =
+        open_at(&restarted, config.clone(), 40).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(segment_count(&restarted), before - retired + 1, "the open made one segment");
+    assert_eq!(lsns(&seen), (41..=60).collect::<Vec<_>>(), "{report:?}");
+    assert!(report.damage.is_empty(), "{report:?}");
+    assert_eq!(journal.append(3, Class::Ack, b"after"), Ok(61));
+    drop(journal);
+    // A compaction point older than the retired segments is told, not hidden.
+    let (_, report, _) =
+        open_at(&restarted.restart(Crash::Process), config, 0).unwrap_or_else(|e| panic!("{e}"));
+    assert!(matches!(report.damage.first(), Some(Damage::Missing { after: 0, .. })), "{report:?}");
+}
+
+#[test]
+fn a_crash_at_any_point_of_a_retirement_keeps_every_record_after_it() {
+    let (base, config) = many_segments(61);
+    // Every storage operation of one retirement is a crash point once.
+    let probe = base.snapshot(Crash::Process);
+    let (journal, _, _) = open_at(&probe, config.clone(), 40).unwrap_or_else(|e| panic!("{e}"));
+    let before = probe.ops();
+    assert!(journal.retire_through(40).unwrap_or_else(|e| panic!("{e}")) >= 5);
+    let operations = probe.ops() - before;
+    drop(journal);
+    for crash in [Crash::Process, Crash::Os, Crash::PowerLoss] {
+        for at in 1..=operations {
+            let storage = base.snapshot(Crash::Process);
+            let (journal, _, _) =
+                open_at(&storage, config.clone(), 40).unwrap_or_else(|e| panic!("{e}"));
+            storage.crash_after(at);
+            assert!(journal.retire_through(40).is_err(), "{crash:?} at op {at}: no crash");
+            drop(journal);
+            let restarted = storage.restart(crash);
+            let (journal, report, seen) = open_at(&restarted, config.clone(), 40)
+                .unwrap_or_else(|e| panic!("{crash:?} at op {at}: {e}"));
+            assert_eq!(lsns(&seen), (41..=60).collect::<Vec<_>>(), "{crash:?} at {at}: {report:?}");
+            assert!(report.damage.is_empty(), "{crash:?} at op {at}: {report:?}");
+            assert_eq!(journal.append(3, Class::Ack, b"after"), Ok(61), "{crash:?} at op {at}");
+        }
+    }
+}
+
+#[test]
+fn retirement_never_deletes_the_segment_the_writer_appends_to() {
+    let (storage, config) = many_segments(62);
+    let (journal, _, _) = open_at(&storage, config.clone(), 60).unwrap_or_else(|e| panic!("{e}"));
+    // Past the durable LSN: capped at it.
+    journal.retire_through(Lsn::MAX).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(segment_count(&storage), 1, "only the newest segment is left");
+    assert_eq!(journal.append(3, Class::Ack, b"after"), Ok(61));
+    journal.wait_durable(61, WAIT).unwrap_or_else(|e| panic!("{e}"));
+    drop(journal);
+    let (_, report, seen) =
+        open_at(&storage.restart(Crash::Os), config, 60).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(lsns(&seen), vec![61], "{report:?}");
+    assert!(report.damage.is_empty(), "{report:?}");
+}
+
+#[test]
+fn retirement_keeps_segments_the_writer_made_after_the_point() {
+    let storage = SimStorage::new(63);
+    let config = Config { segment_bytes: 200, ..quick() };
+    let (journal, _, _) = open_at(&storage, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
+    for lsn in 1..=30 {
+        let got = journal.append(3, Class::Ack, &payload(lsn)).unwrap_or_else(|e| panic!("{e}"));
+        journal.wait_durable(got, WAIT).unwrap_or_else(|e| panic!("{e}"));
+    }
+    // The point is in the middle of what this writer wrote.
+    journal.retire_through(12).unwrap_or_else(|e| panic!("{e}"));
+    drop(journal);
+    let (_, report, seen) =
+        open_at(&storage.restart(Crash::Os), config, 12).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(lsns(&seen), (13..=30).collect::<Vec<_>>(), "{report:?}");
+    assert!(report.damage.is_empty(), "{report:?}");
+}
+
 // ---------------------------------------------------------------- real file system
 
 #[test]
