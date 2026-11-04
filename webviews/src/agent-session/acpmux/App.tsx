@@ -568,7 +568,12 @@ import { headerState, setHeaderState, useHeaderState } from "./header/headerStat
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
 import { SubagentComposer } from "./subagents/SubagentComposer";
 import { subagentDraftUnsaved, wakeIntoSubagentDrafts, wakeSubagentDrafts } from "./subagents/subagentDrafts";
-import { subagentRelayPrompt, subagentTarget, workflowAgentTarget } from "./subagents/subagentMessage";
+import {
+  subagentRelayPrompt,
+  subagentRelaySteers,
+  subagentTarget,
+  workflowAgentTarget,
+} from "./subagents/subagentMessage";
 import { runsUnderTabRow, type UnderHeaderLines } from "./header/underHeader";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
@@ -8252,18 +8257,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   ]);
   // Only to the chat the pane shows and the client has selected, and only once the pane knows which
   // subagent it is for: a prompt never goes to a target the composer does not name.
+  const relaySteers = subagentRelaySteers(snapshot);
   const sendToSubagent =
     subagentRelayChat && shownSubagentTarget
       ? ((owner: string, target: NonNullable<typeof shownSubagentTarget>) => (message: string) => {
           if (!restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession))
             return Promise.reject(new Error(translate("error.notOpen")));
-          // A steer: while the chat's turn runs (the usual case while its subagent works), its agent
-          // reads it at its next step instead of after the turn. A refusal the chat keeps as a row
-          // of its own (Retry, Edit) stays there, never also back in this composer.
+          // A steer only into a running turn (subagentRelaySteers), else a prompt of its own. A refusal
+          // the chat keeps as a row of its own (Retry, Edit) stays there, never also back in this composer.
           return callNative("chat.send", {
             text: subagentRelayPrompt(target, message, translate),
             expectedSessionId: owner,
-            steer: true,
+            steer: relaySteers,
           }).catch((error: unknown) => {
             if (keptInChat(error)) return;
             throw error;

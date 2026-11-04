@@ -25,6 +25,8 @@ const PREFIX = "cmux.subagentDraft.";
 const DRAFT_DAYS = 14;
 
 const drafts = new Map<string, Draft>();
+/// When each draft in `drafts` was last kept, which orders the wake state's drafts.
+const keptAt = new Map<string, number>();
 const unsaved = new Set<string>();
 const listeners = new Map<string, Set<(draft: Draft) => void>>();
 let loaded = false;
@@ -69,8 +71,10 @@ function load(now: number) {
     for (const key of keys) {
       const kept = readKept(store.getItem(key));
       if (!kept || now - kept.at > DRAFT_DAYS * 86_400_000) store.removeItem(key);
-      else if (!drafts.has(key.slice(PREFIX.length)))
+      else if (!drafts.has(key.slice(PREFIX.length))) {
         drafts.set(key.slice(PREFIX.length), { text: kept.text, attachments: kept.attachments });
+        keptAt.set(key.slice(PREFIX.length), kept.at);
+      }
     }
   } catch {
     // A storage failure never stops the composer: what is in memory stands.
@@ -88,8 +92,13 @@ export function subagentDraft(key: string, now = Date.now()): Draft {
 export function keepSubagentDraft(key: string, draft: Draft, now = Date.now()) {
   load(now);
   const empty = !draft.text && draft.attachments.length === 0;
-  if (empty) drafts.delete(key);
-  else drafts.set(key, draft);
+  if (empty) {
+    drafts.delete(key);
+    keptAt.delete(key);
+  } else {
+    drafts.set(key, draft);
+    keptAt.set(key, now);
+  }
   const store = storage();
   try {
     if (empty) store?.removeItem(PREFIX + key);
@@ -151,13 +160,14 @@ export function draftMessage(draft: Draft): string {
 /// share, so drafts past this stay out of it rather than costing the chat its chips.
 const WAKE_DRAFT_CHARS = 1_000_000;
 
-/// The drafts a page about to let go (or quit) hands the host, as text (`draftMessage`), newest kept
-/// first within WAKE_DRAFT_CHARS; undefined for none.
+/// The drafts a page about to let go (or quit) hands the host, as text (`draftMessage`), the most
+/// recently kept first within WAKE_DRAFT_CHARS; undefined for none.
 export function wakeSubagentDrafts(now = Date.now()): Record<string, string> | undefined {
   load(now);
   const out: Record<string, string> = {};
   let total = 0;
-  for (const [key, draft] of [...drafts].reverse()) {
+  const newest = [...drafts].sort(([a], [b]) => (keptAt.get(b) ?? 0) - (keptAt.get(a) ?? 0));
+  for (const [key, draft] of newest) {
     const message = draftMessage(draft);
     if (!message || total + message.length > WAKE_DRAFT_CHARS) continue;
     out[key] = message;
@@ -178,6 +188,7 @@ export function wakeIntoSubagentDrafts(value: unknown, now = Date.now()) {
 /// Forgets every draft in memory (the stored ones are read again), for tests.
 export function resetSubagentDraftsForTests() {
   drafts.clear();
+  keptAt.clear();
   unsaved.clear();
   listeners.clear();
   loaded = false;

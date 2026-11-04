@@ -1,7 +1,7 @@
 // l10n-allow-file: test fixture subagent names, ids and messages, not shipped UI.
 import { expect, test } from "bun:test";
 import { translate } from "../i18n";
-import { subagentRelayPrompt, subagentTarget, workflowAgentTarget } from "./subagentMessage";
+import { subagentRelayPrompt, subagentRelaySteers, subagentTarget, workflowAgentTarget } from "./subagentMessage";
 
 const claude = { id: "s1/toolu_01", name: "Reviewer", agentId: "a39e817af38ddf5e7" };
 
@@ -45,4 +45,14 @@ test("a workflow's agent is named by its label, with Claude's agentId for it", (
     claude: false,
   });
   expect(workflowAgentTarget({}, "Subagent")).toEqual({ name: "Subagent", claude: false });
+});
+
+test("a message to a subagent steers only into a running turn of an agent that steers", () => {
+  // The subagent still works under the chat's turn: its agent reads the message at its next step.
+  expect(subagentRelaySteers({ isWorking: true, summary: { steering: true } })).toBe(true);
+  // The subagent is done and the chat idle: a steer would be refused, so it is a prompt of its own.
+  expect(subagentRelaySteers({ isWorking: false, summary: { steering: true } })).toBe(false);
+  // An agent that cannot steer waits for the turn instead.
+  expect(subagentRelaySteers({ isWorking: true, summary: { steering: false } })).toBe(false);
+  expect(subagentRelaySteers({ isWorking: true })).toBe(false);
 });

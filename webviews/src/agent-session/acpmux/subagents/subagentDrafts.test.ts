@@ -157,11 +157,29 @@ describe("subagent drafts", () => {
   });
 
   test("the wake state carries no more than about a megabyte of drafts", () => {
-    keepSubagentDraft(KEY, draft("x".repeat(900_000)));
-    keepSubagentDraft("chat-1\u0000agent-2", draft("y".repeat(900_000)));
-    const wake = wakeSubagentDrafts() ?? {};
+    const now = Date.UTC(2026, 10, 4);
+    keepSubagentDraft(KEY, draft("x".repeat(900_000)), now);
+    keepSubagentDraft("chat-1\u0000agent-2", draft("y".repeat(900_000)), now + 1_000);
+    const wake = wakeSubagentDrafts(now + 2_000) ?? {};
     // The newest draft goes; the older one stays out rather than push the tab past the host's cap.
     expect(Object.keys(wake)).toEqual(["chat-1\u0000agent-2"]);
+  });
+
+  test("the wake state's cap keeps the draft edited last, not the one made last", () => {
+    const now = Date.UTC(2026, 10, 4);
+    keepSubagentDraft(KEY, draft("x".repeat(900_000)), now);
+    keepSubagentDraft("chat-1\u0000agent-2", draft("y".repeat(900_000)), now + 1_000);
+    // The person goes back to the first subagent's draft and edits it.
+    keepSubagentDraft(KEY, draft("x".repeat(900_001)), now + 2_000);
+    expect(Object.keys(wakeSubagentDrafts(now + 3_000) ?? {})).toEqual([KEY]);
+  });
+
+  test("drafts loaded from storage keep the order they were last kept in", () => {
+    const now = Date.UTC(2026, 10, 4);
+    keepSubagentDraft("chat-1\u0000agent-2", draft("y".repeat(900_000)), now + 1_000);
+    keepSubagentDraft(KEY, draft("x".repeat(900_000)), now);
+    resetSubagentDraftsForTests();
+    expect(Object.keys(wakeSubagentDrafts(now + 3_000) ?? {})).toEqual(["chat-1\u0000agent-2"]);
   });
 
   test("an empty store hands the host nothing", () => {

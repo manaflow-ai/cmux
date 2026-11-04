@@ -47,3 +47,10 @@ export function subagentRelayPrompt(target: SubagentTarget, message: string, t: 
   if (target.claude) return target.id ? t("subagents.relayClaudeId", values) : t("subagents.relayClaude", values);
   return target.id ? t("subagents.relayId", values) : t("subagents.relay", values);
 }
+
+/// Whether the relay to a subagent goes in as a steer: only while the chat's turn runs and its agent
+/// steers, as the chat's composer decides (Composer.tsx `steers`). Otherwise it is a prompt of its
+/// own: Claude Code refuses a steer with no turn running, the usual state once the subagent is done.
+export function subagentRelaySteers(chat: { isWorking: boolean; summary?: { steering?: boolean } }): boolean {
+  return chat.isWorking && chat.summary?.steering === true;
+}
