@@ -258,21 +258,35 @@ export function SubagentOfRow({ row }: { row: AcpmuxRow }) {
   const open = useContext(SubagentNavContext);
   const agent = row.subagents?.[0];
   if (!agent) return null;
+  // The pill's text goes back to the parent (its parent subagent's view, else the chat's); its ×
+  // closes the subagent's view to the chat's, as Escape does (subagentEscape.ts). Leo, 2026-11-03:
+  // "this opened subagent has no close button".
   return (
     <div className="cv-subagent-of">
-      <button type="button" className="cv-subagent-of__pill" onClick={() => open?.(agent.parent ?? undefined)}>
-        <Icon name="agent.session" size={12} />
-        <span className="cv-subagent-of__label">{t("subagents.of")}</span>
-        <span className="cv-subagent-of__parent">{row.text}</span>
-        {agent.task ? (
-          <>
-            <span className="cv-subagent-of__dot" aria-hidden="true">
-              ·
-            </span>
-            <span className="cv-subagent-of__task">{agent.task}</span>
-          </>
-        ) : null}
-      </button>
+      <span className="cv-subagent-of__frame">
+        <button type="button" className="cv-subagent-of__pill" onClick={() => open?.(agent.parent ?? undefined)}>
+          <Icon name="agent.session" size={12} />
+          <span className="cv-subagent-of__label">{t("subagents.of")}</span>
+          <span className="cv-subagent-of__parent">{row.text}</span>
+          {agent.task ? (
+            <>
+              <span className="cv-subagent-of__dot" aria-hidden="true">
+                ·
+              </span>
+              <span className="cv-subagent-of__task">{agent.task}</span>
+            </>
+          ) : null}
+        </button>
+        <button
+          type="button"
+          className="cv-subagent-of__close"
+          aria-label={t("subagents.close")}
+          title={t("subagents.close")}
+          onClick={() => open?.(undefined)}
+        >
+          <Icon name="action.close" size={12} />
+        </button>
+      </span>
     </div>
   );
 }

@@ -305,3 +305,25 @@ test("the stored entry names the start by a hash, never its prompt", () => {
   expect(saved).not.toContain("secret");
   expect(saved).not.toContain("paint");
 });
+
+test("a New Tab project pick hands its grant over, so a Cloud send can wait for it", async () => {
+  let release: (() => void) | undefined;
+  const native = (method: string) =>
+    method === "workspace.useFolder"
+      ? new Promise((resolve) => (release = () => resolve({ status: "ok" })))
+      : Promise.resolve({});
+  const grants: Promise<unknown>[] = [];
+  const { onProjectPicked } = newTabProjectPick(native, true, (grant) => grants.push(grant));
+  onProjectPicked!("/Users/me/src/paint");
+  expect(grants).toHaveLength(1);
+  let settled = false;
+  void grants[0]!.then(() => (settled = true));
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  release!();
+  await grants[0];
+  expect(settled).toBe(true);
+  // Home or above is never copied: no grant to wait for.
+  onProjectPicked!("/Users/me");
+  expect(grants).toHaveLength(1);
+});
