@@ -14,16 +14,17 @@ public final class LiveResizePageUpdates {
     public private(set) var held: (force: Bool, geometryOnly: Bool)?
     /// The resize's end runs now (``end(_:)``): the window no longer counts as resizing live.
     private var ending = false
-    /// Whether the window's live resize runs on the frame tick (``LiveResizeDragInput/isFramed``, the stage's switch).
-    private let isFramed: @MainActor () -> Bool
+    /// The window's live-resize drag input: whether it holds page updates (``LiveResizeDragInput/holdsPageUpdates``)
+    /// and whether the held one waits for the commit (``LiveResizeDragInput/holdsUntilCommit``).
+    private let input: @MainActor () -> LiveResizeDragInput?
 
-    /// `isFramed`: whether the window's live resize runs on the frame tick now; off, every request goes at once.
-    public init(isFramed: @escaping @MainActor () -> Bool) {
-        self.isFramed = isFramed
+    /// `input`: the window's live-resize drag input; with none, or one that holds nothing, every request goes at once.
+    public init(input: @escaping @MainActor () -> LiveResizeDragInput?) {
+        self.input = input
     }
 
     /// Whether `window` resizes live on the frame tick now (``Motion/isInLiveResize(_:)``), but not while its end runs.
-    public func isActive(in window: NSWindow) -> Bool { !ending && Motion.isInLiveResize(window) && isFramed() }
+    public func isActive(in window: NSWindow) -> Bool { !ending && Motion.isInLiveResize(window) && input()?.holdsPageUpdates == true }
 
     /// Holds a request when `window` resizes live: true when held (the caller sends nothing now).
     public func holds(force: Bool, geometryOnly: Bool, in window: NSWindow) -> Bool {
@@ -32,8 +33,9 @@ public final class LiveResizePageUpdates {
         return true
     }
 
-    /// The held update, if any; nothing is held after it.
+    /// The held update, if any; nothing is held after it. Nil while the drag input holds it until the commit shows.
     public func take() -> (force: Bool, geometryOnly: Bool)? {
+        guard input()?.holdsUntilCommit != true else { return nil }
         defer { held = nil }
         return held
     }

@@ -41,6 +41,14 @@ public final class LiveResizeDragInput {
     private var latchedHolds = (page: true, tracker: true)
     /// `motion.frameOwner.liveResize.atEvent`, read with the switch: coalesce at input instead of on the frame tick.
     private var latchedAtEvent = false
+    /// `motion.frameOwner.liveResize.pageAfterCommit`, read with the switch (a diagnostic; DEBUG and bench builds).
+    private var latchedPageAfterCommit = false
+    /// The followed views' frame notices and the page update wait for the commit of the last applied `setFrame`.
+    private var heldForCommit = false
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Tells the frame tick that the held `setFrame`'s commit happened (``CommitWitness``).
+    private lazy var commitWitness = CommitWitness()
+    #endif
     /// Whether a newer drag waits in the application's event queue (a peek, no dequeue; tests replace it).
     var newerDragQueued: @MainActor () -> Bool = { LiveResizeDragInput.applicationHasQueuedDrag() }
     /// A drag was applied in the display frame that runs now (since the last frame tick): a drag that comes now waits
@@ -62,6 +70,9 @@ public final class LiveResizeDragInput {
     public var holdsPageUpdates: Bool { isFramed && latchedHolds.page }
     /// This live resize holds the followed views' frame notices until each `setFrame` returns (``FollowedViews``).
     public var holdsTrackerNotices: Bool { isFramed && latchedHolds.tracker }
+    /// The page update and the page tracker wait for the commit of this resize's last applied `setFrame`, and go at the
+    /// first frame tick after it (`motion.frameOwner.liveResize.pageAfterCommit`, a diagnostic).
+    public var holdsUntilCommit: Bool { heldForCommit }
 
     /// Drags given to AppKit from a frame tick and drags a newer one replaced, cumulative (diagnostics and tests).
     public private(set) var tickDeliveries = 0, replaced = 0
@@ -87,7 +98,9 @@ public final class LiveResizeDragInput {
         guard event.type == .leftMouseDragged, let window, Motion.isInLiveResize(window) else {
             flush()
             switch event.type {
-            case .leftMouseDown, .leftMouseUp: latched = nil
+            case .leftMouseDown, .leftMouseUp:
+                releaseAfterCommit() // the resize ends: what waits for a commit goes now, before AppKit hears the release
+                latched = nil
             default: break
             }
             return false
@@ -95,6 +108,7 @@ public final class LiveResizeDragInput {
         if latched == nil {
             latchedHolds = (MotionTunables.frameOwnerLiveResizePageHold.value, MotionTunables.frameOwnerLiveResizeTrackerHold.value)
             latchedAtEvent = MotionTunables.frameOwnerLiveResizeAtEvent.value
+            latchedPageAfterCommit = MotionTunables.frameOwnerLiveResizePageAfterCommit.value
         }
         let on = latched ?? MotionTunables.frameOwnerLiveResize.value
         latched = on
@@ -146,15 +160,50 @@ public final class LiveResizeDragInput {
     /// views another window follows post their frame notices once, after it, with the final geometry (``FollowedViews``);
     /// then `frameApplied` runs.
     public func applyingFrame(_ apply: () -> Void) {
-        defer { frameApplied() }
+        let waitsForCommit = holdsForCommitNow
+        defer { if !waitsForCommit { frameApplied() } }
         #if DEBUG || CMUX_BENCH_HOOKS
         let applied = nextApplied
         nextApplied = nil
         let frame = window.flatMap { probe.frameWillApply(in: $0, eventTime: applied?.eventTime, atTick: applied?.atTick == true) }
         defer { if let frame { probe.frameDidApply(frame) } }
         #endif
+        if waitsForCommit, let window {
+            holdForCommit(in: window)
+            return apply()
+        }
         guard holdsTrackerNotices, let window else { return apply() }
         FollowedViews.of(window).holdingFrameNotices(apply)
+    }
+
+    /// Whether this `setFrame`'s page update and tracker notices wait for its commit (the diagnostic, DEBUG and bench).
+    private var holdsForCommitNow: Bool {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        return latchedPageAfterCommit && isFramed
+        #else
+        return false
+        #endif
+    }
+
+    /// Holds the followed views' notices across the turn and marks the turn's transaction; the frame tick after the
+    /// commit lets them go (``releaseAfterCommit()``).
+    private func holdForCommit(in window: NSWindow) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        FollowedViews.of(window).beginHold()
+        heldForCommit = true
+        if let root = window.contentView?.layer { commitWitness.attach(to: root) }
+        commitWitness.arm()
+        ticksLeft = Self.tickTail
+        client.activate()
+        #endif
+    }
+
+    /// The tracker hears the followed views (the final geometry, once each) and the overlay sends its held page update.
+    private func releaseAfterCommit() {
+        guard heldForCommit else { return }
+        heldForCommit = false
+        if let window { FollowedViews.of(window).endHold() }
+        frameApplied()
     }
 
     /// The window's didResize (its delegate): the probe notes whether AppKit already committed (DEBUG and bench builds).
@@ -166,6 +215,7 @@ public final class LiveResizeDragInput {
 
     /// The window closes: a waiting drag goes with it, and no more frames.
     public func windowWillClose() {
+        releaseAfterCommit()
         waiting = nil
         latched = nil
         appliedThisFrame = false
@@ -175,6 +225,14 @@ public final class LiveResizeDragInput {
     /// The window's frame tick starts a display frame: the waiting drag goes to AppKit, which resizes the window and lays
     /// it out in this tick, and that is the frame's drag. With none waiting, the frame's first drag goes in its own turn.
     private func tick() -> Bool { // perf-hot: 4ms motion-frame
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if heldForCommit, commitWitness.committed { releaseAfterCommit() }
+        #endif
+        // Coalescing at input applies no drag at the tick; it ticks only for a release that waits for a commit.
+        if latchedAtEvent {
+            ticksLeft -= 1
+            return ticksLeft > 0 || heldForCommit
+        }
         appliedThisFrame = waiting != nil
         if waiting != nil {
             tickDeliveries += 1
@@ -183,7 +241,7 @@ public final class LiveResizeDragInput {
             return true
         }
         ticksLeft -= 1
-        return ticksLeft > 0
+        return ticksLeft > 0 || heldForCommit
     }
 
     private func flush(atTick: Bool = false) {

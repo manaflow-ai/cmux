@@ -7,7 +7,8 @@ public import AppKit
 @MainActor
 public final class FollowedViews {
     private var views: [ObjectIdentifier: Weak] = [:]
-    private var holding = false
+    /// The views whose frame notices are held now (nil: no hold).
+    private var heldViews: [NSView]?
 
     private struct Weak {
         weak var view: NSView?
@@ -33,7 +34,18 @@ public final class FollowedViews {
     /// before the views under it were laid out (FRAME OWNER REFACTOR S7). AppKit posts the held notice when a view
     /// posts frame notices again (`postsFrameChangedNotifications`).
     public func holdingFrameNotices(_ apply: () -> Void) { // perf-hot: 4ms motion-frame
-        guard !holding else { return apply() }
+        guard !isHolding else { return apply() }
+        beginHold()
+        apply()
+        endHold()
+    }
+
+    /// Whether the followed views' frame notices are held now.
+    public var isHolding: Bool { heldViews != nil }
+
+    /// Holds the frame notices of every followed view and its ancestors until ``endHold()`` (no effect while held).
+    public func beginHold() { // perf-hot: 4ms motion-frame
+        guard heldViews == nil else { return }
         var held: [NSView] = [], seen: Set<ObjectIdentifier> = []
         for entry in views.values {
             guard let followed = entry.view, let root = followed.window?.contentView else { continue }
@@ -46,9 +58,13 @@ public final class FollowedViews {
                 view = current === root ? nil : current.superview
             }
         }
-        holding = true
-        apply()
-        holding = false
+        heldViews = held
+    }
+
+    /// Lets the held views post again: each that changed since ``beginHold()`` posts one notice, deepest first.
+    public func endHold() {
+        guard let held = heldViews else { return }
+        heldViews = nil
         for view in held { view.postsFrameChangedNotifications = true }
     }
 }
