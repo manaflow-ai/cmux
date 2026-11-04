@@ -59,6 +59,10 @@ pub struct Preset {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system_prompt_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_user: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub context_project: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// The mode a session started from this preset starts in. One that does
     /// not ask is set by the person only, and used without the person only

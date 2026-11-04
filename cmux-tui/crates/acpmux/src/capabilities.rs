@@ -76,6 +76,8 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_PERMISSION_RESPOND,
             method::MUX_PERMISSION_PENDING,
             method::MUX_SECRET_SUBMIT,
+            method::MUX_CONTEXT,
+            method::MUX_CONTEXT_OVERRIDE,
         ],
     },
     // Server-side local/non-closed session-list filters used by native quit
@@ -288,7 +290,7 @@ mod tests {
     use super::*;
     use crate::client::Client;
     use crate::config::{Config, StoreMode};
-    use serde_json::{Value, json};
+    use serde_json::{json, Value};
     use std::collections::BTreeSet;
 
     #[test]
