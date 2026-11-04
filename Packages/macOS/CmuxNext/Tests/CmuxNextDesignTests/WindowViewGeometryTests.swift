@@ -67,6 +67,42 @@ import Testing
         views.pane.alphaValue = 1 // a held region fading in: the pane and its subview show
         #expect(WindowViewGeometry(root: views.root).changes(since: held).total == 2)
     }
+
+    /// The relaunch bench counted the overlay plane (pane rings and dims) as gone about 3 s in, and that set its
+    /// last change: a Chromium page window showed, and the plane moved into the window's overlay panel above the
+    /// page, at the same place on screen. A plane that changes windows at its place did not move.
+    @Test func aPlaneThatMovesIntoTheOverlayPanelAtItsPlaceDoesNotMove() {
+        let frame = NSRect(x: 200, y: 200, width: 800, height: 600)
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let panel = OverlayHostPanel()
+        defer {
+            window.removeChildWindow(panel)
+            panel.close()
+            window.close()
+        }
+        let root = NSView(frame: NSRect(origin: .zero, size: frame.size))
+        window.contentView = root
+        let plane = NSView(frame: NSRect(x: 240, y: 0, width: 560, height: 600))
+        let ring = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 600))
+        plane.addSubview(ring)
+        root.addSubview(plane)
+        window.orderFront(nil)
+        let inWindow = WindowViewGeometry(window: window)
+
+        // The page shows: the panel covers the window and the plane moves into it, at the same place.
+        panel.setFrame(window.frame, display: false)
+        window.addChildWindow(panel, ordered: .above)
+        panel.planeContainer.frame = NSRect(origin: .zero, size: frame.size)
+        plane.removeFromSuperview()
+        panel.planeContainer.addSubview(plane)
+        let inPanel = WindowViewGeometry(window: window)
+        #expect(inPanel.changes(since: inWindow).lines == [], "the plane went away from the window, though it drew at its place")
+
+        // The plane in the panel still counts when it really moves.
+        plane.frame.origin.x = 300
+        #expect(WindowViewGeometry(window: window).changes(since: inPanel).total == 2)
+    }
 }
 
 /// ``WindowFrameBrightness``'s 16x16 grid: a flat picture is one value, and a half-white one is white on one half.

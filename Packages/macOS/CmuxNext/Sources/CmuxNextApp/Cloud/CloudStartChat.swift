@@ -145,10 +145,7 @@ struct CloudStartChat {
         report(.init(name: "folder", folder: folderName, machine: name, size: size))
         // Each copy goes to a new folder of the send's own, under its account as its pin; a retry whose
         // copy finished opens its chat without copying again, which would overwrite what it changed.
-        let copy: (CloudMoveCLI.Answer, (chat: String, folder: String, copied: Bool, sourceTrusted: Bool))
-        // A personal send on a non-production sign-in copies through the content-addressed store (the
-        // platform's `/v1/sync/blobs`, served in development), as its plan reads the platform.
-        let storeAccess = try? await ((account.last ?? nil) == nil && !services.cloud.auth.configuration.isProductionAuth ? services.cloud.auth.tokens().access : nil)
+        let copy: (CloudMoveCLI.Answer, (chat: String, folder: String, copied: Bool, sourceTrusted: Bool)), storeAccess = await services.cloud.auth.startChatStoreAccess(account: account)
         do {
             // A machine whose older cmux-tui refuses the copy is updated to this app's build, then copied again on its new link (CloudOutdatedMachine);
             // the copy's progress lines go to the clone row as they come, about 4 a second (SeedProgress.feed).

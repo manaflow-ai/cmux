@@ -12,7 +12,9 @@
  *     new-machine, machine-status, exec, start-session, start-chat --wait, kill-machine; cmux#35086)
  *
  * It signs in as the agent test account (Stack password sign-in; CMUX_DOGFOOD_STACK_EMAIL and
- * CMUX_DOGFOOD_STACK_PASSWORD from the environment or a KEY=value --credentials file) and walks the
+ * CMUX_DOGFOOD_STACK_PASSWORD from the environment or a KEY=value --credentials file; or, in a GitHub Actions
+ * job with `id-token: write`, --sign-in oidc: the job's OIDC token for a short session, no stored password,
+ * hq#7076) and walks the
  * same routes the app and the cmux CLI use, against the cmux API Worker (which forwards Cloud ops to
  * cmux-platform):
  *
@@ -170,6 +172,26 @@ async function http(method: string, url: string, body: unknown, headers: Record<
 
 const short = (v: unknown) => JSON.stringify(v ?? null).slice(0, 300);
 
+/**
+ * --sign-in oidc: the GitHub Actions job's OIDC token (audience: the API origin) traded at the API's
+ * POST /v1/auth/github-actions for a short Stack session of the one test account the API trusts that job
+ * with (backend/apps/api/src/ci-session.ts). Both tokens are pushed to `secrets` before anything can print.
+ */
+export async function oidcSignIn(apiOrigin: string, env: Record<string, string | undefined>, secrets: string[], fetchJson: typeof http = http): Promise<{ token: string; user: string; expiresAt: string }> {
+  const url = env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  const bearer = env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  if (!url || !bearer) throw new Error("no GitHub Actions OIDC token: the job needs `permissions: id-token: write`");
+  secrets.push(bearer);
+  const sep = url.includes("?") ? "&" : "?";
+  const gh = await fetchJson("GET", `${url}${sep}audience=${encodeURIComponent(apiOrigin)}`, undefined, { authorization: `bearer ${bearer}` });
+  if (gh.status !== 200 || typeof gh.body.value !== "string") throw new Error(`GitHub OIDC token HTTP ${gh.status}`);
+  secrets.push(gh.body.value);
+  const r = await fetchJson("POST", `${apiOrigin}/v1/auth/github-actions`, undefined, { authorization: `Bearer ${gh.body.value}` });
+  if (r.status !== 200 || typeof r.body.access_token !== "string") throw new Error(`OIDC sign-in HTTP ${r.status} ${String(r.body.error ?? "")}`);
+  secrets.push(r.body.access_token);
+  return { token: r.body.access_token, user: String(r.body.user ?? "?"), expiresAt: String(r.body.session_expires_at ?? "?") };
+}
+
 class Api {
   bearer = "";
   constructor(readonly origin: string, readonly team?: string) {}
@@ -263,6 +285,23 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
     const done = spawnSync(cmux, args, { env, encoding: "utf8", timeout: timeoutMs + 30_000 });
     if (done.error) throw new Error(`${cmux}: ${done.error.message}`);
     return { code: done.status ?? 1, stdout: done.stdout ?? "", stderr: done.stderr ?? "" };
+  };
+}
+
+/**
+ * The CLI's exec, until it answers cloud.provider.unsupported: `cmux machine access exec` mints a client session,
+ * which a VM API machine does not have, so the journey then runs every exec through the machine exec route
+ * (directExec's guest route) and names the CLI gap in the journey's meta instead of going red on it.
+ */
+export function cliExecWithFallback(cli: Exec, direct: Exec, journey: { meta: Record<string, string> }): Exec {
+  let fallback = false;
+  return async (command, timeoutMs) => {
+    if (fallback) return direct(command, timeoutMs);
+    const r = await cli(command, timeoutMs);
+    if (r.code === 0 || !`${r.stderr}${r.stdout}`.includes("cloud.provider.unsupported")) return r;
+    fallback = true;
+    journey.meta.exec_route = "machine exec route: cmux machine access exec answers cloud.provider.unsupported on a VM API machine (CLI gap)";
+    return direct(command, timeoutMs);
   };
 }
 
@@ -403,6 +442,52 @@ export function stubCodexAuth(seed = randomBytes(16).toString("hex"), now = new 
   const jwt = (extra: object) => `${b64({ alg: "none", typ: "JWT" })}.${b64({ ...claims, ...extra })}.journeystub`;
   return JSON.stringify({ OPENAI_API_KEY: null, tokens: { id_token: jwt({}), access_token: jwt({ jti: `journeystub-${seed}` }), refresh_token: `journeystub-refresh-${seed}`, account_id: "acct_journeystub" }, last_refresh: now.toISOString() });
 }
+
+/**
+ * --model stub, Codex: the Python program (argv: the stub's port, then config.toml, by default the work user's) that
+ * points Codex at the stub. A model provider on the stub's /v1 that uses the ChatGPT sign-in, and:
+ * - model "stub-model": a catalog model (the default) gets Code Mode, one JavaScript exec tool sent as an
+ *   additional_tools input item the stub cannot answer; a model Codex does not know gets the plain exec_command tool;
+ * - chatgpt_base_url on the stub, the apps, plugins and remote_plugin features off and analytics off, so the made-up
+ *   sign-in never reaches chatgpt.com (whose 401s would also send Codex to refresh it at auth.openai.com).
+ * An active profile's model and provider would win over these, so the root profile key goes (the [profiles.*] tables
+ * stay). The image's other settings stay. TOML refuses a table defined twice, so the keys go into the [features] and
+ * [analytics] tables the file already has, and a second run replaces its own provider table.
+ */
+export const CODEX_STUB_CONFIG = String.raw`import pathlib, re, sys
+port = sys.argv[1]
+p = pathlib.Path(sys.argv[2] if len(sys.argv) > 2 else '/home/cmux/.codex/config.toml')
+lines = p.read_text().splitlines() if p.exists() else []
+header = re.compile(r'\s*\[\s*([^\]]+?)\s*\]\s*(#.*)?$')
+tables = {'features': {'apps': 'false', 'plugins': 'false', 'remote_plugin': 'false'}, 'analytics': {'enabled': 'false'}}
+root = {'model': '"stub-model"', 'model_provider': '"journeystub"', 'chatgpt_base_url': '"http://127.0.0.1:' + port + '/backend-api/"'}
+def assigns(line, keys):
+    m = re.match(r'\s*([A-Za-z0-9_-]+)\s*=', line)
+    return bool(m) and m.group(1) in keys
+out, table, seen = [], None, set()
+for line in lines:
+    m = header.match(line)
+    if m:
+        table = m.group(1)
+        if table == 'model_providers.journeystub':
+            continue
+        out.append(line)
+        if table in tables and table not in seen:
+            seen.add(table)
+            out += [k + ' = ' + v for k, v in tables[table].items()]
+        continue
+    if table == 'model_providers.journeystub' or assigns(line, {**root, 'profile': ''} if table is None else tables.get(table, {})):
+        continue
+    out.append(line)
+out = [k + ' = ' + v for k, v in root.items()] + out
+for name in tables:
+    if name not in seen:
+        out += ['', '[' + name + ']'] + [k + ' = ' + v for k, v in tables[name].items()]
+out += ['', '[model_providers.journeystub]', 'name = "journey stub"', 'base_url = "http://127.0.0.1:' + port + '/v1"',
+        'wire_api = "responses"', 'requires_openai_auth = true']
+p.parent.mkdir(parents=True, exist_ok=True)
+p.write_text('\n'.join(out) + '\n')
+print('stub-ready')`;
 
 /** The bearer a harness sends the model endpoint for a copied login: Claude's token, Codex's ChatGPT access token. */
 export function loginBearer(provider: "claude" | "codex", value: string): string {
@@ -555,6 +640,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const email = process.env.CMUX_DOGFOOD_STACK_EMAIL ?? creds.CMUX_DOGFOOD_STACK_EMAIL ?? creds.CMUX_UITEST_STACK_EMAIL;
   const password = process.env.CMUX_DOGFOOD_STACK_PASSWORD ?? creds.CMUX_DOGFOOD_STACK_PASSWORD ?? creds.CMUX_UITEST_STACK_PASSWORD;
   const team = argValue("--team", argv) ?? process.env.CMUX_JOURNEY_TEAM ?? undefined;
+  const signIn = argValue("--sign-in", argv) ?? "password";
+  if (signIn !== "password" && signIn !== "oidc") throw new Error(`--sign-in ${signIn}: password or oidc`);
   const agent = argValue("--agent", argv) ?? "claude";
   const prompt = argValue("--prompt", argv) ?? "Reply with one short sentence that names the planet you are on.";
   const chatBudget = Number(argValue("--chat-timeout", argv) ?? 300) * 1000;
@@ -641,13 +728,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (r.status !== 200) throw new Error(`HTTP ${r.status} ${short(r.body)}`);
       return { value: null, detail: `commit ${r.body.commit ?? r.body.version ?? "?"}` };
     });
-    if (!email || !password) {
+    if (signIn === "oidc") {
+      api.bearer = await J.step("sign in (agent test account)", async () => {
+        const s = await oidcSignIn(backend.api, process.env, J.secrets);
+        return { value: s.token, detail: `GitHub OIDC, user ${s.user}, session ends ${s.expiresAt}` };
+      });
+    } else if (!email || !password) {
       await J.step("sign in (agent test account)", async () => {
         throw new Error("no agent test account: set CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD, or --credentials FILE");
       });
     }
     const stack = STACK[backend.stack];
-    api.bearer = await J.step("sign in (agent test account)", async () => {
+    if (signIn === "password") api.bearer = await J.step("sign in (agent test account)", async () => {
       const r = await http("POST", `${STACK_API}/api/v1/auth/password/sign-in`, { email, password }, {
         "x-stack-access-type": "client",
         "x-stack-project-id": stack.project,
@@ -699,7 +791,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
-    const exec = cmux ? cliExec(cmux, api, created.id) : directExec(api, created.id, J);
+    const exec = cmux ? cliExecWithFallback(cliExec(cmux, api, created.id), directExec(api, created.id, J), J) : directExec(api, created.id, J);
     await J.step("first exec", async () => {
       const r = await exec("echo journey-ok; uname -m");
       if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
@@ -744,7 +836,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (modelStub && provider && !only.has("chat")) {
       // The stub listens on the machine's loopback only; the harness's own settings point it there, after the login
       // copy (whose installer refuses a custom endpoint), so the forwarded login is sent nowhere but the stub:
-      // Claude Code's settings.json ANTHROPIC_BASE_URL, or a Codex model provider that uses the ChatGPT sign-in.
+      // Claude Code's settings.json ANTHROPIC_BASE_URL, or a Codex model provider that uses the ChatGPT sign-in (CODEX_STUB_CONFIG).
       await J.step("model stub on the machine", async () => {
         const file = "/home/cmux/.cmux/journey-model-stub.py";
         const script = "/home/cmux/.cmux/journey-model-stub.json";
@@ -755,7 +847,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
         // Port 0: the stub binds a free port and writes it to the ready file.
         const point = provider === "codex"
-          ? `python3 - "$port" <<'PY'\nimport pathlib, re, sys\np = pathlib.Path('/home/cmux/.codex/config.toml')\nold = p.read_text() if p.exists() else ''\nold = re.sub(r'(?m)^model_provider\\s*=.*\\n?', '', old)\np.write_text('model_provider = "journeystub"\\n' + old + '\\n[model_providers.journeystub]\\nname = "journey stub"\\nbase_url = "http://127.0.0.1:' + sys.argv[1] + '/v1"\\nwire_api = "responses"\\nrequires_openai_auth = true\\n')\nprint('stub-ready')\nPY`
+          ? `python3 - "$port" <<'PY'\n${CODEX_STUB_CONFIG}\nPY`
           : `python3 - "$port" <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.write_text(json.dumps(c))\nprint('stub-ready')\nPY`;
         const r = await exec(
           `rm -f ${shq(stubLog)} ${shq(ready)}; (nohup python3 ${shq(file)} --port 0 --script ${shq(script)} --nonce ${shq(nonce)} --log ${shq(stubLog)} --ready-file ${shq(ready)} >${shq(stubLog)}.out 2>&1 &); ` +
