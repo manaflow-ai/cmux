@@ -15,8 +15,8 @@ function transcript(family: "codex" | "claude"): AcpmuxSnapshot {
     ], 3),
     assistant("The helper already retries server errors and stops on client errors. All three focused tests pass.", 2),
     summary(1, { status: "completed", durationMs: 17_000, toolCount: 2 }),
-  ]);
-  return { ...snapshot, summary: { ...snapshot.summary!, harness: family, family } };
+  ], { harness: family, model: family === "codex" ? "gpt-6.1-sol" : "claude-opus-5-5" });
+  return { ...snapshot, summary: { ...snapshot.summary!, family } };
 }
 
 export default agentPaneEntry({
