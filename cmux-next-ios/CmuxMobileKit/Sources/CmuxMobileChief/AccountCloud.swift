@@ -55,10 +55,8 @@ public struct AccountCloud: Sendable {
         let body: Data
         do { body = try JSONSerialization.data(withJSONObject: object) } catch { throw Failure.badReply }
         let reply: ChiefCloudHTTP.Reply
-        do { reply = try await http.send("POST", path, body: body) } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            throw Failure.unreachable
+        do { reply = try await http.send("POST", path, body: body) } catch {
+            throw Self.cancellation(error) ?? Failure.unreachable
         }
         let value: Any?
         do { value = try ChiefCloudHTTP.value(reply) } catch let ChiefCloudError.refused(status, code, message) {
@@ -76,23 +74,37 @@ public struct AccountCloud: Sendable {
     /// value encoded whole so a path never adds a parameter.
     public func platformGet(_ path: String, query: [URLQueryItem]) async throws -> PlatformReply {
         guard let platform, let url = Self.url(base: platform, path: path, query: query) else { throw Failure.unreachable }
-        let token: String
-        do { token = try await http.accessToken(false) } catch { throw Failure.refused(status: 401, code: "auth.unauthenticated", message: "") }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 60
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
-        do {
-            let (data, response) = try await platformSession.data(for: request)
-            guard let http = response as? HTTPURLResponse else { throw Failure.badReply }
-            return PlatformReply(status: http.statusCode, body: data, contentType: http.value(forHTTPHeaderField: "Content-Type"),
-                                 commit: http.value(forHTTPHeaderField: "X-Artifacts-Commit"))
-        } catch let failure as Failure {
-            throw failure
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            throw Failure.unreachable
+        // As the Cloud calls do: one retry with a fresh token after a 401.
+        for forceRefresh in [false, true] {
+            let token: String
+            do { token = try await http.accessToken(forceRefresh) } catch {
+                throw Self.cancellation(error) ?? Failure.refused(status: 401, code: "auth.unauthenticated", message: "")
+            }
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 60
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
+            let reply: PlatformReply
+            do {
+                let (data, response) = try await platformSession.data(for: request)
+                guard let http = response as? HTTPURLResponse else { throw Failure.badReply }
+                reply = PlatformReply(status: http.statusCode, body: data, contentType: http.value(forHTTPHeaderField: "Content-Type"),
+                                      commit: http.value(forHTTPHeaderField: "X-Artifacts-Commit"))
+            } catch let failure as Failure {
+                throw failure
+            } catch {
+                throw Self.cancellation(error) ?? Failure.unreachable
+            }
+            if reply.status == 401, !forceRefresh { continue }
+            return reply
         }
+        throw Failure.unreachable
+    }
+
+    /// A cancelled call as `CancellationError` (URLSession reports `URLError.cancelled`), so a page
+    /// that left or reloaded never shows it as a failure.
+    static func cancellation(_ error: any Error) -> CancellationError? {
+        if error is CancellationError || (error as? URLError)?.code == .cancelled || Task.isCancelled { return CancellationError() }
+        return nil
     }
 
     static func url(base: URL, path: String, query: [URLQueryItem]) -> URL? {
@@ -125,8 +137,12 @@ public struct AccountCloud: Sendable {
         #if DEBUG
         if let raw = environment["CMUX_MOBILE_ARTIFACTS_API_URL"], let url = URL(string: raw), isPlatformOrigin(url) { return url }
         #endif
-        let production = cloud.host() == "cloud-api.cmux.dev"
-        return URL(string: production ? "https://cmux-platform.debussy.workers.dev" : "https://cmux-platform-development.debussy.workers.dev")
+        // The Mac's mapping (CloudConfiguration `artifactsAPIBaseURL`): each Cloud service's own platform.
+        switch cloud.host() {
+        case "cloud-api.cmux.dev": return URL(string: "https://cmux-platform.debussy.workers.dev")
+        case "cloud-api-staging.cmux.dev": return URL(string: "https://cmux-platform-staging.debussy.workers.dev")
+        default: return URL(string: "https://cmux-platform-development.debussy.workers.dev")
+        }
     }
 
     static func isPlatformOrigin(_ url: URL) -> Bool {

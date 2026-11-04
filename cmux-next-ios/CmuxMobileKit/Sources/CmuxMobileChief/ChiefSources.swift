@@ -338,7 +338,8 @@ public final class ChiefSources {
             do {
                 _ = try ChiefCloudHTTP.value(try await http.send("POST", "/v1/ops", body: body))
                 return
-            } catch let ChiefCloudError.refused(_, code, _) where code == "revision.conflict" && attempt == 0 {
+            } catch let ChiefCloudError.refused(_, code, _) where code == "revision.conflict" {
+                guard attempt == 0 else { break }
                 let list = try ChiefCloudHTTP.json(["op": "chief.list", "params": [String: Any]()])
                 let chiefs = CloudChief.parseList(try ChiefCloudHTTP.value(try await http.send("POST", "/v1/read", body: list)))
                 guard let fresh = chiefs.first(where: { $0.id == chief.id }) else {

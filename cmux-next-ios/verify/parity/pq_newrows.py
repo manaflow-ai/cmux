@@ -60,7 +60,8 @@ def fresh(j):
     launch(j)
     seed = pq.load()["ws_name"]
     for _ in range(14):
-        if j.sim.find(prefix=seed, kind="Button"):
+        # The list (newest rows first: the seed row can be below the fold).
+        if j.sim.find(prefix=seed, kind="Button") or (j.sim.find(ident="workspaces.list") and j.sim.find(ident="workspaces.new")):
             return
         done = [e for e in j.sim.find(kind="Button") if e.label in ("Done", "Not now") and e.frame[1] < 140]
         back = [e for e in j.sim.find(label="Back", kind="Button") if e.frame[1] > 760] or \
@@ -256,7 +257,9 @@ def home_hide(j, label):
     the row leaves the list; Show 1 Hidden Conversation brings it back."""
     tab(j, "Home")
     time.sleep(3)
-    rows = [e for e in j.sim.find() if (e.ident or "").startswith("home.row.")]
+    # A conversation of the Mac's Home list (the Mac Chief's own row when it is the only one).
+    rows = [e for e in j.sim.find() if (e.ident or "").startswith("home.row.") and e.kind == "Button"] or \
+        [e for e in j.sim.find(ident="home.chief.mac") if e.kind == "Button"]
     out = {"rows": [e.label for e in rows]}
     check(rows, f"no Home conversation rows: {labels(j)[:20]}")
     target = rows[0]
@@ -376,25 +379,27 @@ def newchaton(j, label):
 
 
 def moves(j, label):
-    """A workspace row's menu › Move. After: Move Workspace Above… › a target; the Mac's order."""
+    """A workspace row's menu › Move. After: Move Workspace Above… › the row at the top: the
+    bottom row of the three goes right above it, on the Mac (its sidebar order)."""
     names = [f"{PREFIX}a", f"{PREFIX}b", f"{PREFIX}c"]
     w.make_workspaces(names)
-    w.row(j, names[2])
     order0 = [n for n in w.mac_order() if n in names]
-    w.row_menu(j, names[2])
+    mover, target = order0[-1], order0[0]
+    w.row_menu(j, mover)
     if j.sim.wait(label="Move", timeout=4):
         w.menu_item(j, "Move")
     pq.shot(f"moves-{label}-menu")
-    out = {"start": order0, "menu": [x.label for x in j.sim.find(kind="Button") if x.label][:30]}
+    out = {"start": order0, "mover": mover, "target": target,
+           "menu": [x.label for x in j.sim.find(kind="Button") if x.label and x.label.startswith("Move")]}
     if label == "before" or not j.sim.find(label="Move Workspace Above…"):
         r.dismiss(j)
         return out
     w.menu_item(j, "Move Workspace Above…")
     pq.shot("moves-after-targets")
-    target = order0[0]
-    w.menu_item(j, target.upper() if j.sim.find(label=target.upper()) else target)
-    out["mac"] = w.wait_mac(lambda: (lambda o: o if o.index(names[2]) == o.index(target) - 1 else None)(
+    w.menu_item(j, target)
+    out["mac"] = w.wait_mac(lambda: (lambda o: o if o.index(mover) == o.index(target) - 1 else None)(
         [n for n in w.mac_order() if n in names]), "the move on the Mac", timeout=20)
+    time.sleep(1.5)
     pq.shot("moves-after-moved")
     return out
 
@@ -404,8 +409,20 @@ def reveal(j, label):
     scrolled to and flashed."""
     names = [f"{PREFIX}r{i:02d}" for i in range(14)]
     w.make_workspaces(names)
-    target = names[-1]
-    t.open_ws(j, target)
+    # The oldest of them, far down the list (newest first): opened after a scroll to it.
+    target = names[0]
+    j.back_to_list()
+    row = None
+    for _ in range(10):
+        found = [e for e in j.sim.find(prefix=target, kind="Button") if 90 < e.frame[1] < 740]
+        if found:
+            row = found[0]
+            break
+        j.sim.swipe(200, 640, 200, 300, 0.4)
+        time.sleep(0.8)
+    check(row, f"{target} not on the phone")
+    j.sim.tap_el(row)
+    time.sleep(2.5)
     labels_ = p.open_page_menu(j)
     pq.shot(f"reveal-{label}-menu")
     out = {"menu": labels_}

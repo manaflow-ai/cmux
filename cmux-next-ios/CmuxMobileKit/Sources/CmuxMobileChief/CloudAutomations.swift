@@ -44,7 +44,7 @@ public struct CloudAutomation: Identifiable, Hashable, Sendable {
             let specs = (item["triggers"] as? [[String: Any]] ?? []).map { $0["spec"] as? [String: Any] ?? $0 }
             let schedule = specs.first { ($0["type"] as? String) != "manual" }.map(describe) ?? describe(["type": "manual"])
             return CloudAutomation(id: id, name: name, schedule: schedule,
-                                   task: body["prompt"] as? String ?? body["command"] as? String ?? "",
+                                   task: body["prompt"] as? String ?? body["instructions"] as? String ?? body["command"] as? String ?? "",
                                    enabled: item["enabled"] as? Bool ?? true, version: (item["version"] as? NSNumber)?.intValue ?? 0,
                                    nextRun: milliseconds(item["next_run_at"]))
         }
@@ -120,10 +120,12 @@ public final class CloudAutomationsModel {
     public private(set) var automations: [CloudAutomation] = []
     /// The automation an action runs on now (its row shows progress).
     public private(set) var busyID: String?
+    /// An automation's page is up: its own alert shows a refusal, not the list's.
+    public var showsDetail = false
     /// The last action's refusal, for an alert.
     public var failure: String?
-    /// The last Run now that started, for its note.
-    public private(set) var started: String?
+    /// The automation the last Run now started (its page says so).
+    public private(set) var startedID: String?
 
     @ObservationIgnored private let account: @MainActor () -> AccountCloud?
 
@@ -151,6 +153,8 @@ public final class CloudAutomationsModel {
             for index in rows.indices { rows[index].runs = runs[rows[index].id] ?? [] }
             automations = rows
             phase = .loaded
+        } catch is CancellationError {
+            return
         } catch {
             let message = Self.message(error)
             if automations.isEmpty { phase = .failed(message) } else { failure = message }
@@ -177,16 +181,23 @@ public final class CloudAutomationsModel {
 
     /// Run now: one run of the automation (`automation.run`), then the list again.
     public func runNow(_ row: CloudAutomation) async {
+        guard canAct else { return }
+        startedID = nil
         await act(row) { account in
             _ = try await account.mutate("automation.run", params: ["automation": row.id], key: "run-\(row.id)-\(UUID().uuidString.lowercased())")
-            self.started = String(localized: "\(row.name) is running.")
+            self.startedID = row.id
         }
     }
+
+    /// No other action is running and the account is signed in: an action may start (checked
+    /// before anything shows, so nothing changes on the phone that the service never got).
+    public var canAct: Bool { busyID == nil && account() != nil }
 
     /// Pause or Resume (`automation.update {enabled}` at its version). Shown at once; the
     /// service's answer settles it.
     public func setEnabled(_ row: CloudAutomation, _ enabled: Bool) async {
-        guard let index = automations.firstIndex(where: { $0.id == row.id }) else { return }
+        guard canAct, let index = automations.firstIndex(where: { $0.id == row.id }) else { return }
+        startedID = nil
         let old = automations[index]
         automations[index].enabled = enabled
         await act(row, rollback: { [weak self] in
@@ -200,7 +211,8 @@ public final class CloudAutomationsModel {
 
     /// Delete (`automation.delete`): gone from the list at once; its run history stays on the service.
     public func delete(_ row: CloudAutomation) async {
-        guard let index = automations.firstIndex(where: { $0.id == row.id }) else { return }
+        guard canAct, let index = automations.firstIndex(where: { $0.id == row.id }) else { return }
+        startedID = nil
         let old = automations
         automations.remove(at: index)
         await act(row, rollback: { [weak self] in self?.automations = old }) { account in
@@ -210,12 +222,17 @@ public final class CloudAutomationsModel {
 
     private func act(_ row: CloudAutomation, rollback: (() -> Void)? = nil,
                      _ work: @MainActor (AccountCloud) async throws -> Void) async {
-        guard busyID == nil, let account = account() else { return }
+        guard busyID == nil, let account = account() else {
+            rollback?()
+            return
+        }
         busyID = row.id
         defer { busyID = nil }
         do {
             try await work(account)
             await load()
+        } catch is CancellationError {
+            rollback?()
         } catch {
             rollback?()
             failure = Self.message(error)

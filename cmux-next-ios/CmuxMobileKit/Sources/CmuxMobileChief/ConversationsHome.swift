@@ -322,7 +322,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             MacConversationScreen(route: route, feed: feed, macID: homeMacID, reconnect: reconnect)
         }
         // This account's hidden conversations (a sign-in as someone else reads theirs).
-        .task(id: sources.activeUserID) { hiddenRows.use(account: sources.activeUserID) }
+        .onChange(of: sources.activeUserID, initial: true) { _, account in hiddenRows.use(account: account) }
         .confirmationDialog(String(localized: "Are you sure you want to delete this conversation?"),
                             isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
                             titleVisibility: .visible, presenting: deleting) { row in

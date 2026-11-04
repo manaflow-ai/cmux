@@ -19,12 +19,9 @@ public struct CloudAutomationsScreen: View {
         content
             .navigationTitle("Automations")
             .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(for: CloudAutomationRoute.self) { route in
-                CloudAutomationDetail(model: model, id: route.id)
-            }
             .refreshable { await model.load() }
             .task { await model.load() }
-            .modifier(CloudAutomationAlerts(model: model, deleting: $deleting))
+            .modifier(CloudAutomationAlerts(model: model, deleting: $deleting, showsFailure: !model.showsDetail))
             .background(theme.colors.bgGrouped.color.ignoresSafeArea())
     }
 
@@ -54,16 +51,21 @@ public struct CloudAutomationsScreen: View {
             ForEach(sections, id: \.0) { section, rows in
                 Section(section.title) {
                     ForEach(rows) { row in
-                        NavigationLink(value: CloudAutomationRoute(id: row.id)) {
+                        // A view link: Settings' stack path holds only its own routes.
+                        NavigationLink {
+                            CloudAutomationDetail(model: model, id: row.id)
+                        } label: {
                             CloudAutomationRow(row: row, busy: model.busyID == row.id)
                         }
                         .contextMenu { CloudAutomationActions(model: model, row: row, deleting: $deleting) }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button("Delete", systemImage: "trash", role: .destructive) { deleting = row }
+                                .disabled(!model.canAct)
                             Button(row.enabled ? "Pause" : "Resume", systemImage: row.enabled ? "pause" : "play") {
                                 Task { await model.setEnabled(row, !row.enabled) }
                             }
                             .tint(.orange)
+                            .disabled(!model.canAct)
                         }
                         .accessibilityIdentifier("automations.row.\(row.id)")
                     }
@@ -81,10 +83,6 @@ public struct CloudAutomationsScreen: View {
         }
         .accessibilityIdentifier("automations.list")
     }
-}
-
-struct CloudAutomationRoute: Hashable {
-    var id: String
 }
 
 /// One automation: its name, schedule and next run, and how its last run ended.
@@ -133,6 +131,13 @@ struct CloudAutomationActions: View {
     @Binding var deleting: CloudAutomation?
 
     var body: some View {
+        Group {
+            buttons
+        }
+        .disabled(!model.canAct)
+    }
+
+    @ViewBuilder private var buttons: some View {
         Button("Run Now", systemImage: "play.circle") { Task { await model.runNow(row) } }
             .accessibilityIdentifier("automations.run")
         Button(row.enabled ? "Pause" : "Resume", systemImage: row.enabled ? "pause.circle" : "play") {
@@ -148,6 +153,8 @@ struct CloudAutomationActions: View {
 struct CloudAutomationAlerts: ViewModifier {
     let model: CloudAutomationsModel
     @Binding var deleting: CloudAutomation?
+    /// Whether this view shows a refusal (one presenter at a time: the list, or the pushed page).
+    var showsFailure = true
     var deleted: (() -> Void)?
 
     func body(content: Content) -> some View {
@@ -164,7 +171,7 @@ struct CloudAutomationAlerts: ViewModifier {
             } message: { _ in
                 Text("It stops running. Its run history stays.")
             }
-            .alert("Couldn't do that", isPresented: Binding(get: { model.failure != nil }, set: { if !$0 { model.failure = nil } })) {
+            .alert("Couldn't do that", isPresented: Binding(get: { showsFailure && model.failure != nil }, set: { if !$0 { model.failure = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(model.failure ?? "")
@@ -196,9 +203,10 @@ struct CloudAutomationDetail: View {
                     }
                     Section {
                         CloudAutomationActions(model: model, row: row, deleting: $deleting)
-                            .disabled(model.busyID != nil)
                     } footer: {
-                        if let started = model.started { Text(started).accessibilityIdentifier("automations.started") }
+                        if model.startedID == row.id {
+                            Text("\(row.name) is running.").accessibilityIdentifier("automations.started")
+                        }
                     }
                     Section("History") {
                         if row.runs.isEmpty {
@@ -224,7 +232,9 @@ struct CloudAutomationDetail: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .modifier(CloudAutomationAlerts(model: model, deleting: $deleting, deleted: { dismiss() }))
+        .modifier(CloudAutomationAlerts(model: model, deleting: $deleting, showsFailure: model.showsDetail, deleted: { dismiss() }))
+        .onAppear { model.showsDetail = true }
+        .onDisappear { model.showsDetail = false }
         .accessibilityIdentifier("automations.detail")
     }
 }

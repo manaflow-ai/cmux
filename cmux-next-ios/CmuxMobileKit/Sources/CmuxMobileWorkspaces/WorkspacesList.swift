@@ -79,6 +79,8 @@ public struct WorkspacesList: View {
     @State private var closingFrame: CGRect = .zero
     /// The reveal request this list already answered (one back from the workspace's page).
     @State private var revealedRequest: Int?
+    /// The list is on screen (not under a pushed workspace page): a reveal waits for it.
+    @State private var isShown = false
 
     public init(store: AppStore, creator: WorkspaceCreator, accountEmail: String? = nil,
                 reconnect: ((String) -> Void)? = nil, linking: MacLinking? = nil,
@@ -367,14 +369,17 @@ public struct WorkspacesList: View {
             .onChange(of: liveRowMacs(inbox)) { old, new in
                 if !new.subtracting(old).isEmpty { ConnectTimeline.shared.mark("workspace_row_live") }
             }
-            // Reveal Workspace in List (a workspace's page menu): its row scrolls into view and flashes.
+            // Reveal Workspace in List (a workspace's page menu): once the list shows again, its row
+            // scrolls into view and flashes.
             .onChange(of: store.revealRequest) { _, request in
-                guard let request else { return }
+                guard let request, isShown else { return }
                 reveal(request.workspaceID)
             }
             .onAppear {
+                isShown = true
                 if let request = store.revealRequest, request.id != revealedRequest { reveal(request.workspaceID) }
             }
+            .onDisappear { isShown = false }
     }
 
     /// Sections and items for the collection, in the SwiftUI list's order:
@@ -567,6 +572,9 @@ public struct WorkspacesList: View {
         revealedRequest = store.revealRequest?.id
         guard let ws = store.workspace(id: workspaceID) else { return }
         if let macID = scope.macID, macID != ws.macID { select(.all) }
+        // Out of the search and out of a collapsed group, as the Mac opens the row's folds.
+        if !query.isEmpty { query = "" }
+        if let group = ws.group, group.isCollapsed { creator.setGroupCollapsed(group, on: ws.macID, false) }
         // An offline Mac's rows sit in its fold: open it (`unfolded` is read only for folds).
         unfolded.insert(ws.macID)
         Task { @MainActor in

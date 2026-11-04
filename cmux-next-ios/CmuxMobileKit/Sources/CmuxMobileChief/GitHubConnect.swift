@@ -38,11 +38,16 @@ public final class GitHubConnect {
             state = .unknown
             return
         }
-        do {
-            state = Self.state(try await account.read("integration.list"))
-        } catch {
-            failure = (error as? AccountCloud.Failure)?.description ?? AccountCloud.Failure.unreachable.description
-        }
+        // A list that does not load leaves the row without a value; only Connect itself says why.
+        guard let value = try? await account.read("integration.list") else { return }
+        state = Self.state(value)
+        forgetFinishedAttempt()
+    }
+
+    /// A connection no longer pending (finished, abandoned or expired) ends its attempt: the next
+    /// Connect makes a new one rather than replaying the old installation link.
+    private func forgetFinishedAttempt() {
+        if state != .pending { connectKey = nil }
     }
 
     /// Connect GitHub: the list first (already connected: nothing to do), then the App's
@@ -54,6 +59,7 @@ public final class GitHubConnect {
         failure = nil
         do {
             state = Self.state(try await account.read("integration.list"))
+            forgetFinishedAttempt()
             if case .connected = state { return }
             guard state != .unavailable else {
                 failure = String(localized: "GitHub isn't set up on this cmux Cloud.")
@@ -87,11 +93,12 @@ public final class GitHubConnect {
         let connections = (root["connections"] as? [[String: Any]] ?? []).filter {
             $0["provider"] as? String == "github" && !["revoked", "expired"].contains($0["status"] as? String ?? "")
         }
-        let active = connections.filter { $0["status"] as? String != "pending" }
+        // Connected means an active connection (the Mac's check); an errored one can connect again.
+        let active = connections.filter { $0["status"] as? String == "active" }
         if !active.isEmpty {
             return .connected(active.compactMap { $0["account_login"] as? String ?? $0["display_name"] as? String })
         }
-        if !connections.isEmpty { return .pending }
+        if connections.contains(where: { $0["status"] as? String == "pending" }) { return .pending }
         return configured ? .notConnected : .unavailable
     }
 

@@ -24,9 +24,6 @@ public struct SyncedArtifactsScreen: View {
                 ContentUnavailableView("Sign in to cmux to see your artifacts.", systemImage: "shippingbox")
             }
         }
-        .navigationDestination(for: SyncedArtifactRoute.self) { route in
-            if let artifacts { route.destination(artifacts) }
-        }
     }
 
     /// The Artifacts page of ``ChiefSources``' signed-in account.
@@ -35,7 +32,8 @@ public struct SyncedArtifactsScreen: View {
     }
 }
 
-/// Where a tap in the Artifacts pages goes (one destination for every level).
+/// Where a tap in the Artifacts pages goes (one destination for every level). Pushed with view
+/// links: Settings' stack path holds only its own routes.
 enum SyncedArtifactRoute: Hashable {
     case folder(String)
     case file(String, ref: String?)
@@ -64,7 +62,9 @@ struct SyncedFolder: View {
     var body: some View {
         SyncedPhaseView(phase: page.phase, retry: { await page.load() }) { entries in
             List(entries) { entry in
-                NavigationLink(value: entry.isFolder ? SyncedArtifactRoute.folder(entry.path) : .file(entry.path, ref: nil)) {
+                NavigationLink {
+                    (entry.isFolder ? SyncedArtifactRoute.folder(entry.path) : .file(entry.path, ref: nil)).destination(artifacts)
+                } label: {
                     Label {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(entry.name).font(theme.type.rowTitle)
@@ -89,7 +89,9 @@ struct SyncedFolder: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink(value: SyncedArtifactRoute.history(path, isFile: false)) {
+                NavigationLink {
+                    SyncedArtifactRoute.history(path, isFile: false).destination(artifacts)
+                } label: {
                     Label("History", systemImage: "clock.arrow.circlepath")
                 }
                 .accessibilityIdentifier("artifacts.synced.history")
@@ -114,7 +116,9 @@ struct SyncedFile: View {
             .toolbar {
                 if ref == nil {
                     ToolbarItem(placement: .topBarTrailing) {
-                        NavigationLink(value: SyncedArtifactRoute.history(path, isFile: true)) {
+                        NavigationLink {
+                            SyncedArtifactRoute.history(path, isFile: true).destination(artifacts)
+                        } label: {
                             Label("History", systemImage: "clock.arrow.circlepath")
                         }
                         .accessibilityIdentifier("artifacts.synced.fileHistory")
@@ -150,7 +154,7 @@ struct SyncedHistory: View {
                 }
                 .accessibilityElement(children: .combine)
                 if isFile {
-                    NavigationLink(value: SyncedArtifactRoute.file(path, ref: commit.sha)) { row }
+                    NavigationLink { SyncedArtifactRoute.file(path, ref: commit.sha).destination(artifacts) } label: { row }
                         .accessibilityIdentifier("artifacts.synced.commit.\(commit.shortSHA)")
                 } else {
                     row.accessibilityIdentifier("artifacts.synced.commit.\(commit.shortSHA)")

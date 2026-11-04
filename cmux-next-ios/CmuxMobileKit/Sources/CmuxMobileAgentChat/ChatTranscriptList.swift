@@ -1175,7 +1175,7 @@ extension ChatRow {
     /// failure's disclosure).
     var keepsViewState: Bool {
         switch kind {
-        case .question, .failed, .block: true
+        case .question, .failed, .block, .nextStep: true
         default: false
         }
     }

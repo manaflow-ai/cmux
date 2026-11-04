@@ -120,7 +120,7 @@ final class ChatTranscriptBuilder {
             let context = ChatTurnContext(isFirst: index == 0, isLast: isLast, earlierHistory: index == 0 && earlierHistory,
                                           followsActions: followsActions, askOpen: isLast && askOpen,
                                           choicesFor: isLast ? choicesFor : nil,
-                                          nextPrompt: isLast ? nil : turns[index + 1].prompt)
+                                          nextPrompt: isLast ? nil : Self.reply(turns[index + 1].prompt))
             let rows: ChatTurnRows
             if let memo = memos[turn.id], memo.context == context, memo.turn == turn,
                !memo.waitsForDiff || memo.diffVersion == diffs.version {
@@ -140,6 +140,12 @@ final class ChatTranscriptBuilder {
             memos = memos.filter { live.contains($0.key) }
         }
         return out
+    }
+
+    /// A prompt that answers a card: nil when it is blank (a turn a notice or another agent
+    /// started), so an earlier ask stays in its answer's text, as on the Mac.
+    static func reply(_ prompt: String) -> String? {
+        prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : prompt
     }
 
     /// The space after the last row (the old transcript's padding under its last turn).
@@ -166,7 +172,9 @@ final class ChatTranscriptBuilder {
         let running = turn.status == .running
         // A finished turn's answer that ends on one tagged ask: the ask draws as a card under it.
         var nextStep: (rowID: String, ask: NextStepAsk)?
-        if turn.status == .completed, let index = turnRows.lastIndex(where: { if case .message = $0 { true } else { false } }),
+        // An earlier turn's card shows only with the reply that answered it (the Mac's rule).
+        if turn.status == .completed, context.isLast || context.nextPrompt != nil,
+           let index = turnRows.lastIndex(where: { if case .message = $0 { true } else { false } }),
            case .message(_, let markdown) = turnRows[index], let ask = NextStepAsk.parse(markdown) {
             nextStep = (turnRows[index].id, ask)
         }

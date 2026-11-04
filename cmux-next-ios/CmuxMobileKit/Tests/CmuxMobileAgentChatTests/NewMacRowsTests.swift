@@ -114,7 +114,14 @@ import Testing
         #expect(Self.nextStep(rows) == nil)
     }
 
-    @Test func anAnswerGoesAsTheNextPrompt() throws {
+    @Test func anEarlierAskWithoutAReplyStaysInItsText() throws {
+        let (store, _) = Self.store(answer: "Done.\n\n[taste] Which icon?\n- Folder\n- Stack", then: " ")
+        let rows = ChatTranscriptBuilder(diffs: ChatDiffCache()).build(turns: store.turns, pendingPermission: nil, askOpen: false,
+                                                                         permissionBarHidden: false)
+        #expect(Self.nextStep(rows) == nil)
+    }
+
+    @Test func anAnswersLabelIsThePromptItSends() throws {
         let (store, source) = Self.store(answer: "[outward] Should I push?")
         let ask = try #require(Self.nextStep(ChatTranscriptBuilder(diffs: ChatDiffCache()).build(
             turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false)))

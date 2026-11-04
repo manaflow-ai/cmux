@@ -126,6 +126,21 @@ import Testing
         #expect(model.failure == "It changed elsewhere.")
     }
 
+    @Test func aBusyPageChangesNothingItCannotSend() async throws {
+        Service.reset(["automation.list": (200, Self.list), "automation.runs.list": (200, Self.runs)])
+        let model = CloudAutomationsModel { nil }
+        let row = CloudAutomation(id: "auto_a", name: "A", schedule: "manual", task: "", enabled: true, version: 1, nextRun: nil)
+        await model.setEnabled(row, false)
+        await model.delete(row)
+        #expect(Service.ops.isEmpty)
+        #expect(!model.canAct)
+    }
+
+    @Test func anErroredGitHubConnectionCanConnectAgain() {
+        let value = Data(#"{"connections":[{"provider":"github","status":"error"}],"providers":[{"provider":"github","configured":true}]}"#.utf8)
+        #expect(GitHubConnect.state(value) == .notConnected)
+    }
+
     @Test func signedOutSaysSo() async {
         let model = CloudAutomationsModel { nil }
         await model.load()
@@ -206,6 +221,8 @@ import Testing
     @Test func thePlatformTakesOnlyItsOwnDeployments() {
         #expect(AccountCloud.platformBase(cloud: URL(string: "https://cloud-api.cmux.dev")!, environment: [:])?.host() == "cmux-platform.debussy.workers.dev")
         #expect(AccountCloud.platformBase(cloud: URL(string: "https://cloud-api-staging.cmux.dev")!, environment: [:])?.host()
+            == "cmux-platform-staging.debussy.workers.dev")
+        #expect(AccountCloud.platformBase(cloud: URL(string: "https://cmux-api-development.debussy.workers.dev")!, environment: [:])?.host()
             == "cmux-platform-development.debussy.workers.dev")
         #expect(!AccountCloud.isPlatformOrigin(URL(string: "https://evil.example")!))
         #expect(!AccountCloud.isPlatformOrigin(URL(string: "http://x.debussy.workers.dev")!))

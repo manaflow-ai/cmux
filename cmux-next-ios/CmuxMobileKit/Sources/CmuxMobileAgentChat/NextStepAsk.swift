@@ -78,7 +78,7 @@ public struct NextStepAsk: Equatable, Sendable {
         let after = String(body[body.index(after: end)...]).trimmingCharacters(in: .whitespaces)
         // The answers: a list right under the line, one blank line between allowed.
         var next = ask.at + 1
-        if next < lines.count, lines[next].trimmingCharacters(in: .whitespaces).isEmpty,
+        if next < lines.count, lines[next].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
            next + 1 < lines.count, matches(listItem, lines[next + 1]) {
             next += 1
         }
@@ -102,8 +102,8 @@ public struct NextStepAsk: Equatable, Sendable {
         }
         // One blank line stays where the ask's lines were between two paragraphs.
         var tail = Array(lines[(last + 1)...])
-        if ask.at > 0, lines[ask.at - 1].trimmingCharacters(in: .whitespaces).isEmpty,
-           tail.first?.trimmingCharacters(in: .whitespaces).isEmpty == true {
+        if ask.at > 0, lines[ask.at - 1].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           tail.first?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
             tail.removeFirst()
         }
         var rest = (Array(lines[..<ask.at]) + tail).joined(separator: "\n")
