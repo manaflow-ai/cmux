@@ -1,5 +1,6 @@
 import CmuxAuthRuntime
 import CmuxProductAnalytics
+import Foundation
 
 extension HostAccountFlow {
     /// Reports sign-in, identity, team and sign-out changes. Called on every
@@ -56,6 +57,22 @@ extension HostAccountFlow {
         reportAnalytics(analyticsState.signInRequestEnded(request, withoutAttempt: outcome))
         return result
     }
+
+    /// Query items that let the hosted sign-in page report its steps for an
+    /// opened attempt: an opt-in flag and the attempt's random id. Only while
+    /// product analytics is on for this launch (Settings opt-in, managed
+    /// `DisableTelemetry`, never under XCTest or in debug builds); otherwise
+    /// the sign-in URL is unchanged.
+    func hostedSignInAnalyticsQueryItems(for browserAttempt: HostBrowserSignInAttempt) -> [URLQueryItem] {
+        guard analytics.isEnabled, let attemptID = analyticsState.attemptID(for: browserAttempt) else { return [] }
+        return [
+            URLQueryItem(name: Self.hostedAnalyticsQueryName, value: "1"),
+            URLQueryItem(name: Self.hostedAttemptQueryName, value: attemptID.token),
+        ]
+    }
+
+    static let hostedAnalyticsQueryName = "cmux_analytics"
+    static let hostedAttemptQueryName = "cmux_attempt"
 
     /// Captures `cmux_signed_out` before the sign-out runs and ends any open
     /// attempt, which the sign-out cancels.

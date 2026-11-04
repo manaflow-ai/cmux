@@ -71,6 +71,10 @@ public final class HostBrowserSignInFlow {
     /// Receives each countable sign-in step. Set by the host; never given the
     /// callback URL, tokens or error text.
     @ObservationIgnored public var onEvent: (@MainActor (HostBrowserSignInEvent) -> Void)?
+    /// Extra query items for an attempt's hosted sign-in URL, such as an
+    /// opt-in analytics correlation id. Added as given after the URL's own
+    /// items; they must carry no auth meaning. Nil or empty adds nothing.
+    @ObservationIgnored public var signInURLQueryItems: (@MainActor (HostBrowserSignInAttempt) -> [URLQueryItem])?
     /// Which attempt issued each callback state still accepted, so a callback
     /// is reported for the attempt it came from. In memory only.
     @ObservationIgnored private var callbackStateAttempts: [String: UInt64] = [:]
@@ -309,11 +313,16 @@ public final class HostBrowserSignInFlow {
     /// popup and the default-browser fallback) lands on the account chooser.
     private func attemptSignInURL(_ callbackState: String) -> URL {
         let url = makeSignInURL(callbackState)
-        guard activeAttemptSelectsAccount,
+        let extra = issuingAttempt(of: callbackState).flatMap { signInURLQueryItems?($0) } ?? []
+        guard activeAttemptSelectsAccount || !extra.isEmpty,
               var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
         var items = components.queryItems ?? []
-        items.removeAll { $0.name == "prompt" }
-        items.append(URLQueryItem(name: "prompt", value: "select_account"))
+        let replaced = Set(extra.map(\.name)).union(activeAttemptSelectsAccount ? ["prompt"] : [])
+        items.removeAll { replaced.contains($0.name) }
+        if activeAttemptSelectsAccount {
+            items.append(URLQueryItem(name: "prompt", value: "select_account"))
+        }
+        items.append(contentsOf: extra)
         components.queryItems = items
         return components.url ?? url
     }

@@ -6,6 +6,7 @@ import {
 } from "../native-handoff-cookie";
 import { requestOrigin } from "../../lib/request-origin";
 import { SELECT_ACCOUNT_PROMPT } from "../sign-in-entry";
+import { forwardHostedSignInAnalytics } from "../sign-in-analytics";
 
 
 function canSetAutoHandoff(request: NextRequest): boolean {
@@ -47,6 +48,8 @@ export function GET(request: NextRequest) {
   if (request.nextUrl.searchParams.get("prompt") === SELECT_ACCOUNT_PROMPT) {
     stackSignInURL.searchParams.set("prompt", SELECT_ACCOUNT_PROMPT);
   }
+  // The app's opt-in for hosted sign-in analytics, only when well formed.
+  forwardHostedSignInAnalytics(request.nextUrl.searchParams, stackSignInURL);
   const response = NextResponse.redirect(stackSignInURL);
   if (nonce) {
     issueNativeHandoffCookie(response, request, nonce);

@@ -203,6 +203,11 @@ struct AccountAnalyticsState: Equatable {
         return (index, .unlinked)
     }
 
+    /// The opened attempt a browser attempt belongs to, if it is tracked.
+    func attemptID(for browserAttempt: HostBrowserSignInAttempt) -> SignInAttemptID? {
+        attempts.last { $0.browserAttempts.contains(browserAttempt) }?.id
+    }
+
     private func index(of id: SignInAttemptID) -> Int? {
         attempts.lastIndex { $0.id == id }
     }

@@ -35,6 +35,8 @@ import {
   type EmailCodeRefusal,
   type RememberedAccount,
 } from "./sign-in-entry";
+import { oauthMethod, reportHostedSignInStep } from "./sign-in-analytics";
+import { useHostedSignInAttempt, useHostedSignInPageShown } from "./sign-in-analytics-client";
 import { SignInSpinner } from "./sign-in-spinner";
 
 export type CmuxSignInMessages = {
@@ -130,6 +132,12 @@ export function CmuxSignIn({ mode, messages }: { mode: Mode; messages: CmuxSignI
     hasRememberedAccounts: mode === "sign-in" && remembered.length > 0,
     signedInHere: user !== null && !openedSignedIn,
     forApp: signInIsForApp(returnTo),
+  });
+  useHostedSignInPageShown({
+    event: "cmux_sign_in_page_shown",
+    page: mode,
+    entry,
+    returningFromProvider: isReturningFromOAuth(params),
   });
 
   // Always in this slot (null when signed out), so the screen next to it
@@ -878,6 +886,7 @@ function OAuthProviderButton({ provider, disabled, messages, lastUsedOverride, l
   const [error, setError] = useState<string | null>(null);
   const errorId = useId();
   const name = providerNames[provider] ?? provider;
+  const attempt = useHostedSignInAttempt();
 
   return (
     <>
@@ -889,11 +898,13 @@ function OAuthProviderButton({ provider, disabled, messages, lastUsedOverride, l
         onClick={() => {
           setBusy(true);
           setError(null);
+          reportHostedSignInStep(attempt, { event: "cmux_sign_in_method_selected", method: oauthMethod(provider) });
           startOAuth(app, provider, loginHint).then(
             () => setBusy(false),
             () => {
               setBusy(false);
               setError(messages.errorGeneric);
+              reportHostedSignInStep(attempt, { event: "cmux_sign_in_method_failed", method: oauthMethod(provider), stage: "start" });
             },
           );
         }}
@@ -934,6 +945,7 @@ function startOAuth(app: ReturnType<typeof useHexclaveApp>, provider: string, lo
 
 function PasskeyButton({ messages }: { messages: CmuxSignInMessages }) {
   const app = useHexclaveApp();
+  const attempt = useHostedSignInAttempt();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const errorId = useId();
@@ -947,14 +959,17 @@ function PasskeyButton({ messages }: { messages: CmuxSignInMessages }) {
         onClick={async () => {
           setBusy(true);
           setError(null);
+          reportHostedSignInStep(attempt, { event: "cmux_sign_in_method_selected", method: "passkey" });
           try {
             const result = await app.signInWithPasskey();
             if (result.status === "error") {
               setError(KnownErrors.InvalidTotpCode.isInstance(result.error) ? messages.errorInvalidTotp : messages.errorPasskey);
+              reportHostedSignInStep(attempt, { event: "cmux_sign_in_method_failed", method: "passkey", stage: "verify" });
             }
           } catch (caught) {
             console.error("[cmux sign-in] passkey sign-in failed", caught);
             setError(messages.errorPasskey);
+            reportHostedSignInStep(attempt, { event: "cmux_sign_in_method_failed", method: "passkey", stage: "verify" });
           } finally {
             setBusy(false);
           }
@@ -1093,6 +1108,7 @@ function EmailCode({ messages, email, onEmailChange, onUsePassword }: {
   onUsePassword?: () => void;
 }) {
   const app = useHexclaveApp();
+  const attempt = useHostedSignInAttempt();
   const [step, setStep] = useState<EmailStep>({ kind: "enter" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1114,15 +1130,18 @@ function EmailCode({ messages, email, onEmailChange, onUsePassword }: {
     setBusy(true);
     setError(null);
     setUnverified(false);
+    reportHostedSignInStep(attempt, { event: "cmux_sign_in_method_selected", method: "email_code" });
     try {
       const result = await app.sendMagicLinkEmail(email.trim());
       if (result.status === "error") {
         console.error("[cmux sign-in] sending the code was refused", result.error);
         setError(messages.errorGeneric);
+        reportHostedSignInStep(attempt, { event: "cmux_sign_in_method_failed", method: "email_code", stage: "start" });
         return;
       }
       setStep({ kind: "code", email: email.trim(), nonce: result.data.nonce });
     } catch (caught) {
+      reportHostedSignInStep(attempt, { event: "cmux_sign_in_method_failed", method: "email_code", stage: "start" });
       const refusal = emailCodeRefusal(caught);
       setUnverified(refusal === "unverified-account");
       setError(emailCodeRefusalMessage[refusal](messages));
@@ -1172,6 +1191,7 @@ function CodeEntry({ messages, email, nonce, onBack, onResend }: {
   onResend: () => void;
 }) {
   const app = useHexclaveApp();
+  const attempt = useHostedSignInAttempt();
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1185,10 +1205,12 @@ function CodeEntry({ messages, email, nonce, onBack, onResend }: {
       if (result.status === "error") {
         console.error("[cmux sign-in] code sign-in was refused", result.error);
         setError(KnownErrors.InvalidTotpCode.isInstance(result.error) ? messages.errorInvalidTotp : messages.errorInvalidCode);
+        reportHostedSignInStep(attempt, { event: "cmux_sign_in_method_failed", method: "email_code", stage: "verify" });
       }
     } catch (caught) {
       console.error("[cmux sign-in] code sign-in failed", caught);
       setError(messages.errorGeneric);
+      reportHostedSignInStep(attempt, { event: "cmux_sign_in_method_failed", method: "email_code", stage: "verify" });
     } finally {
       setBusy(false);
       setCode("");
@@ -1239,6 +1261,7 @@ function PasswordSignIn({ messages, returnTo, email, onEmailChange, focusPasswor
   focusPassword?: boolean;
 }) {
   const app = useHexclaveApp();
+  const attempt = useHostedSignInAttempt();
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
@@ -1252,16 +1275,19 @@ function PasswordSignIn({ messages, returnTo, email, onEmailChange, focusPasswor
     setPasswordError(badPassword);
     if (badEmail || badPassword) return;
     setBusy(true);
+    reportHostedSignInStep(attempt, { event: "cmux_sign_in_method_selected", method: "password" });
     try {
       // Success redirects, including the two-factor step when it applies.
       const result = await app.signInWithCredential({ email: email.trim(), password });
       if (result.status === "error") {
         console.error("[cmux sign-in] password sign-in was refused", result.error);
         setEmailError(KnownErrors.InvalidTotpCode.isInstance(result.error) ? messages.errorInvalidTotp : messages.errorWrongPassword);
+        reportHostedSignInStep(attempt, { event: "cmux_sign_in_method_failed", method: "password", stage: "verify" });
       }
     } catch (caught) {
       console.error("[cmux sign-in] password sign-in failed", caught);
       setEmailError(messages.errorGeneric);
+      reportHostedSignInStep(attempt, { event: "cmux_sign_in_method_failed", method: "password", stage: "verify" });
     } finally {
       setBusy(false);
     }

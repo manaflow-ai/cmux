@@ -1,10 +1,11 @@
 "use client";
 
 import posthog from "posthog-js";
+import { POSTHOG_PUBLIC_API_HOST, POSTHOG_PUBLIC_PROJECT_KEY } from "./posthog-public-config";
 
 if (typeof window !== "undefined") {
-  posthog.init("phc_opOVu7oFzR9wD3I6ZahFGOV2h3mqGpl5EHyQvmHciDP", {
-    api_host: "https://r.cmux.com",
+  posthog.init(POSTHOG_PUBLIC_PROJECT_KEY, {
+    api_host: POSTHOG_PUBLIC_API_HOST,
     ui_host: "https://us.posthog.com",
     person_profiles: "identified_only",
     capture_pageview: false,

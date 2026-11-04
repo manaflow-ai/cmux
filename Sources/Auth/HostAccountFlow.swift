@@ -87,6 +87,9 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         self.analytics = analytics
         startCoordinatorObservation()
         browserSignIn.onEvent = { [weak self] event in self?.noteSignInFlowEvent(event) }
+        browserSignIn.signInURLQueryItems = { [weak self] attempt in
+            self?.hostedSignInAnalyticsQueryItems(for: attempt) ?? []
+        }
         syncAnalytics()
     }
 
