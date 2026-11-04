@@ -246,7 +246,7 @@ impl PortOrder {
             return true;
         }
         let reconnect_by =
-            Instant::now().checked_add(reconnect_wait(&self.0)).unwrap_or_else(Instant::now);
+            Instant::now().checked_add(reconnect_wait(&state)).unwrap_or_else(Instant::now);
         let frame =
             PortFrame { kind, bytes: bytes.to_vec(), reconnect_by, waiter: None, control: true };
         // Not counted against the capacity: one control frame per run of other frames, a few bytes each.
@@ -386,11 +386,12 @@ impl InputPort {
         if bytes.len() > MAX_FRAME_PAYLOAD {
             return Err(InputRefused::TooLarge);
         }
-        let reconnect_by =
-            Instant::now().checked_add(reconnect_wait(&self.shared)).unwrap_or_else(Instant::now);
         // Copied before the lock, so another write to this terminal never waits for this one's copy.
-        let frame = PortFrame { kind, bytes: bytes.to_vec(), reconnect_by, waiter, control: false };
+        let bytes = bytes.to_vec();
         let mut state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let reconnect_by =
+            Instant::now().checked_add(reconnect_wait(&state)).unwrap_or_else(Instant::now);
+        let frame = PortFrame { kind, bytes, reconnect_by, waiter, control: false };
         let Some(total) = state
             .queued_bytes
             .checked_add(frame.cost())
@@ -479,13 +480,15 @@ impl InputPort {
     }
 }
 
-/// The reconnect wait of `shared`'s port ([`HOST_INPUT_RECONNECT_WAIT`] unless a test set one).
-fn reconnect_wait(shared: &PortShared) -> Duration {
+/// The reconnect wait of the port whose locked `state` the caller holds ([`HOST_INPUT_RECONNECT_WAIT`] unless a test
+/// set one). It reads the caller's guard and never takes the port lock itself: a second lock of the same mutex on one
+/// thread deadlocks, as `PortOrder::enqueue_after_pending` did in test builds.
+fn reconnect_wait(state: &PortState) -> Duration {
     #[cfg(test)]
-    if let Some(wait) = shared.state.lock().unwrap_or_else(PoisonError::into_inner).reconnect_wait {
+    if let Some(wait) = state.reconnect_wait {
         return wait;
     }
-    let _ = shared;
+    let _ = state;
     HOST_INPUT_RECONNECT_WAIT
 }
 
