@@ -115,6 +115,12 @@ pub struct ClaudeState {
 /// The answer to one request, as `ChildAgent::request` returns it.
 pub type Response = oneshot::Receiver<Result<Value, RpcError>>;
 
+/// How long [`ChildAgent::runs_claude`] waits for a host's answer. Shorter than
+/// `agent_host::QUERY_BUDGET`: adoption at the daemon's start waits on it, and a host that does
+/// not answer in time is judged by its profile, then asked again when a prompt reaches it.
+// timeout: never fails anything; a late host falls back to its profile and is asked again on its next prompt.
+const HOST_KIND_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// How long the reader waits for the Exit entry's ack to be written.
 const EXIT_ACK_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
 
@@ -1761,13 +1767,13 @@ impl ChildAgent {
 
     /// Whether Claude Code's translator runs this agent: here, or in its host
     /// (only that translator answers the host's query with modes). None: the
-    /// host did not answer in time.
+    /// host did not answer within [`HOST_KIND_BUDGET`].
     pub async fn runs_claude(&self) -> Option<bool> {
         if self.translator.is_some() {
             return Some(true);
         }
         let Some(h) = &self.hosted else { return Some(false) };
-        h.link().query().await.ok().map(|reply| reply.modes.is_some())
+        h.link().query_within(HOST_KIND_BUDGET).await.ok().map(|reply| reply.modes.is_some())
     }
 
     /// The Claude translator's state, wherever the translator runs.
