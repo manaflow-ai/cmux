@@ -4,6 +4,7 @@
 // draws the owner's transcript read only, an ask showing who it waits on and no answer buttons.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import type { ShareSocketLike } from "../src/agent-session/guest/shareSocket";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -271,5 +272,46 @@ test("an invitee the owner removes (uninvite) ends on You were removed", async (
   await submit(removed.host);
   expect(removed.host.textContent).toBe(translate("guest.ended.kicked"));
   await removed.unmount();
+  await page.unmount();
+});
+
+test("a link guest's waiting messages stay its own: accepting the invite neither resends nor shows them", async () => {
+  const { rememberJoined } = await import("../src/agent-session/guest/redeem");
+  // This tab joined by the link as g-link and left one message unsent and one held for the owner.
+  const tab = memoryStorage(SHARE, [
+    { clientId: "c-sending", text: "Link guest, never acknowledged", at: 1, state: "sending" },
+    { clientId: "c-held", text: "Link guest, waiting for the owner", at: 2, state: "held" },
+  ]);
+  rememberJoined(SHARE, "g-link", tab, "Ana");
+  const sent: Record<string, unknown>[] = [];
+  const frames = joinFrames(askingRecords());
+  const page = await mount({
+    secret: undefined,
+    invite: true,
+    storage: tab,
+    accept: async () => ({ ok: true, guestId: "g-invitee", role: "talk" }),
+    onJoined: (guestId, name, role, via) => rememberJoined(SHARE, guestId, tab, name, role, via),
+    openSocket: () => {
+      const socket: ShareSocketLike = {
+        send: (data: string) => void sent.push(JSON.parse(data)),
+        close: () => undefined,
+        onopen: null,
+        onmessage: null,
+        onclose: null,
+      };
+      queueMicrotask(() => {
+        for (const frame of frames) socket.onmessage?.({ data: JSON.stringify(frame) });
+      });
+      return socket;
+    },
+  });
+  await submit(page.host);
+  await roomFrames();
+  expect(page.host.textContent).toContain("Fix the flaky upload retry test");
+  // The invitee is another guest: the link guest's unsent message never goes out under its id, and
+  // the held one is not asked about as the invitee.
+  expect(sent.filter((frame) => frame.t === "prompt")).toEqual([]);
+  expect(sent.filter((frame) => frame.t === "prompt_status")).toEqual([]);
+  expect(page.host.textContent).not.toContain("Link guest");
   await page.unmount();
 });
