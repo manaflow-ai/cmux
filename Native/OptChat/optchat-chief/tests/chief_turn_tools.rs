@@ -668,3 +668,31 @@ fn turn_tools_send_marked_long_posts_on_the_first_try() {
     let posted = wait_send(&mut h, "item item");
     assert_eq!(posted.len(), 1, "{posted:?}");
 }
+
+/// `send` with files and no text posts the files (review of cmux #25858: the
+/// sign-in card's empty-parts entry took a files-only send and posted nothing).
+#[test]
+fn turn_tools_send_with_files_and_no_text_posts_the_files() {
+    let mut h = Harness::new(default_script());
+    h.connect();
+    h.say("user_local", "send me the report");
+    h.settle_posts();
+    let report = h.dir.path().join("ONLY.pdf");
+    std::fs::write(&report, b"%PDF-1.4 fake").unwrap();
+    let sp = spawner(&h);
+    let call = SendCall {
+        attachments: vec![report.display().to_string()],
+        sign_in: None,
+        ..SendCall::default()
+    };
+    let answer = run(&mut h, move || sp.send(call)).expect("send answers");
+    assert!(answer.starts_with("outcome: done"), "{answer}");
+    let posted = wait_send(&mut h, "ONLY.pdf");
+    assert!(
+        posted[0]
+            .1
+            .iter()
+            .any(|p| matches!(p, Part::Attachment { name, .. } if name == "ONLY.pdf")),
+        "{posted:?}"
+    );
+}

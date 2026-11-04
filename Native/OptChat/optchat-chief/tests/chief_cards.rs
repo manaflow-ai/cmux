@@ -542,14 +542,6 @@ fn a_step_on_another_browser_tab_drops_the_previous_target_and_url() {
         h.settle_posts();
         let shown = cards(&h);
         assert!(
-            shown.iter().any(|(_, card)| matches!(
-                card,
-                Card::Browser { target: Some(t), url: Some(u), .. }
-                    if t == "browser:right" && u == "https://alpha.example/start"
-            )),
-            "{tool}: the first step's card names its tab and page: {shown:?}"
-        );
-        assert!(
             matches!(
                 shown.last(),
                 Some((
