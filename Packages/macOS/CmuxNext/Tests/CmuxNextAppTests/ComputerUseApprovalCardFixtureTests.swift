@@ -30,7 +30,8 @@ struct ComputerUseApprovalCardFixtureTests {
         let store = ComputerUseApprovalStore(file: file)
         await store.load()
         let cards = ComputerUseApprovalCards(panels: false)
-        let broker = ComputerUseApprovalBroker(store: store, nowMs: { ComputerUseApprovalTests.nowMs })
+        let nowMs = ComputerUseApprovalTests.nowMs
+        let broker = ComputerUseApprovalBroker(store: store, nowMs: { nowMs })
         broker.presenter = cards
         let (lines, sink) = AsyncStream<Data>.makeStream()
         _ = broker.attach(sink)
