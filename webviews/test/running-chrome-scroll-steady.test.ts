@@ -164,12 +164,28 @@ await requireBrowserLane("running-chrome-scroll-steady.test.ts", async () => {
       // or shimmer restart as it comes into view: the transcript's own finite animations, by row.
       const known = new Set(scroller.getAnimations({ subtree: true }));
       const rowAnimations: string[] = [];
+      // The prompt rail answers the scroll by design (its ticks light as their prompts pass), and a
+      // shared loop (the live line's shimmer) that mounts again is fine as long as it paints its first
+      // frame on the shared phase (ui/spinnerClock.ts), where a restart cannot be seen.
+      const shared = new Set(["cmux-spin", "cmux-breathe", "cmux-shimmer", "cmux-shimmer-band", "cmux-shimmer-lit"]);
       const readRows = () => {
+        const now = document.timeline.currentTime as number;
         for (const animation of scroller.getAnimations({ subtree: true })) {
           if (known.has(animation)) continue;
           known.add(animation);
           const target = (animation.effect as KeyframeEffect | null)?.target;
-          const label = (animation as CSSAnimation).animationName ?? (animation as CSSTransition).transitionProperty;
+          if (target instanceof Element && target.closest(".acpmux-minimap")) continue;
+          const name = (animation as CSSAnimation).animationName;
+          const label = name ?? (animation as CSSTransition).transitionProperty;
+          if (name && shared.has(name)) {
+            const period = Number(animation.effect?.getTiming().duration);
+            const phase = (performance.timeOrigin + now) % period;
+            const drawn = ((Number(animation.currentTime) % period) + period) % period;
+            const off = Math.min(Math.abs(phase - drawn), period - Math.abs(phase - drawn));
+            if (off < 50) continue;
+            rowAnimations.push(`${label} on ${target ? describe(target) : "?"} ${Math.round(off)}ms off the shared phase`);
+            continue;
+          }
           rowAnimations.push(`${label ?? "animation"} on ${target ? describe(target) : "?"}`);
         }
       };
