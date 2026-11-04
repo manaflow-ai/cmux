@@ -27,6 +27,7 @@
   gap: var(--ds-space-2);
   height: var(--ds-control-row);
   padding-inline: var(--ds-space-3);
+  border: 0;
   border-radius: var(--ds-radius-md);
   color: var(--ds-color-fg);
   font-size: var(--text-control);

@@ -126,6 +126,8 @@ public final class AgentPageProvider: PageProvider {
     public var pendingAsks = AgentPanePendingAsks()
     /// The pane host, available before its handshake or transport socket.
     public var tailHost: (any AgentPaneHostProviding)?
+    /// The pane's tab (``AgentPaneModel/tabKey``), which a chat's place is kept by. ``AgentPaneView`` sets it.
+    public var tabKey: @MainActor () -> String? = { nil }
     /// The debug UI pointer report from an app-owned page. The native picker
     /// owns the crop and composer delivery; the page only supplies metadata.
     public var onUiPointerReport: @MainActor (JSONValue) -> Void = { _ in }
@@ -369,7 +371,7 @@ public final class AgentPageProvider: PageProvider {
         }
         // Named, not a prefix: `scrollAnchor` treats anything but `.get` as a write, so a later
         // `chat.scrollAnchor.forget` would have erased a chat's place instead of being refused.
-        if AgentPaneScrollAnchors.handles(method: method) { return try Self.scrollAnchor(method, params: params, op: op) }
+        if AgentPaneScrollAnchors.handles(method: method) { return try Self.scrollAnchor(method, params: params, op: op, tab: tabKey()) }
         if AgentPaneTailCache.handles(method: method) {
             return try await Self.tail(method, params: params, op: op, host: tailHost, pageGeneration: tailGeneration)
         }

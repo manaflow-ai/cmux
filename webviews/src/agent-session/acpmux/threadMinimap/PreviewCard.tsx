@@ -104,6 +104,9 @@ export const PreviewCard = React.forwardRef<
     /// The prompt is not loaded yet (a pending tick, model.ts `pendingTurns`): the card holds a blank
     /// line where its words go, and they fade in there when they arrive.
     pending?: boolean;
+    /// The rail row the card is open on: the fade of arriving words is this row's, never replayed on
+    /// the row the card moves to.
+    row?: number;
     /// The prompt's sender, when another session sent it (model.ts `promptSender`): a line above it
     /// names them, so it never reads as the person's own words.
     from?: string;
@@ -129,6 +132,7 @@ export const PreviewCard = React.forwardRef<
     scroller,
     prompt,
     pending = false,
+    row,
     from,
     reply,
     metadata,
@@ -148,11 +152,14 @@ export const PreviewCard = React.forwardRef<
   /// threadMinimap.css `[data-arrived]`), in the place the blank line held. Set before paint.
   const [arrived, setArrived] = useState(false);
   const wasPending = useRef(pending);
+  const wasRow = useRef(row);
   useLayoutEffect(() => {
-    if (wasPending.current && !pending) setArrived(true);
+    if (wasRow.current !== row) setArrived(false);
+    else if (wasPending.current && !pending) setArrived(true);
     else if (pending) setArrived(false);
     wasPending.current = pending;
-  }, [pending]);
+    wasRow.current = row;
+  }, [pending, row]);
   const anchor = useRef<HTMLSpanElement>(null);
   const self = useRef<HTMLDivElement | null>(null);
   /// Where the card goes, as of the last render: read by `place`, which a commit or a resize runs.
