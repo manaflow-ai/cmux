@@ -170,6 +170,14 @@ function rowPackedToEnd(chip: HTMLElement): boolean {
   return false;
 }
 
+/** Close a sibling composer popover before the columns trigger opens its own. */
+function closeSiblingComposerPopovers(button: HTMLButtonElement) {
+  const siblings = [...button.ownerDocument.querySelectorAll<HTMLButtonElement>(
+    '[aria-haspopup][aria-expanded="true"]',
+  )].filter((sibling) => sibling !== button && sibling.closest(".acpmux-composer, .nt-composer"));
+  for (const sibling of siblings) sibling.click();
+}
+
 function Columns({
   open,
   onOpenChange,
@@ -975,6 +983,7 @@ function Columns({
         // A mouse press never focuses the chip, as the list menu's button: a press that closes the
         // menu and lands a pick leaves the keyboard in the prompt the picker focused.
         onPointerDown={(event) => {
+          closeSiblingComposerPopovers(event.currentTarget);
           press.onPointerDown(event);
           if (event.pointerType === "mouse" && event.button === 0) event.preventDefault();
         }}
