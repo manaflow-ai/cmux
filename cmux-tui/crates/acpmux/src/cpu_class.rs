@@ -7,9 +7,9 @@
 //! children (`cmux-git` `run.rs`): the lowest CPU priority, throttled disk I/O and
 //! background-class new sockets. `normal` leaves the harness at its starter's class.
 //!
-//! The start never runs at background class. Every start has a deadline (`agent_start`, the
-//! pool's `START_BUDGET`, the app's own wait on `session/new`), and a background harness can miss
-//! it on a busy disk: on 2026-10-30 (load 125 on 18 cores, `du` and `git` scans of a 3.3 TB disk)
+//! The start never runs at background class. A caller may retain a real hazard bound, and a
+//! background harness can miss it on a busy disk: on 2026-10-30 (load 125 on 18 cores, `du` and
+//! `git` scans of a 3.3 TB disk)
 //! a `claude` harness at `PRIO_DARWIN_BG` spent 90 s in its trust-settings reads (`open()` and a
 //! plist parse at disk tier 3) with under 1 s of CPU, and every Chief turn failed; the same
 //! command at normal class answered in 14.5 s. So:

@@ -44,7 +44,8 @@ impl HostLauncher {
 /// host's exit closes before it answers; or when the caller drops it, which
 /// ends the host (it is still this process's child). A busy Mac makes a host
 /// slow, never wrong, so time alone never ends it; a caller with a deadline
-/// of its own (`agent_start`, the pool's `START_BUDGET`) drops the start.
+/// of its own (for example a user-facing agent-start hazard) may drop the
+/// start; pooled starts themselves wait on liveness and report progress.
 #[cfg(unix)]
 pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostRecord> {
     // The build-session kill switch: no host and no harness (cx-9ettq).
