@@ -24,7 +24,7 @@ export const INSTALL_COMMANDS: Readonly<Record<string, string>> = {
   gemini: npmOrNative("@google/gemini-cli", "brew install gemini-cli"),
   // Muse's CLI is the provider; muse-acp is the pinned ACP bridge that lets
   // cmux use its plans, permissions and usage events in the transcript.
-  muse: "/bin/sh -c 'curl -fsSL https://dev.meta.ai/install.sh | sh && cargo install --git https://github.com/manaflow-ai/cmux-muse-acp --locked muse-acp'",
+  muse: "/bin/sh -c 'curl -fsSL https://dev.meta.ai/install.sh | sh && cargo install --git https://github.com/manaflow-ai/cmux-muse-acp --rev 734379ca1fa58f2abdd6665c7fdd11f28ab744cf --locked muse-acp'",
 };
 
 export type HarnessRow = {

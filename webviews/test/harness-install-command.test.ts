@@ -62,7 +62,7 @@ test("without npm, Install runs each vendor's own installer", () => {
     log: [
       "curl -fsSL https://dev.meta.ai/install.sh",
       "sh <echo installer>",
-      "cargo install --git https://github.com/manaflow-ai/cmux-muse-acp --locked muse-acp",
+      "cargo install --git https://github.com/manaflow-ai/cmux-muse-acp --rev 734379ca1fa58f2abdd6665c7fdd11f28ab744cf --locked muse-acp",
     ],
   });
 });
@@ -81,7 +81,7 @@ test("with npm, Install keeps npm, and never also runs a vendor installer", () =
     log: [
       "curl -fsSL https://dev.meta.ai/install.sh",
       "sh <echo installer>",
-      "cargo install --git https://github.com/manaflow-ai/cmux-muse-acp --locked muse-acp",
+      "cargo install --git https://github.com/manaflow-ai/cmux-muse-acp --rev 734379ca1fa58f2abdd6665c7fdd11f28ab744cf --locked muse-acp",
     ],
   });
 });
