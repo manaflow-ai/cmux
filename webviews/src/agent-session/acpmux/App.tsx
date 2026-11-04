@@ -69,6 +69,7 @@ import {
   isLiveStep,
   restRoom,
   linkUp,
+  type AcpmuxPlanEntry,
 } from "./model";
 import { lacksImageBytes, ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
 import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
@@ -487,6 +488,8 @@ import {
   type TurnView,
   trayWaitAgents,
   turnViewFrom,
+  liveTurnPlan,
+  samePlanEntries as sameEntries,
 } from "./conversation/turns";
 import { ArrowDown, ChevronRight } from "./conversation/icons";
 import { CopyButton } from "./conversation/CopyButton";
@@ -579,7 +582,7 @@ import { cloudStartBegun, cloudStartEnded, cloudStartPushed, type CloudStartProg
 import { CloudStartView } from "./CloudStartView";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatSizing } from "./chatWidth";
-import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
+import { registerChatDisplayHost, useChatDisplay, useChatPinnedPlan } from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { wrapOutputRow } from "./header/transcriptViewRow";
 import { presentationRow } from "./header/presentationRow";
@@ -7438,6 +7441,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => ({ store: subsessionStore.current!, open: openOfferChat, openSender: openSenderChat }),
     [],
   );
+  /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
+  const [surface, setSurface] = useState<PaneSurface>("pane");
+  const quick = surface === "quick";
   // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).
   const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
   /// Debug Settings `agent.sessionStatus`: a running turn's activity line under its todo list.
@@ -7565,6 +7571,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const lastPending = useRef<AcpmuxRow | undefined>(undefined);
   // acpmux's inbox notices next to each other draw as one (conversation/inboxNotice.ts): rows with
   // none in a run come back as they are.
+  // The running turn's todo list shows in the hat over the composer (subagents/SubagentTray.tsx
+  // `plan`), not pinned in the transcript (Leo, 2026-11-03: "we said earlier the composer hat is kinda
+  // ok?"), unless Settings > Agent Chat > Pin Task List in Chat is on, or there is no hat (the tray off
+  // in Debug Settings, the Quick Composer, a subagent's own view). Once the turn ends its list folds
+  // in the transcript, as before.
+  const pinnedPlan = useChatPinnedPlan();
+  // Debug Settings agent.sessionStatus draws its activity line under the pinned list, so it pins it.
+  const planInHat = subagentTray && !pinnedPlan && !sessionStatus && !quick && !childRows && snapshot.isWorking;
+  const hatPlanRow = useMemo(() => (planInHat ? liveTurnPlan(turnRowsShown) : undefined), [planInHat, turnRowsShown]);
+  // The list's entries hold while a step's state does not change, so streamed text never redraws the hat.
+  const hatPlanKept = useRef<readonly AcpmuxPlanEntry[] | undefined>(undefined);
+  const hatPlan = sameEntries(hatPlanKept.current, hatPlanRow?.plan)
+    ? hatPlanKept.current
+    : (hatPlanKept.current = hatPlanRow?.plan);
   const transcriptRows = useMemo(() => {
     const steers =
       childRows || chatPresentation === "messages" ? NO_ROWS : (lastTurns.current?.turns.pending ?? NO_ROWS);
@@ -7575,10 +7595,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const agents = people.length ? queuedRows.filter((row) => !isPersonQueuedRow(row)) : queuedRows;
     const group = pendingMessagesRow(steers, agents, lastPending.current);
     lastPending.current = group;
-    const merged = mergeInboxNotices(turnRowsShown);
+    const merged = mergeInboxNotices(hatPlanRow ? turnRowsShown.filter((row) => row !== hatPlanRow) : turnRowsShown);
     const rows = withWaitingRows(merged, group ? [...people, group] : people);
     return childRows ? rows : btwNotes.rows(rows, snapshot.sessionId, btwSnapshot);
-  }, [chatPresentation, childRows, turnRowsShown, queuedRows, btwNotes, btwSnapshot, snapshot.sessionId]);
+  }, [chatPresentation, childRows, turnRowsShown, hatPlanRow, queuedRows, btwNotes, btwSnapshot, snapshot.sessionId]);
   // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
   // offers Trust folder while the folder is not trusted, and its Retry waits while the folder's
   // question is open, which acpmux would refuse again.
@@ -8638,9 +8658,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
     void callNative("pane.moveToMachine", { machine, session }).catch(notRun);
   };
-  /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
-  const [surface, setSurface] = useState<PaneSurface>("pane");
-  const quick = surface === "quick";
   /// Run as is a new chat's choice, in a pane with tabs (not the floating chat).
   /// Not once a chat is starting here (a harness pick, a deferred start): its session would replace
   /// the sandbox's result. The host refuses `sandbox.run` then too (AcpmuxPaneReplacements). Not
@@ -9601,7 +9618,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     paused: cloudRecovery.state === "paused",
     unavailable: !!snapshot.unavailable,
   });
-  const hasTray = !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0);
+  const hasTray = !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0 || hatPlan !== undefined);
   // The tray's motion (subagents/trayMotion.tsx): the chat on screen as of this render, which the
   // tray reads as it goes (it plays its exit only while its own chat still shows), and the chat that
   // last rendered without one (a tray that appears in it eases in; one a chat opens with is there).
@@ -9617,40 +9634,40 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A chat switch, or the tray moving to another placement (another host), is not the tray leaving:
   // its kept copy goes before the frame paints.
   useLayoutEffect(() => settleTrayExit(), [shownSessionId, trayPlacement]);
-  const trayNode =
-    !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0) ? (
-      <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
-        <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-          {/* A subagent naming no harness draws the chat's mark, as in the transcript. */}
-          <SubagentHarnessContext.Provider value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}>
-            <SubagentTray
-              key={shownSessionId}
-              chat={shownSessionId}
-              items={trayList}
-              finished={trayFinished}
-              working={snapshot.isWorking}
-              waiting={waitingAgents}
-              onOpen={showSubagent}
-              onOpenCommand={openTrayCommand}
-              canOpenTerminal={opensProcessTerminal(snapshot.summary)}
-              canReadTail={
-                opensProcessTerminal(snapshot.summary) &&
-                clientEpoch > 0 &&
-                directClient.current !== undefined &&
-                backgroundTaskOutput !== undefined
-              }
-              onOpenSession={openOfferChat}
-              onOpenPanel={quick ? undefined : openBackgroundPanel}
-              stop={stopSubagent}
-              stopProcess={stopProcess}
-              placement={trayPlacement}
-              shown={trayChat}
-              enters={trayEnters}
-            />
-          </SubagentHarnessContext.Provider>
-        </SubagentClockContext.Provider>
-      </BackgroundTaskOutputContext.Provider>
-    ) : null;
+  const trayNode = hasTray ? (
+    <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
+      <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+        {/* A subagent naming no harness draws the chat's mark, as in the transcript. */}
+        <SubagentHarnessContext.Provider value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}>
+          <SubagentTray
+            key={shownSessionId}
+            chat={shownSessionId}
+            items={trayList}
+            finished={trayFinished}
+            working={snapshot.isWorking}
+            waiting={waitingAgents}
+            onOpen={showSubagent}
+            onOpenCommand={openTrayCommand}
+            canOpenTerminal={opensProcessTerminal(snapshot.summary)}
+            canReadTail={
+              opensProcessTerminal(snapshot.summary) &&
+              clientEpoch > 0 &&
+              directClient.current !== undefined &&
+              backgroundTaskOutput !== undefined
+            }
+            onOpenSession={openOfferChat}
+            onOpenPanel={quick ? undefined : openBackgroundPanel}
+            stop={stopSubagent}
+            stopProcess={stopProcess}
+            placement={trayPlacement}
+            shown={trayChat}
+            enters={trayEnters}
+            plan={hatPlan}
+          />
+        </SubagentHarnessContext.Provider>
+      </SubagentClockContext.Provider>
+    </BackgroundTaskOutputContext.Provider>
+  ) : null;
   /// The composer's prompt, which dictation writes into.
   const prompt = useRef<MarkdownFieldHandle>(null);
   /// The composer itself, which takes back prompts a harness switch held; prompts handed back
