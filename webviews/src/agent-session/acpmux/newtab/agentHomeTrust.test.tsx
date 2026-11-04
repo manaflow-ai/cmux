@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { act } from "react";
+import { act, useLayoutEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { agentHomeTrust, type TrustSource } from "../folderTrust";
@@ -40,7 +40,8 @@ afterEach(() => {
 
 const HOME = "/Users/me/Library/Application Support/cmux/agent-home/ws_0123456789abcdef";
 
-/// The trust state each render draws for a chat in `cwd`, while the folder's read never answers.
+/// The trust state each committed frame draws for a chat in `cwd`, while the folder's read never answers
+/// (a render React throws away for a state set during render is no frame: recorded at layout).
 async function firstFrames(cwd: string, local = true) {
   const frames: { trusted: boolean; blocked: unknown; ask: unknown }[] = [];
   let reads = 0;
@@ -58,7 +59,9 @@ async function firstFrames(cwd: string, local = true) {
       true,
       local,
     );
-    frames.push({ trusted: trust.trusted, blocked: trust.blocked, ask: trust.ask });
+    useLayoutEffect(() => {
+      frames.push({ trusted: trust.trusted, blocked: trust.blocked, ask: trust.ask });
+    });
     return null;
   }
   await act(async () => root!.render(<Probe />));
