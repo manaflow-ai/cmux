@@ -64,7 +64,7 @@ impl WorkspaceRegistry {
     /// Validate a workspace registry commit and read what it needs.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn prepare_workspace_commit(
-        &self,
+        &mut self,
         mutation: &WorkspaceMutation,
         fingerprint: &Value,
         expected_generation: Option<&str>,
