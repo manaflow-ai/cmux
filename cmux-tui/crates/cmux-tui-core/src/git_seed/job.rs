@@ -284,7 +284,14 @@ impl GitSeedService {
         let worker = job.clone();
         std::thread::Builder::new()
             .name("cmux-git-seed".into())
-            .spawn(move || worker.finish(seed.run()))
+            .spawn(move || {
+                let result = seed.run();
+                let ok = result.is_ok();
+                worker.finish(result);
+                if ok {
+                    super::seeded(&worker.folder);
+                }
+            })
             .map_err(|error| SeedRefusal::bad_request(format!("cannot start the seed: {error}")))?;
         jobs.order.push_back(job.id.clone());
         jobs.by_id.insert(job.id.clone(), job.clone());

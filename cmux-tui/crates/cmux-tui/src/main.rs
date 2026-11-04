@@ -1704,6 +1704,41 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
     Ok(())
 }
 
+/// After a seed checks out a folder on this machine: restore its dependencies
+/// from the cache and run its install, in the background
+/// (`acpmux machine deps warm --if-joined`, which does nothing on a machine
+/// that is not joined). `CMUX_DEPS_WARM=0` turns it off.
+fn warm_seeded_deps(folder: &Path) {
+    if std::env::var_os("CMUX_DEPS_WARM").is_some_and(|v| v == "0") {
+        return;
+    }
+    let Ok(exe) = std::env::current_exe() else { return };
+    // After a self-update replaced the binary, Linux names the running one "<path> (deleted)".
+    let exe = exe
+        .to_str()
+        .and_then(|path| path.strip_suffix(" (deleted)"))
+        .map_or(exe.clone(), std::path::PathBuf::from);
+    let log = std::env::temp_dir().join("cmux-deps-warm.log");
+    let out = std::fs::OpenOptions::new().create(true).append(true).open(&log).ok();
+    let err = out.as_ref().and_then(|f| f.try_clone().ok());
+    let mut command = std::process::Command::new(exe);
+    command
+        .args(["acp", "machine", "deps", "warm", "--if-joined", "--json"])
+        .arg(folder)
+        .current_dir(folder)
+        .stdin(std::process::Stdio::null())
+        .stdout(out.map_or_else(std::process::Stdio::null, Into::into))
+        .stderr(err.map_or_else(std::process::Stdio::null, Into::into));
+    // Reaped by a thread so it never lingers as a zombie of the daemon.
+    if let Ok(mut child) = command.spawn() {
+        let _ = std::thread::Builder::new()
+            .name("cmux-deps-warm".into())
+            .spawn(move || {
+                let _ = child.wait();
+            });
+    }
+}
+
 /// The whole cmux-tui program: the `cmux-tui` binary calls this, and on
 /// Windows with the `windows-thin-exe` feature the thin `cmux-tui.exe` calls
 /// it through [`cmux_tui_dll_main`] in `cmux_tui.dll`.
@@ -1714,6 +1749,7 @@ pub fn main() -> std::process::ExitCode {
     cmux_tui_core::server::install_build_stamp(build_stamp());
     cmux_tui_core::release::install_distribution_version(version_report::DISTRIBUTION_STAMP);
     acpmux::hub::install_build(acpmux_build_id::build());
+    cmux_tui_core::git_seed::on_seeded(warm_seeded_deps);
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]
     if std::env::args_os()

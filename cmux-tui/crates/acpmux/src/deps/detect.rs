@@ -1,0 +1,267 @@
+//! Which ecosystems a folder uses, what each one's cache holds, how it
+//! installs, and its cache key.
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use sha2::{Digest, Sha256};
+
+/// Bumped when what an archive holds, or how it is laid out, changes.
+const KEY_VERSION: &str = "acpmux-deps v1";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ecosystem {
+    Bun,
+    Npm,
+    Pnpm,
+    Yarn,
+    Cargo,
+    Uv,
+}
+
+impl Ecosystem {
+    pub fn name(self) -> &'static str {
+        match self {
+            Ecosystem::Bun => "bun",
+            Ecosystem::Npm => "npm",
+            Ecosystem::Pnpm => "pnpm",
+            Ecosystem::Yarn => "yarn",
+            Ecosystem::Cargo => "cargo",
+            Ecosystem::Uv => "uv",
+        }
+    }
+
+    /// The tool that installs, and the version commands whose output goes into the key.
+    fn versions(self) -> &'static [&'static [&'static str]] {
+        match self {
+            // node too: native addons in node_modules are built for one node ABI.
+            Ecosystem::Bun => &[&["bun", "--version"], &["node", "--version"]],
+            Ecosystem::Npm => &[&["npm", "--version"]],
+            Ecosystem::Pnpm => &[&["pnpm", "--version"]],
+            Ecosystem::Yarn => &[&["yarn", "--version"], &["node", "--version"]],
+            Ecosystem::Cargo => &[&["cargo", "--version"]],
+            Ecosystem::Uv => &[&["uv", "--version"]],
+        }
+    }
+}
+
+/// One project in the folder: an ecosystem and its lockfile.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Project {
+    pub ecosystem: Ecosystem,
+    pub dir: PathBuf,
+    pub lockfile: PathBuf,
+}
+
+/// The projects in `dir` (not its subfolders). One JavaScript package manager
+/// per folder, by lockfile: bun, then pnpm, yarn and npm.
+pub fn detect(dir: &Path) -> Vec<Project> {
+    let found = |name: &str| Some(dir.join(name)).filter(|p| p.is_file());
+    let mut out = Vec::new();
+    let js = [
+        (Ecosystem::Bun, "bun.lock"),
+        (Ecosystem::Bun, "bun.lockb"),
+        (Ecosystem::Pnpm, "pnpm-lock.yaml"),
+        (Ecosystem::Yarn, "yarn.lock"),
+        (Ecosystem::Npm, "package-lock.json"),
+    ];
+    if let Some((ecosystem, lockfile)) =
+        js.iter().find_map(|(eco, name)| found(name).map(|path| (*eco, path)))
+    {
+        out.push(Project { ecosystem, dir: dir.to_owned(), lockfile });
+    }
+    for (ecosystem, name) in [(Ecosystem::Cargo, "Cargo.lock"), (Ecosystem::Uv, "uv.lock")] {
+        if let Some(lockfile) = found(name) {
+            out.push(Project { ecosystem, dir: dir.to_owned(), lockfile });
+        }
+    }
+    out
+}
+
+/// What one project's archive holds and how it installs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Plan {
+    /// Archive paths are relative to this folder.
+    pub root: PathBuf,
+    /// The folders under `root` that are packed.
+    pub include: Vec<PathBuf>,
+    /// The archive is a project's own `node_modules`: restored only when
+    /// absent, unpacked to the side and moved into place in one rename. A
+    /// package manager's download cache is merged into what is there instead.
+    pub replaces: bool,
+    pub install: Vec<String>,
+}
+
+/// The first line a command prints, or None when it cannot run.
+fn output(argv: &[&str], dir: &Path) -> Option<String> {
+    let out = Command::new(argv[0]).args(&argv[1..]).current_dir(dir).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    text.lines().next().map(|line| line.trim().to_owned()).filter(|line| !line.is_empty())
+}
+
+fn home() -> Option<PathBuf> {
+    std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from)
+}
+
+/// A cache folder named by a tool: its parent is the root, so the archive
+/// holds the one folder.
+fn split(path: PathBuf) -> Option<(PathBuf, PathBuf)> {
+    let name = PathBuf::from(path.file_name()?);
+    Some((path.parent()?.to_owned(), name))
+}
+
+pub fn plan(project: &Project) -> Option<Plan> {
+    let dir = &project.dir;
+    let tool = |argv: &[&str]| output(argv, dir);
+    let strings = |argv: &[&str]| argv.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+    Some(match project.ecosystem {
+        Ecosystem::Bun => Plan {
+            root: dir.clone(),
+            include: vec!["node_modules".into()],
+            replaces: true,
+            install: strings(&["bun", "install", "--frozen-lockfile"]),
+        },
+        Ecosystem::Yarn => {
+            let classic = tool(&["yarn", "--version"])?.starts_with("1.");
+            Plan {
+                root: dir.clone(),
+                include: vec!["node_modules".into()],
+                replaces: true,
+                install: if classic {
+                    strings(&["yarn", "install", "--frozen-lockfile"])
+                } else {
+                    strings(&["yarn", "install", "--immutable"])
+                },
+            }
+        }
+        // `npm ci` deletes node_modules, so npm keeps its download cache.
+        Ecosystem::Npm => {
+            let cache = PathBuf::from(tool(&["npm", "config", "get", "cache"])?);
+            Plan {
+                root: cache,
+                include: vec!["_cacache".into()],
+                replaces: false,
+                install: strings(&[
+                    "npm",
+                    "ci",
+                    "--prefer-offline",
+                    "--no-audit",
+                    "--no-fund",
+                ]),
+            }
+        }
+        // pnpm's node_modules links into its store, so the store is what is kept.
+        Ecosystem::Pnpm => {
+            let (root, name) = split(PathBuf::from(tool(&["pnpm", "store", "path"])?))?;
+            Plan {
+                root,
+                include: vec![name],
+                replaces: false,
+                install: strings(&["pnpm", "install", "--frozen-lockfile", "--prefer-offline"]),
+            }
+        }
+        // Cargo's index and downloaded crates; never target/, never credentials.
+        Ecosystem::Cargo => {
+            let root = std::env::var_os("CARGO_HOME")
+                .filter(|h| !h.is_empty())
+                .map(PathBuf::from)
+                .or_else(|| home().map(|h| h.join(".cargo")))?;
+            Plan {
+                root,
+                include: vec!["registry/index".into(), "registry/cache".into(), "git/db".into()],
+                replaces: false,
+                install: strings(&["cargo", "fetch", "--locked"]),
+            }
+        }
+        Ecosystem::Uv => {
+            let (root, name) = split(PathBuf::from(tool(&["uv", "cache", "dir"])?))?;
+            Plan {
+                root,
+                include: vec![name],
+                replaces: false,
+                install: strings(&["uv", "sync", "--frozen"]),
+            }
+        }
+    })
+}
+
+/// The C library this binary was built for: archives with native code are
+/// not shared between glibc and musl.
+fn libc() -> &'static str {
+    if cfg!(target_env = "musl") {
+        "musl"
+    } else if cfg!(target_env = "gnu") {
+        "gnu"
+    } else {
+        "none"
+    }
+}
+
+/// `<ecosystem>-<sha256>` over the key version, the ecosystem, the platform,
+/// the codec, each tool's version (or "missing") and the lockfile's bytes.
+pub fn key(project: &Project, codec: &str) -> std::io::Result<String> {
+    let versions: Vec<String> = project
+        .ecosystem
+        .versions()
+        .iter()
+        .map(|argv| output(argv, &project.dir).unwrap_or_else(|| "missing".to_owned()))
+        .collect();
+    let lockfile = std::fs::read(&project.lockfile)?;
+    Ok(key_of(project.ecosystem, codec, &versions, &lockfile))
+}
+
+pub(crate) fn key_of(
+    ecosystem: Ecosystem,
+    codec: &str,
+    versions: &[String],
+    lockfile: &[u8],
+) -> String {
+    let mut hash = Sha256::new();
+    for line in [KEY_VERSION, ecosystem.name(), std::env::consts::OS, std::env::consts::ARCH]
+        .into_iter()
+        .chain([libc(), codec])
+        .chain(versions.iter().map(String::as_str))
+    {
+        hash.update(line.as_bytes());
+        hash.update(b"\n");
+    }
+    hash.update(Sha256::digest(lockfile));
+    let digest: String = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    format!("{}-{digest}", ecosystem.name())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_one_js_manager_and_the_others_beside_it() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["package-lock.json", "bun.lock", "Cargo.lock", "uv.lock"] {
+            std::fs::write(dir.path().join(name), b"x").unwrap();
+        }
+        let found: Vec<_> = detect(dir.path()).iter().map(|p| p.ecosystem).collect();
+        assert_eq!(found, [Ecosystem::Bun, Ecosystem::Cargo, Ecosystem::Uv]);
+        assert!(detect(&dir.path().join("missing")).is_empty());
+    }
+
+    #[test]
+    fn key_changes_with_every_input_and_matches_the_platform_pattern() {
+        let v = |s: &str| vec![s.to_owned()];
+        let base = key_of(Ecosystem::Cargo, "zstd", &v("cargo 1.90"), b"lock");
+        let pattern = regex::Regex::new("^cargo-[0-9a-f]{64}$").unwrap();
+        assert!(pattern.is_match(&base), "{base}");
+        assert_eq!(base, key_of(Ecosystem::Cargo, "zstd", &v("cargo 1.90"), b"lock"));
+        for other in [
+            key_of(Ecosystem::Cargo, "zstd", &v("cargo 1.91"), b"lock"),
+            key_of(Ecosystem::Cargo, "gzip", &v("cargo 1.90"), b"lock"),
+            key_of(Ecosystem::Cargo, "zstd", &v("cargo 1.90"), b"lock2"),
+        ] {
+            assert_ne!(base, other);
+        }
+        assert!(key_of(Ecosystem::Uv, "zstd", &v("x"), b"lock").starts_with("uv-"));
+    }
+}
