@@ -117,7 +117,7 @@ function DoneLine({
   const childName =
     child?.sessionId !== undefined && child.name !== undefined
       ? subsessionName({ sessionId: child.sessionId, name: child.name, title: child.title })
-      : child?.title;
+      : child?.title?.trim() || undefined;
   const name =
     waiting || PLACEHOLDER_TASKS.has(agent.task ?? "")
       ? subagentDisplayName(t, agent, childName)

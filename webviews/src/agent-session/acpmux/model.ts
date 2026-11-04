@@ -1,3 +1,5 @@
+import { experimentArm } from "../../experiments/experiment";
+import { backgroundReactionLook, reactsOnCall } from "./conversation/backgroundReaction.experiment";
 import { BUBBLE } from "./transcriptSpacing";
 import {
   footerAfter,
@@ -1335,7 +1337,8 @@ function noteHeight(text: string | undefined, width: number): number {
 const reactionPrepared = new Map<string, PreparedText | null>();
 const REACTION_INSET_PT = gridLength("transcript-text-gap");
 function reactionReplyHeight(text: string | undefined, width: number): number {
-  if (!text) return 0;
+  // Drawn only in the arms that put a task's end on its call (ReactionMark.tsx `ReactionReply`).
+  if (!text || !reactsOnCall(experimentArm(backgroundReactionLook))) return 0;
   if (reactionPrepared.size > 256) reactionPrepared.clear();
   return Math.max(
     NOTE_LINE,

@@ -23,7 +23,8 @@ export function startedNames(rows: readonly AcpmuxRow[], previous?: StartedNames
   // A row that went away (history trimmed) leaves its name: the session it named is the same.
   let names = previous?.names ?? NONE;
   for (const task of startedTasks(rows.slice(from))) {
-    if (!task.name || names.get(task.sessionId) === task.name) continue;
+    // The first start call that named a session keeps naming it, as `startedTasks` reads them.
+    if (!task.name || names.has(task.sessionId)) continue;
     if (names === previous?.names || names === NONE) names = new Map(names);
     (names as Map<string, string>).set(task.sessionId, task.name);
   }
