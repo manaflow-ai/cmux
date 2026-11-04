@@ -78,7 +78,9 @@ import Testing
         let provider = try #require(HomeAgentFoldRowProvider.installed)
         #expect(provider.layout(for: custom) == .fullWidth)
         #expect(provider.plainText(custom) == "\(CmuxStrings.showAgentMessages(3)) · a957, a958")
-        #expect(provider.measure(custom, maxWidth: 400).height == HomeAgentFoldRowProvider.height)
+        // Since 2026-11-03 (msg 19960) the shipped agents row is one pill per agent (HomeAgentPillRowTests).
+        #expect(provider.measure(custom, maxWidth: 400).height == HomeAgentPills(try #require(HomeAgentFoldRowProvider.payload(custom)),
+                                                                                  shape: .pill, width: 400).height)
         let open = try #require(HomeAgentFoldRowProvider.part(.init(group: Self.group, kind: .fold(count: 3, peers: ["a957"], expanded: true))))
         guard case let .custom(openCustom) = open else { Issue.record("not a drawn row"); return }
         #expect(provider.plainText(openCustom) == CmuxStrings.hideAgentMessages(3))
