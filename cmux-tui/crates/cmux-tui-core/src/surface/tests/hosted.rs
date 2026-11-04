@@ -332,6 +332,35 @@ fn an_automation_write_gets_the_error_of_its_frame() {
 
 /// Keys to a hosted terminal on the input port reach the host once each, in the order they were typed (the port's
 /// one writer thread), and a key the port took returns before the host read anything (#34544 review).
+/// #35413 A/B (s17fa, build 5cd1899b): with the input lane on, the daemon part of a key was 0.02-0.03 / 0.1 / 0.2-0.4
+/// ms longer at p50 / p95 / p99 than with it off, all of it between the key's handoff and the host's PTY write: the
+/// request thread put the key on the port and the port's own writer thread woke to write it. When nothing is ahead of
+/// the key, the key is written on the request's own turn: it is on the host socket when its request returns, and the
+/// port starts no writer thread for it.
+#[cfg(unix)]
+#[test]
+fn a_key_to_an_idle_port_is_on_the_host_socket_when_its_request_returns() {
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-inline-key", true);
+    let pty = surface.as_pty().expect("a terminal");
+    // The writer is held before it writes anything: a key it had to write would not reach the socket.
+    let _resume = pty.input_port.pause_writes_for_test();
+    surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
+    host.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+    let frame = crate::terminal_host_protocol::read_frame(
+        &mut host,
+        crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+    )
+    .ok()
+    .flatten();
+    assert!(
+        frame
+            .as_ref()
+            .is_some_and(|frame| frame.kind == MessageKind::Input && frame.payload == b"k"),
+        "the key was not on the host socket when its request returned: it waited for the port's writer thread \
+         ({frame:?})"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn keys_on_the_input_port_reach_the_host_once_each_in_order() {
