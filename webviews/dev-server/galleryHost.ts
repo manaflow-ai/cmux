@@ -281,7 +281,7 @@ function tailwindSources(): string {
 
 /** The virtual modules, for the dev server and the static build. */
 /** The markdown viewer's Vega then Vega-Lite, joined as MarkdownPageResource.library joins them. */
-/** Entry id to its file (`src/...gallery.ts`), from the first `id: "..."` in each entry file. An
+/** Entry id to its file (`src/...gallery.ts`), from the exported entry's `id: "..."` in each file. An
  * entry whose id is not a literal is missing here; a stage then falls back to the whole registry. */
 export function readEntryIndex(root = path.join(webviewsRoot, "src")): Record<string, string> {
   const index: Record<string, string> = {};
@@ -291,7 +291,12 @@ export function readEntryIndex(root = path.join(webviewsRoot, "src")): Record<st
       if (item.isDirectory()) {
         if (item.name !== "node_modules") walk(file);
       } else if (/\.gallery\.tsx?$/.test(item.name)) {
-        const id = /\bid:\s*"([a-z0-9][a-z0-9.-]*)"/.exec(fs.readFileSync(file, "utf8"))?.[1];
+        // The exported entry's own id: the first after `export default` (an entry file may declare
+        // nested ids, such as a picker option's, above it), else the file's first.
+        const text = fs.readFileSync(file, "utf8");
+        const literal = /\bid:\s*"([a-z0-9][a-z0-9.-]*)"/;
+        const exported = text.indexOf("export default");
+        const id = (exported >= 0 ? literal.exec(text.slice(exported))?.[1] : undefined) ?? literal.exec(text)?.[1];
         if (id && !index[id]) index[id] = path.relative(webviewsRoot, file).split(path.sep).join("/");
       }
     }
