@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 @testable import CmuxNextSidebar
 
 // Tests read a row's controls by name. Each read makes the control when the row has not (`RowControlSlot`), so these
