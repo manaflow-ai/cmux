@@ -23,7 +23,8 @@ await requireBrowserLane("transcript-received-line.test.ts", async () => {
     { name: "Apple System Colors Light", file: "light" },
     { name: "Catppuccin Mocha", file: "dark" },
   ];
-  const value = (id: string) => [...TRANSCRIPT_SPACING, ...TRANSCRIPT_SPACING_KINDS].find((row) => row.id === id)!.value;
+  const value = (id: string) =>
+    [...TRANSCRIPT_SPACING, ...TRANSCRIPT_SPACING_KINDS].find((row) => row.id === id)!.value;
 
   try {
     await (await chromium.launch({ headless: true })).close();
