@@ -10,6 +10,7 @@ import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
 import { useRowMark } from "../threadMinimap/promptMarks";
+import { BookmarkIcon } from "../threadMinimap/BookmarkIcon";
 import { AlertCircle, Check, DoubleCheck, Pin, Retry, Speaker, Spinner, StopReading, TurnFork } from "./icons";
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
 import { exactTime, nextRelativeTime, nextReplyTime, relativeTime, replyTime } from "./relativeTime";
@@ -175,12 +176,20 @@ export function ForkButton({ onFork, throughSeq }: { onFork(): unknown; throughS
 
 /// Pins the message (row `rowId`): kept with the chat by acpmux; a pinned prompt also shows in the
 /// thread minimap. Nothing for a message acpmux has not logged yet.
-export function PinButton({ rowId }: { rowId: string }) {
+export function PinButton({ rowId, bookmark = false }: { rowId: string; bookmark?: boolean }) {
   const t = useT();
   const mark = useRowMark({ id: rowId });
   const readOnly = useTranscriptReadOnly();
   if (!mark.can || readOnly) return null;
-  const label = t(mark.marked ? "message.unpin" : "message.pin");
+  const label = t(
+    bookmark
+      ? mark.marked
+        ? "minimap.bookmarkRemove"
+        : "minimap.bookmarkAdd"
+      : mark.marked
+        ? "message.unpin"
+        : "message.pin",
+  );
   return (
     <button
       type="button"
@@ -190,7 +199,7 @@ export function PinButton({ rowId }: { rowId: string }) {
       title={label}
       onClick={mark.toggle}
     >
-      <Pin size={ROW_ICON} filled={mark.marked} />
+      {bookmark ? <BookmarkIcon size={ROW_ICON} filled={mark.marked} /> : <Pin size={ROW_ICON} filled={mark.marked} />}
     </button>
   );
 }
@@ -316,6 +325,7 @@ export function PromptActions({
       <MessageTime at={row.at} className="cv-user__time" />
       <MessageCopy text={text} />
       {retry}
+      <PinButton rowId={row.id} bookmark />
     </MessageFooterRow>
   );
   return <div className="cv-user__actions">{pending ? pending(actions, { retry }) : actions}</div>;
