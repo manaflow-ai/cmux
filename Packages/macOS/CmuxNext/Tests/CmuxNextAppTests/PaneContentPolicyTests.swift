@@ -354,44 +354,54 @@ struct PaneContentPolicyTests {
         #expect(off.isEmpty, "\(off.count) frames showed a surface off its pane's size after the reverse press: \(off.prefix(3))")
     }
 
-    /// Review of #35470 at 447f784c3cf (G1 b): a terminal that joins during a key hold (a tab switch) took the press's
-    /// final size as a hold before its area handed it the follow; a second press before the landing left that hold, and
-    /// the landing's release sized the surface from it: the PTY got grid1, grid2, grid1, grid2 for two presses. Each press
-    /// sends one grid, and none goes after the landing.
+    /// Review of #35470 at 447f784c3cf (G1 b): a parked terminal tab shown again during a key hold is unhidden before its
+    /// area hands it the follow (in the area's next layout pass), so its surface joined the spring with the OFF path's hold
+    /// at the press's final size; a second press before the landing left that hold, and the landing's release sized the
+    /// surface from it: grid1, grid2, grid1, grid2 for two presses. Each press sends one grid, and none goes after the
+    /// landing. (A tab added new mid-hold hears the follow in `didAddSubview`, before its surface joins: no hold.)
     @Test func aTerminalThatJoinsAKeyHoldGetsOneGridPerPressThroughASecondPress() async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
         defer { PaneGroundCoversPaneTests.releaseFrames() }
         let pane = try #require(rig.root.context.hosts["p2"]?.content as? PaneContentView)
+        let shown = try #require(rig.provider.sessions["p2"]?.session)
         let io = GridRecordingTerminalIO()
-        let joining = TerminalSession(io: io)
+        let parked = TerminalSession(io: io)
         defer {
-            joining.close()
+            parked.close()
             io.finish()
         }
+        func marker() async -> [TerminalGridSize] {
+            parked.surfaceView.bridge.takeUnretainedValue().input.focusGained()
+            return await io.gridsUntilMarker()
+        }
+        // The second tab shows once, then the first one again: the second stays parked (hidden) in the pane.
+        _ = pane.show(parked.view)
+        rig.root.layoutSubtreeIfNeeded()
+        _ = pane.show(shown.view)
+        rig.root.layoutSubtreeIfNeeded()
+        try #require(parked.view.isHidden && parked.view.superview != nil, "the second tab was not parked in the pane")
+        _ = await marker()
         PaneGroundCoversPaneTests.ownFrames()
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         rig.root.layoutSubtreeIfNeeded()
         for _ in 1...4 { _ = rig.frame() }
-        // The tab switch: the joining terminal takes the pane's content area in the middle of the spring.
-        _ = pane.show(joining.view)
+        // The tab switch back to the parked terminal, mid-spring.
+        _ = pane.show(parked.view)
         rig.root.layoutSubtreeIfNeeded()
         for _ in 1...2 { _ = rig.frame() }
-        joining.surfaceView.bridge.takeUnretainedValue().input.focusGained()
-        let atJoin = await io.gridsUntilMarker()
+        let atJoin = await marker()
         PaneGroundCoversPaneTests.ownFrames()
         // A second press before the landing.
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         _ = rig.frame()
-        joining.surfaceView.bridge.takeUnretainedValue().input.focusGained()
-        let atSecond = await io.gridsUntilMarker()
+        let atSecond = await marker()
         PaneGroundCoversPaneTests.ownFrames()
         let frames = try Self.run(rig)
-        joining.surfaceView.bridge.takeUnretainedValue().input.focusGained()
-        let afterLanding = await io.gridsUntilMarker()
-        let final = try #require(joining.surfaceView.fittedGrid)
+        let afterLanding = await marker()
+        let final = try #require(parked.surfaceView.fittedGrid)
         #expect(frames > 3, "the second press did not spring (\(frames) frames)")
         #expect(atJoin.count == 1, "the join asked the PTY for \(atJoin), not the first press's final grid once")
         #expect(atSecond == [final], "the second press asked the PTY for \(atSecond), not its final grid \(final) once")
