@@ -20,6 +20,7 @@ import {
   placeRows,
   statusEdge,
   type AcpmuxRow,
+  type AcpmuxActivity,
 } from "./model";
 import { turnView } from "./conversation/turns";
 import { COLLAPSED_PROMPT_LINES, PASTE_CHIP_HEIGHT, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
@@ -578,4 +579,50 @@ test("an unlabeled card's first line keeps room for its corner actions (cmux#306
   expect(scrollbar(`short\n${line}`, "")).toBe(0);
   // A labeled card's actions sit in its header row, so its first line has the full width.
   expect(scrollbar(`${line}\nshort`, "python")).toBe(0);
+});
+
+// Successful discovery must not add phantom summary lines around coordination entries: the
+// virtualizer estimates exactly the same visible run as ToolRows before its first DOM measure.
+test("hidden discovery contributes no compact height around coordination messages", () => {
+  const send: AcpmuxActivity = {
+    kind: "tool",
+    text: "SendMessage",
+    tool: {
+      id: "height-send",
+      title: "SendMessage",
+      kind: "other",
+      status: "completed",
+      inputSummary: JSON.stringify({ to: "helper", message: "Check the result" }),
+    },
+  };
+  const discovery: AcpmuxActivity = {
+    kind: "tool",
+    text: "ToolSearch",
+    tool: { id: "height-discovery", title: "ToolSearch", kind: "other", status: "completed", output: "Loaded 2 tools" },
+  };
+  const activity = (items: AcpmuxActivity[], foldRun?: boolean): AcpmuxRow => ({
+    id: "visible-run",
+    version: 1,
+    at: 0,
+    kind: "activity",
+    items,
+    foldRun,
+  });
+  for (const folded of [undefined, true]) {
+    const plain = heightsOf([activity([send], folded)])[0]!;
+    expect(heightsOf([activity([discovery, send, discovery], folded)])[0]).toBe(plain);
+    const failed = { ...discovery, tool: { ...discovery.tool!, status: "failed", output: "Discovery unavailable" } };
+    expect(heightsOf([activity([failed, send], folded)])[0]).toBeGreaterThan(plain);
+  }
+  expect(heightsOf([activity([discovery])])[0]).toBe(0);
+  expect(heightsOf([activity([discovery], true)])[0]).toBe(0);
+  const answer = reply("discovery-answer", "Done.");
+  const summary = footer("discovery-footer");
+  const without = layoutConversation([answer, summary], 720);
+  const withHidden = layoutConversation([answer, activity([discovery]), summary], 720);
+  expect(withHidden.heights[0]).toBe(without.heights[0]);
+  expect(withHidden.tops[2]).toBe(without.tops[1]);
+  expect(withHidden.totalHeight).toBe(without.totalHeight);
+  // Preserve the pre-existing empty activity placeholder, rather than erasing unrelated rows.
+  expect(heightsOf([activity([])])[0]).toBeGreaterThan(0);
 });

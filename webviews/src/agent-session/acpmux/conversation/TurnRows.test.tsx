@@ -33,6 +33,16 @@ const row = (items: AcpmuxActivity[], foldRun = true): AcpmuxRow => ({
   items,
 });
 
+test("discovery-only activity leaves no child for RowFrame's empty-row spacing rule", () => {
+  const discovery: AcpmuxActivity = {
+    kind: "tool",
+    text: "ToolSearch",
+    tool: { id: "discovery", title: "ToolSearch", status: "completed", output: "Loaded 2 tools" },
+  };
+  expect(renderToStaticMarkup(<ToolRows row={row([discovery])} />)).toBe("");
+  expect(renderToStaticMarkup(<ToolRows row={row([])} />)).toContain("cv-tools");
+});
+
 test("folds a run the Codex-style runs settled, made only of tool groups", () => {
   const items: AcpmuxActivity[] = [
     command("one", "bun test one"),

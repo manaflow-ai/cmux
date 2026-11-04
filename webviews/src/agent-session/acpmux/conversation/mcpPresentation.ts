@@ -1,6 +1,7 @@
 // Presentation-only reductions. Original calls remain available to Find, copy and export.
 import type { AcpmuxActivity } from "../model";
 import { mcpCall } from "./mcpCalls";
+import { losesNumbers, parseJSONValue } from "./toolResult";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -28,6 +29,20 @@ export function isToolDiscoveryNoise(tool: Tool | undefined): boolean {
   return true;
 }
 
+// Rendering and first-layout accounting share this projection. Transcript snapshots remain
+// intact for Find/copy/export; Find may explicitly reveal the original calls. Cache by the
+// immutable items array so geometry's repeated edge checks never rescan the tool run.
+const visibleItems = new WeakMap<readonly AcpmuxActivity[], AcpmuxActivity[]>();
+export function visibleToolItems(items: AcpmuxActivity[] | undefined, revealing = false): AcpmuxActivity[] | undefined {
+  if (!items || revealing) return items;
+  const kept = visibleItems.get(items);
+  if (kept) return kept;
+  const projected = items.filter((item) => !isToolDiscoveryNoise(item.tool));
+  const result = projected.length === items.length ? items : projected;
+  visibleItems.set(items, result);
+  return result;
+}
+
 export function usefulMcpRequest(args: unknown): { command?: string; context?: string } {
   if (!args || typeof args !== "object" || Array.isArray(args)) return {};
   const values = args as Record<string, unknown>;
@@ -46,9 +61,13 @@ export function usefulMcpRequest(args: unknown): { command?: string; context?: s
 // containing the same words and genuine data are never shortened or discarded.
 export function usefulMcpResponse(text: string | undefined): string | undefined {
   if (!text?.trim() || /^(?:waiting|running|pending)(?:\.{3}|…)?$/i.test(text.trim())) return undefined;
+  // Preserve the existing result reader's exact numeric IDs and bounded object parsing.
+  // A condensed view must never round a value that Raw still represents faithfully.
+  if (losesNumbers(text)) return text;
   let value: unknown;
   try {
-    value = JSON.parse(text);
+    value = /^\s*[[{]/.test(text) ? parseJSONValue(text) : JSON.parse(text);
+    if (value === undefined) return text;
   } catch {
     return text;
   }
@@ -107,12 +126,10 @@ function usefulMcpResponseText(text: string): string | undefined {
 // A lifecycle marker is never useful output even when a harness wraps it in JSON.
 export function isMcpLifecycleOutput(output: string | undefined): boolean {
   if (!output?.trim()) return true;
-  let value: unknown = output;
-  try {
-    value = JSON.parse(output);
-  } catch {
-    /* Plain text is the usual case. */
-  }
+  if (/^"(?:waiting|running|pending)(?:\.{3}|…)?"$/i.test(output.trim())) return true;
+  // Closed rows need only recognize small lifecycle envelopes. Reuse the output reader's
+  // parsing bound; large results remain real output and are rendered only on disclosure.
+  const value = parseJSONValue(output) ?? output;
   const marker = (part: unknown, depth = 0): boolean => {
     if (typeof part === "string") return /^(?:waiting|running|pending)(?:\.{3}|…)?$/i.test(part.trim());
     if (!part || typeof part !== "object" || depth > 8) return false;

@@ -21,6 +21,7 @@ import { joinsReceivedRow } from "./laneNoticeBatches";
 import { isWaitingMessage } from "./pendingMessages";
 import { awaitsPermission, countsFailed, isRunning, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
 import { toolRunPhrases } from "./toolRunSummary";
+import { visibleToolItems } from "./mcpPresentation";
 import type { Folds } from "./viewFolds";
 
 export const messageRunRowId = (firstId: string) => `${MESSAGE_RUN}-${firstId}`;
@@ -57,11 +58,12 @@ function member(row: AcpmuxRow): Member | undefined {
   }
   // A folded run (codexRuns, shapeTurn): its lines as ToolRows draws them (`runStretches`).
   if (row.kind !== "activity" || row.foldRun !== true || !row.items?.length) return undefined;
-  const groups = toolGroups(row.items);
+  const items = visibleToolItems(row.items)!;
+  const groups = toolGroups(items);
   // A card that stays in sight for its own sake (a sub-session started or waited on, a dispatch)
   // keeps the run open around it; only messages fold. So does a run whose edit still waits for its
   // permission: the change it asks about stays in sight (turns.ts codexRuns).
-  if (row.items.some((item) => awaitsPermission(item.tool))) return undefined;
+  if (items.some((item) => awaitsPermission(item.tool))) return undefined;
   if (
     groups.some(
       (group) =>
@@ -75,14 +77,14 @@ function member(row: AcpmuxRow): Member | undefined {
   for (const stretch of runStretches(row, groups)) lines += stretch.fold ? 1 : stretch.groups.length;
   const sent = groups.filter(isSend).length;
   const sentItems = new Set(groups.flatMap((group) => (isSend(group) && "item" in group ? [group.item] : [])));
-  const work = row.items.filter((item) => item.tool && !sentItems.has(item));
+  const work = items.filter((item) => item.tool && !sentItems.has(item));
   return {
     lines,
     sent,
     received: 0,
     work,
-    failed: row.items.filter((item) => item.tool && countsFailed(item.tool)).length,
-    running: row.items.some((item) => item.tool && isRunning(item.tool)),
+    failed: items.filter((item) => item.tool && countsFailed(item.tool)).length,
+    running: items.some((item) => item.tool && isRunning(item.tool)),
   };
 }
 
@@ -109,7 +111,8 @@ export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[]
     // A run of received lines that all join the turn's "Received N messages" row is not a message
     // run: they draw in that row (laneNoticeBatches.ts `projectInboxRows`). One with a lane report,
     // a task's result or a person's message among them still folds here.
-    const onlyReceived = sent === 0 && members.every(joinsReceivedRow);
+    const onlyReceived =
+      sent === 0 && members.every((row, index) => parts[index]!.lines === 0 || joinsReceivedRow(row));
     if (lines < 2 || sent + received === 0 || onlyReceived) {
       out?.push(...members);
       index = end;

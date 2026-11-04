@@ -189,3 +189,22 @@ test("a run whose edit waits for its permission stays in sight, not under the li
   const view = turnView(rows, new Set(), claude);
   expect(ids(view)).toContain("asks");
 });
+
+test("hidden discovery never invents a second line or work count beside a coordination send", async () => {
+  const { foldMessageRuns, messageRunSummary } = await import("../src/agent-session/acpmux/conversation/messageRuns");
+  const discovery = tool("ToolSearch", "other", { output: "Loaded 2 tools" });
+  const sent = send("helper", "Read the result");
+  const folded = (items: AcpmuxActivity[]) => ({ ...activity(items, "discovery-run"), foldRun: true });
+  const lone = folded([discovery, sent, discovery]);
+  expect(foldMessageRuns([lone], new Set())).toEqual([lone]);
+  const receivedRow = received("helper", "Checked", "discovery-report");
+  const run = foldMessageRuns([lone, receivedRow], new Set())[0]!;
+  expect(run.kind).toBe(MESSAGE_RUN);
+  expect(run.messageRun!.work).toEqual([]);
+  expect(messageRunSummary(translate, run.messageRun!)).toBe("Sent a message, received a message");
+  const failed = { ...discovery, tool: { ...discovery.tool!, status: "failed", output: "Discovery unavailable" } };
+  const visible = foldMessageRuns([folded([failed, sent])], new Set())[0]!;
+  expect(visible.kind).toBe(MESSAGE_RUN);
+  expect(visible.messageRun!.work).toEqual([failed]);
+  expect(visible.messageRun!.failed).toBe(1);
+});

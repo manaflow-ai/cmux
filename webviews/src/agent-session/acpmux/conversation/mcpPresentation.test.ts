@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test";
-import { isMcpLifecycleOutput, isToolDiscoveryNoise, usefulMcpRequest, usefulMcpResponse } from "./mcpPresentation";
+import {
+  isMcpLifecycleOutput,
+  isToolDiscoveryNoise,
+  visibleToolItems,
+  usefulMcpRequest,
+  usefulMcpResponse,
+} from "./mcpPresentation";
 import { mixedToolRunFixture } from "./mixedToolRunFixture";
 
 test("only successful builtin discovery is hidden, never a similarly named operation or an error", () => {
@@ -40,6 +46,8 @@ test("detail uses values and meaningful results instead of raw argument keys or 
   expect(usefulMcpResponse("17")).toBe("17");
   expect(usefulMcpResponse("false")).toBe("false");
   expect(usefulMcpResponse("null")).toBe("null");
+  for (const exact of ['{"id":9223372036854775807}', "9223372036854775807", '{"amount":0.10000000000000001}'])
+    expect(usefulMcpResponse(exact)).toBe(exact);
   expect(usefulMcpResponse('{"matchedCount":17,"skipped_count":3}')).toBe("matched Count: 17\nskipped count: 3");
   expect(isMcpLifecycleOutput('{"status":"waiting"}')).toBe(true);
   expect(isMcpLifecycleOutput('{"status":"waiting","message":"Reconnect the agent"}')).toBe(false);
@@ -57,4 +65,17 @@ test("only lifecycle-only text envelopes are empty, never errors or mixed result
     false,
   );
   expect(isMcpLifecycleOutput('{"status":"waiting","state":"failed"}')).toBe(false);
+});
+
+test("the shared visible-items projection preserves original discovery for Find and visible failures", () => {
+  const items = mixedToolRunFixture();
+  const projected = visibleToolItems(items)!;
+  expect(projected).not.toContain(items[2]!);
+  expect(items).toHaveLength(6);
+  expect(visibleToolItems(items)).toBe(projected);
+  expect(visibleToolItems(items, true)).toBe(items);
+  const failed = [{ ...items[2]!, tool: { ...items[2]!.tool!, status: "failed", output: "Connection refused" } }];
+  expect(visibleToolItems(failed)).toBe(failed);
+  const pending = [{ ...items[2]!, tool: { ...items[2]!.tool!, status: "pending" } }];
+  expect(visibleToolItems(pending)).toBe(pending);
 });
