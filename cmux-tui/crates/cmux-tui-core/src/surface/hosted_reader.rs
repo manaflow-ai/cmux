@@ -144,10 +144,12 @@ impl HostedReader {
                     break;
                 }
             }
+            cmux_flow_trace::hop_on_traced("daemon.out.gate", pty.flow_terminal_id());
             let frame = match frames.recv() {
                 host_frames::HostFrame::Frame(frame) => frame,
                 host_frames::HostFrame::End => break,
             };
+            cmux_flow_trace::hop_on_traced("daemon.out.recv", pty.flow_terminal_id());
             // Targeted responses must be consumed before live staging:
             // HostedFrameStager intentionally rejects every nonzero request id.
             if host_frames::is_targeted_host_response(frame.kind) && frame.request_id != 0 {

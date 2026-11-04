@@ -325,8 +325,13 @@ fn read_stream(
             continue;
         }
         state.queued_payload += frame.payload.len();
+        let output = frame.kind == MessageKind::Output;
         state.frames.push_back(HostFrame::Frame(frame));
         queue.changed.notify_all();
+        drop(state);
+        if output {
+            cmux_flow_trace::hop_on_traced("daemon.host.queued", trace_terminal);
+        }
     }
     control_responses.end_clipboard_reads();
     let mut state = queue.state.lock().unwrap();
