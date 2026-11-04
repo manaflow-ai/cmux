@@ -6,3 +6,4 @@ export { linkRows } from "./linkFixture";
 export { organizationRows } from "./organizationFixture";
 export { SUBAGENT_TRAY_STEPS, subagentTrayRows } from "./subagentsFixture";
 export { SHARED_PRESENCE, sharedRows } from "./multiplayer/sharedFixture";
+export { WAITING_STEERS_SNAPSHOT, waitingSteersRows } from "./waitingSteersFixture";
