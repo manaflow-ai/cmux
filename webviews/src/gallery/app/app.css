@@ -117,7 +117,8 @@ body {
   --app-light-minimize: #febc2e;
   --app-light-zoom: #28c840;
   --app-dot-input: #f5a524;
-  --app-window-shadow: 0 0 0 1px var(--cmux-separator, #333), 0 24px 60px rgb(0 0 0 / 0.35);
+  /* The rim carries the edge; the drop is the shared scale's (no dramatic shadows). */
+  --app-window-shadow: 0 0 0 1px var(--cmux-separator, #333), var(--elevation-2);
   --app-light-size: 12px;
   --app-dot-size: 8px;
 }
