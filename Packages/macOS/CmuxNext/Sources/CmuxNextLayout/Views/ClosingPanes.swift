@@ -6,20 +6,20 @@ import CmuxNextDesign
 /// neighbours, or its row column's scroll, have not covered yet.
 ///
 /// A closing pane has no motion of its own: in each frame its rect is a function of its neighbours' frames and of its row
-/// column's scroll, so the owners of the motion are the neighbours' springs and that scroll's. Each side a
-/// neighbour closes over sits on the slowest neighbour's facing edge on that side (the leading edge on the smallest
-/// trailing edge beside it, the trailing edge on the largest leading edge): nothing between the closing pane and any of
-/// its neighbours shows the shell, and where a faster neighbour has passed over it, that live pane draws above it (closing
-/// hosts stack under every live host, `ScreenContentView.ensureStacking`). A side keeps the gap it had to its neighbours
-/// where the resize handle in that gap stays in the new layout, and covers the gap where that handle goes (the one between
-/// the pane and the panes that take its place; FRAME OWNER S3d): the gap a person sees during the close is the kept
-/// handle's, with the handle in its middle in every frame, and the pane rests at zero size where its neighbours meet. A
-/// side whose neighbour closed too rides that closing pane's facing edge. A side with no neighbour (the screen's edge, a
-/// docked column's side), opposite one on a neighbour, travels to where that side rests by the share of the motion that
-/// covers the pane's place: its neighbour's travel, else the travel of its row column's scroll (the camera that springs
-/// back when a scrolling column's last row closes). So the pane rests at zero size (nothing for the landing to take away
-/// in one frame); with neither, it stays where it showed. The strip's camera needs no share: a column's removal clamps it
-/// at once and the view carries the panes from where they showed (`ColumnScrollReducer`), so the last column's neighbour
+/// column's scroll, so the owners of the motion are the neighbours' springs and that scroll's. Each side a neighbour closes
+/// over sits on the slowest neighbour's facing edge on that side (the leading edge on the smallest trailing edge beside it,
+/// the trailing edge on the largest leading edge): nothing between the closing pane and any of its neighbours shows the
+/// shell, and where a faster neighbour has passed over it, that live pane draws above it (closing hosts stack under every
+/// live host, `ScreenContentView.ensureStacking`). A side keeps the gap it had to its neighbours where the resize handle in
+/// that gap stays in the new layout, and covers the gap where that handle goes (the one between the pane and the panes that
+/// take its place; FRAME OWNER S3d): the gap a person sees during the close is the kept handle's, with the handle in its
+/// middle in every frame, and the pane rests at zero size where its neighbours meet. A side whose neighbour closed too
+/// (after it) rides that closing pane's facing edge, and rests where that pane rests. A side with no neighbour (the screen's
+/// edge, a docked column's side), opposite one on a neighbour, travels to where that side rests by the share of the motion
+/// that covers the pane's place: its neighbour's travel, else the travel of its row column's scroll (the camera that springs
+/// back when a scrolling column's last row closes). So the pane rests at zero size (nothing for the landing to take away in
+/// one frame); with neither, it stays where it showed. The strip's camera needs no share: a column's removal clamps it at
+/// once and the view carries the panes from where they showed (`ColumnScrollReducer`), so the last column's neighbour
 /// moves. Chrome's tab close does the same: the closing tab shrinks to zero width on the strip's own animation.
 /// The host goes when the motion lands (`ScreenContentView.releaseClosing`); a close taken back starts the pane's live
 /// frame from where it shows, with its neighbours' velocities.
@@ -30,8 +30,11 @@ struct ClosingPanes {
         let neighbours: [PaneID]
         let gap: CGFloat
         var fixed: CGFloat
-        /// Where it stood in the first frame it was placed: the start of its travel.
+        /// Where it stood in the first frame it was placed, or when its travel last started again: the start of its travel.
         var start: CGFloat?
+        /// A free side's travel end as of its start (where the side opposite rests): a change that moves it starts the
+        /// travel again from where the sides show (``rects(frames:row:)``).
+        var end: CGFloat?
     }
 
     struct Entry {
@@ -161,56 +164,67 @@ struct ClosingPanes {
     /// and where the row columns' scrolls are and rest (`row`). A side whose neighbours are all gone (closed and landed, or
     /// taken out) keeps where they last were.
     mutating func rects(frames: [PaneID: AnimatedFrame], row: (ColumnID) -> Travel?) -> [PaneID: CGRect] { // perf-hot: 4ms motion-frame
-        var shown: [PaneID: CGRect] = [:]
+        // Where each pane placed in this pass shows and rests: a pane that closed earlier rides one that closed later, read
+        // from here (where it shows now, and its rest: zero size where its sides meet).
+        var shown: [PaneID: CGRect] = [:], rests: [PaneID: CGRect] = [:]
         for pane in order.reversed() {
             guard var entry = entries[pane] else { continue }
-            /// The facing edge of `neighbour`: a live pane's frame, else a closing pane placed earlier in this pass (one that
-            /// closed later).
-            func facing(_ neighbour: PaneID, _ edge: (CGRect) -> CGFloat) -> CGFloat? {
-                frames[neighbour].map { edge($0.rect) } ?? shown[neighbour].map(edge)
-            }
-            /// Places `side` on its slowest neighbour's facing edge; returns where it rests (from its live neighbours).
+            /// Places `side` on its slowest neighbour's facing edge (a live pane's frame, else a closing pane placed earlier in
+            /// this pass); returns where it rests (that neighbour's rest frame).
             func place(_ side: inout Side, slowest: ([CGFloat]) -> CGFloat?, edge: (CGRect) -> CGFloat, sign: CGFloat) -> CGFloat? {
-                if let value = slowest(side.neighbours.compactMap({ facing($0, edge) })) { side.fixed = value + sign * side.gap }
+                let now = side.neighbours.compactMap { frames[$0].map { edge($0.rect) } ?? shown[$0].map(edge) }
+                if let value = slowest(now) { side.fixed = value + sign * side.gap }
                 if side.start == nil { side.start = side.fixed }
-                return slowest(side.neighbours.compactMap { frames[$0].map { edge($0.targetRect) } }).map { $0 + sign * side.gap }
+                return slowest(side.neighbours.compactMap { frames[$0].map { edge($0.targetRect) } ?? rests[$0].map(edge) }).map { $0 + sign * side.gap }
             }
-            /// A side with no neighbour, opposite one that rides a neighbour: it travels from where it stood to where that
-            /// side rests, by the share of the motion that covers the pane's place (that neighbour's travel, else `space`,
-            /// the share of its row column's scroll travel), so the pane rests at zero size there (no ground left for the
-            /// landing to take away in one frame).
-            func collapse(_ free: inout Side, toward rider: Side, rest: CGFloat?, space: CGFloat?) {
-                guard free.neighbours.isEmpty, !rider.neighbours.isEmpty, let freeStart = free.start else { return }
-                var done = space
+            /// A side with no neighbour (`free`), opposite one that rides neighbours (`rider`): it travels from where it stood
+            /// to where the rider rests (`rest`; nil: where the rider is), by the share of the motion that covers the pane's
+            /// place (the rider's travel, else the share of its row column's scroll travel), so the pane rests at zero size
+            /// there (no ground left for the landing to take away in one frame). A travel whose end moved (a later change, a
+            /// neighbour that closed too) or whose scroll took another target starts again from where the sides and the
+            /// scroll are now: the free side never jumps.
+            func collapse(_ free: inout Side, toward rider: inout Side, rest: CGFloat?, travel: inout (start: CGFloat, target: CGFloat)?,
+                          scroll: Travel?) {
+                guard free.neighbours.isEmpty, !rider.neighbours.isEmpty else { return }
+                let end = rest ?? rider.fixed
+                let rescrolled = travel.map { travel in scroll.map { abs($0.target - travel.target) >= 0.5 } ?? false } ?? false
+                if rescrolled || free.end.map({ abs($0 - end) >= 0.5 }) == true {
+                    (free.start, rider.start) = (free.fixed, rider.fixed)
+                    if let scroll, travel != nil { travel = (start: scroll.now, target: scroll.target) }
+                }
+                free.end = end
+                guard let freeStart = free.start else { return }
+                var done: CGFloat?
                 if let rest, let riderStart = rider.start, abs(rest - riderStart) >= 0.5 {
                     done = min(1, max(0, (rider.fixed - riderStart) / (rest - riderStart)))
+                } else if let travel, let scroll {
+                    let length = travel.target - travel.start
+                    done = abs(length) < 0.5 ? 1 : min(1, max(0, (scroll.now - travel.start) / length))
                 }
                 guard let done else { return }
-                free.fixed = freeStart + ((rest ?? rider.fixed) - freeStart) * done
+                free.fixed = freeStart + (end - freeStart) * done
+            }
+            /// Where `side` rests: where its neighbours rest (`own`), else, free opposite a rider, where the rider rests,
+            /// else where it is.
+            func resting(_ side: Side, _ own: CGFloat?, opposite: Side, _ other: CGFloat?) -> CGFloat {
+                own ?? (side.neighbours.isEmpty && !opposite.neighbours.isEmpty ? other ?? opposite.fixed : side.fixed)
             }
             let restMinX = place(&entry.minX, slowest: { $0.min() }, edge: \.maxX, sign: 1)
             let restMaxX = place(&entry.maxX, slowest: { $0.max() }, edge: \.minX, sign: -1)
             let restMinY = place(&entry.minY, slowest: { $0.min() }, edge: \.maxY, sign: 1)
             let restMaxY = place(&entry.maxY, slowest: { $0.max() }, edge: \.minY, sign: -1)
-            // The share of its row column's scroll travel done now, in 0...1. A scroll that took another target since (a later
-            // change) starts the travel again from where it and the pane's y sides are now, so the pane still rests at zero
-            // size when that scroll does; with no travel left, it rests now.
-            var scrolled: CGFloat?
-            if var travel = entry.rowTravel, let scroll = entry.rowColumn.flatMap(row) {
-                if abs(scroll.target - travel.target) >= 0.5 {
-                    travel = (start: scroll.now, target: scroll.target)
-                    entry.rowTravel = travel
-                    (entry.minY.start, entry.maxY.start) = (entry.minY.fixed, entry.maxY.fixed)
-                }
-                scrolled = abs(travel.target - travel.start) < 0.5 ? 1 : min(1, max(0, (scroll.now - travel.start) / (travel.target - travel.start)))
-            }
-            collapse(&entry.maxX, toward: entry.minX, rest: restMinX, space: nil)
-            collapse(&entry.minX, toward: entry.maxX, rest: restMaxX, space: nil)
-            collapse(&entry.maxY, toward: entry.minY, rest: restMinY, space: scrolled)
-            collapse(&entry.minY, toward: entry.maxY, rest: restMaxY, space: scrolled)
+            let scroll = entry.rowColumn.flatMap(row)
+            var none: (start: CGFloat, target: CGFloat)?
+            collapse(&entry.maxX, toward: &entry.minX, rest: restMinX, travel: &none, scroll: nil)
+            collapse(&entry.minX, toward: &entry.maxX, rest: restMaxX, travel: &none, scroll: nil)
+            collapse(&entry.maxY, toward: &entry.minY, rest: restMinY, travel: &entry.rowTravel, scroll: scroll)
+            collapse(&entry.minY, toward: &entry.maxY, rest: restMaxY, travel: &entry.rowTravel, scroll: scroll)
             entries[pane] = entry
             shown[pane] = CGRect(x: entry.minX.fixed, y: entry.minY.fixed, width: max(0, entry.maxX.fixed - entry.minX.fixed),
                                  height: max(0, entry.maxY.fixed - entry.minY.fixed))
+            let x0 = resting(entry.minX, restMinX, opposite: entry.maxX, restMaxX), x1 = resting(entry.maxX, restMaxX, opposite: entry.minX, restMinX)
+            let y0 = resting(entry.minY, restMinY, opposite: entry.maxY, restMaxY), y1 = resting(entry.maxY, restMaxY, opposite: entry.minY, restMinY)
+            rests[pane] = CGRect(x: x0, y: y0, width: max(0, x1 - x0), height: max(0, y1 - y0))
         }
         return shown
     }
@@ -284,6 +298,7 @@ struct ClosingPanes {
     /// Moves a side to `value` with the start of its travel (a coordinate change, not travel).
     private static func move(_ side: inout Side, to value: CGFloat) {
         side.start = side.start.map { $0 + value - side.fixed }
+        side.end = side.end.map { $0 + value - side.fixed }
         side.fixed = value
     }
 
