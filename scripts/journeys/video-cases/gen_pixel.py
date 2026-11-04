@@ -69,7 +69,7 @@ Cases (layouts: T terminal fixture, P page fixture, A agent pane; | a vertical d
                      drag of the p1|p2 column edge 150 pt right (divider hit width 24 pt) or of the p1/p2 split 120 pt
                      down, in 400 ms, during the key's spring; x0.25 only (one journey, and the switch variants at it)
                      columns T|P|T and columns T|(T/P)
-  px-keys-then-drag-3t, px-keys-then-split-drag-2st  the same with terminals only (columns T|T|T, T|(T/T)), at x0.1: in the
+  px-keys-then-drag-3t, px-keys-then-split-drag-2st  the same with terminals only (columns T|T|T, T|(T/T)), at x0.125: in the
                      page layouts the press went to the page window beside the moving edge (ab-s2b-sw-3fbd40a)
 The key of New Column will be Ctrl-Cmd-X after #29866; the cases run the action, as a menu item does.
 """
@@ -102,9 +102,10 @@ SPEEDS_S1R = (("s1", 1.0), ("reduce", None))
 # Stage S2b (a drag during a key spring): a HID drag's mouse-down reaches the app 260-400 ms after its call starts (cmux22),
 # when the key's spring at x1 (about 0.18 s) or under Reduce Motion (one frame) has landed. At x0.25 it still runs.
 SPEEDS_S2B = (("s025", 0.25),)
-# The terminal-only S2b cases: the CuaDriver drag reaches the app about 0.4 s after its call, when a x0.25 key spring has
-# 2-3 pt left (ab-s2b-sw-3fbd40a); at x0.1 about 40 % of the edge's travel is left at the mouse-down.
-SPEEDS_S2BT = (("s010", 0.1),)
+# The terminal-only S2b cases: the CuaDriver drag reaches the app about 0.46 s after the key, when a x0.25 key spring has
+# 2-3 pt left (ab-s2b-sw-3fbd40a). x0.125 is the slowest speed every spring takes (the tunables clamp a response to 2 s;
+# settle's 0.22 s at x0.1 is 2.2 s: ab-s2bt-sw-3fbd40a); about 30 % of the edge's travel is left at the mouse-down.
+SPEEDS_S2BT = (("s0125", 0.125),)
 # Seconds, from the first rounds (cmux22, 2026-11-03: a pane's set-up took 1-3 s); MARGIN on top.
 EST_BASE, EST_PANE, EST_FOCUS, EST_FILM, EST_REBUILD, EST_AFTER = 12, {"tui": 4, "page": 12, "agent": 5}, 1, 9, 7, 8
 EST_TAB = 5  # one more terminal tab with its fixture (px_tab_new, the neutral prompt, the TUI)

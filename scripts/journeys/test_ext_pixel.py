@@ -1126,9 +1126,9 @@ class PixelCasesTests(unittest.TestCase):
             names = [n for s in specs for n in s["recordings"]]
             self.assertEqual(len(names), len(set(names)))
             labels = {n.rsplit("-", 1)[1] for n in names}
-            # s010: the terminal-only S2b cases (x0.1: the CuaDriver drag reaches the app about 0.4 s after its call).
-            self.assertEqual(labels, {"s010", "s025", "s05", "s1", "s2", "s4", "reduce"})
-            self.assertEqual(sorted(s["id"] for s in specs if any(n.endswith("-s010") for n in s["recordings"])),
+            # s0125: the terminal-only S2b cases (x0.125, the slowest speed every spring takes: a response is clamped to 2 s).
+            self.assertEqual(labels, {"s0125", "s025", "s05", "s1", "s2", "s4", "reduce"})
+            self.assertEqual(sorted(s["id"] for s in specs if any(n.endswith("-s0125") for n in s["recordings"])),
                              ["px-keys-then-drag-3t", "px-keys-then-split-drag-2st"])
             for s in specs:
                 self.assertLessEqual(s["budget_seconds"], 250, s["id"])

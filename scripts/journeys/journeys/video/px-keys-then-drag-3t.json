@@ -1,13 +1,13 @@
 {
  "id": "px-keys-then-drag-3t",
  "priority": "P1",
- "title": "PIXEL: Ctrl-Shift-L on p0, then the p1|p2 column edge dragged [150, 0] pt during its spring (columns p0 T | p1 T | p2 T; terminals only), at x0.1 (x0.1 only)",
+ "title": "PIXEL: Ctrl-Shift-L on p0, then the p1|p2 column edge dragged [150, 0] pt during its spring (columns p0 T | p1 T | p2 T; terminals only), at x0.125 (x0.125 only)",
  "why": "Lawrence 2026-11-03: resizing columns and splits is not pixel perfect when animated. Loud fixture colors (shell #FF00FF, terminal ground #00FFFF, tab strips #000000, rings #FF0000/#FFFFFF/#000000) make any gap, overlap or lag visible; judge_pixel.py reads every pane edge, tab strip and divider per film frame from the exact scan lines.",
  "source": "PIXEL PERFECT kit (video-cases/gen_pixel.py)",
- "budget_seconds": 55,
- "estimate_seconds": 46,
+ "budget_seconds": 54,
+ "estimate_seconds": 45,
  "recordings": [
-  "px-keys-then-drag-3t-s010"
+  "px-keys-then-drag-3t-s0125"
  ],
  "options": {
   "key_path": "real"
@@ -225,7 +225,7 @@
   },
   {
    "do": "px_film",
-   "name": "px-keys-then-drag-3t-s010",
+   "name": "px-keys-then-drag-3t-s0125",
    "steps": [
     {
      "do": "rk_focus",
@@ -246,8 +246,8 @@
     },
     {
      "do": "px_record_start",
-     "name": "px-keys-then-drag-3t-s010",
-     "seconds": 11.4,
+     "name": "px-keys-then-drag-3t-s0125",
+     "seconds": 10.7,
      "require_hz": 120,
      "mbps": 60,
      "fixture": {
@@ -266,7 +266,7 @@
      },
      "spring": "move",
      "input": "key then drag",
-     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-keys-then-drag-3t-s010)",
+     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-keys-then-drag-3t-s0125)",
      "spring_default": {
       "response": 0.15,
       "damping": 1.0
@@ -299,19 +299,19 @@
     },
     {
      "do": "wait",
-     "seconds": 2.6,
+     "seconds": 2.15,
      "title": "the key's spring and the drag land and rest"
     },
     {
      "do": "video_stop",
-     "name": "px-keys-then-drag-3t-s010",
+     "name": "px-keys-then-drag-3t-s0125",
      "tail": 0.4,
-     "title": "the motion ends; stop the recording (px-keys-then-drag-3t-s010)"
+     "title": "the motion ends; stop the recording (px-keys-then-drag-3t-s0125)"
     }
    ],
    "after": [],
-   "title": "film px-keys-then-drag-3t-s010: every motion.spring.* response / 0.1",
-   "speed": 0.1
+   "title": "film px-keys-then-drag-3t-s0125: every motion.spring.* response / 0.125",
+   "speed": 0.125
   },
   {
    "do": "rk_focus",
