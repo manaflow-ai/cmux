@@ -62,6 +62,7 @@ struct AgentSessionOpenLateDaemonTests {
         let session = "s-late-ws-\(UUID().uuidString.prefix(8).lowercased())"
 
         #expect(kill(pid, SIGSTOP) == 0)
+        defer { kill(pid, SIGCONT) } // a throw before the SIGCONT below never leaves the daemon stopped
         let work = try AgentSessionWorkspace.open(session: session, name: "late lane", key: key, cwd: nil, services: services)
         // Every request misses its 2 s deadline, past the old ten-second budget.
         try await Task.sleep(for: .seconds(12))
@@ -98,6 +99,7 @@ struct AgentSessionOpenLateDaemonTests {
         let session = "s-late-tab-\(UUID().uuidString.prefix(8).lowercased())"
 
         #expect(kill(pid, SIGSTOP) == 0)
+        defer { kill(pid, SIGCONT) } // a throw before the SIGCONT below never leaves the daemon stopped
         let pending = try tabs.open(in: pane.handle, of: services.daemon, session: session, linked: true)
         try await Task.sleep(for: .seconds(4))
         #expect(kill(pid, SIGCONT) == 0)
@@ -145,6 +147,7 @@ struct AgentSessionOpenLateDaemonTests {
 
         // The daemon holds both runs' requests, so the second comes while the first is in flight.
         #expect(kill(pid, SIGSTOP) == 0)
+        defer { kill(pid, SIGCONT) } // a throw before the SIGCONT below never leaves the daemon stopped
         let first = run()
         let second = run()
         try await Task.sleep(for: .seconds(1))
@@ -160,5 +163,32 @@ struct AgentSessionOpenLateDaemonTests {
         #expect(first && second, "a run was refused")
         #expect(onSession.count == 1, "the same key made \(onSession.count) tabs: \(onSession.map { "\($0.workspace) \($0.tab.surface)" })")
         #expect(workspaces.count == 1)
+    }
+
+    /// A tab a person opens (Cmd-T, a split, an import: no control run's scope) on a stopped daemon gives up
+    /// within the short late-reply budget, as Cmd-N's workspace does, instead of holding its provisional tab
+    /// for the two minutes a scripted open waits.
+    @Test func aPersonsTabGivesUpWithinTheShortBudget() async throws {
+        let launched = try await RapidWorkspaceCreateTests.launch()
+        let services = launched.services
+        let tabs = Self.agentTabs(services)
+        try #require(tabs.canHostChat, "this build has no agent page")
+        let store = services.daemon.store
+        let pid = try #require(services.daemon.identity?.pid)
+        let pane = try #require(store.workspaces.first?.screens.first?.panes.first, "the launch window shows no pane")
+
+        #expect(DaemonCommandScope.current == nil)
+        #expect(kill(pid, SIGSTOP) == 0)
+        defer { kill(pid, SIGCONT) } // a throw before the SIGCONT below never leaves the daemon stopped
+        let started = ContinuousClock.now
+        let pending = try tabs.open(in: pane.handle, of: services.daemon)
+        var failed = false
+        do { _ = try await pending.value() } catch { failed = true }
+        let waited = ContinuousClock.now - started
+        #expect(kill(pid, SIGCONT) == 0)
+        await launched.stop()
+
+        #expect(failed, "a person's tab on a stopped daemon never gave up")
+        #expect(waited < .seconds(20), "a person's tab waited \(waited) on a stopped daemon")
     }
 }

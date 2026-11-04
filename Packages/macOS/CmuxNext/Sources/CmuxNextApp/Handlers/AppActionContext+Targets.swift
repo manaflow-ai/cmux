@@ -83,13 +83,8 @@ extension AppActionContext {
     /// Runs an action's asynchronous work and reports its failure: a capturing caller (the CLI,
     /// MCP) awaits it and answers it; a palette, menu or keyboard run shows it when it comes.
     func report(_ work: @escaping @MainActor () async -> ActionWorkFailure?) {
-        let task = Task { @MainActor in await work() }
-        if registry.isCapturingWork {
-            registry.track(task)
-        } else {
-            // task-owner: a run nobody awaits; the refusal shows when the work ends.
-            Task { @MainActor [weak registry] in if let failure = await task.value, !failure.shown { registry?.refuse(failure.message) } }
-        }
+        // task-owner: the action's work, awaited by a capturing caller; else its refusal shows when it ends (trackOrRefuse).
+        registry.trackOrRefuse(Task { @MainActor in await work() })
     }
 
     /// Statement form: `guard ... else { return ctx.refuse("why") }`.
