@@ -120,10 +120,12 @@ function TokenRow({
   experimental = false,
   drawings,
   scale,
+  dark = false,
 }: {
   experimental?: boolean;
   drawings?: Readonly<Record<string, string>>;
   scale: number;
+  dark?: boolean;
 }) {
   const glyphSize = BASE.glyph * scale;
   return (
@@ -138,20 +140,17 @@ function TokenRow({
             style={{ display: "grid", justifyItems: "center", gap: px(BASE.itemGap), width: px(BASE.itemWidth) }}
           >
             {drawings?.[name] ? (
-              <span
+              <img
                 aria-hidden="true"
                 data-neko-drawing={drawings[name]}
+                src={drawings[name]}
+                alt=""
                 style={{
                   display: "block",
                   width: px(BASE.glyph),
                   height: px(BASE.glyph),
-                  background: "currentColor",
-                  maskImage: `url(${drawings[name]})`,
-                  WebkitMaskImage: `url(${drawings[name]})`,
-                  maskSize: "contain",
-                  WebkitMaskSize: "contain",
-                  maskRepeat: "no-repeat",
-                  WebkitMaskRepeat: "no-repeat",
+                  objectFit: "contain",
+                  filter: dark ? "invert(1)" : undefined,
                 }}
               />
             ) : (
@@ -220,14 +219,14 @@ function NekoIconGallery({
       </div>
       <div style={{ display: "grid", gap: px(BASE.sectionGap) }}>
         <span style={{ fontSize: "var(--text-detail)" }}>Default shared tokens</span>
-        <TokenRow scale={scale} />
+        <TokenRow scale={scale} dark={dark} />
       </div>
       {set === "authored" || drawings ? (
         <div style={{ display: "grid", gap: px(BASE.sectionGap) }}>
           <span style={{ fontSize: "var(--text-detail)" }}>
             Candidate · {drawings ? "3" : "2"}/6 actions · Shared spinner/status marks
           </span>
-          <TokenRow experimental={set === "authored"} drawings={drawings} scale={scale} />
+          <TokenRow experimental={set === "authored"} drawings={drawings} scale={scale} dark={dark} />
         </div>
       ) : (
         <div
