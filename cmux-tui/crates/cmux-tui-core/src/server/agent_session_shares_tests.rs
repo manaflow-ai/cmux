@@ -1023,9 +1023,8 @@ fn a_move_aside_never_replaces_a_kept_copy_on_a_suffix_collision() {
     std::fs::write(&first, b"first").unwrap();
     // Take every `-<ms>` name the move can pick in the next few seconds.
     let now = wall_ms();
-    let taken: Vec<_> = (now..now + 3_000)
-        .map(|ms| directory.join(format!("{FILE}.unreadable-{ms}")))
-        .collect();
+    let taken: Vec<_> =
+        (now..now + 3_000).map(|ms| directory.join(format!("{FILE}.unreadable-{ms}"))).collect();
     for path in &taken {
         std::fs::write(path, b"earlier").unwrap();
     }
