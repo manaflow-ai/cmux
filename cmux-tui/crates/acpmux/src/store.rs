@@ -275,6 +275,9 @@ pub struct SessionMeta {
     /// Cmux-owned additions captured when this chat was created. Older chats have none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cmux_context: Option<Vec<crate::context_inventory::ContextPart>>,
+    /// A preset override selected at creation; later setting edits affect only new chats.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cmux_preset_prompt: Option<String>,
     /// True only after a harness writer accepts the captured first-turn context.
     #[serde(default)]
     pub cmux_context_delivered: bool,

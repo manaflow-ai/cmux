@@ -8,6 +8,7 @@ use crate::config::Config;
 use crate::store::SessionMeta;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::path::Path;
 
 /// A token count plus its origin. `text` is absent when the harness did not expose
@@ -26,6 +27,9 @@ pub struct ContextPart {
     pub measurement: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_bytes: Option<u64>,
+    /// Delivery channel, when known. Describing a source never injects it again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
 }
@@ -48,10 +52,23 @@ pub struct ContextInventory {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextOverrideView {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_text: Option<String>,
     pub user: Option<String>,
     pub project: Option<String>,
     pub project_key: String,
     pub cwd: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub parts: BTreeMap<String, ContextPromptOverrideView>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextPromptOverrideView {
+    pub label: String,
+    pub default_text: String,
+    pub user: Option<String>,
+    pub project: Option<String>,
 }
 
 /// Approximate tokens for text we own. A harness-reported count is always preferred.
@@ -80,6 +97,7 @@ fn push_breakdown(parts: &mut Vec<ContextPart>, breakdown: &Value) {
             editable: false,
             measurement: "measured".into(),
             source_bytes: None,
+            channel: None,
             text: None,
         });
     }
@@ -96,6 +114,7 @@ fn push_breakdown(parts: &mut Vec<ContextPart>, breakdown: &Value) {
             editable: false,
             measurement: "measured".into(),
             source_bytes: None,
+            channel: None,
             text: None,
         });
     }
@@ -112,6 +131,7 @@ fn push_breakdown(parts: &mut Vec<ContextPart>, breakdown: &Value) {
             editable: false,
             measurement: "measured".into(),
             source_bytes: None,
+            channel: None,
             text: None,
         });
     }
@@ -127,6 +147,7 @@ fn push_breakdown(parts: &mut Vec<ContextPart>, breakdown: &Value) {
                 editable: false,
                 measurement: "measured".into(),
                 source_bytes: None,
+                channel: None,
                 text: None,
             });
         }
@@ -134,12 +155,32 @@ fn push_breakdown(parts: &mut Vec<ContextPart>, breakdown: &Value) {
 }
 
 fn verified_prompt_text(meta: &SessionMeta, cfg: &Config) -> Option<String> {
+    if meta.remote_origin
+        || cfg.harnesses.get(&meta.harness)?.kind != crate::config::HarnessKind::ClaudeStdio
+    {
+        return None;
+    }
     let name = meta.preset.as_deref()?;
     let preset = cfg.presets.get(name)?;
     let sha = preset.system_prompt_sha256.as_deref()?;
     let dir = cfg.presets_dir()?;
     let path = crate::config::checked_system_prompt(&dir, name, sha).ok()?;
     std::fs::read_to_string(path).ok()
+}
+
+/// Select an override only for a verified local preset. The session stores this
+/// selection so editing settings cannot change a running chat's next respawn.
+pub fn preset_override(meta: &SessionMeta, cfg: &Config) -> Option<String> {
+    verified_prompt_text(meta, cfg)?;
+    cfg.context_overrides
+        .preset_prompts
+        .get(meta.preset.as_deref()?)?
+        .for_project(&meta.cwd)
+        .map(str::to_owned)
+}
+
+pub fn preset_is_editable(meta: &SessionMeta, cfg: &Config) -> bool {
+    verified_prompt_text(meta, cfg).is_some()
 }
 
 /// Build an inventory from the latest harness report and cmux-owned state.
@@ -152,9 +193,26 @@ pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
     let project_key = crate::config::ContextOverrides::project_key(&meta.cwd);
     let user = cfg.context_overrides.user.clone();
     let project = cfg.context_overrides.projects.get(&project_key).cloned();
+    let mut override_parts = BTreeMap::new();
+    if let Some(default_text) = verified_prompt_text(meta, cfg) {
+        let values =
+            meta.preset.as_deref().and_then(|name| cfg.context_overrides.preset_prompts.get(name));
+        override_parts.insert(
+            "cmux-system-prompt".into(),
+            ContextPromptOverrideView {
+                label: "Preset system prompt".into(),
+                default_text,
+                user: values.and_then(|v| v.user.clone()),
+                project: values.and_then(|v| v.projects.get(&project_key).cloned()),
+            },
+        );
+    }
     // These are the additions captured at creation, not settings edited since then.
     if let Some(snapshot) = &meta.cmux_context {
         parts.extend(snapshot.iter().cloned());
+    }
+    for part in parts.iter_mut().filter(|p| p.id == "cmux-system-prompt") {
+        part.editable = override_parts.contains_key("cmux-system-prompt");
     }
     if breakdown.is_none() {
         parts.push(ContextPart {
@@ -166,6 +224,7 @@ pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
             editable: false,
             measurement: "unavailable".into(),
             source_bytes: None,
+            channel: None,
             text: None,
         });
     }
@@ -190,10 +249,12 @@ pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
         max_tokens,
         can_edit_overrides: true,
         overrides: ContextOverrideView {
+            default_text: Some(crate::agent_tools::CONCURRENT_WORK_RULE.into()),
             user,
             project,
             project_key: project_key.clone(),
             cwd: meta.cwd.to_string_lossy().into_owned(),
+            parts: override_parts,
         },
     }
 }
@@ -208,25 +269,33 @@ pub fn override_block(text: &str, scope: &str) -> Value {
 /// change the effective text reported for an existing chat.
 pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
     let mut parts = snapshot(cfg, &meta.cwd);
-    if let Some(text) = verified_prompt_text(meta, cfg) {
+    if let Some(default) = verified_prompt_text(meta, cfg) {
+        let text = meta.cmux_preset_prompt.clone().unwrap_or(default);
         parts.push(ContextPart {
             id: "cmux-system-prompt".into(),
             source: "cmux-preset".into(),
             label: "Preset system prompt".into(),
             tokens: estimated_tokens(&text),
             included: true,
-            editable: false,
+            editable: true,
             measurement: "estimated".into(),
             source_bytes: Some(text.len() as u64),
+            channel: Some("system-prompt".into()),
             text: Some(text),
         });
     }
     parts
 }
 
-/// Append the captured additions on the first dispatched turn, never at queue time.
+/// Append the captured default or override on the first written turn. All guidance
+/// uses this one user-context channel, including sessions with no cmux MCP server.
+/// Preset text is emitted separately by the harness's system-prompt argument.
 pub fn append_snapshot(parts: Option<&[ContextPart]>, blocks: &mut Vec<Value>) {
-    for part in parts.into_iter().flatten().filter(|p| p.included && p.source != "cmux-preset") {
+    for part in parts.into_iter().flatten().filter(|p| {
+        p.included
+            && matches!(p.source.as_str(), "cmux-default" | "cmux-user" | "cmux-project")
+            && p.channel.as_deref().is_none_or(|channel| channel == "user-context")
+    }) {
         if let Some(text) = part.text.as_deref() {
             let scope = part.source.strip_prefix("cmux-").unwrap_or("user");
             blocks.push(override_block(text, scope));
@@ -236,16 +305,25 @@ pub fn append_snapshot(parts: Option<&[ContextPart]>, blocks: &mut Vec<Value>) {
 
 /// Capture settings once when the session is created. Project text replaces user text.
 pub fn snapshot(cfg: &Config, cwd: &Path) -> Vec<ContextPart> {
-    let Some((scope, text)) = cfg.context_overrides.for_project(cwd) else { return Vec::new() };
+    let (scope, text) = cfg
+        .context_overrides
+        .for_project(cwd)
+        .unwrap_or(("default", crate::agent_tools::CONCURRENT_WORK_RULE));
     vec![ContextPart {
         id: format!("cmux-{scope}-override"),
         source: format!("cmux-{scope}"),
-        label: format!("{} override", if scope == "project" { "Project" } else { "User" }),
+        label: match scope {
+            "project" => "Project guidance (first-turn context)",
+            "user" => "User guidance (first-turn context)",
+            _ => "cmux guidance (first-turn context)",
+        }
+        .into(),
         tokens: estimated_tokens(text),
         included: !text.is_empty(),
         editable: true,
         measurement: "estimated".into(),
         source_bytes: Some(text.len() as u64),
+        channel: Some("user-context".into()),
         text: Some(text.to_owned()),
     }]
 }
@@ -331,9 +409,35 @@ mod tests {
     }
 
     #[test]
+    fn new_sessions_capture_default_guidance_and_empty_text_disables_it() {
+        let cfg = Config::default();
+        let captured = snapshot(&cfg, Path::new("/repo"));
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].source, "cmux-default");
+        assert!(captured[0].included);
+        assert_eq!(captured[0].text.as_deref(), Some(crate::agent_tools::CONCURRENT_WORK_RULE));
+        let mut blocks = Vec::new();
+        append_snapshot(Some(&captured), &mut blocks);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(captured[0].channel.as_deref(), Some("user-context"));
+        assert!(
+            blocks[0]["text"].as_str().unwrap().contains(crate::agent_tools::CONCURRENT_WORK_RULE)
+        );
+
+        let mut disabled = Config::default();
+        disabled.context_overrides.user = Some(String::new());
+        let captured = snapshot(&disabled, Path::new("/repo"));
+        assert_eq!(captured[0].source, "cmux-user");
+        assert!(!captured[0].included);
+        assert_eq!(captured[0].text.as_deref(), Some(""));
+        let mut blocks = Vec::new();
+        append_snapshot(Some(&captured), &mut blocks);
+        assert!(blocks.is_empty());
+    }
+
+    #[test]
     fn overrides_choose_project_over_user_and_clear() {
-        let mut overrides =
-            ContextOverrides { user: Some("u".into()), projects: Default::default() };
+        let mut overrides = ContextOverrides { user: Some("u".into()), ..Default::default() };
         let cwd = Path::new("/repo");
         overrides.set("project", Some(cwd), Some("p".into())).unwrap();
         assert_eq!(overrides.for_project(cwd), Some(("project", "p")));

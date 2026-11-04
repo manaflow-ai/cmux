@@ -347,3 +347,88 @@ async fn a_remote_origin_connection_never_uses_or_sets_args_or_a_system_prompt()
     let file = state.0.join("presets").join("prompted").join("system.md");
     assert_eq!(std::fs::read_to_string(file).unwrap(), PROMPT_A);
 }
+
+#[tokio::test]
+async fn context_inventory_preset_edits_apply_to_new_sessions_and_keep_presets_separate() {
+    let state = StateDir::new();
+    let (hub, mut c) = args_setup(&state, Origin::Local).await;
+    for name in ["one", "two"] {
+        c.request(
+            method::MUX_PRESETS,
+            json!({"name":name,"set":{"harness":"fakeclaude","systemPrompt":PROMPT_A}}),
+        )
+        .await
+        .unwrap();
+    }
+    let original = c.request(method::SESSION_NEW, new_params("one")).await.unwrap();
+    let id = original["sessionId"].as_str().unwrap();
+    let inventory = c.request(method::MUX_CONTEXT, json!({"sessionId":id})).await.unwrap();
+    assert_eq!(inventory["overrides"]["parts"]["cmux-system-prompt"]["defaultText"], PROMPT_A);
+    let saved = c
+        .request(
+            method::MUX_CONTEXT_OVERRIDE,
+            json!({"sessionId":id,"partId":"cmux-system-prompt","scope":"user","text":PROMPT_B}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(saved["overrides"]["parts"]["cmux-system-prompt"]["user"], PROMPT_B);
+    // The live session's snapshot and launch stay at A despite the saved setting.
+    assert!(saved["parts"].as_array().unwrap().iter().any(|p| p["id"] == "cmux-system-prompt"
+        && p["text"] == PROMPT_A
+        && p["channel"] == "system-prompt"));
+    let argv = argv_of(&hub, &mut c, id).await;
+    let file = argv.windows(2).find(|a| a[0] == "--system-prompt-file").unwrap();
+    assert_eq!(std::fs::read_to_string(&file[1]).unwrap(), PROMPT_A);
+    let next = c.request(method::SESSION_NEW, new_params("one")).await.unwrap();
+    let next_id = next["sessionId"].as_str().unwrap();
+    let argv = argv_of(&hub, &mut c, next_id).await;
+    let file = argv.windows(2).find(|a| a[0] == "--system-prompt-file").unwrap();
+    assert_eq!(std::fs::read_to_string(&file[1]).unwrap(), PROMPT_B);
+    assert!(file[1].contains(".context-overrides"));
+    // Persisted settings retain the selected preset, and the preset source is untouched.
+    let settings: Value =
+        serde_json::from_slice(&std::fs::read(state.0.join("config.json")).unwrap()).unwrap();
+    assert_eq!(settings["contextOverrides"]["presetPrompts"]["one"]["user"], PROMPT_B);
+    assert_eq!(std::fs::read_to_string(state.0.join("presets/one/system.md")).unwrap(), PROMPT_A);
+    c.request(method::MUX_CONTEXT_OVERRIDE, json!({"sessionId":id,"partId":"cmux-system-prompt","scope":"project","text":"project prompt"})).await.unwrap();
+    let project = c.request(method::SESSION_NEW, new_params("one")).await.unwrap();
+    let argv = argv_of(&hub, &mut c, project["sessionId"].as_str().unwrap()).await;
+    let file = argv.windows(2).find(|a| a[0] == "--system-prompt-file").unwrap();
+    assert_eq!(std::fs::read_to_string(&file[1]).unwrap(), "project prompt");
+    let other = c.request(method::SESSION_NEW, new_params("two")).await.unwrap();
+    let argv = argv_of(&hub, &mut c, other["sessionId"].as_str().unwrap()).await;
+    let file = argv.windows(2).find(|a| a[0] == "--system-prompt-file").unwrap();
+    assert_eq!(std::fs::read_to_string(&file[1]).unwrap(), PROMPT_A);
+    for scope in ["project", "user"] {
+        c.request(
+            method::MUX_CONTEXT_OVERRIDE,
+            json!({"sessionId":id,"partId":"cmux-system-prompt","scope":scope,"text":null}),
+        )
+        .await
+        .unwrap();
+    }
+    let cleared = c.request(method::SESSION_NEW, new_params("one")).await.unwrap();
+    let argv = argv_of(&hub, &mut c, cleared["sessionId"].as_str().unwrap()).await;
+    let file = argv.windows(2).find(|a| a[0] == "--system-prompt-file").unwrap();
+    assert_eq!(std::fs::read_to_string(&file[1]).unwrap(), PROMPT_A);
+    let err = c
+        .request(
+            method::MUX_CONTEXT_OVERRIDE,
+            json!({"sessionId":id,"partId":"provider-system","text":"bad"}),
+        )
+        .await
+        .unwrap_err();
+    assert!(err.contains("partId"), "{err}");
+    let mut web = connect(&hub, Origin::Web).await;
+    let redacted = web.request(method::MUX_CONTEXT, json!({"sessionId":id})).await.unwrap();
+    assert!(redacted["overrides"].get("parts").is_none());
+    assert!(!redacted.to_string().contains(PROMPT_A.trim()));
+    assert!(
+        web.request(
+            method::MUX_CONTEXT_OVERRIDE,
+            json!({"sessionId":id,"partId":"cmux-system-prompt","text":"bad"})
+        )
+        .await
+        .is_err()
+    );
+}

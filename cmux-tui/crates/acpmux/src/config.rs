@@ -1160,11 +1160,31 @@ pub struct ContextOverrides {
     pub user: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub projects: BTreeMap<String, String>,
+    /// Overrides of a verified preset prompt, kept separate for each preset name.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub preset_prompts: BTreeMap<String, ContextPromptOverrides>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextPromptOverrides {
+    pub user: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub projects: BTreeMap<String, String>,
+}
+
+impl ContextPromptOverrides {
+    pub fn for_project(&self, cwd: &Path) -> Option<&str> {
+        self.projects
+            .get(&ContextOverrides::project_key(cwd))
+            .map(String::as_str)
+            .or(self.user.as_deref())
+    }
 }
 
 impl ContextOverrides {
     pub fn is_empty(&self) -> bool {
-        self.user.is_none() && self.projects.is_empty()
+        self.user.is_none() && self.projects.is_empty() && self.preset_prompts.is_empty()
     }
 
     pub fn project_key(cwd: &Path) -> String {
@@ -1197,6 +1217,38 @@ impl ContextOverrides {
                 }
             }
             _ => return Err("scope must be user or project".into()),
+        }
+        Ok(())
+    }
+
+    pub fn set_preset(
+        &mut self,
+        preset: &str,
+        scope: &str,
+        cwd: Option<&Path>,
+        text: Option<String>,
+    ) -> Result<(), String> {
+        if scope != "user" && scope != "project" {
+            return Err("scope must be user or project".into());
+        }
+        if scope == "project" && cwd.is_none() {
+            return Err("cwd is required for a project override".into());
+        }
+        let values = self.preset_prompts.entry(preset.into()).or_default();
+        match scope {
+            "user" => values.user = text,
+            "project" => {
+                let key = Self::project_key(cwd.ok_or("cwd is required for a project override")?);
+                if let Some(text) = text {
+                    values.projects.insert(key, text);
+                } else {
+                    values.projects.remove(&key);
+                }
+            }
+            _ => return Err("scope must be user or project".into()),
+        }
+        if values.user.is_none() && values.projects.is_empty() {
+            self.preset_prompts.remove(preset);
         }
         Ok(())
     }
