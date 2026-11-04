@@ -1679,12 +1679,16 @@ button.cv-subagent > :last-child {
   height: 20px;
   align-items: flex-end;
   opacity: 0;
-  transition: opacity var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out);
+  /* The transcript's hover fade (conversation.css --cv-actions-*): out quickly, in after a beat. */
+  transition: opacity var(--cv-actions-out);
 }
 .acpmux-running-tray:hover > .acpmux-running-tray__tuck,
 .acpmux-running-tray:has([data-popup-open]) > .acpmux-running-tray__tuck,
 .acpmux-running-tray__tuck:focus-visible {
   opacity: 1;
+}
+.acpmux-running-tray:hover > .acpmux-running-tray__tuck {
+  transition: opacity var(--cv-actions-in) var(--cv-actions-in-delay);
 }
 .acpmux-running-tray__tuck:hover,
 .acpmux-tray-pull__tab:hover {
@@ -1718,7 +1722,6 @@ button.cv-subagent > :last-child {
   width: 24px;
   height: 0;
   border-top: 3px solid currentColor;
-  border-radius: 999px;
   opacity: 0.35;
   transform: translate(-50%, -50%);
 }
