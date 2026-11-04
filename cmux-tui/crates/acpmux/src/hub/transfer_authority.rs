@@ -457,8 +457,9 @@ mod tests {
         assert!(here.resolve("import-receipt").is_err(), "the failed import left its chat");
     }
 
-    /// A begin whose bundle fails ends its move only once that end is logged: otherwise the
-    /// chat stays frozen, as its durable `transfer_out` says.
+    /// A bundle failure before `transfer_out` is durable has no transfer authority to restore:
+    /// the in-memory move stays frozen until its abort is logged, but a restart still sees this
+    /// chat as local because no move was ever offered.
     #[tokio::test]
     async fn a_failed_bundle_whose_abort_is_not_logged_keeps_the_chat_frozen() {
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
@@ -487,7 +488,7 @@ mod tests {
         let begun =
             hub.transfer_request("_acpmux/transfer_begin", &json!({"sessionId": session.id})).await;
         assert!(begun.is_err(), "the bundle was made: {begun:?}");
-        assert_eq!(session.transfer_blocked(), Some(true));
+        assert_eq!(session.transfer_blocked(), Some(false));
         assert!(session.moving().is_some(), "it unfroze without a logged abort");
     }
 }
