@@ -73,6 +73,19 @@ and changes both with the code).
 | **acpmux** (tokio multi-thread; `acpmux-socket-read` / `-write` bridges) | Agent sessions | Socket I/O on its runtime | not set | In 256 / out 4096 per connection, full outbox drops (`try_send`), oversized notices become `_acpmux/lagged`; hub broadcast 8192 with `lagged {dropped}`. Owner PL-acpmux (cmux-4f) |
 | **Chromium** (in-process browser: UI thread = the app's main thread; Chromium's own IO and worker threads; renderer, GPU and utility helper processes; out-of-process host prototype `com.cmuxterm.chromium-host.read` / `.exit`) | Web pages | Chromium's IO thread blocks on its own sockets, never the UI thread | Chromium's | Child exits on `com.cmuxterm.app.next.cef-children`; host prototype: 256 KiB send buffer, 4096 frames, over: the connection ends |
 
+### Open question: per-request dispatch on a daemon connection (owner PL-daemon, 2026-11-04)
+
+A cmux-tui connection runs its requests in order on its one `mux-control-dispatch` thread, so one slow request
+holds every later request of that connection (head-of-line). cmux-ad m11 item 2 found the case: a terminal close
+waited for the agent roster's fold lock while a maintenance tick read the journal tail under it (5-8 s on #34628's
+nightly registry), and five unrelated app requests behind it timed out together; #35075 raised the app's deadline
+from 2 s to 30 s for it. The fold no longer blocks a request (R-DURABILITY, `mux/agent_roster_fold.rs`), but any
+request that waits in the daemon still holds its connection. Data for the decision: `scripts/measure/perf-10x-daemon.sh
+--arg=scenarios=head-of-line` (an `identify` sharing a connection with terminal churn under agent load, against the
+same `identify` on a connection of its own). Options: keep in-order dispatch and keep every request path off waiting
+locks; or dispatch independent requests per request (ordering only within an object), as the terminal pool and
+`wait-for` already do for their requests.
+
 ## QoS and task priority (PL-qos, 2026-10-24)
 One priority model. Main thread: MainWorkClass (PL-main). Off main: WorkPriority, derived from it (CmuxNextWakeups).
 
