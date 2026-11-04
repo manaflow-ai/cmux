@@ -27,6 +27,8 @@ struct KeyboardResizeShownLimitTests {
         switch PaneResize.change(for: pane, direction: direction, in: layout, shown: shown) {
         case .splitRatio(let split, let ratio): return layout.settingRatio(ratio, for: split)
         case .columnWidth(let column, let width): return layout.settingWidth(width, for: column)
+        case .columnTrade(let left, let leftWidth, let right, let rightWidth):
+            return layout.settingWidth(leftWidth, for: left).settingWidth(rightWidth, for: right)
         case .rowHeights(let column, let heights): return layout.settingRowHeights(heights, for: column)
         case nil: return nil
         }
@@ -89,6 +91,7 @@ struct KeyboardResizeShownLimitTests {
         Self.check(towardLimit: Self.moves(from: divider(base), right.edges), back: Self.moves(from: lastRight, backLeft.edges), step: step)
     }
 
+    /// p1 is the last column: Left moves its left edge, so c0 narrows to its minimum and c1 takes the width it gives.
     @Test func columnPressesStopAtTheColumnMinimumAndComeBackAWholeStep() {
         let start = ScreenLayout.columns([LayoutColumn(id: "c0", width: 0.5, root: .leaf("p0")),
                                           LayoutColumn(id: "c1", width: 0.5, root: .leaf("p1"))])

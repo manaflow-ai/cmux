@@ -50,7 +50,7 @@ final class TabContentCache {
     var lastFrames = TerminalLastFrames()
     /// Releases terminals whose daemon tree dropped their tab (a closed workspace).
     let goneTabs = GoneTabWatch()
-    /// Browser pages' hover card thumbnails (R131), at most `TabPreviewFitting.cachedPixelSize`
+    /// Browser pages' hover card thumbnails (R131), at most `PreviewImageCache.pagePixelSize`
     /// each, with the page version each shows (`BrowserTabState.pictureVersion`): a page is captured again only when
     /// its version moved. Kept apart from `previews`, whose full-size page images hibernation shows.
     let pageThumbnails = PreviewImageCache(capacityBytes: 16 << 20)
