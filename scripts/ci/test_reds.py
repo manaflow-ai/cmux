@@ -61,7 +61,8 @@ STAMP = re.compile(r"^(?:[^\t]*\t[^\t]*\t)?﻿?\d{4}-\d\d-\d\dT[\d:.]+Z ?")
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 FAILED = (
-    re.compile(r"✘ Test (.+?\)) (?:recorded an issue|failed)"),  # Swift Testing
+    # Swift Testing: `name()`, or a display name (`@Test("A capped plan …")` prints `✘ Test "A capped plan …"`).
+    re.compile(r"✘ Test (\"[^\"\n]*\"|.+?\)) (?:recorded an issue|failed)"),
     re.compile(r"Test Case '-\[(\S+ \S+)\]' failed"),  # XCTest
     re.compile(r"^test (\S+) \.\.\. FAILED$"),  # cargo test
     re.compile(r"^(?:FAIL|ERROR): (\S+ \([^)]+\))"),  # unittest
@@ -293,7 +294,10 @@ def same_error(head: str | None, base: str | None) -> bool:
 
 def log_lines(log: str) -> list[str]:
     """Every line of a job log with its timestamp and colours removed, the runner's step echoes included."""
-    return [STAMP.sub("", ANSI.sub("", line)).rstrip() for line in log.splitlines()]
+    # Swift Testing prefixes some event lines with a zero-width space (U+200B) when another writer's output
+    # shares the stream ("\u200b✔ Suite \"x\" passed"); left in, the anchored suite patterns miss the line and
+    # a suite that passed reads as never finished (https://github.com/manaflow-ai/cmux/pull/35296).
+    return [STAMP.sub("", ANSI.sub("", line)).lstrip("\u200b").rstrip() for line in log.splitlines()]
 
 
 def lines_of(log: str) -> list[str]:
