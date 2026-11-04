@@ -482,7 +482,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     }
 
     /// What `_acpmux/watch` attaches with: the newest transcript record only.
-    static let watchPage = AgentSessionPage(limit: 1, kinds: ["transcript"])
+    static let watchPage = AgentSessionPage(limit: 1, kinds: ["transcript"], listing: true)
 
     private static func page(_ params: [String: Any], method: String) -> AgentSessionPage {
         let number = { (key: String) -> UInt64? in (params[key] as? NSNumber)?.uint64Value }

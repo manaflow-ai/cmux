@@ -405,4 +405,19 @@ struct AgentSessionCarrierSwitchTests {
         #expect(direct.state.withLock { $0.attaches.first?.afterSeq } == 0)
         #expect(page.seqs == [1, 2, 3])
     }
+
+    /// Codex review of cmux#35770 at 6dddfc8a, follow-up F1: only the wire's own watch read is a
+    /// listing. A page's attach that asks for the same records still sets the re-attach page and
+    /// moves the cursor.
+    @Test func anAttachShapedLikeAWatchIsStillThePagesOwn() async throws {
+        let relay = Carrier(log: [1])
+        let direct = Carrier(log: [1, 2])
+        let chat = AgentSessionCarrierSwitch(fallback: relay)
+        let page = Page()
+        _ = try await chat.attach(AgentSessionPage(limit: 1, kinds: ["transcript"]), events: page.handler)
+        #expect(await chat.move(to: direct))
+        #expect(direct.state.withLock { $0.attaches.first?.afterSeq } == 1)
+        #expect(direct.state.withLock { $0.attaches.first?.kinds } == ["transcript"])
+        #expect(page.seqs == [2])
+    }
 }

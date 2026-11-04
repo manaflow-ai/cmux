@@ -348,7 +348,7 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
     public func attach(_ page: AgentSessionPage, events handler: @escaping @Sendable (AgentSessionRemoteEvent) -> Void) async throws -> Data {
         // A watch's one-record transcript read: the wire answers it as a sessions list and the page
         // never gets its record, so it sets neither what a move re-attaches with nor how far it reads.
-        let watch = page == RemoteAcpmuxWire.watchPage
+        let watch = page.listing
         let (client, generation, before) = state.withLock { state in
             let before = (handler: state.handler, page: state.page, live: state.live)
             state.handler = handler
