@@ -104,6 +104,23 @@ public nonisolated enum MotionTunables {
         help: "Diagnostic for the frame-owner S7 films (DEBUG and bench builds). On: in a live resize with the switch on, Chromium pages move at the first frame tick after the window's commit. Off: when the drag's setFrame returns.",
         default: false, code: "MotionTunables.frameOwnerLiveResizePageAfterCommit")
 
+    /// The window's live-resize probe also reads the window server's frames just before and just after each commit
+    /// (`liveResize.ws_*` samples; DEBUG and bench builds). Off (the default): a read is a window server round trip of
+    /// 7-9 ms per commit on the main thread that changed what the films show (ab-s7pm2-24).
+    public static let frameOwnerLiveResizeWindowServerProbe = Tunable<Bool>.toggle(
+        "motion.frameOwner.liveResize.windowServerProbe", .springs, "Live resize: probe reads the window server (S7 diagnostic)",
+        help: "Diagnostic for the frame-owner S7 films (DEBUG and bench builds). On: while debug.motion records, each commit of a live resize also reads the window server's frames of the window and its page windows (7-9 ms each). Off: no read.",
+        default: false, code: "MotionTunables.frameOwnerLiveResizeWindowServerProbe")
+
+    /// A live resize on the frame tick also holds the frame and bounds notices of the window's theme frame and of every
+    /// view between it and the followed views, not only those up to the content view (DEBUG and bench builds). Latched
+    /// with the switch. The fork's tracker observes every ancestor up to the theme frame, and the theme frame posts before
+    /// AppKit lays the tree out: the page window moved to an in-between place there (ab-s7pm2-24).
+    public static let frameOwnerLiveResizeHoldsToRoot = Tunable<Bool>.toggle(
+        "motion.frameOwner.liveResize.holdsToRoot", .springs, "Live resize: tracker hold up to the theme frame (S7 diagnostic)",
+        help: "Diagnostic for the frame-owner S7 films (DEBUG and bench builds). On: in a live resize with the switch on, the page tracker's hold also covers the window's theme frame and the bounds notices. Off: frame notices up to the content view.",
+        default: false, code: "MotionTunables.frameOwnerLiveResizeHoldsToRoot")
+
     public static let frameOwnerLiveResizeTrackerHold = Tunable<Bool>.toggle(
         "motion.frameOwner.liveResize.trackerHold", .springs, "Live resize: page tracker hears the final geometry (S7 diagnostic)",
         help: "Diagnostic for the frame-owner S7 films. On: in a live resize on the frame tick, Chromium's page tracker hears each followed view once, after the drag's setFrame. Off: it hears them during the layout.",
@@ -243,7 +260,9 @@ public nonisolated enum MotionTunables {
         MotionSpring.allCases.compactMap { springs[$0]?.descriptor } + [subtleBounce.descriptor, frameOwnerLiveResize.descriptor,
                                                                            frameOwnerLiveResizePageHold.descriptor, frameOwnerLiveResizeTrackerHold.descriptor,
                                                                            frameOwnerLiveResizeAtEvent.descriptor,
-                                                                           frameOwnerLiveResizePageAfterCommit.descriptor]
+                                                                           frameOwnerLiveResizePageAfterCommit.descriptor,
+                                                                           frameOwnerLiveResizeWindowServerProbe.descriptor,
+                                                                           frameOwnerLiveResizeHoldsToRoot.descriptor]
             + MotionFade.allCases.compactMap { fades[$0]?.descriptor }
             + MotionLoop.allCases.compactMap { loops[$0]?.descriptor }
             + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel,

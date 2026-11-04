@@ -43,6 +43,9 @@ public final class LiveResizeDragInput {
     private var latchedAtEvent = false
     /// `motion.frameOwner.liveResize.pageAfterCommit`, read with the switch (a diagnostic; DEBUG and bench builds).
     private var latchedPageAfterCommit = false
+    /// The tracker hold also covers the theme frame (`motion.frameOwner.liveResize.holdsToRoot`, DEBUG and bench only:
+    /// ``FollowedViews`` ignores it in other builds).
+    private var latchedHoldsToRoot = false
     /// The followed views' frame notices and the page update wait for the commit of the last applied `setFrame`.
     private var heldForCommit = false
     #if DEBUG || CMUX_BENCH_HOOKS
@@ -109,6 +112,7 @@ public final class LiveResizeDragInput {
             latchedHolds = (MotionTunables.frameOwnerLiveResizePageHold.value, MotionTunables.frameOwnerLiveResizeTrackerHold.value)
             latchedAtEvent = MotionTunables.frameOwnerLiveResizeAtEvent.value
             latchedPageAfterCommit = MotionTunables.frameOwnerLiveResizePageAfterCommit.value
+            latchedHoldsToRoot = MotionTunables.frameOwnerLiveResizeHoldsToRoot.value
         }
         let on = latched ?? MotionTunables.frameOwnerLiveResize.value
         latched = on
@@ -171,7 +175,7 @@ public final class LiveResizeDragInput {
             apply()
             setFrameDidReturn()
         } else if holdsTrackerNotices, let window {
-            FollowedViews.of(window).holdingFrameNotices {
+            FollowedViews.of(window).holdingFrameNotices(throughFrameView: latchedHoldsToRoot) {
                 apply()
                 setFrameDidReturn()
             }
@@ -209,7 +213,7 @@ public final class LiveResizeDragInput {
     /// commit lets them go (``releaseAfterCommit()``).
     private func holdForCommit(in window: NSWindow) {
         #if DEBUG || CMUX_BENCH_HOOKS
-        FollowedViews.of(window).beginHold()
+        FollowedViews.of(window).beginHold(throughFrameView: latchedHoldsToRoot)
         heldForCommit = true
         if let root = window.contentView?.layer { commitWitness.attach(to: root) }
         commitWitness.arm()
@@ -224,6 +228,13 @@ public final class LiveResizeDragInput {
         heldForCommit = false
         if let window { FollowedViews.of(window).endHold() }
         frameApplied()
+    }
+
+    /// The window's didMove (its delegate) in its live resize: the probe notes when it came (DEBUG and bench builds).
+    public func windowDidMove() {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        probe.windowDidMove()
+        #endif
     }
 
     /// The window's didResize (its delegate): the probe notes whether AppKit already committed (DEBUG and bench builds).

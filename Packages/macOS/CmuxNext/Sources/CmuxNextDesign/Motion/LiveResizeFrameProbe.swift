@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextDesignTokens
 import CmuxNextWakeups
 
 /// Times each frame of a window's live resize while `debug.motion` records (FRAME OWNER REFACTOR S7; DEBUG and bench
@@ -12,7 +13,8 @@ import CmuxNextWakeups
 /// - `liveResize.lead_ms`: from the `setFrame`'s start to the first display time after it (the window's display link
 ///   target, only while that link ran in the last ``linkFreshness``);
 /// - `liveResize.setFrame_ms`: the `setFrame`: AppKit's resize, the tree layout and what AppKit flushes inside it
-///   (`lead_ms` minus this is the slack at its end);
+///   (`lead_ms` minus this is the slack at its end). The probe's own reads before it (the edge probe, the page window
+///   step) are outside this clock, and `wait_ms` and `lead_ms` count from where it starts;
 /// - `liveResize.commit_slack_ms`: from the end of the turn's Core Animation commit (an observer one order after it)
 ///   to that display time; below 0 the turn's commit came after it, and what the commit carried showed a refresh late;
 /// - `liveResize.layouts_inside`: window layout passes (`-[NSWindow layoutIfNeeded]`, any window) begun inside the
@@ -45,9 +47,14 @@ import CmuxNextWakeups
 ///   `setFrame`; `..._after_setframe_pt` from there to just before the turn's commit;
 /// - `liveResize.didresize_at_ms` (the `setFrame`'s start to its didResize) and `liveResize.after_didresize_ms` (from
 ///   there to the `setFrame`'s end: the fork's tracker moves the page window and Chromium resizes its page in it);
+/// - `liveResize.didmove_at_ms` (the `setFrame`'s start to the window delegate's didMove), `liveResize.didmove_first` (1
+///   when it came before the didResize, 0 after it) and `liveResize.page_moved_before_didmove_pt` (a page window's move
+///   from the last checkpoint to it: the fork's tracker also observes didMove, after the delegate);
 /// - `liveResize.commit_ms`: the turn's Core Animation commit (Chromium's pre- and post-commit resize waits run in it);
 ///   `liveResize.page_move_to_commit_ms`: from the turn's first step that saw a page window move to the commit's end;
-/// - whether a move reached the window server before the turn's commit or with it, from the window server's frames read
+/// - only with `motion.frameOwner.liveResize.windowServerProbe` on (default off: each read is a window server round trip
+///   of 7-9 ms that changed what the films show, ab-s7pm2-24): whether a move reached the window server before the turn's
+///   commit or with it, from the window server's frames read
 ///   just before and just after each commit of the resize (by window; compared only with each other): just before it,
 ///   `liveResize.window_step_pt` / `page_step_pt` (how far AppKit moved the window and its page windows since the last
 ///   read) and `liveResize.ws_window_moved_before_commit_pt` / `ws_page_moved_before_commit_pt` (how far the window
@@ -86,9 +93,10 @@ final class LiveResizeFrameProbe {
     private weak var window: NSWindow?
     private let edges = ContentEdgeProbe()
     private var pageMoves = PageWindowMoves()
-    /// This `setFrame`'s start, its didResize (nil: none yet) and the largest page window move seen inside it.
+    /// This `setFrame`'s start, its didResize and didMove (nil: none yet) and the largest page window move seen inside it.
     private var applyStart: CFTimeInterval = 0
     private var didResizeAt: CFTimeInterval?
+    private var didMoveAt: CFTimeInterval?
     private var movedInSetFrame: CGFloat?
     /// The turn's first step that saw a page window move, and its commit's start (nil: none yet).
     private var firstPageMove: CFTimeInterval?
@@ -100,23 +108,25 @@ final class LiveResizeFrameProbe {
     /// AppKit applies (`NSEvent.timestamp`); `atTick`: a frame tick gave it.
     func frameWillApply(in window: NSWindow, eventTime: TimeInterval?, atTick: Bool) -> Frame? {
         guard MotionTrace.isEnabled else { return nil }
+        self.window = window
+        // The probe's own reads go before the `setFrame`'s clock starts (the edge probe walks the window's tree).
+        let measured = edges.measure(in: window)
+        pageStep("liveResize.page_moved_before_setframe_pt", in: window, at: CACurrentMediaTime(), notes: false)
+        if let root = window.contentView?.layer { witness.attach(to: root) }
+        witness.arm()
         let start = CACurrentMediaTime()
         let tick = FrameScheduler.forWindow(window).lastTick
         let target = tick.flatMap { tick in tick.refreshInterval.flatMap { Self.target(after: start, frameTarget: tick.targetTimestamp, interval: $0) } }
         if let eventTime { MotionTrace.sample("liveResize.wait_ms", (start - eventTime) * 1000) }
         MotionTrace.sample("liveResize.at_tick", atTick ? 1 : 0)
         if let target { MotionTrace.sample("liveResize.lead_ms", (target - start) * 1000) }
-        self.window = window
-        if let measured = edges.measure(in: window) {
+        if let measured {
             MotionTrace.sample("liveResize.view_edge_err_pt_before", measured.area)
             MotionTrace.sample("liveResize.layer_edge_err_pt_before", measured.areaLayer)
             MotionTrace.sample("liveResize.pane_edge_err_pt_before", measured.pane)
             MotionTrace.sample("liveResize.strip_edge_err_pt_before", measured.strip)
         }
-        (applyStart, didResizeAt, movedInSetFrame) = (start, nil, nil)
-        pageStep("liveResize.page_moved_before_setframe_pt", in: window, at: start, notes: false)
-        if let root = window.contentView?.layer { witness.attach(to: root) }
-        witness.arm()
+        (applyStart, didResizeAt, didMoveAt, movedInSetFrame) = (start, nil, nil, nil)
         (committedBeforeResize, applying) = (nil, true)
         return Frame(start: start, target: target, layoutsBegun: LayoutPassGuard.shared.windowLayoutsBegun,
                      viewLayouts: LayoutPassGuard.shared.viewLayoutCalls)
@@ -130,6 +140,17 @@ final class LiveResizeFrameProbe {
         let now = CACurrentMediaTime()
         didResizeAt = now
         if let window { noteInSetFrame(pageStep("liveResize.page_moved_before_didresize_pt", in: window, at: now)) }
+    }
+
+    /// The window's didMove (its delegate's, synchronous on the main thread): inside a `setFrame` of the resize, when it
+    /// came and whether before the didResize, and how far a page window moved since the last checkpoint.
+    func windowDidMove() {
+        guard applying, didMoveAt == nil, let window else { return }
+        let now = CACurrentMediaTime()
+        didMoveAt = now
+        MotionTrace.sample("liveResize.didmove_at_ms", (now - applyStart) * 1000)
+        MotionTrace.sample("liveResize.didmove_first", didResizeAt == nil ? 1 : 0)
+        noteInSetFrame(pageStep("liveResize.page_moved_before_didmove_pt", in: window, at: now))
     }
 
     /// `super.setFrame` returned, before the held frame notices go: the page windows' moves inside it.
@@ -219,6 +240,7 @@ final class LiveResizeFrameProbe {
     /// Reads the window server's frames of the window and its page windows, and samples how far they and AppKit's moved
     /// since the last read (`ws_*_moved_*_pt`, `window_step_pt`, `page_step_pt`); before the commit, also the read's time.
     private func sampleWindowServerMoves(in window: NSWindow, afterCommit: Bool) {
+        guard MotionTunables.frameOwnerLiveResizeWindowServerProbe.value else { return }
         let start = CACurrentMediaTime()
         let server = PageWindowMoves.windowServerFrames(of: window)
         let now = CACurrentMediaTime()

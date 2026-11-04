@@ -27,7 +27,8 @@ struct ContentEdgeProbe {
         var strip: CGFloat = 0, stripLayer: CGFloat = 0
         /// A terminal's shown IOSurface against its layer's size in pixels (a frame drawn at another size).
         var pixelLag: CGFloat = 0
-        /// Each shown page window against the page host nearest it, all four edges, on screen.
+        /// Each shown page host against the page window nearest it, all four edges, on screen (a page window with no
+        /// shown host, such as the parked New Tab page, counts nothing).
         var pageWindow: CGFloat = 0
     }
 
@@ -72,9 +73,11 @@ struct ContentEdgeProbe {
                 }
             }
         }
-        // A page window against the nearest host only: rounded out to whole points, it overlaps the content beside its host.
-        for page in PageWindowMoves.pages(of: window) {
-            guard let nearest = pageHosts.map({ PageWindowMoves.edgeDistance(page.frame, $0) }).min() else { continue }
+        // A host against the nearest page window only: rounded out to whole points, a page window overlaps the content beside
+        // its host, and a parked one has no shown host.
+        let pages = pageHosts.isEmpty ? [] : PageWindowMoves.pages(of: window).map(\.frame)
+        for host in pageHosts {
+            guard let nearest = pages.map({ PageWindowMoves.edgeDistance($0, host) }).min() else { continue }
             reading.pageWindow = max(reading.pageWindow, nearest)
         }
         return reading.views == 0 ? nil : reading
