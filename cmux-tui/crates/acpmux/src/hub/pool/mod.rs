@@ -563,7 +563,7 @@ impl Hub {
 
     /// An entry became ready: measure the pool, keep it under the RSS cap
     /// (oldest first), and park ready harnesses when `pool.park` is on.
-    async fn pool_after_ready(&self) {
+    async fn pool_after_ready(self: &Arc<Self>) {
         let (cap, park) = {
             let cfg = self.config.read().await;
             (cfg.pool.max_rss_mb.saturating_mul(1024 * 1024), cfg.pool.park)
