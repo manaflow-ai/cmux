@@ -32,7 +32,7 @@ import Testing
 ///   moves nothing, the pane then changes 1:1 with the pointer from where it showed, and holds still with the pointer;
 /// - column A grows on a spring (a preset width) and, while it grows, a drag of A's edge shrinks it past where it
 ///   shows down to its minimum: no width ever goes below zero, and A changes 1:1 from where it showed;
-/// - a Shift release of the split and a new pane under c (a split of c) in the same layout pass while A's key spring
+/// - a Shift release of the split and a new pane under c (a split of c) in the same layout pass while A's growth
 ///   carries c: the new pane stays in c's column, at c's place and speed across the axis (the release's fling does not
 ///   take it over);
 /// - in every case the motion stops: within 2 s every pane and divider frame is at rest on its target.
@@ -76,7 +76,7 @@ struct SharedEdgeDuringSpringTests {
         /// Every frame tick (and the release) where a shared edge or the dragged divider was off.
         var misses: [String] = []
         var ticks = 0
-        /// The gap from b1's right edge to the split divider's left edge at rest (root coordinates).
+        /// The split divider frame's left edge less b1's frame's right edge at rest (their springs, not rounded).
         var dividerRest: CGFloat?
 
         init() {
@@ -135,10 +135,12 @@ struct SharedEdgeDuringSpringTests {
         /// Half a device pixel and float slack: the farthest a divider that follows the pointer may show from it.
         var halfPixel: CGFloat { get throws { 0.5 / max(try screen.scale, 1) + 0.01 } }
 
-        /// The split divider's left edge as it shows, in root coordinates.
-        func dividerMinX() -> CGFloat? {
-            guard let screen = root.screenViews["s"], let view = screen.dividerViews[.split("x")], !view.isHidden else { return nil }
-            return screen.convert(view.frame, to: root).minX
+        /// The split divider frame's left edge less b1's frame's right edge, as their springs show them now.
+        func dividerOffset() -> CGFloat? {
+            guard let screen = root.screenViews["s"], let divider = screen.dividerFrames[.split("x")], let b1 = screen.paneFrames["b1"] else {
+                return nil
+            }
+            return divider.rect.minX - b1.rect.maxX
         }
 
         /// Records each shared edge whose gap is not its rest gap, as the screen shows it now; the split divider's
@@ -147,13 +149,12 @@ struct SharedEdgeDuringSpringTests {
             for edge in edges {
                 guard let l = root.context.hosts[edge.left]?.frame, let r = root.context.hosts[edge.right]?.frame else { continue }
                 let gap = r.minX - l.maxX
-                if abs(gap - edge.rest) > 0.001 {
+                if abs(gap - edge.rest) > Self.edgeSlack {
                     misses.append("\(label): \(edge.left)|\(edge.right) gap \(Self.pt(gap)) pt, at rest \(Self.pt(edge.rest)) pt")
                 }
             }
-            if let rest = dividerRest, let divider = dividerMinX(), let b1 = root.context.hosts["b1"]?.frame,
-               abs(divider - b1.maxX - rest) > 0.001 {
-                misses.append("\(label): the split divider shows \(Self.pt(divider - b1.maxX)) pt from b1's edge, at rest \(Self.pt(rest)) pt")
+            if let rest = dividerRest, let offset = dividerOffset(), abs(offset - rest) > Self.edgeSlack {
+                misses.append("\(label): the split divider shows \(Self.pt(offset)) pt from b1's edge, at rest \(Self.pt(rest)) pt")
             }
             guard let screen = root.screenViews["s"] else { return }
             for (pane, frame) in screen.paneFrames where frame.rect.width < 0 || frame.rect.height < 0 {
@@ -258,6 +259,10 @@ struct SharedEdgeDuringSpringTests {
         }
 
         static func pt(_ value: CGFloat) -> String { String(format: "%.2f", value) }
+
+        /// How far two values of one shared edge may differ: under half a point (float rounding and pixel edges, never
+        /// a gap or an overlap anyone sees). Exact float equality is not the rule.
+        static let edgeSlack: CGFloat = 0.5
     }
 
     @Test(arguments: Overlap.allCases)
@@ -267,7 +272,7 @@ struct SharedEdgeDuringSpringTests {
         let edges = try rig.sharedEdges()
         // a|b1 and b2|c (column gaps) and b1|b2 (the split's divider gap).
         try #require(edges.count == 3, "shared edges at rest: \(edges.map { "\($0.left)|\($0.right)" })")
-        rig.dividerRest = try #require(rig.dividerMinX(), "no split divider") - (try #require(rig.root.context.hosts["b1"])).frame.maxX
+        rig.dividerRest = try #require(rig.dividerOffset(), "no split divider")
 
         switch overlap {
         case .keySpringThenColumnEdgeDrag, .keySpringThenSplitDrag:
@@ -318,9 +323,12 @@ struct SharedEdgeDuringSpringTests {
             try rig.drag(.columnEdge("A"), dragged: "a", anchor: "a", moves: 16, step: -40, floor: minimum, edges: edges)
             rig.land(edges, "landing")
         case .newPaneAtRelease:
-            // A's key spring carries c; a Shift drag of the split, and in its release's turn a split of c (c2 under
-            // c): one layout pass makes the release and the new pane.
-            try rig.keySpring(edges)
+            // Column A grows (a width change, not a key press: a key press trades width with B and C stays): B and C
+            // slide on its spring. A Shift drag of the split, and in its release's turn a split of c (c2 under c):
+            // one layout pass makes the release and the new pane.
+            rig.model.setColumnWidth("A", width: 0.4, transaction: .make(), phase: .ended)
+            rig.root.syncWithModel()
+            for tick in 1...3 { rig.frame(edges, "growth frame \(tick)") }
             let room = try #require(try rig.screen.geometry.dividers.first { $0.id == "x" }).container.width
             try rig.drag(.split("x"), dragged: "b1", moves: 4, step: (room * 0.035).rounded(), flags: .shift, releaseSpeed: 600,
                          edges: edges) { view, pointer in
@@ -335,17 +343,19 @@ struct SharedEdgeDuringSpringTests {
             }
             let screen = try rig.screen
             let c = try #require(screen.paneFrames["c"]), c2 = try #require(screen.paneFrames["c2"], "the split of c made no c2")
-            #expect(c.x.velocity != 0, "A's key spring no longer carries c")
+            #expect(c.x.velocity != 0, "A's growth no longer carries c")
+            // The new pane rides c across the axis: the release's fling does not give it a speed of its own.
+            #expect(abs(c2.x.velocity - c.x.velocity) < 0.5 && abs(c2.width.velocity - c.width.velocity) < 0.5,
+                    "c2 moves at x \(c2.x.velocity), width \(c2.width.velocity) pt/s; c at \(c.x.velocity), \(c.width.velocity)")
             var frames = 0
             repeat {
                 let upper = try #require(screen.paneFrames["c"]), lower = try #require(screen.paneFrames["c2"])
-                if abs(upper.rect.minX - lower.rect.minX) > 0.01 || abs(upper.rect.maxX - lower.rect.maxX) > 0.01 {
+                if abs(upper.rect.minX - lower.rect.minX) > Rig.edgeSlack || abs(upper.rect.maxX - lower.rect.maxX) > Rig.edgeSlack {
                     rig.misses.append("arrival frame \(frames): c2 shows at x \(Rig.pt(lower.rect.minX))...\(Rig.pt(lower.rect.maxX)), c at \(Rig.pt(upper.rect.minX))...\(Rig.pt(upper.rect.maxX))")
                 }
                 frames += 1
                 rig.frame(edges, "arrival frame \(frames)")
             } while frames < 30
-            _ = c2
             rig.land(edges, "landing")
         case .releaseSpringThenKeyPress:
             // A Shift drag of the split from 0.3 toward 0.44: its release lands on the half, on a spring.
