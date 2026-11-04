@@ -16,7 +16,6 @@ import { DaemonPeople } from "./daemonPeople";
 import { slackThreadSource } from "./slackThread";
 import { AttachmentService, messageGroups } from "./attachmentService";
 import { INLINE_TEXT_BYTES, TextUpload } from "./textUpload";
-import { slackThreadSource } from "./slackThread";
 import {
   HomeOps,
   type HomeAttachment,
