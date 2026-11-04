@@ -15,6 +15,8 @@ import { inlineToken, type ComposerAttachment } from "../attachments";
 import { translate } from "../i18n";
 import { seedLastPicks } from "../lastPick";
 import { EMPTY_OMNIBAR } from "../omnibar";
+import { CloudTypingPrewarm, CLOUD_TYPING_PREWARM_REFRESH_MS, cloudTypingMachineID } from "../cloudTypingPrewarm";
+import type { CloudMachine } from "../cloudMachines";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -1205,3 +1207,83 @@ test("a project picked on the page is reported on its click (onProjectPicked), s
   await act(async () => option!.click());
   expect(picked).toEqual(["/Users/you/src/cmux"]);
 });
+
+test.each(["project", "saved"] as const)(
+  "a direct %s selection clears the prior Cloud typing target",
+  async (selection) => {
+    // The App retains the account-machine choice outside NewTabScreen. A direct project/card
+    // or saved-environment pick must clear that same target before the next prompt edit.
+    let target: CloudMachine | null | undefined = {
+      id: "cloud-draft",
+      name: "Draft machine",
+      stage: "paused",
+    };
+    let now = 0;
+    const wakes: string[] = [];
+    const prewarm = new CloudTypingPrewarm(
+      {
+        prewarm: (id) => {
+          wakes.push(id);
+          return true;
+        },
+      },
+      () => now,
+    );
+    const environment: SavedEnvironment = {
+      id: "local-worktree",
+      name: "Local worktree",
+      kind: "local",
+      folder: "/repo/local",
+      worktree: true,
+      updatedAt: 1,
+    };
+    await act(async () => {
+      root!.render(
+        <NewTabScreen
+          {...firstRunProps}
+          snapshot={noChat()}
+          cwd="/repo/original"
+          pageWidgets={new Set(["projects"])}
+          projects={[{ cwd: "/repo/local", label: "Local project" }]}
+          environments
+          savedEnvironments={{
+            list: async () => [environment],
+            save: async () => environment,
+            remove: async () => {},
+          }}
+          onCloudMachinePicked={(machine) => {
+            target = machine ?? null;
+          }}
+          onPromptTyped={(text) => {
+            const machineID = cloudTypingMachineID(target === null ? null : target?.id, "previous-cloud");
+            prewarm.typed(text, machineID ? { machineID } : undefined);
+          }}
+        />,
+      );
+    });
+    await typePrompt("first edit");
+    expect(wakes).toEqual(["cloud-draft"]);
+    now += CLOUD_TYPING_PREWARM_REFRESH_MS;
+
+    if (selection === "project") {
+      await act(async () => container.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button")!.click());
+      const row = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) =>
+        item.textContent?.includes("Local project"),
+      );
+      expect(row).toBeTruthy();
+      await act(async () => row!.click());
+    } else {
+      const button = container.querySelector<HTMLButtonElement>(
+        '.acpmux-location-picker[data-kind="computer"] button',
+      )!;
+      await openMachines(button);
+      const row = document.querySelector<HTMLElement>(".acpmux-env-popover .acpmux-env-saved")!;
+      expect(row).toBeTruthy();
+      await act(async () => (row.closest<HTMLElement>('[role="option"]') ?? row).click());
+    }
+
+    expect(target).toBeNull();
+    await typePrompt("edit on the local destination");
+    expect(wakes).toEqual(["cloud-draft"]);
+  },
+);
