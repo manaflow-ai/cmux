@@ -185,12 +185,14 @@ enum Refused {
 /// metadata), unspecified, multicast or broadcast, IPv4-mapped included.
 /// An intercepted connection (one a value may go out on) must also reach a
 /// globally routed address: no private (RFC 1918), shared (CGNAT, tailnet),
-/// benchmarking or IETF-reserved IPv4 and no unique-local IPv6, so a name
-/// rebound into the machine's network never gets a value. A blind tunnel
-/// may reach those, as the agent could without the proxy.
+/// benchmarking or IETF-reserved IPv4, no cloud host endpoint (Azure's
+/// 168.63.129.16) and no unique-local IPv6, so a name rebound into the
+/// machine's network never gets a value. IPv6 forms that embed an IPv4
+/// address (mapped, NAT64, 6to4) are judged by that address. A blind tunnel
+/// may reach internal addresses, as the agent could without the proxy.
 fn reachable(addr: &SocketAddr, intercept: bool) -> bool {
     let ip = match addr.ip() {
-        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(IpAddr::V6(v6), IpAddr::V4),
+        IpAddr::V6(v6) => embedded_v4(&v6).map_or(IpAddr::V6(v6), IpAddr::V4),
         ip => ip,
     };
     match ip {
@@ -206,6 +208,7 @@ fn reachable(addr: &SocketAddr, intercept: bool) -> bool {
                 || (a == 100 && (b & 0xc0) == 64)
                 || (a == 198 && (b & 0xfe) == 18)
                 || (a == 192 && b == 0 && c == 0)
+                || v4.octets() == [168, 63, 129, 16]
                 || a >= 240;
             !(never || (intercept && internal))
         }
@@ -219,6 +222,22 @@ fn reachable(addr: &SocketAddr, intercept: bool) -> bool {
             !(never || (intercept && internal))
         }
     }
+}
+
+/// The IPv4 address an IPv6 one carries: IPv4-mapped, NAT64 (64:ff9b::/96)
+/// or 6to4 (2002::/16).
+fn embedded_v4(v6: &std::net::Ipv6Addr) -> Option<std::net::Ipv4Addr> {
+    if let Some(v4) = v6.to_ipv4_mapped() {
+        return Some(v4);
+    }
+    let s = v6.segments();
+    let pair = |hi: u16, lo: u16| {
+        std::net::Ipv4Addr::new((hi >> 8) as u8, hi as u8, (lo >> 8) as u8, lo as u8)
+    };
+    if s[..6] == [0x64, 0xff9b, 0, 0, 0, 0] {
+        return Some(pair(s[6], s[7]));
+    }
+    (s[0] == 0x2002).then(|| pair(s[1], s[2]))
 }
 
 async fn open(
@@ -405,10 +424,20 @@ mod tests {
             "[fc00::1]:443",
             "[fd12:3456::1]:443",
             "[::ffff:10.0.0.5]:443",
+            "168.63.129.16:80",
+            "[64:ff9b::a00:5]:443",
+            "[2002:c0a8:101::1]:443",
         ] {
             assert!(at(internal, false) && !at(internal, true), "{internal}");
         }
-        for public in ["140.82.112.6:443", "100.128.0.1:443", "[2606:4700::1111]:443"] {
+        // NAT64 and 6to4 forms of loopback are never reached, tunnel or not.
+        assert!(!at("[64:ff9b::7f00:1]:443", false) && !at("[2002:7f00:1::1]:443", false));
+        for public in [
+            "140.82.112.6:443",
+            "100.128.0.1:443",
+            "[2606:4700::1111]:443",
+            "[64:ff9b::8c52:7006]:443",
+        ] {
             assert!(at(public, false) && at(public, true), "{public}");
         }
     }
