@@ -95,6 +95,7 @@ import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, SubagentHarnessContext, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
+import { attentionFirst } from "./trayAttention";
 import { latestLine, toolDetail } from "./trayDetail";
 import { trayLatestLook } from "./trayLatest.experiment";
 import { trayPanelLook, trayRowLook, trayStopLook } from "./trayPanel.experiment";
@@ -353,6 +354,7 @@ export const SubagentTray = memo(function SubagentTray({
     };
   }, []);
   const newest = useMemo(() => newestNames(t, items), [t, items]);
+  const ordered = useMemo(() => attentionFirst(items, finished, waiting), [items, finished, waiting]);
   const headMarks = useMemo(
     () => (head === "stack" ? stackMarks(t, items, finished, chatHarness) : NO_MARKS),
     [t, head, items, finished, chatHarness],
@@ -430,24 +432,23 @@ export const SubagentTray = memo(function SubagentTray({
   };
   // A fully folded tray has only its header. Avoid building hundreds of hidden row
   // elements on each header clock tick; keep them while a close animation still plays.
+  // What waits on the person or failed leads (trayAttention.ts), so the list's cap never hides it.
+  let firstFinished = true;
   const cards = fold.present
-    ? [
-        ...items.map((item) => (
-          <li key={itemKey(item)} {...arriving(itemKey(item))}>
-            {line(item)}
-          </li>
-        )),
-        ...finished.map((item, index) => (
+    ? ordered.map(({ item, finished: ended }) => {
+        const first = ended && firstFinished;
+        if (ended) firstFinished = false;
+        return (
           <li
             key={itemKey(item)}
-            data-finished=""
-            data-first-finished={index === 0 || undefined}
+            data-finished={ended ? "" : undefined}
+            data-first-finished={first || undefined}
             {...arriving(itemKey(item))}
           >
             {line(item)}
           </li>
-        )),
-      ]
+        );
+      })
     : [];
   // The header's mark is in the accent while anything under it runs.
   const runs = running > 0 || commands > 0 || planned;
@@ -657,7 +658,7 @@ export const SubagentTray = memo(function SubagentTray({
           label={t("subagents.open", { name: subagentTaskLabel(t, item.agent) })}
           chevron
           trayColumns
-          // A narrow tray's second line is its time and controls: the stats wrap under the title.
+          // A narrow tray's workflow progress wraps under the title, above its time and controls.
           progressAt={row === "below" || narrow ? "below" : "meta"}
           // What it did last, on its own quiet line (Leo, 2026-11-03: "Tray only, richer").
           latest={latestAt === "tooltip" ? undefined : latestLine(t, item.agent, awaitsOwnWork(item.agent))}
