@@ -271,6 +271,40 @@
      "absent_finding": "divider off"
     }
    ]
+  },
+  {
+   "id": "3c-col-drag-2-shell-inside-p1-lo-row514",
+   "film": "px-77e9a45-120x2/px-col-drag-2-s1r-s1",
+   "why": "FRAME OWNER REFACTOR (agent pixel-perfect, 2026-11-03, judge_pixel item 3c): a DUPLICATE in v7 (c22403233dd7). judge_pixel counts the shell inside a pane once per pane and line (the exact shell pixels in the pane's visible span on that line), but reports it on both side rows of that pane and line, so each such defect shows twice: here 'shell inside the pane' on p1 (page) lo and hi on row@514, 155 frames (211-213, 218-358, ...) each, with the same frames and px. R-HARNESS checked the 40 judge_pixel films: 263 lo/hi pairs report the same detail. The shell inside a pane is not a side's: it belongs on one row per pane and line, never on a side row.",
+   "expect": [
+    {
+     "judge": "judge_pixel",
+     "pixel_row": {
+      "label": "p1",
+      "side": "lo",
+      "line": "row@514",
+      "what": "pane"
+     },
+     "absent_finding": "shell inside the pane"
+    }
+   ]
+  },
+  {
+   "id": "3c-col-drag-2-shell-inside-p1-hi-row514",
+   "film": "px-77e9a45-120x2/px-col-drag-2-s1r-s1",
+   "why": "FRAME OWNER REFACTOR (agent pixel-perfect, 2026-11-03, judge_pixel item 3c): a DUPLICATE in v7 (c22403233dd7). judge_pixel counts the shell inside a pane once per pane and line (the exact shell pixels in the pane's visible span on that line), but reports it on both side rows of that pane and line, so each such defect shows twice: here 'shell inside the pane' on p1 (page) lo and hi on row@514, 155 frames (211-213, 218-358, ...) each, with the same frames and px. R-HARNESS checked the 40 judge_pixel films: 263 lo/hi pairs report the same detail. The shell inside a pane is not a side's: it belongs on one row per pane and line, never on a side row.",
+   "expect": [
+    {
+     "judge": "judge_pixel",
+     "pixel_row": {
+      "label": "p1",
+      "side": "hi",
+      "line": "row@514",
+      "what": "pane"
+     },
+     "absent_finding": "shell inside the pane"
+    }
+   ]
   }
  ]
 }

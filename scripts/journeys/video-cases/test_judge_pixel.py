@@ -29,6 +29,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 
@@ -294,6 +295,40 @@ def divider(report, line):
         if s["what"] == "divider" and s["line"] == line:
             return s
     raise AssertionError(f"no divider on {line} in {sorted(report['summary'])}")
+
+
+class JudgeInsideTests(unittest.TestCase):
+    """judge_inside's rules on a hand-made INSIDE series (no film): one row per pane and line, the rest count from the
+    rest frames, half a px of slack, the frames with no fill, and a line with no fill at rest not judged."""
+
+    def judge(self, inside, n=60):
+        film = types.SimpleNamespace(n=n, t=np.arange(n) / 120.0, panes={"pa": {"label": "p0", "kind": "tui", "agent": False}})
+        summary, frames = {}, {}
+
+        def add_frame(f, entry):
+            if entry.get("problems"):
+                frames.setdefault(f, []).append(entry)
+
+        jp.judge_inside(film, list(range(n)), inside, list(range(10)), summary, add_frame)
+        return summary, frames
+
+    def test_one_row_per_pane_and_line_from_the_rest_frames(self):
+        # Rest frames 0-9 alternate 2 and 3 shell px (median 2.5); frame 10 shows 3 (within half a px of the rest);
+        # frames 11-59, most of the film (a median over all frames would hide them), show 20; 50-52 show no fill.
+        series = [(2 + f % 2, True) for f in range(10)] + [(3, True)] + [(20, f not in (50, 51, 52)) for f in range(11, 60)]
+        summary, frames = self.judge({("pa", "row@1", "row"): series})
+        self.assertEqual(list(summary), ["p0:pa:row@1:inside"])
+        row = summary["p0:pa:row@1:inside"]
+        self.assertEqual((row["side"], row["rest"]["shell_in"]), ("inside", 2.5))
+        self.assertEqual((row["shell_in_ranges"], row["shell_in_max_px"]), ("11-59", 17.5))
+        self.assertEqual((row["no_fill_frames"], row["no_fill_ranges"]), (3, "50-52"))
+        self.assertEqual(frames[11][0]["problems"], ["shell inside the pane: 18 px"])
+        self.assertNotIn(10, frames)
+
+    def test_a_line_with_no_fill_at_rest_is_not_judged(self):
+        # The line runs along a ring row at rest (none of the pane's fill), then shows the fill and the shell: no row.
+        summary, frames = self.judge({("pa", "row@2", "row"): [(0, False)] * 10 + [(30, True)] * 50})
+        self.assertEqual((summary, frames), ({}, {}))
 
 
 class JudgePixelTests(unittest.TestCase):
@@ -615,14 +650,35 @@ class JudgePixelTests(unittest.TestCase):
 
     def test_held_content_shows_the_shell_inside_its_pane(self):
         r = self.reports["held"]
+        # A's pane grows 2 px a sample while its content keeps 296 px: the shell inside A's pane, frame by frame. It is
+        # the pane's and the line's (3c, FRAME OWNER), so it is on A's one "inside" row of row@110, not on a side row.
+        a_in = side(r, "p0", "row@110", "inside")
+        self.assertEqual(a_in["shell_in_ranges"], "12-40")
+        self.assertEqual(a_in["shell_in_max_px"], 40.0)
         a_hi = side(r, "p0", "row@110", "hi")
-        # A's pane grows 2 px a sample while its content keeps 296 px: the shell inside A's pane, frame by frame.
-        self.assertEqual(a_hi["shell_in_ranges"], "12-40")
-        self.assertEqual(a_hi["shell_in_max_px"], 40.0)
         self.assertLessEqual(a_hi["max_gap_px"], 40.0 + 16)  # capped at A's own rect (and a divider's width)
         b_lo = side(r, "p1", "row@110", "lo")
         self.assertEqual(b_lo["not_found_ranges"], "15-25")
-        self.assertIn("shell inside the pane", [f["check"] for f in r["findings"]])
+        # B shows nothing in 15-25: none of its fill on the line, counted once, on B's inside row.
+        self.assertEqual(side(r, "p1", "row@110", "inside")["no_fill_frames"], 11)
+        for label in ("p0", "p1"):
+            for which in ("lo", "hi"):
+                row = side(r, label, "row@110", which)
+                self.assertEqual((row["shell_in_frames"], row["no_fill_frames"]), (0, 0), (label, which))
+        # And B's pane shows only the shell in 15-25: B's own shell inside its pane. One finding per pane on row@110.
+        hits = [f["where"] for f in r["findings"] if f["check"] == "shell inside the pane" and f["where"].endswith(" row@110")]
+        self.assertEqual(hits, ["p0 (tui) inside on row@110", "p1 (page) inside on row@110"])
+
+    def test_the_shell_inside_a_pane_is_one_finding_per_pane_and_line(self):
+        # 3c (FRAME OWNER): v7 reported the shell inside a pane on both side rows of the pane and line (a duplicate).
+        # samefill: B, a terminal of A's fill, shows nothing in 30-32 and the shell inside its pane on each line.
+        r = self.reports["samefill"]
+        hits = [f["where"] for f in r["findings"] if f["check"] == "shell inside the pane"]
+        self.assertTrue(hits)
+        self.assertEqual(len(hits), len(set(hits)))
+        lines = [w.split(" on ")[1] for w in hits]
+        self.assertEqual(len(lines), len(set(lines)), hits)  # one finding per pane and line
+        self.assertTrue(all(w.startswith("p1 (tui) inside on ") for w in hits), hits)
 
     def test_reduce_motion_judged_per_input(self):
         drag = self.reports["reduce-drag"]
