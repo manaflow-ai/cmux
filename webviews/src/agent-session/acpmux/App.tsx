@@ -8758,6 +8758,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [startCloud] = useState(() => grantedCloudStart(callNative, cloudFolderGrant));
   const [cloudStartKeys] = useState(() => makeCloudStartKeys());
   const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
+  const composerHandle = useRef<ComposerHandle | null>(null);
   const cloudSignInSend = useRef<() => Promise<CloudStartAnswer> | undefined>(() => undefined);
   /// The card retries its preserved request once; native keeps the click across browser auth.
   const [cloudSignInRetry] = useState(() => makeCloudSignInRetry(() => cloudSignInSend.current()));
@@ -8794,7 +8795,24 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const started = startCloud(request, key, signingIn);
     // Another Return while a start waits starts nothing, and the card keeps that start.
     if (!started) return undefined;
-    cloudSignInSend.current = () => beginCloudSend(request, true);
+    cloudSignInSend.current = () => {
+      // The browser may stay open for minutes. If the person edits this prompt meanwhile,
+      // leave the edited draft in place rather than starting Cloud with the stale request.
+      const draft = composerHandle.current?.draft();
+      const preservedAttachments = request.attachments ?? [];
+      const sameAttachments =
+        draft === undefined ||
+        (draft.attachments.length === preservedAttachments.length &&
+          draft.attachments.every((attachment, index) => attachment.id === preservedAttachments[index]?.id));
+      if (draft !== undefined && (draft.text !== text || !sameAttachments)) {
+        return Promise.resolve({
+          ok: false,
+          code: "cloud_prompt_changed",
+          message: "Your prompt changed while you were signing in. Send the updated prompt to Cloud.",
+        });
+      }
+      return beginCloudSend(request, true);
+    };
     cloudStartPending.current = true;
     if (signingIn) cloudSignInPending.current = true;
     setCloudStart(
@@ -9737,7 +9755,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const prompt = useRef<MarkdownFieldHandle>(null);
   /// The composer itself, which takes back prompts a harness switch held; prompts handed back
   /// while it is not mounted (a handoff review) go in when it mounts.
-  const composerHandle = useRef<ComposerHandle | null>(null);
   /// What the new chat shown leaves when its tab opens another chat (set below, cmux#32276).
   const newChatLeftover = useRef<() => { leave: () => void; cancel: () => void } | undefined>(() => undefined);
   /// The composer is in shell mode, whose ⌘Return answers no recap card (RecapCard.tsx `keyHint`).

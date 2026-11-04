@@ -315,7 +315,7 @@ export function cloudStartKeys(
 
 /// A failure the host already said in a toast (it ran the start): the page says nothing more.
 export function cloudStartToasted(answer: CloudStartAnswer): boolean {
-  return !answer.ok && ["cloud_start_failed", "cloud_chat_already_started"].includes(answer.code);
+  return !answer.ok && ["cloud_start_failed", "cloud_chat_already_started", "cloud_prompt_changed"].includes(answer.code);
 }
 
 /// The host's card at the plan's machine cap answered Run on This Mac (CloudMachineCap.runHereCode): no machine was
