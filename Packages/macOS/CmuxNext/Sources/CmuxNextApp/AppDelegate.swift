@@ -19,6 +19,7 @@ import CmuxNextPhoneAccess
 import CmuxNextPopups
 import CmuxNextServer
 import CmuxNextSettings
+import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextUpdater
 import CmuxNextWakeups
@@ -111,8 +112,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } catch {
                 guard !Task.isCancelled else { return }
                 logger.error("Cloud environment bootstrap failed: \(String(describing: error), privacy: .public)")
-                // Fail closed: no token store or credential-bearing service exists on a failed selection.
-                NSApp.terminate(nil)
+                // Keep the native app and local daemon usable when client-config is
+                // unavailable. Never fall back to classic or pass a stale NEXT
+                // backend to a daemon started from this launch.
+                environment.cloudConfiguration = .unavailable
+                for key in ["CMUX_NEXT_CLOUD_RUNTIME", "CMUX_NEXT_CLOUD_ENV", "CMUX_NEXT_CLOUD_BACKEND", "CMUX_PLATFORM_ORIGIN"] {
+                    environment.terminalEnvironment.removeValue(forKey: key)
+                }
+                daemonPrestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
+                    terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
+                    resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: SidebarMirror.isLinked)
+                finishLaunching()
             }
             cloudBootstrap = nil
         }

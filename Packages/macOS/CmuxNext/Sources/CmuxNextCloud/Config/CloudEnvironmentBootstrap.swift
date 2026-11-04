@@ -30,6 +30,22 @@ public struct CloudEnvironmentBootstrap {
         }
         return selection
     }
+    /// Forwards create-option validation to Rust's selected backend capability contract.
+    public func checkCreate(backend: URL, params: Data) async throws {
+        guard let cli = await BundledExecutable.cli(resources: Bundle.main.resourceURL, work: work).resolve() else {
+            throw DaemonError.launchFailed("The bundled cmux CLI is unavailable.")
+        }
+        var environment = ProcessInfo.processInfo.environment
+        if let bundleID = Bundle.main.bundleIdentifier { environment["CMUX_BUNDLE_ID"] = bundleID }
+        let result = try await ProcessRunner.run(executable: cli,
+            arguments: ["--json", "cloud", "env", "check-create", "--backend", backend.absoluteString,
+                        "--params", String(decoding: params, as: UTF8.self)],
+            environment: environment, timeout: nil, clock: ContinuousClock())
+        guard result.status == 0 else {
+            throw DaemonError.launchFailed(String(decoding: result.stderr, as: UTF8.self))
+        }
+    }
+
     public func startRelaunch() async throws -> Int32 {
         guard let cli = await BundledExecutable.cli(resources: Bundle.main.resourceURL, work: work).resolve() else {
             throw DaemonError.launchFailed("The bundled cmux CLI is unavailable.")

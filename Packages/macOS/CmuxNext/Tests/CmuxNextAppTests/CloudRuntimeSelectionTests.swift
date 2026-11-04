@@ -37,7 +37,7 @@ struct CloudRuntimeSelectionTests {
         #expect(!configuration.acceptsShareAPI(URL(string: "https://cloud-api.cmux.dev") ?? selection.shareApiOrigin))
         var otherBackend = selection
         otherBackend.authNamespace = "other-backend"
-        otherBackend.legacyStorage = true
+        otherBackend.legacyStorage = false
         let other = CloudConfiguration.from(selection: otherBackend, bundleID: selection.bundleId,
             bundled: [:], process: [:], isDebugBuild: false)
         #expect(otherBackend.storageNamespace == "other-backend")
@@ -52,4 +52,49 @@ struct CloudRuntimeSelectionTests {
             bundled: [:], process: [:], isDebugBuild: false)
         #expect(localConfiguration.backend == .development(local.apiOrigin), "a selected local backend is available")
     }
+    @Test func rustStoragePolicyPreservesOnlyKnownUntouchedDefaultLocations() throws {
+        let origin = try #require(URL(string: "https://backend.fixture.invalid"))
+        var selection = CloudRuntimeSelection(name: "prod", apiOrigin: origin, authWebOrigin: origin,
+            vmOrigin: origin, platformOrigin: origin, mobileOrigin: origin, deviceHubOrigin: origin,
+            shareRoomOrigin: origin, shareApiOrigin: origin, stackOrigin: origin,
+            stackProjectId: "production-project-fixture", stackClientKey: "",
+            bundleId: "com.cmuxterm.app.nightly.cmux-next", mutable: true,
+            authNamespace: "backend-0", legacyStorage: true)
+        let production = CloudConfiguration.from(selection: selection, bundleID: selection.bundleId,
+            bundled: [:], process: [:], isDebugBuild: false)
+        #expect(selection.storageNamespace == nil, "untouched pairing and install paths remain unchanged")
+        #expect(production.keychainService == "com.cmuxterm.app.nightly.cmux-next.auth")
+        #expect(production.credentialsDirectory.lastPathComponent == selection.bundleId)
+        #expect(production.authDefaultsKey("cmux.auth.hasTokens") == "cmux.auth.hasTokens")
+
+        selection.bundleId = "com.cmuxterm.app.debug.next"
+        selection.name = "dev"
+        selection.authStorageNamespace = "development-project-fixture"
+        let signedDEV = CloudConfiguration.from(selection: selection, bundleID: selection.bundleId,
+            bundled: [:], process: [:], isDebugBuild: false)
+        #expect(signedDEV.keychainService == "com.cmuxterm.app.debug.next.auth.development-project-fixture")
+        #expect(signedDEV.credentialsDirectory.lastPathComponent == "development-project-fixture")
+        #expect(signedDEV.authDefaultsKey("cmux.auth.hasTokens") == "cmux.auth.hasTokens.development-project-fixture")
+        #expect(selection.storageNamespace == nil)
+
+        selection.legacyStorage = false
+        selection.authNamespace = "backend-1"
+        let switched = CloudConfiguration.from(selection: selection, bundleID: selection.bundleId,
+            bundled: [:], process: [:], isDebugBuild: false)
+        #expect(selection.storageNamespace == "backend-1")
+        #expect(switched.keychainService == "com.cmuxterm.app.debug.next.auth.backend-1")
+        #expect(switched.credentialsDirectory != signedDEV.credentialsDirectory)
+        #expect(switched.authDefaultsKey("cmux.auth.hasTokens") != signedDEV.authDefaultsKey("cmux.auth.hasTokens"))
+    }
+
+    @Test func unavailableConfigurationCannotRestoreARealBundlesCredentials() {
+        let unavailable = CloudConfiguration.unavailable
+        #expect(unavailable.bundleID == "com.cmuxterm.app.cloud-unavailable")
+        #expect(unavailable.keychainService == "com.cmuxterm.app.cloud-unavailable.auth.bootstrap-unavailable")
+        #expect(unavailable.keychainService != "com.cmuxterm.app.auth")
+        #expect(unavailable.credentialsDirectory.deletingLastPathComponent().lastPathComponent == "com.cmuxterm.app.cloud-unavailable")
+        #expect(unavailable.credentialsDirectory.lastPathComponent == "bootstrap-unavailable")
+        #expect(unavailable.authDefaultsKey("cmux.auth.hasTokens") == "cmux.auth.hasTokens.bootstrap-unavailable")
+    }
+
 }

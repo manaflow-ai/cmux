@@ -39,7 +39,7 @@ final class CloudService {
     let codexBroker: CloudCodexBrokerAdapter
     /// The Release login copy's remote off switch (CloudService+LoginCopy.swift).
     @ObservationIgnored let harnessLoginCopySwitch = CloudHarnessLoginCopySwitch()
-    @ObservationIgnored private let work: BackgroundWork
+    @ObservationIgnored let work: BackgroundWork
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
     /// Whether a cmux Pro offer is on screen (CloudPresenter.offerPro).
     @ObservationIgnored var proOfferOpen = false
@@ -296,6 +296,7 @@ final class CloudService {
         if policyDisabled { return RefusalStrings.turnedOffByOrganization }
         // RestrictToManagedTeam (P17-3): no request goes out without the managed team.
         if auth.managedTeamID != nil, auth.teamID == nil { return RefusalStrings.turnedOffByOrganization }
+        if configuration.apiBaseURL.isFileURL { return CloudStrings.localBackend }
         // The app server path needs no web backend (cx-t2rz): only the legacy /api/vm path does.
         #if DEBUG
         if debugBackendFixture { return nil }
@@ -309,6 +310,7 @@ final class CloudService {
     /// organization, the managed team present (P17-3), not a local-only
     /// backend. (A missing cmux-tui client blocks machines, not the API.)
     var mayCallCloud: Bool {
+        if configuration.apiBaseURL.isFileURL { return false }
         if policyDisabled { return false }
         if auth.managedTeamID != nil, auth.teamID == nil { return false }
         if case .localOnly = configuration.backend, configuration.linkSource == .legacy { return false }
@@ -316,6 +318,9 @@ final class CloudService {
     }
 
     func start() {
+        // A failed client-config bootstrap leaves the local app usable, but
+        // must not restore auth or start the credential relay/Cloud observers.
+        guard !configuration.apiBaseURL.isFileURL else { return }
         deviceID.preload()
         auth.start(); changes.start()
         startCredentialProvider()

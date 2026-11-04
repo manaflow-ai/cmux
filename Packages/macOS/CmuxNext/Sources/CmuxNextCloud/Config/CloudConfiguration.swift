@@ -4,12 +4,14 @@ public import Foundation
 /// ``from(selection:bundle:isDebugBuild:)`` is the app launch path. Backend
 /// origins and Stack credentials always come from the Rust selection.
 public struct CloudConfiguration: Sendable, Equatable {
+    private static let unavailableBundleID = "com.cmuxterm.app.cloud-unavailable"
+
     /// Placeholder used only by test/capture composition roots that construct services before
     /// the async runtime bootstrap. A real NEXT app never reaches CloudService with this value.
     public static let unavailable = CloudConfiguration(
         backend: .localOnly(inertURL), apiBaseURL: inertURL, authWebOrigin: inertURL,
         stackBaseURL: inertURL, stackProjectID: "", stackPublishableClientKey: "",
-        isProductionAuth: false, callbackScheme: "cmux", bundleID: nil, isDebugBuild: true,
+        isProductionAuth: false, callbackScheme: "cmux", bundleID: unavailableBundleID, isDebugBuild: true,
         linkSource: .appServer)
     public enum Backend: Sendable, Equatable {
         /// A production selection returned by the backend.
@@ -76,7 +78,12 @@ public struct CloudConfiguration: Sendable, Equatable {
     // The first signed DEV staging launch must not read production tokens or
     // prime its cached user/team. A stable namespace preserves staging sign-in
     // on subsequent launches and leaves the old production session untouched.
-    private var authStorageProject: String? { runtimeSelection?.authNamespace }
+    private var authStorageProject: String? {
+        guard let selection = runtimeSelection else {
+            return bundleID == Self.unavailableBundleID ? "bootstrap-unavailable" : nil
+        }
+        return selection.legacyStorage ? selection.authStorageNamespace : selection.authNamespace
+    }
 
     /// `<scheme>://auth-callback`. `/dev/null` stands in for a hand-built
     /// configuration with one that does not.

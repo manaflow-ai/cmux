@@ -75,6 +75,8 @@ struct CloudMachineCreateFlow {
     var approve: @MainActor (_ request: String, _ op: String, _ params: JSONValue) async throws -> Void
     /// Waits before the next same-key retry after the approval (cancellable).
     var pause: @MainActor (_ attempt: Int) async throws -> Void
+    /// Rust checks the selected backend's capabilities before an option-bearing create is sent.
+    var validateOptions: @MainActor (_ params: JSONValue) async throws -> Void = { _ in }
     var newKey: () -> String = { UUID().uuidString }
     /// Same-key calls after the approval before ``Failure/stillPending``.
     var retries = 8
@@ -123,6 +125,7 @@ struct CloudMachineCreateFlow {
             }
         }
         if let environment { args["environment"] = .string(environment) }
+        try await validateOptions(.object(args))
         let op = environment == nil ? "cloud.machine.create" : "cloud.environment.boot"
         let answer = try await approvalLoop(op, args: .object(args), key: key ?? newKey(), confirmed: true,
                                             approved: key == nil ? nil : approved, onApproved: onApproved,

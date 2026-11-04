@@ -11,7 +11,8 @@ extension CloudConfiguration {
             authWebOrigin: value("CMUX_AUTH_WWW_ORIGIN"), vmOrigin: value("CMUX_VM_API_BASE_URL"), platformOrigin: value("CMUX_NEXT_PLATFORM_PREVIEW_API_URL"),
             mobileOrigin: value("CMUX_MOBILE_API_BASE_URL"), deviceHubOrigin: value("CMUX_DEVICE_HUB_URL"), shareRoomOrigin: value("CMUX_SHARE_ROOM_URL"),
             shareApiOrigin: value("CMUX_NEXT_FEED_API_URL"), stackOrigin: value("CMUX_STACK_BASE_URL"), stackProjectId: bundled["CMUX_STACK_PROJECT_ID"] ?? "fixture", stackClientKey: bundled["CMUX_STACK_CLIENT_KEY"] ?? "",
-            bundleId: bundleID ?? "fixture", mutable: true, authNamespace: "fixture", legacyStorage: true)
+            bundleId: bundleID ?? "fixture", mutable: true, authNamespace: "fixture", legacyStorage: true,
+            authStorageNamespace: bundleID == "com.cmuxterm.app.debug.next" ? (bundled["CMUX_STACK_PROJECT_ID"] ?? "fixture") : nil)
         return CloudConfiguration.from(selection: selection, bundleID: bundleID, bundled: bundled, process: process, isDebugBuild: isDebugBuild)
     }
 }

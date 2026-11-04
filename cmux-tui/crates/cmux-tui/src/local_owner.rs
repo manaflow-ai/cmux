@@ -296,7 +296,9 @@ pub(crate) enum EnsureError {
 /// The backend requested by a NEXT app launch. Classic callers do not set the
 /// runtime marker, so they must never cause an existing daemon to restart.
 fn requested_cloud_backend() -> Option<String> {
-    if std::env::var("CMUX_NEXT_CLOUD_RUNTIME").as_deref() != Ok("1") {
+    if std::env::var("CMUX_NEXT_CLOUD_RUNTIME").as_deref() != Ok("1")
+        || std::env::var("CMUX_NEXT_CLOUD_LAUNCHER").as_deref() != Ok("1")
+    {
         return None;
     }
     std::env::var("CMUX_NEXT_CLOUD_BACKEND")
@@ -773,8 +775,16 @@ struct SpawnedOwner {
     ready: Option<std::convert::Infallible>,
 }
 
-const DETACHED_OWNER_IDENTITY_ENV: [&str; 5] =
-    ["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID", "CMUX_PANE_ID"];
+const DETACHED_OWNER_IDENTITY_ENV: [&str; 6] = [
+    "CMUX_SURFACE_ID",
+    "CMUX_WORKSPACE_ID",
+    "CMUX_TAB_ID",
+    "CMUX_PANEL_ID",
+    "CMUX_PANE_ID",
+    // Only the app launcher may reconcile a backend switch. A terminal
+    // or a detached owner must never inherit this one-shot authority.
+    "CMUX_NEXT_CLOUD_LAUNCHER",
+];
 
 /// Remove terminal identity and agent caller claims
 /// (`startup_env::AGENT_CALLER_ENV`, cx-4nar) from the detached owner while
@@ -1094,6 +1104,7 @@ mod tests {
             .env("CMUX_TAB_ID", "tab")
             .env("CMUX_PANEL_ID", "panel")
             .env("CMUX_PANE_ID", "pane")
+            .env("CMUX_NEXT_CLOUD_LAUNCHER", "1")
             .env("CMUX_TUI_CONFIG", "/tmp/mux.json")
             .env("CMUX_MUX_CONFIG", "/tmp/legacy-mux.json");
 
@@ -1108,6 +1119,7 @@ mod tests {
         {
             assert_eq!(values.get(OsString::from(key).as_os_str()), Some(&None));
         }
+        assert_eq!(values.get(OsString::from("CMUX_NEXT_CLOUD_LAUNCHER").as_os_str()), Some(&None));
         assert_eq!(
             values.get(OsString::from("CMUX_TUI_CONFIG").as_os_str()),
             Some(&Some(OsString::from("/tmp/mux.json")))

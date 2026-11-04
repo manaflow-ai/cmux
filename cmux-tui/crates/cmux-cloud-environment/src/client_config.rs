@@ -1,8 +1,9 @@
 //! The backend owns client configuration. Build-time values are an origin
 //! allowlist and a temporary fallback for deployments predating this endpoint.
 
-use crate::{Configuration, Environment, Resolver, Selection, namespace};
+use crate::{namespace, Configuration, Environment, Resolver, Selection};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 #[cfg(unix)]
@@ -30,6 +31,47 @@ pub struct ClientConfig {
     pub configuration: Configuration,
     pub capabilities: serde_json::Value,
     pub image_channel: String,
+}
+
+/// Create parameters whose meaning is only safe when the selected backend
+/// advertises the corresponding capability. Basic legacy fields (for example
+/// `image` and `from_snapshot`) intentionally remain outside this preflight.
+pub const ADVANCED_CREATE_FIELDS: &[&str] =
+    &["size", "name", "idle_seconds", "bootstrap", "machine_config_base64"];
+
+/// Fail closed before a machine-create request is sent when a parameter needs
+/// a backend capability that was not advertised by `/v1/client-config`.
+/// `null` values are equivalent to an omitted optional field.
+pub fn check_create_capabilities(selection: &Selection, params: &Value) -> Result<(), String> {
+    let object = params
+        .as_object()
+        .ok_or_else(|| "machine create parameters must be a JSON object".to_owned())?;
+    for field in ADVANCED_CREATE_FIELDS {
+        if object.get(*field).is_none_or(Value::is_null) {
+            continue;
+        }
+        let advertised = selection
+            .capabilities
+            .get("machine_create")
+            .and_then(Value::as_object)
+            .and_then(|capabilities| capabilities.get(*field));
+        match advertised {
+            Some(Value::Bool(true)) => {}
+            Some(Value::Bool(false)) => {
+                return Err(format!(
+                    "backend capability refused: machine_create.{field} (backend {})",
+                    selection.api_origin
+                ));
+            }
+            _ => {
+                return Err(format!(
+                    "backend capability not declared/unavailable: machine_create.{field} (backend {})",
+                    selection.api_origin
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn cached(
@@ -138,6 +180,14 @@ fn cached_or_fallback(
 
 fn apply(selection: &mut Selection, config: ClientConfig, source: ConfigSource) {
     let name = selection.configuration.name.clone();
+    // Historical credentials belong to the historical Stack project. A
+    // backend moving projects must restore from its isolated storage instead.
+    if selection.legacy_storage
+        && selection.configuration.stack_project_id != config.configuration.stack_project_id
+    {
+        selection.legacy_storage = false;
+        selection.auth_storage_namespace = Some(selection.auth_namespace.clone());
+    }
     selection.configuration = config.configuration;
     selection.configuration.name = name;
     selection.config_source = source;
@@ -270,6 +320,45 @@ mod tests {
             capabilities: serde_json::json!({"machine_create": {"size": true}}),
             image_channel: "development".into(),
         }
+    }
+
+    #[test]
+    fn create_capability_preflight_fails_closed_and_accepts_dynamic_flags() {
+        let home = Home::new();
+        let resolver = Resolver::new(crate::DEV_BUNDLE, &home.0).unwrap();
+        let mut selection = resolver.resolve(Some("dev")).unwrap();
+        selection.capabilities = serde_json::json!({
+            "machine_create": {"size": true, "bootstrap": false}
+        });
+        check_create_capabilities(&selection, &serde_json::json!({"image": "ubuntu"})).unwrap();
+        check_create_capabilities(&selection, &serde_json::json!({"size": "large"})).unwrap();
+        let refused = check_create_capabilities(&selection, &serde_json::json!({"bootstrap": "x"}))
+            .unwrap_err();
+        assert!(refused.contains("backend capability refused: machine_create.bootstrap"));
+        let missing = check_create_capabilities(&selection, &serde_json::json!({"name": "worker"}))
+            .unwrap_err();
+        assert!(
+            missing.contains("backend capability not declared/unavailable: machine_create.name")
+        );
+        selection.capabilities["machine_create"]["name"] = serde_json::json!(true);
+        check_create_capabilities(&selection, &serde_json::json!({"name": "worker"})).unwrap();
+    }
+
+    #[test]
+    fn project_change_isolates_historical_credentials() {
+        let home = Home::new();
+        let resolver = Resolver::new("com.cmuxterm.app", &home.0).unwrap();
+        let mut selection = resolver.resolve(None).unwrap();
+        assert!(selection.legacy_storage);
+        let mut updated = config(crate::PRODUCTION_API);
+        updated.configuration.stack_project_id = "replacement-project".into();
+        apply(&mut selection, updated, ConfigSource::Backend);
+        assert!(!selection.legacy_storage);
+        assert_eq!(
+            selection.auth_storage_namespace.as_deref(),
+            Some(selection.auth_namespace.as_str())
+        );
+        assert_eq!(selection.stack_project_id, "replacement-project");
     }
 
     #[test]

@@ -130,6 +130,10 @@ extension CloudService {
             pause: { attempt in
                 // wakeup-allow: bounded same-key retry of a retryable approval.pending after the person approved (cx-t2rz)
                 try await ContinuousClock().sleep(for: CloudMachineCreateFlow.backoff(attempt))
+            },
+            validateOptions: { [configuration, work] params in
+                try await CloudEnvironmentBootstrap(work: work).checkCreate(
+                    backend: configuration.ownerAPIBaseURL(), params: JSONEncoder().encode(params))
             }
         )
     }

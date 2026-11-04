@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use cmux_cloud_environment::{Environment, Resolver};
+use cmux_cloud_environment::{check_create_capabilities, Environment, Resolver};
 use serde_json::Value;
 
 use super::{GlobalArgs, OutputMode, UsageError};
@@ -18,6 +18,7 @@ enum Command {
     Get,
     GetPersisted,
     GetBackend(String),
+    CheckCreate { backend: String, params: Value },
     Set(Environment),
     Relaunch { pid: i32, bundle: PathBuf },
 }
@@ -39,6 +40,19 @@ fn parse(words: &[String]) -> Result<Command, UsageError> {
                 .map_err(|error| UsageError::new(format!("invalid --launch-args JSON: {error}")))?;
             let backend = launch_backend(&args).map_err(UsageError::new)?;
             Ok(backend.map(Command::GetBackend).unwrap_or(Command::Get))
+        }
+        [word, backend_flag, backend, params_flag, params]
+            if word == "check-create"
+                && backend_flag == "--backend"
+                && params_flag == "--params" =>
+        {
+            Environment::parse(backend).map_err(UsageError::new)?;
+            let params: Value = serde_json::from_str(params)
+                .map_err(|error| UsageError::new(format!("invalid --params JSON: {error}")))?;
+            if !params.is_object() {
+                return Err(UsageError::new("--params must be a JSON object"));
+            }
+            Ok(Command::CheckCreate { backend: backend.clone(), params })
         }
         [word, name] if word == "set" => {
             Environment::parse(name).map(Command::Set).map_err(UsageError::new)
@@ -123,6 +137,10 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     Some(match run(command, &global) {
         Ok(value) => match global.output {
             OutputMode::Human => {
+                if value.get("check_create").is_some() {
+                    println!("ok");
+                    return 0;
+                }
                 println!("{}", value["name"].as_str().unwrap_or("unknown"));
                 if value["restart_required"] == true {
                     eprintln!(
@@ -152,6 +170,10 @@ fn run(command: Command, global: &GlobalArgs) -> Result<Value, String> {
     let home = std::env::var_os("HOME").map(PathBuf::from).ok_or("HOME is unavailable.")?;
     let resolver = Resolver::new(bundle, &home)?;
     let switching = matches!(command, Command::Set(_));
+    let check_create = match &command {
+        Command::CheckCreate { backend, params } => Some((backend.as_str(), params)),
+        _ => None,
+    };
     // A failed read cannot prevent an explicit set from repairing malformed
     // state. set() independently enforces permissions and I/O failures.
     let previous = switching.then(|| resolver.resolve(None).ok()).flatten();
@@ -164,6 +186,7 @@ fn run(command: Command, global: &GlobalArgs) -> Result<Value, String> {
         )?,
         Command::GetPersisted => resolver.resolve(None)?,
         Command::GetBackend(backend) => resolver.resolve(Some(&backend))?,
+        Command::CheckCreate { backend, .. } => resolver.resolve(Some(&backend))?,
         Command::Set(environment) => resolver.set(environment)?,
         Command::Help | Command::Relaunch { .. } => return Err("expected get or set".into()),
     };
@@ -172,6 +195,15 @@ fn run(command: Command, global: &GlobalArgs) -> Result<Value, String> {
         .build()
         .map_err(|error| format!("create client-config runtime: {error}"))?;
     let selection = runtime.block_on(resolver.client_config(selection))?;
+    if let Some((_, params)) = check_create {
+        check_create_capabilities(&selection, params)?;
+        return Ok(serde_json::json!({
+            "check_create": true,
+            "ok": true,
+            "backend": selection.api_origin,
+            "config_source": selection.config_source,
+        }));
+    }
     let scheduled = if switching { apply(global, &selection)? } else { false };
     let changed = switching
         && previous.is_none_or(|previous| previous.auth_namespace != selection.auth_namespace);
@@ -260,6 +292,20 @@ mod tests {
             parse(&words(&["set", "staging"])).unwrap(),
             Command::Set(Environment::parse("staging").unwrap())
         );
+        assert_eq!(
+            parse(&words(&[
+                "check-create",
+                "--backend",
+                "staging",
+                "--params",
+                r#"{"size":"large"}"#,
+            ]))
+            .unwrap(),
+            Command::CheckCreate {
+                backend: "staging".into(),
+                params: serde_json::json!({"size": "large"}),
+            }
+        );
         for args in [
             &["set"][..],
             &["get", "prod"],
@@ -268,6 +314,9 @@ mod tests {
         ] {
             assert!(parse(&words(args)).is_err(), "{args:?}");
         }
+        assert!(
+            parse(&words(&["check-create", "--backend", "staging", "--params", "[]",])).is_err()
+        );
     }
 
     #[test]

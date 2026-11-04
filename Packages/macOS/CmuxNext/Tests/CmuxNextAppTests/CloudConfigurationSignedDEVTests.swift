@@ -9,11 +9,11 @@ struct CloudConfigurationSignedDEVTests {
         #expect(config.apiBaseURL == config.runtimeSelection?.apiOrigin)
         #expect(config.authWebOrigin == config.runtimeSelection?.authWebOrigin)
         #expect(config.stackProjectID == config.runtimeSelection?.stackProjectId)
-        #expect(config.isProductionAuth)
+        #expect(!config.isProductionAuth)
         #expect(!config.isDebugBuild)
         #expect(config.callbackURL.absoluteString.hasSuffix("://auth-callback"))
         #expect(config.keychainService.hasPrefix("com.cmuxterm.app.debug.next.auth."))
-        #expect(config.backend == .production)
+        #expect(config.backend == .development(config.apiBaseURL))
     }
 
     @Test func selectedOriginIsNotReplacedByProcessOverrides() {
