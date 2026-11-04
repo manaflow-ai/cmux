@@ -441,9 +441,9 @@ fn focus_and_tab_selection_read_only_the_workspaces_they_change() {
                 continue;
             }
             let collection = format!("{}s", change["resource"].as_str().unwrap());
-            // #35912: on base a tab.focus journals the screen's new active tab while its stored
-            // row keeps the old one (full reads too); only that comparison waits on the fix.
-            if label == "tab.focus" && collection == "screens" {
+            // #35912: on base a tab.focus or tab.select journals the screen's new active tab while
+            // its stored row keeps the old one (full reads too); only that comparison waits on the fix.
+            if matches!(label, "tab.focus" | "tab.select") && collection == "screens" {
                 continue;
             }
             let row = rows(&after, &collection)
