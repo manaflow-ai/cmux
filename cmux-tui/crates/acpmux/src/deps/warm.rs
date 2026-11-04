@@ -180,7 +180,7 @@ async fn one(
             && let Ok(Some(meta)) = remote.fetch_meta(&report.key).await
         {
             cold_record = Some(meta.cold_ms);
-            choice = stats.choose_from(meta.cold_ms, meta.archive_bytes);
+            choice = stats.choose_from(&report.key, meta.cold_ms, meta.archive_bytes);
         }
         if let Choice::Cold { cold_ms, expected_ms } = choice {
             report.restore = "cold_faster";
@@ -189,7 +189,8 @@ async fn one(
         } else {
             let started = Instant::now();
             let give_up = |got: u64, size: u64, elapsed: u64| {
-                cold_record.is_some_and(|cold| stats.too_slow(cold, got, size, elapsed))
+                cold_record
+                    .is_some_and(|cold| stats.too_slow(&report.key, cold, got, size, elapsed))
             };
             let fetched = remote.fetch(&report.key, &archive_path, give_up).await;
             report.fetch_ms = ms(started);
@@ -266,6 +267,7 @@ async fn one(
         let (fetch_ms, unpack_ms, install_ms) =
             (report.fetch_ms, report.unpack_ms, report.install_ms);
         let cold = !restored && report.restore != "present";
+        let cold_known = cold_record;
         Stats::update(|s| {
             if restored {
                 if fetch_ms > 0 {
@@ -273,6 +275,9 @@ async fn one(
                 }
                 if unpack_ms > 0 {
                     s.unpack_bps = Some(restored_bytes as f64 * 1000.0 / unpack_ms as f64);
+                }
+                if let Some(cold_ms) = cold_known {
+                    s.learn_after_restore(&key, install_ms, cold_ms);
                 }
                 let k = s.key_mut(&key);
                 k.warm_ms = Some(fetch_ms + unpack_ms + install_ms);

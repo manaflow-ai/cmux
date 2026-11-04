@@ -31,6 +31,18 @@ export TMPDIR="$bench/tmp"
 export CARGO_TERM_COLOR=never NO_COLOR=1
 mkdir -p -- "$TMPDIR" "$bench/logs"
 
+# bench=deps-slow without netem: every tool's HTTPS goes through a local proxy that delays it.
+if [ -f "$bench/link-proxy-ms" ]; then
+  delay="$(tr -cd 0-9 <"$bench/link-proxy-ms")"
+  : >"$bench/logs/proxy-hosts"
+  python3 -I "$base/bin/delay-proxy.py" 18080 "$delay" "$bench/logs/proxy-hosts" 2>"$bench/logs/proxy.log" &
+  proxy_pid=$!
+  trap 'kill "$proxy_pid" 2>/dev/null || true' EXIT
+  for _ in $(seq 50); do (exec 3<>/dev/tcp/127.0.0.1/18080) 2>/dev/null && break; sleep 0.1; done
+  export HTTPS_PROXY=http://127.0.0.1:18080 https_proxy=http://127.0.0.1:18080
+  export CARGO_HTTP_PROXY=http://127.0.0.1:18080
+fi
+
 cargo_dir="$bench/cmux-tui"
 bun_dir="$bench/webviews"
 
@@ -116,6 +128,11 @@ for eco in cargo bun; do
   warm "${eco}Fresh" "$eco" "$dir" ACPMUX_DEPS_LOCAL_STATS=off
   echo "$eco fresh machine: ${out[${eco}FreshS]}s (${out[${eco}FreshRestore]:-?})"
 done
+
+if [ -f "$bench/link" ]; then put link "$(tr -cd 'a-z0-9 ' <"$bench/link")"; fi
+if [ -n "${proxy_pid:-}" ]; then
+  put proxyHosts "$(sort -u -- "$bench/logs/proxy-hosts" | tr -cd 'A-Za-z0-9.\n-' | paste -sd ' ' -)"
+fi
 
 # Numbers stay numbers; everything else is a string.
 args=()
