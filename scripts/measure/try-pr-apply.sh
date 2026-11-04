@@ -2,25 +2,32 @@
 # Measurement only (cmuxterm-hq#7111 track 4); not landed. A fleet ci-step runs a script only when
 # its bytes equal feat-cmux-next's or main's (the worker's reviewed-bytes check), so this file runs on
 # the fleet only after it lands there, at that commit; running it at a PR head would also take a
-# controller measurement-list entry. Until then apply-nightly / apply-dev rows are CLASSIFIER-ONLY.
+# controller measurement-list entry. Until then every row it would write stays CLASSIFIER-ONLY.
 #
-# Times, on a fleet display Mac, "select a PR" to "the PR's change visible" when the change is
-# applied into an already-built NIGHTLY or DEV instead of waiting for a new DEV build. The step's
-# checkout is the PR head.
+# Times, in a real cmux app on a fleet display Mac, the seconds from selecting a pull request to the
+# PR's behaviour working, for the two experiences, without waiting for a new DEV build:
+#   isolated  (E1) a fresh, separate real app instance that starts with the PR's change
+#   in-place  (E2) the PR's change hot-swapped into a real app that is already running, same process
+# A browser page, a screenshot change or the view shell prototype is not either experience: the proof is
+# a PR-specific functional probe run against the real app (below); pixels only support it.
+# The step's checkout is the PR head. The script refuses to launch anything outside a fleet step.
 #
 #   cmux-ci run --class exclusive --display --script scripts/measure/try-pr-apply.sh --ref HEAD \
-#     --arg=--kind=nightly|dev --arg=--mode=installed|lab --arg=--app-zip=URL_OR_PATH \
-#     --arg=--base=SHA [--arg=--artifact-ref=SHA --arg=--artifact-sha256=HEX] \
-#     --arg=--expect-region=X,Y,W,H --arg=--expect-why=TEXT [--arg=--probe=CMD] \
+#     --arg=--experience=isolated|in-place --arg=--kind=nightly|dev --arg=--mode=installed|lab \
+#     --arg=--app-zip=URL_OR_PATH --arg=--base=SHA [--arg=--artifact-ref=SHA --arg=--artifact-sha256=HEX] \
+#     --arg=--probe=CMD [--arg=--state-probe=CMD] --arg=--expect-region=X,Y,W,H --arg=--expect-why=TEXT \
 #     --artifact artifacts/try-pr-apply/result.json
+#
+# Identity, recorded in every result: base (the manifest's exact base), head (this checkout), the app
+# zip's sha256, the app's commit and where it came from (below), its bundle id and signature.
 #
 # Modes, reported as different paths and never pooled:
 #   installed  the app exactly as shipped: no Info.plist edit, no re-sign, launched with `open`.
-#              It stands for (a) NIGHTLY or (b) DEV only when all of these hold, each recorded:
+#              It stands for NIGHTLY or DEV only when all of these hold, each recorded:
 #              the shipped bundle id (com.cmuxterm.app.nightly, or the daily DEV's exact
 #              com.cmuxterm.app.debug.next), codesign --verify --deep --strict, the hardened runtime
 #              flag, and Gatekeeper's assessment (spctl --assess --type execute) accepting it.
-#              Anything else is `not-eligible-<kind>`, a fallback row, never (a) or (b).
+#              Anything else is `not-eligible-<kind>`, a fallback row.
 #              Disclosed deviations from a person's install, written into every result: it runs
 #              from the step's temp folder (no quarantine, so Gatekeeper's first-launch check is not
 #              exercised), and its settings file, debug tunables and web overlay are this run's own,
@@ -33,48 +40,50 @@
 # Base identity: the app's CMUXCommit (Info.plist). DEV builds carry none, so for them the fleet
 # job's provenance stands in: --artifact-ref (the job's ref) counts only when the zip's own sha256
 # equals --artifact-sha256 (the job's artifact digest, both read from `cmux-ci status`), which ties
-# this zip to that job. Both are recorded. The commit must equal --base, the manifest's exact base; a
-# mismatch, a CMUXCommit that disagrees with --artifact-ref, an unverified digest or no commit at all
-# is a fallback, never a success.
+# this zip to that job. The commit must equal --base; a mismatch, a CMUXCommit that disagrees with
+# --artifact-ref, an unverified digest or no commit at all is a fallback, never a success.
 #
-# Proof of change, with controls, so dynamic UI is never counted as the PR's change. Pixels are
-# compared after a lossless decode (sips to BMP), never by PNG bytes, inside --expect-region: the area
-# the PR's diff changes, chosen by the submitter, whose reason (--expect-why) is recorded.
-#   controls  the base overlay, then the base overlay installed again (repeat), then base-only shots
-#             once a second for as long as the PR is given to show (CONTROL_SECONDS, default 30).
-#             Every control must equal the first base shot inside the region; any diff (a clock, a
-#             spinner, an animation, a reload) makes the run inconclusive (runtime=fail).
-#   PR        the PR's overlay; its shot must differ from base inside the region and stay the same
-#             across two shots a second apart (a stable change, not motion).
-#   probe     --probe=CMD (optional, PR-specific behaviour: a DOM, AX or socket read) runs in both
-#             states with CMUX_TRY_STATE=base|pr; it must fail on base and pass on the PR.
-# runtime=pass needs the controls clean and either the probe passing as described, or the stable
-# pixel change (evidence_kind says which; a probe that is given and fails is a fail). A pixel-only pass
-# shows that the region changed, not which behaviour did: the region and its reason are the claim.
+# Proof (runtime=pass needs all of it):
+#   probe        --probe=CMD, required: PR-specific behaviour read from the real app (its socket, its
+#                accessibility tree or its page DOM through the app), exit 0 when the PR's behaviour is
+#                there. It runs with CMUX_TRY_STATE=base|pr, CMUX_TRY_PID, CMUX_TRY_APP,
+#                CMUX_NEXT_CONFIG_FILE and CMUX_WEB_OVERLAY_DIR. It must fail on base and pass on the PR.
+#                Without it the run is `not_proven`, whatever the pixels show.
+#   integrity    in-place: the same process before and after (pid and start time), no relaunch, and,
+#                with --state-probe=CMD (a digest of state the PR does not change: windows,
+#                workspaces, tabs), the same digest before and after. isolated: a new process, its own
+#                settings and overlay folders, no other instance of the bundle running at launch, and
+#                the base instance quit before the PR instance starts.
+#   pixels       supporting only: decoded pixels (sips to BMP, never PNG bytes) in --expect-region,
+#                with a base, a repeat install and a base-only control window (CONTROL_SECONDS,
+#                default 30); a control diff marks the pixel evidence inconclusive.
 #
-# Not yet run anywhere: syntax-checked only. Unproven before its first fleet run: that `open --env`
-# reaches the app on the worker's macOS, that build-web-bundles.sh finds its bun and node in the base
-# worktree, and that the menu bar clock stays out of --expect-region.
-#
-# Phases (result.json "phases", seconds): fetch, prepare (side copy in lab mode; signature check in
-# installed mode), verdict, launch, control (base and repeat builds and shots; reported, not counted
-# in select_to_change), compile (the PR's web bundles: claim 2, never zero_compile), apply, change.
-# select_to_change = fetch + prepare + verdict + launch + compile + apply + change.
-# Not web-live (swift-live, daemon, rebuild): a fallback row (no Swift or daemon apply into the app).
+# Time (result.json): `setup` phases are not part of the experience and say whether they are
+# amortized: fetching and preparing the app (an installed NIGHTLY or DEV is already on the Mac), and
+# for in-place the launch and the base overlay (the app is already running). `controls` are the
+# measurement's own and never counted. `select_to_usable_s` runs from selecting the PR to the probe
+# passing: verdict, compile (the PR's web bundles: claim 2, never zero compilation), apply (for
+# isolated also the launch), usable (USABLE_SECONDS cap, default 60). The PR head's fetch is the
+# step's checkout, timed in the step's controller record, not here.
+# Swift, daemon and rebuild verdicts: neither experience exists for them in the app today; a fallback
+# row says so (the view shell prototype does not count).
 set -euo pipefail
-kind="" mode="" app_zip="" base="" artifact_ref="" artifact_sha="" region="" why="" probe=""
-control_seconds="${CONTROL_SECONDS:-30}"
+experience="" kind="" mode="" app_zip="" base="" artifact_ref="" artifact_sha="" region="" why="" probe="" state_probe=""
+control_seconds="${CONTROL_SECONDS:-30}" usable_seconds="${USABLE_SECONDS:-60}"
 for a in "$@"; do
   case "$a" in
-    --kind=*) kind="${a#*=}" ;; --mode=*) mode="${a#*=}" ;; --app-zip=*) app_zip="${a#*=}" ;;
-    --base=*) base="${a#*=}" ;; --artifact-ref=*) artifact_ref="${a#*=}" ;; --artifact-sha256=*) artifact_sha="${a#*=}" ;;
-    --expect-region=*) region="${a#*=}" ;; --expect-why=*) why="${a#*=}" ;; --probe=*) probe="${a#*=}" ;;
+    --experience=*) experience="${a#*=}" ;; --kind=*) kind="${a#*=}" ;; --mode=*) mode="${a#*=}" ;;
+    --app-zip=*) app_zip="${a#*=}" ;; --base=*) base="${a#*=}" ;;
+    --artifact-ref=*) artifact_ref="${a#*=}" ;; --artifact-sha256=*) artifact_sha="${a#*=}" ;;
+    --probe=*) probe="${a#*=}" ;; --state-probe=*) state_probe="${a#*=}" ;;
+    --expect-region=*) region="${a#*=}" ;; --expect-why=*) why="${a#*=}" ;;
     *) echo "try-pr-apply: unknown argument $a" >&2; exit 2 ;;
   esac
 done
-[[ "$kind" == nightly || "$kind" == dev ]] && [[ "$mode" == installed || "$mode" == lab ]] \
-  && [[ -n "$app_zip" && "$base" =~ ^[0-9a-f]{40}$ && "$region" =~ ^[0-9]+,[0-9]+,[0-9]+,[0-9]+$ && -n "$why" ]] \
-  || { echo "try-pr-apply: needs --kind=nightly|dev --mode=installed|lab --app-zip --base=SHA --expect-region=X,Y,W,H --expect-why=TEXT" >&2; exit 2; }
+[[ "$experience" == isolated || "$experience" == in-place ]] && [[ "$kind" == nightly || "$kind" == dev ]] \
+  && [[ "$mode" == installed || "$mode" == lab ]] && [[ -n "$app_zip" && "$base" =~ ^[0-9a-f]{40}$ ]] \
+  && [[ "$region" =~ ^[0-9]+,[0-9]+,[0-9]+,[0-9]+$ && -n "$why" ]] \
+  || { echo "try-pr-apply: needs --experience=isolated|in-place --kind=nightly|dev --mode=installed|lab --app-zip --base=SHA --expect-region=X,Y,W,H --expect-why=TEXT [--probe=CMD]" >&2; exit 2; }
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 head="$(git -C "$root" rev-parse HEAD)"
 out="$root/artifacts/try-pr-apply"; mkdir -p "$out"
@@ -101,19 +110,23 @@ p, k, v = sys.argv[1:]; d = json.load(open(p)); d[k] = v; json.dump(d, open(p, "
 PY
 }
 result() { # STATUS RUNTIME REASON
-  python3 - "$out/result.json" "$t_json" "$info_json" "$1" "$2" "$3" "$kind" "$mode" "$base" "$head" <<'PY'
+  python3 - "$out/result.json" "$t_json" "$info_json" "$1" "$2" "$3" "$experience" "$kind" "$mode" "$base" "$head" <<'PY'
 import json, sys
-out, tp, ip, status, runtime, reason, kind, mode, base, head = sys.argv[1:]
+out, tp, ip, status, runtime, reason, experience, kind, mode, base, head = sys.argv[1:]
 t, info = json.load(open(tp)), json.load(open(ip))
-spans = [("fetch", "select", "fetched"), ("prepare", "fetched", "prepared"), ("verdict", "prepared", "verdicted"),
-         ("launch", "verdicted", "launched"), ("control", "launched", "controlled"),
-         ("compile", "controlled", "compiled"), ("apply", "compiled", "applied"), ("change", "applied", "changed")]
-phases = {n: round(t[b] - t[a], 2) for n, a, b in spans if a in t and b in t}
-counted = ["fetch", "prepare", "verdict", "launch", "compile", "apply", "change"]
+def span(a, b): return round(t[b] - t[a], 2) if a in t and b in t else None
+setup = {"fetch": {"s": span("start", "fetched"), "amortized": True, "why": "an installed NIGHTLY or DEV is already on the Mac"},
+         "prepare": {"s": span("fetched", "prepared"), "amortized": True, "why": "signature checks (installed) or the side copy (lab), once per app"}}
+if experience == "in-place":
+    setup["launch_and_base"] = {"s": span("prepared", "based"), "amortized": True, "why": "the app is already running before the PR is selected"}
+controls = {"s": span("controls_start", "controls_end")}
+counted = {"verdict": span("select", "verdicted"), "compile": span("verdicted", "compiled"),
+           "apply": span("compiled", "applied"), "usable": span("applied", "usable")}
 path = info.pop("path", None) or (("apply-" + kind) if mode == "installed" else "lab-" + kind)
-doc = {"path": path, "mode": mode, "kind": kind, "base": base, "head": head, "status": status,
-       "reason": reason or None, "phases": phases,
-       "select_to_change_s": round(sum(phases[n] for n in counted), 2) if runtime == "pass" else None,
+doc = {"experience": experience, "path": path, "mode": mode, "kind": kind, "base": base, "head": head,
+       "status": status, "reason": reason or None, "setup": setup, "controls": controls, "counted": counted,
+       "select_to_usable_s": span("select", "usable") if runtime == "pass" else None,
+       "pr_fetch": "the step's checkout of the PR head, timed in the step's controller record",
        "compile_checked": "pass" if "compiled" in t else "not_run", "runtime": runtime,
        "deviations": ["runs from the step's temp folder, not quarantined (Gatekeeper first launch not exercised)",
                       "settings, debug tunables and web overlay passed as launch env (open --env), not set in Debug Settings"]
@@ -124,7 +137,7 @@ print(json.dumps(doc, indent=1, sort_keys=True))
 PY
 }
 
-mark select
+mark start
 if [[ "$app_zip" =~ ^https:// ]]; then curl -fsSL -o "$work/app.zip" "$app_zip"; else cp "$app_zip" "$work/app.zip"; fi
 ditto -x -k "$work/app.zip" "$work/unzipped"
 app="$(find "$work/unzipped" -maxdepth 2 -name '*.app' -type d | head -1)"
@@ -160,7 +173,7 @@ if [[ "$mode" == installed ]]; then
   [[ "$bundle_id" == "$shipped" ]] || eligible_why="${eligible_why:-bundle id $bundle_id is not the shipped $shipped}"
 else
   # lab: a side instance with its own id, re-signed ad hoc; evidence about this path only.
-  $buddy -c "Set :CFBundleIdentifier $($buddy -c 'Print :CFBundleIdentifier' "$plist").side-try" "$plist"
+  bundle_id="$bundle_id.side-try"; $buddy -c "Set :CFBundleIdentifier $bundle_id" "$plist"
   codesign --force --sign - --deep "$app" >/dev/null 2>&1
   note signature "ad hoc (lab)"
 fi
@@ -170,20 +183,23 @@ if [[ -n "$eligible_why" ]]; then note path "not-eligible-$kind"; result fallbac
 [[ "$app_commit" == "$base" ]] || { result fallback not_run "base mismatch: app is $app_commit, manifest base is $base"; exit 0; }
 note expect_region "$region"; note expect_why "$why"
 
+# The classification needs no app, so it runs now to decide; after "select" it runs again, timed.
 verdict="$(python3 "$root/scripts/cmux-next/live_apply.py" --repo "$root" --json "$base" "$head" | python3 -c 'import json,sys; print(json.load(sys.stdin)["verdict"])')"
 note verdict "$verdict"
-mark verdicted
 case "$verdict" in
   web-live) ;;
   no-app|ios-only) result n/a not_run "no app effect: N/A stratum"; exit 0 ;;
-  *) result fallback not_run "$verdict needs a new binary (no Swift or daemon apply into the app)"; exit 0 ;;
+  *) result fallback not_run "$verdict: neither experience exists for it in the app today (needs a new binary; the view shell prototype does not count)"; exit 0 ;;
 esac
+[[ -n "$probe" ]] || note proof "no --probe: runtime can be at most not_proven"
 
-open -n --env CMUX_NEXT_CONFIG_FILE="$CMUX_NEXT_CONFIG_FILE" --env CMUX_WEB_OVERLAY_DIR="$CMUX_WEB_OVERLAY_DIR" \
-  --env CMUX_NEXT_DEBUG_TUNABLES_FILE="$CMUX_NEXT_DEBUG_TUNABLES_FILE" "$app"
-for _ in $(seq 1 300); do pid="$(pgrep -nf "$app/Contents/MacOS/" || true)"; [[ -n "$pid" ]] && break; sleep 0.1; done
-[[ -n "$pid" ]] || { result fail not_run "the app did not start"; exit 1; }
-# A shot of the main display, decoded losslessly so equal pixels compare equal.
+# From here the script launches a real app: only inside a fleet step of class exclusive, never on a
+# person's Mac, and never next to another running instance of the same bundle.
+[[ -n "${CMUX_CI_STEP_KEY:-}" && "${CMUX_CI_STEP_CLASS:-}" == exclusive ]] \
+  || { result fail not_run "refused: launches an app only inside a fleet step of class exclusive"; exit 2; }
+running_of_bundle() { pgrep -f "/Contents/MacOS/" | while read -r p; do
+  [[ "$(ps -o comm= -p "$p" 2>/dev/null)" == *"/$(basename "$app")/Contents/MacOS/"* ]] && echo "$p"; done; }
+
 shot() { screencapture -x -D 1 "$out/$1.png" && sips -s format bmp "$out/$1.png" --out "$work/$1.bmp" >/dev/null; }
 # Changed pixels of B against A inside the region, as "count x,y,w,h" (the box of the changes).
 diff_in() { python3 - "$work/$1.bmp" "$work/$2.bmp" "$region" <<'PY'
@@ -204,53 +220,81 @@ xs, ys = [p[0] for p in hits], [p[1] for p in hits]
 print(f"{len(hits)} {min(xs)},{min(ys)},{max(xs) - min(xs) + 1},{max(ys) - min(ys) + 1}")
 PY
 }
-# Builds the web bundles of TREE, installs them as a new overlay generation and waits for the app to
-# draw it: shots until two in a row agree after the install (60 s cap), the last one kept as NAME.
-overlay_from() { # TREE NAME
-  rm -rf "$work/web"; "$1/scripts/cmux-next/build-web-bundles.sh" --force --out-root "$work/web" >/dev/null
-  "$root/scripts/cmux-next/web-overlay.sh" install "$work/web" >/dev/null
-  shot "$2-prev"; for _ in $(seq 1 120); do sleep 0.5; shot "$2"; [[ "$(diff_in "$2-prev" "$2")" == "0 -" ]] && return 0; mv "$work/$2.bmp" "$work/$2-prev.bmp"; done
-  return 1
+# Waits for the screen to settle: two shots in a row the same inside the region (60 s cap), kept as NAME.
+settle() { shot "$1-prev"; for _ in $(seq 1 120); do sleep 0.5; shot "$1"; [[ "$(diff_in "$1-prev" "$1")" == "0 -" ]] && return 0; mv "$work/$1.bmp" "$work/$1-prev.bmp"; done; return 1; }
+build_web() { rm -rf "$work/web"; "$1/scripts/cmux-next/build-web-bundles.sh" --force --out-root "$work/web" >/dev/null; }
+install_web() { "$root/scripts/cmux-next/web-overlay.sh" install "$work/web" >/dev/null; }
+launch() {
+  [[ -z "$(running_of_bundle)" ]] || { result fail not_run "another instance of $(basename "$app") already runs: no isolation"; exit 1; }
+  open -n --env CMUX_NEXT_CONFIG_FILE="$CMUX_NEXT_CONFIG_FILE" --env CMUX_WEB_OVERLAY_DIR="$CMUX_WEB_OVERLAY_DIR" \
+    --env CMUX_NEXT_DEBUG_TUNABLES_FILE="$CMUX_NEXT_DEBUG_TUNABLES_FILE" "$app"
+  pid=""; for _ in $(seq 1 300); do pid="$(running_of_bundle | tail -1)"; [[ -n "$pid" ]] && break; sleep 0.1; done
+  [[ -n "$pid" ]] || { result fail not_run "the app did not start"; exit 1; }
 }
-mark launched
+quit_app() { kill "$pid" 2>/dev/null || true; for _ in $(seq 1 100); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done; pid=""; }
+started() { ps -o lstart= -p "$1" 2>/dev/null | tr -s ' '; }
+probe_in() { # STATE: 0 when the PR's behaviour is there
+  [[ -n "$probe" ]] || return 2
+  CMUX_TRY_STATE="$1" CMUX_TRY_PID="$pid" CMUX_TRY_APP="$app" bash -c "$probe" >"$out/probe-$1.log" 2>&1
+}
+state_digest() { [[ -n "$state_probe" ]] || { echo none; return; }
+  CMUX_TRY_PID="$pid" CMUX_TRY_APP="$app" bash -c "$state_probe" 2>/dev/null | shasum -a 256 | cut -d' ' -f1; }
 
-# PR-specific behaviour, when given: exit 0 means the PR's behaviour is there.
-probe_in() { [[ -z "$probe" ]] && return 2; CMUX_TRY_STATE="$1" bash -c "$probe" >"$out/probe-$1.log" 2>&1; }
+# Base state and controls: the base overlay in a running app, a repeat install, a base-only window.
 git -C "$root" worktree add --detach -q "$work/base-tree" "$base"
-overlay_from "$work/base-tree" base || { result fail fail "base overlay never settled"; exit 1; }
-overlay_from "$work/base-tree" repeat || { result fail fail "repeat overlay never settled"; exit 1; }
+build_web "$work/base-tree"; install_web
+launch; base_pid="$pid"; note base_pid "$base_pid"
+settle base || { result fail fail "the base app never settled"; exit 1; }
+mark based
+mark controls_start
+install_web; settle repeat || { result fail fail "the repeat install never settled"; exit 1; }
 control="$(diff_in base repeat)"
-# The dynamic-UI window: base-only shots for as long as the PR gets to show.
 for i in $(seq 1 "$control_seconds"); do
   [[ "$control" == "0 -" ]] || break
-  sleep 1; shot "control"; control="$(diff_in base control)"; [[ "$control" == "0 -" ]] || control="$control (control shot $i)"
+  sleep 1; shot control; control="$(diff_in base control)"; [[ "$control" == "0 -" ]] || control="$control (control shot $i)"
 done
-note control_diff "$control"; note control_seconds "$control_seconds"
+note pixel_control "$control"
 probe_base=""; if [[ -n "$probe" ]]; then probe_in base && probe_base=pass || probe_base=fail; note probe_base "$probe_base"; fi
-mark controlled
-[[ "$control" == "0 -" ]] || { result fail fail "a base-only control differs inside the region ($control): dynamic UI there, inconclusive"; exit 0; }
-[[ "$probe_base" != pass ]] || { result fail fail "the probe already passes on base: it does not test the PR's behaviour"; exit 0; }
+[[ "$probe_base" != pass ]] || { mark controls_end; result fail fail "the probe already passes on base: it does not test the PR's behaviour"; exit 0; }
+state_before="$(state_digest)"; start_before="$(started "$pid")"
+if [[ "$experience" == isolated ]]; then quit_app; fi
+mark controls_end
 
-mark compiled_start
-rm -rf "$work/web"; "$root/scripts/cmux-next/build-web-bundles.sh" --force --out-root "$work/web" >/dev/null
+# Selected.
+mark select
+python3 "$root/scripts/cmux-next/live_apply.py" --repo "$root" --json "$base" "$head" >/dev/null
+mark verdicted
+build_web "$root"
 mark compiled
-"$root/scripts/cmux-next/web-overlay.sh" install "$work/web" >/dev/null
+install_web
+if [[ "$experience" == isolated ]]; then
+  launch; note pr_pid "$pid"
+  [[ "$pid" != "$base_pid" ]] || { result fail fail "isolated: the PR instance is the base process"; exit 1; }
+  note integrity "new process $pid (base was $base_pid, quit first), own settings and overlay folders"
+fi
 mark applied
-change="-1" stable=""
-for _ in $(seq 1 "$control_seconds"); do
-  shot pr; change="$(diff_in base pr)"
-  if [[ "${change%% *}" -gt 0 ]]; then
-    sleep 1; shot pr2; [[ "$(diff_in pr pr2)" == "0 -" ]] && { stable=1; break; }
-  else sleep 1; fi
+usable="" probe_pr=""
+for _ in $(seq 1 $(( usable_seconds * 4 ))); do
+  if [[ -n "$probe" ]]; then probe_in pr && { usable=1; probe_pr=pass; break; }
+  else shot pr; [[ "$(diff_in base pr)" =~ ^[1-9] ]] && { usable=1; break; }; fi
+  sleep 0.25
 done
-note change_diff "$change"; note change_stable "${stable:+yes}"
-probe_pr=""; if [[ -n "$probe" ]]; then probe_in pr && probe_pr=pass || probe_pr=fail; note probe_pr "$probe_pr"; fi
-mark changed
-if [[ -n "$probe" ]]; then
-  note evidence_kind probe
-  if [[ "$probe_pr" == pass ]]; then result ok pass ""; else result fail fail "the probe fails on the PR"; fi
-elif [[ -n "$stable" ]]; then
-  note evidence_kind "pixels with controls"; result ok pass ""
+mark usable
+[[ -z "$probe" ]] || note probe_pr "${probe_pr:-fail}"
+# Supporting pixels: the PR shot against base, and stable across a second.
+shot pr; sleep 1; shot pr2
+note pixel_change "$(diff_in base pr)"; note pixel_stable "$([[ "$(diff_in pr pr2)" == "0 -" ]] && echo yes || echo no)"
+if [[ "$experience" == in-place ]]; then
+  same_pid="no"; kill -0 "$base_pid" 2>/dev/null && [[ "$pid" == "$base_pid" && "$(started "$pid")" == "$start_before" ]] && same_pid=yes
+  state_after="$(state_digest)"
+  note integrity "same process: $same_pid; state digest before $state_before, after $state_after"
+  [[ "$same_pid" == yes ]] || { result fail fail "in-place: the app relaunched or exited"; exit 0; }
+  [[ "$state_before" == "$state_after" ]] || { result fail fail "in-place: state changed across the swap"; exit 0; }
+fi
+if [[ -z "$probe" ]]; then
+  result not_proven not_proven "no PR-specific probe: pixels alone do not prove the behaviour"
+elif [[ -n "$usable" ]]; then
+  result ok pass ""
 else
-  note evidence_kind "pixels with controls"; result fail fail "no stable change inside the region after the PR overlay ($change)"
+  result fail fail "the probe did not pass within ${usable_seconds} s of the apply"
 fi
