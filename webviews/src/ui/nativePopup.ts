@@ -22,6 +22,20 @@ export interface NativePopupOptions {
   anchor: () => AnchorBox | null;
   onEvent(event: NativePopupEvent): void;
   onDismiss(reason?: string): void;
+  /**
+   * The host answered a show with no `{shown}` reply: it has no native popup (the gallery's stand-in
+   * bridge, a host without WebPopupHost). Given, the consumer draws its web surface instead, and
+   * nativePopupRefused says so for the host's later popups; without it, the popup is dismissed.
+   */
+  onUnavailable?(): void;
+}
+
+/// Hosts that answered a show without a `{shown}` reply: they draw no native popup.
+const refusedHosts = new WeakSet<NativePopupTransport>();
+
+/** Whether `transport` has already answered a show with no native popup (onUnavailable). */
+export function nativePopupRefused(transport: NativePopupTransport | undefined): boolean {
+  return transport !== undefined && refusedHosts.has(transport);
 }
 
 /** Native owns focus, keyboard, rendering and dismiss; callbacks only update domain state. */
@@ -103,10 +117,13 @@ export function useNativePopup(options: NativePopupOptions): { available: boolea
       openingRevision.current = model.revision;
       void transport.show(model).then((reply) => {
         if (openingRevision.current !== model.revision || !shown.current) return;
-        if ((reply as { shown?: boolean } | undefined)?.shown !== true) {
-          shown.current = false;
-          latest.current.onDismiss();
-        }
+        const answer = (reply as { shown?: unknown } | null | undefined)?.shown;
+        if (answer === true) return;
+        shown.current = false;
+        if (typeof answer !== "boolean" && latest.current.onUnavailable) {
+          refusedHosts.add(transport);
+          latest.current.onUnavailable();
+        } else latest.current.onDismiss();
       });
     }
   }, [transport, options.open, serialized, acknowledgment, id]);

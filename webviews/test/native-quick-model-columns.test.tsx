@@ -110,7 +110,7 @@ const families: QuickFamily[] = [
   { id: "quill", name: "Quill Agent", models: [model("quill-1", "Quill One", "quill")], more: [] },
 ];
 
-async function harness(options: { rail?: boolean } = {}) {
+async function harness(options: { rail?: boolean; reply?: unknown } = {}) {
   const [{ createRoot }, { UiProvider }, { createPopupHost }, { QuickModelColumns }] = await Promise.all([
     import("react-dom/client"),
     import("../src/ui/UiProvider"),
@@ -124,7 +124,7 @@ async function harness(options: { rail?: boolean } = {}) {
     (call, params) => {
       if (call === "show") shows.push(params as unknown as NativePopupModel);
       if (call === "update") updates.push(params as unknown as NativePopupModel);
-      return Promise.resolve({ shown: true });
+      return Promise.resolve("reply" in options ? options.reply : { shown: true });
     },
     (listener) => {
       listeners.add(listener as (event: unknown) => void);
@@ -186,7 +186,7 @@ async function harness(options: { rail?: boolean } = {}) {
     const current = latest();
     act(() => listeners.forEach((listener) => listener({ ...event, popupId: current.id, revision: current.revision })));
   };
-  return { latest, send, picked, levels, fasts, closes, added: () => added, container };
+  return { latest, send, picked, levels, fasts, closes, added: () => added, container, shows };
 }
 
 const column = (popup: NativePopupModel, id: string) => popup.columns!.find((entry) => entry.id === id)!.rows;
@@ -205,6 +205,17 @@ test("with a native host the columns draw natively, the chip a plain button and 
   expect(popup.width).toBe(350);
   expect(popup.rail).toBeUndefined();
   expect(popup.search?.submitOnReturn).toBe(true);
+});
+
+test("a host that answers a show with no native popup leaves the open columns to the page", async () => {
+  const h = await harness({ reply: null });
+  expect(h.shows).toHaveLength(1);
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(h.closes).toEqual([]);
+  expect(document.querySelector(".acpmux-cols")).not.toBeNull();
 });
 
 test("the rail is marks only: Starred first, a monogram for a harness with no symbol, Add harness last", async () => {

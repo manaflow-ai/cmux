@@ -97,7 +97,7 @@ const families: QuickFamily[] = [
   { id: "quill", name: "Quill Agent", models: [model("quill-1", "Quill One", "quill")], more: [] },
 ];
 
-async function harness(placement: HarnessPlacement | undefined) {
+async function harness(placement: HarnessPlacement | undefined, reply: unknown = { shown: true }) {
   const [{ createRoot }, { UiProvider }, { createPopupHost }, { QuickModelMenu }] = await Promise.all([
     import("react-dom/client"),
     import("../src/ui/UiProvider"),
@@ -111,7 +111,7 @@ async function harness(placement: HarnessPlacement | undefined) {
     (call, params) => {
       if (call === "show") shows.push(params as unknown as NativePopupModel);
       if (call === "update") updates.push(params as unknown as NativePopupModel);
-      return Promise.resolve({ shown: true });
+      return Promise.resolve(reply);
     },
     (listener) => {
       listeners.add(listener as (event: unknown) => void);
@@ -158,10 +158,23 @@ async function harness(placement: HarnessPlacement | undefined) {
     const current = latest();
     act(() => listeners.forEach((listener) => listener({ ...event, popupId: current.id, revision: current.revision })));
   };
-  return { latest, send, picked, closes, added: () => added, container };
+  return { latest, send, picked, closes, added: () => added, container, shows };
 }
 
 const rail = (popup: NativePopupModel) => popup.rail ?? [];
+
+test("a host that answers a show with no native popup leaves the open menu to the page", async () => {
+  // The gallery's stand-in bridge answers every call it does not know with null.
+  const h = await harness(undefined, null);
+  expect(h.shows).toHaveLength(1);
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(h.closes).toEqual([]);
+  expect(document.querySelector(".acpmux-quick-menu")).not.toBeNull();
+});
+
 const byLabel = (rows: NativePopupRow[], label: string) => rows.find((row) => row.label === label)!;
 
 test("with a native host the menu draws natively, its chip a plain button and no web popup", async () => {

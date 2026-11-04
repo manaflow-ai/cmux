@@ -28,6 +28,7 @@ import { OnNewTab } from "./newTabComposer";
 import { useScrollEdges } from "../../ui/scrollEdges";
 import { usePopupHost } from "../../ui/UiProvider";
 import {
+  nativePopupRefused,
   useNativePopup,
   type NativePopupDescription,
   type NativePopupEvent,
@@ -400,7 +401,10 @@ export function QuickModelMenu({
   const moreListId = useId();
   // The native menu: its host (the app's WebPopupHost), the stable ids of its rows, and Add
   // harness when Left and Right reached it.
-  const nativeHost = usePopupHost()?.native;
+  // A host with no native popup (the gallery's stand-in bridge) leaves the menu to the page.
+  const pageHost = usePopupHost()?.native;
+  const [webOnly, setWebOnly] = useState(() => nativePopupRefused(pageHost));
+  const nativeHost = webOnly || nativePopupRefused(pageHost) ? undefined : pageHost;
   const nativeRows = useRef<QuickNativeRows | null>(null);
   nativeRows.current ??= new QuickNativeRows();
   const [nativeHighlight, setNativeHighlight] = useState<string | undefined>();
@@ -1723,6 +1727,7 @@ export function QuickModelMenu({
     anchor: () => trigger.current,
     onEvent: onNativeEvent,
     onDismiss: () => onOpenChange(false),
+    onUnavailable: () => setWebOnly(true),
   });
   // Keep the compact surface's intrinsic width stable while switching harness tabs. The probe is
   // zero-height and hidden, but its widest model plus inline effort segments still participates in

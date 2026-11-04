@@ -37,6 +37,7 @@ import {
 } from "./QuickModelMenu";
 import { usePopupHost } from "../../ui/UiProvider";
 import {
+  nativePopupRefused,
   useNativePopup,
   type NativePopupDescription,
   type NativePopupEvent,
@@ -360,7 +361,10 @@ function Columns({
   }, []);
   // The native popup host (the app's WebPopupHost) draws these columns wherever the page has one;
   // the stable ids of the rows it is sent.
-  const nativeHost = usePopupHost()?.native;
+  // A host with no native popup (the gallery's stand-in bridge) leaves the menu to the page.
+  const pageHost = usePopupHost()?.native;
+  const [webOnly, setWebOnly] = useState(() => nativePopupRefused(pageHost));
+  const nativeHost = webOnly || nativePopupRefused(pageHost) ? undefined : pageHost;
   const nativeRows = useRef<QuickNativeRows | null>(null);
   nativeRows.current ??= new QuickNativeRows();
   // The settings rows' ids as last described (a highlight event names one), and whether the row a
@@ -1340,6 +1344,7 @@ function Columns({
     anchor: () => button.current ?? trigger.current,
     onEvent: onNativeEvent,
     onDismiss: (reason) => finish(false, reason === "escape"),
+    onUnavailable: () => setWebOnly(true),
   });
   const addAccountDialog = addingAccount && addAccount && adding && (
     <AddAccountDialog
