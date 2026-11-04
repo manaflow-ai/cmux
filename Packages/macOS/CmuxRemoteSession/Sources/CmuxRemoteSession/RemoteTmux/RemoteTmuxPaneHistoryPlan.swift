@@ -42,7 +42,9 @@ public struct RemoteTmuxPaneHistoryPlan: Equatable, Sendable {
         public var captureArguments: String { "-S \(start) -E \(end)" }
     }
 
-    /// The most history rows one load reads.
+    /// The most history rows one load plans to read. When the oldest chunk starts at `-`,
+    /// rows that scroll into history after the plan is made are read too, so a load can
+    /// paint a few more rows than this without being truncated.
     public static let maximumRows = 100_000
     /// The most bytes one cell can take in `capture-pane -e` output. tmux 3.7 writes 55
     /// for a cell that changes bold, italic, underline, strikethrough and its 24-bit
@@ -59,7 +61,7 @@ public struct RemoteTmuxPaneHistoryPlan: Equatable, Sendable {
 
     /// Ranges oldest first, ending at row `-1`.
     public let chunks: [Chunk]
-    /// History rows the chunks cover.
+    /// History rows the chunks cover when the plan is made.
     public let historyRows: Int
     /// Whether the plan reads less history than tmux holds, either because tmux holds more
     /// than ``maximumRows`` or because a wide pane runs out of ``maximumChunks`` first.
@@ -78,7 +80,9 @@ public struct RemoteTmuxPaneHistoryPlan: Equatable, Sendable {
     /// - Parameter paneWidth: The pane's width in cells. A wide pane gets proportionally
     ///   fewer rows per chunk.
     /// - Parameter maximumCommandBlockBytes: The largest command block the control stream
-    ///   accepts before it treats the stream as broken.
+    ///   accepts before it treats the stream as broken. Every chunk holds at least one row,
+    ///   so a pane wider than ``maximumChunkCells(forCommandBlockBytes:)`` gets one-row
+    ///   chunks that can exceed the half-block budget.
     /// - Parameter maximumRows: The most history rows to read; defaults to ``maximumRows``.
     public init(
         historySize: Int,
