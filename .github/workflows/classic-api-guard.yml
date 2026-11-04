@@ -57,8 +57,27 @@ jobs:
           fi
           printf '%s' "$BODY" > "$RUNNER_TEMP/body.md"
           # A rename counts as both its old and its new path.
-          gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
-            --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/paths.txt"
+          if ! gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
+            --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/paths.txt"; then
+            # The REST listing shares the installation's rate limit (spent on 2026-11-04, which
+            # failed this check on every PR). Read the same paths from the PR's merge commit:
+            # its first parent is the base, so the diff is what the PR changes, and
+            # --no-renames lists a rename as its old and new path. Trees only, no blobs.
+            echo "::warning::The REST file listing failed; reading the changed paths from refs/pull/$PR/merge."
+            auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+            if git -c http.extraheader="$auth" fetch --no-tags --filter=blob:none --depth=2 \
+                 origin "+refs/pull/$PR/merge:refs/guard/merge" \
+               && git diff --name-only --no-renames refs/guard/merge^1 refs/guard/merge > "$RUNNER_TEMP/paths.txt"; then
+              :
+            elif [ "$BASE" != "main" ]; then
+              # Into feat-cmux-next the guard only warns, so a missing listing warns too.
+              echo "::warning::Could not list the changed paths (no merge ref either); this check only warns into $BASE."
+              exit 0
+            else
+              echo "::error::Could not list the changed paths; re-run this check."
+              exit 1
+            fi
+          fi
           python3 scripts/ci/classic_api_guard.py --base "$BASE" \
             --body-file "$RUNNER_TEMP/body.md" --paths-file "$RUNNER_TEMP/paths.txt" \
             --expected-files "$CHANGED_FILES"
