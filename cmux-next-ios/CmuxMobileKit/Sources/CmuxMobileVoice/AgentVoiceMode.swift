@@ -42,7 +42,11 @@ public final class AgentVoiceMode {
     public func install(accountID: String?) {
         if accountID != self.accountID { stop() }
         self.accountID = accountID
-        launcher.handler = accountID == nil ? nil : { [weak self] source in self?.toggle(source) }
+        if accountID == nil {
+            launcher.handler = nil
+        } else {
+            launcher.handler = { [weak self] (source: any AgentVoiceSource) in self?.toggle(source) }
+        }
     }
 
     /// Starts voice mode on `source`, or ends it when it already runs there.
