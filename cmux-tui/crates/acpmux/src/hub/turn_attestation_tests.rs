@@ -54,6 +54,7 @@ fn fixture_with_status(status: SessionStatus) -> (Arc<Hub>, Arc<Session>) {
         doing: Default::default(),
         notice: false,
         persons: false,
+        from_agents: false,
     });
     (hub, session)
 }
@@ -138,6 +139,7 @@ fn turn_attestation_signs_enrolled_identity_and_existing_journal_sequence_only()
         doing: Default::default(),
         notice: false,
         persons: false,
+        from_agents: false,
     });
     // Journal end wins even while the in-memory turn has not been cleared yet.
     hub.append(&session, "mux", "turn_result", json!({"turnId":"turn-test","turnSeq":seq}));

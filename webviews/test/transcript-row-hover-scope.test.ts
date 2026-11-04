@@ -79,7 +79,7 @@ test("a transcript line with no action behind it never lifts on hover", () => {
       // `.cv-worked` is both the "Worked for" button and the live line's div: a state rule that
       // lights the line itself names the button. Revealing a control inside it is fine.
       const lit = subject(selector);
-      if (/\.cv-worked(?![\w-])/.test(lit) && !/^button\.cv-worked/.test(lit)) found.push(`${file}: ${selector}`);
+      if (/\.cv-worked(?![\w-])/.test(lit) && !lit.startsWith("button.cv-worked")) found.push(`${file}: ${selector}`);
     }
   expect(found).toEqual([]);
 });
