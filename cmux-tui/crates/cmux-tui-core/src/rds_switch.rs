@@ -8,7 +8,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Stage S1, the input lane: a connection's lines and the person's keys read the published facts of
 /// the session's connections and its routing tables, never through a shared lock.
-/// `CMUX_TUI_RDS_INPUT=1` turns it on.
+/// On by default (S1.7); `CMUX_TUI_RDS_INPUT=0` keeps the old path, the fallback for one nightly before S1.8 deletes
+/// it with this switch.
 pub(crate) struct InputLaneSwitch(AtomicBool);
 
 impl InputLaneSwitch {
@@ -17,9 +18,9 @@ impl InputLaneSwitch {
         Self::from_value(std::env::var("CMUX_TUI_RDS_INPUT").ok().as_deref())
     }
 
-    /// The switch for a value of `CMUX_TUI_RDS_INPUT` (`None`: unset).
+    /// The switch for a value of `CMUX_TUI_RDS_INPUT` (`None`: unset): on unless the value is `0`.
     fn from_value(value: Option<&str>) -> Self {
-        Self(AtomicBool::new(value == Some("1")))
+        Self(AtomicBool::new(value != Some("0")))
     }
 
     /// Whether stage S1 is on for this mux.

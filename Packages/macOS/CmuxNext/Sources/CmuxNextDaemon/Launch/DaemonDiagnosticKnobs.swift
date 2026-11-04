@@ -16,8 +16,9 @@ public nonisolated struct DaemonDiagnosticKnobs: Sendable, Equatable {
     /// App launch knob to daemon variable: key-press flow marks (scripts/cmux-next/trace.py), the
     /// create-path debug timing marks, the terminal host model (`holder`: the install's one holder
     /// instead of a host process per terminal; scripts/cmux-next/holder-dogfood.py, default off), and
-    /// the R-DAEMON-STATE stage switches (`1` turns a stage's new path on; default off, deleted with
-    /// the old path when the stage passes; handoff/rewrites/R-DAEMON-STATE/DESIGN.md section 3).
+    /// the R-DAEMON-STATE stage switches (stage S1's input lane is on by default and `0` keeps its old
+    /// path for one nightly; a switch is deleted with its old path when the stage passes;
+    /// handoff/rewrites/R-DAEMON-STATE/DESIGN.md section 3).
     public static let names: [(app: String, daemon: String)] = [
         ("CMUX_NEXT_TRACE_FLOWS", "CMUX_TRACE_FLOWS"),
         ("CMUX_NEXT_TUI_DEBUG_SPANS", "CMUX_TUI_DEBUG_SPANS"),
