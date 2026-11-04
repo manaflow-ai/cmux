@@ -118,7 +118,7 @@ def listed() -> tuple[int, str, str, dict]:
 def guest_events(machine: str, session: str) -> tuple[int, list[dict], str]:
     """Read raw ACP events from the guest, without putting the raw log in evidence."""
     prelude = 'export HOME="${HOME:-/home/cmux}"; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; '
-    command = f'{prelude}"$c" session tail {session!r} --last 1000'
+    command = f'{prelude}"$c" acp session tail {session!r} --last 1000'
     code, out, err = cmux(
         "cloud",
         "exec",
@@ -132,7 +132,7 @@ def guest_events(machine: str, session: str) -> tuple[int, list[dict], str]:
     if code != 0:
         return code, [], err
     answer = parsed(out)
-    status = answer.get("statusCode", 1)
+    status = answer.get("exit_code", answer.get("statusCode", 1))
     stdout = answer.get("stdout") if isinstance(answer.get("stdout"), str) else ""
     if status != 0:
         return int(status) if isinstance(status, int) else 1, [], answer.get("stderr", "")
@@ -160,33 +160,37 @@ def event_text(event: dict) -> str:
 
 
 def browser_event_proof(events: list[dict]) -> dict:
+    call_text: dict[str, str] = {}
     browser_call_ids = set()
-    browser_call_seen = False
     browser_result_seen = False
     for event in events:
         update = event_update(event)
         kind = update.get("sessionUpdate") or event.get("kind")
         text = event_text(event)
         lower = text.lower()
+        call_id = update.get("toolCallId") or event.get("toolCallId")
+        if isinstance(call_id, str) and call_id:
+            call_text[call_id] = f"{call_text.get(call_id, '')} {text}"
+        accumulated = call_text.get(call_id, "") if isinstance(call_id, str) else ""
+        accumulated_lower = accumulated.lower()
+        has_browser_tool = "agent-browser" in accumulated_lower or re.search(
+            r"\bbrowser(?:[._ -](?:navigate|open|snapshot|page|tab|goto))?\b", accumulated_lower
+        )
         if kind == "tool_call":
-            has_browser_tool = "agent-browser" in lower or re.search(
-                r"\bbrowser(?:[._ -](?:navigate|open|snapshot|page|tab|goto))?\b", lower
-            )
-            call_id = update.get("toolCallId") or event.get("toolCallId")
-            if has_browser_tool and BROWSER_PROOF_URL in text and isinstance(call_id, str) and call_id:
-                browser_call_seen = True
+            if has_browser_tool and BROWSER_PROOF_URL in accumulated and isinstance(call_id, str) and call_id:
                 browser_call_ids.add(call_id)
         elif kind == "tool_call_update":
-            call_id = update.get("toolCallId") or event.get("toolCallId")
+            if has_browser_tool and BROWSER_PROOF_URL in accumulated and isinstance(call_id, str) and call_id:
+                browser_call_ids.add(call_id)
             tied_to_browser = isinstance(call_id, str) and call_id in browser_call_ids
             status = str(update.get("status", "")).lower()
             if tied_to_browser and status in {"completed", "complete", "success", "succeeded"}:
                 # A completed browser update carrying the page text is the readback proof. The
                 # final assistant marker alone is deliberately not accepted as this evidence.
-                browser_result_seen |= "example domain" in lower
+                browser_result_seen |= "example domain" in accumulated_lower
     return {
         "raw_event_count": len(events),
-        "navigation_observed": browser_call_seen,
+        "navigation_observed": bool(browser_call_ids),
         "page_read_observed": browser_result_seen,
         "browser_tool_call": browser_call_seen,
         "browser_tool_result": browser_result_seen,
@@ -224,7 +228,7 @@ while True:  # bounded: the same start-chat again while its machine is still bei
                           "--name", args.tag, "--wait", "--timeout", "600", "--json", timeout=660)
     if code != 75 or time.monotonic() > chat_deadline:
         break
-    record("cloud start-chat (machine still starting)", code, "", err)
+    record("cloud start-chat (machine still starting)", code, "", "")
     time.sleep(10)
 answer = parsed(out) if code == 0 else {}
 reply = answer.get("reply")
@@ -234,7 +238,7 @@ reply_text = reply if isinstance(reply, str) else ""
 browser_marker = reply_text.strip() == BROWSER_PROOF_REPLY
 browser_tools = isinstance(tool_calls, int) and tool_calls > 0
 reply_for_evidence = BROWSER_PROOF_REPLY if browser_marker else ("[withheld: unexpected reply]" if reply_text else None)
-record("cloud start-chat", code, "", err, reply=reply_for_evidence,
+record("cloud start-chat", code, "", "", reply=reply_for_evidence,
        browser_proof={"url": BROWSER_PROOF_URL, "marker": BROWSER_PROOF_MARKER,
                       "reply_observed": bool(reply_text), "reply_matches": browser_marker, "tool_calls": tool_calls,
                       "tool_call_observed": browser_tools})
@@ -256,7 +260,7 @@ event_err = "no machine/session in the start result"
 if machine and session:
     event_code, raw_events, event_err = guest_events(machine, session)
 event_proof = browser_event_proof(raw_events)
-record("cloud browser event proof", event_code, "", event_err,
+record("cloud browser event proof", event_code, "", "",
        browser_proof={"url": BROWSER_PROOF_URL, **event_proof})
 
 # 5. The machine the chat made goes, pass or fail (a destructive verb needs --confirm from a script).
@@ -264,7 +268,7 @@ killed = True
 if machine:
     code_k, out_k, err_k = cmux("cloud", "kill-machine", "--target", f"machine:{machine}", "--confirm", "--json",
                                 timeout=120)
-    record("cloud kill-machine", code_k, out_k, err_k)
+    record("cloud kill-machine", code_k, "", "")
     killed = code_k == 0
 
 if not (code == 0 and reply_text):
