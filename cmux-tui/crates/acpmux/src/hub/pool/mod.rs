@@ -66,6 +66,10 @@ const START_PROGRESS: Duration = Duration::from_secs(10);
 // timeout: a live harness that has received CPU but has not answered for this
 // long is treated as wedged, so a prewarm cannot retain resources forever.
 const START_HAZARD: Duration = Duration::from_secs(30 * 60);
+/// A long fallback for platforms that cannot expose one process's CPU signal.
+// timeout: without per-process accounting we still need a finite bound for a
+// live-but-wedged host, while allowing scheduler starvation to recover first.
+const START_UNREAD_HAZARD: Duration = Duration::from_secs(2 * 60 * 60);
 /// How often the pool's RSS is measured again while it holds entries.
 const RSS_TICK: Duration = Duration::from_secs(60);
 /// Compatibility envelope for forwarded `session/new` requests. Local starts

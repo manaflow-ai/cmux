@@ -302,6 +302,7 @@ impl Hub {
         tokio::pin!(start);
         let mut last_cpu_ms = None;
         let mut no_progress_since = None;
+        let mut unread_since = None;
         loop {
             tokio::select! {
                 done = &mut start => return done,
@@ -313,6 +314,7 @@ impl Hub {
                     let waited = began.elapsed();
                     match seen {
                         crate::cpu_class::HarnessSeen::Running(state) => {
+                            unread_since = None;
                             let cpu_progressed = last_cpu_ms.is_some_and(|last| state.cpu_ms > last);
                             if state.cpu_ms > 0 && !cpu_progressed {
                                 let since = *no_progress_since.get_or_insert(tokio::time::Instant::now());
@@ -335,10 +337,52 @@ impl Hub {
                         // A hosted child can be alive before it reports a harness
                         // pid. Keep waiting in that state; `is_alive` above is the
                         // terminal process-liveness check.
+                        crate::cpu_class::HarnessSeen::Unread => {
+                            let cpu_ticks = child
+                                .pid
+                                .and_then(crate::cpu_class::harness_cpu_ticks);
+                            if let Some(cpu_ticks) = cpu_ticks {
+                                unread_since = None;
+                                let cpu_progressed =
+                                    last_cpu_ms.is_some_and(|last| cpu_ticks > last);
+                                if cpu_ticks > 0 && !cpu_progressed {
+                                    let since = *no_progress_since
+                                        .get_or_insert(tokio::time::Instant::now());
+                                    if since.elapsed() >= START_HAZARD {
+                                        return Err(RpcError::internal(format!(
+                                            "pooled agent made no progress for {START_HAZARD:?} (Linux CPU ticks: {cpu_ticks})"
+                                        )));
+                                    }
+                                } else {
+                                    no_progress_since = None;
+                                }
+                                last_cpu_ms = Some(cpu_ticks);
+                                tracing::info!(
+                                    waited_ms = waited.as_millis() as u64,
+                                    cpu_ticks,
+                                    "pooled agent start waiting; machine busy"
+                                );
+                            } else {
+                                last_cpu_ms = None;
+                                no_progress_since = None;
+                                let since =
+                                    *unread_since.get_or_insert(tokio::time::Instant::now());
+                                if since.elapsed() >= START_UNREAD_HAZARD {
+                                    return Err(RpcError::internal(format!(
+                                        "pooled agent has no progress signal for {START_UNREAD_HAZARD:?}"
+                                    )));
+                                }
+                                tracing::info!(
+                                    waited_ms = waited.as_millis() as u64,
+                                    "pooled agent start waiting; progress signal unavailable"
+                                );
+                            }
+                        }
                         crate::cpu_class::HarnessSeen::NotStarted
-                        | crate::cpu_class::HarnessSeen::Unread
                         | crate::cpu_class::HarnessSeen::Ended => {
+                            unread_since = None;
                             no_progress_since = None;
+                            last_cpu_ms = None;
                             tracing::info!(
                                 waited_ms = waited.as_millis() as u64,
                                 "pooled agent start waiting; machine busy"

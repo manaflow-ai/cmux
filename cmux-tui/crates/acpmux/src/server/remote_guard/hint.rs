@@ -68,7 +68,10 @@ pub(in crate::server) async fn new_on(
     // answers is the remaining real hazard; dropping the request removes its pending reply.
     // timeout: a remote handler that never answers needs a finite forwarding fallback, while a
     // live start remains well beyond the old local 90-second budget.
-    let budget = peer.timings().start;
+    // Match `peer::send_request`: the forwarded request must outlive both the
+    // generic peer budget and the peer's pooled-start hazard envelope.
+    let timings = peer.timings();
+    let budget = timings.request.max(timings.start);
     let result = tokio::time::timeout(budget, peer.request(method, p))
         .await
         .map_err(|_| {
