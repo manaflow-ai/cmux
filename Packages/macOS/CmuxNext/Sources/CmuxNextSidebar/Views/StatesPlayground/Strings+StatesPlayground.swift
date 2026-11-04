@@ -18,6 +18,10 @@ extension Strings {
     static func statesPlaygroundFaviconStyles(_ appearance: String) -> String {
         String(format: String(localized: "sidebar.statesPlayground.faviconStyles", defaultValue: "Favicon styles · %@", bundle: .module), appearance)
     }
+    /// A section sheet's title: the section's, then the appearance ("Home filter · Dark").
+    static func statesPlaygroundSection(_ title: String, _ appearance: String) -> String {
+        String(format: String(localized: "sidebar.statesPlayground.section", defaultValue: "%1$@ · %2$@", bundle: .module), title, appearance)
+    }
     /// A cell whose row the sidebar did not draw.
     static var statesPlaygroundNotDrawn: String {
         String(localized: "sidebar.statesPlayground.notDrawn", defaultValue: "Not drawn", bundle: .module)
