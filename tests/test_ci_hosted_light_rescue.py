@@ -311,6 +311,26 @@ class Sweep(unittest.TestCase):
         self.assertEqual(fake.job_reads[7], 1)
         self.assertEqual(mutations(fake), [])
 
+    def test_fresh_runs_spend_no_job_reads_and_become_eligible_after_aging(self):
+        fresh = [{**run(index), "created_at": ago(60)} for index in range(1, 41)]
+        eligible = run(999)
+        for source in ("listed", "retained"):
+            with self.subTest(source=source):
+                rows = fresh + [eligible] if source == "listed" else [eligible]
+                fake = Fake({"pr-checks.yml": rows}, {999: [job("PR size")]})
+                cursor = rescue.ScanState()
+                if source == "retained":
+                    cursor.candidates = {item["id"]: {**item, "_workflow": "pr-checks.yml"} for item in fresh}
+
+                sweep(fake, dry_run=True, cursor=cursor)
+
+                self.assertEqual(fake.job_reads, {999: 1})
+                self.assertEqual(set(cursor.candidates), {999})
+                aged = Fake({"pr-checks.yml": [fresh[0]]}, {1: [job("PR size", waited=60)]})
+                rescue.sweep(aged, ["pr-checks.yml"], now=NOW + dt.timedelta(seconds=180), dry_run=False,
+                             scan_state=cursor, log=lambda _: None, sleep=lambda _: None, clock=lambda: 0)
+                self.assertEqual(mutations(aged), [("cancel", 1), ("rerun", 1)])
+
     def test_a_stalled_report_job_is_cancelled_and_its_failed_jobs_re_run(self):
         jobs = [job("Changes", status="completed", runner_id=1, waited=900), job("PR size"), job("UI review advisory")]
         fake = Fake({"pr-checks.yml": [run(7)]}, {7: jobs}, settles_after=3)
