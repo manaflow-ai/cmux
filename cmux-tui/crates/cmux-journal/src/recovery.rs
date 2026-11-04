@@ -113,6 +113,16 @@ pub(crate) struct Recovered {
     pub(crate) next_lsn: Lsn,
     pub(crate) report: OpenReport,
     pub(crate) writer: WriterStart,
+    /// The live segments after recovery, oldest first (`Journal::retire_through`).
+    pub(crate) live: Vec<LiveSegment>,
+}
+
+/// A live segment: its number and its header's "previous last LSN". Every record recovery reads
+/// from a segment lies at or before the next segment's `prev_last`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct LiveSegment {
+    pub(crate) seq: u64,
+    pub(crate) prev_last: Lsn,
 }
 
 /// A live segment whose header checked out. Its file is opened again to read its records.
@@ -329,6 +339,10 @@ pub(crate) fn recover(
     // hold a page that its cache had and its disk never got (a failed sync), so nothing is
     // appended to it again. It is read only through the next segment's "previous last LSN".
     let kept = segments.len();
+    let mut live: Vec<LiveSegment> = segments
+        .iter()
+        .map(|segment| LiveSegment { seq: segment.seq, prev_last: segment.header.prev_last })
+        .collect();
     let mut made = 0usize;
     let mut next_seq = || {
         let seq = reuse.take().unwrap_or_else(|| max_seq.saturating_add(1));
@@ -355,6 +369,7 @@ pub(crate) fn recover(
         report.rewritten = read.end.saturating_sub(read.vouched);
         made = made.saturating_add(1);
         through = read.end;
+        live.push(LiveSegment { seq: header.seq, prev_last: header.prev_last });
         tail = Some(Tail { file, seq: header.seq, size });
     }
     let tail = match tail {
@@ -369,13 +384,14 @@ pub(crate) fn recover(
             let file =
                 stage_segment(storage, dir, &header, &[], None).map_err(io("make a segment"))?;
             made = made.saturating_add(1);
+            live.push(LiveSegment { seq: header.seq, prev_last: header.prev_last });
             Tail { file, seq: header.seq, size: len64(SEGMENT_HEADER_LEN) }
         }
     };
     report.segments = kept.saturating_add(made);
     report.last_lsn = next_lsn.saturating_sub(1);
     report.next_lsn = next_lsn;
-    Ok(Recovered { lock, next_lsn, report, writer: WriterStart { journal_id, tail } })
+    Ok(Recovered { lock, next_lsn, report, writer: WriterStart { journal_id, tail }, live })
 }
 
 /// The damage that earlier opens recorded (`DAMAGE`, one line each), none when there is no file.
