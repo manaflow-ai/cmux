@@ -69,10 +69,22 @@ struct CloudStartSession {
             CloudHandlers.result("start cloud session", context) {
                 try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services), forgotten: Self.forgotten(request, services)) {
                     // A person's gesture only as the outermost run's origin says (a script's nested run is not one).
-                    try await start.run(request, invocation, context, account: key.account, byPerson: CloudHandlers.origin(of: invocation) == .user)
+                    let delegated = CloudAgentStartSetting().delegated(in: services.settings?.snapshot.root ?? .object([:]))
+                    return try await start.run(request, invocation, context, account: key.account, byPerson: Self.startsAsPerson(invocation, delegated: delegated))
                 }
             }
         }
+    }
+
+    /// Whether a run that is not an agent chat's (a terminal's or a script's `cmux cloud start-session`,
+    /// and `cmux cloud start-chat` through it) starts as the person's Start would: their gesture, or
+    /// any run while they let agents start Cloud sessions without asking (`cloud.agentsStartWithoutAsking`,
+    /// on by default), since an agent in a terminal looks like the person there. Then its machine is
+    /// created with no "Create a Cloud machine?" card, as an agent chat's run already is (``agentAsk``),
+    /// instead of waiting on a card nobody sees until the run answers pending. Leo, 2026-11-04, on that
+    /// card: "it had this prompt idk if we want that".
+    static func startsAsPerson(_ invocation: ActionInvocation, delegated: Bool) -> Bool {
+        CloudHandlers.origin(of: invocation) == .user || !CloudStartCore().agentAsksFirst(delegated: delegated)
     }
 
     /// Whether the run is an agent's: a cmux MCP run (by its outermost caller, ``ActionRunScope``),
