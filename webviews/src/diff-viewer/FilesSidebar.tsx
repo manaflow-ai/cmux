@@ -388,7 +388,13 @@ function PierreFileTree({
         if (!path || !source.pathToItemId.has(path)) return;
         event.preventDefault();
         event.stopPropagation();
-        setContextMenu({ path, x: event.clientX, y: event.clientY });
+        // The sidebar's transform and containment make it the fixed anchor's containing
+        // block, so the point is placed from its padding box, not the viewport.
+        const box = event.currentTarget.closest<HTMLElement>("#files-sidebar");
+        const rect = box?.getBoundingClientRect();
+        const left = box && rect ? rect.left + box.clientLeft : 0;
+        const top = box && rect ? rect.top + box.clientTop : 0;
+        setContextMenu({ path, x: event.clientX - left, y: event.clientY - top });
       }}
     >
       <Menu
