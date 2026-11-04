@@ -8,7 +8,7 @@
 
 export const CLOUD_TYPING_PREWARM_REFRESH_MS = 2_000;
 
-export type CloudTypingPrewarmPort = { prewarm(machineID: string): void };
+export type CloudTypingPrewarmPort = { prewarm(machineID: string): boolean | Promise<boolean> };
 
 export type CloudTypingTarget = { machineID: string; sessionID?: string };
 
@@ -21,7 +21,7 @@ const sameTarget = (left: CloudTypingTarget | undefined, right: CloudTypingTarge
   left?.machineID === right.machineID && left?.sessionID === right.sessionID;
 
 export class CloudTypingPrewarm {
-  private last?: { target: CloudTypingTarget; at: number };
+  private last?: { target: CloudTypingTarget; at: number; pending: boolean };
 
   constructor(
     private readonly port: CloudTypingPrewarmPort,
@@ -32,13 +32,27 @@ export class CloudTypingPrewarm {
   typed(text: string, target: CloudTypingTarget | undefined): void {
     if (!text.trim() || !target?.machineID) return;
     const at = this.now();
-    if (this.last && sameTarget(this.last.target, target) && at - this.last.at < CLOUD_TYPING_PREWARM_REFRESH_MS)
+    if (
+      this.last &&
+      sameTarget(this.last.target, target) &&
+      (this.last.pending || at - this.last.at < CLOUD_TYPING_PREWARM_REFRESH_MS)
+    )
       return;
-    this.last = { target, at };
+    const attempt = { target, at, pending: true };
+    this.last = attempt;
+    const settle = (accepted: boolean) => {
+      // A completion from an old chat or before reset must not replace the current target.
+      if (this.last !== attempt) return;
+      if (accepted) attempt.pending = false;
+      else this.last = undefined;
+    };
     try {
-      this.port.prewarm(target.machineID);
+      const accepted = this.port.prewarm(target.machineID);
+      if (typeof accepted === "boolean") settle(accepted);
+      else void accepted.then(settle, () => settle(false));
     } catch {
-      // A prewarm is best effort. Native or transport failure must not affect the draft or send.
+      // A rejected hint may race inventory loading. Allow the next edit to try again.
+      settle(false);
     }
   }
 
