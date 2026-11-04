@@ -141,7 +141,11 @@ test("forwards the environment id and setup ran or cached state", () => {
 
 test("a start this Mac's pane refused says why by its code, never the generic connection refusal", () => {
   const generic = "The app refused the agent connection.";
-  const outside = cloudStartEnded(begun(), "k-1", { ok: false, code: "transport.path_outside_roots", message: generic });
+  const outside = cloudStartEnded(begun(), "k-1", {
+    ok: false,
+    code: "transport.path_outside_roots",
+    message: generic,
+  });
   expect(outside).toEqual({
     ...begun(),
     state: "failed",
@@ -153,11 +157,14 @@ test("a start this Mac's pane refused says why by its code, never the generic co
   expect(gesture?.message).not.toBe(generic);
   expect(gesture?.refusedHere).toBe(true);
   // The App's own failure keeps the host's words and its checklist step.
-  expect(cloudStartEnded(begun(), "k-1", { ok: false, code: "cloud_start_failed", message: "No machine" })?.refusedHere).toBeUndefined();
+  expect(
+    cloudStartEnded(begun(), "k-1", { ok: false, code: "cloud_start_failed", message: "No machine" })?.refusedHere,
+  ).toBeUndefined();
 });
 
 test("the pane's other refusals before Cloud (attachments, a busy pane) mark no step failed, as Swift counts them", () => {
-  const attachment = "This attachment needs a local file. Run this chat on This Mac, or paste an image or text to send it to Cloud.";
+  const attachment =
+    "This attachment needs a local file. Run this chat on This Mac, or paste an image or text to send it to Cloud.";
   expect(cloudStartEnded(begun(), "k-1", { ok: false, code: "cloud_attachments", message: attachment })).toEqual({
     ...begun(),
     state: "failed",
