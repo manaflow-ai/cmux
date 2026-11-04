@@ -8,7 +8,8 @@ import { LoadingLayer } from "../src/diff-viewer/Loading";
 import type { DiffViewerLabelResolver } from "../src/labels";
 import { createDiffViewerStatus } from "../src/status";
 
-const label: DiffViewerLabelResolver = (key) => (key === "loadingDiff" ? "Loading diff..." : key);
+const label: DiffViewerLabelResolver = (key) =>
+  key === "loadingDiff" ? "Loading diff..." : key === "parsingDiff" ? "Parsing diff..." : key;
 
 test("a streaming diff shows its skeleton with the loading message for screen readers only", () => {
   const html = renderToStaticMarkup(
@@ -40,4 +41,11 @@ test("the source pill's counts are blank until the diff is known", () => {
   );
   expect(known).toContain("+12");
   expect(known).not.toContain("invisible");
+});
+
+test("the parse before the first batch is quiet too", () => {
+  const html = renderToStaticMarkup(
+    <LoadingLayer label={label} status={createDiffViewerStatus(label("parsingDiff"), { loading: true })} />,
+  );
+  expect(html).toContain('id="status" class="visually-hidden"');
 });
