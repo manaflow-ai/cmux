@@ -13,8 +13,9 @@ import CmuxNextDesign
 /// again. A bad value is the default plus a diagnostic.
 /// `spellChecking`: opt-in system spell checking for web and native composers. It is off by default.
 /// `attachmentView`: how pictures and files show in every composer and in sent messages, `inline`
-/// (each in the text where it was added, as Messages does; the default) or `strip` (in a row). Only
-/// the look: a draft's text, its attachments and their order are the same in both.
+/// (each in the text where it was added, as Messages does; the default), `strip` (in a row) or
+/// `both` (in the text and in the row, each removable from either; sent messages draw it as
+/// `inline`). Only the look: a draft's text, its attachments and their order are the same in all.
 /// `scrollToBottomOnSend`: when enabled, sending while reading up jumps to the newest row (the
 /// current behavior); when disabled, sending preserves the visible row and offset while new rows
 /// arrive below it. A reader at the bottom still follows streaming output.
@@ -112,6 +113,9 @@ public nonisolated enum AgentPaneAttachmentView: String, Sendable, Hashable, Cas
     case inline
     /// The attachments together in a row.
     case strip
+    /// In the text and in the row too, so every attachment shows in one place with its remove
+    /// (Leo, 2026-10-24: "ALSO show the top displayed attachments alongside the inline attachments").
+    case both
 }
 
 /// Where a new chat runs when its composer picks nothing (`agentPane.newChatsIn`).
@@ -161,9 +165,11 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                                   SettingsText.keyed("settings.choice.agentChatAttachmentInline", "Inline")),
                     SettingChoice(AgentPaneAttachmentView.strip.rawValue,
                                   SettingsText.keyed("settings.choice.agentChatAttachmentStrip", "Strip")),
+                    SettingChoice(AgentPaneAttachmentView.both.rawValue,
+                                  SettingsText.keyed("settings.choice.agentChatAttachmentBoth", "Inline and Strip")),
                 ]),
                 default: .string(AgentPaneComposerSetting.fallback.attachmentView.rawValue),
-                keywords: ["attachment", "attachments", "image", "picture", "file", "inline", "strip", "composer", "messages"]
+                keywords: ["attachment", "attachments", "image", "picture", "file", "inline", "strip", "both", "composer", "messages"]
             ),
             SettingDescriptor(
                 AgentPaneComposerSetting.scrollToBottomOnSendPath, section: .general, group: group,

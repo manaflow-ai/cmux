@@ -624,5 +624,169 @@ class DownloadCleanupNoteTests(unittest.TestCase):
         self.assertEqual(session.download_paths, {"/Users/x/Downloads/fz5-12-a.bin"})
 
 
+class ReviewGapTests(unittest.TestCase):
+    """Non-blocking findings of the #29662 and #29769 reviews: a failure that waits for report() must never be lost by
+    a hang or a stop, and a download op must read its own row."""
+
+    def run_standin(self, body):
+        script = (EndPhaseFindingTests.STANDIN % HERE) + body
+        return subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=60)
+
+    def found(self, out):
+        return [l for l in out.stdout.splitlines() if l.startswith("BROWSER-FUZZ-FINDING ")]
+
+    def test_a_download_op_reads_its_own_row(self):
+        rows = [{"filename": "fz5-12-a.bin", "status": "finished"}, {"filename": "fz5-123456-b.bin", "status": "finished"}]
+        self.assertEqual(model.download_row(rows, "fz5-12")["filename"], "fz5-12-a.bin")
+        self.assertEqual(model.download_row(rows, "fz5-123456")["filename"], "fz5-123456-b.bin")
+        self.assertIsNone(model.download_row(rows, "fz5-1"))
+        # The app may report only the destination (a sanitized or suffixed name keeps the token at its start).
+        self.assertEqual(model.download_row([{"destination": "/d/fz5-12-x (1).bin"}], "fz5-12")["destination"], "/d/fz5-12-x (1).bin")
+        # Review of #29818 (BLOCK at 34f8507c00c): a name the app did not clean is the case the download_path oracle
+        # exists for, so its row must be found too.
+        for escape in ("fz5-12-../../fuzz-escape.bin", "fz5-12-/etc/fuzz-abs.bin"):
+            self.assertEqual(model.download_row([{"filename": escape}], "fz5-12")["filename"], escape)
+        self.assertEqual(model.download_row([{"destination": "/Users/x/fz5-12-../fuzz-escape.bin"}], "fz5-12")["destination"],
+                         "/Users/x/fz5-12-../fuzz-escape.bin")
+
+    def test_a_hang_during_a_shrink_keeps_the_seeds_waiting_stalls(self):
+        out = self.run_standin(
+            "b.LIVE['pending'] = {'target': 'browser', 'oracle': 'app_crash', 'detail': 'the app process 1 ended', 'extra': {}, 'seed': 4}\n"
+            "b.LIVE['seen'].add(b.finding_key(b.LIVE['pending']))\n"
+            "b.LIVE['queued'] = [{'target': 'browser', 'oracle': 'stall', 'detail': 'a stall', 'extra': {'signature': 'cmux.A'}, 'seed': 4}]\n"
+            "threading.Thread(target=b.watchdog, args=(O,), daemon=True).start()\n"
+            "b.LIVE['watch'].start(4, 1, {'op': 'back'}, 'shrink 4', limit_s=0.2)\n"
+            "time.sleep(30)\n")
+        oracles = sorted(json.loads(l.split(' ', 1)[1])["oracle"] for l in self.found(out))
+        self.assertEqual(oracles, ["app_crash", "stall"], out.stdout + out.stderr)
+
+    def test_a_hang_during_an_op_of_a_bench_seed_prints_its_stalls(self):
+        out = self.run_standin(
+            "O.build_config = 'bench'\n"
+            "def op(self, op, index):\n"
+            "    self.stalls['cmux.B'] = b.Failure('stall', 'a stall over 100 ms', index, {'signature': 'cmux.B'})\n"
+            "    time.sleep(60)\n"
+            "S.run_op = op\n"
+            "b.Session = S\n"
+            "O.op_deadline = 0.3\n"
+            "b.LIVE['watch'] = m.OpWatch(0.3)\n"
+            "threading.Thread(target=b.watchdog, args=(O,), daemon=True).start()\n"
+            "b.run_ops(O, None, [{'op': 'open'}], 'fz', lambda l: None, 'seed 5', seed=5)\n")
+        oracles = [json.loads(l.split(' ', 1)[1])["oracle"] for l in self.found(out)]
+        self.assertIn("stall", oracles, out.stdout + out.stderr)
+
+    def test_a_stop_right_after_the_end_steps_keeps_the_seeds_failure(self):
+        out = self.run_standin(
+            "def crash(self, op, index): raise b.Failure('app_crash', 'the app process 1 ended', index)\n"
+            "S.run_op = crash\n"
+            "b.Session = S\n"
+            "b.run_ops(O, None, [{'op': 'open'}], 'fz', lambda l: None, 'seed 6', seed=6)\n"
+            "b.stopped(15, None)\n")
+        self.assertEqual([json.loads(l.split(' ', 1)[1])["oracle"] for l in self.found(out)], ["app_crash"],
+                         out.stdout + out.stderr)
+        verdicts = [l for l in out.stdout.splitlines() if l.startswith("BROWSER-FUZZ-VERDICT ")]
+        self.assertTrue(verdicts and verdicts[0].startswith("BROWSER-FUZZ-VERDICT FAIL 1 finding(s) before the run was stopped"),
+                        out.stdout + out.stderr)
+
+    def test_queued_failures_are_reported_in_order_and_taken_once(self):
+        import browser_fuzz
+        taken = []
+        browser_fuzz.LIVE["queued"] = [{"oracle": "app_crash", "detail": "x", "op_index": 2, "extra": {}},
+                                       {"oracle": "stall", "detail": "y", "op_index": 3, "extra": {"signature": "s"}}]
+        try:
+            browser_fuzz.drain_queued(lambda failure, seed, ops, queued=None: taken.append((failure.oracle, failure.op_index)),
+                                      7, [{"op": "open"}] * 4)
+            self.assertEqual(taken, [("app_crash", 2), ("stall", 3)])
+            self.assertEqual(browser_fuzz.LIVE["queued"], [])
+        finally:
+            browser_fuzz.LIVE["queued"] = []
+
+
+class ReportOrderTests(unittest.TestCase):
+    """Review of #29818: in report(), the key went into `seen` before the failure was the pending one (a stop there lost
+    the queued record), and between findings.append and the clear of pending a stop printed and counted it twice."""
+
+    def test_a_queued_failure_whose_key_is_seen_but_not_yet_pending_is_still_printed(self):
+        import browser_fuzz as b
+        record = {"target": "browser", "oracle": "app_crash", "detail": "x", "extra": {}, "seed": 1}
+        saved = (list(b.LIVE["queued"]), set(b.LIVE["seen"]), b.LIVE["pending"], list(b.LIVE["findings"]))
+        try:
+            b.LIVE["queued"], b.LIVE["pending"], b.LIVE["findings"] = [record], None, []
+            b.LIVE["seen"].clear()
+            key = b.finding_key(record)
+            # Before report() starts the shrink, the queued failure is printed (its key is not seen yet) ...
+            self.assertEqual([r["oracle"] for r in b.unreported()], ["app_crash"])
+            self.assertNotIn(key, b.LIVE["seen"])
+            # ... and start_pending (the one place report() makes it pending) leaves it printed once, as pending,
+            # with the key seen only after it is pending and out of the queue.
+            b.start_pending(dict(record, ops=[]), key, record)
+            self.assertEqual(b.LIVE["queued"], [])
+            self.assertIn(key, b.LIVE["seen"])
+            printed = b.unreported()
+            self.assertEqual([r["oracle"] for r in printed], ["app_crash"])
+            self.assertIn("shrink was cut short", printed[0]["note"])
+        finally:
+            b.LIVE["queued"], b.LIVE["pending"], b.LIVE["findings"] = saved[0], saved[2], saved[3]
+            b.LIVE["seen"].clear(); b.LIVE["seen"].update(saved[1])
+
+    def test_a_finding_already_appended_is_not_printed_again_as_pending(self):
+        import browser_fuzz as b
+        record = {"target": "browser", "oracle": "lost_tab", "detail": "y", "extra": {}, "seed": 2}
+        saved = (b.LIVE["pending"], list(b.LIVE["findings"]))
+        try:
+            b.LIVE["pending"], b.LIVE["findings"] = dict(record), [dict(record)]
+            self.assertEqual(b.unreported(), [])
+        finally:
+            b.LIVE["pending"], b.LIVE["findings"] = saved
+
+
+class OmnibarTypingTests(unittest.TestCase):
+    """Job 4509405d8be4, seed 368488420: debug.omnibar_type types one character at a time (AddressBarView.debugType), so
+    a 200,015-character URL was 200,015 keystrokes in one main-actor call and the socket gave no answer in 30 s. A
+    person pastes such a URL as one insert; the fuzz types at most OMNIBAR_TYPE_MAX characters."""
+
+    def test_typed_omnibar_text_is_capped_and_the_random_stream_is_unchanged(self):
+        for seed in range(200):
+            ops = model.generate(seed, 150, "http://localhost:1", f"fz{seed:x}")
+            for op in ops:
+                if op["op"] == "omnibar":
+                    self.assertLessEqual(len(op["url"]), model.OMNIBAR_TYPE_MAX, (seed, op["category"]))
+        # The cap changes no other op: the stream of ops (names, slots, other URLs) is the one it was.
+        capped = model.generate(368488420, 150, "{origin}", "fz15f6afe4")
+        self.assertEqual(capped[60]["op"], "omnibar")
+        self.assertEqual(capped[60]["category"], "huge")
+        self.assertTrue(capped[60]["url"].startswith("http://x.test/#fff"))
+        self.assertEqual(len(capped[60]["url"]), model.OMNIBAR_TYPE_MAX)
+        huge_navigations = [op for seed in range(40) for op in model.generate(seed, 150)
+                            if op["op"] in ("navigate", "open") and len(op.get("url") or "") > model.OMNIBAR_TYPE_MAX]
+        self.assertTrue(huge_navigations, "huge URLs must still reach navigate and open")
+
+
+class OmnibarCapStreamTests(unittest.TestCase):
+    """Review of #29925: the cap must change only the typed URL of huge omnibar ops (whole stream compared), and stay
+    above every other typed entry so no op changes meaning; and short enough that typing it in one main-actor call
+    (debug.omnibar_type types per character) stays under the stall limit on a bench build."""
+
+    def test_the_cap_changes_only_huge_typed_urls(self):
+        from unittest import mock
+        for seed in list(range(120)) + [368488420]:
+            capped = model.generate(seed, 150, "http://localhost:1", f"fz{seed:x}")
+            with mock.patch.object(model, "OMNIBAR_TYPE_MAX", 10 ** 9):
+                uncapped = model.generate(seed, 150, "http://localhost:1", f"fz{seed:x}")
+            self.assertEqual(len(capped), len(uncapped))
+            for a, b in zip(capped, uncapped):
+                if a == b:
+                    continue
+                self.assertEqual((a["op"], a["category"]), ("omnibar", "huge"), (seed, a, b))
+                self.assertEqual({k: v for k, v in a.items() if k != "url"}, {k: v for k, v in b.items() if k != "url"})
+                self.assertTrue(b["url"].startswith(a["url"]))
+
+    def test_the_cap_is_above_every_non_huge_typed_entry_and_at_most_400(self):
+        longest = max(len(op["url"]) for seed in range(300) for op in model.generate(seed, 150)
+                      if op["op"] == "omnibar" and op["category"] != "huge")
+        self.assertLess(longest, model.OMNIBAR_TYPE_MAX)
+        self.assertLessEqual(model.OMNIBAR_TYPE_MAX, 400)
+
+
 if __name__ == "__main__":
     unittest.main()

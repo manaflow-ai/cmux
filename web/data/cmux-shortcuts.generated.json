@@ -2072,31 +2072,7 @@
             ]
           },
           "chord": null,
-          "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "",
-                  "modifiers": [
-                    "ctrl"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "]",
-                  "modifiers": [
-                    "ctrl",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            }
-          ]
+          "aliases": []
         },
         {
           "id": "prevSidebarTab",
@@ -2131,31 +2107,7 @@
             ]
           },
           "chord": null,
-          "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "",
-                  "modifiers": [
-                    "ctrl"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "[",
-                  "modifiers": [
-                    "ctrl",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            }
-          ]
+          "aliases": []
         },
         {
           "id": "moveWorkspaceUp",
@@ -2262,107 +2214,7 @@
             ]
           },
           "chord": null,
-          "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "1",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "2",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "3",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "4",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "5",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "6",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "7",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "8",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "9",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            }
-          ]
+          "aliases": []
         },
         {
           "id": "renameWorkspace",
@@ -3174,7 +3026,7 @@
             "zh-TW": "在右側新增欄"
           },
           "shortcut": {
-            "key": "d",
+            "key": "x",
             "modifiers": [
               "ctrl",
               "cmd"
@@ -3209,7 +3061,7 @@
             "zh-TW": "新增列"
           },
           "shortcut": {
-            "key": "d",
+            "key": "x",
             "modifiers": [
               "ctrl",
               "shift",
@@ -4673,17 +4525,6 @@
             {
               "keys": [
                 {
-                  "key": "\t",
-                  "modifiers": [
-                    "ctrl"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
                   "key": "]",
                   "modifiers": [
                     "shift",
@@ -4729,18 +4570,6 @@
           },
           "chord": null,
           "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "\t",
-                  "modifiers": [
-                    "ctrl",
-                    "shift"
-                  ]
-                }
-              ],
-              "when": null
-            },
             {
               "keys": [
                 {
@@ -6455,7 +6284,7 @@
             "zh-TW": "向右分割瀏覽器"
           },
           "shortcut": {
-            "key": "d",
+            "key": "x",
             "modifiers": [
               "opt",
               "cmd"
@@ -6490,7 +6319,7 @@
             "zh-TW": "向下分割瀏覽器"
           },
           "shortcut": {
-            "key": "d",
+            "key": "x",
             "modifiers": [
               "opt",
               "shift",

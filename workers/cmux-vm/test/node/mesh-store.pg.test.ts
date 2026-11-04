@@ -72,6 +72,26 @@ describe("migration 0004", () => {
 });
 
 describe("mesh store", () => {
+  it("leaves a deleted VM out of the members, even when its member row was never detached", async () => {
+    const meshId = newMeshId();
+    const live = newVmId();
+    const gone = newVmId();
+    const base = { tenantId: A, createdBy: "key:test", createdAt: at, displayName: null, labels: {} };
+    const members = await run(
+      Effect.gen(function* () {
+        const owned = yield* OwnershipStore;
+        const store = yield* MeshStore;
+        yield* owned.record({ ...base, kind: "vm", cmuxId: live, upstreamId: UpstreamId.make("vm-live") });
+        yield* owned.record({ ...base, kind: "vm", cmuxId: gone, upstreamId: UpstreamId.make("vm-gone") });
+        yield* store.attachMember(A, { meshId, vmId: live, ipv4: "10.128.0.5", attachedAt: at });
+        yield* store.attachMember(A, { meshId, vmId: gone, ipv4: "10.128.0.6", attachedAt: at });
+        yield* owned.markDeleted(A, "vm", gone, at);
+        return yield* store.listMembers(A, meshId);
+      }),
+    );
+    expect(members.map((member) => member.vmId)).toEqual([live]);
+  });
+
   it("gives each /20 slot to one mesh only", async () => {
     const first = newMeshId();
     const second = newMeshId();
@@ -319,3 +339,17 @@ describe("mesh store", () => {
   });
 });
 
+
+it("refreshes only the same live tenant attachment and refuses a stale address observation", async () => {
+  const member = { meshId: newMeshId(), vmId: newVmId(), ipv4: null, attachedAt: at };
+  await run(Effect.flatMap(MeshStore, (store) => store.attachMember(A, member)));
+  const update = (tenant: typeof A, prior: Omit<typeof member, "ipv4"> & { ipv4: string | null }, ipv4: string | null) =>
+    run(Effect.flatMap(MeshStore, (store) => store.updateMemberAddress(tenant, prior, ipv4)));
+  expect(await update(B, member, "10.128.0.3")).toBe(false);
+  expect(await update(A, member, "10.128.0.3")).toBe(true);
+  expect(await update(A, member, "10.128.0.4")).toBe(false);
+  const current = { ...member, ipv4: "10.128.0.3" };
+  expect(await update(A, current, null)).toBe(true);
+  await run(Effect.flatMap(MeshStore, (store) => store.detachMember(A, member.meshId, member.vmId, new Date(at.getTime() + 1))));
+  expect(await update(A, member, "10.128.0.5")).toBe(false);
+});

@@ -107,6 +107,7 @@ pub struct HostConfig {
     pub include_loopback: bool,
     /// Never offer or use 100.64.0.0/10 (Tailscale) addresses.
     pub exclude_cgnat: bool,
+    pub session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
     pub services: ServiceConfig,
 }
 
@@ -390,11 +391,17 @@ impl HostConfig {
             ),
             (None, None) => crate::browser::BrowserConfig::default(),
         };
-        // Supervised: the app streams its phone tabs' simulators when this build
-        // can (`CMUX_MOBILE_SURFACE_HOSTS=1`: SimulatorKit loads).
+        // Supervised: the app has a surface source (`CMUX_MOBILE_SURFACE_HOSTS=1`): its
+        // phone tabs' simulators when SimulatorKit loads (an app that cannot says
+        // `CMUX_MOBILE_SURFACE_SIMULATORS=0`; an older app sets neither then), and Cloud desktops.
         let surface = match &supplied {
             Some(supplied) if env("CMUX_MOBILE_SURFACE_HOSTS").as_deref() == Some("1") => {
-                crate::surface::SurfaceConfig::new(Some(supplied.surface.launcher()), max_tabs)
+                let config = crate::surface::SurfaceConfig::new(Some(supplied.surface.launcher()), max_tabs);
+                if env("CMUX_MOBILE_SURFACE_SIMULATORS").as_deref() == Some("0") {
+                    config.without_simulators()
+                } else {
+                    config
+                }
             }
             _ => crate::surface::SurfaceConfig::default(),
         };
@@ -420,6 +427,7 @@ impl HostConfig {
             owner_user_id: env("CMUX_MOBILE_OWNER_USER_ID"),
             include_loopback: env("CMUX_MOBILE_INCLUDE_LOOPBACK").is_some_and(|v| v == "1"),
             exclude_cgnat: env("CMUX_MOBILE_EXCLUDE_CGNAT").is_some_and(|v| v == "1"),
+            session_exposure: supplied.map(|value| value.session_exposure),
             services: ServiceConfig {
                 chief_socket: Some(chief_socket(
                     &env("CMUX_MOBILE_TUI_SOCKET_DIR")

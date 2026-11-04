@@ -42,6 +42,9 @@ public final class HomeStore {
     /// Who has each conversation open (``HomeEvent/presence(_:viewing:)``), cleared with the
     /// connection as typing is; a conversation nobody has open has no entry.
     public internal(set) var viewing: [ConversationID: Set<ParticipantID>] = [:]
+    /// Conversations whose running Chief run is in a tool (``HomeLiveActivity/isTool``): the list's
+    /// rows read it, so it changes only when a run moves between the model and a tool, never per token.
+    @ObservationIgnored var toolRuns: Set<ConversationID> = []
     /// The running agent reply of each conversation, while it is written.
     public internal(set) var drafts: [ConversationID: HomeTurnDraft] = [:]
     @ObservationIgnored var draftBook = HomeDraftBook()
@@ -49,6 +52,10 @@ public final class HomeStore {
     public internal(set) var live: [ConversationID: HomeLiveRun] = [:]
     /// Every running reply per conversation, in the order its turn began (``HomeTimeline``).
     public internal(set) var streams: [ConversationID: [HomeStreamRow]] = [:]
+    /// What a whole-message view draws of each conversation's running replies (``HomeRunShape``):
+    /// who writes, the activity line and the thought headline, never the text. A talk token changes
+    /// `live` and `streams` and leaves this as it was, so a view that does not draw the text sleeps.
+    public internal(set) var runShapes: [ConversationID: HomeRunShape] = [:]
     /// `transcript(for:)` of each conversation at a `transcriptVersion` (a streamed chunk does
     /// not map the window again).
     @ObservationIgnored var transcriptCache: [ConversationID: (version: Int, me: ParticipantID, items: [TranscriptItem])] = [:]
@@ -57,6 +64,8 @@ public final class HomeStore {
     @ObservationIgnored var agentMessageRefreshes: Set<ConversationID> = []
     /// The agent-message folds the user expanded, by conversation (`toggleAgentMessages`).
     @ObservationIgnored var expandedAgentMessages: [ConversationID: Set<String>] = [:]
+    /// The Feed rows the main Chief's transcript shows, and that conversation (``setFeedRows(_:in:)``).
+    @ObservationIgnored var feedRows: (conversation: ConversationID, rows: [HomeFeedRow])?
     @ObservationIgnored var liveBook = HomeLiveBook()
     /// Conversations whose `run.live` request is out (one at a time).
     @ObservationIgnored var liveRequests: Set<ConversationID> = []
@@ -276,6 +285,12 @@ public final class HomeStore {
         if !localFiles.isEmpty { items = items.map(decorated) }
         items = agentMessages[id]?.inserting(into: items, summary: summary(id),
                                              expanded: expandedAgentMessages[id] ?? []) ?? items
+        if let feed = feedRows, feed.conversation == id,
+           let chief = summary(id)?.participants.first(where: \.isChief)?.id {
+            // A window that does not reach the start shows no rows older than its first message.
+            let since = mirror.windows[id]?.reachedStart == false ? items.first(where: { $0.delivery == .committed })?.createdAt : nil
+            items = HomeFeedRow.inserting(feed.rows, into: items, author: chief, since: since)
+        }
         transcriptCache[id] = (version, me, items)
         return items
     }
@@ -369,7 +384,7 @@ public final class HomeStore {
     /// notifies every observer of `rows` even when nothing changed. Rows are not in the client
     /// cache, so a rebuild writes nothing (the mirror and the log schedule their own writes).
     func rebuildRows() {
-        let next = mirror.inboxRows(log: log, typing: Set(typing.keys))
+        let next = mirror.inboxRows(log: log, typing: Set(typing.keys), tools: toolRuns)
         if next != rows { rows = next }
     }
 }

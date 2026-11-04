@@ -7,6 +7,8 @@ import os
 /// the mock; the pane never knows which.
 public nonisolated protocol AgentPaneHostProviding: Sendable {
     func handshake(sessionId: String?) async throws -> AgentPaneHandshake
+    /// Reads this Mac's persisted peer tail without waiting for the page handshake.
+    func peerSnapshot(sessionId: String) async -> Data?
     /// Starts the daemon before a page is visible. Callers may treat this as
     /// best effort because the normal page handshake still reports failures.
     func prewarm() async throws
@@ -37,6 +39,8 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// The acpmux whose socket is `socket`, for an answer the host gives itself on the person's
     /// behalf (``AgentPaneAskAnswer``): nil when this host's daemon listens elsewhere, or it has none.
     func answerEnvironment(socket: String) async -> AcpmuxEnvironment?
+    /// Forwards a Cloud repository action on this host's authenticated daemon connection.
+    func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data
 }
 
 extension AgentPaneHostProviding {
@@ -44,6 +48,8 @@ extension AgentPaneHostProviding {
     public func reconnectHandshake(sessionId: String?) async throws -> AgentPaneHandshake {
         try await handshake(sessionId: sessionId)
     }
+
+    public func peerSnapshot(sessionId: String) async -> Data? { nil }
 
     public func prewarm() async throws {}
 
@@ -60,6 +66,10 @@ extension AgentPaneHostProviding {
 
     /// Hosts without a daemon answer nothing themselves.
     public func answerEnvironment(socket: String) async -> AcpmuxEnvironment? { nil }
+
+    public func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data {
+        throw AgentSessionRemoteError(code: "cloud_repo.unavailable", message: "Cloud repository service unavailable.")
+    }
 
     /// Hosts without a daemon take no files.
     public func putFile(sessionId: String, name: String, data: Data) async throws -> String {
@@ -276,6 +286,16 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         _ = try await endpoint(startsDaemon: false)
         guard let environment else { throw AgentPaneHostError.acpmuxNotFound }
         return try await AcpmuxStatusClient.chatPeers(socketPath: environment.socketPath)
+    }
+
+    public func peerSnapshot(sessionId: String) async -> Data? {
+        if environment == nil { environment = resolveEnvironment() }
+        guard let environment,
+              let reply = try? await AcpmuxStatusClient.call(
+                socketPath: environment.socketPath, method: "_acpmux/peer_snapshot",
+                params: ["sessionId": sessionId, "limit": 400, "maxBytes": 256 * 1024],
+                deadline: .milliseconds(200)) else { return nil }
+        return try? JSONSerialization.data(withJSONObject: reply)
     }
 
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? {

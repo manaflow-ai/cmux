@@ -20,33 +20,11 @@ TRANSPORT_BOUNDS = {"MAX_CHUNK_BYTES", "MAX_RANGE_BYTES", "MAX_FRAME_BYTES", "MA
 # Scope exceptions name an exact path AND symbol, never a directory or a wildcard.
 # Derived/protocol budgets stay. Legacy original-file limits are explicitly deferred
 # to the streaming follow-up split from #26409; they are not permission for new caps.
+# An exemption names only a cap its file still declares (tests/test_attachment_caps_guard.py),
+# so a removed cap cannot come back unreviewed.
 RETAINED_BOUNDS = {
-    "Packages/iOS/CmuxMobileShellModel/Sources/CmuxMobileShellModel/MobileImageAttachmentPreparer.swift": {
-        "maximumRawInputBytes": "Unused legacy declaration; outside native staged admission.",
-        "maximumEncodedBytes": "Downsampled PNG/JPEG representation budget, not the input file.",
-    },
-    "Packages/iOS/CmuxMobileShellModel/Sources/CmuxMobileShellModel/TaskComposerAttachment.swift": {
-        "maximumFileBytes": "Legacy mobile task admission; removal belongs to the streaming follow-up.",
-        "maximumTotalBytes": "Legacy mobile task batch quota; deferred with its upload transport.",
-    },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneDraftAttachments.swift": {
-        "maximumBytes": "Inline draft persistence memory budget; file-reference persistence is separate.",
-    },
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift": {
         "maximumWarmBytes": "New Tab warm-cache budget, unrelated to chat.upload decoding.",
-    },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneUpload.swift": {
-        "maximumFileBytes": "Legacy whole-message inline upload; staged upload has separate admission.",
-        "maximumTotalBytes": "Legacy whole-message batch budget; staged batches do not use it.",
-        "maximumPeerFileBytes": "Legacy peer inline protocol budget; removal needs streaming integration.",
-    },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentPeerUploads.swift": {
-        "maximumPeerFileBytes": "Legacy peer upload admission, deferred to the streaming follow-up.",
-        "maximumTotalBytes": "Legacy peer batch quota, deferred with its transport replacement.",
-    },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudUploads.swift": {
-        "maximumFileBytes": "Cloud upload quota; removal waits for the streaming/multipart prerequisites.",
-        "maximumTotalBytes": "Cloud batch quota; deferred with the cloud streaming integration.",
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextFloating/ChiefPet/ChiefAvatarUploads.swift": {
         "maximumBytes": "Custom pet-avatar image format budget; not a chat attachment.",
@@ -56,9 +34,6 @@ RETAINED_BOUNDS = {
         "MAX_POSTER_BYTES": "Derived video-poster representation budget, not original admission.",
         "MAX_PREVIEW_IMAGE_BYTES": "Derived image-preview representation budget, not original admission.",
         "max_bytes": "DerivedVariant representation budget only; original upload is uncapped.",
-    },
-    "cmux-tui/crates/cmux-tui/src/link/access_cli/uploads.rs": {
-        "MAX_FILE_BYTES": "Cloud CLI upload quota; deferred with the cloud transport integration.",
     },
     "webviews/src/agent-session/acpmux/attachments.ts": {
         "MAX_IMAGE_BYTES": "Model image representation budget; larger previews are downsampled.",
@@ -83,7 +58,6 @@ RETAINED_BOUNDS = {
         "maxBytes": "Derived image representation budget; original upload is uncapped.",
     },
     "cmux-tui/crates/cmux-tui/src/link/access_cli/uploads.rs": {
-        "MAX_FILE_BYTES": "Cloud CLI upload quota; deferred with the cloud transport integration.",
         "MAX_FILES": "Open: the Cloud upload CLI takes 64 files a call; removed with its size cap (#27016).",
     },
     "cmux-tui/crates/cmux-tui-core/src/conversation_attachments.rs": {
@@ -95,19 +69,10 @@ RETAINED_BOUNDS = {
     "cmux-tui/crates/cmux-tui-core/src/state/workspace_checklist_store.rs": {
         "MAX_ITEM_ATTACHMENTS": "A workspace checklist item's links, not chat or Home attachments.",
     },
-    "Native/OptChat/chief-kernel/src/tools.rs": {
-        "MAX_SEND_ATTACHMENTS": "Open: the Chief's send tool takes 10 attachments; Chief-area follow-up.",
-    },
-    "Native/OptChat/optchat-chief/src/tools.rs": {
-        "MAX_SEND_ATTACHMENTS": "Open: re-export of the Chief kernel's cap above.",
-    },
-    "backend/apps/api/src/chief-brain-cc/attachments.ts": {
-        "MAX_FILES": "Open: the hosted Chief brain reads the 12 newest files of a turn; Chief-area follow-up.",
-    },
 }
 FORBIDDEN = re.compile(r"\b(?:MAX_[A-Z0-9_]*(?:BYTES|SIZE)|maximum\w*(?:File|Bytes|Stage)\w*)\b")
 HOME_FORBIDDEN = re.compile(r"\b(?:MAX_[A-Z0-9_]*(?:BYTES|SIZE)|maximum\w*(?:File|Bytes|Stage)\w*|max\w*(?:File|Bytes|Size))\b")
-FORBIDDEN_COUNT = re.compile(r"\b(?:MAX_[A-Z0-9_]*(?:ATTACHMENTS|FILES|UPLOADS)|max(?:imum)?(?:[A-Z]\w*)?(?:Attachments|Files|Uploads)(?:Count)?)\b")
+FORBIDDEN_COUNT = re.compile(r"\b(?:MAX_[A-Z0-9_]*(?:ATTACHMENTS?|FILES|UPLOADS)|max(?:imum)?(?:[A-Z]\w*)?(?:Attachments?|Files|Uploads)(?:Count)?)\b")
 FORBIDDEN_COUNT_ANYWHERE = re.compile(r"\b(?:MAX_[A-Z0-9_]*(?:ATTACHMENTS|UPLOADS)|max(?:imum)?(?:[A-Z]\w*)?(?:Attachments|Uploads)(?:Count)?)\b")
 COUNTED = {"files", "attachments", "attachment", "uploads", "upload", "batch", "manifest", "list", "items", "entries"}
 ROUTE_MARK = "cap-allow: route"
@@ -115,8 +80,10 @@ EXCLUDED = {".git", ".build", "node_modules", "dist", "fixtures", "generated", "
 SOURCE_SUFFIXES = {".swift", ".rs", ".ts", ".tsx", ".js", ".mjs"}
 # chat.upload is decoded here despite the filename lacking upload/attachment.
 EXTRA_SOURCES = {"AgentPaneRequest+Decoding.swift"}
-# Home admission also lives in files without attachment/upload in their names.
+# Original-file admission also lives in files without attachment/upload in their names.
 ADMISSION_PATHS = {
+    "cmux-tui/crates/cmux-tui/src/cli/chief/backend.rs",
+    "Native/OptChat/optchat-chief/src/brain/media.rs",
     "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentMedia.swift",
     "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentPolicy.swift",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift",

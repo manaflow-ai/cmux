@@ -62,9 +62,12 @@ struct DensityPaletteTests {
         #expect(f.registry.action(for: "appearance.density.cozy")?.paletteState?() == true)
     }
 
+    /// Compact Workspace List (`sidebar.compactList.toggle`, #27883) is the DEV-only one-line workspace
+    /// list, not a density, so it is not a second Compact density row.
     @Test func onePaletteRowSaysCompact() {
         let f = Self.fixture()
-        let titles = RegistryPaletteProvider(registry: f.registry).makeItems().map(\.title).filter { $0.contains("Compact") }
+        let titles = RegistryPaletteProvider(registry: f.registry).makeItems()
+            .filter { $0.id != "action:sidebar.compactList.toggle" }.map(\.title).filter { $0.contains("Compact") }
         #expect(titles == ["Density: Compact (current)"], "\(titles)")
         let densityRows = RegistryPaletteProvider(registry: f.registry).makeItems().map(\.title).filter { $0.hasPrefix("Density: ") }
         #expect(densityRows.count == DensityPreset.allCases.count, "\(densityRows)")

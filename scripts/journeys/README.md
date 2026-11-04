@@ -92,7 +92,11 @@ No new harness: `run.py` takes the route `cmux-ci capture` (hq `build-fleet/pr-c
    under `~/.local/share/cmux/hq-tools/current/build-fleet/` when `capture-host` is not on
    PATH). A lease lasts at most 10 minutes and is released in every case; journeys that do not
    fit one lease (`budget_seconds`) run in further leases.
-3. The slot downloads the build's artifact (`cmux-ci artifact JOB`) into the lease root, and
+3. The build comes from the mini's build cache (`~/.cache/cmux-journeys/builds/JOB/`); `build_cache.py`
+   fills it once per mini and job, under a lock, so rounds that start at once make one download. It
+   reads the store's signed URL with curl (a connection under 3 MB/s for 10 s is opened again) and
+   checks the sha256, else `cmux-ci artifact JOB`. `run.py --prestage --build JOB --hosts "..."` fills
+   it before any round, outside any lease, on each named mini that capture-host says is free. The slot
    compiles `scripts/ci/pr_media_ocr.swift` once per mini (`~/.cache/cmux-journeys/`).
 4. `capture-host launch` starts the app in the slot: its own clone, bundle id, HOME, TMPDIR,
    control socket and empty settings file, never activated, never another app's state.
@@ -136,8 +140,8 @@ how long it may take (it plans the leases). Copy `journeys/p0/type.json` (the sm
 
 | `do` | Fields | What it does |
 | --- | --- | --- |
-| `new_terminal` | `via`, `name` | `via: "key"`: the person's New Terminal Tab key (Ctrl-\`, newSurface) through `debug.key` (origin user: it claims the window's keyboard), then as `focused_terminal`; use it in every journey that plays what a person does. `via: "socket"` (the default, kept for older journeys): `action.run newTab` named `name` (focused); waits for the new focused terminal pane and its first prompt; later steps use that terminal |
-| `script_new_terminal` | `name`, `focus` | automation on purpose: a script's `action.run newTab` through the socket; waits for the topology to list workspace `name` with a terminal and its first prompt, without waiting for it to show (a script's newTab does not take a text input the person has: cp/fix-chief-composer-focus) |
+| `new_terminal` | `via`, `name` | `via: "key"`: the person's New Terminal Tab key (Ctrl-\`, newSurface) through `debug.key` (origin user: it claims the window's keyboard), then as `focused_terminal`; use it in every journey that plays what a person does. `via: "socket"` (the default, kept for older journeys): `action.run newTab` named `name` (focused); waits for the new focused terminal pane that holds the terminal the reply says it created (else the pane view's own creation key) and its first prompt; later steps use that terminal |
+| `script_new_terminal` | `name`, `focus` | automation on purpose: a script's `action.run newTab` through the socket; adopts the terminal the reply says it created (`created`: the daemon's public id at once, or the creation's host id once its tab is the daemon's) and waits for its first prompt, without waiting for the workspace to show (a script's newTab does not take a text input the person has: cp/fix-chief-composer-focus); a reply that names no created terminal fails the step |
 | `neutral_prompt` | | writes `PS1='J> '` (zsh and bash), `cd /tmp` and a clear into the PTY through the daemon (set-up, not under test; no host, user or path in any frame) |
 | `type` | `text`, `enter`, `mark` | presses each character with `debug.key`, then Return when `enter` |
 | `key` | `key`, `modifiers`, `mark` | one `debug.key` (`modifiers`: `control`, `shift`, `option`, `cmd`; named keys: `return`, `escape`, `tab`, `space`, `up`, `down`, `left`, `right`, `delete`, `pageup`, ...) |
@@ -150,7 +154,7 @@ how long it may take (it plans the leases). Copy `journeys/p0/type.json` (the sm
 | `file` | `path`, `text` or `lines` | set-up: writes a helper program to `/tmp/jr-*` (only there; not substituted, so it takes the run's values as arguments); removed when the journey ends |
 | `focused_terminal` | `timeout` | after a key that makes a terminal (Ctrl-\` New Terminal Tab, Cmd-D split, Home's Open a terminal): waits for a focused terminal pane showing a terminal not seen before, makes it current and waits for its first prompt |
 | `use` | `name` | makes the terminal named `name` current again; its pane is read from the topology now (after a move or a relaunch) |
-| `relaunch` | `how` (`quit`, `crash`), `mark` | ends the app and opens it again as a person does: `quit` presses Cmd-Q (a quit sheet gets its default, as Return); `crash` is `debug.crash.app` (SIGSEGV in the app). Then `open -g -n -a` the same bundle with its launch variables (the slot's HOME, socket, settings file), waits for the new process and the loaded topology, and finds every named terminal again. `mark` is the moment the old process ended. `leftovers_after: S`: S seconds after the old process ended (before the reopen), lists every process of the bundle (its path, or `--owner BUNDLE_ID`) for `quit_leftovers` |
+| `relaunch` | `how` (`quit`, `crash`, `kill-app`, `kill-both`, `quit-keep`, `quit-end-sessions`, `quit-end-everything`), `mark` | ends the app and opens it again as a person does: `quit` presses Cmd-Q (a quit sheet gets its default, as Return); `crash` is `debug.crash.app` (SIGSEGV in the app); `kill-app` is SIGKILL of the app, `kill-both` SIGKILL of its daemon and then of the app; `quit-*` run the File menu's quit of that kind (no dialog). Then `open -g -n -a` the same bundle with its launch variables (the slot's HOME, socket, settings file), waits for the new process and the loaded topology, and finds every named terminal again. `mark` is the moment the old process ended. `leftovers_after: S`: S seconds after the old process ended (before the reopen), lists every process of the bundle (its path, or `--owner BUNDLE_ID`) for `quit_leftovers` |
 | `settings_file` | `set`, `unset`, `mark` | edits the app's own settings file (`CMUX_NEXT_CONFIG_FILE`, the slot's) as an editor does: `set` merges nested keys, `unset` removes dotted keys |
 | `remember_value` | `source`, `name` | keeps `daemon_cols`, `daemon_rows` or `app_cell_height` of the current terminal as `${name}` |
 | `fresh_app` | | the app must be the one capture-host launched from empty state with no journey before it (`not run` otherwise); the journey file says `"first_in_app": true`, so `run.py` starts a lease with it |
@@ -355,7 +359,7 @@ in the shown terminal: grid == fitted grid == drawn grid == fit(the view's bound
 the PTY's size (`stty size`) == the daemon's screen size == the topology tab's size, and a line longer
 than the old width wraps at the new width (`smoke_r3`; every size is in the result; the window check
 also needs the window 160 points narrower and the pane narrower than before). Both are re-read through
-a 1.5 s settle. Then New Column twice (the action, then its key Ctrl-Cmd-D): every existing column
+a 1.5 s settle. Then New Column twice (the action, then its key Ctrl-Cmd-X): every existing column
 (matched by its panes, width from the float view frames) keeps exactly its width, and there is one
 more column each time (`smoke_same_widths`; each old and new width in the result). Cmd-D (Split
 Right) is not used here: it never opens a column (`SplitRoomCheck.toolSplit`), it splits the pane.
@@ -412,7 +416,9 @@ Leases (cmux-ad 09:05Z, binding): a capture lease is held only while journey ste
 (acquire right before the round, release right after it, on every path: run.py turns SIGTERM into an exception so its
 `finally` releases, an acquire stopped by a signal is ended so capture-host unreserves, and fuzz.py passes its own
 SIGTERM to run.py as TERM, never KILL; `test_run_release.py`). The build comes from a per-mini cache outside the slot
-(`~/.cache/cmux-journeys/builds/<job>/`, the newest 3 jobs), so only the first round of a job on a mini downloads it.
+(`~/.cache/cmux-journeys/builds/<job>/`, the newest 3 jobs), so only the first round of a job on a mini downloads it,
+under the mini's lock for that job (`~/.cache/cmux-journeys/locks/<job>.lock`; `test_build_cache.py`), and
+`run.py --prestage` can fill it before the first round.
 Nothing is shrunk inside a lease: fuzz.py runs ddmin with one short replay lease per try (`--shrink-tries`, default 10).
 
 Sets: `layout` (fuzz-catalog row m, the first mode: New Column, Cmd-D, Split Down, Ctrl-`, close pane, divider drag,
@@ -430,6 +436,85 @@ worse, with at least 4 samples each.
 Verdict: CLEAN (writes `handoff/dogfood-fuzz/<JOB>.clean`), RED, NOT JUDGED, or DIAGNOSTIC (`--diagnostic`: a slot
 has no key window, so every key after a create waits out the 2.5 s creation hold; typing at once, quick pairs of
 creates and the focus oracle are weak there; never a clean file).
+
+## TUI load kit (layout-animation videos)
+
+`tui-kit/` holds the seeded terminal load for the real-app videos of layout animations (RESIZE VIDEOS,
+STATUS 4263): demanding programs for 4 to 12 panes, a browser page and an agent stand-in. Standard
+library only, Python 3.9 (the minis' `/usr/bin/python3`; they have vim 9.1 but no htop or btop, so the
+kit has its own `top`). Every program takes `--seed N` (the same seed draws the same frames),
+`--duration S` (0: until a signal) and `--log FILE` (JSON lines stamped `wall` = `time.time()` and
+`mono` = `time.monotonic()`), and ends cleanly on its deadline, SIGINT, SIGTERM or SIGHUP.
+
+```bash
+K=scripts/journeys/tui-kit/tuikit.py
+python3 $K gradient --seed 7 --duration 60 --log /tmp/g.jsonl   # 120 fps truecolor gradient, box art, CJK and emoji
+python3 $K gradient --pace sleep ...                            # pacing: spin (gradient default, one core), hybrid, sleep
+python3 $K build-bins                                           # once per Mac: tk-gradient, tk-storm, tk-beacon (cargo, std only)
+python3 $K beacon --ws N --pane M [--hz 240] [--fill]            # SWITCH FRAMES beacon (compiled; rt pacing; CLOCK_UPTIME_RAW)
+python3 scripts/journeys/tui-kit/pace_probe.py --seconds 30      # frame intervals per pacing variant on this host
+python3 $K describe --seed 7 --size 120x40                        # where gradient puts each element (columns, rows)
+python3 $K sigwinch --seed 7 --duration 60 --log /tmp/w.jsonl   # one reflow per new size; every SIGWINCH logged
+python3 $K mouse --seed 7 --duration 60 --log /tmp/m.jsonl      # curses, SGR 1006 mouse, cursor at (rows//2, cols//2)
+python3 $K flood --seed 7 --duration 60 [--rate N] [--width 48] # numbered lines with a CRC, as fast as `yes`
+python3 $K verify < screen.txt                                  # torn, lost or stale flood lines in a screen read
+python3 $K vim-scroll --seed 7 --duration 60 --log /tmp/v.jsonl # vim scrolls a generated 100k-line C file
+python3 $K top --seed 7 --duration 60                            # htop look-alike at 30 fps
+python3 $K agent-stream --seed 7 --duration 60 --cps 400         # an agent's streamed answer in a terminal
+python3 $K html --seed 7 --out /tmp/anim-7.html                  # the browser pane's page (or: serve --seed 7)
+python3 $K scenario --panes 12 --seed 7 --write                  # which program runs in which pane: manifest.json
+python3 scripts/journeys/tui-kit/heavy_profile.py build --tag TAG --seed 7 --out /tmp/tk-heavy-7
+python3 scripts/journeys/tui-kit/heavy_profile.py teardown --manifest /tmp/tk-heavy-7/heavy.json
+python3 scripts/journeys/tui-kit/test_tuikit.py                  # the kit's own tests (no app, no fleet)
+```
+
+What the analyzer reads in a frame:
+
+- `gradient`: the compiled `tk-gradient` draws it when built (`tuikit.py build-bins`; `--engine rust|python`), byte for byte the
+  Python engine's frames; a run below 95 % of its target fps logs `verdict: NOT RUN` in its `end` event. It spins to each frame's due time by default (`--pace spin`, one core): on a fleet mini a
+  sleeping 120 fps loop woke in bursts (frame interval p95 47 ms, pace_probe job 0a364ec0ef40). Top-left `F<frame> t=<s> seed=<n> <cols>x<rows>`; on row 2 a barcode: a magenta guard
+  cell, 20 cells of the frame index (white 1, black 0, most significant first), a cyan guard; a 3x5
+  block-digit counter bottom right (panes of 50x18 or more). The frame log gives each frame's write
+  time, so a video frame maps to a program frame. Frames are inside synchronized-update brackets
+  (`--no-sync` drops them), so a torn frame is the terminal's, not the program's.
+- `sigwinch`: header `SIGWINCH <cols>x<rows> winch=N reflow=M`; a new tint, the cards and the red right
+  edge and bottom-row line move only at a reflow. The log has one `sigwinch` line per signal and one
+  `reflow` line per new size: one reflow at the end of a resize is the rule.
+- `mouse`: the cursor rests between `[` and `]` at (rows//2, cols//2); rows 3-5 from column 4 are an
+  inverted block; a press draws its number where it lands and is logged (`press`, 1-based x, y).
+- `flood`: `<10-digit line> s<seed> <payload> #<crc32>`; keep `--width` under the pane's columns.
+- The page: a CSS slide, spin, pulse and hue animation; `F <n>` and 16 boxes count rAF frames;
+  `window.tuikit.longFrames` counts frames longer than 1.5x the median.
+- The agent pane: `agent_stream_acp.py` is acpmux's `fake_agent.py` with the prompt
+  `stream: SEED SECONDS CPS` (numbered paragraphs `[pNNNN]`, tool calls, diffs).
+
+`heavy_profile.py build` makes, on a running tagged build, through the bundled `cmux` CLI and the app
+socket: 40 workspaces, 200 tabs, one shown workspace with 12 TUI panes in seeded columns and rows plus
+a browser pane and an agent chat pane (the terminal stand-in when the build cannot open the chat; the
+manifest says why). It writes `heavy.json` (ids, which pane runs what, refusals, a `snapshot.get`
+check) after each step; `teardown` closes what it made and stops its page server. `heavy_profile.py
+plan` prints the plan with no app.
+
+Background load for TYPING UNDER LOAD (`load_profiles.py`, each one command, each runnable at the same
+time as the others; never moves focus; only the `--app-socket` named, and never the shipped bundle):
+
+```bash
+L=scripts/journeys/tui-kit/load_profiles.py
+python3 $L run L1 --app-socket SOCK --home HOME --keep PANE --seed 7 --duration 120 --rate 100  # CLI storm
+python3 $L run L2 --app-socket SOCK ...      # 4 MCP clients back to back (no REPL tools: shared host socket)
+python3 $L run L3 --app-socket SOCK --keep PANE ...   # 30 browser tabs, 4 beside PANE, page clicks via cmux browser
+python3 $L run L4 --app-socket SOCK [--acp] ...       # 6 streaming agent panes (terminal; --acp tries chats)
+python3 $L run L5 --app-socket SOCK ...      # the heavy profile, --no-focus
+python3 $L run L6 --app-socket SOCK --keep PANE ...   # L1..L5 at once
+```
+
+Each prints `LOAD-READY <L> t_mono= t_wall=` when the load is at full rate and `LOAD-DONE <L> ...` at the
+end, and writes `<out>/<L>/manifest.json`, `calls.jsonl` and `focus.jsonl` (the focus guard). The module
+docstring has every rule; `test_load_profiles.py` checks them against a stand-in app.
+
+The fleet check (no app, no GUI): `cmux-ci run --class exclusive --script
+scripts/measure/tui-kit-selftest.sh --ref SHA` runs the tests with the Mac's Python and reports the
+gradient's pace.
 
 ## Not supported yet
 

@@ -18,6 +18,8 @@ public final class PhoneAccessGate: Sendable {
     }
     private let serving = Mutex(Serving())
     private let startsSessions: Mutex<Bool>
+    /// Lowercase workspace keys of incognito workspaces (`setHiddenWorkspaces`).
+    private let hidden = Mutex<Set<String>>([])
 
     public init(allowsStartingSessions: Bool = true) {
         startsSessions = Mutex(allowsStartingSessions)
@@ -62,6 +64,20 @@ public final class PhoneAccessGate: Sendable {
 
     public func setAllowsStartingSessions(_ allowed: Bool) {
         startsSessions.withLock { $0 = allowed }
+    }
+
+    /// Incognito workspaces (leo-workspace design/spaces.md "Incognito"): a phone never lists one, and a
+    /// request naming one (or one of its terminals) is answered as if it did not exist. The app sets every
+    /// incognito workspace's key here whenever its incognito windows change (`WindowManager`).
+    public func setHiddenWorkspaces(_ keys: Set<String>) {
+        let lowered = Set(keys.map { $0.lowercased() })
+        hidden.withLock { $0 = lowered }
+    }
+
+    /// Whether workspace key `key` is an incognito workspace's, which no phone may see.
+    public func hidesWorkspace(_ key: String) -> Bool {
+        let key = key.lowercased()
+        return hidden.withLock { $0.contains(key) }
     }
 
     /// The message a phone gets for a request that would start a workspace or terminal.

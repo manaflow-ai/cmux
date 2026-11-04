@@ -12,9 +12,13 @@ CMUX_CUA_DARWIN_UNIVERSAL_UNSIGNED_SHA256="7f140fe2f75dcb43649297440b7902fd21b93
 #   machine-consent: manaflow-ai/cmux-cua#82 (merged as 07a6e0fba359, the diff
 #     against its parent 3b6166ff1f16), screen/control consent on a
 #     machine joined to a cmux team, checked on every tool call.
+#   display-still: host-only `display_still`, one still of the main display for
+#     cmux's Share Screen with Chief, so Screen Recording belongs to the helper
+#     (and its relaunch after a grant), never to cmux.app.
 CMUX_CUA_PATCH_RELATIVE_PATHS=(
   "scripts/cmux-cua-codex-delivery-mode.patch"
   "scripts/cmux-cua-machine-consent.patch"
+  "scripts/cmux-cua-display-still.patch"
 )
 CMUX_CUA_SOURCE_OWNER_FILE=".cmux-cua-managed-source"
 CMUX_CUA_SOURCE_OWNER_VALUE="cmux-cua-cache-v2 $CMUX_CUA_PINNED_SHA"
@@ -468,6 +472,19 @@ CUA_TOOLCHAIN_KEY="$(
     cat "$CUA_DEVELOPER_DIR/../version.plist" "$SDKROOT/SDKSettings.json" 2>/dev/null || true
   } | shasum -a 256 | cut -c1-16
 )"
+
+# The cmux-cua clone has no rust-toolchain.toml, so rustup would need a default toolchain. The fleet worker's
+# shared RUSTUP_HOME keeps none on purpose (hq build-fleet rust_cache.go: the shim and the repair undo the
+# default a first install makes), so `rustup target add` and cargo failed there with "rustup could not choose a
+# version of rustup to run ... no default is configured" (cmux7s, job 6f0858ce, 2026-11-01). Build it with the
+# toolchain cmux-tui pins, as cmux-tui-rust-check.sh does for its unpinned modes (#27363). A caller that sets
+# RUSTUP_TOOLCHAIN keeps its own.
+if [[ -z "${RUSTUP_TOOLCHAIN:-}" ]] && command -v rustup >/dev/null 2>&1; then
+  cua_toolchain="$(sed -n 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$REPO_ROOT/cmux-tui/rust-toolchain.toml" 2>/dev/null | head -1 || true)"
+  if [[ -n "$cua_toolchain" ]]; then
+    export RUSTUP_TOOLCHAIN="$cua_toolchain"
+  fi
+fi
 
 # shellcheck source=scripts/lib/rust-targets.sh
 source "$REPO_ROOT/scripts/lib/rust-targets.sh"

@@ -1,4 +1,4 @@
-import CmuxNextCompat
+public import CmuxNextCompat
 import CryptoKit
 public import Foundation
 import LocalAuthentication
@@ -57,6 +57,8 @@ public struct MobileHostMacIdentityStore: Sendable {
     /// Off in tests: only the file is used.
     let useKeychain: Bool
     let keychain: MobileHostSecItems
+    /// The app's one guard of the Keychain UI switch.
+    let loginKeychain: LoginKeychain
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.identity")
 
@@ -68,15 +70,16 @@ public struct MobileHostMacIdentityStore: Sendable {
         return context
     }
 
-    public init(bundleID: String, stateDirectory: URL, useKeychain: Bool = true) {
-        self.init(bundleID: bundleID, stateDirectory: stateDirectory, useKeychain: useKeychain, keychain: .system)
+    public init(bundleID: String, stateDirectory: URL, useKeychain: Bool = true, loginKeychain: LoginKeychain) {
+        self.init(bundleID: bundleID, stateDirectory: stateDirectory, useKeychain: useKeychain, keychain: .system, loginKeychain: loginKeychain)
     }
 
-    init(bundleID: String, stateDirectory: URL, useKeychain: Bool = true, keychain: MobileHostSecItems) {
+    init(bundleID: String, stateDirectory: URL, useKeychain: Bool = true, keychain: MobileHostSecItems, loginKeychain: LoginKeychain) {
         service = Self.service(bundleID: bundleID)
         fallbackFile = stateDirectory.appendingPathComponent("mac-identity", isDirectory: false)
         self.useKeychain = useKeychain
         self.keychain = keychain
+        self.loginKeychain = loginKeychain
     }
 
     /// The Keychain service: one per bundle id.
@@ -117,7 +120,7 @@ public struct MobileHostMacIdentityStore: Sendable {
     }
 
     private func keychainRead() -> Data? {
-        let (status, data) = LoginKeychain.withoutUI { keychain.copy(Self.readQuery(service: service)) }
+        let (status, data) = loginKeychain.withoutUI { keychain.copy(Self.readQuery(service: service)) }
         guard status == errSecSuccess else {
             if status != errSecItemNotFound {
                 Self.logger.error("iPhone host identity: Keychain read refused (\(status, privacy: .public)); using the file store")
@@ -128,7 +131,7 @@ public struct MobileHostMacIdentityStore: Sendable {
     }
 
     private func keychainAdd(_ privateKey: Data) -> Bool {
-        LoginKeychain.withoutUI { keychain.add(Self.addQuery(service: service, privateKey: privateKey)) } == errSecSuccess
+        loginKeychain.withoutUI { keychain.add(Self.addQuery(service: service, privateKey: privateKey)) } == errSecSuccess
     }
 
     private func writeFallback(_ privateKey: Data) throws {

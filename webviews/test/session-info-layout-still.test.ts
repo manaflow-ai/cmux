@@ -1,6 +1,7 @@
 // cmux-web-test-timeout: 300
-// Session Info never moves the chat around it (design/session-info.md rule 1; Leo, 2026-10-31: "why is
-// the session info thing still pushing my layout when it doesnt need to???"). Every element outside
+// Session Info never moves the chat around it when it does not need to (design/session-info.md rule 1;
+// Leo, 2026-10-31: "why is the session info thing still pushing my layout when it doesnt need to???";
+// where the gutter cannot hold it, it pushes, Leo 2026-11-01). Every element outside
 // the panel keeps its box while the panel opens, while it slides in, while its content changes (a
 // section folds or unfolds), and after it closes again: the transcript, the composer's stack, the
 // header and its tools, the thread rail, the minimap and the scroll bar. Measured in the default
@@ -69,7 +70,7 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
       // The computer use card moves under the panel by design (computerUsePreview.css), and the
       // toggle draws its on state (a fill, design/session-panel.md); the rest stays.
       const outside = (element: Element) =>
-        !element.closest("aside.acpmux-chat-inspector, .acpmux-cu-preview, button.acpmux-chat-inspector-toggle") &&
+        !element.closest("aside.acpmux-session-info, .acpmux-cu-preview, button.acpmux-session-info-toggle") &&
         (element as HTMLElement).offsetParent !== null;
       probe.__stillBefore = new Map();
       probe.__stillWorst = new Map();
@@ -135,11 +136,13 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
         trailingInset: 40,
       }),
     );
-  const panel = (page: Page) => page.locator("aside.acpmux-chat-inspector");
-  const toggle = (page: Page) => page.locator("button.acpmux-chat-inspector-toggle");
+  const panel = (page: Page) => page.locator("aside.acpmux-session-info");
+  const toggle = (page: Page) => page.locator("button.acpmux-session-info-toggle");
   const close = async (page: Page) => {
     if ((await panel(page).count()) === 0) return;
-    await toggle(page).click({ force: true });
+    // Pressed while it shows; a pane that waits for the person (SessionInfo.tsx sessionInfoFits) has it
+    // closed already, its card leaving.
+    if ((await toggle(page).getAttribute("aria-pressed")) === "true") await toggle(page).click({ force: true });
     await panel(page).waitFor({ state: "detached", timeout: 5_000 });
   };
 
@@ -166,7 +169,7 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
       [true, false],
       [false, true],
     ] as const)
-      for (const width of [560, 900, 1200, 1600]) {
+      for (const width of [560, 900, 1100, 1200, 1600]) {
         const where = `${width}px pane${row ? " under a tab row" : ""}${preview ? " beside a computer use card" : ""}`;
         test(`${name}: in a ${where}, opening, folding and closing Session Info moves nothing else`, async () => {
           current = browsers.get(name)!;
@@ -187,7 +190,7 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
 
             await mark(page);
             await toggle(page).click({ force: true });
-            await page.locator('aside.acpmux-chat-inspector[data-presence="shown"]').waitFor({ timeout: 10_000 });
+            await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
             await settle(page);
             const opening = await moved(page);
 
@@ -207,7 +210,14 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
             await close(page);
             await settle(page);
             const closing = await moved(page);
-            expect({ opening, content, closing }).toEqual({ opening: [], content: [], closing: [] });
+            // Where the right gutter holds the panel (1600px), and where a push would narrow the column
+            // so it lies over the chat (560, 900 and 1200px; SessionInfo.tsx sessionInfoStage; Leo,
+            // 2026-11-03: "if it would need to be then session info should be an overlay"), nothing else
+            // moves at all. At 1100px it pushes the column left as it opens and back as it closes, and
+            // its content changing still moves nothing.
+            if (width !== 1100)
+              expect({ opening, content, closing }).toEqual({ opening: [], content: [], closing: [] });
+            else expect({ pushed: opening.length > 0, content }).toEqual({ pushed: true, content: [] });
           } finally {
             await page.close();
           }
@@ -242,7 +252,7 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
           await settle(page);
           await page.screenshot({ path: path.join(out, "stills", `session-info-closed-${colorScheme}.png`) });
           await toggle(page).click({ force: true });
-          await page.locator('aside.acpmux-chat-inspector[data-presence="shown"]').waitFor({ timeout: 10_000 });
+          await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
           await settle(page);
           await page.screenshot({ path: path.join(out, "stills", `session-info-open-${colorScheme}.png`) });
         } finally {

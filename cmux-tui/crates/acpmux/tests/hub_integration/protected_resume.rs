@@ -189,3 +189,14 @@ async fn a_hidden_attach_keeps_the_hold_and_a_persons_prompt_lifts_it() {
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_dir_all(&guarded);
 }
+
+/// The test process's own folders (its HOME, Cargo's target tmp where it keeps them) are ordinary
+/// folders to the daemon: a test chat there resumes at once. A fleet Mac builds on a second volume
+/// (`/Volumes/ephemeral0`), which the daemon guards; there a chat under HOME waited for a person
+/// after every restart and import (the transfer_guard tests failed only on macOS).
+#[test]
+fn the_test_home_is_an_ordinary_folder_to_the_daemon() {
+    let home = dirs::home_dir().expect("a home directory");
+    let chat = home.join("a-chat");
+    assert_eq!(acpmux::protected_folders::unasked_refusal(&chat), None, "HOME {}", home.display());
+}

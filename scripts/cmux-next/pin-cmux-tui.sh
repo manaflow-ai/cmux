@@ -283,15 +283,12 @@ require_target_in_tree() {
   TARGET="$target"
   if [[ "$gate_published" == true ]] && ! tree_published "$key" "$legacy"; then
     if [[ -n "$(exe_suffix)" ]]; then
-      # The Windows build is optional (cmux-tui-artifacts.yml windows_optional)
-      # and publishes after the tree (publish-tree-windows), and trees from
-      # before it have none: say what publishes it.
+      # Pushes never build Windows (cmux-tui-artifacts.yml build-windows): only
+      # a dispatch with include_windows publishes it: say so.
       {
-        echo "error: no Windows daemon published for tree $key ($(tree_asset)). A tree is published before its"
-        echo "  Windows daemon: the same cmux-tui artifacts run adds it (publish-tree-windows) once its"
-        echo "  Windows build ends, so retry a newly published tree in a few minutes. Otherwise republish"
-        echo "  This tree has no artifact yet; re-run after a trusted feat-cmux-next publication. A fleet app build can bundle its own daemon without publishing it."
-        echo "  or use a local build (CMUX2_TUI_BIN / CMUX_NEXT_TUI_BIN)."
+        echo "error: no Windows daemon published for tree $key ($(tree_asset)). Pushes publish no Windows"
+        echo "  daemon; publish it with: gh workflow run cmux-tui-artifacts.yml --ref <branch> -f include_windows=true"
+        echo "  (its publish-tree-windows adds it to the tree), or use a local build (CMUX2_TUI_BIN / CMUX_NEXT_TUI_BIN)."
       } >&2
       exit 1
     fi

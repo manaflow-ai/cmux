@@ -7,6 +7,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { InboxNoticeCard } from "./InboxNoticeCard";
 import type { InboxMessage, InboxNotice } from "./inboxNotice";
+import { PendingMessagesCard } from "./PendingMessagesCard";
+import { IncomingMessageLine } from "./IncomingMessageCard";
+import { pendingMessagesRow } from "./pendingMessages";
+import type { AcpmuxRow } from "../model";
+import { setMessageOpened } from "./incomingOpened";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -115,4 +120,53 @@ test("a read that finds nothing keeps the preview and is not asked again", async
   expect(panel(container)).toBe("the preview");
   await rerender(card);
   expect(reads).toBe(1);
+});
+
+test("thirteen flattened deliveries render as one-level sender rows without the harness wrapper", async () => {
+  const lines = Array.from(
+    { length: 13 },
+    (_, index) =>
+      `- 1 new in #${29626 + index} from lane-${index}: merged #${29626 + index} (thread from:lane-${index}/pr:${29626 + index})`,
+  );
+  const text = ["New messages from other agents in 13 threads.", ...lines].join("\n");
+  const notice: AcpmuxRow = {
+    id: "notice-13",
+    version: 1,
+    at: 1,
+    kind: "queuedMessage",
+    text,
+    incoming: { kind: "message", message: { name: "inbox", text, raw: `[inbox] ${text}` } },
+    queuedMessage: { promptId: "notice-13" },
+  };
+  const direct: AcpmuxRow = {
+    id: "direct-29626",
+    version: 1,
+    at: 2,
+    kind: "queuedMessage",
+    text: "merged #29626",
+    incoming: { kind: "message", message: { name: "lane-0", text: "merged #29626", raw: "merged #29626" } },
+    queuedMessage: { promptId: "direct-29626" },
+  };
+  const group = pendingMessagesRow([], [notice, direct])!;
+  setMessageOpened(undefined, group.id, true);
+  const container = await render(
+    <PendingMessagesCard
+      row={group}
+      onOpen={() => undefined}
+      renderMessage={(row) =>
+        row.incoming?.kind === "message" ? (
+          <div className="cv-incoming">
+            <IncomingMessageLine id={row.id} message={row.incoming.message} onOpen={() => undefined} />
+          </div>
+        ) : null
+      }
+    />,
+  );
+  expect(container.querySelectorAll(".cv-pending")).toHaveLength(1);
+  expect(container.querySelectorAll(".cv-received")).toHaveLength(13);
+  expect(container.textContent).not.toContain("New messages from other agents");
+  expect(container.textContent).not.toContain("thread from:");
+  expect(container.textContent).toContain("lane-0");
+  expect(container.textContent).toContain("merged #29638");
+  setMessageOpened(undefined, group.id, false);
 });

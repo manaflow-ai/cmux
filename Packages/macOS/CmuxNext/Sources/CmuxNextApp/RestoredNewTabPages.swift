@@ -36,10 +36,12 @@ enum RestoredNewTabPages {
     }
 
     /// The tabs of `store` that show the New Tab page, with the pages this run opened.
+    /// `liveTabs` observes only the store's tab-list revision, so terminal status
+    /// updates do not re-arm this structural walk.
     static func ids(in store: DaemonStore?, tabs: AgentTabStore) -> Set<String> {
         var ids = tabs.pageTabs.ids
         guard let store else { return ids }
-        for tab in store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
+        for tab in store.liveTabs
         where tab.agentSession != nil && !ids.contains(tab.id) && shows(tab, in: tabs) {
             ids.insert(tab.id)
         }

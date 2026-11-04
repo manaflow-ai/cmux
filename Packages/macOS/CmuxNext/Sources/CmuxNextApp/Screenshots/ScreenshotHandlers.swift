@@ -77,20 +77,11 @@ enum ScreenshotHandlers {
                 throw ActionFailure(message: tab.kind == .pty ? ScreenshotStrings.terminalNotShown : ScreenshotStrings.tabNotShown)
             }
             // Off screen a browser tab is all page, which a masked capture would cover whole.
-            guard isPersonsRun(invocation) else { throw ActionFailure(message: ScreenshotStrings.pageNeedsGuardedCapture) }
+            guard invocation.isPersonsOwnRun else { throw ActionFailure(message: ScreenshotStrings.pageNeedsGuardedCapture) }
             start(output: output, invocation: invocation, context: context) {
                 try await offscreenPage(tab, services: context.services)
             }
         })
-    }
-
-    /// Whether `invocation` is a person's own run in this app (palette, menu, keyboard), the
-    /// only one that gets raw pixels. A run the control socket carries is automation even when
-    /// it claims the `user` origin, and so is a run that names a caller: an app, an agent chat
-    /// or a terminal gets the image, so it is masked even during the person's gesture in it.
-    static func isPersonsRun(_ invocation: ActionInvocation) -> Bool {
-        invocation.origin == .user && !invocation.viaControlSocket
-            && invocation.callerApp == nil && invocation.callerAgentSession == nil && invocation.callerTerminal == nil
     }
 
     /// The tab the run names (target or `tab` argument, in any workspace),
@@ -120,10 +111,10 @@ enum ScreenshotHandlers {
     }
 
     /// `window` as on screen, cropped to `crop`'s frame when given: raw for a person's own run,
-    /// masked for any other (``isPersonsRun(_:)``).
+    /// masked for any other (``ActionInvocation/isPersonsOwnRun``).
     static func shown(_ window: NSWindow, crop view: NSView?, for invocation: ActionInvocation, services: AppServices) async throws -> Capture {
         let shot: (image: CGImage, masked: Int?)
-        if !isPersonsRun(invocation) {
+        if !invocation.isPersonsOwnRun {
             let result = try await AppWindowImage.maskedCapture(window)
             shot = (result.image, result.masked)
         } else {
@@ -169,7 +160,7 @@ enum ScreenshotHandlers {
     private static func start(output: ScreenshotOutput, invocation: ActionInvocation, context: AppActionContext,
                               capture: @escaping @MainActor () async throws -> Capture) {
         let services = context.services
-        let byPerson = isPersonsRun(invocation)
+        let byPerson = invocation.isPersonsOwnRun
         // task-owner: the action run; a capturing caller awaits it through the registry.
         let task: ActionResultWork = Task { @MainActor in
             do {

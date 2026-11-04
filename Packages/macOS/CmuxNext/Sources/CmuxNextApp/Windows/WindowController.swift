@@ -10,6 +10,7 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextSettings
 import Observation
 
 /// One window: sidebar, titlebar, and the content of the workspace it shows.
@@ -26,9 +27,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// Built in init (lazy because it holds self; no IUO).
     private(set) lazy var focusApplier = FocusEffectApplier(controller: self)
     private(set) var content: WorkspaceContentController?
-    /// Every workspace this window showed, by id, kept mounted and paused (plans/cmux-next/tab-lifecycle.md):
-    /// a switch back swaps its view in within the frame. Only its GPU surfaces leave, under the one memory
-    /// budget (`SurfaceLedger`'s LRU of hidden surfaces); the tree, panes and strips stay (perf I6).
+    /// The workspaces this window showed most recently (`ParkedWorkspaceBudget`), by id, kept mounted and paused
+    /// (plans/cmux-next/tab-lifecycle.md): a switch back swaps its view in within the frame. Their GPU surfaces leave
+    /// under the one memory budget (`SurfaceLedger`'s LRU of hidden surfaces); the tree, panes and strips stay (perf I6).
     /// With `sidebar.multiView` the ones `state.viewSet` shows beside `content` stay on screen (`arrangeOnScreen`).
     var parked: [String: WorkspaceContentController] = [:]
     /// Orders `parked` by when each was parked (`mountedContents`).
@@ -47,6 +48,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// it (with the color transition).
     let themeScope = ThemeScope(level: .room)
     private var roomObservation: Task<Void, Never>?
+    private var displayBackdropObservation: Task<Void, Never>?
+    private var displayBackdrop: DisplayBackdropBinding?
     private var roomBrowserProfileObservation: Task<Void, Never>?
     /// Shown while the window has no workspace (first connect, or failure).
     private(set) var connectingView: DaemonConnectingView?
@@ -112,6 +115,20 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // contentRect grows by the titlebar; restore the saved frame exactly.
         if let frame { window.setFrame(frame, display: false) } else { window.center() }
         window.delegate = self
+        let displayBackdrop = DisplayBackdropBinding(window: window, scope: themeScope,
+                                                      displayID: { [weak window] in
+                                                          window?.screen.flatMap(WindowPlacementFallback.displayID(of:))
+                                                      })
+        self.displayBackdrop = displayBackdrop
+        if let settings = services.settings {
+            displayBackdrop.apply(settings.snapshot.root)
+            displayBackdropObservation = Task { [weak self, weak settings] in
+                guard let settings else { return }
+                for await root in ObservationStream({ settings.applied.root }) {
+                    self?.displayBackdrop?.apply(root)
+                }
+            }
+        }
         window.focus = focus
         focus.applier = focusApplier
         focus.window = window
@@ -129,6 +146,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func teardown() {
+        services.keyRouter.creationInputCoordinator.windowClosed(window) // a new terminal's keyboard claim goes with it
         stopShortcutHints()
         (window as? ShellWindow)?.overlayLayer.teardown()
         focusApplier.teardown()
@@ -138,6 +156,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         startupObservation?.cancel()
         previewFeaturesObservation?.cancel()
         roomObservation?.cancel()
+        displayBackdropObservation?.cancel()
+        displayBackdrop?.stop()
+        displayBackdrop = nil
         roomBrowserProfileObservation?.cancel()
         state.roomBrowserProfileOf = nil
         content?.teardown()
@@ -225,18 +246,12 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             controller.teardown()
         }
         if state.page.map(showTopPage) == true || showCreation() { return arrangeOnScreen() }
-        if let requested, let (workspace, daemon) = machines.workspace(id: requested) {
-            if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }
-            return
-        }
-        if requested != nil, state.machineID != MachineRegistry.localID, isWaiting(for: state.machineID) { return }
+        if let requested, let (workspace, daemon) = machines.workspace(id: requested) { return showsHomePage(instead: workspace) ? () : show(workspace, on: daemon) }
+        if requested != nil, state.machineID != MachineRegistry.localID, isWaiting(for: state.machineID) || showPausedMachine(state.machineID) { return }
+        if let requested, services.windows.claims.awaits(requested, in: state.id) { return content == nil ? showConnecting() : () }  // keeps the request
         let members = services.windows.registry.members(of: state.id)
-        if let (workspace, daemon) = members.lazy.compactMap({ machines.workspace(id: $0) }).first {
-            if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }
-            return
-        }
-        // Keep what is shown (the old content stays until the manager
-        // closes or refills this window); a window with nothing yet waits.
+        if let (workspace, daemon) = members.lazy.compactMap({ machines.workspace(id: $0) }).first { return showsHomePage(instead: workspace) ? () : show(workspace, on: daemon) }
+        // Keep what is shown (it stays until the manager closes or refills this window); a window with nothing yet waits.
         if content == nil { showConnecting() }
     }
 
@@ -268,7 +283,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if state.workspaceID != workspace.id { state.workspaceID = workspace.id }
         if state.machineID != daemon.machineID { state.machineID = daemon.machineID }
         guard content?.workspace !== workspace else { return arrangeOnScreen() }
-        if let current = content { park(current) }
+        // Parking the current one never trims the one to show; a current one of the same id (a rebuilt model) is torn down below.
+        if let current = content { park(current, leaving: workspace.id) }
         DebugWorkspaceSwitch.mark(self, "park")
         let controller: WorkspaceContentController, kept = parked.removeValue(forKey: workspace.id)
         if let kept, kept.workspace === workspace, kept.daemon === daemon {
@@ -485,7 +501,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         // A panel over this window has the keys: no Ghostty keybind below (`KeyRouter.overlayHasKeys`).
         if !isKeyWindow, let focus, KeyRouter.overlayHasKeys(focus.state) { return false }
-        if let keyRouter, let focus, keyRouter.routeContentKeyEquivalent(event, focus: focus.state) { return true }
+        if let keyRouter, let focus, let controller = windowController as? WindowController, keyRouter.routeContentKeyEquivalent(event, focus: focus.state, facts: keyRouter.facts(in: self, controller: controller)) { return true }
         return super.performKeyEquivalent(with: event)
     }
 

@@ -14,6 +14,7 @@ import { errorMessage } from "../transportErrors";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { Menu, MenuButton, MenuCheckboxItem, MenuItem, MenuPopup } from "../../../ui/Menu";
 import "./suggestedTasks.css";
+import { useTranscriptReadOnly } from "../conversation/readOnly";
 
 /// What a task's buttons do (App.tsx routes them to `chat.offer.*`).
 export type OfferActions = {
@@ -278,10 +279,16 @@ export function ReceivedResult({
   onOpen(childSessionId: string): void;
 }) {
   const t = useT();
+  // Read only, the line says what came back; the chat it came from is the owner's to open.
+  const readOnly = useTranscriptReadOnly();
   const [before, after = ""] = t("offer.received", { title: "\u0000" }).split("\u0000");
+  const Line = readOnly ? "div" : "button";
   return (
     <div className="acpmux-task-received">
-      <button type="button" className="acpmux-task-received-line" onClick={() => onOpen(result.childSessionId)}>
+      <Line
+        {...(readOnly ? {} : { type: "button" as const, onClick: () => onOpen(result.childSessionId) })}
+        className="acpmux-task-received-line"
+      >
         <span className="acpmux-task-received-icon">
           <Bot size={16} />
         </span>
@@ -289,7 +296,7 @@ export function ReceivedResult({
         <span className="acpmux-task-received-title">{result.title}</span>
         {after}
         <Icon name="disclosure.collapsed" size={12} />
-      </button>
+      </Line>
     </div>
   );
 }

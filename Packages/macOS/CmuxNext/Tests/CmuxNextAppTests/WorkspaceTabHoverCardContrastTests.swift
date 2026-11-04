@@ -62,8 +62,12 @@ import Testing
         var best = 0.0
         let y0 = Int((host.isFlipped ? rect.minY : host.bounds.height - rect.maxY) * scale)
         let y1 = Int((host.isFlipped ? rect.maxY : host.bounds.height - rect.minY) * scale)
-        for y in max(0, y0)..<min(rep.pixelsHigh, y1) {
-            for x in max(0, Int(rect.minX * scale))..<min(rep.pixelsWide, Int(rect.maxX * scale)) {
+        // A row scrolled out of the list (every tab is listed since #29980) lies outside the host: no pixels.
+        let rows = max(0, y0)..<max(max(0, y0), min(rep.pixelsHigh, y1))
+        let x0 = max(0, Int(rect.minX * scale))
+        let columns = x0..<max(x0, min(rep.pixelsWide, Int(rect.maxX * scale)))
+        for y in rows {
+            for x in columns {
                 guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
                 let lum = ThemeRGB(red: Double(c.redComponent), green: Double(c.greenComponent), blue: Double(c.blueComponent)).relativeLuminance
                 best = max(best, lum)
@@ -100,7 +104,8 @@ import Testing
             let color = try #require(Self.rgb(label.textColor), "\(name) has no color")
             #expect(Self.same(color, primary), "\(name) draws in \(color), not the primary text \(primary)")
         }
-        for path in ["~/Projects/cmux", "~"] {
+        // Each tab's detail line: its folder and its status (Lawrence msg 19245); a working tab's spinner says "Working".
+        for path in ["~/Projects/cmux", "~ · Done"] {
             let label = try #require(byText[path], "no label \(path)")
             let color = try #require(Self.rgb(label.textColor), "\(path) has no color")
             #expect(Self.same(color, secondary), "\(path) draws in \(color), not the secondary text \(secondary)")

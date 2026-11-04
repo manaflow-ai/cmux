@@ -32,6 +32,7 @@ mod session_reset;
 pub(super) use session_reset::run_session_reset_state;
 mod server_ensure;
 mod settings;
+pub(super) use settings::{SettingsList, human_rows as settings_human_rows};
 mod sidebar_doc;
 mod state;
 mod workspace;
@@ -151,6 +152,12 @@ struct Tokens {
 }
 
 pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandPlan, UsageError> {
+    if let [scope, verb, rest @ ..] = args
+        && matches!(scope.as_str(), "settings" | "config")
+        && verb == "list"
+    {
+        return settings::request_list(rest);
+    }
     let mut tokens = tokenize(args)?;
     super::shorthand::normalize_words(&mut tokens.words);
     flags::positional_rename(&mut tokens.words, &mut tokens.flags)?;
@@ -182,6 +189,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         "notification" => parse_notification(words, &mut tokens.flags)?,
         "attention" => state::parse_attention(&strs(words), &mut selectors, &mut tokens.flags)?,
         "room" => state::parse_room(&strs(words), &mut tokens.flags)?,
+        "space" => parse_space(&strs(words), &mut tokens.flags)?,
         "closed" => state::parse_closed(&strs(words), &mut tokens.flags)?,
         "git" => git::parse_git(&strs(words), &mut tokens.flags)?,
         "history" => history::parse_history(&strs(words), &mut tokens.flags)?,
@@ -197,6 +205,15 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
     };
     tokens.flags.reject_remaining()?;
     Ok(plan)
+}
+
+/// `space list` is the friendly name for the daemon's room listing. Mutating
+/// space verbs are app actions and are dispatched by the app parser first.
+fn parse_space(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+    match words {
+        ["list"] => state::parse_room(&["list"], flags),
+        _ => usage("space action"),
+    }
 }
 
 fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
@@ -2974,6 +2991,9 @@ mod tests {
         let group = protocol(&["workspace", "group", "create", "--name", "Work"]);
         assert_eq!(operation(&group), "workspace_group.create");
         assert_eq!(group.params["name"], "Work");
+        assert!(group.params.get("reuse").is_none(), "a plain create makes a group");
+        let reuse = protocol(&["workspace", "group", "create", "--name", "Leads", "--reuse"]);
+        assert_eq!(reuse.params["reuse"], true);
         let remove = protocol(&[
             "workspace",
             "group",

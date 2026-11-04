@@ -59,17 +59,14 @@ import Testing
         #expect(SidebarStyle.groupLineCut == 6)
         let inset = SidebarStyle.groupLineCornerInset
         #expect(inset >= 4 && inset <= 5, "about 4 to 5 pt inside the header: \(inset)")
-        #expect(inset + SidebarStyle.groupBarWidth == SidebarStyle.rowCornerRadius, "the line's right edge is off the corner arc's end")
+        #expect(inset + SidebarStyle.groupBarWidth == Metrics.itemCornerRadius, "the line's right edge is off the item corner arc's end")
     }
 
-    @Test func theRailRoundsOnlyItsRightCorners() {
-        let path = SidebarGroupLineShape.line(width: 2, height: 20)
-        #expect(path.contains(CGPoint(x: 0.1, y: 0.1)), "the left edge stays straight at the top")
-        #expect(path.contains(CGPoint(x: 0.1, y: 19.9)), "the left edge stays straight at the bottom")
-        #expect(!path.contains(CGPoint(x: 1.9, y: 0.1)), "the top-right corner rounds inward")
-        #expect(path.contains(CGPoint(x: 1.9, y: 3)), "the top reaches full width after one radius")
-        #expect(!path.contains(CGPoint(x: 1.9, y: 19.9)), "the bottom-right corner rounds inward")
-        #expect(path.contains(CGPoint(x: 1.9, y: 17)), "the bottom reaches full width before one radius")
+    /// Lawrence msg 19775: the rail is one capsule, every corner rounded by half its width (SidebarGroupRailCapsuleTests
+    /// draws it).
+    @Test func theRailIsOneCapsule() {
+        #expect(SidebarGroupLineShape.cornerRadius(width: 2) == 1)
+        #expect(SidebarGroupLineShape.corners == [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner])
     }
 
     @Test @MainActor func theCutMaskRetainsCoverageWhenARailShrinks() {
@@ -99,8 +96,9 @@ import Testing
             let head = header.frame
             #expect(line.width == 2, "\(layout): the line is \(line.width) pt")
             view.layoutSubtreeIfNeeded()
-            #expect(view.layer?.cornerRadius == 0 && view.layer?.masksToBounds == true && view.railShape.path != nil,
-                    "\(layout): the line has the clipped Chrome corner cut")
+            #expect(view.layer?.cornerRadius == 1 && view.layer?.maskedCorners == SidebarGroupLineShape.corners
+                    && view.layer?.masksToBounds == true && view.railShape.path != nil,
+                    "\(layout): the line is one clipped capsule")
             #expect(view.railShape.frame.width == 2 && view.railShape.frame.height >= 4096,
                     "\(layout): the cut shape covers a rail during its bounds spring")
 

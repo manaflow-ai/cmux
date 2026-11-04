@@ -69,6 +69,14 @@ const BOOT_DEADLINE: Duration = Duration::from_secs(300);
 const RETRIES: u32 = 6;
 /// Where the run keeps its files on the guest.
 const RUN_DIR: &str = "/tmp/cmux-run";
+/// The API's limits on one exec, counted as it counts them: JavaScript string
+/// length, in UTF-16 code units (`workers/cmux-vm/src/api.ts`, `ExecRequest`).
+/// The command goes in one env value; `--pull` packs in one exec command.
+const MAX_ENV_VALUE_UNITS: usize = 32 * 1024;
+const MAX_EXEC_COMMAND_UNITS: usize = 64 * 1024;
+/// The env variable that names the work directory to the `--pull` script, so
+/// the script's size is known before the VM (and its directory) exists.
+const WORKDIR_ENV: &str = "CMUX_RUN_WORKDIR";
 
 /// Directories that never sync, at any depth, in any case (`skipped_dir`).
 const SKIPPED_DIRS: &[&str] = &[
@@ -164,6 +172,13 @@ pub async fn run(
     for path in &args.pull {
         check_pull_path(path)?;
     }
+    let command = command_line(&args.command);
+    // What the API would refuse after the VM is created and billed, refused
+    // here instead: the measured size of what is sent.
+    check_command_size(&command)?;
+    if !args.pull.is_empty() {
+        check_pull_size(&args.pull)?;
+    }
     let archive = if args.sync {
         let (bytes, synced) = archive(&local)?;
         note(
@@ -208,7 +223,6 @@ pub async fn run(
     } else {
         None
     };
-    let command = command_line(&args.command);
 
     // The signal handlers are in place before the VM exists. A signal while
     // the create call is in flight does not cancel it (its answer names the
@@ -720,22 +734,31 @@ async fn remove_archives(client: &Client, vm_id: &str, keep: bool, stderr: &mut 
     }
 }
 
-/// Packs `paths` into `archive` on the guest and prints "SIZE TAR_STATUS".
+/// The guest command `--pull` sends to pack `paths`: the pack script, as a
+/// registered archive writer. Its size is what the API limits.
+fn pull_command(paths: &[String]) -> String {
+    fenced(
+        STAGING_GUARD,
+        &pull_pack_script(paths, PULL_ARCHIVE, MAX_PULL_BYTES),
+    )
+}
+
+/// Packs `paths` into `archive` on the guest and prints "SIZE TAR_STATUS",
+/// from the work directory named by `$CMUX_RUN_WORKDIR`.
 /// It writes at most one byte over `limit`, so an oversized pull stops there
 /// instead of filling the guest's disk; tar's own status is kept apart, since
 /// `head` ending the pipe early is the oversized case. A path whose parent
 /// resolves outside the work directory (the command made `leak -> /etc`, then
 /// `--pull leak/passwd`) is refused: tar would follow that link. A path that
 /// is itself a link is archived as the link.
-fn pull_pack_script(workdir: &str, paths: &[String], archive: &str, limit: u64) -> String {
+fn pull_pack_script(paths: &[String], archive: &str, limit: u64) -> String {
     let quoted: Vec<String> = paths.iter().map(|path| shell_quote(path)).collect();
     format!(
-        "cd {} && w=$(pwd -P) && for p in {}; do \
+        "cd \"${WORKDIR_ENV}\" && w=$(pwd -P) && for p in {}; do \
          r=$(cd -- \"$(dirname -- \"$p\")\" 2>/dev/null && pwd -P) || continue; \
          case \"$r/\" in \"$w\"/*) ;; *) echo \"--pull $p leaves the work directory through a link\" >&2; exit 3;; esac; \
          done && {{ tar -czf - -- {}; echo $? >{archive}.rc; }} | head -c {} >{archive} && \
          echo \"$(stat -c %s {archive}) $(cat {archive}.rc)\"",
-        shell_quote(workdir),
         quoted.join(" "),
         quoted.join(" "),
         limit + 1
@@ -750,11 +773,8 @@ async fn pull_archive(
     local: &Path,
     stderr: &mut dyn Write,
 ) -> Result<(), CliError> {
-    let pack = fenced(
-        STAGING_GUARD,
-        &pull_pack_script(workdir, paths, PULL_ARCHIVE, MAX_PULL_BYTES),
-    );
-    let packed = exec(client, vm_id, &pack, &[], 300_000).await?;
+    let pack = pull_command(paths);
+    let packed = exec(client, vm_id, &pack, &[(WORKDIR_ENV, workdir)], 300_000).await?;
     let answer = String::from_utf8_lossy(&packed.stdout).trim().to_owned();
     let mut words = answer.split_whitespace();
     let size: Option<u64> = words.next().and_then(|size| size.parse().ok());
@@ -969,6 +989,36 @@ pub(crate) fn shell_quote(word: &str) -> String {
         return word.to_owned();
     }
     format!("'{}'", word.replace('\'', "'\\''"))
+}
+
+/// A string's length as the API counts it (JavaScript `length`).
+fn api_length(text: &str) -> usize {
+    text.encode_utf16().count()
+}
+
+/// The command must fit the API's limit on one env value.
+pub(crate) fn check_command_size(command: &str) -> Result<(), CliError> {
+    let length = api_length(command);
+    if length <= MAX_ENV_VALUE_UNITS {
+        return Ok(());
+    }
+    Err(CliError::usage(format!(
+        "the command is {length} characters; the VM API takes at most {} KiB ({MAX_ENV_VALUE_UNITS} UTF-16 units). Put a long command in a script and --sync it",
+        MAX_ENV_VALUE_UNITS / 1024
+    )))
+}
+
+/// The `--pull` command, as it is sent (fenced), must fit the API's limit on one exec
+/// command.
+pub(crate) fn check_pull_size(paths: &[String]) -> Result<(), CliError> {
+    let length = api_length(&pull_command(paths));
+    if length <= MAX_EXEC_COMMAND_UNITS {
+        return Ok(());
+    }
+    Err(CliError::usage(format!(
+        "the --pull paths make a {length}-character guest command; the VM API takes at most {} KiB. Pull fewer paths, or a directory that holds them",
+        MAX_EXEC_COMMAND_UNITS / 1024
+    )))
 }
 
 /// A `--pull` path must stay inside the work directory.
@@ -1285,6 +1335,17 @@ fn archive_within(
     limit: u64,
     unpacked_limit: u64,
 ) -> Result<(Vec<u8>, SyncList), CliError> {
+    archive_within_then(dir, limit, unpacked_limit, || {})
+}
+
+/// [`archive_within`], running `before_pack` between the size sum and
+/// packing (where a test grows a file).
+fn archive_within_then(
+    dir: &Path,
+    limit: u64,
+    unpacked_limit: u64,
+    before_pack: impl FnOnce(),
+) -> Result<(Vec<u8>, SyncList), CliError> {
     let synced = sync_list(dir)?;
     let sizes = synced
         .files
@@ -1295,6 +1356,7 @@ fn archive_within(
     if sizes > unpacked_limit {
         return Err(unpacks_past(unpacked_limit));
     }
+    before_pack();
     let archive = pack(dir, &synced.files, limit, unpacked_limit)?;
     Ok((archive, synced))
 }
@@ -1315,16 +1377,29 @@ fn pack(
     limit: u64,
     unpacked_limit: u64,
 ) -> Result<Vec<u8>, CliError> {
+    pack_with("tar", dir, files, limit, unpacked_limit)
+}
+
+/// [`pack`] with the tar program named (a test packs with bsdtar).
+fn pack_with(
+    program: &str,
+    dir: &Path,
+    files: &[PathBuf],
+    limit: u64,
+    unpacked_limit: u64,
+) -> Result<Vec<u8>, CliError> {
     use std::io::Read;
+    let dense = dense_args(&tar_version(program)?);
     let mut list = Vec::new();
     for file in files {
         list.extend_from_slice(file.as_os_str().as_encoded_bytes());
         list.push(0);
     }
-    let mut tar = std::process::Command::new("tar")
+    let mut tar = tar_command(program)
         .current_dir(dir)
         // No AppleDouble files or extended attributes from macOS.
         .env("COPYFILE_DISABLE", "1")
+        .args(dense)
         .args([
             "--no-recursion",
             "--no-xattrs",
@@ -1372,37 +1447,16 @@ fn pack(
         let _ = errors.read_to_end(&mut text);
         text
     });
-    // Counts what tar writes and passes it to gzip; stops one buffer past
-    // the limit, which ends both streams (tar's on a broken pipe).
-    let pump = std::thread::spawn(move || {
-        let mut total = 0_u64;
-        let mut buffer = vec![0_u8; 64 * 1024];
-        loop {
-            let read = match tar_out.read(&mut buffer) {
-                Ok(0) | Err(_) => break,
-                Ok(read) => read,
-            };
-            total = total.saturating_add(read as u64);
-            if total > unpacked_limit {
-                return true;
-            }
-            let Some(chunk) = buffer.get(..read) else {
-                break;
-            };
-            if gzip_in.write_all(chunk).is_err() {
-                break;
-            }
-        }
-        false
-    });
+    let pump = std::thread::spawn(move || pump(&mut tar_out, &mut gzip_in, unpacked_limit));
     let mut archive = Vec::new();
     let read = gzip_out.take(limit + 1).read_to_end(&mut archive);
     let oversized = archive.len() as u64 > limit;
     if oversized {
         let _ = gzip.kill();
     }
-    let unpacked_over = pump.join().unwrap_or(true);
-    if oversized || unpacked_over {
+    let pumped = pump.join().unwrap_or(Ok(true));
+    let unpacked_over = matches!(pumped, Ok(true));
+    if oversized || unpacked_over || pumped.is_err() {
         let _ = tar.kill();
     }
     let tar_status = tar.wait();
@@ -1411,6 +1465,12 @@ fn pack(
     let tar_errors = error_reader.join().unwrap_or_default();
     if unpacked_over {
         return Err(unpacks_past(unpacked_limit));
+    }
+    if let Err(e) = pumped {
+        return Err(CliError::unexpected(format!(
+            "could not read tar's archive of {}: {e}",
+            dir.display()
+        )));
     }
     if oversized {
         return Err(CliError::usage(format!(
@@ -1434,6 +1494,73 @@ fn pack(
             dir.display()
         ))),
     }
+}
+
+/// The local `tar` command every sync and pull runs, with only the
+/// arguments given here: options from the caller's environment
+/// (`TAR_OPTIONS=--sparse` for GNU tar, `TAR_READER_OPTIONS` and
+/// `TAR_WRITER_OPTIONS` for bsdtar) could shrink a hole past the
+/// unpacked-size count or change how pulled files unpack.
+fn tar_command(program: &str) -> std::process::Command {
+    let mut command = std::process::Command::new(program);
+    for name in ["TAR_OPTIONS", "TAR_READER_OPTIONS", "TAR_WRITER_OPTIONS"] {
+        command.env_remove(name);
+    }
+    command
+}
+
+/// `tar --version`'s text; a tar that cannot say what it is is not run.
+fn tar_version(program: &str) -> Result<String, CliError> {
+    let output = tar_command(program)
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|e| CliError::usage(format!("--sync needs tar: {e}")))?;
+    if !output.status.success() {
+        return Err(CliError::usage("--sync needs tar: `tar --version` failed"));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// What makes the local tar write a sparse file's holes as zeros, so the
+/// stream count sees the size the guest unpacks to. bsdtar (macOS's tar)
+/// stores holes as a map unless told `--no-read-sparse`; GNU tar writes
+/// them out unless asked for `--sparse`, and takes no such flag.
+fn dense_args(version: &str) -> &'static [&'static str] {
+    if version.contains("bsdtar") {
+        &["--no-read-sparse"]
+    } else {
+        &[]
+    }
+}
+
+/// Counts what tar writes and passes it to gzip; `Ok(true)` one buffer past
+/// `limit`, where it stops, which ends both streams (tar's on a broken pipe).
+/// A read error is returned, never taken as the end of tar's stream: a
+/// truncated archive would otherwise pass once tar had exited cleanly.
+fn pump(from: &mut impl std::io::Read, to: &mut impl Write, limit: u64) -> std::io::Result<bool> {
+    let mut total = 0_u64;
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        let read = match from.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(read) => read,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        total = total.saturating_add(read as u64);
+        if total > limit {
+            return Ok(true);
+        }
+        let Some(chunk) = buffer.get(..read) else {
+            break;
+        };
+        if to.write_all(chunk).is_err() {
+            break;
+        }
+    }
+    Ok(false)
 }
 
 /// Unpacks a pulled archive into `dir`, refusing entries that would land
@@ -1500,7 +1627,7 @@ fn gunzipped_len(bytes: &[u8], limit: u64) -> Result<u64, CliError> {
 }
 
 fn tar_with_stdin(args: &[&str], bytes: &[u8], dir: &Path) -> Result<Vec<u8>, CliError> {
-    let mut child = std::process::Command::new("tar")
+    let mut child = tar_command("tar")
         .current_dir(dir)
         .args(args)
         .stdin(Stdio::piped())
@@ -1636,6 +1763,46 @@ mod tests {
         assert_eq!(settled(&json!({"state": "cancelling", "id": "vm_1"})), None);
         assert_eq!(settled(&json!({"state": "pending", "id": "vm_1"})), None);
         assert_eq!(settled(&json!({"state": "committed"})), None);
+    }
+
+    #[test]
+    fn the_command_is_measured_as_the_api_counts_it() {
+        assert!(check_command_size(&"x".repeat(MAX_ENV_VALUE_UNITS)).is_ok());
+        assert!(check_command_size(&"x".repeat(MAX_ENV_VALUE_UNITS + 1)).is_err());
+        // Two bytes but one UTF-16 unit each: within the limit at 64 KiB.
+        assert!(check_command_size(&"\u{e9}".repeat(MAX_ENV_VALUE_UNITS)).is_ok());
+        // Four bytes and two units each.
+        assert!(check_command_size(&"\u{1F600}".repeat(MAX_ENV_VALUE_UNITS / 2)).is_ok());
+        let over = check_command_size(&"\u{1F600}".repeat(MAX_ENV_VALUE_UNITS / 2 + 1));
+        assert_eq!(over.unwrap_err().exit_code(), exit::USAGE);
+    }
+
+    #[test]
+    fn the_pull_script_is_measured_as_it_is_sent() {
+        // One path of `len` safe characters, named twice: the longest that
+        // fits leaves the command at the limit (or one under, since every
+        // path adds an even count), and one character more is over it. The
+        // command is the fenced script, as `pull_archive` sends it.
+        let paths = |len: usize| vec!["a".repeat(len)];
+        let sent = |paths: &[String]| api_length(&pull_command(paths));
+        let bare =
+            |paths: &[String]| api_length(&pull_pack_script(paths, PULL_ARCHIVE, MAX_PULL_BYTES));
+        let one = sent(&paths(1));
+        assert_eq!(sent(&paths(2)), one + 2);
+        let at = 1 + (MAX_EXEC_COMMAND_UNITS - one) / 2;
+        assert!(sent(&paths(at)) >= MAX_EXEC_COMMAND_UNITS - 1);
+        assert!(sent(&paths(at)) <= MAX_EXEC_COMMAND_UNITS);
+        assert!(check_pull_size(&paths(at)).is_ok());
+        assert!(sent(&paths(at + 1)) > MAX_EXEC_COMMAND_UNITS);
+        let over = check_pull_size(&paths(at + 1)).unwrap_err();
+        assert_eq!(over.exit_code(), exit::USAGE);
+        assert!(over.message().contains("--pull"), "{}", over.message());
+        // The fence counts: this list's bare script would fit, the command
+        // that is sent does not.
+        assert!(bare(&paths(at + 1)) < MAX_EXEC_COMMAND_UNITS);
+        // A quote is escaped again by the fence's quoting, and measured so.
+        let quoted = vec!["it's".to_owned()];
+        assert!(sent(&quoted) > bare(&quoted) + sent(&paths(4)) - bare(&paths(4)));
     }
 
     #[test]
@@ -1838,6 +2005,97 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[test]
+    fn a_file_that_grows_after_the_size_sum_is_refused() {
+        let dir =
+            std::env::temp_dir().join(format!("cmux-vm-run-sync-grows-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let limit = 1024 * 1024;
+        std::fs::write(dir.join("grows.bin"), b"x").unwrap();
+        let grown = dir.join("grows.bin");
+        let error = archive_within_then(&dir, MAX_SYNC_BYTES, limit, || {
+            std::fs::write(&grown, vec![1_u8; limit as usize + 1]).unwrap();
+        })
+        .unwrap_err();
+        assert!(error.message().contains("unpack"), "{}", error.message());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_sparse_file_bsdtar_packs_is_counted_at_its_full_size() {
+        // bsdtar (macOS's tar) stores holes as a map, so its stream is tiny
+        // while the guest writes the file out in full. `pack` is called
+        // directly, as if the file turned sparse after the size sum. On
+        // macOS bsdtar is `tar` itself.
+        let Some(program) = ["tar", "bsdtar"].into_iter().find(|program| {
+            std::process::Command::new(program)
+                .arg("--version")
+                .output()
+                .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains("bsdtar"))
+        }) else {
+            eprintln!("skipped: no bsdtar on this host");
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-vm-run-sync-bsdtar-sparse-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = std::fs::File::create(dir.join("sparse.img")).unwrap();
+        file.set_len(256 * 1024 * 1024).unwrap();
+        drop(file);
+        let files = vec![PathBuf::from("sparse.img")];
+        let error = pack_with(program, &dir, &files, MAX_SYNC_BYTES, 1024 * 1024).unwrap_err();
+        assert!(error.message().contains("unpack"), "{}", error.message());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tar_runs_with_none_of_the_callers_tar_options() {
+        // `TAR_OPTIONS=--sparse` would let GNU tar shrink a hole past the
+        // stream count; bsdtar reads the other two.
+        let command = tar_command("tar");
+        for name in ["TAR_OPTIONS", "TAR_READER_OPTIONS", "TAR_WRITER_OPTIONS"] {
+            assert!(
+                command
+                    .get_envs()
+                    .any(|(key, value)| key == name && value.is_none()),
+                "{name} is passed through"
+            );
+        }
+    }
+
+    #[test]
+    fn only_bsdtar_is_told_to_write_holes_out() {
+        assert_eq!(
+            dense_args("bsdtar 3.5.3 - libarchive 3.5.3 zlib/1.2.12 liblzma/5.0.5 bz2lib/1.0.8"),
+            ["--no-read-sparse"]
+        );
+        assert!(dense_args("tar (GNU tar) 1.35\nCopyright (C) 2023").is_empty());
+    }
+
+    #[test]
+    fn a_read_error_from_tar_is_not_the_end_of_the_stream() {
+        struct Fails(bool);
+        impl std::io::Read for Fails {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                if std::mem::replace(&mut self.0, true) {
+                    return Err(std::io::Error::other("pipe read failed"));
+                }
+                buffer[..4].copy_from_slice(b"tar!");
+                Ok(4)
+            }
+        }
+        let mut sink = Vec::new();
+        assert!(pump(&mut Fails(false), &mut sink, 1024).is_err());
+        assert_eq!(sink, b"tar!");
+        let mut sink = Vec::new();
+        assert!(!pump(&mut &b"tar!"[..], &mut sink, 1024).unwrap());
+        assert!(pump(&mut &b"tar!"[..], &mut Vec::new(), 3).unwrap());
+    }
+
     // GNU stat, as on the guest.
     #[cfg(target_os = "linux")]
     #[test]
@@ -1852,10 +2110,11 @@ mod tests {
         let archive = archive.to_str().unwrap();
         let run = |paths: &[&str], limit: u64| {
             let paths: Vec<String> = paths.iter().map(|p| (*p).to_owned()).collect();
-            let script = pull_pack_script(work.to_str().unwrap(), &paths, archive, limit);
+            let script = pull_pack_script(&paths, archive, limit);
             let out = std::process::Command::new("sh")
                 .arg("-c")
                 .arg(&script)
+                .env(WORKDIR_ENV, &work)
                 .output()
                 .unwrap();
             String::from_utf8(out.stdout).unwrap().trim().to_owned()
@@ -1970,11 +2229,11 @@ mod tests {
         let archive = base.join("pull.tgz");
         let archive = archive.to_str().unwrap();
         let run = |path: &str| {
-            let script =
-                pull_pack_script(work.to_str().unwrap(), &[path.to_owned()], archive, 1 << 20);
+            let script = pull_pack_script(&[path.to_owned()], archive, 1 << 20);
             let out = std::process::Command::new("sh")
                 .arg("-c")
                 .arg(&script)
+                .env(WORKDIR_ENV, &work)
                 .output()
                 .unwrap();
             let ok = out.status.success()

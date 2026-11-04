@@ -48,3 +48,28 @@ async fn another_agents_first_message_titles_the_chat_by_its_words() {
     let m = prompted("Fix the sidebar spinner", "acpmux-cli#7", None).await;
     assert_eq!(m.title.as_deref(), Some("Fix the sidebar spinner"));
 }
+
+/// The sidebar hover card's History lists what was asked, not acpmux's notices (Leo
+/// 2026-11-01: "the details aren't even very useful"): an inbox notice and a digest are notices;
+/// another agent's message and the person's prompt are not.
+#[test]
+fn inbox_notices_and_digests_are_notices_and_messages_are_not() {
+    use super::prompt_line::is_notice;
+    assert!(is_notice(Some(&json!({"kind": super::inbox::NOTICE_KIND}))));
+    assert!(is_notice(Some(&json!({"kind": super::digest::DIGEST_KIND}))));
+    assert!(is_notice(Some(&json!({"kind": super::digest::inbox_digest::KIND}))));
+    assert!(!is_notice(Some(&json!({"kind": "session_message", "fromName": "coord"}))));
+    assert!(!is_notice(None), "the person's own prompt");
+}
+
+/// A tool's notice (`prompt_provenance::notice`) leaves its sender and title on the summary, not
+/// the `[notice from …]` line its agent got.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_tools_notice_reads_as_its_sender_and_title() {
+    let notice =
+        json!({"sender": "base-red-watch", "severity": "fire", "title": "fast tier failed"});
+    let text = crate::prompt_provenance::notice_text(&notice, "3 PRs red");
+    let p = crate::prompt_provenance::notice(&notice, "s2");
+    let m = prompted(&text, "test", Some(p)).await;
+    assert_eq!(m.last_prompt.as_deref(), Some("base-red-watch: fast tier failed"));
+}

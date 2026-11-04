@@ -2,9 +2,11 @@ import CoreGraphics
 @testable import CmuxNextTabs
 import Testing
 
-/// Regression for HQ #4743: closable pinned and crowded tabs expose a visible
-/// close target on hover. The unhovered icon keeps its original center;
-/// TabCell uses centersContent to put the replacement close glyph there.
+/// Regression for HQ #4743: crowded tabs expose a visible close target on
+/// hover. The unhovered icon keeps its original center; TabCell uses
+/// centersContent to put the replacement close glyph there. A pinned tab no
+/// longer does: it keeps its icon and closes from its right-click menu
+/// (Lawrence msg 19392).
 @MainActor @Suite(.serialized) struct TabHoverCloseVisibilityTests {
     // Fixed narrow fixture: the app's scroll-overflow setting can otherwise
     // raise the minimum inactive width to the normal icon+close width.
@@ -14,17 +16,19 @@ import Testing
         return values
     }()
 
-    @Test func pinnedTabsSwapTheirIconForTheCloseOnHover() {
+    @Test func pinnedTabsKeepTheirIconAndShowNoCloseOnHover() {
         for style in [TabStripStyle.chrome, .compact] {
-            let normal = TabChromeVisibility.resolve(
-                width: 48, isPinned: true, isSelected: false, isHovered: false,
-                isClosable: true, style: style, metrics: metrics)
-            let hovered = TabChromeVisibility.resolve(
-                width: 48, isPinned: true, isSelected: false, isHovered: true,
-                isClosable: true, style: style, metrics: metrics)
-            #expect(normal.showsIcon && !normal.showsClose)
-            #expect(hovered.showsClose && !hovered.showsIcon && !hovered.showsTitle)
-            #expect(hovered.centersContent)
+            for selected in [false, true] {
+                let normal = TabChromeVisibility.resolve(
+                    width: 48, isPinned: true, isSelected: selected, isHovered: false,
+                    isClosable: true, style: style, metrics: metrics)
+                let hovered = TabChromeVisibility.resolve(
+                    width: 48, isPinned: true, isSelected: selected, isHovered: true,
+                    isClosable: true, style: style, metrics: metrics)
+                #expect(normal.showsIcon && !normal.showsClose)
+                #expect(hovered.showsIcon && !hovered.showsClose && !hovered.showsTitle)
+                #expect(hovered.centersContent)
+            }
         }
     }
 
@@ -82,12 +86,12 @@ import Testing
     }
 
     @Test func accessibilityAndPaintShareTheSameCenteredCloseOrigin() {
+        // A hovered pinned tab draws no x, so neither paint nor accessibility has an origin for it.
         let pinned = TabChromeVisibility.resolve(
             width: 48, isPinned: true, isSelected: false, isHovered: true,
             style: .chrome, metrics: metrics)
         let pinnedPill = metrics.pillFrame(slotWidth: 48, height: metrics.tabHeight)
-        #expect(pinned.closeButtonOriginX(pillWidth: pinnedPill.width, metrics: metrics)
-                == (pinnedPill.width - metrics.closeButtonSize) / 2)
+        #expect(pinned.closeButtonOriginX(pillWidth: pinnedPill.width, metrics: metrics) == nil)
 
         let narrowWidth = min(metrics.minInactiveTabWidth, metrics.chrome.minInactiveWidth)
         let narrow = TabChromeVisibility.resolve(

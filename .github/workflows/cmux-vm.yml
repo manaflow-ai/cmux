@@ -32,7 +32,8 @@
 # CMUX_VM_SMOKE_SERVICE_TEAM it also smokes the service principal (cx-b4h.13);
 # the staging Worker then needs that key's hash in the environment secret
 # CMUX_VM_SERVICE_KEYS, which deploy-staging installs when it is set, with the
-# entries of the optional secret CMUX_VM_SERVICE_KEYS_EXTRA appended.
+# entries of the optional secrets CMUX_VM_SERVICE_KEYS_EXTRA and
+# CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM appended.
 #
 # Production: workflow_dispatch action deploy-production from feat-cmux-next runs
 # check, deploy-staging and smoke-staging, then deploy-production and
@@ -56,6 +57,19 @@
 #   hyperdrive-ensure     create or update the Hyperdrive config named after
 #                         the chosen environment from its CMUX_VM_DATABASE_URL
 #   deploy-staging        deploy the dispatched ref to staging, then smoke it
+#   migrate-production    apply the landed cmux_vm migrations to cmux-prod main (job
+#                         migrate-production, feat-cmux-next only, environment
+#                         cmux-vm-production). Fails closed until the environment holds
+#                         PLANETSCALE_SERVICE_TOKEN_ID and PLANETSCALE_SERVICE_TOKEN.
+#                         dry_run (default true) only inspects (roles, cmux_vm owners,
+#                         tracking table) and runs db-release.ts plan and rehearse on a
+#                         throwaway branch copy; dry_run=false makes sure the PlanetScale
+#                         role cmux-vm-owner owns cmux_vm, adopts 0001-0009 when untracked,
+#                         and runs db-release.ts apply (it rehearses again, then runs the
+#                         cmux-old compat gate, which also needs VERCEL_TOKEN and
+#                         CMUX_UITEST_STACK_EMAIL/_PASSWORD). Only schema cmux_vm changes;
+#                         scripts/cmux-next/release/prod-owner.ts, release-rails.md
+#                         "Production migrations from CI".
 
 name: cmux VM
 
@@ -86,7 +100,7 @@ on:
       action:
         description: Manual action
         type: choice
-        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production]
+        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production, migrate-production]
         default: cloudflare-preflight
       environment:
         description: Environment for hyperdrive-ensure
@@ -97,6 +111,10 @@ on:
         description: deploy-production only, the Worker's first production deploy (no version to roll back to)
         type: boolean
         default: false
+      dry_run:
+        description: migrate-production only, inspect, plan and rehearse; change nothing on production (false applies)
+        type: boolean
+        default: true
 
 concurrency:
   # A label event for any other label gets a group of its own, so it never
@@ -111,7 +129,7 @@ jobs:
   check:
     # A label event re-runs it only for cmux-vm-breaking-change-ok.
     if: (github.event_name != 'workflow_dispatch' || inputs.action == 'deploy-staging' || inputs.action == 'deploy-production') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 15
     defaults:
       run:
@@ -187,6 +205,9 @@ jobs:
       - name: Pending history discovers slots from the previous writer
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun scripts/test-pending-history-compat.ts
+      - name: Service key scope grants merge only declared, known scopes
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun scripts/test-key-grants.ts
       - name: Store tests on PGlite against the migration
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test:pg
@@ -213,7 +234,7 @@ jobs:
     environment: cloudflare-ops
     name: cloudflare preflight
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'cloudflare-preflight'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     steps:
       - name: Read-only Cloudflare API checks
@@ -254,7 +275,7 @@ jobs:
   hyperdrive-ensure:
     name: hyperdrive ensure
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'hyperdrive-ensure' && contains(fromJSON('["cmux-vm-staging","cmux-vm-preview"]'), inputs.environment)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     environment: ${{ inputs.environment }}
     concurrency:
@@ -281,7 +302,7 @@ jobs:
   deploy-preview:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feat-cmux-vm-')
     needs: check
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     environment: cmux-vm-preview
     concurrency:
@@ -335,7 +356,7 @@ jobs:
       (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')) ||
       (github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy-staging' || inputs.action == 'deploy-production'))
     needs: check
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 25
     environment: cmux-vm-staging
     concurrency:
@@ -406,6 +427,8 @@ jobs:
           CMUX_VM_SERVICE_KEYS: ${{ secrets.CMUX_VM_SERVICE_KEYS }}
           # Optional: more entries appended to CMUX_VM_SERVICE_KEYS (deploy.sh), so a key is added without rewriting it.
           CMUX_VM_SERVICE_KEYS_EXTRA: ${{ secrets.CMUX_VM_SERVICE_KEYS_EXTRA }}
+          # Optional: cmux-platform's Cloud driver key entry, appended the same way (deploy.sh).
+          CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM: ${{ secrets.CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM }}
         run: bash scripts/deploy.sh
       # Runs whenever the deploy step started, also when it failed half way (deploy.sh deploys, then
       # sets secrets: a failed `secret bulk` leaves a version that answers 503 "not configured"), and
@@ -447,7 +470,7 @@ jobs:
       (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')) ||
       (github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy-staging' || inputs.action == 'deploy-production'))
     needs: deploy-staging
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     environment: cmux-vm-staging
     concurrency:
@@ -508,7 +531,7 @@ jobs:
     # feat-cmux-next. cmux-old never calls vm.cmux.dev; the schema is applied by the release rails first.
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production' && github.ref == 'refs/heads/feat-cmux-next'
     needs: smoke-staging
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 25
     environment: cmux-vm-production
     concurrency:
@@ -579,6 +602,8 @@ jobs:
           CMUX_VM_SERVICE_KEYS: ${{ secrets.CMUX_VM_SERVICE_KEYS }}
           # Optional: more entries appended to CMUX_VM_SERVICE_KEYS (deploy.sh), so a key is added without rewriting it.
           CMUX_VM_SERVICE_KEYS_EXTRA: ${{ secrets.CMUX_VM_SERVICE_KEYS_EXTRA }}
+          # Optional: cmux-platform's Cloud driver key entry, appended the same way (deploy.sh).
+          CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM: ${{ secrets.CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM }}
         run: bash scripts/deploy.sh
       # Runs whenever the deploy step started, also when it failed half way (deploy.sh deploys, then
       # sets secrets: a failed `secret bulk` leaves a version that answers 503 "not configured"), and
@@ -619,7 +644,7 @@ jobs:
       !cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' &&
       (inputs.action == 'smoke-production' || (inputs.action == 'deploy-production' && needs.deploy-production.result == 'success'))
     needs: deploy-production
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     environment: cmux-vm-production
     concurrency:
@@ -684,3 +709,125 @@ jobs:
           CMUX_VM_SMOKE_SERVICE_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY }}
           CMUX_VM_SMOKE_SERVICE_TEAM: ${{ vars.CMUX_VM_SMOKE_SERVICE_TEAM }}
         run: bun scripts/smoke.ts
+
+  migrate-production:
+    # Production cmux_vm migrations (release-rails.md, "Production migrations from CI"): dispatch only, from
+    # feat-cmux-next, in cmux-vm-production. Shares deploy-production's concurrency group, so a migration and a
+    # deploy never overlap. Changes only schema cmux_vm of cmux-prod main and the PlanetScale role cmux-vm-owner.
+    name: migrate production (cmux_vm)
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'migrate-production' && github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # A rehearsal restores a branch copy (up to 20 min) and an apply rehearses again, plus the PITR wait.
+    timeout-minutes: 90
+    environment: cmux-vm-production
+    concurrency:
+      group: cmux-vm-deploy-production
+      cancel-in-progress: false
+    steps:
+      # Fail closed: without the PlanetScale service token nothing runs (no checkout, no install, no read).
+      - name: Required secrets
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          HAS_PSCALE_ID: ${{ secrets.PLANETSCALE_SERVICE_TOKEN_ID != '' }}
+          HAS_PSCALE_TOKEN: ${{ secrets.PLANETSCALE_SERVICE_TOKEN != '' }}
+          HAS_DB: ${{ secrets.CMUX_VM_DATABASE_URL != '' }}
+          HAS_VERCEL: ${{ secrets.VERCEL_TOKEN != '' }}
+          HAS_STACK_EMAIL: ${{ secrets.CMUX_UITEST_STACK_EMAIL != '' }}
+          HAS_STACK_PASSWORD: ${{ secrets.CMUX_UITEST_STACK_PASSWORD != '' }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ "$HAS_PSCALE_ID" = true ] || missing+=(PLANETSCALE_SERVICE_TOKEN_ID)
+          [ "$HAS_PSCALE_TOKEN" = true ] || missing+=(PLANETSCALE_SERVICE_TOKEN)
+          [ "$HAS_DB" = true ] || missing+=(CMUX_VM_DATABASE_URL)
+          if [ "$DRY_RUN" != true ]; then
+            # The apply's cmux-old compat gate (compat.ts): the web revision compare and the signed-in replay.
+            [ "$HAS_VERCEL" = true ] || missing+=(VERCEL_TOKEN)
+            [ "$HAS_STACK_EMAIL" = true ] || missing+=(CMUX_UITEST_STACK_EMAIL)
+            [ "$HAS_STACK_PASSWORD" = true ] || missing+=(CMUX_UITEST_STACK_PASSWORD)
+          fi
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error title=migrate-production::cmux-vm-production lacks ${missing[*]}; nothing ran (PLANETSCALE_SERVICE_TOKEN_ID and PLANETSCALE_SERVICE_TOKEN are a PlanetScale service token of org cmux with access to cmux-prod)"
+            exit 1
+          fi
+          echo "mode: $([ "$DRY_RUN" = true ] && echo 'dry run (inspect, plan, rehearse)' || echo 'APPLY to cmux-prod main, schema cmux_vm')"
+      # Full history without blobs: the apply checks HEAD is on origin/feat-cmux-next and the compat gate
+      # compares release tags and web revisions by ancestry.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - name: Install the release rails
+        working-directory: scripts/cmux-next/release
+        run: bun install --frozen-lockfile
+      - name: Install pscale 0.349.0 (checksum pinned)
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64) arch=amd64; sum=139dc952ccdd21e68b3e70c20f48f9adb3559ee62f6fdcd6d42ddf9b086825f7 ;;
+            aarch64|arm64) arch=arm64; sum=c319e1f1c6699e0fc1ec455329be241c0c555ef244b0edb0f90751eb5cc13f09 ;;
+            *) echo "::error::no pinned pscale for $(uname -m)"; exit 1 ;;
+          esac
+          dir="$RUNNER_TEMP/pscale"
+          mkdir -p "$dir"
+          tarball="$dir/pscale.tar.gz"
+          curl -fsSL --retry 3 -o "$tarball" "https://github.com/planetscale/cli/releases/download/v0.349.0/pscale_0.349.0_linux_${arch}.tar.gz"
+          echo "$sum  $tarball" | sha256sum -c -
+          tar -xzf "$tarball" -C "$dir" pscale
+          "$dir/pscale" version
+          echo "PSCALE_BIN=$dir/pscale" >> "$GITHUB_ENV"
+      - name: Install the Vercel CLI 58.8.0 (compat gate's web revision compare)
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund --prefix "$RUNNER_TEMP/vercel" vercel@58.8.0
+          echo "VERCEL_BIN_DIR=$RUNNER_TEMP/vercel/node_modules/.bin" >> "$GITHUB_ENV"
+      # Production steps run with only the variables they need (release-rails.md, "Hardening 1"): every other
+      # exported variable is unset in the subshell first, so nothing else reaches the rails or a child.
+      - name: ${{ inputs.dry_run && 'Inspect, plan and rehearse (dry run; production unchanged)' || 'Inspect, owner, adopt and apply (production)' }}
+        working-directory: scripts/cmux-next/release
+        env:
+          MODE: ${{ inputs.dry_run && 'dry-run' || 'migrate' }}
+          PLANETSCALE_SERVICE_TOKEN_ID: ${{ secrets.PLANETSCALE_SERVICE_TOKEN_ID }}
+          PLANETSCALE_SERVICE_TOKEN: ${{ secrets.PLANETSCALE_SERVICE_TOKEN }}
+          CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
+          CMUX_RELEASE_RECEIPTS_DIR: ${{ runner.temp }}/receipts
+          # The apply's compat gate only: the newest release (gh, read-only), the web revisions and the replay login.
+          GH_TOKEN: ${{ !inputs.dry_run && github.token || '' }}
+          VERCEL_TOKEN: ${{ !inputs.dry_run && secrets.VERCEL_TOKEN || '' }}
+          CMUX_UITEST_STACK_EMAIL: ${{ !inputs.dry_run && secrets.CMUX_UITEST_STACK_EMAIL || '' }}
+          CMUX_UITEST_STACK_PASSWORD: ${{ !inputs.dry_run && secrets.CMUX_UITEST_STACK_PASSWORD || '' }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$CMUX_RELEASE_RECEIPTS_DIR"
+          # Shell (unexported) copies: the cleanup below unsets every exported variable not in `keep`.
+          mode="$MODE"
+          tools="$(dirname "$PSCALE_BIN"):$(dirname "$(command -v bun)"):$(dirname "$(command -v node)")${VERCEL_BIN_DIR:+:$VERCEL_BIN_DIR}"
+          keep=" PLANETSCALE_SERVICE_TOKEN_ID PLANETSCALE_SERVICE_TOKEN CMUX_VM_DATABASE_URL CMUX_RELEASE_RECEIPTS_DIR PSCALE_BIN HOME GITHUB_ACTIONS GITHUB_RUN_ID GITHUB_RUN_ATTEMPT GITHUB_SHA "
+          if [ "$mode" = migrate ]; then keep="$keep GH_TOKEN VERCEL_TOKEN CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD "; fi
+          (
+            for v in $(compgen -e); do
+              case "$keep" in *" $v "*) ;; *) unset "$v" 2>/dev/null || true ;; esac
+            done
+            export PATH="$tools:/usr/local/bin:/usr/bin:/bin"
+            exec bun prod-owner.ts "$mode"
+          )
+      - name: Upload the release receipts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-vm-migrate-production-receipts
+          path: ${{ runner.temp }}/receipts
+          if-no-files-found: ignore
+          retention-days: 90

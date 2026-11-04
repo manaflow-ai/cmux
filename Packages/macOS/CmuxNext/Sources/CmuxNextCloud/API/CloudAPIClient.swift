@@ -18,6 +18,9 @@ public struct CloudAPIClient: Sendable {
     let appVersion: String
     /// `/api/vm`, or the Worker's (CloudAPIClient+MachineRoutes.swift, which says what each sends).
     let machinePath: String, sendsStackSession: Bool
+    /// A Worker machines client's exec and file routes through cmux-tui (direct to the provider
+    /// with a client session); nil: straight to the cmux API (CloudAPIClient+MachineRoutes.swift).
+    var machineIO: CloudMachineIO?
 
     /// Requests that carry the account's bearer token: ephemeral, no URL
     /// cache, no cookies, so no answer (or the request headers stored with
@@ -148,9 +151,14 @@ public struct CloudAPIClient: Sendable {
         try await send("GET", "/api/vm/\(id)/stats", as: CloudMachineStats.self)
     }
 
-    /// `POST /api/vm/{id}/resize`: cpu 1-32, memory 4096-65536 MiB in whole GiB.
-    public func resize(_ id: String, cpu: Int, memoryMb: Int) async throws {
-        _ = try await send("POST", "/api/vm/\(id)/resize", body: ["cpu": cpu, "memoryMb": memoryMb], timeout: .seconds(120), as: Ignored.self)
+    /// `POST /api/vm/{id}/resize`: cpu 1-32, memory 4096-65536 MiB in whole GiB, storage in 4 GiB
+    /// steps up to 256 GiB (grow-only). Only the given dimensions are sent; the server checks them.
+    public func resize(_ id: String, cpu: Int? = nil, memoryMb: Int? = nil, storageMb: Int? = nil) async throws {
+        var body: [String: any Sendable] = [:]
+        if let cpu { body["cpu"] = cpu }
+        if let memoryMb { body["memoryMb"] = memoryMb }
+        if let storageMb { body["storageMb"] = storageMb }
+        _ = try await send("POST", "/api/vm/\(id)/resize", body: body, timeout: .seconds(120), as: Ignored.self)
     }
 
     public func snapshot(_ id: String, name: String?, idempotencyKey: String = UUID().uuidString) async throws -> CloudSnapshot {
@@ -525,6 +533,12 @@ nonisolated final class SandboxDeadline<T: Sendable>: Sendable {
     private let state = Mutex(State())
 
     static func race(_ bound: Duration, _ work: @escaping @Sendable () async throws -> T) async throws -> T {
+        try await race(bound, timeout: { CloudAPIError.timedOut("/api/runs") }, work)
+    }
+
+    /// ``race(_:_:)`` with the error the bound throws (`timeout`): a Cloud link step names itself.
+    static func race(_ bound: Duration, timeout: @escaping @Sendable () -> any Error,
+                     _ work: @escaping @Sendable () async throws -> T) async throws -> T {
         let gate = SandboxDeadline<T>()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -540,7 +554,7 @@ nonisolated final class SandboxDeadline<T: Sendable>: Sendable {
                 let timer = Task {
                     // wakeup-allow: one-shot deadline for a sandbox run (stops at the bound or the answer)
                     try? await Task.sleep(for: bound)
-                    gate.finish(.failure(CloudAPIError.timedOut("/api/runs")))
+                    gate.finish(.failure(timeout()))
                 }
                 gate.onFinish { job.cancel(); timer.cancel() }
             }

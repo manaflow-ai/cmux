@@ -197,22 +197,42 @@ struct AddMachineCandidateList: View {
     }
 }
 
-/// The steps of a run, each with its glyph, its detail and, when it has one, its fix. The failed
-/// step stays open with its whole detail and fix; the others keep to one line.
+/// The steps of a run. While it goes well the card shows one progress line ("Step 3 of 9: Start the
+/// daemon") with Show Details; a step that failed or warned opens the whole list, each step with its glyph,
+/// its detail and, when it has one, its fix (user 2026-10-31, Chief msg 19277: "unintuitive to use").
+/// The failed step stays open with its whole detail and fix; the others keep to one line.
 struct AddMachineChecklistView: View {
     let model: AddMachineModel
     @Environment(\.serverColors) private var colors
+    @State private var showsDetails = false
 
     var body: some View {
         let failing = model.checklist.failing?.step
+        let open = showsDetails || model.checklist.needsPerson
         VStack(alignment: .leading, spacing: Metrics.space3) {
-            ForEach(model.checklist.rows) { row in
-                rowView(row, open: row.step == failing)
+            if !model.checklist.needsPerson { progress(open: open) }
+            if open {
+                ForEach(model.checklist.rows) { row in
+                    rowView(row, open: row.step == failing)
+                }
             }
         }
         .padding(Metrics.space4)
         .frame(maxWidth: .infinity, alignment: .leading)
         .card()
+    }
+
+    private func progress(open: Bool) -> some View {
+        let summary = model.checklist.summary
+        return VStack(alignment: .leading, spacing: Metrics.space2) {
+            HStack(spacing: Metrics.space3) {
+                Text(AddMachineStrings.progress(summary)).font(Font(Typography.body)).foregroundStyle(colors.primary).lineLimit(1)
+                Spacer(minLength: Metrics.space2)
+                Button(open ? AddMachineStrings.hideDetails : AddMachineStrings.showDetails) { showsDetails.toggle() }
+                    .buttonStyle(.plain).font(Font(Typography.caption)).foregroundStyle(colors.secondary)
+            }
+            ProgressView(value: Double(summary.done), total: Double(max(summary.total, 1))).progressViewStyle(.linear)
+        }
     }
 
     private func rowView(_ row: HostChecklist.Row, open: Bool) -> some View {

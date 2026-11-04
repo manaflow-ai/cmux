@@ -40,6 +40,7 @@ function agentOf(node: Subagent, agent: FoldAgent): WorkflowAgent {
     agentId: agent.agentId,
     doing: agent.action,
     lastMessage: agent.lastMessage ?? agent.result,
+    error: agent.error,
     tokens: agent.tokens,
     lastProgressAt: agent.lastProgressAt,
     progressVersion: node.progressVersion,

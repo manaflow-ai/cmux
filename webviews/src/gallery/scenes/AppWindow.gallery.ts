@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixtures (sample chats, prompts and replies), not shipped UI.
-// The app, whole: the real agent pane (acpmux/main.tsx, AcpmuxApp) at the size it has in a real
+// The app, whole: the real agent pane (acpmux/mount.tsx, AcpmuxApp) at the size it has in a real
 // cmux window (the default window frame, window.ts), in the states a person reaches by using it.
 // Leo, 2026-10-30: "we should have a faithful all-levle representation of the app through that
 // stuff" and "WE DONT NEED FUCKIGN SCREENSHOTS JUST LET ME TRY THE SHIT OUT". Each variant is a
@@ -127,7 +127,7 @@ const transcriptWithContext = {
   },
 };
 
-/// The app offers Session Info (Debug Settings `agent.inspector`, on by default).
+/// The app offers Session Info (Debug Settings `agent.sessionInfo`, on by default).
 const native = { "pane.tabState": { inspector: true } };
 
 const MODEL_BUTTON = { selector: ".acpmux-model .acpmux-picker-button" };
@@ -167,7 +167,7 @@ async function openEffortLevels(ctx: PlayContext) {
 /// Session Info open beside the chat: it opens by default for a first chat; if this pane has it
 /// closed, the header's toggle opens it, as a person would.
 async function showSessionInfo(ctx: PlayContext) {
-  const shown = () => ctx.document.querySelector(".acpmux-chat-inspector[data-presence=shown]");
+  const shown = () => ctx.document.querySelector(".acpmux-session-info[data-presence=shown]");
   await ctx.waitFor(() => shown() ?? ctx.document.querySelector('[aria-label="Session Info"]'), { capMs: 5000 });
   if (!shown()) await ctx.click({ role: "button", name: "Session Info" });
   await ctx.waitFor(shown, { capMs: 5000 });
@@ -188,8 +188,8 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/App.tsx#AcpmuxApp",
     "agent-session/acpmux/newtab/NewTabScreen.tsx#NewTabScreen",
-    "agent-session/acpmux/inspector/ChatInspector.tsx#ChatInspector",
-    "agent-session/acpmux/inspector/ChatInspector.tsx#InspectorPanel",
+    "agent-session/acpmux/session-info/SessionInfo.tsx#SessionInfo",
+    "agent-session/acpmux/session-info/SessionInfo.tsx#SessionInfoPanel",
     "agent-session/acpmux/QuickModelMenu.tsx#QuickModelMenu",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
@@ -233,7 +233,7 @@ export default agentPaneEntry({
       },
     },
     "environment-picker": {
-      note: "Play: in a new chat, click the computer control under the composer; the picker lists this Mac, the person's machines and Cloud.",
+      note: "Play: in a new chat, click the environment control under the composer; the picker lists This Mac and Cloud (the machines are its right-click menu's Machines…).",
       ready: { newSession: true, cwd: CWD },
       snapshot: newChat,
       play: async (ctx) => {

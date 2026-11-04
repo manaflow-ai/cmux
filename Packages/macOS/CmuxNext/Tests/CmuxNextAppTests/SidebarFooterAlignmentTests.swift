@@ -80,13 +80,14 @@ import Testing
 
         // The avatar is the sidebar's icon box (16 pt at compact), as before #23757 (Lawrence
         // 2026-10-21: "bottom footer thing too big, revert to old icon sizes"), centered in its
-        // square. The Search button holds the row's right end, its inset mirroring the avatar's
-        // at the left (Lawrence 2026-10-27: "move the bottom-left search thing to the right side",
-        // f004cef0aa9), and never covers the avatar's square when the row is too narrow for both.
+        // square. The Search button holds the row's right end (Lawrence 2026-10-27: "move the bottom-left
+        // search thing to the right side", f004cef0aa9) on the list rows' trailing column, clear of the
+        // resize band (#27954: it no longer mirrors the avatar's inset), and never covers the avatar's
+        // square when the row is too narrow for both.
         #expect(abs(circle.width - SidebarStyle.iconBox) <= 0.25, "avatar \(circle) is not the icon box \(SidebarStyle.iconBox)")
         #expect(abs(circle.midX - chip.midX) <= 0.25, "avatar \(circle) off its square's center \(chip)")
-        let mirrored = h.sidebar.bounds.maxX - (chip.minX - h.sidebar.bounds.minX) - search.width
-        let searchX = max(chip.maxX, mirrored)
+        let column = SidebarStyle.trailingColumnFrame(sidebarWidth: h.sidebar.bounds.width, centerY: 0, side: search.width).minX
+        let searchX = max(chip.maxX, column)
         #expect(abs(search.minX - searchX) <= 0.5, "search \(search) not at the row's right end \(searchX) (avatar \(chip))")
         #expect(search.minX >= chip.maxX - 0.25, "search \(search) covers the avatar's square \(chip)")
 

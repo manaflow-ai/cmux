@@ -8,14 +8,15 @@ public struct AutomationsPageView: View {
     public struct Actions: Sendable {
         /// The header's New button; nil hides it (no create form yet).
         public var new: (@MainActor @Sendable () -> Void)?
-        public var runNow: @MainActor @Sendable (AutomationRow) -> Void
-        public var setEnabled: @MainActor @Sendable (AutomationRow, Bool) -> Void
-        public var edit: @MainActor @Sendable (AutomationRow) -> Void
+        /// Omit an operation until the hosting app supplies a real handler.
+        public var runNow: (@MainActor @Sendable (AutomationRow) -> Void)?
+        public var setEnabled: (@MainActor @Sendable (AutomationRow, Bool) -> Void)?
+        public var edit: (@MainActor @Sendable (AutomationRow) -> Void)?
 
         public init(new: (@MainActor @Sendable () -> Void)? = nil,
-                    runNow: @escaping @MainActor @Sendable (AutomationRow) -> Void = { _ in },
-                    setEnabled: @escaping @MainActor @Sendable (AutomationRow, Bool) -> Void = { _, _ in },
-                    edit: @escaping @MainActor @Sendable (AutomationRow) -> Void = { _ in }) {
+                    runNow: (@MainActor @Sendable (AutomationRow) -> Void)? = nil,
+                    setEnabled: (@MainActor @Sendable (AutomationRow, Bool) -> Void)? = nil,
+                    edit: (@MainActor @Sendable (AutomationRow) -> Void)? = nil) {
             self.new = new
             self.runNow = runNow
             self.setEnabled = setEnabled
@@ -115,12 +116,20 @@ public struct AutomationsPageView: View {
                     .padding(10).frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 8).fill(palette.card))
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.separator))
-                HStack(spacing: 6) {
-                    Button(strings.runNow) { actions.runNow(row) }.buttonStyle(.borderedProminent)
-                    Button(row.enabled ? strings.pause : strings.resume) { actions.setEnabled(row, !row.enabled) }
-                    Button(strings.edit) { actions.edit(row) }
+                if actions.runNow != nil || actions.setEnabled != nil || actions.edit != nil {
+                    HStack(spacing: 6) {
+                        if let runNow = actions.runNow {
+                            Button(strings.runNow) { runNow(row) }.buttonStyle(.borderedProminent)
+                        }
+                        if let setEnabled = actions.setEnabled {
+                            Button(row.enabled ? strings.pause : strings.resume) { setEnabled(row, !row.enabled) }
+                        }
+                        if let edit = actions.edit {
+                            Button(strings.edit) { edit(row) }
+                        }
+                    }
+                    .controlSize(.small)
                 }
-                .controlSize(.small)
                 Text(strings.history.uppercased()).font(palette.caption).foregroundStyle(palette.tertiary).padding(.top, 6)
                 if row.runs.isEmpty {
                     Text(strings.noRuns).font(palette.caption).foregroundStyle(palette.secondary)

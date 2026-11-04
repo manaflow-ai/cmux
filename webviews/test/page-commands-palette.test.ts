@@ -298,7 +298,7 @@ await requireBrowserLane("page-commands-palette.test.ts", async () => {
   test("Session Info's Subagents and Background tasks are offered while they have rows, and open there", async () => {
     const page = await busy.open({ width: 1200, height: 760 }, record);
     try {
-      // Without Session Info (Debug Settings `agent.inspector` off) there is no section to show.
+      // Without Session Info (Debug Settings `agent.sessionInfo` off) there is no section to show.
       await offers(page, "toggleFiles,toggleQueueing,toggleSideTabs");
       await page.evaluate(() =>
         (
@@ -311,8 +311,8 @@ await requireBrowserLane("page-commands-palette.test.ts", async () => {
           throw new Error(`offered ${String(last)}`, { cause: error });
         },
       );
-      // Each command reveals its section: scrolled to and lit for a moment (inspector.css `[data-revealed]`).
-      const shown = page.locator('aside.acpmux-chat-inspector[data-presence="shown"]');
+      // Each command reveals its section: scrolled to and lit for a moment (sessionInfo.css `[data-revealed]`).
+      const shown = page.locator('aside.acpmux-session-info[data-presence="shown"]');
       await page.evaluate(
         (session) => window.cmuxAcpmuxBridge!.command!(`header:showBackgroundTasks|${session}`),
         PAPERCUT_CHAT,

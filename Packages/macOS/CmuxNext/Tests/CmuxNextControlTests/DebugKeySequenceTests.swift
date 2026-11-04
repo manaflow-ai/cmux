@@ -49,6 +49,26 @@ import Testing
         #expect(events[4].flags.contains(.maskShift) && events[4].flags.contains(.maskCommand))
     }
 
+    /// macOS 27 (cmux18, 2026-10-31): a fresh probe event carries timestamp 0, so every sequence was refused
+    /// ("no event timestamp"). The start then comes from the host clock: mach ticks now, at the timebase's rate.
+    @Test func startFallsBackToTheHostClockWhenTheProbeHasNoTimestamp() throws {
+        // A probe with a timestamp: its own ticks and rate, as before.
+        let probed = try #require(DebugKeySequence.Stamp.start(probeTimestamp: 4_000_000_000, probeSeconds: 2.0,
+                                                              hostTicks: 99, timebaseNumer: 125, timebaseDenom: 3))
+        #expect(probed == DebugKeySequence.Stamp(base: 4_000_000_000, ticksPerSecond: 2e9))
+        // A probe with no timestamp (macOS 27): mach ticks now; 125/3 ns per tick is 24 MHz (Apple silicon).
+        let host = try #require(DebugKeySequence.Stamp.start(probeTimestamp: 0, probeSeconds: 0,
+                                                            hostTicks: 48_000_000, timebaseNumer: 125, timebaseDenom: 3))
+        #expect(host.base == 48_000_000)
+        #expect(abs(host.ticksPerSecond - 24_000_000) < 1e-3)
+        #expect(host.timestamp(at: .milliseconds(800)) == 48_000_000 + 19_200_000, "an 800 ms hold lands 0.8 s later")
+        // No usable clock at all: still refused.
+        #expect(DebugKeySequence.Stamp.start(probeTimestamp: 0, probeSeconds: nil, hostTicks: 0,
+                                            timebaseNumer: 1, timebaseDenom: 1) == nil)
+        #expect(DebugKeySequence.Stamp.start(probeTimestamp: 0, probeSeconds: 0, hostTicks: 10,
+                                            timebaseNumer: 0, timebaseDenom: 1) == nil)
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func playerPostsEveryStepInOrderAtItsOffset() async throws {
         let sequence = try #require(DebugKeySequence(steps))

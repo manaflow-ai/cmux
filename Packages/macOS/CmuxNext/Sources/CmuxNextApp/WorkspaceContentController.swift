@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAppCore
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
@@ -30,9 +31,10 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// room theme.
     let themeScope = ThemeScope(level: .workspace)
     unowned let services: AppServices
-    unowned let state: WindowState
+    let state: WindowState  // strong: queued content work can run after WindowController.teardown let the state go (#34062)
     private(set) var handles = LayoutHandleMap()
     private(set) var panes: [LayoutPaneID: PaneController] = [:]
+    private var retiredPanes: [LayoutPaneID: PaneController] = [:] // closed, kept for their teardown (retainContentView)
     private var observation: Task<Void, Never>?
     private var connectionObservation: Task<Void, Never>?
     private var attentionObservation: Task<Void, Never>?
@@ -47,7 +49,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// plans/cmux-next/focus.md). Every focus change in this content goes
     /// through it.
     let focus: FocusCoordinator
-    var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
+    var gestureTransactions = GestureTransactionNumbers()
     /// The last key-turn pane create (Cmd-D's split, New Column, New Row) still sending: the next one sends after
     /// it, so one pressed on its stand-in names the daemon's pane (`createInKeysTurn`, `PaneHandlers.split`).
     var pendingCreate: ActionWork?
@@ -138,6 +140,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         self.state = state
         focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
+        layoutModel.sendsNow = { [weak self] intent in self?.handles.sendsNow(intent) ?? false }
         _ = layoutView  // built here, then the bar and the content view, as before
         // A scroll the layout took is timed as the layout's (`key.scroll_frame target=layout`).
         layoutView.onScrollTaken = { [inputDispatch = services.inputDispatch] in inputDispatch.noteLayoutTookScroll() }
@@ -183,8 +186,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         settlingObservation?.cancel()
         canvasObservation?.cancel()
         screenBar.teardown()
-        for controller in panes.values { controller.teardown() }
-        panes.removeAll()
+        for controller in Array(panes.values) + retiredPanes.values { controller.teardown() }
+        (panes, retiredPanes) = ([:], [:])
         // A Home closed before its page came stops counting toward `.home`'s wait.
         services.launchReveal.release(contentView)
         contentView.removeFromSuperview()
@@ -251,6 +254,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         apply(LayoutMapping.shared.map(workspace), force: true, file, line) // after a command response that may trail its own delta
     }
 
+    /// Applies the store's layout when it changed since the last apply (a pane's strip observation calls it first).
+    func applyLayoutIfChanged() { apply(LayoutMapping.shared.map(workspace)) }
+
     private func apply(_ result: LayoutMapping.Result, force: Bool = false, _ file: StaticString = #fileID, _ line: UInt = #line) {
         // Commands translate through the current handles even when the tree is unchanged (the
         // daemon's echo of an optimistic split renumbers only the new pane): no apply then.
@@ -266,6 +272,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             if topologyMoved {
                 // The one topology of this change (adoptions inside sent none); the focus it lands
                 // rings in this frame.
+                syncStaleStrips()
                 sendTopology()
                 layoutView.syncWithModel()
             }
@@ -290,6 +297,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutView.syncWithModel()
         updateEmptyState()
         repairIfEmpty()
+        syncStaleStrips() // a moved tab is in its new pane only before the topology: focus follows it in this turn
         // The one topology of this apply (mounts and pane snapshots inside it sent none).
         isApplying = wasApplying
         sendTopology()
@@ -389,21 +397,13 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         sendTopology()
         // Settings… asked before any window had a pane waits for the first one (R82). It opens
         // its tab after this layout pass, never inside it.
-        if panes.count == 1, services.settingsWindow.isWaiting {
-            let settings = services.settingsWindow
-            Task { settings.windowDidShowContent() }
-        }
+        if panes.count == 1, services.settingsWindow.isWaiting { Task { [settings = services.settingsWindow] in settings.windowDidShowContent() } }
         // So does the App Store (S22: never a window of its own).
-        if panes.count == 1, services.apps.isStoreWaiting {
-            let apps = services.apps
-            Task { apps.windowDidShowContent() }
-        }
+        if panes.count == 1, services.apps.isStoreWaiting { Task { [apps = services.apps] in apps.windowDidShowContent() } }
         // So does a link from another app that waited for a workspace made to hold it (#27897):
-        // the workspace shows before its first pane mounts.
-        if panes.count == 1, !services.externalOpen.pending.isEmpty {
-            let open = services.externalOpen
-            Task { open.flush() }
-        }
+        // the workspace shows before its first pane mounts. And a Dock menu row picked with no window open.
+        if panes.count == 1, !services.externalOpen.pending.isEmpty { Task { [open = services.externalOpen] in open.flush() } }
+        if panes.count == 1, services.dockMenu.isWaiting { Task { [dockMenu = services.dockMenu] in dockMenu.windowDidShowContent() } }
         return controller.view
     }
 
@@ -414,7 +414,14 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     }
 
     func releaseContentView(_ view: NSView, for pane: LayoutPaneID) {
-        panes.removeValue(forKey: pane)?.teardown()
+        (panes.removeValue(forKey: pane) ?? retiredPanes.removeValue(forKey: pane))?.teardown()
+        services.paneMounts.changed()
+    }
+
+    /// A springing close hid `pane` until its motion lands: it leaves `panes` (what the window shows) in this update, so
+    /// no key, focus or lookup finds a closed pane; only its teardown waits. Taken back, it shows again.
+    func retainContentView(_ view: NSView, for pane: LayoutPaneID, retired: Bool) {
+        if retired { retiredPanes[pane] = panes.removeValue(forKey: pane) } else if let back = retiredPanes.removeValue(forKey: pane) { panes[pane] = back; sendTopology() }
         services.paneMounts.changed()
     }
 

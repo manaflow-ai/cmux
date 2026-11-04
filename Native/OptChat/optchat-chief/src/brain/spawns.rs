@@ -113,12 +113,13 @@ impl Brain {
             peers = vec![crate::subagents::PER_AGENT.to_owned()];
         }
         match place {
-            Some("local") => Ok(Vec::new()),
+            Some("here" | "local" | "mac") => Ok(Vec::new()),
             Some("cloud") if peers.is_empty() => Err(
                 "no cloud peer is set up: `control cloud PEER[,PEER...]` names the acpmux peers (`acpmux host ls`) cloud subagents run on".to_owned(),
             ),
             Some("cloud") => Ok(peers),
-            Some(other) => Err(format!("spawn: no place {other}; cloud or local")),
+            // Paired names are validated by the pure picker against acpmux.
+            Some(_) => Ok(peers),
             None if saved.as_deref() == Some("") => Ok(Vec::new()),
             None => Ok(peers),
         }
@@ -141,7 +142,11 @@ impl Brain {
     /// mid-turn (running, a tool, a prompt, a pending tell) is live, so its
     /// VM never pauses; the pool tool also refuses while a turn or a
     /// background process runs on the VM, and that pause is tried again.
+    /// Only with `cloud.autoPause` on (default off: no auto pause).
     pub(super) fn cloud_tick(&mut self) {
+        if !self.chief.cloud_auto_pause {
+            return;
+        }
         let Some(vms) = self.cloud_vms.clone() else {
             return;
         };
@@ -567,7 +572,11 @@ impl Brain {
     /// The host stops: each cloud VM with no live subagent pauses now, on
     /// this thread (the process exits next); one with a subagent mid-turn
     /// keeps running, and its report waits in acpmux for the next host.
+    /// Only with `cloud.autoPause` on (default off: no auto pause).
     pub(super) fn cloud_shutdown(&mut self) {
+        if !self.chief.cloud_auto_pause {
+            return;
+        }
         let Some(vms) = self.cloud_vms.clone() else {
             return;
         };
@@ -610,6 +619,8 @@ impl Brain {
         peers: &[String],
         place: Option<&str>,
         size: Option<&str>,
+        machines: &[crate::place_route::Machine],
+        family: crate::acpmux::Family,
     ) -> Result<SpawnPlan, String> {
         if let Some(s) = size
             && !crate::subagents::SIZES.contains(&s)
@@ -626,24 +637,55 @@ impl Brain {
         let mut free = self
             .live_cap()
             .map_or(usize::MAX, |n| n.saturating_sub(self.live_subs()));
+        use crate::place_route::{Kind, Machine, Placement, Target};
+        // Paused Cloud VMs are disconnected until the pool resumes them.
+        // Only discard a disconnected saved peer we have no way to resume.
+        let peers: Vec<String> = peers
+            .iter()
+            .filter(|peer| {
+                per_agent
+                    || self.cloud_paused.contains(*peer)
+                    || self.cloud_vms.as_ref().is_some_and(|vms| vms.available())
+                    || machines
+                        .iter()
+                        .find(|m| m.kind == Kind::Paired && m.name == **peer)
+                        .is_none_or(|m| m.connected)
+            })
+            .cloned()
+            .collect();
         // B4: each cloud subagent goes to the peer with the fewest live
         // ones (counting this spawn's), ties to the first listed.
         let mut load: Vec<usize> = peers.iter().map(|p| self.live_on(p)).collect();
-        let mut pick = || -> Option<String> {
-            let k = (0..peers.len()).min_by_key(|&k| (load[k], k))?;
-            load[k] += 1;
-            Some(peers[k].clone())
-        };
-        let chosen: Vec<Option<String>> = if per_agent {
-            Vec::new()
-        } else {
-            tasks.iter().map(|_| pick()).collect()
-        };
-        for p in chosen.iter().flatten() {
-            self.cloud_paused.remove(p);
-            self.cloud_idle_since.remove(p);
-            self.cloud_pause_retry.remove(p);
+        let mut machines = machines.to_vec();
+        if !peers.is_empty() {
+            machines.push(Machine {
+                name: "cloud".into(),
+                kind: Kind::Cloud,
+                os: "linux".into(),
+                connected: true,
+                pressure_ok: true,
+                live_sessions: 0,
+                logins: Vec::new(),
+            });
         }
+        // A saved `control cloud off` means here until explicitly overridden.
+        let override_place =
+            place.or_else(|| (self.state.cloud_peer.as_deref() == Some("")).then_some("here"));
+        let placements: Vec<Placement> = tasks
+            .iter()
+            .map(|task| {
+                let mut p = crate::place_route::pick(task, &machines, family, override_place)?;
+                if place.is_none() && override_place == Some("here") {
+                    p.reason = "Cloud is off; staying here".into();
+                }
+                if let Target::Peer(name) = &p.target
+                    && let Some(m) = machines.iter_mut().find(|m| m.name == *name)
+                {
+                    m.live_sessions += 1;
+                }
+                Ok(p)
+            })
+            .collect::<Result<_, String>>()?;
         // Never below an id already handed out: a reset or unreadable
         // counter must not give `a<N>` twice (persistent-ids-DESIGN.md).
         let prior = self.state.next_subagent;
@@ -657,17 +699,25 @@ impl Brain {
         self.state.next_subagent = first + tasks.len() as u64;
         // One VM per subagent: its own peer, named after its id; a task that
         // needs the Mac (and was not sent to the cloud) runs here.
-        let chosen: Vec<Option<String>> = if per_agent {
-            ids.iter()
-                .zip(tasks)
-                .map(|(id, task)| {
-                    (place == Some("cloud") || !crate::subagents::needs_mac(task))
-                        .then(|| crate::subagents::agent_peer(id))
-                })
-                .collect()
-        } else {
-            chosen
-        };
+        let chosen: Vec<Option<String>> = ids
+            .iter()
+            .zip(&placements)
+            .map(|(id, p)| match &p.target {
+                Target::Here => None,
+                Target::Peer(name) => Some(name.clone()),
+                Target::CloudVm if per_agent => Some(crate::subagents::agent_peer(id)),
+                Target::CloudVm => {
+                    let k = (0..peers.len()).min_by_key(|&k| (load[k], k))?;
+                    load[k] += 1;
+                    Some(peers[k].clone())
+                }
+            })
+            .collect();
+        for p in chosen.iter().flatten() {
+            self.cloud_paused.remove(p);
+            self.cloud_idle_since.remove(p);
+            self.cloud_pause_retry.remove(p);
+        }
         let sizes: Vec<Option<String>> = chosen
             .iter()
             .zip(tasks)
@@ -765,6 +815,7 @@ impl Brain {
             peer: chosen.iter().flatten().next().cloned(),
             peers: chosen,
             sizes,
+            placements,
         })
     }
 
@@ -777,10 +828,19 @@ impl Brain {
         }
     }
 
-    pub(super) fn sub_started(&mut self, id: &str, session_id: String, policy: Option<String>) {
+    pub(super) fn sub_started(
+        &mut self,
+        id: &str,
+        session_id: String,
+        policy: Option<String>,
+        harness: Option<String>,
+    ) {
         if let Some(sub) = self.state.sub_mut(id) {
             sub.session_id = Some(session_id);
             sub.policy = policy;
+            if harness.is_some() {
+                sub.harness = harness;
+            }
             if sub.status == SubStatus::Starting {
                 sub.status = SubStatus::Running;
             }
@@ -809,6 +869,45 @@ impl Brain {
         name: String,
         ws: Option<String>,
     ) {
+        self.sub_workspace_opened(id, key, name, ws, true);
+    }
+
+    /// Its workspace exists; `at_start`: the spawn opened it (a subagent
+    /// that finished meanwhile is closed under the close setting), not a
+    /// `control show` the user asked for.
+    pub(super) fn sub_workspace_opened(
+        &mut self,
+        id: &str,
+        key: String,
+        name: String,
+        ws: Option<String>,
+        at_start: bool,
+    ) {
+        // A later hide or failure can supersede an automatic open too.
+        // Its slot's key fences startup; a manual show also reserves the
+        // visible key. Close a stale result even if hide reached the daemon
+        // before the open created the workspace.
+        if self.state.sub(id).is_some_and(|(_, s)| {
+            if at_start {
+                s.workspace_slot
+                    .as_ref()
+                    .is_some_and(|slot| slot.key != key)
+            } else {
+                s.workspace.as_deref() != Some(key.as_str())
+            }
+        }) {
+            if let Some(workspaces) = self.workspaces.clone() {
+                let (log, id) = (self.log.clone(), id.to_owned());
+                std::thread::spawn(move || {
+                    if let Err(e) = workspaces.close(&key) {
+                        log(&format!(
+                            "subagent {id}: closing its superseded workspace: {e}"
+                        ));
+                    }
+                });
+            }
+            return;
+        }
         let mut shown_session = None;
         let done = if let Some(sub) = self.state.sub_mut(id) {
             sub.workspace = Some(key);
@@ -826,9 +925,67 @@ impl Brain {
             self.forget_unanswered_of(&session);
         }
         // It finished before its workspace was made.
-        if done {
+        if done && at_start {
             self.mark_workspace(id, true);
         }
+    }
+
+    /// Where its workspace opens (`control show`), and its title.
+    pub(super) fn sub_workspace_slot(
+        &mut self,
+        id: &str,
+        name: String,
+        slot: crate::state::WorkspaceSlot,
+    ) {
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.workspace_slot = Some(slot);
+            sub.title = name;
+        }
+        self.save();
+    }
+
+    /// Workspace `key` is gone (opening it failed at spawn or on `control
+    /// show`, or a short task's idle close closed it): it is hidden, and the next `show` opens under a fresh key (a half-made
+    /// workspace was closed under this one, and the daemon replays its
+    /// mutations).
+    pub(super) fn sub_workspace_failed(&mut self, id: &str, key: &str) {
+        if let Some(sub) = self.state.sub_mut(id) {
+            if sub.workspace.as_deref() == Some(key) {
+                sub.workspace = None;
+                sub.ws_id = None;
+            }
+            if sub.workspace_slot.as_ref().is_some_and(|s| s.key == key) {
+                super::control::retire_slot_key(sub);
+            }
+        }
+        self.save();
+        self.rewatch_permission(id);
+    }
+
+    /// `id` lost its workspace (hidden, or its open failed), or its Home card
+    /// was retired: a prompt it still waits on with no Allow button left is
+    /// watched again, and denied once overdue.
+    pub(super) fn rewatch_permission(&mut self, id: &str) {
+        self.present_home_approval(id);
+        let Some((_, sub)) = self.state.sub(id) else {
+            return;
+        };
+        if self.approval_shown(sub) || sub.policy.as_deref() == Some(crate::approval::ASK) {
+            return;
+        }
+        let (Some(session_id), Some(p)) = (sub.session_id.clone(), sub.permission.clone()) else {
+            return;
+        };
+        self.watch_unanswered(
+            crate::approval::Pending {
+                session_id,
+                permission_id: p.id,
+                tool: crate::approval::tool_name(&p.request),
+                request: p.request,
+                child: Some(id.to_owned()),
+            },
+            "the subagent has no local workspace and its permission remains unanswered",
+        );
     }
 
     pub(super) fn sub_failed(&mut self, id: &str, error: &str) {
@@ -861,8 +1018,17 @@ impl Brain {
     pub(super) fn sub_answer(&mut self, id: &str, answer: &Result<Value, String>) {
         let mut fields = crate::subagents::answer_fields(answer);
         fields["id"] = json!(id);
-        if let Some((spawn, _)) = self.state.sub(id) {
+        if let Some((spawn, sub)) = self.state.sub(id) {
             fields["spawn"] = json!(spawn);
+            // The usage ledger's attribution, from the durable record: the
+            // trace fold's memory of `subagent.start` is gone after a host
+            // restart, and subagents outlive many of them.
+            if let Some(session) = &sub.session_id {
+                fields["session"] = json!(session);
+            }
+            if let Some(harness) = &sub.harness {
+                fields["harness"] = json!(harness);
+            }
         }
         self.trace.emit("subagent.answer", fields);
         // A prompt the harness failed ends the run with a failure report,
@@ -886,11 +1052,18 @@ impl Brain {
         let Some(status) = self.state.sub(&id).map(|(_, s)| s.status) else {
             return true;
         };
+        if session.pending_permissions == 0 {
+            self.end_home_approval(&id, true);
+        }
         if let Some(sub) = self.state.sub_mut(&id) {
             sub.active_ms = now_ms();
             if session.pending_permissions == 0 {
                 sub.permission = None;
             }
+        }
+        if session.pending_permissions == 0 {
+            self.save();
+            self.flush_outbox();
         }
         if busy(session.status) {
             // Running again: a tell, or the user writing in its chat.
@@ -960,6 +1133,10 @@ impl Brain {
         else {
             return;
         };
+        // A cancelled subagent's sign-ins wait on nobody now (every stop path ends here).
+        if self.state.sub(id).is_some_and(|(_, s)| s.cancelled) {
+            self.sign_ins.abandoned(id);
+        }
         // control interrupt|restart with a message: the cut run reports
         // nothing; the message is its next prompt, sent now that it stopped.
         let follow = self.state.sub_mut(id).and_then(|s| s.after_stop.take());
@@ -1319,7 +1496,7 @@ impl Brain {
 
     /// The engine of a subagent that starts on `harness`: the next turn's
     /// model and effort when it is that turn's harness.
-    fn engine_on(&self, harness: &str) -> crate::subagents::SpawnEngine {
+    pub(super) fn engine_on(&self, harness: &str) -> crate::subagents::SpawnEngine {
         let next = self.next_engine().0;
         let same = next.harness == harness;
         let family = self.family_of(harness);
@@ -1381,6 +1558,7 @@ impl Brain {
             effort: None,
             floor: policy,
             harness: Some(harness.to_owned()),
+            model: None,
         };
         if let Some(sub) = self.state.sub_mut(id) {
             sub.status = SubStatus::Queued;
@@ -1595,16 +1773,17 @@ impl Brain {
             return;
         };
         // The close setting closes every finished one and forgets it; a short
-        // task closes only while none of its terminals runs a command, so its
-        // key stays recorded (a later close of a closed one does nothing).
+        // task closes only while none of its terminals runs a command, and its
+        // key is forgotten once that close succeeds (a kept one stays).
         let explicit = self.sub_close_on_finish;
         if explicit {
             if let Some(sub) = self.state.sub_mut(id) {
                 sub.workspace = None;
+                super::control::retire_slot_key(sub);
             }
             self.save();
         }
-        let (log, id) = (self.log.clone(), id.to_owned());
+        let (log, tx, id) = (self.log.clone(), self.tx.clone(), id.to_owned());
         std::thread::spawn(move || {
             let closed = if explicit {
                 workspaces.close(&key).map(|()| true)
@@ -1612,6 +1791,11 @@ impl Brain {
                 workspaces.close_idle(&key)
             };
             match closed {
+                // A short task's key is forgotten once its workspace is gone,
+                // so a later `control show` opens a new one.
+                Ok(true) if !explicit => {
+                    let _ = tx.send(super::Input::SubagentWorkspaceFailed { id, key });
+                }
                 Ok(true) => {}
                 Ok(false) => log(&format!(
                     "subagent {id}: its workspace stays: a terminal runs a command"
@@ -2008,6 +2192,14 @@ impl Brain {
         key: Option<&str>,
         queue: bool,
     ) -> Result<String, String> {
+        // acpmux sessions have one send tool, #30082's acpmux_send; tell
+        // names subagents (and Chiefs, before it reaches here).
+        if let Some(name) = id.trim().strip_prefix("session:") {
+            return Err(format!(
+                "tell: {id} is an acpmux session; message it with the acpmux_send tool (to: \"{}\")",
+                name.trim()
+            ));
+        }
         let Some((_, sub)) = self.state.sub(id) else {
             return Err(format!("no subagent {id}"));
         };
@@ -2104,6 +2296,10 @@ impl Brain {
             self.tell_mode(id, message, queue)
                 .map(|answer| format!("outcome: done. {answer}"))
         };
+        if answer.is_ok() {
+            // "Signed in to SITE ...; go on." (chief-auth-escalation): its Feed request closes.
+            self.sign_ins.told(id, message);
+        }
         if answer.is_ok()
             && !told_for.is_empty()
             && let Some(sub) = self.state.sub_mut(id)
@@ -2803,6 +2999,7 @@ impl Brain {
                 effort: None,
                 floor: sub.policy.clone(),
                 harness: None,
+                model: None,
             });
         let s = self
             .state
@@ -3082,26 +3279,46 @@ impl Brain {
             Ok(s) => s,
             Err(_) => return true,
         };
-        if let Some(sub) = self.state.sub_mut(&id) {
-            sub.permission = Some(crate::state::PendingPermission {
-                id: permission_id.to_owned(),
-                request: request.clone(),
-            });
+        let previous = self.state.sub(&id).and_then(|(_, s)| s.permission.clone());
+        let unchanged = previous
+            .as_ref()
+            .is_some_and(|p| p.id == permission_id && p.request == *request);
+        if !unchanged {
+            if let Some(previous) = &previous {
+                self.forget_unanswered(session_id, &previous.id);
+            }
+            self.cancel_home_approval(&id);
+            if let Some(sub) = self.state.sub_mut(&id) {
+                sub.permission = Some(crate::state::PendingPermission {
+                    id: permission_id.to_owned(),
+                    request: request.clone(),
+                    home_message: None,
+                    home_closed: false,
+                });
+            }
         }
         self.save();
         if ask {
             self.child_permission(&summary, permission_id.to_owned(), request.clone());
             return true;
         }
+        self.present_home_approval(&id);
+        if !unchanged && !self.home_approval_queued(&id) {
+            // Home cannot draw this request as Allow once / Deny: open the
+            // subagent's workspace, whose tab can answer it, instead of
+            // letting it be denied where nobody sees it (Leo, 2026-11-03).
+            self.show_for_permission(&id);
+        }
         let shown = self
             .state
             .sub(&id)
-            .is_some_and(|(_, s)| Self::approval_shown(s));
+            .is_some_and(|(_, s)| self.approval_shown(s));
         let text = super::control::permission_note(&id, request, shown);
         self.queue(text, Source::Note);
         if !shown {
-            // Nobody can allow it: denied once overdue, unless the Chief
-            // denies or steers it first.
+            // No Allow button yet: denied once overdue, unless its Home card
+            // arrives (which forgets this watch), its workspace opens, or the
+            // Chief denies or steers it first.
             self.watch_unanswered(
                 crate::approval::Pending {
                     session_id: session_id.to_owned(),
@@ -3110,18 +3327,51 @@ impl Brain {
                     request: request.clone(),
                     child: Some(id.clone()),
                 },
-                "the app shows no working approval button for this subagent",
+                "the subagent has no local workspace and its permission remains unanswered",
             );
         }
         true
     }
 
+    /// Opens hidden local subagent `id`'s workspace so its tab shows a prompt
+    /// Home cannot. Nothing when this host makes no workspaces, or for a
+    /// peer, an `ask` subagent or one that has a workspace already.
+    fn show_for_permission(&mut self, id: &str) {
+        let Some((_, sub)) = self.state.sub(id) else {
+            return;
+        };
+        if self.workspaces.is_none()
+            || sub.peer.is_some()
+            || sub.workspace.is_some()
+            || sub.session_id.is_none()
+            || sub.policy.as_deref() == Some(crate::approval::ASK)
+        {
+            return;
+        }
+        let (reply, answer) = std::sync::mpsc::channel();
+        self.control_workspace(
+            &crate::tools::ControlCall {
+                action: "show".into(),
+                id: Some(id.to_owned()),
+                ..crate::tools::ControlCall::default()
+            },
+            reply,
+        );
+        // The open runs on its own thread; its outcome comes back as
+        // SubagentWorkspaceShown or SubagentWorkspaceFailed.
+        drop(answer);
+    }
+
     /// Whether the person's app shows `sub`'s prompt with an Allow button
-    /// that works: a local subagent with a workspace (its agent tab draws
-    /// the prompt). A cloud subagent's peer refuses an allow from this
-    /// Mac's app, and one with no workspace has no tab.
-    pub(super) fn approval_shown(sub: &crate::state::SubRecord) -> bool {
-        sub.workspace.is_some() && sub.peer.is_none()
+    /// that works: a local subagent with a workspace (its agent tab), or a
+    /// Home card the conversation owner acknowledged. Such a request waits
+    /// for the person; only one with neither is denied once overdue.
+    pub(super) fn approval_shown(&self, sub: &crate::state::SubRecord) -> bool {
+        sub.peer.is_none()
+            && (sub.workspace.is_some()
+                || sub.permission.as_ref().is_some_and(|p| {
+                    p.home_message.is_some() && !p.home_closed && self.home_approvals_available()
+                }))
     }
 }
 

@@ -35,8 +35,7 @@ public final class PaletteController {
     /// of guessing it from the active window, which the palette's own
     /// `relativeTo:` and the key window can both disagree with.
     public var onVisibilityChange: ((Bool, NSWindow?) -> Void)?
-    /// Main-thread phases of each open, request to committed first frame
-    /// (the stall bench, `debug.timings`).
+    /// Main-thread phases of each open, request to committed first frame (the stall bench, `debug.timings`).
     public var onPresented: ((PaletteOpenTiming) -> Void)?
     /// The `systemUptime` timestamp of the input event that opens the palette
     /// (a key-down), or nil when no event caused the open (CLI, socket). Read
@@ -46,6 +45,7 @@ public final class PaletteController {
     private var openStarted: ContinuousClock.Instant?
     private var openInput: Duration = .zero
     private var modelReady: ContinuousClock.Instant?
+    let registryRows = RegistryPaletteRows() // the command rows kept across opens: an open builds only the changed ones
 
     /// What the user acted on when the palette opened (`PaletteSources.context`).
     public private(set) var capturedTargets: [ActionTargetRef] = []
@@ -116,8 +116,8 @@ public final class PaletteController {
             registry.bind("goToWorkspace", invoke: { [weak self] invocation in
                 if let workspace = invocation["workspace"]?.targetValue?.id ?? invocation["workspace"]?.stringValue {
                     guard let self, let source = self.sources.workspaces else { return }
-                    // An id that names no workspace is refused, never a silent success.
-                    guard source.workspaces.contains(where: { $0.id == workspace }) else {
+                    // An id that names no workspace is refused, never a silent success. One lookup, no list.
+                    guard source.hasWorkspace(id: workspace) else {
                         return self.registry.refuseNotFound(PaletteStrings.workspaceNotFound(workspace))
                     }
                     source.selectWorkspace(id: workspace)

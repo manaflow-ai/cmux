@@ -334,5 +334,19 @@
   },
   "denies": [],
   "needs": true
+ },
+ {
+  "name": "agent_hold always",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/agent_hold",
+   "params": {
+    "sessionId": "s",
+    "held": true
+   }
+  },
+  "denies": [],
+  "needs": true
  }
 ]

@@ -159,15 +159,14 @@ const scripts = (dir: string) =>
 /// one whatever shape its JSX takes.
 const ENTRANCES: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/App.tsx": { count: 1, what: "the hand-off error line under the header" },
-  "src/agent-session/acpmux/DiffPanel.tsx": { count: 1, what: "the diff side panel, from the right" },
-  "src/agent-session/acpmux/Inspector.tsx": { count: 1, what: "the inspector side panel, from the right" },
+  "src/agent-session/acpmux/Inspector.tsx": { count: 1, what: "the event inspector side panel, from the right" },
   "src/agent-session/acpmux/LiveChatChoice.tsx": { count: 1, what: "a banner at the top of the chat" },
   "src/agent-session/acpmux/MissingChat.tsx": { count: 1, what: "a banner at the top of the chat" },
   "src/agent-session/acpmux/PeerCopyBanner.tsx": { count: 3, what: "a banner at the top of the chat" },
   "src/agent-session/acpmux/WatchBanner.tsx": { count: 1, what: "a banner at the top of the chat" },
   "src/agent-session/acpmux/conversation/ArtifactPanel.tsx": { count: 1, what: "the artifact side panel" },
-  "src/agent-session/acpmux/inspector/ChatInspector.tsx": { count: 1, what: "the chat inspector side panel" },
-  "src/agent-session/acpmux/inspector/TasksSection.tsx": { count: 1, what: "an arriving task row" },
+  "src/agent-session/acpmux/session-info/SessionInfo.tsx": { count: 1, what: "the Session Info side panel" },
+  "src/agent-session/acpmux/session-info/TasksSection.tsx": { count: 1, what: "an arriving task row" },
   "src/agent-session/acpmux/subagents/SubagentTray.tsx": { count: 1, what: "an arriving subagent row" },
   "src/agent-session/acpmux/summary/SummaryCard.tsx": { count: 1, what: "the summary side panel" },
   "src/agent-session/acpmux/summary/SummaryTasks.tsx": { count: 1, what: "an arriving task row" },
@@ -184,8 +183,12 @@ const entranceCalls = (source: string) => source.match(/\bdata-enter\b["']?\s*[=
 /// keyframes are built.
 const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/App.tsx": {
-    count: 2,
-    what: "a cold-opened chat's transcript fades in; a bottom tool fold moves the transcript as one stack",
+    count: 4,
+    what: "a cold-opened chat's transcript fades in; a bottom tool fold moves the transcript as one stack, holds the rows under the opened line and cuts what rises at it (#32943)",
+  },
+  "src/agent-session/acpmux/chatSwitch.ts": {
+    count: 1,
+    what: "a chat switch: the transcript's rows, the title and Session Info move in (an opt-in experiment)",
   },
   "src/agent-session/acpmux/changes/treeMotionDom.ts": { count: 4, what: "the changes tree's rows move and tint" },
   "src/agent-session/acpmux/changes/treeTitles.ts": { count: 2, what: "a long tree title's marquee" },
@@ -196,13 +199,18 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
     what: "a followed reply eases into each new line",
   },
   "src/agent-session/acpmux/conversation/turnFold.ts": { count: 1, what: "a turn folds" },
-  "src/agent-session/acpmux/inspector/InspectorGroup.tsx": { count: 1, what: "Session Info sections slide" },
+  "src/agent-session/acpmux/session-info/SessionInfoGroup.tsx": { count: 1, what: "Session Info sections slide" },
   "src/agent-session/acpmux/newtab/listMotion.ts": { count: 1, what: "New Tab rows move to their new place" },
   "src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx": { count: 1, what: "the minimap glides" },
   "src/agent-session/acpmux/threadMinimap/scrollMotion.ts": { count: 1, what: "the minimap's scroll bubble" },
   "src/files-panel-motion.ts": { count: 2, what: "the files panel slides in from its edge" },
   "src/motion/SyncTitle.tsx": { count: 3, what: "a title's new text cross-fades" },
   "src/motion/useSyncListMotion.ts": { count: 3, what: "list rows arrive, move and leave" },
+  "src/ui/motion/SlidingIndicator.tsx": {
+    count: 1,
+    what: "a tab bar's or segmented control's highlight travels to the selected item",
+  },
+  "src/ui/motion/ViewSwap.tsx": { count: 2, what: "a swapped view's content enters, or an accent band sweeps it" },
 };
 
 /// How many times a script drives the Web Animations API.

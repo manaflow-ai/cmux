@@ -32,6 +32,9 @@ struct FileOpenAsTextTests {
         ("index.html", FilePageOpener.Route.renderedPage, FilePageOpener.Route.editor),
         ("logo.svg", .renderedPage, .editor),
         ("README.md", .markdown, .editor),
+        ("notes.mdown", .editor, .editor),
+        ("notes.mkd", .editor, .editor),
+        ("notes.mkdn", .editor, .editor),
         ("main.swift", .editor, .editor),
         ("shot.png", .preview, .preview),
     ])

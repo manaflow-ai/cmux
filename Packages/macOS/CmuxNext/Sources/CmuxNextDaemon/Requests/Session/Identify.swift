@@ -4,6 +4,9 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
     public var app: String
     public var version: String
     public var buildCommit: String?
+    /// The exact build of the binary that serves the socket (`build_id`, `daemon-build-v1`): the
+    /// stamped commit, or for an unstamped build the commit plus `-dirty.<hash>`; nil on older daemons.
+    public var buildID: String?
     public var ghosttyCommit: String?
     public var protocolVersion: Int
     public var capabilities: [String] { didSet { capabilitySet = Self.lookup(capabilities) } }
@@ -52,6 +55,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         app: String = "cmux-tui",
         version: String = "0",
         buildCommit: String? = nil,
+        buildID: String? = nil,
         ghosttyCommit: String? = nil,
         protocolVersion: Int = 12,
         capabilities: [String] = [],
@@ -71,6 +75,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         self.app = app
         self.version = version
         self.buildCommit = buildCommit
+        self.buildID = buildID
         self.ghosttyCommit = ghosttyCommit
         self.protocolVersion = protocolVersion
         self.capabilities = capabilities
@@ -92,6 +97,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
     enum CodingKeys: String, CodingKey {
         case app, version, capabilities, session, pid, generation
         case buildCommit = "build_commit"
+        case buildID = "build_id"
         case ghosttyCommit = "ghostty_commit"
         case protocolVersion = "protocol"
         case registryID = "registry_id"
@@ -111,6 +117,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         app = try c.decode(String.self, forKey: .app)
         version = try c.decodeIfPresent(String.self, forKey: .version) ?? ""
         buildCommit = try c.decodeIfPresent(String.self, forKey: .buildCommit)
+        buildID = try c.decodeIfPresent(String.self, forKey: .buildID)
         ghosttyCommit = try c.decodeIfPresent(String.self, forKey: .ghosttyCommit)
         protocolVersion = try c.decode(Int.self, forKey: .protocolVersion)
         capabilities = try c.decodeIfPresent([String].self, forKey: .capabilities) ?? []

@@ -17,7 +17,7 @@ public nonisolated enum SidebarEdits {
     @discardableResult
     public static func apply(_ intent: SidebarIntent, to sections: inout [SidebarSection]) -> Bool {
         switch intent {
-        case .select, .selectTab, .newWorkspace, .openGroup, .switchProfile, .newProfile, .reorderProfile, .openProfileInNewWindow, .activateItem, .installUpdate, .downloadUpdate, .setAutomaticUpdates,
+        case .select, .selectTab, .closeTab, .newWorkspace, .openGroup, .switchProfile, .newProfile, .reorderProfile, .openProfileInNewWindow, .activateItem, .installUpdate, .downloadUpdate, .setAutomaticUpdates,
              .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated, .nowPlaying, .hideNowPlayingCard, .layout, .toggleLayoutSection,
              .dropOnLayoutSection, .groupEditorEnded, .toggleWorkspaceAudio, .addItems:
             return false
@@ -46,9 +46,8 @@ public nonisolated enum SidebarEdits {
         case let .toggleCollapse(target):
             return toggleCollapse(target, in: &sections)
         case let .close(ids):
-            let held = groupsWithMembers(sections)
+            // Closing a member never closes its group; keep the header's identity and position.
             let removed = removeWorkspaces(Set(ids), from: &sections)
-            pruneEmptyGroups(in: &sections, keeping: nil, emptiedFrom: held)
             return !removed.isEmpty
         case let .rename(id, title):
             return mutateWorkspaces([id], in: &sections) { $0.title = title }
@@ -184,7 +183,7 @@ public nonisolated enum SidebarEdits {
     static func createGroup(
         _ id: GroupID,
         name: String,
-        color: GroupColor,
+        color: GroupTint,
         workspaces ids: [WorkspaceID],
         anchor target: WorkspaceID? = nil,
         index: Int? = nil,
@@ -210,7 +209,8 @@ public nonisolated enum SidebarEdits {
         })
         let held = groupsWithMembers(sections)
         let removed = removeWorkspaces(joining, from: &sections)
-        let group = SidebarGroup(id: id, name: SidebarGroup.named(name), color: color, workspaces: removed)
+        var group = SidebarGroup(id: id, name: SidebarGroup.named(name), workspaces: removed)
+        group.tint = color
         sections[s].nodes.insert(.group(group), at: min(max(index ?? insertion, 0), sections[s].nodes.count))
         pruneEmptyGroups(in: &sections, keeping: id, emptiedFrom: held)
         return true

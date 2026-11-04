@@ -106,13 +106,14 @@ web server, pid file and chat folder live in --out (the fake chats themselves st
 tag's acpmux home). The app is left running after the last
 relaunch (the caller quits it and releases the slot).
 """
-import argparse, atexit, glob, hashlib, http.server, json, os, plistlib, re, shlex, signal, socket, subprocess, sys, threading, time
+import argparse, atexit, glob, hashlib, http.server, json, os, plistlib, re, shlex, shutil, signal, socket, subprocess, sys, threading, time
 from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_names  # noqa: E402  (next to this script; restore-journey-slot.sh copies both)
 import rj_rows  # noqa: E402  (next to this script, copied the same way)
 import rj_update  # noqa: E402  (next to this script, copied the same way)
+import launch_shift  # noqa: E402  (next to this script, copied the same way)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 parser = argparse.ArgumentParser()
@@ -143,6 +144,10 @@ parser.add_argument("--hist-file", action="store_true",
 parser.add_argument("--engine", choices=["webkit", "chromium"],
                     help="browser engine for the seeded pages: written to the capture slot's own settings file "
                          "(CMUX_NEXT_CONFIG_FILE under the slot, never a shared one) and put back at the end")
+parser.add_argument("--record-launch", type=float, default=0, metavar="SECONDS",
+                    help="each relaunch records every window from its first frame for SECONDS (the app's --record-launch, "
+                         "Debug or bench builds) into OUT/launch-frames/VARIANT, and adds the rows of launch_shift.py: what "
+                         "moved, flashed or filled in after the first frame, and the first shown chat's layout_watch")
 parser.add_argument("--allow-non-slot", action="store_true",
                     help="drive a tagged DEV build that is not in a capture slot (it closes rj-* workspaces, quits and relaunches it)")
 opts = parser.parse_args()
@@ -463,7 +468,7 @@ class App:
         subprocess.run(["/usr/bin/codesign", "--force", "--deep", "--sign", "-", self.bundle], capture_output=True)
         return True
 
-    def relaunch(self, extra_env=None):
+    def relaunch(self, extra_env=None, app_args=None):
         if not self.ensure_bundle():
             return False
         # The updater's hook may relaunch the app itself: never start a second copy beside it.
@@ -481,6 +486,8 @@ class App:
             args += ["--env", f"{key}={value}"]
         for key, value in (extra_env or {}).items():
             args += ["--env", f"{key}={value}"]
+        if app_args:
+            args += ["--args", *app_args]
         subprocess.run(args, check=True)
         up = wait(lambda: os.path.exists(opts.socket) and (lambda r: isinstance(r, dict) and r.get("pid"))(rpc("system.identify", timeout=5)), 60, 0.5)
         if not up:
@@ -1993,7 +2000,7 @@ def seeded(before):
                   ("three move Retries (move, show, update)",
                    sorted(r.get("kind") for r in before.get("cloud.move_retries") or []) == ["move", "show", "update"]),
                   ("a Bring Back Local Retry (ask first)", [r.get("kind") for r in before.get("cloud.bring_back_retries") or []] == ["ask_first"]),
-                  ("an Always folder grant", any(g.get("scope") == "folder" for g in before.get("cloud.grants") or [])),
+                  ("an Always folder grant", any(g.get("scope") == "account_team_origin_folder" for g in before.get("cloud.grants") or [])),
                   ("a dismissed offer matching its Retry", [d.get("matches_retry") for d in before.get("cloud.dismissed") or []] == [True])],
         "split": [("rj-split workspace", has(lambda k, v: k.startswith("ws[rj-split]."))),
                   # The name and pin rows compare equal emptiness as a pass: they need the seed to show.
@@ -2480,6 +2487,10 @@ def journey(base):
                             f"probe {LIVE_READ['hist_ext']} (1 shown, 0 refused, -1 no probe)", "seed"))
         turn = start_turn_in_flight(variant) if variant in DAEMON_VARIANTS else None
         sampler = RecoverySampler() if variant in DAEMON_VARIANTS else None
+        if opts.record_launch and variant == "update" and not opts.update_to:
+            # A real update relaunch opens a newer build, which shows the "cmux Updated!" card: the same build
+            # relaunched shows it only when its last seen version is older (WhatsNewCenter.debugPretendUpdated).
+            say(f"  update: last seen version 0.0.1 -> {json.dumps(rpc('debug.updater', {'action': 'updated', 'previous': '0.0.1'}))}")
         started = SINCE = time.time()
         if sampler:
             sampler.start(started)
@@ -2500,12 +2511,19 @@ def journey(base):
         if variant == "update" and opts.update_to and not UPDATED and not update_build():
             return
         launched = SINCE = time.time()
+        record = os.path.join(opts.out, "launch-frames", f"{n + 1}-{variant}") if opts.record_launch and variant not in DAEMON_VARIANTS else None
+        app_args = None
+        if record:
+            shutil.rmtree(record, ignore_errors=True)
+            os.makedirs(record, exist_ok=True)
+            app_args = ["--record-launch", record, "--record-launch-seconds", str(opts.record_launch)]
         if variant in DAEMON_VARIANTS:
             # No relaunch: the running app must bring a new daemon and every view back.
             daemon_recovery(variant, started, sampler, turn)
-        elif not APP.relaunch({"CMUX_NEXT_DEBUG_SLOW_ATTACH": SLOW_ATTACH} if variant == "slow" else None):
+        elif not APP.relaunch({"CMUX_NEXT_DEBUG_SLOW_ATTACH": SLOW_ATTACH} if variant == "slow" else None, app_args):
             RESULTS.append((f"{variant}: app relaunches", False, "no socket", "app quit"))
             return
+        chat_watch = start_chat_watch() if record else None
         if variant == "update" and UPDATED and "relaunched" not in UPDATED:
             UPDATED["relaunched"] = True
             updated_rows()
@@ -2535,9 +2553,66 @@ def journey(base):
             wait(lambda: view_tick() > before["counter.tick_in_view"], 10, 0.5)
         if opts.break_cloud and n == 0:
             say(f"  --break-cloud: forgetting one {opts.break_cloud} -> {json.dumps(rpc('debug.cloud.move_seed', {'drop': opts.break_cloud}))}")
+        if record:
+            launch_shift_rows(f"{n + 1}-{variant}", record, launched, chat_watch)
         compare(variant, before, snapshot(f"{variant}-after"))
         load_rows(variant, launched)
         back_walk(f"{variant} after the reopen")
+
+
+def start_chat_watch():
+    """From as soon as the relaunched app answers: the shown chat page's `layout_watch` (what moved on the page after
+    it first drew its transcript and composer), asked again until a page answers or 15 s pass. A thread; its result
+    is read by launch_shift_rows."""
+    out = {}
+
+    def run():
+        started = time.time()
+        while time.time() - started < 15:
+            reply = rpc("debug.agent_pane", {"action": "layout_watch", "ms": 4000}, timeout=20)
+            if isinstance(reply, dict) and "frames" in reply and not reply.get("error"):
+                out.update(reply, asked_s=round(time.time() - SINCE, 2))
+                return
+            out["error"] = reply
+            time.sleep(0.1)  # test script: no chat page answers yet
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    out["thread"] = thread
+    return out
+
+
+def launch_shift_rows(variant, record, launched, chat_watch):
+    """The launch recording's numbers (launch_shift.py) as rows, LAUNCH-SHIFT lines and launch-shift-VARIANT.json."""
+    wait(lambda: launch_shift.recorded(record), opts.record_launch + 40, 0.5)
+    summary = launch_shift.summarize(record)
+    total = summary["total"]
+    if chat_watch:
+        chat_watch.pop("thread").join(20)
+        summary["chat"] = {k: chat_watch.get(k) for k in ("first_content_ms", "first_rows", "elements", "shifts", "appeared",
+                                                          "scroll_jumps", "asked_s", "error") if k in chat_watch}
+    dump(f"launch-shift-{variant}.json", summary)
+    say(f"  LAUNCH-SHIFT {variant} {json.dumps(total)}")
+    say(launch_shift.table(summary))
+    LOG.write(launch_shift.table(summary) + "\n")
+    windows = [w for w in summary["windows"] if "error" not in w]
+    RESULTS.append((f"{variant}: every window is recorded from its first frame", bool(windows) and not total["errors"],
+                    f"{len(windows)} windows, {total['errors']} unreadable, {total['closed_while_recorded']} closed while recorded",
+                    "launch frames"))
+    RESULTS.append((f"{variant}: no window shows a blank first frame", total["blank_first"] == 0,
+                    f"{total['blank_first']} blank first frames; first paint {total['first_paint_ms']} ms", "launch frames"))
+    RESULTS.append((f"{variant}: nothing moves after the first frame", total["geometry_frames"] == 0,
+                    f"{total['geometry_frames']} frames moved views ({json.dumps(total['views'])}), "
+                    f"{total['window_moves']} window moves, {total['layout_passes']} layout passes", "launch frames"))
+    RESULTS.append((f"{variant}: the picture does not change after the first frame", total["pixel_frames"] == 0 and total["blank_frames"] == 0,
+                    f"{total['pixel_frames']} changed frames, {total['blank_frames']} flashes, last change {total['last_change_ms']} ms",
+                    "launch frames"))
+    chat = summary.get("chat") or {}
+    if chat and "first_content_ms" in chat:
+        moved = len(chat.get("shifts") or []) + len(chat.get("scroll_jumps") or [])
+        RESULTS.append((f"{variant}: the shown chat does not move after its first paint", moved == 0,
+                        f"{len(chat.get('shifts') or [])} shifts, {len(chat.get('appeared') or [])} appeared, "
+                        f"{len(chat.get('scroll_jumps') or [])} scroll jumps; first rows {chat.get('first_rows')}", "launch frames"))
 
 
 def engine():

@@ -5,6 +5,7 @@ import {
   harnessIcon,
   harnessIconImageURL,
   harnessIconsSnapshot,
+  harnessSymbolHostSnapshot,
   harnessSymbolsSnapshot,
   loadHarnessSymbol,
   monogramColors,
@@ -81,6 +82,45 @@ type MarkProps = {
   tint?: boolean;
 };
 
+/// A sender's monogram (an agent that named an app no mark knows: "Muse", "Dot"; u20190): the
+/// first letters of its first two words on a tile whose hue is stable for `seed`.
+export function MonogramMark({
+  name,
+  seed,
+  size = 16,
+  label,
+}: {
+  name: string;
+  seed?: string;
+  size?: number;
+  label?: string;
+}) {
+  return (
+    <HarnessIcon
+      spec={{ kind: "monogram", text: monogramOf(name), hue: hueFor(seed ?? name), source: "default" }}
+      size={size}
+      label={label}
+    />
+  );
+}
+
+/// The first letters of `name`'s first two words, upper case ("Grok bot" → "GB"); "?" for none.
+export function monogramOf(name: string): string {
+  const letters = name
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => Array.from(word)[0]!.toUpperCase())
+    .join("");
+  return letters || "?";
+}
+
+function hueFor(seed: string): number {
+  let hash = 0;
+  for (const char of seed.toLowerCase()) hash = (hash * 31 + char.codePointAt(0)!) >>> 0;
+  return hash % 360;
+}
+
 /// A harness's own icon wins over the mark its id suggests when its profile sets one ("claude-sr2"
 /// with `icon = "🦊"`); a harness no mark knows draws the icon acpmux picked for it (the mark of the
 /// agent its command runs, else a monogram), so a custom harness is never a blank square.
@@ -106,10 +146,15 @@ function HarnessIcon({
 }: MarkProps & { spec: Exclude<HarnessIconSpec, { kind: "brand" | "glyph" }> }) {
   const [scheme] = useSyncExternalStore(subscribe, appearance, () => "dark brand").split(" ");
   const symbols = useSyncExternalStore(subscribeHarnessIcons, harnessSymbolsSnapshot, harnessSymbolsSnapshot);
+  const symbolHostRevision = useSyncExternalStore(
+    subscribeHarnessIcons,
+    harnessSymbolHostSnapshot,
+    harnessSymbolHostSnapshot,
+  );
   const symbolName = spec.kind === "symbol" ? spec.name : undefined;
   useEffect(() => {
     if (symbolName) loadHarnessSymbol(symbolName);
-  }, [symbolName]);
+  }, [symbolName, symbolHostRevision]);
   const dark = onDark ?? scheme === "dark";
   const a11y = label ? { role: "img", "aria-label": label } : { "aria-hidden": true as const };
   const symbolSrc = symbolName ? symbols.get(symbolName) : undefined;

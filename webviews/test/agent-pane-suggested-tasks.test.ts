@@ -618,7 +618,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
       expect(await card.locator(".cv-received__preview").innerText()).toBe("Step 1 of the landing report.");
-      expect(await card.locator(".cv-disclosure__line").evaluate((el) => el.getBoundingClientRect().height)).toBe(26);
+      expect(await card.locator(".cv-disclosure__line").evaluate((el) => el.getBoundingClientRect().height)).toBe(22);
       expect(await page.locator(".cv-received__body, .cv-received__show, [data-cut]").count()).toBe(0);
       const toggle = card.getByRole("button", { name: /Message from Grid fix/ });
       expect(await toggle.getAttribute("aria-expanded")).toBe("false");
@@ -1051,8 +1051,10 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
           }),
         ],
       });
-      // It waits for the running turn, in the one group of waiting messages (pendingMessages.ts).
-      await page.locator(".cv-pending__toggle").click();
+      // It waits for the running turn as its own line: one waiting message has no group to open
+      // (PendingMessagesCard.tsx).
+      await page.locator(".cv-pending__toggle, .cv-pending--one").first().waitFor({ timeout: 10_000 });
+      if (await page.locator(".cv-pending__toggle").count()) await page.locator(".cv-pending__toggle").click();
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
       // Closed, the line alone; its images are in the panel the line opens.

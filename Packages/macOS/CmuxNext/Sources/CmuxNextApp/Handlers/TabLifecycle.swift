@@ -47,7 +47,7 @@ enum TabLifecycle {
         switch PanePlacementRouting.route(ctx, invocation, from: focused, tiles: true) {
         case .tab(let target): pane = target
         case .split(let target, let direction):
-            return PaneHandlers.split(ctx, PanePlacementRouting.aimed(invocation, at: target, from: ctx.services.paneController(for: focused)), direction: direction)
+            return PaneHandlers.split(ctx, PanePlacementRouting.aimed(invocation, at: target, on: ctx.services.daemon(for: target).machineID, from: ctx.services.paneController(for: focused)), direction: direction)
         }
         // Ghostty's `tab-inherit-working-directory = false`: the home folder (NewTerminalStart).
         let tabCwd = cwd ?? NewTerminalStart.uninherited(.tab, services: ctx.services, daemon: ctx.services.daemon(for: pane),
@@ -57,11 +57,11 @@ enum TabLifecycle {
             // cwd is the explicit one, else the chat's, else nil for the daemon's resolver (NEW-TERMINAL-INHERITS-CWD).
             // The chat's folder here, not the daemon's: its resolver skips chats (the strip, the dock's respawn).
             let chatStart = tabCwd ?? NewTerminalStart.inherited(besides: controller.selectedTab, in: pane, services: ctx.services)
+            let spawn = SpawnOptions(cwd: chatStart, workspace: ctx.services.workspaceKey(of: pane), keep: keep)
             var target: PaneController? = controller
-            if invocation.origin == .user {
-                let spawn = SpawnOptions(cwd: chatStart, workspace: ctx.services.workspaceKey(of: pane), keep: keep)
-                target = ChatColumnPlacement.route(from: controller, respawn: .terminal(spawn), services: ctx.services)
-            }
+            if invocation.origin == .user { target = ChatColumnPlacement.route(from: controller, respawn: .terminal(spawn), services: ctx.services) }
+            // A pinned dock taking no tab (Home's before its `allow_tabs`, FC-1) refuses one: a column right of it (H1, H5).
+            if let closed = target, closed.isClosedPinnedDockPane { return ChatColumnPlacement.openBesideDock(closed, respawn: .terminal(spawn), services: ctx.services) }
             // A script's tab aimed at Home's dock opens beside it (HomeDockOpens), in its slot or not.
             let homePlacement = target.map { HomeDockOpens.opensBeside($0.pane, services: ctx.services) } ?? false
             let placed = target.flatMap { HomeDockOpens.placing($0.pane, services: ctx.services, focus: true,
@@ -70,13 +70,13 @@ enum TabLifecycle {
                                    placementOwner: homePlacement, then: placed)
             return
         }
-        let handle = pane.handle
-        let start = tabCwd ?? pane.tabs.first?.cwd
-        let workspace = ctx.services.workspaceKey(of: pane)
-        // Home's dock that no window shows opens nothing in itself either: the tab moves beside it, the focus kept.
-        let beside = HomeDockOpens.opensBeside(pane, services: ctx.services)
+        let handle = pane.handle, options = SpawnOptions(cwd: tabCwd ?? pane.tabs.first?.cwd, workspace: ctx.services.workspaceKey(of: pane), keep: keep)
+        // Home's dock that no window shows opens nothing in itself either: the tab moves beside it, the focus kept; a dock taking no tab: a column right of it (as above).
+        let beside = HomeDockOpens.opensBeside(pane, services: ctx.services), width = ctx.services.newColumnWidth(nextTo: pane)
+        let closed = ctx.services.daemon(for: pane).store.pinnedDock(holding: pane.handle)?.takesTabs == false
         ctx.send("new-tab") { connection in
-            let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep))
+            if closed { _ = try await connection.newColumn(beside: handle, left: false, width: width, options: options); return }
+            let created = try await connection.newTab(in: handle, options: options)
             if beside { _ = try await connection.moveTabToColumn(created.surface, target: .pane(handle), keepFocus: true) }
         }
     }
@@ -191,7 +191,7 @@ enum TabLifecycle {
         guard let tab = pane.tab(id), tab.kind == .browser else { return ctx.refuse(RefusalStrings.notABrowserTab) }
         let current = BrowserEngineTag(rawValue: tab.browserEngine ?? "") ?? .webkit
         guard current != engine else { return }
-        if engine == .webkit, ctx.services.cache.pageRequests.proxiedTabs.isProxied(tab.id) {
+        if engine == .webkit, ctx.services.cache.pageRequests.staysOffThisMacLocalhost(tab.id) {
             return ctx.refuse(RefusalStrings.proxiedTabStaysInChromium)
         }
         if engine == .cef, let reason = ctx.services.cache.browserTabs.cefUnavailableReason() {
@@ -434,6 +434,7 @@ enum TabLifecycle {
             if let back, let content = back.workspace { PaneHandlers.focus(back.layoutPaneID, in: content) }
             return
         }
+        if let target = ctx.explicitTarget(invocation, kinds: [.tab]) { ctx.services.closedTabs?.undoToasts.hiddenPages.lift(target.id) } // a tab hidden while its page decided (HiddenPageCloses): found again
         guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
         if let controller = ctx.services.paneController(for: pane) {
             return CloseUndoToasts.close(in: controller, ctx.actingTabs(invocation, controller, StripTabID(tab.id)))

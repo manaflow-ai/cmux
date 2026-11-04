@@ -34,8 +34,8 @@ final class CEFRuntime {
     // Routing tables (main thread).
     var tabsByBrowser: [Int32: CEFTab] = [:]
     var hosts: [CEFPaneKey: CEFPaneHost] = [:]
-    /// Profiles Chromium opened in this process (their files stay open
-    /// until shutdown, so a deleted one's directory waits for the next launch).
+    let extensionActionReads = CEFExtensionActionReads()
+    /// Profiles Chromium opened in this process (their files stay open until shutdown, so a deleted one's directory waits for the next launch).
     var usedProfiles: Set<BrowserProfileID> = []
     /// Each proxied browser profile's proxy (#24432); a profile not here is direct.
     var profileProxies: [BrowserProfileID: BrowserProfileProxy] = [:]
@@ -95,6 +95,10 @@ final class CEFRuntime {
     /// `Emulation.setEmitTouchEventsForMouse` or `setGeolocationOverride`)
     /// replies before its caller can wait. Non-nil only during that call.
     var synchronousDevToolsResults: [CEFDevToolsKey: Result<String, any Error>]?
+    /// Calls ``startDevTools(_:method:params:timeout:while:)`` sent whose caller does not wait yet (a page picture
+    /// asked for in one turn and awaited in a later one), with the answer when it came first. Dropped when the
+    /// browser closes or quit begins (the caller then gets `closed`).
+    var unawaitedDevTools: [CEFDevToolsKey: Result<String, any Error>?] = [:]
     let siteReplies = CEFReplyWaiters<Int32, CEFSiteReply>()
     /// `cmux_shim_tab_evaluate` calls waiting for their answer (fork API 29, `CEFRuntime+Evaluate`).
     let evaluations = CEFReplyWaiters<Int32, CEFEvaluationResult>()

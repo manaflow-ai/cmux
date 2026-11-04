@@ -57,7 +57,7 @@ enum PaneHandlers {
             // Zellij's new pane: the largest shown scrolling pane, never a docked
             // column; a run that names a pane splits that one (PanePlacementRouting).
             let pane = PanePlacementRouting.autoLayoutTarget(ctx, invocation, from: focused)
-            let aimed = pane === focused ? invocation : PanePlacementRouting.aimed(invocation, at: pane.pane, from: focused)
+            let aimed = pane === focused ? invocation : PanePlacementRouting.aimed(invocation, at: pane.pane, on: pane.daemon.machineID, from: focused)
             // The longer side first; the other axis when only it has room; split refuses when neither has.
             let (preferred, fitting) = PanePlacementRouting.autoLayoutDirection(ctx, pane)
             split(ctx, aimed, direction: fitting ?? preferred)
@@ -128,7 +128,7 @@ enum PaneHandlers {
         // focus moves only after the reply; on the optimistic path the provisional view stays (it
         // attaches when the daemon confirms) and takes keys by terminal id at once (cx-wb5.78).
         let window = content == nil ? nil : controller?.view.window
-        let keys = ctx.services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, earlyTab: daemon.queuesCreatingInput ? provisional?.tabID : nil, tab: provisional?.tabID)
+        let keys = ctx.services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, earlyTab: daemon.queuesCreatingInput ? provisional?.tabID : nil, tab: provisional?.tabID, machine: daemon.machineID)
         // The provisional pane is in the store now, and the window lays it out and mounts it in this
         // turn, so it draws in the key's frame (instant-new-surfaces), not after a main-actor hop.
         // The split and the even sizing of its chain are one gesture: hold the chain's target
@@ -234,19 +234,11 @@ enum PaneHandlers {
     // MARK: Sizing
 
     private static func bindSizing(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        let resizes: [(ActionID, LayoutDirection)] = [
-            ("resizePaneLeft", .left), ("resizePaneRight", .right), ("resizePaneUp", .up), ("resizePaneDown", .down),
-        ]
+        let resizes: [(ActionID, LayoutDirection)] = [("resizePaneLeft", .left), ("resizePaneRight", .right), ("resizePaneUp", .up), ("resizePaneDown", .down)]
         for (id, direction) in resizes {
             registry.bind(id, invoke: { invocation in
-                guard let pane = ctx.paneController(invocation), let content = pane.workspace,
-                      let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
-                switch PaneResize.change(for: pane.layoutPaneID, direction: direction, in: screen.layout) {
-                case .splitRatio(let split, let ratio):
-                    content.layoutModel.setSplitRatio(split, ratio: ratio, transaction: .make(), phase: .ended)
-                case .columnWidth(let column, let width):
-                    content.layoutModel.setColumnWidth(column, width: width, transaction: .make(), phase: .ended)
-                case nil:
+                guard let pane = ctx.paneController(invocation), let content = pane.workspace else { return }
+                if !PaneResize.press(pane.layoutPaneID, direction, model: content.layoutModel, view: content.layoutView) {
                     ctx.refuseQuietly(RefusalStrings.noDividerToMove(RefusalStrings.direction(direction)))
                 }
             })
@@ -266,5 +258,6 @@ enum PaneHandlers {
             let handle = pane.handle
             ctx.send("zoom-pane") { _ = try await $0.zoomPane(handle) }
         })
+        ActionTargetTitles.setPaletteState("toggleSplitZoom", in: registry) { ctx.services.windows.active?.focusedPane.map { p in p.workspace?.workspace.screens.contains { $0.zoomedPane == p.pane.handle } ?? false } ?? false }
     }
 }

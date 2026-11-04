@@ -13,7 +13,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use optchat_chief::code_signature::{self, KernelSignature, Signer};
 
@@ -102,6 +102,200 @@ fn moved_peer_a_rewritten_code_directory_fails_its_cms_signature() {
     assert!(err.contains("CMS"), "{err}");
 }
 
+/// `year`-01-01T00:00:00Z.
+fn jan_1(year: i32) -> SystemTime {
+    chrono::NaiveDate::from_ymd_opt(year, 1, 1)
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap()
+        .and_utc()
+        .into()
+}
+
+/// The header of the BER element at `b[at..]`: its tag, header length and
+/// content length (None: indefinite, ended by an end-of-contents 00 00).
+fn ber_header(b: &[u8], at: usize) -> (u8, usize, Option<usize>) {
+    let first = b[at + 1] as usize;
+    if first < 0x80 {
+        return (b[at], 2, Some(first));
+    }
+    let n = first & 0x7f;
+    if n == 0 {
+        return (b[at], 2, None);
+    }
+    let len = b[at + 2..at + 2 + n]
+        .iter()
+        .fold(0usize, |len, &byte| (len << 8) | byte as usize);
+    (b[at], 2 + n, Some(len))
+}
+
+/// Where the BER element at `at` ends.
+fn ber_end(b: &[u8], at: usize) -> usize {
+    match ber_header(b, at) {
+        (_, header, Some(len)) => at + header + len,
+        (_, header, None) => {
+            let mut child = at + header;
+            while b[child..child + 2] != [0, 0] {
+                child = ber_end(b, child);
+            }
+            child + 2
+        }
+    }
+}
+
+/// The offsets of the children of the constructed BER element at `at`.
+fn ber_children(b: &[u8], at: usize) -> Vec<usize> {
+    let (_, header, len) = ber_header(b, at);
+    let end = len.map(|len| at + header + len);
+    let mut children = Vec::new();
+    let mut child = at + header;
+    while end.map_or(b[child..child + 2] != [0, 0], |end| child < end) {
+        children.push(child);
+        child = ber_end(b, child);
+    }
+    children
+}
+
+/// A DER definite-length header for `tag` and `len` content bytes.
+fn der_header(tag: u8, len: usize) -> Vec<u8> {
+    if len < 0x80 {
+        return vec![tag, len as u8];
+    }
+    let bytes: Vec<u8> = len
+        .to_be_bytes()
+        .into_iter()
+        .skip_while(|&b| b == 0)
+        .collect();
+    [vec![tag, 0x80 | bytes.len() as u8], bytes].concat()
+}
+
+/// The CMS signature (slot 0x10000) of a SuperBlob, and its blob's offset.
+fn cms_of(blob: &[u8]) -> (usize, Vec<u8>) {
+    let be = |at: usize| u32::from_be_bytes(blob[at..at + 4].try_into().unwrap()) as usize;
+    for i in 0..be(8) {
+        let (slot, offset) = (be(12 + 8 * i), be(16 + 8 * i));
+        if slot == 0x10000 {
+            return (offset, blob[offset + 8..offset + be(offset + 4)].to_vec());
+        }
+    }
+    panic!("no CMS slot");
+}
+
+/// `blob` (a SuperBlob) with its CMS blob's content replaced by `cms`,
+/// every blob laid out again.
+fn with_cms(blob: &[u8], cms: &[u8]) -> Vec<u8> {
+    let be = |at: usize| u32::from_be_bytes(blob[at..at + 4].try_into().unwrap()) as usize;
+    let count = be(8);
+    let mut index = Vec::new();
+    let mut body = Vec::new();
+    let start = 12 + 8 * count;
+    for i in 0..count {
+        let (slot, offset) = (be(12 + 8 * i), be(16 + 8 * i));
+        let bytes = if slot == 0x10000 {
+            let mut b = 0xfade_0b01u32.to_be_bytes().to_vec();
+            b.extend(((cms.len() + 8) as u32).to_be_bytes());
+            b.extend_from_slice(cms);
+            b
+        } else {
+            blob[offset..offset + be(offset + 4)].to_vec()
+        };
+        index.push((slot as u32, (start + body.len()) as u32));
+        body.extend(bytes);
+    }
+    let mut out = blob[0..4].to_vec();
+    out.extend(((start + body.len()) as u32).to_be_bytes());
+    out.extend((count as u32).to_be_bytes());
+    for (slot, offset) in index {
+        out.extend(slot.to_be_bytes());
+        out.extend(offset.to_be_bytes());
+    }
+    out.extend(body);
+    out
+}
+
+/// The offsets of a CMS signature's signerInfos SET, of its single
+/// SignerInfo and of that signer's unsignedAttrs ([1]).
+fn signer_and_unsigned(cms: &[u8]) -> (usize, usize, usize) {
+    // ContentInfo { contentType, [0] { SignedData { ..., signerInfos } } }
+    let signed_data = ber_children(cms, ber_children(cms, 0)[1])[0];
+    let signer_infos = *ber_children(cms, signed_data).last().unwrap();
+    assert_eq!(cms[signer_infos], 0x31, "signerInfos is a SET");
+    let signers = ber_children(cms, signer_infos);
+    assert_eq!(signers.len(), 1);
+    let unsigned = *ber_children(cms, signers[0]).last().unwrap();
+    assert_eq!(cms[unsigned], 0xa1, "the signer has unsignedAttrs");
+    (signer_infos, signers[0], unsigned)
+}
+
+/// The nightly signature without its RFC 3161 timestamp: the same signer
+/// signature (unsignedAttrs are outside what it signs), so it verifies, but
+/// only its signer's unauthenticated signingTime claim says when.
+fn nightly_without_timestamp() -> KernelSignature {
+    let mut signature = nightly();
+    let (_, cms) = cms_of(&signature.blob);
+    let (set, signer, unsigned) = signer_and_unsigned(&cms);
+    let (_, signer_header, _) = ber_header(&cms, signer);
+    let fields = &cms[signer + signer_header..unsigned];
+    let signer_der = [der_header(0x30, fields.len()), fields.to_vec()].concat();
+    let stripped = [
+        &cms[..set],
+        &der_header(0x31, signer_der.len()),
+        &signer_der,
+        &cms[ber_end(&cms, set)..],
+    ]
+    .concat();
+    signature.blob = with_cms(&signature.blob, &stripped);
+    signature
+}
+
+// The nightly fixture: leaf "Developer ID Application: Manaflow, Inc."
+// valid 2026-04-15..2031-04-16, signed and timestamped 2026-10-21.
+
+// Also true of the code before the time seam (CMSDecoder used the verified
+// timestamp first): a guard against a rule stricter than Apple's.
+#[test]
+fn moved_peer_a_timestamped_signature_stays_valid_after_its_certificate_expires() {
+    assert_eq!(
+        code_signature::verify_at(&nightly(), &ours(), jan_1(2032)),
+        Ok(())
+    );
+}
+
+#[test]
+fn moved_peer_a_signature_without_a_secure_timestamp_is_refused_after_its_certificate_expires() {
+    let bare = nightly_without_timestamp();
+    // Inside the certificate's validity it verifies: only the time differs.
+    assert_eq!(
+        code_signature::verify_at(&bare, &ours(), jan_1(2027)),
+        Ok(())
+    );
+    let err = code_signature::verify_at(&bare, &ours(), jan_1(2032)).unwrap_err();
+    assert!(err.contains("no secure timestamp"), "{err}");
+    // Before the certificate was issued, the same.
+    let err = code_signature::verify_at(&bare, &ours(), jan_1(2025)).unwrap_err();
+    assert!(err.contains("no secure timestamp"), "{err}");
+}
+
+#[test]
+fn moved_peer_a_broken_timestamp_token_does_not_extend_validity() {
+    let mut forged = nightly();
+    let (offset, mut cms) = cms_of(&forged.blob);
+    let (_, _, unsigned) = signer_and_unsigned(&cms);
+    // The unsignedAttrs have a definite length, and their last byte is the
+    // last byte of the timestamp token's own RSA signature.
+    assert!(ber_header(&cms, unsigned).2.is_some());
+    let last = ber_end(&cms, unsigned) - 1;
+    cms[last] ^= 0xff;
+    forged.blob[offset + 8..offset + 8 + cms.len()].copy_from_slice(&cms);
+    // Refused after the leaf's expiry: by the CMS verification of the token,
+    // or, if a broken token only lost its time, at the chain.
+    let err = code_signature::verify_at(&forged, &ours(), jan_1(2032)).unwrap_err();
+    assert!(
+        err.contains("CMS signature does not verify") || err.contains("no secure timestamp"),
+        "{err}"
+    );
+}
+
 #[test]
 fn moved_peer_our_acpmux_on_disk_must_be_apple_anchored() {
     let clang = xcode_clang();
@@ -178,25 +372,23 @@ fn moved_peer_the_kernel_signature_of_a_peer_whose_executable_is_gone_is_read_an
     let running = code_signature::running_peer(&stream).unwrap();
     assert_eq!(running.flags & 0x3, 0x1, "valid and not ad hoc");
     // Apple signs clang with its own leaf (OU "Apple Software"), not a team
-    // OU, and with no secure timestamp or signing time. While that leaf is
-    // valid the chain to Apple Root CA verifies and the OU rule refuses. Once
-    // it has expired (Xcode 26.6's did, 2026-10-24), Security has no time but
-    // now to check the chain at, and the signer is refused as an invalid
-    // certificate (signer status 4) before the OU rule. Either is a signature
-    // rule; which one depends on the host's Xcode, not on this code.
+    // OU, and with no secure timestamp. While that leaf is valid, the CMS
+    // chain to Apple Root CA verifies and the OU rule refuses; once it has
+    // expired, the chain is refused at the current time (the fleet's Xcode:
+    // "Software Signing", valid to 2026-10-24). Either way it is the
+    // signature rule that refuses, never a pass.
     let apple = Signer {
         team: "59GAB85EFG".into(),
         identifier: "com.apple.clang".into(),
     };
-    let refused_by_a_signature_rule = |err: &str| {
-        err.contains("signing certificate's team (OU)")
-            || err.contains("its CMS signature does not verify (signer status 4,")
+    let signature_rule = |err: &str| {
+        err.contains("signing certificate's team (OU)") || err.contains("no secure timestamp")
     };
     let err = code_signature::verify(&running, &apple).unwrap_err();
-    assert!(refused_by_a_signature_rule(&err), "{err}");
+    assert!(signature_rule(&err), "{err}");
 
     // The whole peer check reaches the signature rules instead of stopping at
     // the unknown executable, and still refuses this peer.
-    let whole = optchat_chief::acpmux_peer::check(&stream, Some(&clang)).unwrap_err();
-    assert!(refused_by_a_signature_rule(&whole), "{whole}");
+    let err = optchat_chief::acpmux_peer::check(&stream, Some(&clang)).unwrap_err();
+    assert!(signature_rule(&err), "{err}");
 }

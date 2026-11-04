@@ -47,11 +47,29 @@ const snapshot = chat([
   summary(5, { id: "transcript-view-summary", status: "completed", toolCount: 3, durationMs: 48_000 }),
 ]);
 
-/// Opens the chat menu and its Transcript view submenu.
+/// Opens the chat menu and its Transcript view submenu, and waits for the submenu to rest: Base UI
+/// places it over a frame or two, and a click aimed at a row while it still moves lands on another
+/// row (on a loaded runner Verbose's click picked nothing new, and the turn stayed folded).
 async function openSubmenu(ctx: PlayContext): Promise<void> {
   await ctx.click({ role: "button", name: "Chat actions" });
   await ctx.click({ role: "menuitem", name: "Transcript view" });
   await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"][aria-checked="true"]'));
+  const now = () => ctx.document.defaultView?.performance.now() ?? 0;
+  let last = "";
+  let since = 0;
+  await ctx.waitFor(() => {
+    const rows = [...ctx.document.querySelectorAll('[role="menuitemradio"]')].map((row) => {
+      const box = row.getBoundingClientRect();
+      return `${box.left},${box.top},${box.width},${box.height}`;
+    });
+    const at = rows.join(";");
+    if (at !== last || rows.length === 0) {
+      last = at;
+      since = now();
+      return false;
+    }
+    return now() - since >= 50;
+  });
 }
 
 /// The open chat menu shows Archive without a scroll: a row added to the full-height menu pushes it
@@ -88,7 +106,8 @@ const pick =
         const shown = [...ctx.document.querySelectorAll(".cv-thought, .cv-command")]
           .map((node) => `${node.className}:${node.getAttribute("aria-expanded")}`)
           .join(" | ");
-        throw new Error(`${name} did not draw ${drawn}; rows: ${shown}`);
+        const view = ctx.document.defaultView?.localStorage.getItem("cmux.acpmux.transcriptView");
+        throw new Error(`${name} did not draw ${drawn}; rows: ${shown}; views kept: ${view}`);
       });
   };
 
@@ -96,7 +115,9 @@ export default agentPaneEntry({
   id: "agent-pane.transcript-view",
   title: "Transcript view: Normal, Thinking, Verbose",
   area: "Agent pane",
-  height: 620,
+  // Tall enough for the whole chat menu with no scroll (27 rows since #29920 moved the title menu's
+  // Delete into it), and no taller: one more row still pushes Archive out of view (chat-menu).
+  height: 700,
   covers: [
     "agent-session/acpmux/conversation/transcriptView.ts",
     "agent-session/acpmux/header/transcriptViewRow.ts#transcriptViewRow",

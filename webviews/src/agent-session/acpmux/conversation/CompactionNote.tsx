@@ -1,7 +1,9 @@
 // A compaction of the chat's context, noted where it happened (acpmux `compaction`): "Compacting
 // the conversation…" while it runs, then how it ended: how much context it left, or why it
-// failed. One compaction is one note, however often Claude Code says it is still compacting. A compaction
-// subrouter ran to move the chat to another account says so. Drawn as a tool row, like a
+// failed. One whose turn ended before its end was heard says only that it ended: Claude Code never
+// said it failed, and it often finished (Leo, 2026-10-21: "what the hell is this compaction fail?
+// But it literally succeeded"). One compaction is one note, however often Claude Code says it is
+// still compacting. A compaction subrouter ran to move the chat to another account says so. Drawn as a tool row, like a
 // background task's end (BackgroundTaskNote.tsx).
 //
 // A failover note says acpmux moved the chat onto its fallback harness after a usage limit, which
@@ -23,10 +25,13 @@ export function compactTokens(tokens: number): string {
 
 export function CompactionNote({ compaction }: { compaction: AcpmuxCompaction }) {
   const t = useT();
-  const { state, reason, error, preTokens, postTokens } = compaction;
+  const { state, inferred, reason, error, preTokens, postTokens } = compaction;
+  // How it ended was never heard: neither a failure nor a completion is claimed.
+  const unheard = state === "failed" && inferred === true && !error;
   const accountSwitch = reason === "account_switch";
   let text: string;
   if (state === "running") text = accountSwitch ? t("compaction.runningAccountSwitch") : t("compaction.running");
+  else if (unheard) text = t("compaction.ended");
   else if (state === "failed") text = error ? t("compaction.failedWithError", { error }) : t("compaction.failed");
   else {
     text = accountSwitch ? t("compaction.completedAccountSwitch") : t("compaction.completed");
@@ -35,7 +40,7 @@ export function CompactionNote({ compaction }: { compaction: AcpmuxCompaction })
   }
   return (
     <div className="cv-tools">
-      <div className="cv-tool cv-compaction" data-state={state}>
+      <div className="cv-tool cv-compaction" data-state={unheard ? "ended" : state}>
         <span className="cv-tool__icon">{state === "running" ? <Spinner /> : <SummaryToggle />}</span>
         <span className="cv-tool__text">{text}</span>
       </div>

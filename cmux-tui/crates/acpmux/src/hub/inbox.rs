@@ -22,6 +22,16 @@
 //! just queueing, your turn should still be ending". The person's own steer, the queue's Send
 //! now, and an inbox digest its drain asked to steer (`inbox_digest.rs`) still go in.
 //!
+//! Nor does any of them, or a notice, go into a turn the person's own prompt started
+//! ([`persons_prompt`], `TurnInfo::persons`, set while the inbox is on: with `agentInbox` off,
+//! agents' sends steer in as they did before it, `tests/send_steer.rs`): it waits for that
+//! turn's end and goes in as a turn of its own after it, the same way (`steerOnly` refused with
+//! `personsTurn`). A sub-session family message still goes in: the chat's own sub-session
+//! reporting to the turn that started it. A notice
+//! steered into the person's turn as it started, so it went in with the person's words, and
+//! other agents' steers went in at its next step; Leo, 2026-11-01: "why do the x messages from
+//! y sessions seem to always piggyback on my messages instead of going on their own".
+//!
 //! A chat's first work is no inbox item either ([`first_work`]): the first message another agent
 //! sends a chat that never ran a turn, with none running and nothing waiting (`lane-place
 //! --prompt-file`, `acpmux new` with a prompt), runs as that prompt, and its sender is the chat's
@@ -49,7 +59,7 @@
 //! cmux tools (`agent_tools::left_out`: a remote origin, `ACPMUX_AGENT_TOOLS=0`,
 //! `--strict-mcp-config`). Another agent's message queues for it as before the inbox, so its agent
 //! reads every word; a notice that goes to such an agent anyway (messages the inbox took before
-//! it respawned without the tools, or before a restart's first spawn) carries each one whole. Nothing here waits on Labs `meshRelay.teamMessaging`: an agent reads its inbox
+//! it respawned without the tools, or before a restart's first spawn) carries each one whole. Nothing here waits on `meshRelay.teamMessaging`: an agent reads its inbox
 //! with `inbox_read`, in a shell with `acpmux session inbox`, and, while team messaging is off,
 //! with the team mailbox's `team_inbox` and `acpmux inbox` too (`inbox_team_page.rs`), which an
 //! agent started before the inbox has instead of `inbox_read`.
@@ -62,13 +72,14 @@
 //! (`_acpmux/inbox_reply`), which lands in the sender's inbox under the same thread. One notice
 //! is in flight at a time ([`Inbox::in_flight`]):
 //!
-//! - into a running turn that steers, is under its cap (`turn_cap.rs`), and has none of the
-//!   person's prompts waiting behind it: as a steer, which Claude Code reads at its next tool
-//!   step; what comes meanwhile goes in the next one, so a turn takes at most one per step. A
-//!   prompt that waits is never held up by notices: the notice goes into its turn instead;
-//! - into the next turn that starts, as a steer at its start;
-//! - an idle chat: as ONE turn of its own, [`WAKE_DEBOUNCE_MS`] after the oldest message that
-//!   may wake it came (a burst is one turn), or [`FLUSH_MS`] after the oldest of any, so none is
+//! - into a running turn that steers, is under its cap (`turn_cap.rs`), has none of the
+//!   person's prompts waiting behind it, and was not started by the person's own prompt: as a
+//!   steer, which Claude Code reads at its next tool step; what comes meanwhile goes in the next
+//!   one, so a turn takes at most one per step. A prompt that waits is never held up by notices;
+//! - into the next such turn that starts, as a steer at its start;
+//! - an idle chat: as ONE turn of its own, at once for messages the person's own turn held back
+//!   ([`Inbox::held_by_person`]), else [`WAKE_DEBOUNCE_MS`] after the oldest message that may
+//!   wake it came (a burst is one turn), or [`FLUSH_MS`] after the oldest of any, so none is
 //!   stranded. A message that may wake it: a blocker (a block or a question,
 //!   `prompt_class.rs`), a report of work it gave (a lane's report, a task's result), or an
 //!   action (a result, the default) from the session that started it
@@ -144,6 +155,9 @@ pub(super) struct Item {
     pub(super) text: String,
     /// Machine-readable report context; kept out of the visible words.
     pub(super) details: Option<Value>,
+    /// A tool's notice it is (`prompt_provenance::notice`): its `{sender, host?, severity, title,
+    /// links?}`, so a notice of it and its thread still draw it as one.
+    pub(super) tool_notice: Option<Value>,
     /// A notice told the agent of it (or carries it now).
     pub(super) noticed: bool,
     /// The agent read it (`inbox_thread` with `markRead`).
@@ -168,6 +182,7 @@ impl Item {
             at: now_ms(),
             text: text.to_owned(),
             details: None,
+            tool_notice: None,
             noticed: true,
             read: false,
             answer: None,
@@ -207,6 +222,13 @@ pub struct Inbox {
     /// The prompt that holds the chat's first work ([`FirstWork`]) while it runs: another agent's
     /// message meanwhile is no first work.
     pub(super) first: Option<String>,
+    /// The person's own turn held a notice back (module docs): its messages are due as a turn of
+    /// their own once the chat is idle, whatever their class. Cleared when a notice goes.
+    pub(super) held_by_person: bool,
+    /// A Stop kept a notice out of the turn it ended, or the turn's end answered it before the
+    /// agent read it (`cancel.rs` module docs): its messages are due as a turn of their own once
+    /// the chat is idle, whatever their class. Cleared when a notice goes.
+    pub(super) due_now: bool,
 }
 
 /// How [`Hub::inbox_route`] routes a prompt.
@@ -282,11 +304,15 @@ pub(crate) fn plain_send(
 }
 
 /// Whether a provenance is a plain message from another agent: none (a sender that named
-/// itself, or a connection that proved its session), `agent_message` or `session_message`.
+/// itself, or a connection that proved its session), `agent_message`, `session_message` or a
+/// tool's `notice` (`prompt_provenance::notice`).
 fn plain_kind(provenance: Option<&Value>) -> bool {
     match provenance.and_then(|p| p.get("kind")) {
         None => true,
-        Some(kind) => matches!(kind.as_str(), Some("agent_message" | "session_message")),
+        Some(kind) => matches!(
+            kind.as_str(),
+            Some("agent_message" | "session_message" | crate::prompt_provenance::NOTICE_KIND)
+        ),
     }
 }
 
@@ -364,6 +390,14 @@ pub(super) fn prompt_waits_steer_refused() -> RpcError {
         "steer.unavailable: a prompt waits behind the running turn; another agent's message goes in after it, so send without steer-only to queue",
     )
     .with_data(json!({"reason": "steer.unavailable", "turnCap": false, "promptWaits": true}))
+}
+
+/// The tool's notice a message's provenance carries (`prompt_provenance::notice`).
+fn tool_notice_of(provenance: Option<&Value>) -> Option<Value> {
+    provenance
+        .filter(|p| crate::prompt_provenance::is_notice(Some(p)))
+        .and_then(|p| p.get("notice"))
+        .cloned()
 }
 
 /// Whether a prompt's provenance is a notice's.
@@ -578,16 +612,36 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
         if let Some(session) = last.and_then(|i| i.from_session.as_deref()) {
             part.set("fromSession", json!(session));
         }
+        // A thread of tools' notices says its loudest severity, so a fold of it never hides a fire.
+        if let Some(severity) = loudest(list) {
+            part.set("severity", json!(severity));
+        }
         if whole {
             let messages: Vec<Value> = list
                 .iter()
-                .map(|i| json!({"promptId": i.prompt_id, "from": i.from, "at": i.at, "text": i.text}))
+                .map(|i| {
+                    let mut m = json!({"promptId": i.prompt_id, "from": i.from, "at": i.at, "text": i.text});
+                    if let Some(notice) = &i.tool_notice {
+                        m.set("notice", notice.clone());
+                    }
+                    m
+                })
                 .collect();
             part.set("messages", json!(messages));
         }
         parts.push(part);
     }
     (text, json!(parts))
+}
+
+/// The loudest severity of the tools' notices among `items` (`prompt_provenance::NOTICE_SEVERITIES`).
+fn loudest(items: &[&Item]) -> Option<&'static str> {
+    let rank = |i: &&Item| {
+        let severity = i.tool_notice.as_ref()?.get("severity")?.as_str()?;
+        crate::prompt_provenance::NOTICE_SEVERITIES.iter().position(|s| *s == severity)
+    };
+    let top = items.iter().filter_map(rank).max()?;
+    crate::prompt_provenance::NOTICE_SEVERITIES.get(top).copied()
 }
 
 /// A message's text as the notice quotes it: without the blank lines around it, and with the first
@@ -612,9 +666,10 @@ fn wakes(meta: &SessionMeta, item: &Item) -> bool {
 }
 
 /// Whether the person's (or any) prompt waits in the queue: no notice steers into the running
-/// turn then, so it is never held up behind them.
+/// turn then, so it is never held up behind them. One a failed turn holds or that waits for the
+/// owner (`QueuedPrompt::aside`) runs nothing, so it holds no notice back.
 fn prompt_waits(session: &Session) -> bool {
-    session.queue.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|q| !q.held)
+    session.queue.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|q| !q.aside())
 }
 
 /// Whether one of the person's prompts waits in the queue (not held, no agent's message): no other
@@ -622,23 +677,53 @@ fn prompt_waits(session: &Session) -> bool {
 /// Other agents' messages waiting do not hold one: they never held each other up.
 pub(super) fn persons_prompt_waits(session: &Session) -> bool {
     let queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
-    queue.iter().any(|q| !q.held && q.run.agent.is_none())
+    queue.iter().any(|q| !q.aside() && q.run.agent.is_none())
 }
 
 /// Whether a chat's first work waits in its queue ([`FIRST_WORK`] on its provenance), as one a
 /// person's prompt went ahead of does, and one a restart rebuilt with no hold of its own.
 fn first_work_waits(session: &Session) -> bool {
     let queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
-    queue.iter().any(|q| !q.held && is_first_work(q.run.provenance.as_ref()))
+    queue.iter().any(|q| !q.aside() && is_first_work(q.run.provenance.as_ref()))
 }
 
-/// Whether a notice may not steer into the running turn now: a prompt waits, or the turn is
-/// past its cap (`turns.rs` checks it again at dispatch).
+/// Whether a prompt is the person's own (module docs): no other agent's message, and none of
+/// acpmux's own prompts (a notice, a digest, the turn cap's notice, a subagent's retry, a cut
+/// turn's automatic continuation), whose turns take notices and steers as before.
+pub(super) fn persons_prompt(agent: Option<&str>, provenance: Option<&Value>) -> bool {
+    let auto_resume =
+        provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some("auto_resume");
+    agent.is_none()
+        && !auto_resume
+        && !is_notice(provenance)
+        && !super::digest::inbox_digest::is_digest(provenance)
+        && !super::turn_cap::is_notice(provenance)
+        && !super::subagent_retry::is_retry(provenance)
+}
+
+/// Whether the running turn is one the person's own prompt started: no notice and no other
+/// agent's steer goes into it (module docs).
+pub(super) fn persons_turn(session: &Session) -> bool {
+    session.turn().is_some_and(|t| t.persons)
+}
+
+/// The refusal of another agent's steer-only prompt while the person's own turn runs (module
+/// docs): it goes in after that turn, as a turn of its own.
+pub(super) fn persons_turn_steer_refused() -> RpcError {
+    RpcError::invalid_params(
+        "steer.unavailable: the person's own turn runs; another agent's message goes in after it, as a turn of its own, so send without steer-only to queue",
+    )
+    .with_data(json!({"reason": "steer.unavailable", "turnCap": false, "personsTurn": true}))
+}
+
+/// Whether a notice may not steer into the running turn now: a prompt waits, the person's own
+/// prompt started the turn, or the turn is past its cap (`turns.rs` checks it again at dispatch).
 pub(super) fn notice_held(session: &Session) -> bool {
-    let started = session.turn().map(|t| t.started_at);
+    let turn = session.turn();
     prompt_waits(session)
         || review_box(session)
-        || started.is_some_and(|at| capped(&session.meta(), at, now_ms()))
+        || turn.as_ref().is_some_and(|t| t.persons)
+        || turn.is_some_and(|t| capped(&session.meta(), t.started_at, now_ms()))
 }
 
 /// Whether the session's running turn is past its cap.
@@ -772,6 +857,7 @@ impl Hub {
                             at: now_ms(),
                             text: text.clone(),
                             details: provenance.and_then(|p| p.get("details")).cloned(),
+                            tool_notice: tool_notice_of(provenance),
                             noticed: false,
                             read: false,
                             answer: Some(tx.clone()),
@@ -866,6 +952,7 @@ impl Hub {
                     at,
                     text: text.to_owned(),
                     details: provenance.get("details").cloned(),
+                    tool_notice: None,
                     noticed: true,
                     read: true,
                     answer: None,
@@ -947,6 +1034,8 @@ impl Hub {
         let continuing = self.continuation_pending(session);
         let next = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+            // Set once `new` lets go of the inbox (below).
+            let mut held_by_person = false;
             let next = {
                 let new: Vec<&Item> = inbox.items.iter().filter(|i| !i.noticed).collect();
                 if new.is_empty()
@@ -963,8 +1052,20 @@ impl Hub {
                                 at => at.saturating_add(REFUSED_RETRY_MS),
                             };
                             // A review box's turn takes no notice: what its inbox held before
-                            // it became one waits for the turn's end (module docs).
-                            if !steers
+                            // it became one waits for the turn's end (module docs). Nor does
+                            // the person's own: the notice goes in as a turn after it, never
+                            // into a turn carried on from it (`carried_turn.rs`).
+                            held_by_person = turn.persons;
+                            // Nor does a turn a Stop is ending: what is new goes in as the next
+                            // turn, at once (`cancel.rs` module docs).
+                            let stopping = super::cancel::is_stopping(session, &turn.turn_id);
+                            if stopping {
+                                inbox.due_now = true;
+                            }
+                            if stopping
+                                || !steers
+                                || turn.persons
+                                || inbox.held_by_person
                                 || capped(&meta, turn.started_at, now)
                                 || prompt_waits(session)
                                 || crate::review_box::of_meta(&meta)
@@ -985,14 +1086,27 @@ impl Hub {
                         None if inbox.first.is_some() || first_work_waits(session) => {
                             Next::WakeAt(now.saturating_add(WAKE_DEBOUNCE_MS))
                         }
+                        // While the person's Stop holds the other agents' messages (`cancel.rs`
+                        // `hold_agent_messages`), none starts a turn: they wait until the
+                        // person's next turn or a resume of the queue ends the hold, which
+                        // reviews the inbox again (`release_held_agent_messages`,
+                        // `queue_edit.rs` `resume`). A message a Stop sent back included.
+                        None if session.stop_hold.load(Ordering::SeqCst) != 0 => Next::Nothing,
                         None => {
                             // A waking message after the debounce; anything after the flush, so no
                             // message is stranded in an idle chat.
+                            // Messages the person's own turn held back are due now: they would
+                            // have gone into that turn.
                             let waking = new.iter().filter(|i| wakes(&meta, i)).map(|i| i.at).min();
                             let oldest = new.iter().map(|i| i.at).min().unwrap_or(now);
                             let flush = oldest.saturating_add(FLUSH_MS);
-                            let due = waking
-                                .map_or(flush, |at| at.saturating_add(WAKE_DEBOUNCE_MS).min(flush));
+                            let due = if inbox.held_by_person || inbox.due_now {
+                                now
+                            } else {
+                                waking.map_or(flush, |at| {
+                                    at.saturating_add(WAKE_DEBOUNCE_MS).min(flush)
+                                })
+                            };
                             let retry = match inbox.refused_at {
                                 0 => 0,
                                 at => at.saturating_add(REFUSED_RETRY_MS),
@@ -1013,6 +1127,9 @@ impl Hub {
                     }
                 }
             };
+            if held_by_person {
+                inbox.held_by_person = true;
+            }
             match next {
                 Next::Nothing => {
                     if let Some(timer) = inbox.timer.take() {
@@ -1049,6 +1166,8 @@ impl Hub {
             if let Some(timer) = inbox.timer.take() {
                 timer.abort();
             }
+            inbox.held_by_person = false;
+            inbox.due_now = false;
             let new: Vec<&Item> = inbox.items.iter().filter(|i| !i.noticed).collect();
             let (text, parts) = render(&new);
             let whole = team_page::whole_notice(&new);
@@ -1117,6 +1236,23 @@ impl Hub {
                 }
                 inbox.settled.notify_waiters();
                 Some(answer)
+            } else if super::steer_end::is_stopped_steer_refused(&result) {
+                // A Stop kept it out of its turn, or took it back unread: no refusal of the agent's,
+                // so no backoff; it goes in as the next turn (`inbox_review`).
+                inbox.due_now = true;
+                for item in inbox.items.iter_mut().filter(|i| ids.contains(&i.prompt_id)) {
+                    item.noticed = false;
+                }
+                for (id, waiter) in waiters {
+                    match inbox.items.iter_mut().find(|i| i.prompt_id == id) {
+                        Some(item) if !closed => item.answer = Some(waiter),
+                        _ => {
+                            waiter.send_replace(Some(Err(super::queue::closing_error())));
+                        }
+                    }
+                }
+                inbox.settled.notify_waiters();
+                None
             } else {
                 // Tried again after the backoff, or sooner when a turn starts or ends.
                 inbox.refused_at = now_ms();
@@ -1172,7 +1308,14 @@ impl Hub {
     /// back, and its wake timer is done.
     pub(super) fn inbox_turn_started(self: &Arc<Self>, session: &Arc<Session>) {
         self.disarm_inbox(session);
-        session.inbox.lock().unwrap_or_else(|e| e.into_inner()).refused_at = 0;
+        let persons = persons_turn(session);
+        let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+        inbox.refused_at = 0;
+        // What waits as the person's own turn starts would have gone into it: due at its end. A
+        // notice in flight that is refused comes back new, and its review marks it so.
+        if persons && inbox.items.iter().any(|i| !i.noticed) {
+            inbox.held_by_person = true;
+        }
     }
 
     /// A prompt was written to its agent (a turn's in `run_prompt_joined`, a steer's in
@@ -1203,6 +1346,26 @@ impl Hub {
             self.append(session, "mux", "inbox_noticed", msg);
         }
         self.inbox_review(session);
+    }
+
+    /// Notice `notice_id`, written as a steer, was taken back by a Stop before the agent read it
+    /// (`steer_end.rs` `steer_turn`): it did not go in. Its messages are no notice's now, and the
+    /// log says so (`inbox_returned`), so a restart finds them new too; `notice_done` makes them
+    /// new again.
+    pub(super) fn inbox_notice_unwritten(&self, session: &Arc<Session>, notice_id: &str) {
+        let ids: Vec<String> = {
+            let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(at) = inbox.written.iter().position(|id| id == notice_id) else { return };
+            inbox.written.remove(at);
+            let mut ids = Vec::new();
+            for item in inbox.items.iter_mut().filter(|i| i.notice.as_deref() == Some(notice_id)) {
+                item.notice = None;
+                ids.push(item.prompt_id.clone());
+            }
+            ids
+        };
+        let msg = json!({"noticePromptId": notice_id, "promptIds": ids, "reason": "stopped"});
+        self.append(session, "mux", "inbox_returned", msg);
     }
 
     /// A turn ended (`finish_turn`, `fail_unstarted_turn`): a refusal during it no longer holds
@@ -1262,8 +1425,14 @@ impl Hub {
     }
 
     /// The record kinds `restore_inbox` reads (a log load's, so `store/kind_index.rs` copies them).
-    pub(crate) const INBOX_KINDS: &[&str] =
-        &["inbox", "inbox_noticed", "inbox_answered", "inbox_read", "inbox_removed"];
+    pub(crate) const INBOX_KINDS: &[&str] = &[
+        "inbox",
+        "inbox_noticed",
+        "inbox_returned",
+        "inbox_answered",
+        "inbox_read",
+        "inbox_removed",
+    ];
 
     /// The inbox from the session's log (`restore_queue`): every message, read and noticed as
     /// the log says. Run again, it adds only what it does not hold.
@@ -1302,6 +1471,9 @@ impl Hub {
                         text: field("text").to_owned(),
                         details: crate::prompt_provenance::recorded(&e.msg)
                             .and_then(|p| p.get("details").cloned()),
+                        tool_notice: tool_notice_of(
+                            crate::prompt_provenance::recorded(&e.msg).as_ref(),
+                        ),
                         noticed: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),
                         read: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),
                         answer: None,
@@ -1311,6 +1483,12 @@ impl Hub {
                     let notice = e.msg.get("noticePromptId").and_then(Value::as_str);
                     let notice = notice.unwrap_or_default().to_owned();
                     noticed.extend(ids().map(|id| (id, notice.clone())));
+                }
+                // Taken back by a Stop unread (`inbox_notice_unwritten`): new again.
+                "inbox_returned" => {
+                    for id in ids() {
+                        noticed.remove(&id);
+                    }
                 }
                 "inbox_answered" => {
                     if let Some((notice, answer)) = answered_record(&e.msg) {
@@ -1510,6 +1688,7 @@ impl Hub {
                     "promptId": item.prompt_id, "from": item.from, "fromSession": item.from_session,
                     "class": item.class, "kind": kind_of(item.class), "at": item.at,
                     "text": item.text, "read": item.read, "details": item.details,
+                    "notice": item.tool_notice,
                 }));
                 if mark_read && !item.read {
                     item.read = true;

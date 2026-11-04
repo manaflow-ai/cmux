@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextMobile
 @testable import CmuxNextMobileHost
 import CmuxNextTestSupport
@@ -10,7 +11,7 @@ import Testing
 /// Settings > Mobile's ops: only the person's gesture on the Settings page removes a phone.
 @MainActor @Suite(.closesItsWindows) struct MobilePageProviderTests {
     @Test func removeNeedsTheSettingsPageAndAGesture() async throws {
-        let provider = MobilePageProvider(host: IPhoneHostService())
+        let provider = MobilePageProvider(host: IPhoneHostService(loginKeychain: LoginKeychain()))
         let params: JSONValue = ["id": "phone-1"]
         for context in [PageCallContext(page: "cmux.settings"), PageCallContext(page: "cmux.history", userGesture: true)] {
             await #expect(throws: PageError.self) { _ = try await provider.call("cmux.settings.mobile.remove_phone", params: params, context: context) }
@@ -28,7 +29,7 @@ import Testing
     }
 
     @Test func allowAgainNeedsTheSettingsPageAndAGesture() async throws {
-        let provider = MobilePageProvider(host: IPhoneHostService())
+        let provider = MobilePageProvider(host: IPhoneHostService(loginKeychain: LoginKeychain()))
         await #expect(throws: PageError.self) {
             _ = try await provider.call("cmux.settings.mobile.allow_again", params: .object([:]), context: PageCallContext(page: "cmux.settings"))
         }
@@ -40,7 +41,7 @@ import Testing
     /// A pairing request is answered only by the person: the prompt (which `debug.dialog` may not
     /// press) or their own click on Settings > Mobile, never a script or another page.
     @Test func answeringAPairingRequestNeedsTheSettingsPageAndAGesture() async throws {
-        let host = IPhoneHostService()
+        let host = IPhoneHostService(loginKeychain: LoginKeychain())
         let provider = MobilePageProvider(host: host)
         let params: JSONValue = ["id": "phone-1", "allow": true]
         for context in [PageCallContext(page: "cmux.settings"), PageCallContext(page: "cmux.history", userGesture: true)] {
@@ -99,7 +100,7 @@ import Testing
     }
 
     @Test func aHostWithNoAccountShowsOffWithNoPhones() {
-        let json = IPhoneHostService().pageJSON
+        let json = IPhoneHostService(loginKeychain: LoginKeychain()).pageJSON
         #expect(json["allowed"] == .bool(false))
         #expect(json["phase"] == .string("off"))
         #expect(json["account"] == .null)

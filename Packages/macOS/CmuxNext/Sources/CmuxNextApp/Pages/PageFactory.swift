@@ -44,7 +44,7 @@ struct PageFactory {
     func appsWebPage(route: String?) -> PageWebView? {
         let confirming = appsStoreProvider()
         let native = AppPageNativeProvider(services: services, page: .apps)
-        let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native)]
+        let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native), AppsPanelsPageProvider.route(services.apps.client)]
         guard let page = PageWebView(descriptor: .apps, routes: routes, route: route, dynamicResources: AppsGlyphResource()) else { return nil }
         confirming.anchor = { [weak page] in page }
         native.anchor = { [weak page] in page }
@@ -155,14 +155,9 @@ struct PageFactory {
             return await services.cloudVmHost.set(id, on: on, reachable: services.settingsWindow.vmHostReach(id) == true)
         }
         let accounts = services.accounts.model
-        provider.accountsState = { (try? JSONValue.parse(JSONEncoder().encode(accounts.pageState))) ?? .null }
-        provider.accountsRun = { params in
-            guard let action = AccountsPageAction(field: { params[$0]?.stringValue }) else {
-                throw PageError.invalidParams("unknown accounts action")
-            }
-            if let error = await accounts.perform(action) { return ["error": .string(error)] }
-            return .object([:])
-        }
+        let github = services.accounts.github
+        provider.accountsState = { github.accountsPageState(accounts) }
+        provider.accountsRun = { params in try await github.runAccountsPage(params, accounts: accounts) }
         provider.agents = services.agentHarnesses
         let harnesses = SettingsHarnesses(
             environment: { [weak services] in services.flatMap(QuitAgents.environment) },
@@ -220,7 +215,7 @@ struct PageFactory {
             return (try? JSONValue.parse(JSONEncoder().encode(result))) ?? .object([:])
         }
         provider.devicesWatching = { on in if on { devices.beginWatching() } else { devices.endWatching() } }
-        provider.integrations = SettingsAgentIntegrations(cli: { LocalServerSource.bundledCLI() })
+        provider.integrations = SettingsAgentIntegrations(cli: { [bundled = services.bundledCLI] in await bundled.resolve() })
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         provider.themeColors = { [weak services] in (services?.themes.catalog).map { c in c.names.compactMap { c.colors[$0] } } ?? [] }
@@ -295,6 +290,7 @@ struct PageFactory {
                                         ? nil : DaemonUpdateBoard.updateRefused
                                 })),
                       PageRoute(prefix: WebUpdatesPageProvider.prefix, provider: WebUpdatesPageProvider()),
+                      PageRoute(prefix: AppUpdatePageProvider.prefix, provider: AppUpdatePageProvider(updater: services.updater)),
                       // Chief > Voice input: the home.voiceInput tunable (DEV and NIGHTLY).
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute()),
                       // Settings > Menus: right-click menu arrangements (cmux.json contextMenus).

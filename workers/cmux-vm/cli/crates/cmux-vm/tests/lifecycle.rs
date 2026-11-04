@@ -2601,6 +2601,58 @@ async fn run_fails_fast_and_deletes_a_vm_whose_answer_has_no_state() {
     assert!(out.stderr.contains("state"), "{}", out.stderr);
 }
 
+/// A stored token whose JSON cannot be read names a recovery that works:
+/// `token revoke` removes the local copy it cannot revoke (#29706).
+// The file store; macOS keeps the token in the login Keychain.
+#[cfg(not(target_os = "macos"))]
+#[tokio::test]
+async fn revoke_removes_an_unreadable_stored_token() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("cmux-vm-unreadable-token-{}", std::process::id()));
+    let file = dir.join("cmux").join("vm-token.json");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let store = |text: &str| {
+        std::fs::write(&file, text).unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    };
+    store("{not json");
+    let xdg = dir.to_string_lossy().into_owned();
+    let env = [("XDG_CONFIG_HOME", xdg.as_str())];
+
+    let status = cli_with_env(&["token", "status"], &env).await;
+    assert_ne!(status.code, exit::OK);
+    assert!(status.stderr.contains("token revoke"), "{}", status.stderr);
+    assert!(status.stderr.contains("expires"), "{}", status.stderr);
+    // Every other verb refuses it with the same advice.
+    let get = cli_with_env(&["get", VM_ID], &env).await;
+    assert_eq!(get.code, exit::UNAUTHENTICATED, "{}", get.stderr);
+    assert!(get.stderr.contains("token revoke"), "{}", get.stderr);
+
+    // Nothing is sent anywhere (no server): the key cannot be read to revoke.
+    let revoke = cli_with_env(&["token", "revoke"], &env).await;
+    assert_eq!(revoke.code, exit::OK, "{}", revoke.stderr);
+    assert!(revoke.stdout.contains("removed"), "{}", revoke.stdout);
+    assert!(revoke.stdout.contains("expires"), "{}", revoke.stdout);
+    assert!(!file.exists());
+    let status = cli_with_env(&["token", "status"], &env).await;
+    assert_eq!(status.code, exit::UNAUTHENTICATED, "{}", status.stderr);
+    assert!(
+        status.stderr.contains("no stored VM token"),
+        "{}",
+        status.stderr
+    );
+
+    store("[]");
+    let revoke = cli_with_env(&["--json", "token", "revoke"], &env).await;
+    assert_eq!(revoke.code, exit::OK, "{}", revoke.stderr);
+    assert_eq!(
+        json_stdout(&revoke),
+        json!({"id": null, "revoked": false, "removed": true})
+    );
+    assert!(!file.exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The guest command that removes the run's archives on every exit path.
 const REMOVE_ARCHIVES: &str = "rm -f /tmp/cmux-run.tgz /tmp/cmux-pull.tgz /tmp/cmux-pull.tgz.rc";
 
@@ -2765,4 +2817,67 @@ async fn a_kept_run_reports_pull_archives_it_could_not_remove() {
     );
     server.verify().await;
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A server that counts the creates a `run` makes and refuses each, so a run
+/// that gets past its argument checks stops at the create.
+async fn refusing_creates(creates: u64) -> MockServer {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/vms"))
+        .respond_with(ResponseTemplate::new(403).set_body_json(json!({
+            "error": { "code": "forbidden", "message": "refused by the test" }
+        })))
+        .expect(creates)
+        .mount(&server)
+        .await;
+    server
+}
+
+#[tokio::test]
+async fn run_refuses_a_command_over_the_env_value_limit_before_creating_a_vm() {
+    // The API limits an env value to 32 KiB counted as JavaScript string
+    // length (UTF-16 code units); the whole command goes in one.
+    let under = refusing_creates(2).await;
+    let out = cli(&under, &["run", "--", &"x".repeat(32 * 1024)]).await;
+    assert_ne!(out.code, exit::USAGE, "{}", out.stderr);
+    // Two UTF-16 units each: 16 Ki of them is exactly the limit.
+    let out = cli(&under, &["run", "--", &"\u{1F600}".repeat(16 * 1024)]).await;
+    assert_ne!(out.code, exit::USAGE, "{}", out.stderr);
+    under.verify().await;
+
+    let over = refusing_creates(0).await;
+    let out = cli(&over, &["run", "--", &"x".repeat(32 * 1024 + 1)]).await;
+    assert_eq!(out.code, exit::USAGE, "{}", out.stderr);
+    assert!(out.stderr.contains("32 KiB"), "{}", out.stderr);
+    let out = cli(&over, &["run", "--", &"\u{1F600}".repeat(16 * 1024 + 1)]).await;
+    assert_eq!(out.code, exit::USAGE, "{}", out.stderr);
+    // Several words are quoted one by one; the quoted line is what counts.
+    let half = "it's".repeat(4 * 1024);
+    let out = cli(&over, &["run", "--", "echo", &half, &half]).await;
+    assert_eq!(out.code, exit::USAGE, "{}", out.stderr);
+    over.verify().await;
+}
+
+#[tokio::test]
+async fn run_refuses_a_pull_list_over_the_exec_command_limit_before_creating_a_vm() {
+    // Every --pull path is named twice in one guest exec command, which the
+    // API limits to 64 KiB.
+    let paths: Vec<String> = (0..1000).map(|i| format!("out/{i:036}")).collect();
+    let mut args = vec!["run".to_owned()];
+    for path in &paths {
+        args.extend(["--pull".to_owned(), path.clone()]);
+    }
+    args.extend(["--".to_owned(), "true".to_owned()]);
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let over = refusing_creates(0).await;
+    let out = cli(&over, &args).await;
+    assert_eq!(out.code, exit::USAGE, "{}", out.stderr);
+    assert!(out.stderr.contains("--pull"), "{}", out.stderr);
+    over.verify().await;
+
+    let under = refusing_creates(1).await;
+    let out = cli(&under, &["run", "--pull", &paths[0], "--", "true"]).await;
+    assert_ne!(out.code, exit::USAGE, "{}", out.stderr);
+    under.verify().await;
 }

@@ -82,10 +82,20 @@ impl Mux {
         if let Some(root) = options.terminal_host_root.as_deref() {
             crate::terminal_host_runtime::sweep_released_pty_locks(root);
         }
-        let records = match options.terminal_host_root.as_deref() {
+        let mut records = match options.terminal_host_root.as_deref() {
             Some(root) => crate::terminal_host_runtime::load_terminal_host_records(root)?,
             None => Vec::new(),
         };
+        // The workspace the person sees goes first through this pass: a host
+        // found dead here schedules its respawn in this order, and the respawn
+        // gate keeps it (mux/terminal_respawn.rs), so after a kill of
+        // everything its terminals respawn first. Live hosts are sorted again
+        // below for their adoption threads.
+        let visible_workspace = self.with_state(|state| {
+            state.workspaces.get(state.active_workspace).map(|workspace| workspace.key.clone())
+        });
+        records
+            .sort_by_key(|(_, record)| Some(&record.workspace_key) != visible_workspace.as_ref());
         let mut handled_terminals = HashSet::new();
         // Live hosts this pass hands to their adoption threads.
         let mut deferred: Vec<(
@@ -713,6 +723,9 @@ impl Mux {
 
         let before = state.clone();
         let restored_public_id = surface.terminal_public_id().cloned();
+        // Kept to publish the replayed reports once the terminal is live;
+        // `surface` itself moves into state below.
+        let adopted = surface.clone();
         let has_restored_placements = restored_public_id.as_ref().is_some_and(|public_id| {
             !state.placements_of_content(&ContentPublicId::Terminal(public_id.clone())).is_empty()
         });
@@ -772,6 +785,11 @@ impl Mux {
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
         drop(registry);
+        // The host's replay carries the shell's last directory and progress
+        // reports, pending until the terminal is live: publish them now, as
+        // a reconnect does. An idle shell prints nothing that would.
+        adopted.publish_pending_directory();
+        adopted.publish_pending_progress();
         self.publish_adopted_detached_terminal(terminal_id);
         // Clients read tab liveness from the tree: an adopting tab is live now.
         if self.clear_pending_terminal(terminal_id) {

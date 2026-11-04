@@ -15,6 +15,7 @@ import { elapsed, running, useNow } from "./SubagentGroup";
 import type { Subagent } from "./subagentFold";
 import { AgentIdentity } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
+import { subagentDisplayName } from "./subsessions";
 
 /// A section's agents in its order, each nested agent moved right under the agent that spawned it
 /// when that one is in the section too, with how deep it then sits. An agent whose parent is in
@@ -24,7 +25,9 @@ export function nestAgents(agents: readonly Subagent[]): { agent: Subagent; dept
   const under = new Map<string | null, Subagent[]>();
   for (const agent of agents) {
     const parent = agent.parent !== null && ids.has(agent.parent) ? agent.parent : null;
-    under.set(parent, [...(under.get(parent) ?? []), agent]);
+    const siblings = under.get(parent);
+    if (siblings) siblings.push(agent);
+    else under.set(parent, [agent]);
   }
   const rows: { agent: Subagent; depth: number }[] = [];
   const placed = new Set<string>();
@@ -124,7 +127,7 @@ export const AgentsPill = memo(function AgentsPill({
                           fallbackNode={<span className="acpmux-agents-list__dot" />}
                         />
                         <span className="acpmux-agents-list__text">
-                          <span className="acpmux-agents-list__name">{agent.name}</span>
+                          <span className="acpmux-agents-list__name">{subagentDisplayName(t, agent)}</span>
                           <span className="acpmux-agents-list__state">{state}</span>
                         </span>
                         <span className="acpmux-agents-list__time">{formatDuration(elapsed(agent, now))}</span>
