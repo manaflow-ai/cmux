@@ -7,6 +7,9 @@
  *   bun scripts/cmux-next/cloud-journey.ts --backend prod --credentials ~/.secrets/cmuxterm-prod.env --team team_...
  *   bun scripts/cmux-next/cloud-journey.ts --backend local            # wrangler dev on 127.0.0.1:8787
  *   bun scripts/cmux-next/cloud-journey.ts --api https://cmux-api-preview-35100.debussy.workers.dev --stack dev
+ *   bun scripts/cmux-next/cloud-journey.ts --app-cli "$APP/Contents/Resources/bin/cmux" --socket /tmp/cmux-debug-TAG.sock
+ *     (the commands a person runs, through a running NEXT build's CLI: list-machines, vm token create,
+ *     new-machine, machine-status, exec, start-session, start-chat --wait, kill-machine; cmux#35086)
  *
  * It signs in as the agent test account (Stack password sign-in; CMUX_DOGFOOD_STACK_EMAIL and
  * CMUX_DOGFOOD_STACK_PASSWORD from the environment or a KEY=value --credentials file) and walks the
@@ -231,6 +234,80 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
 const GUEST = 'export HOME="${HOME:-/home/cmux}"; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
+/**
+ * --app-cli PATH: the commands a person runs, through a NEXT build's own CLI (cmux#35086). The `cloud`
+ * verbs go to that app's control socket (--socket PATH or CMUX_SOCKET_PATH), so the app must be running
+ * and signed in; its build decides the backend, which each step names from the answer when it says.
+ */
+async function appCliJourney(cli: string, socket: string | undefined, J: Journey, agent: string, prompt: string): Promise<void> {
+  const env = { ...process.env, ...(socket ? { CMUX_SOCKET_PATH: socket } : {}) };
+  const run = (words: string[], timeoutMs = 120_000) => {
+    const done = spawnSync(cli, words, { env, encoding: "utf8", timeout: timeoutMs });
+    if (done.error) throw new Error(`${cli} ${words.slice(0, 2).join(" ")}: ${done.error.message}`);
+    let json: any = {};
+    try {
+      json = JSON.parse(done.stdout || "{}");
+      json = json?.result ?? json;
+    } catch {
+      json = {};
+    }
+    return { code: done.status ?? 1, stdout: done.stdout ?? "", stderr: done.stderr ?? "", json };
+  };
+  const must = (name: string, r: ReturnType<typeof run>) => {
+    if (r.code !== 0) throw new Error(`\`cmux ${name}\` exit ${r.code}: ${(r.stderr || r.stdout).trim().slice(-400)}`);
+    return r;
+  };
+  const where = (j: any) => j?.api_base_url ?? j?.backend ?? j?.api ?? j?.origin ?? j?.host ?? "app";
+  let machine: string | null = null;
+  try {
+    await J.step("app cli: signed in (cloud list-machines)", async () => {
+      const r = must("cloud list-machines", run(["cloud", "list-machines", "--json"], 60_000));
+      if (r.json?.account?.signed_in !== true) throw new Error("the app is not signed in (account.signed_in is not true)");
+      return { value: null, detail: `${(r.json.machines ?? []).length} machines; ${where(r.json.account)}` };
+    });
+    await J.step("app cli: vm token create", async () => {
+      const r = must("vm token create", run(["vm", "token", "create", "--ttl", "30m", "--json"], 60_000));
+      return { value: null, detail: `issuer ${where(r.json)}` };
+    });
+    machine = await J.step("app cli: cloud new-machine", async () => {
+      const r = must("cloud new-machine", run(["cloud", "new-machine", "--name", `journey ${J.meta.tag}`, "--json"], 600_000));
+      const id = r.json?.machine_id ?? r.json?.machine?.id ?? r.json?.id;
+      if (!id) throw new Error(`no machine id in ${short(r.json)}`);
+      return { value: String(id), detail: `${id} via ${where(r.json)}` };
+    });
+    const target = `machine:${machine}`;
+    await J.step("app cli: cloud machine-status", async () => {
+      const r = must("cloud machine-status", run(["cloud", "machine-status", "--target", target, "--json"], 60_000));
+      const id = r.json?.machine_id ?? r.json?.machine?.id ?? r.json?.id;
+      if (id && id !== machine) throw new Error(`answered for ${id}, not ${machine}`);
+      return { value: null, detail: `status ${r.json?.status ?? r.json?.machine?.status ?? "?"} via ${where(r.json)}` };
+    });
+    await J.step("app cli: cloud exec", async () => {
+      const r = must("cloud exec", run(["cloud", "exec", "--target", target, "--command", "echo ok", "--json"], 120_000));
+      if (!/\bok\b/.test(r.stdout)) throw new Error(`no ok in ${r.stdout.slice(-200)}`);
+      return { value: null, detail: "ok" };
+    });
+    await J.step("app cli: cloud start-session", async () => {
+      const r = must("cloud start-session", run(["cloud", "start-session", "--target", target, "--agent", agent, "--json"], 600_000));
+      return { value: null, detail: `session ${r.json?.session_id ?? "?"}` };
+    });
+    await J.step("app cli: cloud start-chat --wait", async () => {
+      const r = must("cloud start-chat", run(["cloud", "start-chat", "--target", target, "--prompt", prompt, "--agent", agent, "--wait", "--timeout", "600", "--json"], 700_000));
+      const reply = String(r.json?.reply ?? "");
+      if (!reply.trim()) throw new Error(`no reply in ${short(r.json)}`);
+      return { value: null, detail: reply.slice(0, 280) };
+    });
+  } finally {
+    if (machine) {
+      const id = machine;
+      await J.step("app cli: cloud kill-machine", async () => {
+        must("cloud kill-machine", run(["cloud", "kill-machine", "--target", `machine:${id}`, "--confirm", "--json"], 120_000));
+        return { value: null, detail: id };
+      }).catch(() => undefined);
+    }
+  }
+}
+
 function argValue(flag: string, argv: string[]): string | undefined {
   const i = argv.indexOf(flag);
   return i >= 0 ? argv[i + 1] : undefined;
@@ -259,6 +336,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const tag = `jr-${Date.now().toString(36)}`;
   const J = new Journey(backend, outDir, { tag, team: team ?? "(personal)", agent, exec: cmux ? `cmux CLI ${cmux}` : "client session" });
   if (password) J.secrets.push(password);
+  const appCli = argValue("--app-cli", argv);
+  if (appCli) {
+    J.meta.exec = `app CLI ${appCli}`;
+    await appCliJourney(appCli, argValue("--socket", argv), J, agent, prompt).catch(() => undefined);
+    const failedApp = J.steps.filter((s) => s.status === "fail").length;
+    console.log(`\n${failedApp ? "FAIL" : "PASS"} app CLI journey: ${J.steps.length - failedApp} passed, ${failedApp} failed`);
+    return failedApp ? 1 : 0;
+  }
   const api = new Api(backend.api, team);
   let machine: string | null = null;
   let deleted = false;
