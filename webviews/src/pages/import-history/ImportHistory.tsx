@@ -32,7 +32,7 @@ export function ImportHistory({ store, strings, layout = "list" }: ImportHistory
       <output className="history-notice" aria-live="polite">
         {t(`history.state.${snapshot.phase}`)}
       </output>
-      <div className="history-sources">
+      <div className="history-sources" aria-label={t("history.sources") }>
         {snapshot.rows.map((row) => (
           <SourceRow
             key={row.id}
@@ -43,14 +43,6 @@ export function ImportHistory({ store, strings, layout = "list" }: ImportHistory
           />
         ))}
       </div>
-      <button
-        className="history-link history-dot"
-        type="button"
-        disabled={busy || Boolean(snapshot.picking)}
-        onClick={() => void store.pickZip("dot")}
-      >
-        {t("history.savedDot")}
-      </button>
       {(snapshot.error || snapshot.phase === "error") && (
         <div className="history-error" role="alert">
           <p>
@@ -112,7 +104,8 @@ function SourceRow({
 }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const t = strings.t;
-  const title = t(`history.source.${row.id}`);
+  const localizedTitle = t(`history.source.${row.id}`);
+  const title = row.title ?? (localizedTitle === `history.source.${row.id}` ? titleFor(row.id) : localizedTitle);
   const unavailable = row.kind === "local" && !row.source;
   const selected = row.kind === "text" ? Boolean(row.expanded) : row.selected;
   return (
@@ -131,7 +124,8 @@ function SourceRow({
               if (row.kind === "text" && Boolean(row.expanded) !== checked) store.expand(row.id);
             }}
           />
-          {row.kind === "zip" ? (
+          <span className={`history-source-icon icon-${row.id}`} aria-hidden="true">{row.icon ?? iconFor(row.id)}</span>
+          {row.kind === "zip" && !row.detected ? (
             <button
               type="button"
               className="history-source-title"
@@ -147,16 +141,10 @@ function SourceRow({
         <div className="history-source-action">
           {row.kind === "local" && (
             <span className="history-muted">
-              {t(
-                snapshot.phase === "detecting"
-                  ? "history.row.planning"
-                  : row.source
-                    ? "history.detected"
-                    : "history.notFound",
-              )}
+              {t(snapshot.phase === "detecting" ? "history.row.planning" : row.source ? "history.detected" : "history.notFound")}
             </span>
           )}
-          {row.kind === "zip" && (
+          {row.kind === "zip" && !row.detected && (
             <button
               type="button"
               className="history-link"
@@ -215,4 +203,24 @@ function SourceRow({
       {row.error && !row.error.startsWith("cmux.") && <p className="history-error-detail">{row.error}</p>}
     </section>
   );
+}
+
+function iconFor(id: string): string {
+  if (id === "chatgpt" || id === "dots" || id === "dot") return "✳";
+  if (id === "claude" || id === "claude-code" || id === "claude-memory") return "✦";
+  if (id === "codex" || id === "codex-sessions") return "⌘";
+  if (id === "grok-bot") return "G";
+  if (id === "muse") return "M";
+  if (id === "instinct") return "I";
+  return "↗";
+}
+
+function titleFor(id: string): string {
+  return {
+    "codex-sessions": "Codex chats",
+    "grok-bot": "Grok Bot",
+    muse: "Muse",
+    dots: "ChatGPT Dots",
+    instinct: "Instinct",
+  }[id] ?? "Saved export (.zip)";
 }

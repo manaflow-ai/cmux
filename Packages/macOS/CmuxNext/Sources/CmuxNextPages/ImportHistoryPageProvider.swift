@@ -40,16 +40,16 @@ public final class ImportHistoryPageProvider: PageProvider {
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         switch op {
         case "cmux.importHistory.detect":
-            // No --exports, including when this page is restored on screen at launch.
-            let result = try await run(command.detect(), .seconds(60))
-            let sources = (result["sources"]?.arrayValue ?? []).filter {
-                ["claude-code", "claude-memory", "codex"].contains($0["source"]?.stringValue ?? "")
-            }
+            // The page is already open because the person chose Bring your history. Scan the
+            // usual export folders once here so found archives are checked without another click.
+            let result = try await run(command.detect(exports: true), .seconds(60))
+            let sources = result["sources"]?.arrayValue ?? []
             for source in sources {
                 if let name = source["source"]?.stringValue { admitted[name] = "" }
             }
             return ["sources": .array(sources.map { source in
-                ["source": source["source"] ?? .null, "items": source["count"] ?? .null,
+                ["source": source["source"] ?? .null, "kind": source["kind"] ?? .null,
+                 "path": source["path"] ?? .null, "items": source["count"] ?? .null,
                  "bytes": source["bytes"] ?? .null]
             })]
         case "cmux.importHistory.begin":

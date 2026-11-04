@@ -1,8 +1,8 @@
 /* One quiet list, using the app's own type and color tokens. Alternate layouts remain gallery choices. */
 .import-history {
-  max-width: 680px;
+  max-width: 760px;
   margin: 0 auto;
-  padding: 32px 24px;
+  padding: 40px 32px 28px;
   user-select: text;
 }
 .import-history h1 {
@@ -13,7 +13,7 @@
   font-weight: 600;
 }
 .history-lead {
-  margin: 8px 0 16px;
+  margin: 10px 0 24px;
   color: var(--page-text-2);
   line-height: 1.5;
 }
@@ -24,9 +24,17 @@
   margin-bottom: 8px;
 }
 .history-source {
-  border-bottom: 1px solid var(--page-separator);
-  padding: 12px 0;
+  border: 1px solid var(--page-separator);
+  border-radius: 10px;
+  background: var(--page-elevated);
+  padding: 14px 16px;
+  margin-top: 10px;
   min-width: 0;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.history-source:has(input:checked) {
+  border-color: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 48%, var(--page-separator));
+  background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 7%, var(--page-elevated));
 }
 .history-source-line,
 .history-source-label,
@@ -41,12 +49,36 @@
 }
 .history-source-label {
   min-width: 0;
+  flex: 1;
 }
 .history-source-label input {
   margin: 0;
   flex-shrink: 0;
   accent-color: var(--cmux-accent, currentColor);
 }
+.history-source-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 8px;
+  background: var(--page-text);
+  color: var(--page-elevated);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+.icon-chatgpt,
+.icon-dots { background: #6e8f80; }
+.icon-claude,
+.icon-claude-code,
+.icon-claude-memory { background: #c66b42; }
+.icon-codex,
+.icon-codex-sessions { background: #5d75c9; }
+.icon-grok-bot { background: #141414; }
+.icon-muse { background: #a14c98; }
+.icon-instinct { background: #2a8b80; }
 .history-source-action {
   flex-shrink: 0;
 }
@@ -70,10 +102,6 @@
 .history-button:disabled {
   opacity: 0.5;
   cursor: default;
-}
-.history-dot {
-  margin: 12px 0 0;
-  color: var(--page-text-2);
 }
 .history-file,
 .history-report,
@@ -124,8 +152,10 @@
   justify-content: space-between;
   position: sticky;
   bottom: 0;
-  padding: 12px 0;
+  padding: 18px 0 0;
   background: var(--cmux-surface-solid, Canvas);
+  border-top: 1px solid var(--page-separator);
+  margin-top: 24px;
 }
 .history-button {
   border: 1px solid var(--page-separator);
@@ -155,6 +185,11 @@
   padding: 16px;
   border: 1px solid var(--page-separator);
   border-radius: 8px;
+}
+.layout-cards .history-source-icon {
+  width: 34px;
+  height: 34px;
+  flex-basis: 34px;
 }
 .layout-compact .history-source {
   padding: 8px 0;

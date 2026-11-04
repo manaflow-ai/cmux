@@ -21,7 +21,7 @@ function host(handle?: (call: Call) => unknown | Promise<unknown>) {
       switch (op) {
         case OPS.detect:
           return {
-            sources: [{ source: "claude-code" }, { source: "codex" }, { source: "zip:/unasked.zip" }],
+            sources: [{ source: "claude-code", kind: "claude-code" }, { source: "codex", kind: "codex" }],
           } as R;
         case OPS.pickZip:
           return { source: `zip:/selected/${String(call.params.kind)}.zip`, name: "export.zip" } as R;
@@ -39,7 +39,7 @@ function host(handle?: (call: Call) => unknown | Promise<unknown>) {
 }
 
 describe("Bring your history", () => {
-  test("only known local sources are prechecked; detection never asks to scan exports", async () => {
+  test("detected local sources are prechecked", async () => {
     const client = host();
     const store = new ImportHistoryStore(client);
     await store.start();
@@ -52,6 +52,19 @@ describe("Bring your history", () => {
     ).toEqual(["claude-code", "codex"]);
     expect(store.getSnapshot().rows.some((row) => row.id === "dot")).toBe(false);
     expect(canImport(store.getSnapshot())).toBe(true);
+  });
+  test("recognized export archives are prechecked and retain their path", async () => {
+    const client = host(({ op }) =>
+      op === OPS.detect
+        ? { sources: [{ source: "zip:/Downloads/chatgpt.zip", kind: "chatgpt-export", path: "/Downloads/chatgpt.zip" }] }
+        : undefined,
+    );
+    const store = new ImportHistoryStore(client);
+    await store.start();
+    const row = store.getSnapshot().rows.find((candidate) => candidate.id === "chatgpt");
+    expect(row?.selected).toBe(true);
+    expect(row?.detected).toBe(true);
+    expect(row?.source).toBe("zip:/Downloads/chatgpt.zip");
   });
   test("Dot exists only after a person picks its saved export; cancel changes nothing", async () => {
     let cancelled = true;
