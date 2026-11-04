@@ -34,13 +34,17 @@ await requireBrowserLane("browser-preview-proof-browser.test.ts", async () => {
   for (const variant of ["with-console-error", "clean"] as const)
     for (const colorScheme of ["dark", "light"] as const)
       test(`preview proof renders its screenshot and report (${variant}, ${colorScheme})`, async () => {
-        const page = await browser!.newPage({ viewport: { width: 760, height: 900 }, colorScheme });
+        const page = await browser!.newPage({
+          viewport: { width: 760, height: 600 },
+          deviceScaleFactor: 2,
+          colorScheme,
+        });
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
         try {
           const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
           await page.goto(
-            base + galleryFrame("agent-pane.browser-preview-proof", { variant, colorScheme, width: 760, height: 900 }),
+            base + galleryFrame("agent-pane.browser-preview-proof", { variant, colorScheme, width: 760, height: 600 }),
           );
           await page.waitForFunction(() =>
             ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
@@ -53,6 +57,14 @@ await requireBrowserLane("browser-preview-proof-browser.test.ts", async () => {
           expect(await image.evaluate((element) => (element as HTMLImageElement).naturalWidth)).toBe(640);
           await page.locator('[data-tool-id="gallery-browser-proof"]').click();
           await page.getByText('"consoleErrors"', { exact: false }).first().waitFor();
+          await page.waitForFunction(() => {
+            const fold = document.querySelector(".cv-fold");
+            return (
+              fold &&
+              getComputedStyle(fold).opacity === "1" &&
+              fold.getBoundingClientRect().height >= fold.scrollHeight - 1
+            );
+          });
           const report = await page.locator("body").innerText();
           expect(report).toContain("http://127.0.0.1:5173/");
           expect(report).toContain('"pageErrors": []');
@@ -61,7 +73,10 @@ await requireBrowserLane("browser-preview-proof-browser.test.ts", async () => {
           const captures = process.env.CMUX_BROWSER_PROOF_CAPTURE_DIR;
           if (captures) {
             await mkdir(captures, { recursive: true });
-            await page.screenshot({ path: path.join(captures, `browser-preview-proof-${variant}-${colorScheme}.png`) });
+            await page.screenshot({
+              path: path.join(captures, `browser-preview-proof-${variant}-${colorScheme}.png`),
+              animations: "disabled",
+            });
           }
           expect(errors).toEqual([]);
         } finally {
