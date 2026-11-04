@@ -1,7 +1,6 @@
 import AppKit
 @testable import CmuxNextApps
 import CmuxNextDesign
-import SwiftUI
 import Testing
 
 /// The kit a vibe-coded app pane matches the app with: `Toggle`, `Slider` and `Panel` scene nodes,
@@ -16,7 +15,9 @@ import Testing
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        let hosting = NSHostingView(rootView: AppSceneNodeView(model: model, id: id).frame(width: size.width, height: size.height))
+        // The sidebar's own AppKit host of a scene, at the given size (the scene draws its root).
+        let hosting = AppSceneHostingView(model: model, bundleDirectory: nil)
+        hosting.frame = NSRect(origin: .zero, size: size)
         window.contentView = hosting
         scope.root(hosting)
         hosting.layoutSubtreeIfNeeded()
