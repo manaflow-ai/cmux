@@ -37,7 +37,7 @@ pub(super) async fn handle(
         let remote = conn.origin != Origin::Local;
         let prompt_only = set
             .and_then(Value::as_object)
-            .is_some_and(|s| s.keys().all(|k| k == "systemPrompt"))
+            .is_some_and(|s| !s.is_empty() && s.keys().all(|k| k == "systemPrompt"))
             && cfg.presets.get(&name).is_none_or(|p| p.args.is_empty());
         if remote
             && !(prompt_only && writes_command(conn))
