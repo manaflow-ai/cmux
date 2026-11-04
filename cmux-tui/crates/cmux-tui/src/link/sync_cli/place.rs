@@ -5,10 +5,10 @@
 //! deleted file is first moved aside, and any failure puts back what the
 //! pull changed before it.
 
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::fs::File;
 use std::io;
-use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
+use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd};
 use std::path::Path;
 
 use anyhow::{Context as _, bail};
@@ -161,8 +161,12 @@ impl Dir {
     }
 
     /// Writes `bytes` as the file `name` with `mode`: to a new hidden name,
-    /// then renamed over `name`, which may be missing or a regular file
-    /// (never a folder or a symlink).
+    /// then put at `name`, which may be missing or a regular file (never a
+    /// folder or a symlink). Every step is one atomic rename, so nothing
+    /// swapped in at `name` meanwhile is overwritten: a missing name is
+    /// taken only while still missing, and an existing one is exchanged and
+    /// what came out is removed only when it is a regular file (anything
+    /// else is exchanged back).
     pub(super) fn replace_file(&self, name: &str, bytes: &[u8], mode: u32) -> io::Result<()> {
         use std::io::Write as _;
         if !matches!(self.entry(name)?, Entry::Missing | Entry::File { .. }) {
@@ -176,17 +180,29 @@ impl Dir {
         let mut file = self.create_file(&part, mode)?;
         let written = file.write_all(bytes).and_then(|()| file.sync_all());
         drop(file);
-        let placed = written.and_then(|()| {
-            if matches!(self.entry(name)?, Entry::Missing | Entry::File { .. }) {
-                self.rename(&part, self, name)
-            } else {
-                Err(io::Error::from(io::ErrorKind::AlreadyExists))
-            }
-        });
+        let placed = written.and_then(|()| self.put_part(&part, name));
         if placed.is_err() {
             let _ = self.unlink(&part, false);
         }
         placed
+    }
+
+    /// Puts the file `part` at `name` (see [`Dir::replace_file`]).
+    fn put_part(&self, part: &str, name: &str) -> io::Result<()> {
+        let (part_c, name_c) = (c_name(part)?, c_name(name)?);
+        let fd = self.0.as_raw_fd();
+        match rename_noreplace(fd, &part_c, &name_c) {
+            Ok(()) => return Ok(()),
+            Err(error) if error.raw_os_error() == Some(libc::EEXIST) => {}
+            Err(error) => return Err(error),
+        }
+        exchange_names(fd, &part_c, &name_c)?;
+        // `part` now holds what was at `name`.
+        if matches!(self.entry(part)?, Entry::File { .. }) {
+            return self.unlink(part, false);
+        }
+        exchange_names(fd, &part_c, &name_c)?;
+        Err(io::Error::from(io::ErrorKind::AlreadyExists))
     }
 
     /// The text of the symlink `name` (never followed).
@@ -736,5 +752,49 @@ mod tests {
         assert_eq!(std::fs::read_link(root.join("old")).unwrap(), Path::new("src"));
         assert!(!root.join("deep").exists());
         assert_eq!(std::fs::read_link(root.join("mine")).unwrap(), Path::new("edited"));
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn renameat2(fd: RawFd, from: &CStr, to: &CStr, flags: libc::c_uint) -> io::Result<()> {
+    // SAFETY: both names are NUL-terminated and relative to the live
+    // descriptor. The syscall does not retain the pointers; calling it
+    // directly avoids depending on glibc's `renameat2` wrapper.
+    let done =
+        unsafe { libc::syscall(libc::SYS_renameat2, fd, from.as_ptr(), fd, to.as_ptr(), flags) };
+    if done == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+}
+
+#[cfg(target_vendor = "apple")]
+fn renameatx(fd: RawFd, from: &CStr, to: &CStr, flags: libc::c_uint) -> io::Result<()> {
+    // SAFETY: both names are NUL-terminated and relative to the live
+    // descriptor. `renameatx_np` does not retain the pointers.
+    let done = unsafe { libc::renameatx_np(fd, from.as_ptr(), fd, to.as_ptr(), flags) };
+    if done == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+}
+
+/// Renames `from` to `to` in one folder only while `to` is missing.
+fn rename_noreplace(fd: RawFd, from: &CStr, to: &CStr) -> io::Result<()> {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    return renameat2(fd, from, to, libc::RENAME_NOREPLACE);
+    #[cfg(target_vendor = "apple")]
+    return renameatx(fd, from, to, libc::RENAME_EXCL);
+    #[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")))]
+    {
+        let _ = (fd, from, to);
+        Err(io::Error::from(io::ErrorKind::Unsupported))
+    }
+}
+
+/// Exchanges `left` and `right` in one folder, atomically.
+fn exchange_names(fd: RawFd, left: &CStr, right: &CStr) -> io::Result<()> {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    return renameat2(fd, left, right, libc::RENAME_EXCHANGE);
+    #[cfg(target_vendor = "apple")]
+    return renameatx(fd, left, right, libc::RENAME_SWAP);
+    #[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")))]
+    {
+        let _ = (fd, left, right);
+        Err(io::Error::from(io::ErrorKind::Unsupported))
     }
 }

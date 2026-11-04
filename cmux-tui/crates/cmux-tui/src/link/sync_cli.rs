@@ -554,11 +554,17 @@ fn push_inner(
     }
     let git_record = set.git && !files_only;
     let manifest_name = if git_record { ".git/cmux-sync.json" } else { ".cmux-sync.json" };
-    // A pull's conflict merges stay here.
-    let merges: Vec<String> =
-        set.files.keys().filter(|relative| merge::is_conflict_file(relative)).cloned().collect();
+    // A pull's conflict merges stay here, and so does anything by that name.
+    let merges: Vec<String> = set
+        .files
+        .keys()
+        .chain(set.links.keys())
+        .filter(|relative| merge::is_conflict_file(relative))
+        .cloned()
+        .collect();
     for relative in merges {
         set.files.remove(&relative);
+        set.links.remove(&relative);
         set.skips.note(&relative, skips::Why::ConflictMerge);
     }
     // The manifest's own name is never pushed over it, as a file or a symlink.
