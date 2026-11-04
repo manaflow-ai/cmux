@@ -7,6 +7,7 @@
 // running build stays until that channel passes it. Every other build (older or newer, kept or
 // not, never the pulled ones) has a Switch, shown while the pointer is on its row: one restart into
 // it, downloaded first unless kept (Leo: "be able to hot swap your dev build for any other dev build").
+import { Button } from "../../../ui/Button";
 import { useEffect, useRef, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useSettingsState, useStore } from "../context";
@@ -63,7 +64,7 @@ function BuildRow({ build, labels }: { build: ChannelBuild; labels: ChannelsStat
           {/* First, so the badges keep the card's control edge while it is hidden (it keeps its
               place, transparent) and nothing moves when it shows. */}
           {build.switch && labels.switch && (
-            <button
+            <Button
               type="button"
               className="button channel-switch"
               data-channel-switch-build={build.build}
@@ -72,7 +73,7 @@ function BuildRow({ build, labels }: { build: ChannelBuild; labels: ChannelsStat
               onClick={switchTo}
             >
               {labels.switch}
-            </button>
+            </Button>
           )}
           {build.installed && (
             <span className="badge" data-channel-here="">
@@ -152,7 +153,7 @@ function SwitchRow({ way }: { way: ChannelSwitch }) {
           </div>
           {way.build && way.action && (
             <div className="row-control">
-              <button
+              <Button
                 type="button"
                 className="button"
                 data-channel-go-back={way.build}
@@ -160,7 +161,7 @@ function SwitchRow({ way }: { way: ChannelSwitch }) {
                 onClick={() => way.build && goBack(way.build)}
               >
                 {way.action}
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -205,7 +206,7 @@ function MachinesRow({ machines }: { machines: ChannelMachines }) {
               </div>
               {id && machines.updateLabel && (
                 <div className="row-control">
-                  <button
+                  <Button
                     type="button"
                     className="button"
                     data-channel-update-machine={id}
@@ -213,7 +214,7 @@ function MachinesRow({ machines }: { machines: ChannelMachines }) {
                     onClick={() => update(id)}
                   >
                     {machines.updateLabel}
-                  </button>
+                  </Button>
                 </div>
               )}
             </div>

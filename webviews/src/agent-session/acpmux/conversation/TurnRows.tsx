@@ -587,8 +587,18 @@ function TurnFailure({
   const compactFirst = recovery === "compact" && compact !== undefined;
   // The way out goes first and reads as the card's one filled button.
   // Sign in again leads whenever the chat has a login to run, with or without a Retry beside it.
+  // A server or connection that could not be reached is not the model's fault (Leo 2026-11-03, on a
+  // card that led with Switch model: "this ui is pretty awkward looking"): Retry leads it, the same
+  // acpmux turn retry whose attempts the live line counts (Thinking.tsx, "Can't reach the model ·
+  // retrying"), and Switch model only ever follows, outlined. Where the card has no Retry (an
+  // earlier turn, or one a retry already went on from) it keeps Switch model outlined, never filled.
+  const connectionFailure = kind === "unreachable";
   const switchFirst =
-    offersSwitch && !signInFirst && !cloudSignInLeads && (recovery === "switch-model" || !offersRetry);
+    offersSwitch &&
+    !connectionFailure &&
+    !signInFirst &&
+    !cloudSignInLeads &&
+    (recovery === "switch-model" || !offersRetry);
   // cmux's own route for a key, sign-in or capacity failure (CodeRouterOffer.tsx), placed by the
   // `coderouter-offer` arm. It takes the filled button only in the `primary` arm, or when it is the
   // only way out; the card keeps exactly one.

@@ -20,7 +20,7 @@ fn ids(violations: &[cmux_focus_core::invariants::Violation]) -> Vec<Invariant> 
 }
 
 fn tab(id: &str, kind: Kind) -> Tab {
-    Tab { id: id.into(), surface: None, kind }
+    Tab { id: id.into(), surface: None, kind, terminal: None }
 }
 
 /// One pane `p1` with a terminal `t1` and a browser tab `b1`, `selected`
