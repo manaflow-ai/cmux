@@ -51,17 +51,23 @@ const clientMayRead = (d: Deps, p: Principal): boolean => {
     && !state.server_revocations?.[p.install] && can(state, d.rows, p.user, "team.resources")
 }
 
+type OwnerDeps = Omit<Deps, "connection" | "http"> & {
+  /** The VM API origin alone: the platform holds the creator key and reads the mesh itself. */
+  readonly origin: () => string | null
+}
+
 /** Verify the caller and owner without reading the VM mesh. The platform uses this seam so its
- * own VM API service key (the key that created the mesh) performs the mesh read. */
-export const hostNetworkTargetOwner = async (d: Deps, p: Principal, params: unknown): Promise<NetworkTargetOwnerResult> => {
+ * own VM API service key (the key that created the mesh) performs the mesh read, so this needs
+ * only the configured VM API origin, never a service key of cmux-api's own. */
+export const hostNetworkTargetOwner = async (d: OwnerDeps, p: Principal, params: unknown): Promise<NetworkTargetOwnerResult> => {
   const fail = (code: string, message: string): NetworkTargetOwnerResult => ({ ok: false, code, message })
   const unavailable = () => fail("owner.unreachable", "network target discovery is unavailable")
   if (!p.grant_classes?.includes("read") || (p.expires_at !== undefined && p.expires_at <= d.now())) return fail("auth.forbidden", "an active client install with the read grant is required")
   const decoded = Schema.decodeUnknownExit(Params)(params ?? {}, { onExcessProperty: "error" })
   if (!Exit.isSuccess(decoded)) return fail("validation.invalid", "invalid network target selector")
   if (!clientMayRead(d, p)) return fail("auth.forbidden", "only an active client may discover its team network")
-  const connection = d.connection()
-  if (!connection) return unavailable()
+  const origin = d.origin()
+  if (!origin) return unavailable()
   const member = memberAuthority(d, p)
   if (!member) return fail("auth.forbidden", "only an active client may discover its team network")
   try {
@@ -70,10 +76,9 @@ export const hostNetworkTargetOwner = async (d: Deps, p: Principal, params: unkn
     if (!tenantMatches(d, target) || !point || !authority || memberAuthority(d, p) !== member || !clientMayRead(d, p)) return fail("auth.forbidden", "the client network owner could not be verified")
     const currentTarget = await d.tenant()
     const currentOwn = await d.identity(p.user!, p.install!, p.grant!)
-    const currentConnection = d.connection()
     if (!tenantMatches(d, currentTarget) || currentTarget.tenant !== target.tenant || pointOf(currentOwn) !== point || installAuthority(d, p, currentOwn) !== authority
-      || memberAuthority(d, p) !== member || !clientMayRead(d, p) || currentConnection?.origin !== connection.origin || currentConnection.key !== connection.key) return fail("auth.forbidden", "the client network identity changed")
-    return { ok: true, value: { team: d.team, tenant: target.tenant, project: target.project, origin: connection.origin }, revision: d.revision() }
+      || memberAuthority(d, p) !== member || !clientMayRead(d, p) || d.origin() !== origin) return fail("auth.forbidden", "the client network identity changed")
+    return { ok: true, value: { team: d.team, tenant: target.tenant, project: target.project, origin }, revision: d.revision() }
   } catch { return unavailable() }
 }
 
