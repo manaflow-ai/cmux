@@ -444,6 +444,19 @@ class BisectTests(unittest.TestCase):
             self.assertIn("nothing to bisect", printed.getvalue())
             self.assertEqual(test_reds.bisect_report(printed.getvalue()), {})
 
+    def test_last_known_green_extends_the_lower_bound_when_it_is_on_head_history(self):
+        base, head = "b" * 40, "a" * 40
+        with unittest.mock.patch.object(coalesce, "git", return_value="") as git:
+            chosen = coalesce.choose_bisect_base(base, "c" * 40, head)
+        self.assertEqual(chosen, ("c" * 40, "last-known-green"))
+        git.assert_called_once_with("merge-base", "--is-ancestor", "c" * 40, head)
+
+    def test_last_known_green_is_ignored_when_unrelated_or_missing(self):
+        base, head = "b" * 40, "a" * 40
+        self.assertEqual(coalesce.choose_bisect_base(base, "", head), (base, "coalesced"))
+        with unittest.mock.patch.object(coalesce, "git", side_effect=subprocess.CalledProcessError(1, "git")):
+            self.assertEqual(coalesce.choose_bisect_base(base, "c" * 40, head), (base, "coalesced"))
+
 
 class ProbeTests(unittest.TestCase):
     def test_the_results_writer_records_each_files_run_state(self):
@@ -597,9 +610,13 @@ class WorkflowTests(unittest.TestCase):
         # A run of every web check has no covered range to bisect.
         self.assertIn(f"needs.coalesce.outputs.base != '{coalesce.EVERYTHING}'", job["if"])
         self.assertIn("github.event_name == 'push'", job["if"])
+        lkg = next(s for s in job["steps"] if s.get("name") == "Read last-known-green")
+        self.assertEqual(lkg["id"], "lkg")
+        self.assertIn("refs/heads/last-known-green", lkg["run"])
         bisect = next(s for s in job["steps"] if s["name"] == "Bisect the new webview reds")
         self.assertIs(bisect["continue-on-error"], True)
         self.assertIn("web_coalesce.py\" bisect", bisect["run"])
+        self.assertIn("--last-known-green", bisect["run"])
 
     def test_web_lint_still_runs_on_every_push_in_its_own_workflow(self):
         on = self.lint.get("on", self.lint.get(True))
