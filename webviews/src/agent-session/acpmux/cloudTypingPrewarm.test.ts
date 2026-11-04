@@ -45,6 +45,10 @@ test("empty and whitespace drafts do not wake, and reset allows a new hint", () 
 });
 
 test("a native failure is isolated from typing", () => {
-  const prewarm = new CloudTypingPrewarm({ prewarm: () => { throw new Error("offline"); } });
+  const prewarm = new CloudTypingPrewarm({
+    prewarm: () => {
+      throw new Error("offline");
+    },
+  });
   expect(() => prewarm.typed("x", { machineID: "cloud-a" })).not.toThrow();
 });
