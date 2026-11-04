@@ -7,6 +7,7 @@ use crate::no_panic::{JsonExt, LockExt};
 mod briefs;
 pub(super) mod cancel_refused;
 mod composer;
+mod context;
 mod events;
 mod info;
 #[path = "requests/mailbox.rs"]
@@ -1517,6 +1518,20 @@ async fn dispatch_request_with_identity(
                 crate::prompt_uploads::owned(&s.id, &blocks).await
             });
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
+            // Apply the persisted cmux user/project addition to the next prompt. This is
+            // deliberately a hidden, marked block so harness text and the user transcript stay
+            // separate while a new session picks the override up without a restart of acpmux.
+            if !web {
+                let override_text = {
+                    let cfg = hub.config.read().await;
+                    cfg.context_overrides
+                        .for_project(&s.meta().cwd)
+                        .map(|(scope, text)| (scope.to_owned(), text.to_owned()))
+                };
+                if let Some((scope, text)) = override_text {
+                    blocks.push(crate::context_inventory::override_block(&text, &scope));
+                }
+            }
             let provenance =
                 crate::hub::Hub::prompt_provenance(&params, conn.origin, conn.is_trigger())?;
             // The caller's own provenance: a `cmux agent message`, never an inbox item.
@@ -2162,6 +2177,9 @@ async fn dispatch_request_with_identity(
         }
         // Read or change presets (`requests/presets.rs`).
         method::MUX_PRESETS => presets::handle(hub, conn, &params).await,
+        method::MUX_CONTEXT | method::MUX_CONTEXT_OVERRIDE => {
+            context::handle(hub, conn, m, &params).await
+        }
         method::MUX_INFO => info::info(hub, conn, &params).await,
         method::MUX_SESSION_FILES => {
             super::session_files::require_local(conn.origin)?;
