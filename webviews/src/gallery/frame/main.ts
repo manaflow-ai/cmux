@@ -10,6 +10,7 @@ import type { GalleryEntry } from "../format";
 import { errorText, readyEntries } from "../entryStore";
 import { createFrameEntryStore } from "../registry";
 import { watchStageErrors } from "./liveErrors";
+import { appHostSeeThrough, appHostTheme, isAppHosted } from "./appHost";
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, themeIsDark, type GhosttyTheme } from "../theme/ghostty";
 import { agentPaneTheme, diffAppearance, themeTokens, webThemePayload } from "../theme/web";
 import { deriveAppTheme } from "../../theme/appTheme";
@@ -90,7 +91,9 @@ for (const key of ["languages", "language"] as const)
     get: () => (key === "languages" ? [env.locale] : env.locale),
   });
 
-const theme = themeNamed(env.theme, DEFAULT_DARK_THEME);
+// `host=app`: inside the app's own window (appHost.ts), the app's theme and backdrop, not the gallery's.
+const appHosted = isAppHosted(params);
+const theme = (appHosted ? appHostTheme() : undefined) ?? themeNamed(env.theme, DEFAULT_DARK_THEME);
 const scheme = env.colorScheme === "auto" ? (themeIsDark(theme) ? "dark" : "light") : env.colorScheme;
 // Pages that hold both sides (the diff and markdown appearance) get the theme on the side the
 // window shows and the default on the other, as `theme = light:A,dark:B` would.
@@ -100,24 +103,31 @@ const pair =
     : { dark: themeNamed(DEFAULT_DARK_THEME, DEFAULT_DARK_THEME), light: theme };
 const tokens = themeTokens(theme, env.accent);
 // The background axis: over a picture the page is see-through, as over the user's in the app.
-const seeThrough = overPicture(env);
+// In the app, see-through follows the app's own window (its page background is clear over a backdrop).
+const seeThrough = appHosted ? appHostSeeThrough() : overPicture(env);
 
-emulateMedia({
-  "prefers-color-scheme": scheme,
-  "prefers-reduced-motion": env.reducedMotion ? "reduce" : "no-preference",
-  "prefers-contrast": env.highContrast ? "more" : "no-preference",
-});
+// The app's web view answers these from its window and the system settings itself.
+if (!appHosted)
+  emulateMedia({
+    "prefers-color-scheme": scheme,
+    "prefers-reduced-motion": env.reducedMotion ? "reduce" : "no-preference",
+    "prefers-contrast": env.highContrast ? "more" : "no-preference",
+  });
 // WebTheme: the app's document-start script, then its payload, as every cmux web view gets them.
 // A classic script, as WKUserScript injects it.
-const bootstrap = document.createElement("script");
-bootstrap.textContent = webThemeBootstrap;
-document.head.append(bootstrap);
-bootstrap.remove();
+// In the app, its own bootstrap and live payload are already in place and stay.
+if (!appHosted) {
+  const bootstrap = document.createElement("script");
+  bootstrap.textContent = webThemeBootstrap;
+  document.head.append(bootstrap);
+  bootstrap.remove();
+}
 installUiFont();
-(window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(
-  webThemePayload(tokens, deriveAppTheme(theme, env.accent), seeThrough),
-);
-if (seeThrough) {
+if (!appHosted)
+  (window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(
+    webThemePayload(tokens, deriveAppTheme(theme, env.accent), seeThrough),
+  );
+if (seeThrough && !appHosted) {
   const [{ applyGalleryBackground }, { default: metrics }] = await Promise.all([
     import("./background"),
     import("virtual:cmux-gallery/metrics"),
@@ -128,11 +138,14 @@ if (seeThrough) {
 }
 // Document scale and the chrome scale are separate. The app sets pageZoom for the former and
 // this token for the latter; gallery exposes both so each sheet is reproducible.
-if (env.scale !== 1) root.style.zoom = String(env.scale);
-root.style.setProperty("--cmux-ui-scale", String(env.scale));
-root.style.setProperty("--cmux-interface-scale", String(env.interfaceScale));
-// Entries were imported before the token was set: chat sizing (chatWidth.ts) reads it again.
-window.dispatchEvent(new Event("cmux-ui-scale-change"));
+// In the app, its page zoom and its own scale script (DesignSettings.interfaceScaleScript) set both.
+if (!appHosted) {
+  if (env.scale !== 1) root.style.zoom = String(env.scale);
+  root.style.setProperty("--cmux-ui-scale", String(env.scale));
+  root.style.setProperty("--cmux-interface-scale", String(env.interfaceScale));
+  // Entries were imported before the token was set: chat sizing (chatWidth.ts) reads it again.
+  window.dispatchEvent(new Event("cmux-ui-scale-change"));
+}
 // The load axis: the stage's main thread shares its frames with other work, from the first frame.
 startGalleryLoad(env.load);
 if (env.load) root.dataset.galleryLoad = env.load;

@@ -44,7 +44,7 @@ import {
 } from "./backgroundTurns";
 import { foldMessageRuns, messageRunFoldFor, messageRunRevealKey, openMessageRuns } from "./messageRuns";
 import { backgroundRunFoldFor, foldBackgroundRuns, openBackgroundRuns } from "./backgroundRuns";
-import { turnFoldStyle } from "./turnFoldStyle";
+import { turnFoldStyle, type TurnFoldStyle } from "./turnFoldStyle";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -467,6 +467,9 @@ type ShapedTurn = {
   dated: boolean;
   liveRuns: boolean;
   agentFamily?: string;
+  /// The family's fold style as read for this shape (turnFoldStyle.ts): its opt-in can change
+  /// without the family changing, and the cached turn must fold anew when it does.
+  foldStyle: TurnFoldStyle;
   /// The person's own prompt opened the next turn (`supersededFooters`).
   endedByPerson: boolean;
   rows: AcpmuxRow[];
@@ -540,6 +543,7 @@ function shapedTurn(
   // (`supersededFooters`). Part of the cache key, since that prompt is not in `source`.
   const opener = rows[end];
   const endedByPerson = !live && !last && opener?.kind === "user" && !opener.incoming && !opener.received;
+  const foldStyle = turnFoldStyle(agentFamily);
   const cached = live ? undefined : shapedTurns.get(user);
   if (
     cached &&
@@ -552,6 +556,7 @@ function shapedTurn(
     cached.dated === dated &&
     cached.liveRuns === liveRuns &&
     cached.agentFamily === agentFamily &&
+    cached.foldStyle === foldStyle &&
     cached.endedByPerson === endedByPerson &&
     cached.source.length === source.length
   ) {
@@ -621,7 +626,7 @@ function shapedTurn(
     );
     // Where its runs fold, a run of them that carries messages between agents folds under one line
     // (messageRuns.ts; Leo, 2026-11-01: "this should be collapsible").
-    const messaged = liveRuns || turnFoldStyle(agentFamily).runs ? foldMessageRuns(shapedBody, expanded) : shapedBody;
+    const messaged = liveRuns || foldStyle.runs ? foldMessageRuns(shapedBody, expanded) : shapedBody;
     // A run of background-task notifications folds under one line (backgroundRuns.ts; Leo,
     // 2026-11-02: "why do you still do these").
     // A stretch the person came in after ends there, with the end-of-turn footer (`supersededFooters`).
@@ -662,6 +667,7 @@ function shapedTurn(
       dated,
       liveRuns,
       agentFamily,
+      foldStyle,
       endedByPerson,
       rows: shaped,
     });
@@ -784,13 +790,12 @@ function shapeTurn(
   const body = withoutWrapUp(worked).filter((row) => !isVisiblyEmptyMessage(row));
   // Each harness family ends a turn as its own app does (Leo, 2026-11-01: "separate it per
   // harness/model family. claude gets claude behaviour, codex gets codex"). Codex and ChatGPT fold
-  // the whole turn's work under one "Worked for". Claude Code has no "Worked for" of its own, but
-  // its turn takes one at the top too (Leo, 2026-11-04: "ofc claude code doesn't actually have the
-  // worked for... but i think we should be able to do that replacing the top level thingy maybe"):
-  // opened, each run of calls, the short notes inside it with it, folds into its own summary line,
-  // and a longer message between runs stays in place, as Claude desktop draws them.
-  // The family's row of the one table (turnFoldStyle.ts) says how: Codex, ChatGPT and Claude under
-  // one "Worked for" (Claude's never counting messages), Gemini and Muse with no turn fold.
+  // the whole turn's work under one "Worked for". Claude, as Claude desktop: no "Worked for"; each
+  // run of calls, the short notes inside it with it, folds into its own summary line, and a longer
+  // message between runs stays in place (Leo, 2026-11-04: "you can't do it for Claude ... it's just
+  // too lossy if you do it for Claude"); its whole-turn "Worked for" is an opt-in only.
+  // The family's row of the one table (turnFoldStyle.ts) says how: Codex and ChatGPT under one
+  // "Worked for", Claude, Gemini and Muse with no turn fold.
   const style = turnFoldStyle(agentFamily);
   // Notification turns can contain an empty assistant segment and a summary solely for
   // bookkeeping. With no visible prompt or work, omit the whole turn, including its footer.
