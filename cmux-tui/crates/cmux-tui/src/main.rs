@@ -1717,7 +1717,7 @@ fn warm_seeded_deps(folder: &Path) {
     let exe = exe
         .to_str()
         .and_then(|path| path.strip_suffix(" (deleted)"))
-        .map_or(exe.clone(), std::path::PathBuf::from);
+        .map_or(exe.clone(), PathBuf::from);
     let log = std::env::temp_dir().join("cmux-deps-warm.log");
     let out = std::fs::OpenOptions::new().create(true).append(true).open(&log).ok();
     let err = out.as_ref().and_then(|f| f.try_clone().ok());
@@ -1731,11 +1731,9 @@ fn warm_seeded_deps(folder: &Path) {
         .stderr(err.map_or_else(cmux_process::Stdio::null, Into::into));
     // Reaped by a thread so it never lingers as a zombie of the daemon.
     if let Ok(mut child) = command.spawn() {
-        let _ = std::thread::Builder::new()
-            .name("cmux-deps-warm".into())
-            .spawn(move || {
-                let _ = child.wait();
-            });
+        let _ = std::thread::Builder::new().name("cmux-deps-warm".into()).spawn(move || {
+            let _ = child.wait();
+        });
     }
 }
 

@@ -196,7 +196,7 @@ fn safe_relative(path: &Path) -> bool {
 /// A decompressing reader of `archive`: a `zstd -d` child, or gzip in process.
 enum Source {
     Zstd(Child),
-    Gzip(flate2::read::GzDecoder<io::BufReader<File>>),
+    Gzip(Box<flate2::read::GzDecoder<io::BufReader<File>>>),
 }
 
 impl Read for Source {
@@ -240,7 +240,9 @@ pub fn unpack(
                 .stderr(Stdio::null())
                 .spawn()?,
         ),
-        Codec::Gzip => Source::Gzip(flate2::read::GzDecoder::new(io::BufReader::new(file))),
+        Codec::Gzip => {
+            Source::Gzip(Box::new(flate2::read::GzDecoder::new(io::BufReader::new(file))))
+        }
     };
     std::fs::create_dir_all(dest)?;
     let mut out = Unpacked::default();
@@ -378,7 +380,8 @@ mod tests {
 
     #[test]
     fn credential_names() {
-        for name in [".npmrc", ".NPMRC", ".env", ".env.production", "credentials.toml", ".yarnrc.yml"]
+        for name in
+            [".npmrc", ".NPMRC", ".env", ".env.production", "credentials.toml", ".yarnrc.yml"]
         {
             assert!(denied(name), "{name}");
         }

@@ -49,7 +49,11 @@ pub async fn run(cmd: DepsCmd, json_out: bool) -> Result<()> {
                         secs(r.unpack_ms),
                         secs(r.install_ms),
                         if r.upload.is_some() {
-                            format!(", pack {:.1}s, upload {:.1}s", secs(r.pack_ms), secs(r.upload_ms))
+                            format!(
+                                ", pack {:.1}s, upload {:.1}s",
+                                secs(r.pack_ms),
+                                secs(r.upload_ms)
+                            )
                         } else {
                             String::new()
                         },
@@ -58,8 +62,12 @@ pub async fn run(cmd: DepsCmd, json_out: bool) -> Result<()> {
                 }
             }
             if reports.iter().any(|r| r.install_ok == Some(false)) {
-                return Err(AppError::new(Code::Runtime, "deps.install_failed", "an install failed")
-                    .into());
+                return Err(AppError::new(
+                    Code::Runtime,
+                    "deps.install_failed",
+                    "an install failed",
+                )
+                .into());
             }
             Ok(())
         }

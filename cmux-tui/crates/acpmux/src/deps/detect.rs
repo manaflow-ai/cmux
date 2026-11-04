@@ -144,13 +144,7 @@ pub fn plan(project: &Project) -> Option<Plan> {
                 root: cache,
                 include: vec!["_cacache".into()],
                 replaces: false,
-                install: strings(&[
-                    "npm",
-                    "ci",
-                    "--prefer-offline",
-                    "--no-audit",
-                    "--no-fund",
-                ]),
+                install: strings(&["npm", "ci", "--prefer-offline", "--no-audit", "--no-fund"]),
             }
         }
         // pnpm's node_modules links into its store, so the store is what is kept.
