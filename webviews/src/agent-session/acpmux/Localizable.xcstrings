@@ -34161,6 +34161,33 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "開啟設定"}}
       }
     },
+    "permission.external.remote": {
+      "comment": "Remote external access guidance.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "افتح الخصوصية والأمان على جهاز Mac البعيد لمنح الوصول."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Otvorite Privatnost i sigurnost na udaljenom Mac računaru da odobrite pristup."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Åbn Anonymitet og sikkerhed på den eksterne Mac for at give adgang."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Öffne „Datenschutz & Sicherheit“ auf dem entfernten Mac, um Zugriff zu gewähren."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Open Privacy & Security on the remote Mac to grant access."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Abre Privacidad y seguridad en el Mac remoto para conceder acceso."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Ouvrez Confidentialité et sécurité sur le Mac distant pour accorder l’accès."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Apri Privacy e sicurezza sul Mac remoto per concedere l’accesso."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "アクセスを許可するには、リモート Mac で「プライバシーとセキュリティ」を開いてください。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "បើក ភាពឯកជន និងសុវត្ថិភាព នៅលើ Mac ពីចម្ងាយ ដើម្បីផ្តល់សិទ្ធិចូលប្រើ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "접근 권한을 허용하려면 원격 Mac에서 개인정보 보호 및 보안을 여세요."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Åpne Personvern og sikkerhet på den eksterne Mac-en for å gi tilgang."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Otwórz Prywatność i ochrona na zdalnym Macu, aby przyznać dostęp."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Abra Privacidade e Segurança no Mac remoto para conceder acesso."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Откройте раздел «Конфиденциальность и безопасность» на удалённом Mac, чтобы предоставить доступ."}},
+        "th": {"stringUnit": {"state": "translated", "value": "เปิดความเป็นส่วนตัวและความปลอดภัยบน Mac ระยะไกลเพื่อให้สิทธิ์เข้าถึง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Erişim izni vermek için uzak Mac’te Gizlilik ve Güvenlik’i açın."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Відкрийте «Приватність і безпека» на віддаленому Mac, щоб надати доступ."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Mở Quyền riêng tư & Bảo mật trên máy Mac từ xa để cấp quyền truy cập."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在远程 Mac 上打开“隐私与安全性”以授予访问权限。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在遠端 Mac 上開啟「隱私權與安全性」以授予存取權限。"}}
+      }
+    },
     "permission.external.skip": {
       "comment": "Inline external access card action.",
       "extractionState": "manual",

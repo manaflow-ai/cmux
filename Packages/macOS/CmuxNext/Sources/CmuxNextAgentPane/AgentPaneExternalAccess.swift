@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextCompat
-import Foundation
+public import Foundation
 
 /// The two macOS settings destinations an OS-blocked read may need. This value is decoded from a
 /// closed allow-list; the daemon remains the authority for detecting the block and retrying reads.
@@ -30,13 +30,13 @@ public struct AgentPaneExternalAccess {
         _ kind: AgentPaneExternalAccessKind,
         remoteChat: Bool,
         gestures: AgentPaneUserGestures,
-        open: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) },
+        open: ((URL) -> Void)? = nil,
     ) -> [String: Any] {
         guard !remoteChat else {
-            return AgentPaneReply.failure(code: RemoteAcpmuxWire.unsupported, message: "External access belongs to the remote machine.")
+            return AgentPaneReply.failure(code: RemoteAcpmuxWire.unsupported, message: RemoteAcpmuxWire.unsupported)
         }
         guard gestures.consume(), let url = kind.settingsURL else { return AgentPaneModel.transportFailure(.gestureRequired) }
-        open(url)
+        if let open { open(url) } else { NSWorkspace.shared.openInBackground(url) }
         return AgentPaneReply.success(["opened": true])
     }
 }

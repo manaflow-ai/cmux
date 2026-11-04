@@ -498,3 +498,28 @@ test("external access recovery action metric", async () => {
     await card.unmount();
   }
 });
+
+test("remote access settings refusal is localized and never answers the ask", async () => {
+  const { setNativeHost } = await import("../src/agent-session/acpmux/native");
+  const { NativeError } = await import("../src/agent-session/acpmux/nativeError");
+  setNativeHost(async () => {
+    throw new NativeError({ code: "remote.unsupported", userMessage: "remote.unsupported" });
+  });
+  const card = await mount({
+    ...ask("external-remote"),
+    externalAccess: {
+      kind: "files_and_folders",
+      target: "/Users/you/Documents/report.txt",
+      operation: "read_text_file",
+      platform: "macos",
+    },
+  });
+  try {
+    await card.click("Open Settings");
+    expect(card.alert()).toBe("Open Privacy & Security on the remote Mac to grant access.");
+    expect(card.sent).toHaveLength(0);
+  } finally {
+    await card.unmount();
+    setNativeHost(undefined);
+  }
+});

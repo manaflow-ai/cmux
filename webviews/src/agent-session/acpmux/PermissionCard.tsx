@@ -3,6 +3,8 @@ import { toolIcon } from "./conversation/ToolRow";
 import { useT } from "./i18n";
 import type { AcpmuxPermission } from "./model";
 import { postNative } from "./native";
+import { NativeError } from "./nativeError";
+import "./permissions/externalAccess.css";
 import { ProposedEdits } from "./permissions/ProposedEdits";
 import {
   alwaysAllowScope,
@@ -369,7 +371,9 @@ export function PermissionCard({
           <span className="acpmux-permission-request-icon" aria-hidden="true">
             {toolIcon(permission.kind ?? (command ? "execute" : undefined))}
           </span>
-          <div className="acpmux-permission-request-label">{title}</div>
+          <div className="acpmux-permission-request-label" data-external-access={external ? "" : undefined}>
+            {title}
+          </div>
         </div>
         {waiting > 0 && <p className="acpmux-permission-waiting">{t("permission.moreWaiting", { n: waiting })}</p>}
         {detail && <p className="acpmux-permission-request-description">{detail}</p>}
@@ -420,7 +424,12 @@ export function PermissionCard({
                   if (shown.current === id)
                     setSettingsError({
                       id,
-                      message: error instanceof Error ? error.message : t("error.nativeUnavailable"),
+                      message:
+                        error instanceof NativeError && error.code === "remote.unsupported"
+                          ? t("permission.external.remote")
+                          : error instanceof Error
+                            ? error.message
+                            : t("error.nativeUnavailable"),
                     });
                 });
               }}
