@@ -1109,10 +1109,12 @@ def step_hid_move(j, step):
               "steps": [{"do": "move", "x": gx - 4, "y": gy}, {"do": "wait", "ms": 16}, {"do": "move", "x": gx - 2, "y": gy},
                         {"do": "wait", "ms": 16}, {"do": "move", "x": gx, "y": gy}]}
     code, log, err = V.run_hid_inject(j, script, mode="run", via_open=True)
-    if code != 0 or not (log or {}).get("posted"):
-        raise D.NotRun(f"hid_move: hid_inject posted no mouse-moved event (exit {code}): {err[-300:]}")
+    posted = code == 0 and bool((log or {}).get("posted"))
+    # No PostEvent grant on the host (STATUS 5064): the warp alone, said in the result (the readings are then only
+    # comparable with a control build's on the same kind of move).
     return {"point": list(point), "pixels": [x, y], "scale": scale, "sent": round(sent, 6),
-            "events": len((log or {}).get("events") or [])}
+            "events": len((log or {}).get("events") or []) if posted else 0, "warp_only": not posted,
+            **({} if posted else {"inject": f"exit {code}: {err.strip()[-200:]}"})}
 
 
 def _cursor(j):

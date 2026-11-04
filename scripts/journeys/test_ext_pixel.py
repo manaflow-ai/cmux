@@ -2078,12 +2078,13 @@ class HidMoveTests(unittest.TestCase):
         self.assertEqual((moves[-1]["x"], moves[-1]["y"]), (350.0, 225.0))
         self.assertTrue(all(m["y"] == 225.0 for m in moves) and moves[0]["x"] < moves[-1]["x"])
         self.assertEqual((mode, via_open), ("run", True))
-        self.assertEqual(out["events"], 3)
+        self.assertEqual((out["events"], out["warp_only"]), (3, False))
 
-    def test_no_posted_event_is_not_run(self):
+    def test_without_the_grant_the_warp_alone_is_said(self):
         X.V.run_hid_inject = lambda j, script, mode="run", via_open=True: (3, None, "no PostEvent grant")
-        with self.assertRaises(X.D.NotRun):
-            X.step_hid_move(object(), {"window_point": [300, 200]})
+        out = X.step_hid_move(object(), {"window_point": [300, 200]})
+        self.assertEqual((out["warp_only"], out["events"]), (True, 0))
+        self.assertIn("no PostEvent grant", out["inject"])
 
 
 if __name__ == "__main__":
