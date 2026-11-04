@@ -39,13 +39,7 @@ function TaskLine({ task }: { task: StartedTask }) {
   const state = live?.state ?? "done";
   const working = state === "working";
   const mark =
-    state === "failed" ? (
-      <AlertCircle size={14} />
-    ) : state === "input" ? (
-      <Clock size={14} />
-    ) : (
-      <Check size={14} />
-    );
+    state === "failed" ? <AlertCircle size={14} /> : state === "input" ? <Clock size={14} /> : <Check size={14} />;
   return (
     <TranscriptActivityRow
       icon={
