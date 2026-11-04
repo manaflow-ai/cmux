@@ -50,12 +50,12 @@ public final class CloudAuth {
     }
 
     /// ``LaunchSignIn`` for `configuration` launched with `environment`. The signed NEXT DEV build (a Release
-    /// compile on the development Stack project) signs in only from an explicit `CMUX_AUTH_CREDENTIALS_FILE`
-    /// (dev-build-try passes it), never the ambient files, keeps a session already signed in unless told to
-    /// replace it, and gets no debug sign-in surface. Every other Release build never signs in from the launch.
+    /// compile) signs in only from an explicit `CMUX_AUTH_CREDENTIALS_FILE` (the proof passes it), never the
+    /// ambient files, keeps a session already signed in unless told to replace it, and gets no debug sign-in
+    /// surface. Every other Release build never signs in from the launch.
     nonisolated static func launchSignIn(configuration: CloudConfiguration, environment: [String: String]) -> LaunchSignIn {
         let explicitCredentialsFile = environment["CMUX_AUTH_CREDENTIALS_FILE"].map { !$0.isEmpty } ?? false
-        if !configuration.isDebugBuild, configuration.bundleID == "com.cmuxterm.app.debug.next", !configuration.isProductionAuth {
+        if !configuration.isDebugBuild, configuration.bundleID == "com.cmuxterm.app.debug.next", explicitCredentialsFile {
             return LaunchSignIn(devAuth: false, autoLogin: explicitCredentialsFile,
                                 replacesSession: explicitCredentialsFile && environment["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1")
         }
