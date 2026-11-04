@@ -1361,10 +1361,9 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__latest) > .acpmux-agent-line__button {
   height: auto;
   align-items: start;
-  padding-block: 6px;
+  padding-block: var(--ds-space-1);
 }
 .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__latest) .acpmux-agent-line__button > .acpmux-lineage__icon {
-  margin-top: 2px;
 }
 
 /* Counts and warnings remain readable even when the name or action needs truncation. */
@@ -1516,6 +1515,6 @@ button.cv-subagent > :last-child {
   .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__latest) > .acpmux-agent-line__button {
     grid-template-rows: auto var(--ui-row-height, 28px);
     height: auto;
-    padding-block: 6px 0;
+    padding-block: var(--ds-space-1) 0;
   }
 }
