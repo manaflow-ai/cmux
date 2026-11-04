@@ -166,8 +166,11 @@ struct TerminalKeyResizeFrameTests {
         await Self.settle(screen)
 
         let before = screen.sessions.map(Sample.init)
+        let rest = Self.stripOffsets(screen)
+        try #require(rest.allSatisfy { $0 != nil }, "SETUP: a pane shows no strip or no surface")
         #expect(PaneResize.press("p1", .down, model: screen.model, view: screen.root), "Ctrl-Shift-J on p1 moved nothing")
         var frames: [[Sample]] = [before]
+        var strips: [String] = []
         var steps = 0
         if displayCycle {
             // No layout pass of the test's own: the run loop's display cycle lays the views out before each commit.
@@ -176,14 +179,19 @@ struct TerminalKeyResizeFrameTests {
                 moving = screen.root.advanceFrame(1.0 / 120)
                 await Self.commit()
                 frames.append(screen.sessions.map(Sample.init))
+                strips += Self.offTheStrip(screen, rest: rest, "frame \(frames.count - 1)")
                 steps += 1
             }
             for _ in 0..<6 {
                 await Self.commit()
                 frames.append(screen.sessions.map(Sample.init))
+                strips += Self.offTheStrip(screen, rest: rest, "frame \(frames.count - 1)")
             }
         } else {
-            (steps, _) = await Self.step(screen) { frames.append($0) }
+            (steps, _) = await Self.step(screen) { sample in
+                frames.append(sample)
+                strips += Self.offTheStrip(screen, rest: rest, "frame \(frames.count - 1)")
+            }
         }
         try #require(steps <= 2, "Reduce Motion: the press ran \(steps) frames, so a spring ran")
         let moved = try #require(frames.firstIndex { $0.map(\.area) != before.map(\.area) }, "the press changed no pane's area")
@@ -206,11 +214,40 @@ struct TerminalKeyResizeFrameTests {
             }
         }
         print("S4 Reduce Motion row press (switch \(framesOwned ? "on" : "off"), layout \(displayCycle ? "in the display cycle" : "by the test")): " +
-              "\(steps) frames; misplaced \(misplaced.count), " +
+              "\(steps) frames; off the strip \(strips.count), misplaced \(misplaced.count), " +
               "unsized \(unsized.count), stretched \(stretched.count)")
+        #expect(strips.isEmpty, "\(strips.count) frames showed a terminal off the pane its tab strip shows: \(strips.prefix(8))")
         #expect(misplaced.isEmpty, "\(misplaced.count) frames showed a terminal off its pane's top-left: \(misplaced.prefix(8))")
         #expect(unsized.isEmpty, "\(unsized.count) frames showed a terminal at a size its pane had not had yet: \(unsized.prefix(8))")
         #expect(stretched.isEmpty, "\(stretched.count) frames showed a terminal's frame stretched: \(stretched.prefix(8))")
+    }
+
+    /// Each terminal's surface top-left relative to the pane its tab strip shows, in the root layer (the committed
+    /// model, points): the surface's leading edge minus the strip's, and the surface's top minus the strip's bottom edge
+    /// (the film's judge reads the content edge against the pane edge the tab strip shows in the same frame, after its
+    /// rest offset), with the scale; nil where a pane shows no strip or no surface.
+    static func stripOffsets(_ screen: PaneScreen) -> [(offset: CGPoint, scale: CGFloat)?] {
+        [PaneID("p1"), PaneID("p2")].enumerated().map { index, pane in
+            guard index < screen.sessions.count, let view = screen.provider.views[pane], let stripLayer = view.stripView.layer else { return nil }
+            let surface = screen.sessions[index].surfaceView
+            guard let layer = surface.layer, let root = surface.window?.contentView?.layer else { return nil }
+            let strip = stripLayer.convert(stripLayer.bounds, to: root)
+            let stripBottom = root.isGeometryFlipped ? strip.maxY : strip.minY
+            let shown = layer.convert(layer.bounds, to: root)
+            let top = root.isGeometryFlipped ? shown.minY : shown.maxY
+            return (CGPoint(x: shown.minX - strip.minX, y: top - stripBottom), layer.contentsScale)
+        }
+    }
+
+    /// The panes whose surface is off the pane its tab strip shows by more than 1 device px, against `rest`
+    /// (``stripOffsets(_:)`` before the press), labeled with `label`.
+    static func offTheStrip(_ screen: PaneScreen, rest: [(offset: CGPoint, scale: CGFloat)?], _ label: String) -> [String] {
+        zip(stripOffsets(screen), rest).enumerated().compactMap { index, pair in
+            guard let now = pair.0, let was = pair.1 else { return nil }
+            let dx = (now.offset.x - was.offset.x) * now.scale, dy = (now.offset.y - was.offset.y) * now.scale
+            guard abs(dx) > 1 || abs(dy) > 1 else { return nil }
+            return "\(label) p\(index + 1): \(Int(dx.rounded())), \(Int(dy.rounded())) device px off the pane its strip shows"
+        }
     }
 
     /// One terminal in one committed frame: its surface layer's size and top-left, its host's area size and top-left
