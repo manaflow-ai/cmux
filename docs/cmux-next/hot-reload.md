@@ -11,6 +11,7 @@ Running apps can pick up edits to them without a Swift build or a relaunch, two 
 | Your edits live in your app | `scripts/cmux-next/web-overlay.sh server --local` |
 | Another worktree's edits live | `scripts/cmux-next/web-overlay.sh server --local --worktree <path>` |
 | A pull request's web UI, live | `scripts/cmux-next/web-overlay.sh follow <PR>` (again after each push) |
+| Try any pull request the cheapest way | `scripts/cmux-next/try-pr.sh <PR>`: live when it can be, else it names the dev build |
 | The web UI of every merge, no checkout | Settings > Updates > Web UI Updates > **Every Merge** |
 | Stop your dev server | `scripts/cmux-next/web-overlay.sh server off` (an installed overlay, if any, still serves) |
 | The shipped pages back | `scripts/cmux-next/web-overlay.sh off` (ignores the file; run `server off` first to stop the server) |
@@ -75,6 +76,20 @@ head under review. `status` names the PR and commit it follows; `server off` sto
 The dev server runs the head's own code (its Vite config and dev-server plugins) on your Mac. A
 head that no branch of the repo points at, such as an outside contributor's fork, is refused until
 you have read its `webviews/` changes and add `--fork`.
+
+### Try a pull request without knowing what it changed
+
+```sh
+scripts/cmux-next/try-pr.sh <PR>            # --dry-run to only look, --build to request the dev build
+```
+
+reads the PR's diff with git and takes the cheapest path. A web-only PR goes straight to
+`web-overlay.sh follow`, so the running app shows it in seconds with no build. A PR that changes
+only CI, tests or docs is reported as nothing to try. A PR that changes the daemon, Swift, a
+resource or a manifest needs a new binary: the script says why (a stored property, a changed
+signature, a new file, and so on), and with `--build` it requests the fleet dev build tagged `pr-<N>`.
+The rules are in `scripts/cmux-next/live_apply.py`. Over the last 3,895 NEXT-era PRs, 66% of the
+ones that touch the app needed no new binary.
 
 ### No dev server: built bundles
 
