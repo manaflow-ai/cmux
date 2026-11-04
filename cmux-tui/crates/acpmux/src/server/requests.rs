@@ -1521,7 +1521,7 @@ async fn dispatch_request_with_identity(
             // Apply the persisted cmux user/project addition to the next prompt. This is
             // deliberately a hidden, marked block so harness text and the user transcript stay
             // separate while a new session picks the override up without a restart of acpmux.
-            if !web {
+            if !web && s.meta().turn_count == 0 {
                 let override_text = {
                     let cfg = hub.config.read().await;
                     cfg.context_overrides
