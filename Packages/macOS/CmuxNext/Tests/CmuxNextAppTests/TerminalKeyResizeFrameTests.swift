@@ -143,6 +143,56 @@ struct TerminalKeyResizeFrameTests {
         #expect(resizes.allSatisfy { $0 <= 1 }, "a press resized a terminal's program more than once: \(resizes) (p1: \(grids))")
     }
 
+    /// m6 (d) film of ded0cb09a56 (R1; px-keys-rk-3t-sw-terminals, ON Reduce Motion, frames 258, 312, 463 and 522, rule E2
+    /// on both top edges): in Reduce Motion a key press moves its panes in one frame. With a terminal on each side of a
+    /// row divider (p1 over p2), the first frame after each row press showed both terminals at their old place, one sample
+    /// late: p1's top content edge below its pane's top and p2's above its pane's new top, by the full step (79 px at 2x).
+    /// The same press passes with the switch off. In every committed frame of a Reduce Motion row press, each terminal's
+    /// top-left is on its area's top-left (within 1 device px), in both states of `motion.frameOwner.terminals`; with the
+    /// switch on, never a size its pane has not had and never stretched (as in a spring).
+    @Test(arguments: [true, false])
+    func aReduceMotionRowPressShowsEachTerminalOnItsAreasTopLeftFromItsFirstFrame(framesOwned: Bool) async throws {
+        let screen = try await PaneScreen(axis: .vertical, reduceMotion: true, framesOwned: framesOwned)
+        defer { screen.close() }
+        // Warm-up press and its reverse: one-time setup is not the press under test.
+        _ = PaneResize.press("p1", .down, model: screen.model, view: screen.root)
+        _ = await Self.step(screen, record: nil)
+        await Self.settle(screen)
+        _ = PaneResize.press("p1", .up, model: screen.model, view: screen.root)
+        _ = await Self.step(screen, record: nil)
+        await Self.settle(screen)
+
+        let before = screen.sessions.map(Sample.init)
+        #expect(PaneResize.press("p1", .down, model: screen.model, view: screen.root), "Ctrl-Shift-J on p1 moved nothing")
+        var frames: [[Sample]] = [before]
+        let (steps, _) = await Self.step(screen) { frames.append($0) }
+        try #require(steps <= 2, "Reduce Motion: the press ran \(steps) frames, so a spring ran")
+        let moved = try #require(frames.firstIndex { $0.map(\.area) != before.map(\.area) }, "the press changed no pane's area")
+        var misplaced: [String] = [], unsized: [String] = [], stretched: [String] = []
+        for index in moved..<frames.count {
+            for (terminal, sample) in frames[index].enumerated() {
+                let scale = sample.scale
+                func near(_ a: CGFloat, _ b: CGFloat) -> Bool { abs(a - b) * scale <= 1 }
+                if !near(sample.topLeft.x, sample.areaTopLeft.x) || !near(sample.topLeft.y, sample.areaTopLeft.y) {
+                    misplaced.append("frame \(index - moved + 1) p\(terminal + 1): top-left \(sample.topLeft), its area's \(sample.areaTopLeft)")
+                }
+                guard framesOwned else { continue } // off: the new bounds show the old frame top-left until it is drawn
+                let had = frames[0...index].map { $0[terminal].area }
+                if !had.contains(where: { near(sample.layer.width, $0.width) && near(sample.layer.height, $0.height) }) {
+                    unsized.append("frame \(index - moved + 1) p\(terminal + 1): layer \(Self.text(sample.layer)), area \(Self.text(sample.area))")
+                }
+                if let shown = sample.shownPixels, abs(sample.layer.width * scale - shown.width) > 1 || abs(sample.layer.height * scale - shown.height) > 1 {
+                    stretched.append("frame \(index - moved + 1) p\(terminal + 1): layer \(Self.text(sample.layer)) at \(scale)x, frame \(Self.text(shown)) px")
+                }
+            }
+        }
+        print("S4 Reduce Motion row press (switch \(framesOwned ? "on" : "off")): \(steps) frames; misplaced \(misplaced.count), " +
+              "unsized \(unsized.count), stretched \(stretched.count)")
+        #expect(misplaced.isEmpty, "\(misplaced.count) frames showed a terminal off its pane's top-left: \(misplaced.prefix(8))")
+        #expect(unsized.isEmpty, "\(unsized.count) frames showed a terminal at a size its pane had not had yet: \(unsized.prefix(8))")
+        #expect(stretched.isEmpty, "\(stretched.count) frames showed a terminal's frame stretched: \(stretched.prefix(8))")
+    }
+
     /// One terminal in one committed frame: its surface layer's size and top-left, its host's area size and top-left
     /// (points; top-lefts in the window's root layer, the committed model), and the size of the frame it shows (px).
     struct Sample {
@@ -171,8 +221,9 @@ struct TerminalKeyResizeFrameTests {
         }
     }
 
-    /// p1 | p2 in a window on screen, each pane the app's `PaneContentView` with a terminal in its content area; the
-    /// switch on, Reduce Motion off, the spring stepped by the test.
+    /// p1 | p2 (`axis` .vertical: p1 over p2) in a window on screen, each pane the app's `PaneContentView` with a terminal
+    /// in its content area; the switch on (or `framesOwned` false: off), Reduce Motion off (or on), the spring stepped by
+    /// the test.
     final class PaneScreen {
         final class Panes: LayoutPaneContentProvider {
             let reveal: LaunchReveal = {
@@ -198,16 +249,16 @@ struct TerminalKeyResizeFrameTests {
         var ios: [ScriptedTerminalIO] = []
         private let drew: Bool
 
-        init() async throws {
+        init(axis: SplitAxis = .horizontal, reduceMotion: Bool = false, framesOwned: Bool = true) async throws {
             _ = NSApplication.shared
             TunableStore.shared.activate(file: nil)
             TunableStore.shared.register(TerminalDragTunables.all)
             drew = WindowDrawPolicy.drawsWhenOccluded
             WindowDrawPolicy.drawsWhenOccluded = true
-            let columns = [LayoutColumn(id: "c0", width: 1, root: .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))]
+            let columns = [LayoutColumn(id: "c0", width: 1, root: .split("x", axis: axis, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))]
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))], activeScreenID: "s", focusedPane: "p2")
             root = LayoutRootView(model: model, contentProvider: provider)
-            root.context.reduceMotionOverride = false
+            root.context.reduceMotionOverride = reduceMotion
             window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 1000, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
@@ -216,9 +267,9 @@ struct TerminalKeyResizeFrameTests {
             root.layoutSubtreeIfNeeded() // sync-layout: the panes exist before their terminals attach
             root.layoutSubtreeIfNeeded() // sync-layout: what joined the window in that pass lays out in this one
             root.driver.isManual = true
-            let on = TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(true))
-            if on != .bool(true) { close() }
-            try #require(on == .bool(true), "the switch motion.frameOwner.terminals is not registered")
+            let on = TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(framesOwned))
+            if on != .bool(framesOwned) { close() }
+            try #require(on == .bool(framesOwned), "the switch motion.frameOwner.terminals is not registered")
             let line = String(repeating: "y", count: 40)
             let text = Array(repeating: line, count: 400).joined(separator: "\r\n")
             for pane: PaneID in ["p1", "p2"] {
