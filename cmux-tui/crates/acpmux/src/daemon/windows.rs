@@ -252,15 +252,21 @@ pub(super) async fn start_daemon(home: &Path, prefix: &[OsString]) -> Result<Str
             let _ = tx.send(line);
         })
         .context("wait for acpmux daemon")?;
-    let line = match tokio::time::timeout(crate::daemon::START_BUDGET, rx).await {
-        Ok(line) => line.unwrap_or_default(),
-        Err(_) => {
-            return Err(anyhow!(
-                "daemon did not come up at {} within {:?}; see {}",
-                crate::config::socket_path().display(),
-                crate::daemon::START_BUDGET,
-                home.join("daemon.log").display()
-            ));
+    let mut rx = rx;
+    let line = loop {
+        match tokio::time::timeout(crate::daemon::START_BUDGET, &mut rx).await {
+            Ok(line) => break line.unwrap_or_default(),
+            Err(_) if super::lock_has_live_holder(&home.join("daemon.lock")) => {
+                // A live winner may be slow; the lock and pipe remain the liveness signal.
+            }
+            Err(_) => {
+                return Err(anyhow!(
+                    "daemon did not come up at {} within {:?}; see {}",
+                    crate::config::socket_path().display(),
+                    crate::daemon::START_BUDGET,
+                    home.join("daemon.log").display()
+                ));
+            }
         }
     };
     if line.trim().is_empty() && !wait_for_winner(home).await {

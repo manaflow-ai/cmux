@@ -1789,13 +1789,22 @@ async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<St
     // EOF means the detached child exited; a live child keeps the pipe open
     // until it writes readiness. The pipe itself is the liveness signal, so a
     // busy machine never turns a slow but live daemon into a startup failure.
-    match tokio::time::timeout(START_BUDGET, wait).await {
-        Ok(read) => Ok(read?),
-        Err(_) => Err(anyhow!(
-            "daemon did not come up at {} within {START_BUDGET:?}; see {}",
-            path.display(),
-            home().join("daemon.log").display()
-        )),
+    let mut wait = std::pin::pin!(wait);
+    loop {
+        match tokio::time::timeout(START_BUDGET, &mut wait).await {
+            Ok(read) => return Ok(read?),
+            Err(_) if lock_has_live_holder(&home().join("daemon.lock")) => {
+                // A live winner may be slow on a busy machine; keep waiting on
+                // its lock/pipe liveness instead of failing the caller.
+            }
+            Err(_) => {
+                return Err(anyhow!(
+                    "daemon did not come up at {} within {START_BUDGET:?}; see {}",
+                    path.display(),
+                    home().join("daemon.log").display()
+                ));
+            }
+        }
     }
 }
 /// The readiness line of a daemon that found the lock taken (`run`).
