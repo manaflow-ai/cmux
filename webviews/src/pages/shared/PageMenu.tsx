@@ -36,14 +36,32 @@ export function PageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
     return () => returnFocus?.removeAttribute("data-popup-open");
   }, [returnFocus]);
   const popupHost = usePopupHost();
-  if (popupHost?.native) {
-    return <NativePageMenu x={x} y={y} items={items} onClose={onClose} returnFocus={returnFocus} />;
+  // A host that refuses the native rows (an older app, a mock client) gets the actionable page menu.
+  const [refused, setRefused] = useState(false);
+  if (popupHost?.native && !refused) {
+    return (
+      <NativePageMenu
+        x={x}
+        y={y}
+        items={items}
+        onClose={onClose}
+        onRefused={() => setRefused(true)}
+        returnFocus={returnFocus}
+      />
+    );
   }
   return <LegacyPageMenu x={x} y={y} items={items} onClose={onClose} returnFocus={returnFocus} />;
 }
 
 /** The app path uses the same declarative native popup as every shared menu. */
-function NativePageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
+function NativePageMenu({
+  x,
+  y,
+  items,
+  onClose,
+  onRefused,
+  returnFocus,
+}: PageMenuProps & { onRefused(): void }) {
   const finalFocus = useRef<HTMLElement | null>(returnFocus ?? null);
   const model = useMemo<NativePopupDescription>(
     () => ({
@@ -74,8 +92,9 @@ function NativePageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
         item.run();
       },
       onDismiss: onClose,
+      onRefused,
     }),
-    [items, model, onClose],
+    [items, model, onClose, onRefused],
   );
   const anchorStyle = { left: x, top: y };
   return (
