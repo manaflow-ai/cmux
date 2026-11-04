@@ -17,8 +17,9 @@ public nonisolated struct CloudRelayChat: Sendable {
     let teamID: CloudAPIClient.TeamID
     let session: URLSession
 
+    /// `session` must refuse redirects (the default does): one would carry the bearer and the prompt elsewhere.
     public init(baseURL: URL, accessToken: @escaping @Sendable () async throws -> String, teamID: @escaping CloudAPIClient.TeamID,
-                session: URLSession = CloudAPIClient.noStoreTransport) {
+                session: URLSession = CloudOwnerAPIClient.transport) {
         (self.baseURL, self.accessToken, self.teamID, self.session) = (baseURL, accessToken, teamID, session)
     }
 
@@ -205,6 +206,7 @@ extension CloudAPIClient {
     public func relayChat(baseURL: URL) -> CloudRelayChat? {
         guard !sendsStackSession else { return nil }
         let tokens = tokens
-        return CloudRelayChat(baseURL: baseURL, accessToken: { try await tokens().0 }, teamID: teamID, session: session)
+        // Not this client's session, which follows redirects: the relay's refuses them.
+        return CloudRelayChat(baseURL: baseURL, accessToken: { try await tokens().0 }, teamID: teamID)
     }
 }

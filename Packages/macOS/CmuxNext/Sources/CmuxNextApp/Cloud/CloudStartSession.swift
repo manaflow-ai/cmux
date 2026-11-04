@@ -462,12 +462,12 @@ extension CloudStartSession {
                 let code = isAgent(invocation) ? "cloud.relay.agent_run" : "cloud.relay.refused"
                 return CloudHandlers.result("cloud relay chat", context) { notSent(code, refusal.message) }
             }
-            let promptID = invocation["prompt-id"]?.stringValue?.trimmingCharacters(in: .whitespaces)
+            let promptID = invocation["prompt-id"]?.stringValue?.trimmingCharacters(in: .whitespaces).flatMap { $0.isEmpty ? nil : $0 }
             // A person's run waits for the whole turn and shows the reply, or why there is none.
             guard CloudHandlers.origin(of: invocation) != .user else {
                 return CloudHandlers.runTracked("cloud relay chat", context) {
                     guard let relay = cloud.relayChat else { throw ActionFailure(message: CloudStartSessionStrings.relayUnavailable) }
-                    let answer = try await relay.chat(machineID, agent: started.agent, prompt: prompt, cwd: started.cwd)
+                    let answer = try await relay.chat(machineID, agent: started.agent, prompt: prompt, cwd: started.cwd, promptID: promptID)
                     let text = answer.errorMessage.map { answer.reply.isEmpty ? $0 : answer.reply + "\n\n" + $0 } ?? answer.reply
                     CloudPresenter.show(CloudStartSessionStrings.relayReplyTitle, text, copyable: true, in: CloudHandlers.window(context))
                 }
@@ -475,7 +475,7 @@ extension CloudStartSession {
             CloudHandlers.result("cloud relay chat", context) {
                 guard let relay = cloud.relayChat else { return notSent("cloud.relay.unavailable", CloudStartSessionStrings.relayUnavailable) }
                 let answer = try await relay.answer(machineID, agent: started.agent, prompt: prompt, cwd: started.cwd,
-                                                    promptID: promptID?.isEmpty == false ? promptID : nil, within: CloudHandlers.answerWithin)
+                                                    promptID: promptID, within: CloudHandlers.answerWithin)
                 return relayFields(answer, machineID: machineID)
             }
         }
