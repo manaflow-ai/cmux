@@ -665,8 +665,9 @@ import SwiftUI
         let groups = source.pageMenu(for: kit)
         #expect(groups.first?.map(\.title) == ["Files and Links", "Paste"])
         // Design/terminal P1: Back leaves the workspace, so no "All Workspaces". Command Palette…
-        // (#32570) leads the layout group, which has no Panes, Screens or Send Message here.
-        #expect(groups.map { $0.map(\.title) } == [["Files and Links", "Paste"], ["Copy Directory"], ["Command Palette…"], ["Close Tab"]])
+        // (#32570) leads the layout group, which has no Panes, Screens or Send Message here;
+        // Reveal in Workspaces List (the Mac's Reveal Workspace in Sidebar) has its own group.
+        #expect(groups.map { $0.map(\.title) } == [["Files and Links", "Paste"], ["Copy Directory"], ["Command Palette…"], ["Reveal in Workspaces List"], ["Close Tab"]])
         groups.first?.first?.action()
         #expect(content.performed == ["files"])
     }

@@ -301,4 +301,29 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ("Also try key-only ssh to each online machine", "acpmux machine candidates --probe"),
         ],
     ),
+    (
+        "machine deps",
+        &[
+            ("Restore this project's dependencies from the cache", "acpmux machine deps warm"),
+            ("See the cache key for each project in a folder", "acpmux machine deps key ~/src/app"),
+        ],
+    ),
+    (
+        "machine deps warm",
+        &[
+            ("Restore, install and upload after a cold install", "acpmux machine deps warm"),
+            ("Only restore, without running the install", "acpmux machine deps warm --no-install"),
+            (
+                "Skip projects that already have node_modules or .venv",
+                "acpmux machine deps warm ~/src/app --if-missing --json",
+            ),
+        ],
+    ),
+    (
+        "machine deps key",
+        &[
+            ("Print each project's cache key here", "acpmux machine deps key"),
+            ("Print the keys for another folder as JSON", "acpmux machine deps key ~/src/app --json"),
+        ],
+    ),
 ];
