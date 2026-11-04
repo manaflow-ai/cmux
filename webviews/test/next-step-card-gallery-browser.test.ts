@@ -15,6 +15,7 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
   setDefaultTimeout(240_000);
   const ENTRY = "agent-pane.next-step-card";
+  const PANE_ENTRY = "agent-pane.next-step-in-pane";
   const HEIGHT = 280;
   const WIDTH = 640;
   const VARIANTS: Record<string, { buttons: number }> = {
@@ -98,7 +99,6 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
 
   // The real pane on a snapshot: the transcript's own shaping places the card (turns.ts NEXT_STEP).
   describe("in the agent pane", () => {
-    const PANE = "agent-pane.next-step-in-pane";
     for (const [variant, cards] of [
       ["waiting", 1],
       ["answered", 1],
@@ -109,7 +109,7 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
           const page = await browser!.newPage({ viewport: { width: 760, height: 560 }, deviceScaleFactor: 2 });
           try {
             const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
-            await page.goto(base + galleryFrame(PANE, { variant, width: 760, height: 560, colorScheme: scheme }));
+            await page.goto(base + galleryFrame(PANE_ENTRY, { variant, width: 760, height: 560, colorScheme: scheme }));
             await page.waitForFunction(
               () => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
               undefined,
@@ -124,5 +124,44 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
             await page.close();
           }
         });
+  });
+
+  // The click path, headless: the box from a real chat's call_log (a wrap-up called from a
+  // cmux_exec script), a click on an answer, and that answer sent as the next prompt.
+  test("a wrap-up answer click sends the answer as the next prompt", async () => {
+    const page = await browser!.newPage({ viewport: { width: 760, height: 560 }, deviceScaleFactor: 2 });
+    try {
+      const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
+      await page.goto(
+        base + galleryFrame(PANE_ENTRY, { variant: "wrap-up-code-mode", width: 760, height: 560, colorScheme: "dark" }),
+      );
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+        timeout: 90_000,
+      });
+      const card = page.locator(".acpmux-next-step").first();
+      await card.waitFor();
+      expect(await card.textContent()).toContain("Checked the folder: it is empty.");
+      expect(await card.locator(".acpmux-next-step__answer").allTextContents()).toEqual([
+        expect.stringContaining("Yes, add README"),
+        "No thanks",
+      ]);
+      if (out) await page.screenshot({ path: path.join(out, "pane-wrap-up-code-mode-dark.png") });
+      await card.locator(".acpmux-next-step__answer", { hasText: "Yes, add README" }).click();
+      const sent = await page.waitForFunction(
+        () => {
+          const log = (window as unknown as { cmuxGalleryLog: { method: string; params?: { prompt?: unknown } }[] })
+            .cmuxGalleryLog;
+          const prompt = log.find((entry) => entry.method === "acpmux session/prompt")?.params?.prompt;
+          return Array.isArray(prompt)
+            ? prompt.map((block: { text?: string }) => block.text ?? "").join("")
+            : undefined;
+        },
+        undefined,
+        { timeout: 30_000 },
+      );
+      expect(await sent.jsonValue()).toBe("Yes, add README");
+    } finally {
+      await page.close();
+    }
   });
 });
