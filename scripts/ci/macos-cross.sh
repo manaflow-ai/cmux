@@ -165,6 +165,8 @@ cmd_toolchain() {
   perl -0pe 's/,?[ \t\n]*arm64e\.x1-(?:macos|maccatalyst)//g; s/,([ \t\n]*\])/$1/g; s/\[([ \t\n]*),/[$1/g' \
     "$zig_lib/libc/darwin/libSystem.tbd" > "$SYSROOT/usr/lib/libSystem.tbd"
   ! grep -q 'arm64e\.x1' "$SYSROOT/usr/lib/libSystem.tbd" || die "arm64e.x1 targets left in libSystem.tbd"
+  ! grep -qE '\[[[:space:]]*\]|target:[[:space:]]*$' "$SYSROOT/usr/lib/libSystem.tbd" ||
+    die "dropping arm64e.x1 left an empty target in libSystem.tbd"
   # libc, libm, libpthread and libdl are libSystem on macOS.
   for l in c m pthread dl; do ln -sf libSystem.tbd "$SYSROOT/usr/lib/lib$l.tbd"; done
   # Rust std links -liconv. No iconv symbol is imported, so the stub only names the dylib.

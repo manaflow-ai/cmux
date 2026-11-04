@@ -615,6 +615,16 @@ fi
 rm -rf "$ZIG_DIR"
 tar xf "$ZIG_TAR" -C "$ZIG_WORK_ROOT"
 patch_zig_std "$ZIG_DIR/lib"
+# The system zig (/usr/local/bin/zig) is the classic ghostty submodule's Zig.
+# A host that runs both classic and ghostty-next jobs must keep it: a job that
+# needs another Zig installs it job-locally, so it never swaps the system zig
+# under a concurrent classic job.
+system_zig_version="$(GHOSTTY_ZIG_SOURCE=ghostty ghostty_minimum_zig_version "$REPO_ROOT" 2>/dev/null || true)"
+if [ -n "$system_zig_version" ] && [ "$ZIG_REQUIRED" != "$system_zig_version" ] && [ "${ZIG_FORCE_LOCAL_INSTALL:-0}" != "1" ]; then
+  echo "zig ${ZIG_REQUIRED} differs from the classic ghostty zig ${system_zig_version}; installing it job-locally"
+  ZIG_FORCE_LOCAL_INSTALL=1
+fi
+
 if [ "${ZIG_FORCE_LOCAL_INSTALL:-0}" != "1" ] && command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
   install_zig_with_sudo
   exit 0
