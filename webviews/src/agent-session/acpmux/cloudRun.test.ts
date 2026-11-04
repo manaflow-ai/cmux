@@ -403,8 +403,10 @@ test("a Cloud start waits only for the grant of the folder it sends", async () =
 test("the pane builds its Cloud start from grantedCloudStart and hands every Cloud pick's grant to it", () => {
   const source = readFileSync(join(import.meta.dir, "App.tsx"), "utf8");
   expect(source).toMatch(/const \[cloudFolderGrant\] = useState\(\(\) => cloudFolderGrants\(\)\);/);
-  expect(source).toMatch(/const \[startCloud\] = useState\(\(\) => grantedCloudStart\(callNative, cloudFolderGrant\)\);/);
-  expect(source).toMatch(/cloudFolderGrant\.granting\(folder\.cwd, pickFolder\(callNative, folder\.cwd/);
+  expect(source).toMatch(
+    /const \[startCloud\] = useState\(\(\) => grantedCloudStart\(callNative, cloudFolderGrant\)\);/,
+  );
+  expect(source).toMatch(/cloudFolderGrant\.granting\(\s*folder\.cwd,\s*pickFolder\(callNative, folder\.cwd/);
   expect(source).toMatch(/newTabProjectPick\(callNative, sandboxOfferable, cloudFolderGrant\.granting\)/);
   expect(source).not.toMatch(/oneCloudStart\(/);
 });
