@@ -66,16 +66,17 @@ enum RemoteTmuxViewOnlyWindows {
     }
 
     /// The tmux commands that carry out `adoptions`, in order, each linking its window and
-    /// marking it as cmux's in one sequence. `$session:@window` names the anchor's place in that
+    /// marking it as linked into `viewSessionName` by cmux in one sequence. `$session:@window` names the anchor's place in that
     /// session, wherever earlier insertions have moved it. The session goes by its id because
     /// tmux reads a target that starts with `$` as an id, so a session named `$home` cannot be
     /// found by name; `=name` is the fallback when the listing has no id.
-    static func linkCommands(_ adoptions: [Adoption]) -> [[String]] {
+    static func linkCommands(_ adoptions: [Adoption], viewSessionName: String) -> [[String]] {
         adoptions.map { adoption in
             let session = adoption.sessionId.isEmpty ? "=\(adoption.sessionName)" : adoption.sessionId
             let target = RemoteTmuxHost.shellSingleQuoted("\(session):\(adoption.afterWindowId)")
             return RemoteTmuxViewSession.linkAndMark(
-                "link-window -a -s \(adoption.windowId) -t \(target)", windowId: adoption.windowId)
+                "link-window -a -s \(adoption.windowId) -t \(target)", windowId: adoption.windowId,
+                viewSessionName: viewSessionName)
         }
     }
 }

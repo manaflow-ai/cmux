@@ -12,26 +12,30 @@ extension RemoteTmuxViewConnection {
     /// gets the window.
     nonisolated static func adopt(
         _ adoptions: [RemoteTmuxViewOnlyWindows.Adoption],
+        viewSessionName: String,
         send: ([String], @escaping (Bool) -> Void) -> Bool,
         onLinked: @escaping (String) -> Void,
         onFailed: @escaping (String) -> Void
     ) {
-        for (adoption, command) in zip(adoptions, RemoteTmuxViewOnlyWindows.linkCommands(adoptions)) {
+        for (adoption, command) in zip(adoptions, RemoteTmuxViewOnlyWindows.linkCommands(
+            adoptions, viewSessionName: viewSessionName)) {
             _ = send(command) { linked in
                 if linked { onLinked(adoption.windowId) } else { onFailed(adoption.windowId) }
             }
         }
     }
 
-    /// ``adopt(_:send:onLinked:onFailed:)`` on the view's control stream.
+    /// ``adopt(_:viewSessionName:send:onLinked:onFailed:)`` on the view's control stream.
     static func adopt(
         _ adoptions: [RemoteTmuxViewOnlyWindows.Adoption],
+        viewSessionName: String,
         on connection: RemoteTmuxControlConnection,
         onLinked: @escaping (String) -> Void,
         onFailed: @escaping (String) -> Void = { _ in }
     ) {
         adopt(
             adoptions,
+            viewSessionName: viewSessionName,
             send: { connection.sendSequence($0, firstCommandResolved: $1) },
             onLinked: onLinked,
             onFailed: onFailed

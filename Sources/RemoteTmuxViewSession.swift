@@ -37,29 +37,40 @@ struct RemoteTmuxViewSession: Equatable, Sendable {
     static let optView = "@cmux_view"
     static let optOwner = "@cmux_view_owner"
     static let optVersion = "@cmux_view_version"
-    /// Window option cmux sets on every window it links into a view itself, so a later bringup
-    /// can tell those apart from windows that were created in the view by somebody else.
-    static let optLinked = "@cmux_view_linked"
+    /// Prefix of the window option cmux sets on every window it links into a view itself, so a
+    /// later bringup can tell those apart from windows that were created in the view by
+    /// somebody else. The full name (``optLinked(viewSessionName:)``) is per view.
+    static let optLinkedPrefix = "@cmux_view_linked_"
+
+    /// The window option that marks a window as linked by cmux into `viewSessionName`.
+    ///
+    /// A window option belongs to the window, not to one of its links, so one name shared by
+    /// every view would let one view's cleanup clear the mark another view's copy relies on: the
+    /// other view's next bringup would read its copy as created there by somebody else and
+    /// adopt it into a live session. Each view gets its own option name instead.
+    static func optLinked(viewSessionName: String) -> String {
+        optLinkedPrefix + RemoteTmuxHost.fnv1a64Hex(viewSessionName)
+    }
 
     /// Window option on the view's placeholder, the window the view was created with, so a
     /// bringup finds it wherever later windows have put it.
     static let optPlaceholder = "@cmux_view_placeholder"
 
     /// Session option a bringup sets on the view once every window cmux linked into it carries
-    /// ``optLinked``. A view without it was left by a cmux that set no marks.
+    /// its ``optLinked(viewSessionName:)`` mark. A view without it was left by a cmux that set no marks.
     static let optMarksSettled = "@cmux_view_marks_settled"
 
-    /// Marks `windowId` as linked into a view by cmux (``optLinked``).
-    static func linkedMarkCommand(windowId: String) -> String {
-        "set-option -w -t \(windowId) \(optLinked) 1"
+    /// Marks `windowId` as linked into `viewSessionName` by cmux (``optLinked(viewSessionName:)``).
+    static func linkedMarkCommand(windowId: String, viewSessionName: String) -> String {
+        "set-option -w -t \(windowId) \(optLinked(viewSessionName: viewSessionName)) 1"
     }
 
     /// `link` followed by the mark for `windowId`, to send as one tmux command sequence
     /// (``RemoteTmuxControlConnection/sendSequence(_:firstCommandResolved:)``). tmux runs no
     /// later command of a sequence once one fails, and one write is accepted or refused whole,
     /// so the mark lands exactly when the link does.
-    static func linkAndMark(_ link: String, windowId: String) -> [String] {
-        [link, linkedMarkCommand(windowId: windowId)]
+    static func linkAndMark(_ link: String, windowId: String, viewSessionName: String) -> [String] {
+        [link, linkedMarkCommand(windowId: windowId, viewSessionName: viewSessionName)]
     }
 
     /// Prefix all view sessions share, for a cheap first-pass filter and so a

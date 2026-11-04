@@ -162,9 +162,9 @@ final class RemoteTmuxViewConnection {
 
     private let initialCols: Int
     private let initialRows: Int
-    /// Window ids cmux has itself linked into the view (ownership for safe unlink).
     /// How many times tmux has refused each view-only window's adoption since it last succeeded.
     private var adoptionFailures: [String: Int] = [:]
+    /// Window ids cmux has itself linked into the view (ownership for safe unlink).
     private var ownedWindowIds: Set<String> = []
     private var placeholderWindowId: String?
     /// Whether the over-the-stream view bringup has completed: the ownership options are
@@ -540,7 +540,7 @@ final class RemoteTmuxViewConnection {
         }
         guard let lines = await reconcileListQuery(
             conn,
-            "list-windows -t \(quoted(view.sessionName)) -F \(quoted(Self.bringupListFormat))"
+            "list-windows -t \(quoted(view.sessionName)) -F \(quoted(Self.bringupListFormat(viewSessionName: view.sessionName)))"
         ) else { return false }
         // No separate wait for the writes: tmux answers commands in the order it received
         // them, so their blocks have already resolved by the time this reply arrives. A
@@ -567,7 +567,9 @@ final class RemoteTmuxViewConnection {
     static func settleMarks(
         _ windowIds: [String], viewSessionName: String, on connection: RemoteTmuxControlConnection
     ) -> Bool {
-        let settle = windowIds.map { RemoteTmuxViewSession.linkedMarkCommand(windowId: $0) }
+        let settle = windowIds.map {
+            RemoteTmuxViewSession.linkedMarkCommand(windowId: $0, viewSessionName: viewSessionName)
+        }
             + ["set-option -t \(RemoteTmuxHost.shellSingleQuoted(viewSessionName)) \(RemoteTmuxViewSession.optMarksSettled) 1"]
         return connection.sendSequence(settle)
     }
@@ -590,24 +592,28 @@ final class RemoteTmuxViewConnection {
         // window whose only link was the view, the unset fails and changes nothing.
         [
             "unlink-window -k -t \(RemoteTmuxHost.shellSingleQuoted(viewSessionName)):\(windowIndex)",
-            "set-option -wu -t \(windowId) \(RemoteTmuxViewSession.optLinked)",
+            "set-option -wu -t \(windowId) \(RemoteTmuxViewSession.optLinked(viewSessionName: viewSessionName))",
         ]
     }
 
-    /// Links `windowId` into the view and marks it as cmux's.
+    /// Links `windowId` into the view and marks it as cmux's. `linked` gets tmux's answer to
+    /// the link, so the caller records ownership only for a link tmux carried out.
     static func linkIntoView(
-        _ windowId: String, viewSessionName: String, on connection: RemoteTmuxControlConnection
+        _ windowId: String, viewSessionName: String, on connection: RemoteTmuxControlConnection,
+        linked: ((Bool) -> Void)? = nil
     ) -> Bool {
         connection.sendSequence(RemoteTmuxViewSession.linkAndMark(
-            "link-window -s \(windowId) -t \(RemoteTmuxHost.shellSingleQuoted(viewSessionName))", windowId: windowId))
+            "link-window -s \(windowId) -t \(RemoteTmuxHost.shellSingleQuoted(viewSessionName))",
+            windowId: windowId, viewSessionName: viewSessionName), firstCommandResolved: linked)
     }
 
-    /// The bringup's `list-windows -F` format: id, linked flag, the window's mark, the view's
-    /// ``RemoteTmuxViewSession/optMarksSettled`` flag (a session option, which tmux reads
-    /// through a window format), and the placeholder's mark.
-    nonisolated static let bringupListFormat =
-        "#{window_id} #{window_linked} #{\(RemoteTmuxViewSession.optLinked)} #{\(RemoteTmuxViewSession.optMarksSettled)}"
-        + " #{\(RemoteTmuxViewSession.optPlaceholder)}"
+    /// The bringup's `list-windows -F` format: id, linked flag, the window's mark for this view,
+    /// the view's ``RemoteTmuxViewSession/optMarksSettled`` flag (a session option, which tmux
+    /// reads through a window format), and the placeholder's mark.
+    nonisolated static func bringupListFormat(viewSessionName: String) -> String {
+        "#{window_id} #{window_linked} #{\(RemoteTmuxViewSession.optLinked(viewSessionName: viewSessionName))}"
+            + " #{\(RemoteTmuxViewSession.optMarksSettled)} #{\(RemoteTmuxViewSession.optPlaceholder)}"
+    }
 
     /// Reads the bringup's `list-windows` reply (``bringupListFormat``) into the placeholder and
     /// the windows to treat as ours. Pure, so the row rules can be checked without a server.
@@ -623,7 +629,7 @@ final class RemoteTmuxViewConnection {
     /// not. Once marked, a window created in the view ahead of it cannot take its place.
     ///
     /// Ours are the windows that are linked into another session (only cmux links windows into
-    /// the view) or carry cmux's mark (``RemoteTmuxViewSession/optLinked``), which covers a copy
+    /// the view) or carry this view's mark (``RemoteTmuxViewSession/optLinked(viewSessionName:)``), which covers a copy
     /// whose home session has died. A view reused from a prior cmux run can then have its dead
     /// copies unlinked. A window in the view alone without the mark was created there by
     /// somebody else. It is not ours, because reconcile unlinks dead copies with `-k`, which would
@@ -865,8 +871,10 @@ final class RemoteTmuxViewConnection {
         for action in plan.reconcileActions {
             switch action {
             case let .link(windowId):
-                if Self.linkIntoView(windowId, viewSessionName: view.sessionName, on: conn) {
-                    ownedWindowIds.insert(windowId)
+                // Owned once tmux carries out the link, not when it is queued: a refused link
+                // leaves the window unowned, so a later reconcile cannot `unlink-window -k` it.
+                _ = Self.linkIntoView(windowId, viewSessionName: view.sessionName, on: conn) { [weak self] linked in
+                    if linked { self?.ownedWindowIds.insert(windowId) }
                 }
             case let .unlinkFromView(windowId):
                 // Unlink the view's COPY (by its index in the view), so the real
@@ -885,7 +893,7 @@ final class RemoteTmuxViewConnection {
                 ownedWindowIds.remove(windowId)
             }
         }
-        Self.adopt(plan.adoptions, on: conn, onLinked: { [weak self] windowId in
+        Self.adopt(plan.adoptions, viewSessionName: view.sessionName, on: conn, onLinked: { [weak self] windowId in
             guard let self else { return }
             self.adoptionFailures[windowId] = nil
             self.ownedWindowIds.insert(windowId)
