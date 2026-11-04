@@ -30,7 +30,6 @@ const inTabRowConnected: Play = async (ctx) => {
     throw new Error("The chat header repeated the composer location");
 };
 
-
 const sessionInfo =
   (placement: "overlay" | "push", open: boolean): Play =>
   async (ctx) => {
