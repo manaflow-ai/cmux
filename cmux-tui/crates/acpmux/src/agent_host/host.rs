@@ -114,6 +114,11 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         // Both a missing folder and a missing program fail as ENOENT: say which.
         if e.kind() == std::io::ErrorKind::NotFound && !spec.cwd.exists() {
             anyhow!("the folder {} does not exist", spec.cwd.display())
+        } else if e.kind() == std::io::ErrorKind::PermissionDenied
+            && std::fs::read_dir(&spec.cwd).is_err()
+        {
+            // The start's chdir fails as EACCES too, which read as the program's own.
+            anyhow!("the folder {} is not readable by this user", spec.cwd.display())
         } else {
             anyhow!(e).context(format!("spawn harness process {}", spec.program))
         }

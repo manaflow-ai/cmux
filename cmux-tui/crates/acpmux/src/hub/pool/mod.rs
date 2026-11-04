@@ -23,7 +23,9 @@
 //! before the current one and the one the pane hints at
 //! (`_acpmux/prewarm`, debounced: a harness pick, or typing in a new chat);
 //! one hinted entry per harness across folders (`pool.hintedPerHarness`), and
-//! a hint the pane takes back (`release`) ends its entry; a 1 GB RSS cap for the whole pool, oldest
+//! a hint the pane takes back (`release`) ends its entry; one spare per harness the machine used
+//! (`spare.rs`: the shape of its newest session, kept `pool.spareIdleMinutes`, remembered across
+//! daemon starts, replaced when it dies); a 1 GB RSS cap for the whole pool, oldest
 //! first; idle exit on the injected clock (`pool.idleMinutes`, default 10).
 //! The default for idle CPU is that exit; `pool.park` (off) SIGSTOPs a ready
 //! harness instead. Never for a remote-origin chain (REMOTE-FLOOR v3).
@@ -48,6 +50,7 @@ mod auth;
 mod held;
 pub(crate) mod policy;
 mod reaper;
+mod spare;
 mod start;
 use held::{TapSlot, holding_inbound, holding_tap};
 use policy::{Origin, Pool, PoolKey, Role, Take};
@@ -289,6 +292,9 @@ impl Hub {
                 if v.hinted {
                     roles.push("hinted");
                 }
+                if v.spare {
+                    roles.push("spare");
+                }
                 json!({"harness": v.key.harness, "preset": v.key.preset, "cwd": v.key.cwd,
                     "roles": roles, "state": v.state})
             })
@@ -342,6 +348,18 @@ impl Hub {
         preset: Option<String>,
         cwd: PathBuf,
     ) -> Result<PoolSpec, RpcError> {
+        self.pool_spec_in(harness, preset, cwd, false).await
+    }
+
+    /// `pool_spec`; a `spare` (the shape of a session the person started in `cwd`) may also
+    /// start in the home folder off macOS (`protected_folders::spare_refusal`).
+    async fn pool_spec_in(
+        &self,
+        harness: Option<String>,
+        preset: Option<String>,
+        cwd: PathBuf,
+        spare: bool,
+    ) -> Result<PoolSpec, RpcError> {
         let r = {
             let cfg = self.config.read().await;
             self.resolve_new(&cfg, harness, &preset, None, false, None)?
@@ -349,7 +367,12 @@ impl Hub {
         let family = crate::config::derive_family(&r.agent, &r.profile);
         // A pooled agent starts before anyone asks for it: never in the home
         // folder, `/` or a privacy-protected folder.
-        if let Some(reason) = crate::protected_folders::unasked_refusal(&cwd) {
+        let refusal = if spare {
+            crate::protected_folders::spare_refusal(&cwd)
+        } else {
+            crate::protected_folders::unasked_refusal(&cwd)
+        };
+        if let Some(reason) = refusal {
             return Err(RpcError::invalid_params(reason));
         }
         let (cwd, _) = super::adoption::session_cwd(Some(cwd), None, &family, &[])?;
@@ -479,14 +502,19 @@ impl Hub {
         if lock(&self.pool.oversize).contains(&spec.key) {
             return;
         }
-        let (idle, per_harness) = {
+        let (idle, spare_idle, per_harness) = {
             let cfg = self.config.read().await;
-            (cfg.pool.idle(), usize::try_from(cfg.pool.hinted_per_harness).unwrap_or(usize::MAX))
+            (
+                cfg.pool.idle(),
+                cfg.pool.spare_idle(),
+                usize::try_from(cfg.pool.hinted_per_harness).unwrap_or(usize::MAX),
+            )
         };
         let now = lock(&self.clock).now();
         let wanted = {
             let mut pool = lock(&self.pool.pool);
             pool.set_idle(idle);
+            pool.set_spare_idle(spare_idle);
             pool.set_hinted_per_harness(per_harness);
             pool.want(role, spec.key.clone(), now)
         };
@@ -540,6 +568,9 @@ impl Hub {
             let cfg = self.config.read().await;
             (cfg.pool.max_rss_mb.saturating_mul(1024 * 1024), cfg.pool.park)
         };
+        // A ready entry whose host died (killed, OOM) is removed now rather than found dead at a
+        // claim; a spare among them starts again (`spare.rs`).
+        self.spare_replace_dead().await;
         let pids: Vec<u32> = lock(&self.pool.pool).ready_mut().map(|p| p.record.host_pid).collect();
         let probe = lock(&self.pool.rss).clone();
         let measured: HashMap<u32, u64> =
@@ -905,6 +936,7 @@ impl Hub {
         if m.remote_origin {
             return;
         }
+        self.spare_note_used(&m.harness, m.preset.clone(), m.cwd.clone());
         let spec: Spec = (m.harness.clone(), m.preset.clone());
         let previous = {
             let mut recent = lock(&self.pool.recent);
