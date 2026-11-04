@@ -8,6 +8,7 @@ use crate::config::Config;
 use crate::store::SessionMeta;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::path::Path;
 
 /// A token count plus its origin. `text` is absent when the harness did not expose
@@ -57,6 +58,17 @@ pub struct ContextOverrideView {
     pub project: Option<String>,
     pub project_key: String,
     pub cwd: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub parts: BTreeMap<String, ContextPromptOverrideView>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextPromptOverrideView {
+    pub label: String,
+    pub default_text: String,
+    pub user: Option<String>,
+    pub project: Option<String>,
 }
 
 /// Approximate tokens for text we own. A harness-reported count is always preferred.
@@ -143,12 +155,32 @@ fn push_breakdown(parts: &mut Vec<ContextPart>, breakdown: &Value) {
 }
 
 fn verified_prompt_text(meta: &SessionMeta, cfg: &Config) -> Option<String> {
+    if meta.remote_origin
+        || cfg.harnesses.get(&meta.harness)?.kind != crate::config::HarnessKind::ClaudeStdio
+    {
+        return None;
+    }
     let name = meta.preset.as_deref()?;
     let preset = cfg.presets.get(name)?;
     let sha = preset.system_prompt_sha256.as_deref()?;
     let dir = cfg.presets_dir()?;
     let path = crate::config::checked_system_prompt(&dir, name, sha).ok()?;
     std::fs::read_to_string(path).ok()
+}
+
+/// Select an override only for a verified local preset. The session stores this
+/// selection so editing settings cannot change a running chat's next respawn.
+pub fn preset_override(meta: &SessionMeta, cfg: &Config) -> Option<String> {
+    verified_prompt_text(meta, cfg)?;
+    cfg.context_overrides
+        .preset_prompts
+        .get(meta.preset.as_deref()?)?
+        .for_project(&meta.cwd)
+        .map(str::to_owned)
+}
+
+pub fn preset_is_editable(meta: &SessionMeta, cfg: &Config) -> bool {
+    verified_prompt_text(meta, cfg).is_some()
 }
 
 /// Build an inventory from the latest harness report and cmux-owned state.
@@ -161,9 +193,26 @@ pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
     let project_key = crate::config::ContextOverrides::project_key(&meta.cwd);
     let user = cfg.context_overrides.user.clone();
     let project = cfg.context_overrides.projects.get(&project_key).cloned();
+    let mut override_parts = BTreeMap::new();
+    if let Some(default_text) = verified_prompt_text(meta, cfg) {
+        let values =
+            meta.preset.as_deref().and_then(|name| cfg.context_overrides.preset_prompts.get(name));
+        override_parts.insert(
+            "cmux-system-prompt".into(),
+            ContextPromptOverrideView {
+                label: "Preset system prompt".into(),
+                default_text,
+                user: values.and_then(|v| v.user.clone()),
+                project: values.and_then(|v| v.projects.get(&project_key).cloned()),
+            },
+        );
+    }
     // These are the additions captured at creation, not settings edited since then.
     if let Some(snapshot) = &meta.cmux_context {
         parts.extend(snapshot.iter().cloned());
+    }
+    for part in parts.iter_mut().filter(|p| p.id == "cmux-system-prompt") {
+        part.editable = override_parts.contains_key("cmux-system-prompt");
     }
     if breakdown.is_none() {
         parts.push(ContextPart {
@@ -205,6 +254,7 @@ pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
             project,
             project_key: project_key.clone(),
             cwd: meta.cwd.to_string_lossy().into_owned(),
+            parts: override_parts,
         },
     }
 }
@@ -219,43 +269,22 @@ pub fn override_block(text: &str, scope: &str) -> Value {
 /// change the effective text reported for an existing chat.
 pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
     let mut parts = snapshot(cfg, &meta.cwd);
-    if let Some(text) = verified_prompt_text(meta, cfg) {
-        parts.push(preset_part(text));
+    if let Some(default) = verified_prompt_text(meta, cfg) {
+        let text = meta.cmux_preset_prompt.clone().unwrap_or(default);
+        parts.push(ContextPart {
+            id: "cmux-system-prompt".into(),
+            source: "cmux-preset".into(),
+            label: "Preset system prompt".into(),
+            tokens: estimated_tokens(&text),
+            included: true,
+            editable: true,
+            measurement: "estimated".into(),
+            source_bytes: Some(text.len() as u64),
+            channel: Some("system-prompt".into()),
+            text: Some(text),
+        });
     }
     parts
-}
-
-fn preset_part(text: String) -> ContextPart {
-    ContextPart {
-        id: "cmux-system-prompt".into(),
-        source: "cmux-preset".into(),
-        label: "Preset system prompt".into(),
-        tokens: estimated_tokens(&text),
-        included: true,
-        editable: false,
-        measurement: "estimated".into(),
-        source_bytes: Some(text.len() as u64),
-        channel: Some("system-prompt-file".into()),
-        text: Some(text),
-    }
-}
-
-/// Refresh only the preset part from the actual launch argv, after preset
-/// resolution. Reading later settings would describe a future launch instead.
-pub fn preset_source(argv: &[String]) -> Option<ContextPart> {
-    let file = argv.windows(2).rev().find_map(|words| match words {
-        [flag, file] if flag == "--system-prompt-file" => Some(file),
-        _ => None,
-    })?;
-    std::fs::read_to_string(file).ok().map(preset_part)
-}
-
-pub fn record_preset_source(meta: &mut SessionMeta, part: Option<ContextPart>) {
-    let snapshot = meta.cmux_context.get_or_insert_with(Vec::new);
-    snapshot.retain(|part| part.source != "cmux-preset");
-    if let Some(part) = part {
-        snapshot.push(part);
-    }
 }
 
 /// Append the captured default or override on the first written turn. All guidance
@@ -272,13 +301,6 @@ pub fn append_snapshot(parts: Option<&[ContextPart]>, blocks: &mut Vec<Value>) {
             blocks.push(override_block(text, scope));
         }
     }
-}
-
-/// Refresh launch-derived rows while preserving creation-time guidance/preset bytes.
-pub fn record_tool_sources(meta: &mut SessionMeta, parts: Vec<ContextPart>) {
-    let snapshot = meta.cmux_context.get_or_insert_with(Vec::new);
-    snapshot.retain(|part| !part.id.starts_with("cmux-source-"));
-    snapshot.extend(parts);
 }
 
 /// Capture settings once when the session is created. Project text replaces user text.
@@ -415,58 +437,11 @@ mod tests {
 
     #[test]
     fn overrides_choose_project_over_user_and_clear() {
-        let mut overrides =
-            ContextOverrides { user: Some("u".into()), projects: Default::default() };
+        let mut overrides = ContextOverrides { user: Some("u".into()), ..Default::default() };
         let cwd = Path::new("/repo");
         overrides.set("project", Some(cwd), Some("p".into())).unwrap();
         assert_eq!(overrides.for_project(cwd), Some(("project", "p")));
         overrides.set("project", Some(cwd), None).unwrap();
         assert_eq!(overrides.for_project(cwd), Some(("user", "u")));
-    }
-
-    #[test]
-    fn tool_source_snapshots_are_replaced_without_reinjecting_or_replacing_guidance() {
-        let mut meta: SessionMeta = serde_json::from_value(json!({"schema":"acpmux.session.v1","id":"s","name":"s","harness":"claude","cwd":"/repo","status":"idle","createdAt":0,"updatedAt":0})).unwrap();
-        let mut cfg = Config::default();
-        cfg.context_overrides.user = Some("read concurrently".into());
-        meta.cmux_context = Some(snapshot(&cfg, &meta.cwd));
-        let mut description = meta.cmux_context.as_ref().unwrap()[0].clone();
-        description.id = "cmux-source-skill-example".into();
-        description.source = "cmux-skill-listing".into();
-        description.editable = false;
-        description.text = Some("name: example\ndescription: skill listing only".into());
-        description.channel = Some("skill-listing".into());
-        record_tool_sources(&mut meta, vec![description.clone()]);
-        record_tool_sources(&mut meta, vec![description]);
-        let snapshot = meta.cmux_context.as_deref().unwrap();
-        assert_eq!(snapshot.len(), 2);
-        let mut blocks = Vec::new();
-        append_snapshot(Some(snapshot), &mut blocks);
-        assert_eq!(blocks.len(), 1);
-        assert!(blocks[0]["text"].as_str().unwrap().contains("read concurrently"));
-        record_tool_sources(&mut meta, Vec::new());
-        assert_eq!(meta.cmux_context.as_ref().unwrap().len(), 1);
-    }
-
-    #[test]
-    fn preset_context_follows_actual_launch_file_after_edits_and_removal() {
-        let mut meta: SessionMeta = serde_json::from_value(json!({"schema":"acpmux.session.v1","id":"s","name":"s","harness":"claude","cwd":"/repo","status":"idle","createdAt":0,"updatedAt":0})).unwrap();
-        let dir =
-            std::env::temp_dir().join(format!("context-source-preset-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("prompt.md");
-        let argv =
-            vec!["claude".into(), "--system-prompt-file".into(), path.to_string_lossy().into()];
-        std::fs::write(&path, "first preset").unwrap();
-        record_preset_source(&mut meta, preset_source(&argv));
-        assert_eq!(meta.cmux_context.as_ref().unwrap()[0].text.as_deref(), Some("first preset"));
-        // A settings/file edit alone cannot change what the current launch received.
-        std::fs::write(&path, "next preset").unwrap();
-        assert_eq!(meta.cmux_context.as_ref().unwrap()[0].text.as_deref(), Some("first preset"));
-        record_preset_source(&mut meta, preset_source(&argv));
-        assert_eq!(meta.cmux_context.as_ref().unwrap()[0].text.as_deref(), Some("next preset"));
-        record_preset_source(&mut meta, preset_source(&["claude".into()]));
-        assert!(meta.cmux_context.as_ref().unwrap().is_empty());
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

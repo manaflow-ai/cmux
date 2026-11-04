@@ -8,7 +8,7 @@ use super::*;
 fn hub() -> Arc<Hub> {
     use crate::config::{Config, StoreMode};
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-    let cfg = json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake",
+    let cfg = json!({"harnesses": {"fake": {"argv": ["python3", fake], "env": {"FAKE_ECHO_GUIDANCE": "1"}}}, "defaultHarness": "fake",
                      "titles": {"generate": false}});
     let mut cfg: Config = serde_json::from_value(cfg).unwrap();
     cfg.store.mode = StoreMode::Memory;
@@ -87,7 +87,8 @@ async fn context_inventory_overrides_reach_only_the_first_turn_and_new_sessions_
     for session in [&original, &next] {
         for text in ["first words", "second words"] {
             hub.prompt(session, vec![json!({"type":"text", "text":text})], "test", false)
-                .await.unwrap();
+                .await
+                .unwrap();
         }
     }
     for (session, expected, absent) in [
@@ -96,7 +97,8 @@ async fn context_inventory_overrides_reach_only_the_first_turn_and_new_sessions_
     ] {
         assert!(session.meta().cmux_context_delivered);
         let records = hub.events(&session.id, 0, 1_000).unwrap();
-        let replies: String = records.iter()
+        let replies: String = records
+            .iter()
             .filter(|e| e.kind == "agent_message_chunk")
             .filter_map(|e| e.msg.pointer("/params/update/content/text").and_then(Value::as_str))
             .collect();
@@ -131,6 +133,34 @@ async fn context_inventory_keeps_unrecorded_client_context_unreplayable() {
     let prompt = records.iter().find(|e| e.kind == "user_message").unwrap();
     assert_eq!(prompt.msg["hiddenContext"], true);
     assert!(hub.logged_prompt_blocks(&session, &prompt.msg).is_none());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn context_inventory_fresh_fork_of_a_legacy_chat_captures_local_guidance() {
+    let hub = hub();
+    hub.config.write().await.context_overrides.user = Some("LEGACY-FORK-GUIDANCE".into());
+    let parent = hub
+        .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..Default::default() })
+        .await
+        .unwrap();
+    hub.prompt(&parent, vec![json!({"type":"text", "text":"first"})], "test", false).await.unwrap();
+    {
+        let mut meta = parent.meta.lock().unwrap();
+        meta.cmux_context = None;
+        meta.cmux_context_delivered = true;
+        meta.status = SessionStatus::Running;
+        // A working adapter without native forking reconstructs from the mux log.
+        meta.agent_capabilities = None;
+    }
+    let fork = hub.fork(&parent, None, None, Default::default(), None, None, true).await.unwrap();
+    let meta = fork.meta();
+    assert!(!meta.cmux_context_delivered);
+    assert!(
+        meta.cmux_context
+            .unwrap()
+            .iter()
+            .any(|part| part.text.as_deref() == Some("LEGACY-FORK-GUIDANCE"))
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -41,7 +41,25 @@ pub(super) async fn handle(
         };
         let mut cfg = hub.config.write().await;
         let previous = cfg.context_overrides.clone();
-        cfg.context_overrides.set(scope, cwd.as_deref(), text).map_err(RpcError::invalid_params)?;
+        match params.get("partId") {
+            None | Some(Value::Null) => cfg.context_overrides.set(scope, cwd.as_deref(), text),
+            Some(Value::String(id)) if id == "cmux-system-prompt" => {
+                let meta = session.meta();
+                if !crate::context_inventory::preset_is_editable(&meta, &cfg) {
+                    return Err(RpcError::invalid_params(
+                        "this session has no editable local preset system prompt",
+                    ));
+                }
+                cfg.context_overrides.set_preset(
+                    meta.preset.as_deref().unwrap_or_default(),
+                    scope,
+                    cwd.as_deref(),
+                    text,
+                )
+            }
+            _ => return Err(RpcError::invalid_params("unknown editable context partId")),
+        }
+        .map_err(RpcError::invalid_params)?;
         if let Err(e) = cfg.save() {
             cfg.context_overrides = previous;
             return Err(RpcError::internal(format!("save context override: {e}")));
@@ -62,6 +80,7 @@ pub(super) async fn handle(
         inventory.overrides.default_text = None;
         inventory.overrides.user = None;
         inventory.overrides.project = None;
+        inventory.overrides.parts.clear();
     }
     Ok(serde_json::to_value(inventory).unwrap_or(Value::Null))
 }
