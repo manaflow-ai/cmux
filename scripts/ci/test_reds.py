@@ -135,7 +135,10 @@ class Verdict:
 
 
 def lines_of(log: str) -> list[str]:
-    return [STAMP.sub("", ANSI.sub("", line)).rstrip() for line in log.splitlines()]
+    # Swift Testing prefixes some event lines with a zero-width space (U+200B) when another writer's output
+    # shares the stream ("\u200b✔ Suite \"x\" passed"); left in, the anchored suite patterns miss the line and
+    # a suite that passed reads as never finished (https://github.com/manaflow-ai/cmux/pull/35296).
+    return [STAMP.sub("", ANSI.sub("", line)).lstrip("\u200b").rstrip() for line in log.splitlines()]
 
 
 def _words(text: str, words: list[str]) -> None:
