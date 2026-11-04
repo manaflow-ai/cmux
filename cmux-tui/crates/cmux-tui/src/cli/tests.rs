@@ -527,6 +527,7 @@ fn server_stats_help_routes_to_the_stats_topic() {
     assert!(scope_help_for(&topic, crate::localization::catalog()).contains("--json"));
 }
 
+#[cfg(unix)]
 #[test]
 fn help_workflow_shows_the_workflow_usage_not_the_root_help() {
     for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
