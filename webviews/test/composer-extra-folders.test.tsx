@@ -165,3 +165,45 @@ test("a started chat offers no Add folder…", async () => {
     await act(async () => root.unmount());
   }
 });
+
+// cmux#34408: an outside dismiss after Add folder… ends add mode, so the next pick changes the project.
+test("an outside dismiss after Add folder… leaves the next pick changing the project", async () => {
+  const picked: string[] = [];
+  const { root, changes } = await renderTray({ onProject: (cwd: string) => picked.push(cwd) });
+  try {
+    await openFolderMenu();
+    await press(menuItem("Add folder…")!);
+    const outside = dom.window.document.body;
+    await act(async () => {
+      for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"])
+        outside.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, button: 0 }));
+    });
+    await settle();
+    expect(dom.window.document.querySelector(".acpmux-folder-popover")).toBeNull();
+    await openFolderMenu();
+    expect(menuItem("Add folder…")).toBeDefined();
+    await press(menuItem("notes")!);
+    expect(picked).toEqual(["/Users/me/notes"]);
+    expect(changes).toEqual([]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+// cmux#34403: Cloud and Sandboxed starts carry no extra folders, so the composer offers none.
+for (const mode of ["cloud", "sandboxed"] as const) {
+  test(`${mode} run mode offers no Add folder… and shows no +N`, async () => {
+    const { root } = await renderTray(
+      { runMode: { mode, onMode: () => {} } },
+      { machine: "local", folders: ["/Users/me/notes"] },
+    );
+    try {
+      expect(face()).not.toContain("+1");
+      await openFolderMenu();
+      expect(menuItem("Add folder…")).toBeUndefined();
+      expect(dom.window.document.querySelectorAll(".acpmux-extra-folder").length).toBe(0);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+}
