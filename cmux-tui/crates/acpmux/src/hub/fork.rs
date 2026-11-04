@@ -369,7 +369,12 @@ impl Hub {
             config_options: parent_meta
                 .config_options
                 .clone()
-                .or_else(|| res.get("configOptions").cloned().filter(|v| !v.is_null())),
+                .or_else(|| {
+                    res.get("configOptions")
+                        .cloned()
+                        .filter(|v| !v.is_null())
+                        .map(Into::into)
+                }),
             models: parent_meta.models.clone(),
             permission_policy: parent_meta.permission_policy.clone(),
             policy_source: parent_meta.policy_source.clone(),
