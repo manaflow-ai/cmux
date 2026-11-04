@@ -192,7 +192,10 @@ test("a run whose edit waits for its permission stays in sight, not under the li
 
 test("hidden discovery never invents a second line or work count beside a coordination send", async () => {
   const { foldMessageRuns, messageRunSummary } = await import("../src/agent-session/acpmux/conversation/messageRuns");
-  const discovery = tool("ToolSearch", "other", { output: "Loaded 2 tools" });
+  const discovery = tool("ToolSearch", "other", {
+    provenance: { claudeTool: "ToolSearch" },
+    output: "Loaded 2 tools",
+  });
   const sent = send("helper", "Read the result");
   const folded = (items: AcpmuxActivity[]) => ({ ...activity(items, "discovery-run"), foldRun: true });
   const lone = folded([discovery, sent, discovery]);

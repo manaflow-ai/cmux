@@ -5,6 +5,8 @@ import { losesNumbers, parseJSONValue } from "./toolResult";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
+const DISCOVERY_NAMES = /^(?:ToolSearch|tool_search|load_tools)$/;
+
 // Only the harness's successful discovery operation is noise; never hide a server's similarly
 // named user operation, a pending permission, a failed discovery, or an error returned as success.
 export function isToolDiscoveryNoise(tool: Tool | undefined): boolean {
@@ -18,7 +20,14 @@ export function isToolDiscoveryNoise(tool: Tool | undefined): boolean {
     tool.approved
   )
     return false;
-  if (!/^(?:ToolSearch|tool_search|load_tools)$/.test(tool.title) || mcpCall(tool)) return false;
+  const provenanceName = tool.provenance?.claudeTool ?? tool.provenance?.claudeCodeToolName;
+  if (
+    !provenanceName ||
+    tool.title !== provenanceName ||
+    !DISCOVERY_NAMES.test(provenanceName) ||
+    mcpCall(tool)
+  )
+    return false;
   if (
     (tool.exitCode ?? 0) !== 0 ||
     /(?:"(?:isError|error)"\s*:\s*(?!(?:false|null|0)\s*[,}])\S|"(?:status|state)"\s*:\s*"(?:error|failed)"|^(?:error|failed|unable|unavailable)\b)/im.test(

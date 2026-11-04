@@ -29,6 +29,7 @@ export function mixedToolRunFixture(): AcpmuxActivity[] {
         id: "discovery",
         title: "ToolSearch",
         status: "completed",
+        provenance: { claudeTool: "ToolSearch" },
         inputSummary: '{"query":"repo"}',
         output: "Loaded tools",
       },

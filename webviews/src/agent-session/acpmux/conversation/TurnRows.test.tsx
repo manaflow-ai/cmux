@@ -37,7 +37,13 @@ test("discovery-only activity leaves no child for RowFrame's empty-row spacing r
   const discovery: AcpmuxActivity = {
     kind: "tool",
     text: "ToolSearch",
-    tool: { id: "discovery", title: "ToolSearch", status: "completed", output: "Loaded 2 tools" },
+    tool: {
+      id: "discovery",
+      title: "ToolSearch",
+      status: "completed",
+      provenance: { claudeTool: "ToolSearch" },
+      output: "Loaded 2 tools",
+    },
   };
   expect(renderToStaticMarkup(<ToolRows row={row([discovery])} />)).toBe("");
   expect(renderToStaticMarkup(<ToolRows row={row([])} />)).toContain("cv-tools");

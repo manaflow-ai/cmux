@@ -12,6 +12,9 @@ test("only successful builtin discovery is hidden, never a similarly named opera
   const discovery = mixedToolRunFixture()[2]!.tool! as NonNullable<Parameters<typeof isToolDiscoveryNoise>[0]>;
   expect(isToolDiscoveryNoise(discovery)).toBe(true);
   expect(isToolDiscoveryNoise({ ...discovery, output: '{"isError": false,"message":"Loaded tools"}' })).toBe(true);
+  expect(isToolDiscoveryNoise({ ...discovery, title: "ToolSearch", provenance: undefined })).toBe(false);
+  for (const name of ["tool_search", "load_tools"])
+    expect(isToolDiscoveryNoise({ ...discovery, title: name, provenance: { claudeCodeToolName: name } })).toBe(true);
   for (const extra of [
     { status: "pending" },
     { status: "failed" },

@@ -1183,6 +1183,15 @@ export function mergeToolItem(
   at?: number,
 ): AcpmuxActivity {
   const before = previous?.tool;
+  const provenance =
+    typeof update._meta?.claude?.tool === "string" || typeof update._meta?.claudeCode?.toolName === "string"
+      ? {
+          ...(typeof update._meta?.claude?.tool === "string" ? { claudeTool: update._meta.claude.tool } : {}),
+          ...(typeof update._meta?.claudeCode?.toolName === "string"
+            ? { claudeCodeToolName: update._meta.claudeCode.toolName }
+            : {}),
+        }
+      : before?.provenance;
   const title = update.title ?? update.name;
   const status = String(update.status ?? before?.status ?? "in_progress");
   const ended = status === "completed" || status === "failed";
@@ -1239,6 +1248,7 @@ export function mergeToolItem(
       ...(input ? { inputPath: input } : {}),
       images: update.content === undefined ? before?.images : imagesFromContent(update.content),
       diffs,
+      ...(provenance ? { provenance } : {}),
     },
   };
 }

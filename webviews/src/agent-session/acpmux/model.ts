@@ -716,6 +716,9 @@ export type AcpmuxActivity = {
     /// harness's highest mode while its card was open): the row says "Approved" at its edge
     /// instead of a receipt line of its own (direct.ts `markApproved`).
     approved?: true;
+    /// The harness metadata that names a built-in tool. Titles are user-visible labels and are
+    /// not sufficient to identify plumbing calls with names such as ToolSearch.
+    provenance?: { claudeTool?: string; claudeCodeToolName?: string };
   };
 };
 
