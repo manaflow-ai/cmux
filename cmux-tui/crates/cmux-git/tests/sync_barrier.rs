@@ -89,6 +89,15 @@ fn the_first_sync_cannot_overtake_a_reader_that_saw_no_marker() {
     worker.join().unwrap();
 }
 
+#[test]
+fn a_reader_never_blocks_a_sibling_repository_sync() {
+    let scratch = Scratch::new();
+    let Probe::Ready(_ready) = probe(&scratch.repo()).unwrap() else { panic!("not ready") };
+    let sibling = scratch.0.join("independent-repo");
+    Sync::begin(&sibling).unwrap().complete().unwrap();
+    assert!(matches!(probe(&sibling).unwrap(), Probe::Ready(_)));
+}
+
 /// Same deterministic overlap schedule, with and without waiting. This measures
 /// edit retention, not end-to-end Cloud latency (which belongs to the probes).
 #[test]

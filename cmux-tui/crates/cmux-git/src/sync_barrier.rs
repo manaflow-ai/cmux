@@ -61,13 +61,17 @@ fn lock(file: &File, mode: i32) -> io::Result<bool> {
     if error.kind() == io::ErrorKind::WouldBlock { Ok(false) } else { Err(error) }
 }
 
-/// Serializes the first marker with readers that saw no marker yet. The
-/// location is shared by daemon processes even when their TMPDIR differs.
-/// Never unlink this inode, for the same reason as the repository markers.
-fn creation_lock() -> io::Result<File> {
+/// Serializes one folder's first marker with readers that saw no marker yet.
+/// Leases are keyed by canonical folder, so independent repositories do not
+/// wait for each other's writes or startup. They live outside the repository
+/// and share a location even when daemon processes have different TMPDIRs.
+/// Never unlink these inodes, for the same reason as the repository markers.
+fn creation_lock(folder: &Path) -> io::Result<File> {
+    use std::os::unix::ffi::OsStrExt;
     // SAFETY: geteuid has no preconditions.
     let uid = unsafe { libc::geteuid() };
-    open(&PathBuf::from(format!("/tmp/cmux-repo-sync-{uid}.lock")), true)
+    let hash = format!("{:x}", Sha256::digest(folder.as_os_str().as_bytes()));
+    open(&PathBuf::from(format!("/tmp/cmux-repo-sync-{uid}-{hash}.lock")), true)
 }
 
 fn wait_lock(file: &File, mode: i32) -> io::Result<()> {
@@ -91,7 +95,7 @@ impl Sync {
         // Take the repository lock first: a reader of an existing marker
         // refuses this sync immediately. A reader that preceded the first
         // marker instead holds the creation lease until its write completes.
-        let creating = creation_lock()?;
+        let creating = creation_lock(folder)?;
         wait_lock(&creating, libc::LOCK_EX)?;
         file.write_all(b"0")?;
         file.set_len(1)?;
@@ -140,11 +144,12 @@ fn resolved(path: &Path) -> io::Result<PathBuf> {
 /// returns immediately, so a running sync never blocks a reader thread.
 /// No marker means an ordinary local repository, which needs no sync wait.
 pub fn probe(path: &Path) -> io::Result<Probe> {
-    let creating = creation_lock()?;
-    wait_lock(&creating, libc::LOCK_SH)?;
     let path = resolved(path)?;
-    let mut held = vec![creating];
+    let mut held = Vec::new();
     for folder in path.ancestors().filter(|folder| folder.parent().is_some()) {
+        let creating = creation_lock(folder)?;
+        wait_lock(&creating, libc::LOCK_SH)?;
+        held.push(creating);
         let mut file = match open(&marker(folder)?, false) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
