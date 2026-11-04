@@ -11,6 +11,8 @@ pub(super) struct RosterRequests {
     pub(super) wanted: u64,
     /// Terminals closed since, retired once the roster has folded the head.
     pub(super) retire: Vec<String>,
+    /// Counts recorded requests (review fix sketch, PR 35334).
+    pub(super) recorded: u64,
 }
 
 /// What the roster fold lock guards: it orders folds and roster snapshot
@@ -358,6 +360,7 @@ impl Mux {
             if let Some(terminal) = retire {
                 host.requests.retire.push(terminal);
             }
+            host.requests.recorded = host.requests.recorded.wrapping_add(1);
         }
         self.drain_roster_requests();
     }
@@ -367,6 +370,8 @@ impl Mux {
     /// the requests again after it lets go, so none is left behind.
     fn drain_roster_requests(&self) {
         loop {
+            let seen =
+                self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner).requests.recorded;
             let fold = match self.agent_roster_fold.try_lock() {
                 Ok(fold) => fold,
                 Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
@@ -376,17 +381,21 @@ impl Mux {
             for (delta, kind) in deltas {
                 self.apply_roster_delta(delta, &kind);
             }
-            if !progressed || !self.roster_work_pending() {
+            if !self.roster_work_pending(seen, progressed) {
                 return;
             }
         }
     }
 
-    /// Whether a request asked for a fold past the roster's cursor, or a
-    /// retirement waits.
-    fn roster_work_pending(&self) -> bool {
+    /// Whether to run again after letting go: work waits (a fold past the
+    /// cursor or a retirement) and either this run made progress or a request
+    /// was recorded since `seen`, while this thread held the fold. A run that
+    /// made no progress and saw no new request stops, so a fold that cannot
+    /// advance (a read error) does not spin.
+    fn roster_work_pending(&self, seen: u64, progressed: bool) -> bool {
         let host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
-        host.requests.wanted > host.cursor || !host.requests.retire.is_empty()
+        let waiting = host.requests.wanted > host.cursor || !host.requests.retire.is_empty();
+        waiting && (progressed || host.requests.recorded != seen)
     }
 
     /// The roster work, with `fold` held: fold the journal through what was
