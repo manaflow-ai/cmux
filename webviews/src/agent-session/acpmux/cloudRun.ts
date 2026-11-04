@@ -109,7 +109,7 @@ export type CloudFolderGrants = ReturnType<typeof cloudFolderGrants>;
 export function grantedCloudStart(
   callNative: (method: string, params?: Record<string, unknown>) => Promise<unknown>,
   grants: CloudFolderGrants,
-): (start: CloudStart, key?: string) => Promise<CloudStartAnswer> | undefined {
+): (start: CloudStart, key?: string, signingIn?: boolean) => Promise<CloudStartAnswer> | undefined {
   return oneCloudStart((method, params) =>
     grants.settled(typeof params.cwd === "string" ? params.cwd : undefined).then(() => callNative(method, params)),
   );
