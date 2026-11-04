@@ -262,7 +262,11 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
       const gaps: Record<string, number | null> = {
         "work-to-subagent": diff(head(byText(/Sent a message/)), head(byClass("acpmux-subagentDone"))),
         "subagent-to-waiting": diff(head(byClass("acpmux-subagentDone")), head(byClass("acpmux-pendingMessages"))),
-        "waiting-to-live": diff(head(byClass("acpmux-pendingMessages")), head(live)),
+        // The closed group draws its first line under its head (stacked): the live line is a row under that.
+        "waiting-to-live": after(
+          byClass("acpmux-pendingMessages"),
+          diff(head(byClass("acpmux-pendingMessages")), head(live)),
+        ),
         "reply-footer-to-received":
           footer && footer.height > 0 ? diff((footer.top + footer.bottom) / 2, head(received)) : null,
         "received-to-sent": after(received, diff(head(received), head(sent))),
