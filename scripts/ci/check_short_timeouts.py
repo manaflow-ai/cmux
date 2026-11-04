@@ -121,9 +121,10 @@ def scan_source(text: str, rel: str) -> list[dict]:
         raw = raw_lines[index] if index < len(raw_lines) else ""
         if rel.endswith(".swift"):
             for match in SWIFT_DURATION.finditer(line):
-                context = line
-                if index > 0 and SWIFT_DEADLINE_WORD.search(lines[index - 1]) and not SWIFT_DURATION.search(lines[index - 1]):
-                    context = f"{lines[index - 1]}\n{line}"
+                # Argument labels and the literal commonly wrap across a few
+                # lines in Swift call sites; keep the window narrow enough to
+                # avoid treating an unrelated duration as a timeout.
+                context = "\n".join(lines[max(0, index - 3) : index + 1])
                 if not SWIFT_DEADLINE_WORD.search(context):
                     continue
                 if _value(match.group(2), match.group(1)) < FLOOR_MS:
@@ -136,8 +137,8 @@ def scan_source(text: str, rel: str) -> list[dict]:
         elif rel.endswith(".rs"):
             for match in RUST_DURATION.finditer(line):
                 value = _value(match.group(2), match.group(1))
-                context = "\n".join(lines[max(0, index - 3): index + 1])
-                if value < FLOOR_MS and (RUST_CONST_NAME.search(context) or RUST_TIMEOUT_CALL.search(line)):
+                context = "\n".join(lines[max(0, index - 3) : min(len(lines), index + 4)])
+                if value < FLOOR_MS and (RUST_CONST_NAME.search(context) or RUST_TIMEOUT_CALL.search(context)):
                     _hit(hits, "rust-duration", index + 1, raw, raw_lines)
         else:
             for match in TS_HARD_TIMEOUT.finditer(line):
