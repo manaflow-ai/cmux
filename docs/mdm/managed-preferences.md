@@ -20,7 +20,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `history.commandRetentionDays` | real | `30` | 1 to 3650 | Keep Terminal Commands For. Each machine deletes recorded commands that are older. |
 | `history.closed.maxGroups` | real | `0` | 0 to 10000 | Recently Closed Items to Keep. Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all. |
 | `history.closed.maxAgeDays` | real | `0` | 0 to 3650 | Keep Recently Closed Items For. Each machine deletes closed items that are older. 0 keeps them however old they are. |
-| `window.titlebar` | string | `"standard"` | `minimal`, `standard` | Titlebar. Minimal has no titlebar strip; the top row moves the window. |
+| `window.titlebar` | string | `"minimal"` | `minimal`, `standard` | Titlebar. Minimal has no titlebar strip; the top row moves the window. |
 | `window.titlebarButtons` | string | `"hover"` | `hover`, `always` | Titlebar Buttons. With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show. |
 | `app.globalHotKey` | boolean | `false` |  | Global Hot Key. Show/Hide All Windows (⌃⌥⌘.) works while another app is in front. |
 | `app.startAgentGlobalHotKey` | boolean | `false` |  | Start Agent from Any App. Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts. |
