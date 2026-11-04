@@ -45,14 +45,14 @@ pub mod github_status;
 pub mod handoff;
 pub mod private_bootstrap;
 pub mod receiver;
-#[cfg(unix)]
-pub mod relay;
 #[cfg(target_os = "linux")]
 pub mod receiver_agent;
 #[cfg(target_os = "linux")]
 mod receiver_files;
 #[cfg(target_os = "linux")]
 mod receiver_lifecycle;
+#[cfg(unix)]
+pub mod relay;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod sender;

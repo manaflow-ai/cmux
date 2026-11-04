@@ -168,7 +168,7 @@ fn a_stop_drops_the_socket_at_once() {
         let (tx, mut rx) = watch::channel(false);
         let serving = async move {
             let _socket = socket;
-            std::future::pending::<()>().await
+            std::future::pending::<()>().await;
         };
         let started = std::time::Instant::now();
         let out = rt.block_on(async {
@@ -176,7 +176,7 @@ fn a_stop_drops_the_socket_at_once() {
                 tokio::time::sleep(Duration::from_millis(20)).await;
                 // A rebind drops the Relay: the sender goes, or it says stop.
                 if gone {
-                    drop(tx)
+                    drop(tx);
                 } else {
                     tx.send_replace(true);
                 }
