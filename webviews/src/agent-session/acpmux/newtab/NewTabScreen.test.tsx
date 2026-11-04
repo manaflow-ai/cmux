@@ -5,6 +5,7 @@ import { JSDOM } from "jsdom";
 import { noChat } from "../../../gallery/fixtures/acpmux";
 import { ClosedList } from "./ClosedList";
 import { NewTabScreen } from "./NewTabScreen";
+import { CloudStartView } from "../CloudStartView";
 import { registerHarnessesPage } from "../harnesses/harnessesPage";
 import type { SavedEnvironment } from "../environments";
 import type { RunMode } from "../sandboxRun";
@@ -833,6 +834,7 @@ test("while a Cloud start is out the box takes no edits, and takes them again on
       environments
       runMode={{ mode: "cloud", onMode: () => {} }}
       onCloud={() => false}
+      cloudStatus={<output data-testid="cloud-shell">Preparing machine</output>}
       cloudStarting={cloudStarting}
     />
   );
@@ -844,15 +846,53 @@ test("while a Cloud start is out the box takes no edits, and takes them again on
   const field = () => promptValue();
   await act(async () => root!.render(page(true)));
   await promptField();
+  expect(container.querySelector('[data-testid="cloud-shell"]')?.textContent).toBe("Preparing machine");
+  expect(container.querySelector(".nt-composer")?.getAttribute("data-cloud-starting")).toBe("true");
+  // The box keeps its space while the shell is visible, so sending does not move the page.
+  expect(container.querySelector(".nt-box")).toBeTruthy();
   expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(true);
   // Typing on the page (outside the field) goes nowhere while the start is out.
   await typeOnPage("x");
   expect(field()).toBe("");
   // A failed start keeps the prompt here to edit and send again.
   await act(async () => root!.render(page(false)));
+  expect(container.querySelector(".nt-composer")?.getAttribute("data-cloud-starting")).toBeNull();
   expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(false);
   await typeOnPage("x");
   expect(field()).toBe("x");
+});
+
+test("a failed Cloud start leaves one retry send in the composer", async () => {
+  const clouded: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        environments
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        cloudStarting={false}
+        cloudStatus={
+          <CloudStartView
+            start={{ key: "retry", task: "first attempt", state: "failed", message: "No machine free" }}
+            bubble={false}
+          />
+        }
+        onCloud={(...args) => (clouded.push(args), false)}
+      />,
+    );
+  });
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("No machine free");
+  await typePrompt("retry once");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(clouded).toHaveLength(1);
+  expect(clouded[0]?.[1]).toBe("retry once");
 });
 
 test("picking Cloud drops a saved environment picked before: the send names the folder chip's folder, not the tab's inherited one", async () => {

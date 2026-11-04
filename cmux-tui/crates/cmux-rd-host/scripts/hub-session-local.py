@@ -35,7 +35,11 @@ host = subprocess.Popen([binary, "serve"], stdin=subprocess.PIPE, stdout=subproc
 host.stdin.write(json.dumps({"session": session, "peer_key": viewer_key, "scope": scope, "stun": stun,
                              "viewer": {"user": "viewer", "install": "bench"}}) + "\n")
 host.stdin.flush()
-host_key = json.loads(host.stdout.readline())["key"]
+host_line = json.loads(host.stdout.readline())
+if "displays" in host_line:  # serve reports its displays before its key
+    print("host displays:", host_line["displays"], "current:", host_line.get("current"), file=sys.stderr)
+    host_line = json.loads(host.stdout.readline())
+host_key = host_line["key"]
 
 # The host's candidates (all of them, or what came within 3 s) go in the answer.
 candidates, deadline = [], time.time() + 3

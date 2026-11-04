@@ -1487,6 +1487,8 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
                 # Always, unless the job reused a pass (JobsReuseAPassOnTheSameInputs) and wrote none, or
                 # the fast tier only reports its build-fleet client's verdict (GatewayRunsOnlyTheFleetClient).
                 guard = f"(always()) && {REUSE_GUARD}"
+                if name == "fast-tier-cargo":
+                    guard += " && steps.planner-reuse.outputs.hit != 'true'"
                 if name == "fast-tier":
                     guard = f"env.CMUX_FAST_TIER_FLEET != 'report' && ({guard})"
                 self.assertEqual(upload.get("if"), f"${{{{ {guard} }}}}")
@@ -1674,6 +1676,34 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
                 self.assertIs(lookup.get("continue-on-error"), True)
                 # No actions/cache store: a cache entry of one pull request is unreadable from the others.
                 self.assertFalse([s for s in steps if JOB_PASS_DIR in json.dumps(s)])
+
+    def test_cargo_planner_reuse_requires_the_promoted_mode_and_trusted_push(self):
+        steps = self.steps("fast-tier-cargo")
+        evidence = steps[index_of(steps, lambda s: s.get("id") == "planner-evidence")]
+        self.assertIn("vars.CI_REBUILD_MIRROR) == 'enforce'", evidence["if"])
+        self.assertIn("verify-evidence", evidence["run"])
+        self.assertIn("--evidence-json", evidence["run"])
+        self.assertEqual(evidence["env"]["CI_REBUILD_MIRROR_EVIDENCE"], "${{ vars.CI_REBUILD_MIRROR_EVIDENCE }}")
+        self.assertIs(evidence.get("continue-on-error"), True)
+        lookup = steps[index_of(steps, lambda s: s.get("id") == "planner-reuse")]
+        self.assertIn("vars.CI_REBUILD_MIRROR) == 'enforce'", lookup["if"])
+        self.assertIn("steps.planner-evidence.outputs.eligible == 'true'", lookup["if"])
+        self.assertIn("steps.reuse-key.outputs.candidate_key != ''", lookup["if"])
+        self.assertIn("--trusted-branch feat-cmux-next", lookup["run"])
+        self.assertIn("--trusted-event push", lookup["run"])
+        self.assertIn("--trusted-workflow .github/workflows/cmux-next.yml", lookup["run"])
+        self.assertIn("\n", lookup["run"], "the planner command must stay a YAML block scalar for shell continuations")
+        argv = shlex.split(lookup["run"])
+        self.assertEqual(argv[argv.index("--trusted-workflow") + 1], ".github/workflows/cmux-next.yml")
+        self.assertIn("steps.reuse-key.outputs.candidate_key", lookup["env"]["KEY"])
+        self.assertEqual(lookup.get("env", {}).get("GH_TOKEN"), "${{ github.token }}")
+        self.assertIs(lookup.get("continue-on-error"), True)
+        trusted = steps[index_of(steps, lambda s: s.get("name") == "Reuse the trusted planner pass")]
+        self.assertIn("planner-reuse.outputs.hit", trusted["if"])
+        for step in steps:
+            text = json.dumps(step)
+            if any(marker in text for marker in ("fast-tier.py", "rust-cache", "ghostty-zig-packages")):
+                self.assertIn("steps.planner-reuse.outputs.hit != 'true'", text, step.get("name"))
 
     def test_the_lookup_reads_the_artifact_list(self):
         for job in self.JOBS:

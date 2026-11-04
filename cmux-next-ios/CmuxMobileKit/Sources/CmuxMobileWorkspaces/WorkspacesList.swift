@@ -52,9 +52,13 @@ public struct WorkspacesList: View {
     @State private var closing: Workspace?
     /// Close Other / Above / Below: what was chosen, on which workspace, and what it closes.
     @State private var bulkClosing: BulkClose?
-    /// Set Icon… › Emoji…: the workspace and the typed emoji.
-    @State private var iconEmoji: Workspace?
-    @State private var emojiText = ""
+    /// Set Icon…: the workspace whose icon picker is open.
+    @State private var iconPicking: Workspace?
+    /// New Workspace Group…: the Mac it goes on (one name field with the other group names).
+    @State private var newGroupOnMac: String?
+    /// Group by None / Group by Folder (this iPhone's view of the list).
+    @AppStorage(WorkspaceListGrouping.defaultsKey) private var groupingRaw = WorkspaceListGrouping.none.rawValue
+    var grouping: WorkspaceListGrouping { WorkspaceListGrouping(rawValue: groupingRaw) ?? .none }
     /// Move Workspace to New Group: the workspace; Rename Group… and Delete
     /// Group: the group. One name field for both.
     @State private var newGroupFor: Workspace?
@@ -68,6 +72,8 @@ public struct WorkspacesList: View {
     /// Scrolls the UIKit list and reads its visible area (unfolding scrolls
     /// when the first new row would open below it).
     @State private var listControl = WorkspacesListControl()
+    /// Settings → Compact Workspace List.
+    @AppStorage(CmuxMobilePreferences.Key.compactWorkspaceList) private var compactList = false
     /// Each row's frame in the list (read on demand, never drawn from).
     @State var rowFrames = RowFrames()
     /// The inbox, built once per change of what it reads.
@@ -75,6 +81,10 @@ public struct WorkspacesList: View {
     /// The Macs' names and Filter rows, memoized (verify/perf-latency.md).
     @State private var macText = MacFilterMemo()
     @State private var closingFrame: CGRect = .zero
+    /// The reveal request this list already answered (one back from the workspace's page).
+    @State private var revealedRequest: Int?
+    /// The list is on screen (not under a pushed workspace page): a reveal waits for it.
+    @State private var isShown = false
 
     public init(store: AppStore, creator: WorkspaceCreator, accountEmail: String? = nil,
                 reconnect: ((String) -> Void)? = nil, linking: MacLinking? = nil,
@@ -175,14 +185,8 @@ public struct WorkspacesList: View {
             } message: { ws in
                 Text(unavailableMessage(ws))
             }
-            .alert("Set Icon", isPresented: isPresented($iconEmoji), presenting: iconEmoji) { ws in
-                TextField("Emoji", text: $emojiText)
-                Button("Cancel", role: .cancel) {}
-                Button("Set") { if let emoji = WorkspaceIcon.emoji(emojiText) { creator.setIcon(ws, emoji) } }
-                    .disabled(WorkspaceIcon.emoji(emojiText) == nil)
-                    .keyboardShortcut(.defaultAction)
-            } message: { _ in
-                Text("One emoji.")
+            .sheet(item: $iconPicking) { ws in
+                WorkspaceIconPicker(workspace: ws) { icon in creator.setIcon(ws, icon) }
             }
             .alert("Rename Workspace", isPresented: isPresented($renaming), presenting: renaming) { ws in
                 TextField("Name", text: $renameText)
@@ -210,6 +214,17 @@ public struct WorkspacesList: View {
                     withAnimation(theme.motion.smooth.animation) { creator.moveToNewGroup(ws, name: groupNameText) }
                 }
                     .keyboardShortcut(.defaultAction)
+            }
+            .alert("New Workspace Group", isPresented: isPresented($newGroupOnMac), presenting: newGroupOnMac) { (macID: String) in
+                TextField(MacWorkspaceGroup.newGroupName, text: $groupNameText)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .accessibilityIdentifier("workspaces.newGroup.name")
+                Button("Cancel", role: .cancel) {}
+                Button("Create") { creator.newGroup(on: macID, name: groupNameText) }
+                    .keyboardShortcut(.defaultAction)
+            } message: { (macID: String) in
+                Text("An empty group on \(mac(macID).map(displayName) ?? "the Mac"). Add workspaces with New Workspace in Group or Move Workspace to Group.")
             }
             .alert("Rename Group", isPresented: isPresented($renamingGroup), presenting: renamingGroup) { (target: GroupTarget) in
                 TextField("Name", text: $groupNameText)
@@ -283,8 +298,8 @@ public struct WorkspacesList: View {
 
     /// Creates a workspace and pushes it at once; the row is optimistic
     /// until the Mac confirms (ShellModel handles a refusal).
-    func create(_ start: NewWorkspaceStart, directory: String?, on macID: String?) {
-        guard let workspace = creator.create(start: start, directory: directory, macID: macID) else {
+    func create(_ start: NewWorkspaceStart, directory: String?, on macID: String?, placement: NewWorkspacePlacement? = nil) {
+        guard let workspace = creator.create(start: start, directory: directory, macID: macID, placement: placement) else {
             theme.haptics.warning()
             return
         }
@@ -363,6 +378,17 @@ public struct WorkspacesList: View {
             .onChange(of: liveRowMacs(inbox)) { old, new in
                 if !new.subtracting(old).isEmpty { ConnectTimeline.shared.mark("workspace_row_live") }
             }
+            // Reveal Workspace in List (a workspace's page menu): once the list shows again, its row
+            // scrolls into view and flashes.
+            .onChange(of: store.revealRequest) { _, request in
+                guard let request, isShown else { return }
+                reveal(request.workspaceID)
+            }
+            .onAppear {
+                isShown = true
+                if let request = store.revealRequest, request.id != revealedRequest { reveal(request.workspaceID) }
+            }
+            .onDisappear { isShown = false }
     }
 
     /// Sections and items for the collection, in the SwiftUI list's order:
@@ -395,14 +421,26 @@ public struct WorkspacesList: View {
                 // The Mac's sidebar order when the phone knows it, else newest first.
                 entries.append(("title.recent", .title(inbox.isMacOrder ? "Workspaces" : "Recent")))
             }
-            for section in inbox.recentSections {
-                if let group = section.group {
+            for section in WorkspaceListGrouping.arrange(inbox.recentSections, by: grouping) {
+                if let bucket = section.folder {
+                    entries.append(("folder.\(section.macID).\(bucket)", .folder(WorkspaceFolderHeaderModel(folder: bucket, count: section.workspaces.count))))
+                    entries += rows(section.workspaces)
+                } else if let group = section.group {
                     let canEdit = section.workspaces.first.map { !pending.contains($0.id) && rights[$0.macID]?.group == true } ?? false
                     entries.append(("group.\(section.id)", .group(WorkspaceGroupHeaderModel(group: group, macID: section.macID,
                                                                                               count: section.workspaces.count, canEdit: canEdit))))
                     if !group.isCollapsed { entries += rows(section.workspaces) }
                 } else {
                     entries += rows(section.workspaces)
+                }
+            }
+            // Groups the Mac lists with no workspace yet (New Workspace Group): an empty header each.
+            if inbox.isMacOrder {
+                for macID in Set(inbox.recentSections.map(\.macID)).sorted() where !macID.isEmpty {
+                    for group in creator.emptyGroups(on: macID) {
+                        entries.append(("group.empty.\(group.id)", .group(WorkspaceGroupHeaderModel(group: group, macID: macID, count: 0,
+                                                                                                      canEdit: rights[macID]?.group == true))))
+                    }
                 }
             }
             add("recent", entries)
@@ -449,6 +487,8 @@ public struct WorkspacesList: View {
             AnyView(asleepHeader)
         case let .group(header):
             AnyView(groupHeader(header))
+        case let .folder(header):
+            AnyView(FolderHeaderLabel(folder: header.folder, count: header.count))
         case let .fold(line):
             AnyView(foldLine(line.fold))
         case .loading:
@@ -508,7 +548,8 @@ public struct WorkspacesList: View {
         return WorkspaceRowModel(workspace: ws, status: status, macName: inbox.showsMacNames ? macName : nil,
                                  offlineMacName: status == .offline ? macName : nil, isStale: inbox.stale.contains(ws.id),
                                  tracksMacData: tracks, canManage: canManage, canArrange: canArrange,
-                                 canDuplicate: canManage && !ws.isHome, canMoveUp: moves.up, canMoveDown: moves.down)
+                                 canDuplicate: canManage && !ws.isHome, canMoveUp: moves.up, canMoveDown: moves.down,
+                                 compact: compactList)
     }
 
     /// A Mac workspace group's header, as its sidebar shows it: a tap folds or
@@ -517,7 +558,7 @@ public struct WorkspacesList: View {
     private func groupHeader(_ header: WorkspaceGroupHeaderModel) -> some View {
         let (group, canEdit) = (header.group, header.canEdit)
         return Button {
-            guard canEdit else { return }
+            guard canEdit, header.count > 0 else { return }
             theme.haptics.selection()
             withAnimation(theme.motion.smooth.animation) { creator.setGroupCollapsed(group, on: header.macID, !group.isCollapsed) }
         } label: {
@@ -546,6 +587,24 @@ public struct WorkspacesList: View {
     func startRenameGroup(_ group: MacWorkspaceGroup, macID: String) {
         groupNameText = group.name
         renamingGroup = GroupTarget(group: group, macID: macID)
+    }
+
+    /// Brings a workspace's row into the middle of the list and flashes it (the Mac's Reveal
+    /// Workspace in Sidebar). A row in a closed fold or behind the filter shows first.
+    func reveal(_ workspaceID: String) {
+        revealedRequest = store.revealRequest?.id
+        guard let ws = store.workspace(id: workspaceID) else { return }
+        if let macID = scope.macID, macID != ws.macID { select(.all) }
+        // Out of the search and out of a collapsed group, as the Mac opens the row's folds.
+        if !query.isEmpty { query = "" }
+        if let group = ws.group, group.isCollapsed { creator.setGroupCollapsed(group, on: ws.macID, false) }
+        // An offline Mac's rows sit in its fold: open it (`unfolded` is read only for folds).
+        unfolded.insert(ws.macID)
+        Task { @MainActor in
+            // The list applies a filter or fold change on the next turn; the row exists then.
+            await Task.yield()
+            listControl.reveal(WorkspacesListModel.rowID(ws.id))
+        }
     }
 
     /// Asks before closing, in a popover pointing at the row (Mail).
@@ -606,10 +665,19 @@ public struct WorkspacesList: View {
             }
     }
 
-    /// Set Icon… › Emoji…: asks for the emoji.
-    func startIconEmoji(_ ws: Workspace) {
-        emojiText = ""
-        iconEmoji = ws
+    /// Set Icon…: the symbol picker.
+    func startIconPicker(_ ws: Workspace) { iconPicking = ws }
+
+    /// New Workspace Group…: asks for the name.
+    func startNewEmptyGroup(on macID: String) {
+        groupNameText = ""
+        newGroupOnMac = macID
+    }
+
+    /// Group by None / Group by Folder.
+    func setGrouping(_ value: WorkspaceListGrouping) {
+        theme.haptics.selection()
+        withAnimation(theme.motion.smooth.animation) { groupingRaw = value.rawValue }
     }
 
     /// Move Workspace to New Group: asks for the name.
@@ -839,7 +907,9 @@ public struct WorkspacesList: View {
             showsFilter: macs.count > 1, entries: entries, scope: scope, filterValue: filterValue, target: target,
             showsMacPicker: scope == .all, sameNames: sameNames,
             recents: target.map { creator.recentDirectories(on: $0.id) } ?? [],
-            options: target.map { creator.options(on: $0.id) }, availableMacs: creator.availableMacs
+            options: target.map { creator.options(on: $0.id) }, availableMacs: creator.availableMacs,
+            grouping: grouping, canNewGroup: target.map { creator.canCreateGroup(on: $0.id) } ?? false,
+            agentDestinations: NewAgentChatDestination.all(creator)
         )
         return WorkspacesToolbar(model: model, host: self).equatable()
     }
@@ -871,6 +941,8 @@ struct WorkspaceRowModel: Equatable {
     var canDuplicate: Bool
     var canMoveUp: Bool
     var canMoveDown: Bool
+    /// Settings → Compact Workspace List: the name line only.
+    var compact = false
 }
 
 /// One Workspaces row and what it carries: the tap, the press fill, the
@@ -888,7 +960,8 @@ struct WorkspaceListRow: View, Equatable {
         Button {
             host.openWorkspace(ws, status: model.status)
         } label: {
-            WorkspaceRow(workspace: ws, status: model.status, macName: model.macName, offlineMacName: model.offlineMacName)
+            WorkspaceRow(workspace: ws, status: model.status, macName: model.macName, offlineMacName: model.offlineMacName,
+                         compact: model.compact)
         }
         // Not the List's cell highlight: it stuck on as a gray pill while a
         // swipe was under way. A press fill that ends when the touch moves.
@@ -941,6 +1014,12 @@ struct WorkspacesToolbar: View, Equatable {
         /// What New Workspace offers on the target Mac, and the Macs it can create on.
         var options: WorkspaceCreationOptions?
         var availableMacs: [MacDevice]
+        /// Group by None / Group by Folder.
+        var grouping: WorkspaceListGrouping
+        /// New Workspace Group… can make a group on the target Mac now.
+        var canNewGroup: Bool
+        /// New Agent Chat on…: each Mac that starts agent chats from a phone, with its folders.
+        var agentDestinations: [NewAgentChatDestination] = []
     }
 
     let model: Model
@@ -958,10 +1037,13 @@ struct WorkspacesToolbar: View, Equatable {
                 // any preference of the screen changes (each list update), and an
                 // equal item then skips its menu, its labels and their symbol lookups.
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    if model.showsFilter { WorkspacesFilterMenu(model: model, host: host).equatable() }
+                    WorkspacesFilterMenu(model: model, host: host).equatable()
                     NewWorkspaceButton(creator: host.creator, target: model.target, showsMacPicker: model.showsMacPicker,
                                        sameNames: model.sameNames, recents: model.recents, options: model.options,
-                                       macs: model.availableMacs) { start, directory in
+                                       macs: model.availableMacs, canNewGroup: model.canNewGroup,
+                                       newGroup: { if let id = model.target?.id { host.startNewEmptyGroup(on: id) } },
+                                       agentDestinations: model.agentDestinations,
+                                       createOn: { start, directory, macID in host.create(start, directory: directory, on: macID) }) { start, directory in
                         host.create(start, directory: directory, on: model.target?.id)
                     }
                     .equatable()
@@ -978,10 +1060,38 @@ struct WorkspacesFilterMenu: View, Equatable {
 
     nonisolated static func == (a: Self, b: Self) -> Bool {
         a.model.entries == b.model.entries && a.model.scope == b.model.scope && a.model.filterValue == b.model.filterValue
+            && a.model.showsFilter == b.model.showsFilter && a.model.grouping == b.model.grouping
     }
 
     var body: some View {
         Menu {
+            // The Mac sidebar's Group ▸ Group by None / Group by Folder, for this list.
+            Section("Group") {
+                ForEach(WorkspaceListGrouping.allCases, id: \.self) { value in
+                    Toggle(isOn: Binding(get: { model.grouping == value }, set: { if $0 { host.setGrouping(value) } })) {
+                        Label(value.title, systemImage: value.systemImage)
+                    }
+                    .accessibilityIdentifier("workspaces.groupBy.\(value.rawValue)")
+                }
+            }
+            if model.showsFilter { macToggles }
+        } label: {
+            if model.showsFilter {
+                Label("Filter", systemImage: model.scope == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
+            } else {
+                Label("View Options", systemImage: model.grouping == .folder ? "folder.circle" : "line.3.horizontal.decrease")
+            }
+        }
+        // `workspaces.filter` only when it filters Macs (the rigs read it as the Mac filter).
+        .accessibilityIdentifier(model.showsFilter ? "workspaces.filter" : "workspaces.viewOptions")
+        // The chosen Mac and its presence and link line ("Online · Connected
+        // over WebRTC"), so VoiceOver (and the rig's link reader) hears the
+        // link without opening the menu.
+        .accessibilityValue(model.showsFilter ? model.filterValue : model.grouping.title)
+    }
+
+    @ViewBuilder private var macToggles: some View {
+        Section {
             // Toggles, not an inline Picker: a Picker drops each Mac's
             // presence subtitle. The chosen row shows the checkmark.
             Toggle(isOn: host.chosen(.all)) {
@@ -999,14 +1109,7 @@ struct WorkspacesFilterMenu: View, Equatable {
                 }
                 .accessibilityIdentifier("workspaces.filter.\(mac.id)")
             }
-        } label: {
-            Label("Filter", systemImage: model.scope == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
         }
-        .accessibilityIdentifier("workspaces.filter")
-        // The chosen Mac and its presence and link line ("Online · Connected
-        // over WebRTC"), so VoiceOver (and the rig's link reader) hears the
-        // link without opening the menu.
-        .accessibilityValue(model.filterValue)
     }
 }
 
@@ -1135,6 +1238,36 @@ struct GroupHeaderLabel: View {
     static func titleLeading(_ size: DynamicTypeSize) -> CGFloat { CmuxMobileListColumn.plain(size).text }
 }
 
+/// Group by Folder's header: the folder's name over its rows, at the rows' text column.
+struct FolderHeaderLabel: View {
+    let folder: String
+    let count: Int
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Image(systemName: "folder")
+                .font(theme.type.meta)
+                .foregroundStyle(theme.colors.label2)
+                .frame(width: GroupHeaderLabel.titleLeading(typeSize))
+            Text(WorkspaceListGrouping.title(folder))
+                .font(theme.type.meta.weight(.semibold))
+                .foregroundStyle(theme.colors.label)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            Text(String(count))
+                .font(theme.type.meta)
+                .foregroundStyle(theme.colors.label2)
+        }
+        .padding(.top, 6)
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityLabel("Folder \(WorkspaceListGrouping.title(folder))")
+        .accessibilityValue(count == 1 ? "1 workspace" : "\(count) workspaces")
+        .accessibilityIdentifier("workspace.folder.\(folder.isEmpty ? "none" : folder)")
+    }
+}
+
 /// A Mac workspace group the person is renaming or deleting.
 struct GroupTarget: Identifiable {
     var group: MacWorkspaceGroup
@@ -1219,6 +1352,8 @@ struct WorkspaceRow: View {
     var macName: String?
     /// The offline Mac, for the VoiceOver hint.
     var offlineMacName: String?
+    /// The Mac's Compact Workspace List: one line (the status line goes; VoiceOver still reads it).
+    var compact = false
     @Environment(\.dynamicTypeSize) private var typeSize
     /// The status gutter; the title, separators and section titles start after it.
     private var gutter: CGFloat { Self.textLeading(typeSize) }
@@ -1253,12 +1388,14 @@ struct WorkspaceRow: View {
                     Spacer(minLength: 8)
                     time
                 }
-                StatusLine(workspace: workspace, status: status, macName: macName)
-                    .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
-                    .opacity(status == .offline ? 0.6 : 1)
+                if !compact {
+                    StatusLine(workspace: workspace, status: status, macName: macName)
+                        .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
+                        .opacity(status == .offline ? 0.6 : 1)
+                }
             }
         }
-        .frame(minHeight: 40, alignment: .center)
+        .frame(minHeight: compact ? 32 : 40, alignment: .center)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(.rect)
         .accessibilityElement(children: .ignore)
@@ -1572,6 +1709,24 @@ struct ConnectMacEmptyState: View {
 /// the Mac's default first tab: a terminal). Holding it opens a menu of the
 /// other ways to start, as Safari's new-tab button and Notes' compose button
 /// do. Only options the Mac's backend supports are listed.
+/// One machine New Agent Chat on… can start on, and the places there (its workspace folders).
+/// This Mac's acpmux only: a peer or Cloud machine of that Mac is not offered from a phone.
+struct NewAgentChatDestination: Equatable, Identifiable {
+    var mac: MacDevice
+    var folders: [String]
+    var id: String { mac.id }
+
+    /// Every Mac the phone can create on whose agents a phone may start, with at least one folder.
+    @MainActor
+    static func all(_ creator: WorkspaceCreator) -> [NewAgentChatDestination] {
+        creator.availableMacs.compactMap { mac in
+            guard creator.options(on: mac.id).agents.contains("") else { return nil }
+            let folders = creator.recentDirectories(on: mac.id)
+            return folders.isEmpty ? nil : NewAgentChatDestination(mac: mac, folders: folders)
+        }
+    }
+}
+
 struct NewWorkspaceButton: View, Equatable {
     let creator: WorkspaceCreator
     /// The Mac a tap creates on: the filtered Mac, else the preferred one.
@@ -1587,12 +1742,20 @@ struct NewWorkspaceButton: View, Equatable {
     /// What the backend offers on `target`, and the Macs it can create on (from the list).
     let options: WorkspaceCreationOptions?
     let macs: [MacDevice]
+    /// New Workspace Group… (the Mac's File menu row): an empty group on the target Mac.
+    let canNewGroup: Bool
+    let newGroup: () -> Void
+    /// New Agent Chat on…: the Macs it can start on, each with its folders (from the list).
+    var agentDestinations: [NewAgentChatDestination] = []
+    /// Creates on a named Mac (New Agent Chat on…).
+    var createOn: (NewWorkspaceStart, String?, String) -> Void = { _, _, _ in }
     let create: (NewWorkspaceStart, String?) -> Void
 
     /// Its values, not `creator` or `create` (actions only).
     nonisolated static func == (a: Self, b: Self) -> Bool {
         a.target == b.target && a.showsMacPicker == b.showsMacPicker && a.sameNames == b.sameNames && a.recents == b.recents
-            && a.options == b.options && a.macs == b.macs
+            && a.options == b.options && a.macs == b.macs && a.canNewGroup == b.canNewGroup
+            && a.agentDestinations == b.agentDestinations
     }
     /// Open Folder…: the typed path, and why the last one was refused.
     @State private var openingFolder = false
@@ -1638,6 +1801,10 @@ struct NewWorkspaceButton: View, Equatable {
             } else {
                 Section { starts(options) }
             }
+            // Its own section near the top: it lists every Mac, not only the one named above.
+            if !agentDestinations.isEmpty {
+                Section { newAgentChatOn }
+            }
             if !recents.isEmpty {
                 Section("Recent Directories") {
                     ForEach(recents, id: \.self) { directory in
@@ -1673,6 +1840,12 @@ struct NewWorkspaceButton: View, Equatable {
                     }
                 }
             }
+            if canNewGroup {
+                Section {
+                    Button("New Workspace Group…", systemImage: "folder.badge.plus") { newGroup() }
+                        .accessibilityIdentifier("workspaces.newGroup")
+                }
+            }
             if options.directories {
                 Section {
                     // The Mac's Open Folder… (⌘O): a typed path, since a phone browses no Mac folders.
@@ -1703,6 +1876,39 @@ struct NewWorkspaceButton: View, Equatable {
         }
         if options.browser {
             Button("New Browser Workspace", systemImage: "globe") { create(.browser, nil) }
+        }
+    }
+
+    /// The Mac's New Agent Chat on…: pick the machine, then the place (one of its workspace
+    /// folders); acpmux on that Mac starts the chat there (`session/new {cwd}`). Beside New
+    /// Workspace, where the menu opens, not under its folder lists.
+    @ViewBuilder private var newAgentChatOn: some View {
+        if !agentDestinations.isEmpty {
+            Menu {
+                ForEach(agentDestinations) { destination in
+                    Menu {
+                        ForEach(destination.folders, id: \.self) { directory in
+                            Button {
+                                createOn(.agent(""), directory, destination.mac.id)
+                            } label: {
+                                Label {
+                                    Text(Self.folderName(directory))
+                                    Text(directory)
+                                } icon: {
+                                    Image(systemName: "folder")
+                                }
+                            }
+                            .accessibilityIdentifier("workspaces.newAgentChatOn.\(destination.mac.id).\(Self.folderName(directory))")
+                        }
+                    } label: {
+                        Label(displayName(destination.mac), systemImage: "desktopcomputer")
+                    }
+                    .accessibilityIdentifier("workspaces.newAgentChatOn.\(destination.mac.id)")
+                }
+            } label: {
+                Label("New Agent Chat on…", systemImage: "bubble.left.and.bubble.right")
+            }
+            .accessibilityIdentifier("workspaces.newAgentChatOn")
         }
     }
 
