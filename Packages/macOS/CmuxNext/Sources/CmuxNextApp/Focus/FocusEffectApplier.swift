@@ -82,7 +82,7 @@ final class FocusEffectApplier: FocusEffectApplying {
             case .publishContext(let context):
                 if !effects.contains(where: { if case .moveResponder = $0 { true } else { false } }) { publish(context) }
             case .browserFocusMode(let tab, let active):
-                controller.services.cache.existingBrowser(tab)?.chrome.showsFocusModeIndicator = active
+                controller.services.cache.existingBrowser(tab)?.state.showsFocusModeIndicator = active
             }
         }
     }
@@ -117,15 +117,15 @@ final class FocusEffectApplier: FocusEffectApplying {
             guard case .browser(let entry)? = presented(pane: pane, tab: tab) else { return }
             blurChildWindowPage()
             // Not a bar leaving the window (its pane mid-move): an edit begun there ends at once (cx-p0fz).
-            let bar = entry.chrome.addressBar
+            guard let bar = entry.chrome?.addressBar else { return }
             if bar.window === window, !bar.isHiddenOrHasHiddenAncestor, !responder(of: window, isInside: bar) {
                 if controller.focus.isReturningToOmnibar { bar.restoreFocus() } else { bar.focus() }
             }
         case .findBar(let pane, let tab):
             guard case .browser(let entry)? = presented(pane: pane, tab: tab) else { return }
             blurChildWindowPage()
-            if entry.chrome.region(of: window.firstResponder as? NSView ?? window.contentView ?? NSView()) != .findBar {
-                entry.chrome.perform(.findInPage)
+            if let chrome = entry.chrome, chrome.region(of: window.firstResponder as? NSView ?? window.contentView ?? NSView()) != .findBar {
+                chrome.perform(.findInPage)
             }
         case .agentPage(let pane, let tab):
             guard case .agent(let view)? = presented(pane: pane, tab: tab) else { return }

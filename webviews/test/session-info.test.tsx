@@ -662,9 +662,8 @@ test("pushing, the column moves left and keeps its width at every pushing pane w
   // Content under where it would float, and Settings Push always, take the whole room.
   expect(pushedRoom(1200, 320, undefined, 400)).toBe(320 + FLOAT_MARGIN);
   expect(pushedRoom(1200, 320, undefined, 0, true)).toBe(320 + FLOAT_MARGIN);
-  // A room off the 8s rounds up to the next 8 (the column's inset is on the 4 grid), so the column
-  // keeps its width to the pixel.
-  expect(pushedRoom(1200, 321, undefined, 0, true)).toBe(336);
+  // A user-dragged panel keeps its exact width plus the 8px inset, including off-grid widths.
+  expect(pushedRoom(1200, 321, undefined, 0, true)).toBe(329);
   // Pushed, it narrows to keep a readable chat and its 8px margin, down to PUSH_PANEL_MIN.
   expect(pushedWidth(1200, 320)).toBe(320);
   expect(pushedWidth(720, 320)).toBe(272);
