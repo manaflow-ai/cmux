@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "description": "Upstream license texts for Ghostty Zig packages whose fetched tree has no license file. scripts/collect-ghostty-licenses.py ships these files from the repository, checks each SHA-256, and never downloads them. Each upstream URL is immutable (a commit, a content-addressed archive, or an archived snapshot). To change a file: copy it byte for byte from its upstream, update its sha256 here, update PINNED_MANIFEST_SHA256 in the collector, and record the review in NOTICES-REVIEW-LEDGER.md. \"vendored\" reviews every Ghostty pkg/<name> and vendor/<name> directory that has no license file of its own (ghostty_vendored.py): Reviewed in Ghostty trees aea262f8, 324c0273, b1a49b60 (manaflow-ai/ghostty) and 68ac618d, bbb7320b, a6b9048e (manaflow-ai/ghostty-next). Each file is listed with the sha256 values reviewed.",
+  "description": "Upstream license texts for Ghostty Zig packages whose fetched tree has no license file. An entry with no files (z2d@0.13.2) reviews a package that ships its own MPL-2.0 license files only for its generated source offer; a package with an MPL-2.0 license file and no such entry stops the collection. scripts/collect-ghostty-licenses.py ships these files from the repository, checks each SHA-256, and never downloads them. Each upstream URL is immutable (a commit, a content-addressed archive, or an archived snapshot). To change a file: copy it byte for byte from its upstream, update its sha256 here, update PINNED_MANIFEST_SHA256 in the collector, and record the review in NOTICES-REVIEW-LEDGER.md. \"vendored\" reviews every Ghostty pkg/<name> and vendor/<name> directory that has no license file of its own (ghostty_vendored.py): Reviewed in Ghostty trees aea262f8, 324c0273, b1a49b60 (manaflow-ai/ghostty) and 68ac618d, bbb7320b, a6b9048e (manaflow-ai/ghostty-next). Each file is listed with the sha256 values reviewed.",
   "packages": {
     "dear-bindings": {
       "files": [
@@ -93,6 +93,19 @@
         "name": "z2d 0.12.1",
         "upstream": "https://github.com/vancluever/z2d/tree/7dbae85c81784dba9988320bf9543ed9a81350c8",
         "upstream_tag": "v0.12.1"
+      }
+    },
+    "z2d@0.13.2": {
+      "files": [],
+      "note": "vancluever/z2d tag v0.13.2 (commit 8787d71b), the version ghostty-next a6b9048e fetches (https://github.com/vancluever/z2d/archive/8787d71bac42d9aab00428ccb37a4fd453418761.tar.gz). Its build.zig.zon .paths keeps LICENSE and COPYING, so the license-name scan ships them from the fetched package (LICENSE byte-equal to 0.12.1's, c3c0b845...; COPYING byte-equal to 0.11.0's and 0.12.1's, d8d2562a...). No text is pinned; this entry only reviews the package for its MPL-2.0 source offer.",
+      "packages": [
+        "z2d-0.13.2-j5P_HkkVFAAtOSQPRTS7wbZLbYs7oETRn7nUKSUwDjM_"
+      ],
+      "source_offer": {
+        "license": "Mozilla Public License 2.0 (MPL-2.0)",
+        "name": "z2d 0.13.2",
+        "upstream": "https://github.com/vancluever/z2d/tree/8787d71bac42d9aab00428ccb37a4fd453418761",
+        "upstream_tag": "v0.13.2"
       }
     },
     "zig-gobject": {
