@@ -65,6 +65,8 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
   }
   const react = createRoot(root);
   const spans = kind === "updated" && client ? new SpanNotes(client, () => render(latest)) : null;
+  // Notes that never answer leave the card showing the host's items after a while.
+  if (spans) setTimeout(() => spans.settle(), SPAN_SETTLE_MS);
   let latest: UpdateHighlights | null = null;
   const render = (data: UpdateHighlights | null) => {
     latest = data;
@@ -85,14 +87,23 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
       </UiProvider>,
     );
     // The new rows exist after React's commit: size them from the next frame on.
-    requestAnimationFrame(observeCard);
+    requestAnimationFrame(() => {
+      observeCard();
+      report();
+    });
   };
   // The host sizes the popover or the card slot to the content; 0 while there is nothing.
   // A scrolling card (the popover) reports its whole content, not the part the page view shows.
   // A short popover (`.wn-pop-brief`, no change list) also reports its own width, so the host is as
   // wide as its lines (Leo 2026-11-03: "stretched out wasted space"); 0 fills the host's width.
+  // The Updated card reports its height once its words are final (the notes of the update's span
+  // loaded, or none will): the host lays the card out at the first height it hears, so a first
+  // report from the host's items, then the span's summary, moved the sidebar's list twice on a
+  // relaunch (Leo 2026-11-04: "the restarted after nightly update does too many layout shifts").
+  const settled = () => spans === null || spans.settled;
   let reported = "";
-  const sizer = new ResizeObserver(() => {
+  const report = () => {
+    if (!settled()) return;
     const card = root.querySelector<HTMLElement>(`[${CARD_SCROLL_ATTRIBUTE}]`);
     const height = Math.ceil(Math.max(root.getBoundingClientRect().height, card?.scrollHeight ?? 0));
     const width = card?.classList.contains("wn-pop-brief") ? Math.ceil(card.getBoundingClientRect().width) : 0;
@@ -100,7 +111,8 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
     if (key === reported) return;
     reported = key;
     call(SurfaceOps.size, { height, width });
-  });
+  };
+  const sizer = new ResizeObserver(report);
   sizer.observe(root);
   const observeCard = () => {
     const card = root.querySelector<HTMLElement>(`[${CARD_SCROLL_ATTRIBUTE}]`);
@@ -115,10 +127,15 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
 /** The notes of an update's span (after `from`, up to `to`), newest first, loaded once per span;
     undefined until every build in it has loaded or is unavailable, and when none loaded (an
     older host without `cmux.changelog.*` here): the card then reads the host's items. */
-class SpanNotes {
+/** How long the Updated card waits for its span's notes before it reports the host's items. */
+export const SPAN_SETTLE_MS = 1500;
+
+export class SpanNotes {
   private key = "";
   private store: ChangelogStore | null = null;
-  private settled: ReleaseNotes[] | undefined;
+  private loaded: ReleaseNotes[] | undefined;
+  /** The span's notes loaded, failed, came back empty or took too long: the card's words are final. */
+  settled = false;
 
   constructor(
     private readonly client: PageClient,
@@ -128,12 +145,19 @@ class SpanNotes {
   notes(span: UpdateSpan): ReleaseNotes[] | undefined {
     const key = `${span.from ?? ""}..${span.to}`;
     if (key !== this.key) this.load(key, span);
-    return this.settled;
+    return this.loaded;
+  }
+
+  /** The card's words are final now (the notes, or the host's items): it renders and reports. */
+  settle(): void {
+    if (this.settled) return;
+    this.settled = true;
+    this.onChange();
   }
 
   private load(key: string, span: UpdateSpan): void {
     this.key = key;
-    this.settled = undefined;
+    this.loaded = undefined;
     const store = new ChangelogStore(this.client);
     this.store = store;
     void store
@@ -143,9 +167,13 @@ class SpanNotes {
         if (this.store !== store) return;
         const snapshot = store.getSnapshot();
         const notes = snapshot.inSpan.flatMap((build) => snapshot.loaded[build] ?? []);
-        if (notes.length === 0) return;
-        this.settled = notes.sort((a, b) => compareVersions(b.shortVersion, a.shortVersion));
-        this.onChange();
+        if (notes.length > 0) this.loaded = notes.sort((a, b) => compareVersions(b.shortVersion, a.shortVersion));
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.store !== store) return;
+        if (this.settled) this.onChange();
+        else this.settle();
       });
   }
 }
