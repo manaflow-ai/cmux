@@ -10,7 +10,7 @@
 @MainActor
 public final class IdleSpare<Value> {
     private let queue: FrameBatchQueue
-    private let make: @MainActor () -> Value
+    private let make: @MainActor () -> Value?
     /// The value made ahead, if any.
     public private(set) var ready: Value?
     private var isMaking = false
@@ -20,8 +20,8 @@ public final class IdleSpare<Value> {
     /// - Parameters:
     ///   - owner: names the background queue in the wakeup ledger and the watchdog's records.
     ///   - work: the app's main-thread scheduler.
-    ///   - make: makes one value; runs as a background task, never in a key's turn.
-    public init(owner: String, on work: MainWorkScheduler, make: @escaping @MainActor () -> Value) {
+    ///   - make: makes one value (nil: its owner is gone); runs as a background task, never in a key's turn.
+    public init(owner: String, on work: MainWorkScheduler, make: @escaping @MainActor () -> Value?) {
         queue = FrameBatchQueue(owner: owner, budgeted: .background, on: work)
         self.make = make
     }

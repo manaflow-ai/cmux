@@ -28,7 +28,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private(set) lazy var contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
     private(set) var emptyView: EmptyWorkspaceView?
     /// The next stand-in pane's views (New Column, New Row, Cmd-D), made ahead out of every window while this workspace shows and its layout is still.
-    private(set) lazy var paneSpare = IdleSpare(owner: "PaneSpare", on: services.mainWork) { [unowned self] in PaneController.Spare(services: services) }
+    private(set) lazy var paneSpare = IdleSpare(owner: "PaneSpare", on: services.mainWork) { [weak self] in self.map { PaneController.Spare(services: $0.services) } }
     private var paneSpareMotion: LayoutOverlaySyncObservation?
     private(set) lazy var screenBar = ScreenBarController(content: self)
     /// The workspace theme: only this content area, under the window's
