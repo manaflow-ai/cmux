@@ -1,6 +1,8 @@
 import AppKit
+import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
