@@ -79,8 +79,18 @@ pub(super) async fn reclaim_from_dev(lock: &Path, socket: &Path, home: &Path) {
     if !super::exe_path::current_reclaims_home(&exe) {
         return;
     }
+    // A holder serving another socket cannot be reached here; waiting would only delay this start.
+    if super::lock::holder_socket(lock).is_some_and(|held| !super::same_path(&held, socket)) {
+        return;
+    }
     tracing::warn!(pid, exe = %exe.display(), "a DEV build's daemon holds this home; taking it back");
-    let ask = || ask_holder(socket, home, pid);
+    let ask = || async move {
+        // Gone already (it stopped by itself, or crashed): the lock is free or another's.
+        if super::lock::live_holder_pid(lock) != Some(pid) {
+            return Ask::Stop;
+        }
+        ask_holder(socket, home, pid).await
+    };
     let release = super::wait_for_lock_release(lock.to_owned());
     if !drive_reclaim(ask, release, RECLAIM_WAIT, super::HANDOVER_RETRY).await {
         tracing::warn!(pid, "the DEV build's daemon did not hand this home over");
@@ -130,9 +140,11 @@ async fn ask_holder(socket: &Path, home: &Path, pid: u32) -> Ask {
     {
         return Ask::Stop;
     }
-    // A refusal, or a holder that closed the connection as it stopped: nothing more to ask.
+    // A closed connection is a holder already stopping, as for `take_over_holder`; any other
+    // error is a refusal, and there is nothing more to ask.
     match client.request(crate::rpc::method::MUX_SHUTDOWN, json!({})).await {
         Ok(_) => Ask::Accepted,
+        Err(_) if client.is_closed() => Ask::Accepted,
         Err(_) => Ask::Stop,
     }
 }
