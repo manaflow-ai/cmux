@@ -235,6 +235,7 @@ mod events;
 pub(crate) mod layout_invariants;
 mod layout_ratio_error;
 mod layout_resize;
+mod layout_sizes;
 mod layout_types;
 mod layout_undo;
 mod lifecycle;
@@ -356,6 +357,7 @@ pub use dock_columns::{
 pub(crate) use dock_columns::{ensure_permanent_columns_kept, permanent_columns};
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use layout_ratio_error::LayoutRatioError;
+pub use layout_sizes::{LayoutSizeValue, LayoutSizesError};
 pub(crate) use pinned_columns::{
     LONE_DOCK_NEIGHBOR_WIDTH, ensure_pane_takes_tabs, ensure_pinned_columns_kept,
     ensure_pinned_tabs_not_closed, lone_pinned_dock_taking_no_tabs, pane_in_lone_pinned_column,
