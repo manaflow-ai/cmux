@@ -775,11 +775,14 @@ jobs:
           URL: ${{ vars.CMUX_VM_PRODUCTION_URL }}
           HAS_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY != '' }}
         run: |
-          if [ "$ENABLED" = 1 ] && [ -n "$URL" ] && [ "$HAS_KEY" = true ]; then
+          # The product smoke needs no key (OIDC); only the dev/test service leg needs CMUX_VM_SMOKE_SERVICE_KEY.
+          echo "service_key=$HAS_KEY" >> "$GITHUB_OUTPUT"
+          [ "$HAS_KEY" = true ] || echo "::notice::No CMUX_VM_SMOKE_SERVICE_KEY in cmux-vm-production: the dev/test service leg is skipped."
+          if [ "$ENABLED" = 1 ] && [ -n "$URL" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "::error::Production smoke cannot run: needs CMUX_VM_DEPLOY_ENABLED=1, CMUX_VM_PRODUCTION_URL and CMUX_VM_SMOKE_SERVICE_KEY in cmux-vm-production."
+            echo "::error::Production smoke cannot run: needs CMUX_VM_DEPLOY_ENABLED=1 and CMUX_VM_PRODUCTION_URL in cmux-vm-production."
             exit 1
           fi
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -815,7 +818,7 @@ jobs:
       # Production has no tenant smoke key: the service leg alone, on a synthetic dev/test team
       # (DEV_TEST_TENANT_IDS), create, exec, pause and delete by exact id.
       - name: Smoke the production Worker (service key, dev/test team)
-        if: steps.gate.outputs.enabled == 'true'
+        if: steps.gate.outputs.enabled == 'true' && steps.gate.outputs.service_key == 'true'
         continue-on-error: true
         env:
           CMUX_VM_SMOKE_URL: ${{ vars.CMUX_VM_PRODUCTION_URL }}

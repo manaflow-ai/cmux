@@ -125,10 +125,11 @@ try {
     { displayName: name, labels: { role: "cloud", cmux_next_team: "cmux-vm-product-smoke", purpose: "smoke" }, image },
     { "idempotency-key": `smoke-product-${runId}` },
   );
-  expectStatus("product create (never-pause, approved image)", created.status, 201, created.body);
+  // Record any VM id before judging the status, so the cleanup below deletes a VM a failed create still made.
   const id = field(created.body, "id");
-  if (typeof id !== "string" || !/^vm_[0-9a-z]{26}$/.test(id)) throw new Error(`create returned no VM id: ${JSON.stringify(created.body)}`);
-  vmId = id;
+  if (typeof id === "string" && /^vm_[0-9a-z]{26}$/.test(id)) vmId = id;
+  expectStatus("product create (never-pause, approved image)", created.status, 201, created.body);
+  if (vmId === null) throw new Error(`create returned no VM id: ${JSON.stringify(created.body)}`);
   console.log(`    created ${vmId} in ${Date.now() - started} ms`);
   const idle = field(created.body, "idleTimeoutSeconds");
   if (idle !== null && idle !== undefined && !(typeof idle === "number" && idle < 0)) throw new Error(`a product create got idle timeout ${String(idle)}, not never-pause`);
