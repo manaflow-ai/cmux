@@ -149,10 +149,11 @@ fn a_turn_moves_between_model_wait_and_tool_and_each_change_goes() {
         json!({"phase": "model-wait", "since": 1_000, "processes": 0, "attached": false})
     );
 
-    // A call named early streams its input: still the model.
-    assert!(!t.tool_event("a", "tool_call", &call("t1", "pending")));
+    // A call named early streams its input: a tool is about to run (the early wake).
+    assert!(t.tool_event("a", "tool_call", &call("t1", "pending")));
     t.observe(&[turn("a")], 2_000);
-    assert!(t.line(1, false, 2_000).is_none(), "nothing changed");
+    assert_eq!(phases(&t.line(1, false, 2_000).unwrap()), [("tool-starting".to_owned(), 2_000)]);
+    assert!(!t.tool_event("a", "tool_call_update", &call("t1", "pending")), "an update alone");
 
     // The whole call: the tool runs in the guest.
     assert!(t.tool_event("a", "tool_call_update", &call("t1", "in_progress")));
@@ -226,4 +227,54 @@ fn unsent_phases_go_again() {
     assert!(t.line(1, false, 1).is_some());
     t.unsent();
     assert!(t.line(1, false, 1).is_some());
+}
+
+/// cmux#34298 (early wake): a call named as its block starts makes its session `tool-starting`
+/// at once, before its input is in; a call that never runs (the turn ended while its input
+/// streamed) leaves it.
+#[test]
+fn a_named_call_is_tool_starting_until_it_runs_or_its_turn_ends() {
+    let mut t = Tracker::default();
+    t.observe(&[turn("a")], 1);
+    assert!(t.line(1, false, 1).is_some());
+    let named = json!({"params": {"update": {"sessionUpdate": "tool_call", "toolCallId": "t1"}}});
+    assert!(t.tool_event("a", "tool_call", &named), "no status is ACP's pending");
+    t.observe(&[turn("a")], 2);
+    assert_eq!(phases(&t.line(1, false, 2).unwrap()), [("tool-starting".to_owned(), 2)]);
+    assert!(t.turn_ended("a"));
+    t.observe(&[turn("a")], 3);
+    assert_eq!(phases(&t.line(1, false, 3).unwrap()), [("model-wait".to_owned(), 3)]);
+    // A named call that fails before it runs leaves it as well.
+    assert!(t.tool_event("a", "tool_call", &call("t2", "pending")));
+    assert!(t.tool_event("a", "tool_call_update", &call("t2", "failed")));
+}
+
+/// A lagged event stream may have dropped a tool's start: every session then at work reports
+/// `unknown` (awake to the Cloud) until its turn ends or it is no longer at work; one that
+/// starts at work later is read as usual.
+#[test]
+fn after_a_lag_a_session_at_work_is_unknown_until_its_turn_ends() {
+    let mut t = Tracker::default();
+    t.observe(&[turn("a")], 1);
+    assert!(t.line(1, false, 1).is_some());
+    t.lagged();
+    t.observe(&[turn("a")], 2);
+    assert_eq!(phases(&t.line(1, true, 2).unwrap()), [("unknown".to_owned(), 2)]);
+    t.observe(&[turn("a"), turn("b")], 3);
+    assert_eq!(
+        phases(&t.line(2, false, 3).unwrap()),
+        [("unknown".to_owned(), 2), ("model-wait".to_owned(), 3)]
+    );
+    assert!(t.turn_ended("a"));
+    t.observe(&[turn("a"), turn("b")], 4);
+    assert_eq!(
+        phases(&t.line(2, false, 4).unwrap()),
+        [("model-wait".to_owned(), 4), ("model-wait".to_owned(), 3)]
+    );
+    // Leaving work clears it too.
+    t.lagged();
+    t.observe(&[turn("b")], 5);
+    t.observe(&[], 6);
+    t.observe(&[turn("b")], 7);
+    assert_eq!(phases(&t.line(1, false, 7).unwrap()), [("model-wait".to_owned(), 7)]);
 }

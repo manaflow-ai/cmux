@@ -9,6 +9,8 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     var text: String
     /// An agent reply's Markdown source; nil for a prompt (it is plain text already).
     var markdown: String?
+    /// A reply's date and time, already formatted in the pane's language.
+    var replyTime: String?
     /// The fork point of the message's turn (its summary's acpmux event); nil when acpmux does not
     /// serve forks or the turn has not ended.
     var forkSeq: Int?
@@ -26,10 +28,11 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     /// The code block, command, path or link under the pointer (webviews conversation/menuParts.ts).
     var part: AgentPaneMenuPart?
 
-    init(text: String, markdown: String? = nil, forkSeq: Int? = nil, sideChat: Bool = false, retryRowId: String? = nil,
+    init(text: String, markdown: String? = nil, replyTime: String? = nil, forkSeq: Int? = nil, sideChat: Bool = false, retryRowId: String? = nil,
          links: [URL] = [], opensImage: Bool = false, hasImage: Bool? = nil, part: AgentPaneMenuPart? = nil) {
         self.text = text
         self.markdown = markdown
+        self.replyTime = replyTime
         self.forkSeq = forkSeq
         self.sideChat = sideChat
         self.retryRowId = retryRowId
@@ -53,6 +56,7 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
         guard !text.isEmpty || hasImage || part != nil else { return nil }
         self.text = text
         markdown = (object["markdown"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        replyTime = (object["replyTime"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         forkSeq = (object["forkSeq"] as? NSNumber).map(\.intValue)
         sideChat = (object["sideChat"] as? NSNumber)?.boolValue ?? false
         retryRowId = (object["retryRowId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -287,7 +291,15 @@ enum AgentPaneContextMenu {
         }
         // Empty space (no message, no image, nothing to edit) gets the chat's own menu, its sections kept.
         let chat = target == nil && edits.isEmpty && image.isEmpty ? chatMenu.filter { $0.menu == nil } : []
-        add([image, part, copies, message, links, chat, inspectElement.map { [$0] } ?? inspect.map { [$0] } ?? []], to: menu)
+        let header: [NSMenuItem]
+        if target?.markdown != nil, let time = target?.replyTime {
+            let item = NSMenuItem(title: time, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            header = [item]
+        } else {
+            header = []
+        }
+        add([header, image, part, copies, message, links, chat, inspectElement.map { [$0] } ?? inspect.map { [$0] } ?? []], to: menu)
     }
 
     /// Adds the non-empty groups, split by separators.

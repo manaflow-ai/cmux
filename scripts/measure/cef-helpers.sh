@@ -25,8 +25,15 @@ out="$(mktemp -d)"
 if [ "${1:-}" = "--cef-manifest-from" ]; then
   manifest_ref="${2:?--cef-manifest-from needs a commit}"
   shift 2
-  git fetch --quiet --depth 1 origin "$manifest_ref"
-  git show "FETCH_HEAD:scripts/cmux-next/cef-manifest.json" > "$out/cef-manifest.json"
+  # A fleet warm checkout has no origin remote and a depth-1 fetch is a whole tree: a commit that
+  # is not here yet gives its manifest from the public repository (a pushed scratch branch tip).
+  case "$manifest_ref" in *[!0-9a-f]*) echo "cef-helpers: --cef-manifest-from takes a commit sha" >&2; exit 2;; esac
+  if git cat-file -e "${manifest_ref}^{commit}" 2>/dev/null; then
+    git show "${manifest_ref}:scripts/cmux-next/cef-manifest.json" > "$out/cef-manifest.json"
+  else
+    curl -fsSL --retry 3 --max-time 60 -o "$out/cef-manifest.json" \
+      "https://raw.githubusercontent.com/manaflow-ai/cmux/$manifest_ref/scripts/cmux-next/cef-manifest.json"
+  fi
   export CMUX_CEF_MANIFEST="$out/cef-manifest.json"
   echo "cef-helpers: CEF from $manifest_ref: $(grep -m1 '"version"' "$CMUX_CEF_MANIFEST")"
 fi

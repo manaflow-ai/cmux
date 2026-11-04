@@ -2892,7 +2892,7 @@ Params:
 
 Result: `{}`. The commit's `layout-changed` event carries `transaction`.
 
-Errors: a refused value answers with its single command's error and `error_code` (`layout-ratio-target-missing`, `layout-ratio-out-of-range`, `row-split-compat-readonly`, `viewport-width-out-of-range`, `viewport-column-not-found`), its message prefixed with `value <index>: `. A value on another screen than the first returns `error_code:"layout-sizes-other-screen"`; no value or more than 64 returns `error_code:"invalid-argument"`; a commit the store refuses returns `error_code:"layout-sizes-not-persisted"`. In every error case nothing changed.
+Errors: a refused value answers with its single command's error and `error_code` (`layout-ratio-target-missing`, `layout-ratio-out-of-range`, `row-split-compat-readonly`, `viewport-width-out-of-range`, `viewport-column-not-found`), its message prefixed with `value <index>: `. A value on another screen than the first returns `error_code:"layout-sizes-other-screen"`; no value or more than 64 returns `error_code:"invalid-argument"`; a value that is not exactly `{split, ratio}` or `{pane, width}` (both pairs, or another field) is refused as a malformed request; a commit the store refuses returns `error_code:"layout-sizes-not-persisted"`. In every error case nothing changed.
 
 Example:
 
@@ -10491,6 +10491,15 @@ or fewer decoded bytes, or bytes that are not deflate, are `params.invalid`
 and leave no file. A write stream there also takes `permissions`, as the
 line op does. Without these fields every write is as above, and a client
 sends them only to a server that advertises the capability.
+
+A server that also advertises `fs-write-nofollow-v1` takes `"no_follow":true`
+on an `fs.write` line (any mode, `append` included) or write stream: a
+symlink as any component of `path` below its root, the last included, is
+refused with `fs.symlink_in_path` and nothing is written. The check is made
+on the walk to the folder, again on the target when the write begins, and
+once more right before the rename. A copy that listed a folder can then
+write its files without an `fs.stat` of each one first: a symlink the
+machine put there since stops that file with this code.
 
 ## Guest browser opening
 

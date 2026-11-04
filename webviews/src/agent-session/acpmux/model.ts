@@ -3,6 +3,7 @@ import {
   footerAfter,
   gridLength,
   MARK_FOOTER,
+  MARK_INDICATOR,
   MARK_STATUS,
   MARK_STEP,
   rowMark,
@@ -176,6 +177,10 @@ export type AcpmuxBackgroundReaction = {
   weight: AcpmuxBackgroundWeight;
   text?: string;
   fresh?: true;
+  /// The task's end was interim (acpmux's cause status `interim`: Claude Code said the agent "is
+  /// waiting on its own background work"): it has not given its final report yet. A later end of
+  /// the same call replaces the reaction, which clears it.
+  interim?: true;
 };
 
 /// What a run of background-task notifications' line counts (conversation/backgroundRuns.ts): quiet
@@ -577,6 +582,9 @@ export type AcpmuxRow = {
   doingSendSession?: string;
   doingDraft?: boolean;
   untimed?: boolean;
+  /// The live line's turn, by its prompt's row id (conversation/thinkingVerbs.ts): kept from send to
+  /// the echo, so the line's verb stays one word for the whole turn.
+  verbKey?: string;
   quietKey?: string;
   /// When the reply `quietKey` names was written, on this page's clock (conversation/turns.ts).
   quietAt?: number;
@@ -1048,6 +1056,8 @@ export type AcpmuxSnapshot = {
     toolsMutable?: boolean;
   };
   connection: string;
+  /** The first request that crossed its progress threshold while the socket stayed open. */
+  daemonWaitingSince?: number;
   /// The origin acpmux names for this connection in `initialize` (`_meta.acpmux.origin`):
   /// `remote` gets its Web rules (no Codex or opencode, remoteEditing.ts); `unknown` is an older
   /// acpmux that names none. Unset in a snapshot no client built (fixtures).
@@ -1298,7 +1308,7 @@ const isStepRow = (row: AcpmuxRow) =>
 export const isLiveLine = (row: AcpmuxRow) =>
   row.below === true && (row.kind === WORKING || row.kind === THINKING || row.kind === ACTIVITY_LINE);
 /// The running turn's line as its last row (`below`) right under a step row or a status row ("Subagent
-/// finished", "Scheduled check", a compaction): one more line of the run, 22 under it and 22 tall
+/// finished", "Scheduled check", a compaction): 22 tall, with the run gap above it
 /// (`.acpmux-row--below.acpmux-row--after-step`), not the footer's 32 slot (#29965); the waiting
 /// messages' head draws over it (pendingMessages.ts `withWaitingRows`). Under a status row it took the footer's
 /// slot a block gap away, 55 and 70 from its neighbours (Leo, 2026-11-03: "this is pretty bad
@@ -2454,9 +2464,15 @@ export function layoutConversation(
   let prevDrawn = prevDrawnRow(rows, start);
   for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
-    // A step row (a tool run or a one-line row) joins the step row before it flush (transcriptGap).
-    marks[index] =
-      isStepRow(row) || isLiveStep(row, prevDrawn) ? MARK_STEP : isStatusRow(row) ? MARK_STATUS : rowMark(row);
+    // A compact live line keeps its 22px height and composer gap, but is a live indicator for
+    // spacing: classifying it as another step would swallow the run gap before Thinking.
+    marks[index] = isStepRow(row)
+      ? MARK_STEP
+      : isLiveStep(row, prevDrawn)
+        ? MARK_INDICATOR
+        : isStatusRow(row)
+          ? MARK_STATUS
+          : rowMark(row);
     messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
