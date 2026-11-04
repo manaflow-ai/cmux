@@ -20,17 +20,17 @@ struct TerminalFrameOwnership {
     var scale: CGFloat?
 }
 
-/// FRAME OWNER REFACTOR S4 (`motion.frameOwner.terminals`): in every commit a terminal's bounds and its pixels change
-/// together, or both keep their last size (``TerminalFramePresenter``).
+/// FRAME OWNER REFACTOR S4: in every commit a terminal's bounds and its pixels change together, or both keep their last
+/// size (``TerminalFramePresenter``). The switch `motion.frameOwner.terminals` that kept the old path is gone: a
+/// terminal's window commit owns its frame from its first placement.
 extension TerminalSurfaceView {
-    /// Places the surface at `frame` in its host. Switch off: at once; Ghostty's frame of a new size lands 1-4
-    /// refreshes later. On: a new size goes to Ghostty and the view keeps its size, its old frame on the `anchor` edge
-    /// of `frame` (the host clips it and paints the terminal background beside it), until its window's commit shows
-    /// the frame drawn at the new size with the new bounds. One size waits at a time; the newest goes next.
+    /// Places the surface at `frame` in its host: a new size goes to Ghostty and the view keeps its size, its old frame
+    /// on the `anchor` edge of `frame` (the host clips it and paints the terminal background beside it), until its
+    /// window's commit shows the frame drawn at the new size with the new bounds. One size waits at a time; the newest
+    /// goes next. Hidden, parked or with no window: at once (nothing shows, so nothing is kept).
     func place(_ frame: CGRect, anchor: PaneMotionAnchor) {
-        let owned = TerminalDragTunables.framesOwnedByCommit.value
-        if owned != frameOwnership.embedderPresents { setFramesOwnedByCommit(owned) }
-        guard owned, isShown, window != nil, surface != nil else {
+        if !frameOwnership.embedderPresents { presentThroughCommits() }
+        guard frameOwnership.embedderPresents, isShown, window != nil, surface != nil else {
             // A size or a scale that waits gives way: the view takes this frame now (hidden, parked, no window).
             if frameOwnership.inFlight != nil || frameOwnership.scale != nil {
                 framePresenter?.cancel(self)
@@ -106,8 +106,8 @@ extension TerminalSurfaceView {
         ghostty_surface_host_frame_committed(surface)
     }
 
-    /// The switch, a window change: a size that waits takes its bounds now, through the usual path, and a held scale
-    /// goes to the layer.
+    /// A window change: a size that waits takes its bounds now, and a held scale goes to the layer; the new window's
+    /// presenter owns the next size.
     func releaseFrameOwnership() {
         guard frameOwnership.embedderPresents else { return }
         framePresenter?.cancel(self)
@@ -164,13 +164,14 @@ extension TerminalSurfaceView {
 
     private var framePresenter: TerminalFramePresenter? { window.map(TerminalFramePresenter.forWindow) }
 
-    private func setFramesOwnedByCommit(_ owned: Bool) {
+    /// Ghostty leaves new host sizes to cmux from now on (`GHOSTTY_HOST_PRESENT_EMBEDDER`): the surface's first
+    /// placement.
+    private func presentThroughCommits() {
         guard let surface else { return }
-        if !owned { releaseFrameOwnership() }
-        frameOwnership.embedderPresents = owned
-        ghostty_surface_set_host_present(surface, owned ? GHOSTTY_HOST_PRESENT_EMBEDDER : GHOSTTY_HOST_PRESENT_RENDERER)
+        frameOwnership.embedderPresents = true
+        ghostty_surface_set_host_present(surface, GHOSTTY_HOST_PRESENT_EMBEDDER)
         // The mode starts with every frame going through main until a commit is reported.
-        if owned { framePresenter?.watch(self) }
+        framePresenter?.watch(self)
     }
 
     /// The layer takes the display scale it held for its frame (``holdsScale(_:)``). The layer has no implicit

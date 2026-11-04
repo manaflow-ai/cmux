@@ -213,8 +213,8 @@ import Testing
         frame.size.width /= 2
         shown.window.setFrame(frame, display: true)
         shown.session.view.layoutSubtreeIfNeeded()
-        // The surface takes its new size in the commit that shows its frame drawn at that size (FRAME OWNER S4,
-        // `motion.frameOwner.terminals`), a refresh or two after the layout: the change counts then.
+        // The surface takes its new size in the commit that shows its frame drawn at that size (FRAME OWNER S4), a
+        // refresh or two after the layout: the change counts then.
         let counted = try await Self.eventually(2) { shown.session.frameChanges.generation > before }
         #expect(counted, "the surface's new size counted as no change")
         let resaved = try await Self.eventually(3) { frames.keepSaves > saves }

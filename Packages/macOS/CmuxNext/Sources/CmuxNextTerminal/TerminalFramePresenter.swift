@@ -4,8 +4,7 @@ import CmuxNextWakeups
 import GhosttyNextKit
 import QuartzCore
 
-/// FRAME OWNER REFACTOR S4 (`motion.frameOwner.terminals`, ``TerminalDragTunables/framesOwnedByCommit``): one per
-/// window. The present and the new bounds go together under `[CATransaction lock]` (Ghostty's call-site rule for
+/// FRAME OWNER REFACTOR S4: one per window. The present and the new bounds go together under `[CATransaction lock]` (Ghostty's call-site rule for
 /// `ghostty_surface_host_frame`). A terminal whose size changes asks Ghostty for a frame at the new size (``TerminalSurfaceView/place(_:anchor:)``)
 /// and keeps its old bounds and old frame. Just before Core Animation's commit of every main run-loop turn while a
 /// request waits (a run-loop observer at ``passOrder``), the presenter's pass asks each waiting terminal for that frame

@@ -369,12 +369,12 @@ public final class TerminalHostView: NSView {
     }
 
     /// The surface's frame: the host, less a legacy scroller's strip (none: the scroller is overlay). While
-    /// a pane's layout spring runs, the surface keeps the size it will rest at (``holdSurface(size:anchor:)``),
-    /// pinned to the area's top or bottom edge; the host clips it and paints the terminal background beside it.
-    private var surfaceFrame: CGRect {
+    /// a pane's split, close or zoom spring runs, the surface keeps the size it will rest at (``holdSurface(size:anchor:)``),
+    /// pinned to the area's top or bottom edge; the host clips it and paints the terminal background beside it. In a key
+    /// resize (the host follows its pane, ``followedHold``) the surface takes the area in every frame (cmux-ad m6).
+    private var surfaceFrame: CGRect { // perf-hot: 4ms motion-frame
         let area = terminalBounds
-        if let followed = followedHold { return followedSurfaceFrame(followed, in: area) }
-        if let hold = surfaceHold {
+        if followedHold == nil, let hold = surfaceHold {
             let y = hold.anchor == .bottom ? area.minY : area.maxY - hold.size.height
             return CGRect(x: area.minX, y: y, width: hold.size.width, height: hold.size.height)
         }

@@ -1,12 +1,13 @@
 public import AppKit
 public import CmuxNextDesign
 
-/// FRAME OWNER REFACTOR S3: in a keyboard resize the terminal host is a container
-/// that follows its pane in every frame: the pane's content area gives it its bounds each frame, so the terminal's own
-/// ground, padding, scroller and overlays cover the whole pane and the window's shell never shows inside it. Only the
-/// surface (the producer: Ghostty draws it on its renderer thread) keeps its size: the final size the press asked for
-/// (``holdSurface(size:anchor:)``, one grid per press), else the size it had when the hold began, fixed at the pane edge
-/// that does not move. No grid and no reflow per frame: only the surface's origin moves.
+/// FRAME OWNER REFACTOR S3: in a keyboard resize the terminal host is a container that follows its pane in every frame:
+/// the pane's content area gives it its bounds each frame, so the terminal's own ground, padding, scroller and overlays
+/// cover the whole pane and the window's shell never shows inside it. The surface follows too (cmux-ad m6: pixels per
+/// frame, the program's size per press): it takes the area it shows in, in every frame
+/// (``TerminalHostView`` `surfaceFrame`), and the frame owner (S4) shows each size's frame with its bounds or keeps the
+/// last frame, clipped and anchored top-left, until it is drawn; the PTY gets one grid per press, the final grid
+/// (``TerminalSurfaceView`` `restAt`).
 extension TerminalHostView: PaneMotionHoldFollowing {
     public func followPaneMotion(_ hold: PaneMotionHold?, heldSize: CGSize?) {
         followedHold = hold.map { ($0, heldSize ?? bounds.size) }
@@ -23,22 +24,4 @@ extension TerminalHostView: PaneMotionHoldFollowing {
     /// follows a hold, the size it had when the hold began (what the pane's rest size change is measured from), else its
     /// size now.
     var paneMotionBasisSize: CGSize { followedHold?.heldSize ?? bounds.size }
-
-    /// The surface's frame while the host follows `followed`: its held size on the hold's edges of the area it shows in
-    /// (less a legacy scroller's strip). One exception to the still edge: a pane that grows down with its prompt in the
-    /// lower half (`motionAnchor` answered `.bottom`) keeps the surface's bottom on its moving bottom edge, so the prompt on
-    /// the final grid's last row stays in view; the surface is taller than the pane then, so it still covers it.
-    ///
-    /// With `motion.frameOwner.terminals` on (cmux-ad m6: pixels per frame, the program's size per press) the surface takes
-    /// the area it shows in, in every frame, anchored top-left: the frame owner shows each size's frame with its bounds,
-    /// or keeps the last frame (clipped, top-left) until it is drawn; the PTY still gets one grid per press (the final
-    /// grid, ``TerminalSurfaceView`` `restAt`).
-    func followedSurfaceFrame(_ followed: (hold: PaneMotionHold, heldSize: CGSize), in area: CGRect) -> CGRect { // perf-hot: 4ms motion-frame
-        let shown = CGRect(x: area.minX, y: area.minY, width: max(0, area.width - scrollerWidth), height: area.height)
-        if TerminalDragTunables.framesOwnedByCommit.value { return shown }
-        let size = surfaceHold?.size ?? surfaceSize(forHostSize: followed.heldSize)
-        var hold = followed.hold
-        if case .bottom? = surfaceHold?.anchor { hold.bottom = true }
-        return hold.producerFrame(size, in: shown)
-    }
 }

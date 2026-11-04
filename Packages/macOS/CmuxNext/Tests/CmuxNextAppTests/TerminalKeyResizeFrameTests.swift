@@ -12,7 +12,7 @@ import Foundation
 import Testing
 
 /// cmux-ad m6 (Lawrence on dogfood 363e39f2: "tabbar moves smoothly on ctrl shift hjkl but browsers/terminals do not
-/// anymore"), part (a) for terminals, with `motion.frameOwner.terminals` on. The contract of a key resize: in EVERY frame
+/// anymore"), part (a) for terminals (the frame owner, S4). The contract of a key resize: in EVERY frame
 /// each terminal shows pixels at its pane's size in that frame, or the previous frame's (clipped and anchored top-left,
 /// never stretched, never a background gap); the PROGRAM's grid (the PTY's size) changes at most once per press. Pixels
 /// per frame; program size per press.
@@ -119,7 +119,7 @@ struct TerminalKeyResizeFrameTests {
     }
 
     /// p1 | p2 in a window on screen, each pane the app's `PaneContentView` with a terminal in its content area; the
-    /// switch on, Reduce Motion off, the spring stepped by the test.
+    /// Reduce Motion off, the spring stepped by the test.
     final class PaneScreen {
         final class Panes: LayoutPaneContentProvider {
             let reveal: LaunchReveal = {
@@ -163,9 +163,6 @@ struct TerminalKeyResizeFrameTests {
             root.layoutSubtreeIfNeeded() // sync-layout: the panes exist before their terminals attach
             root.layoutSubtreeIfNeeded() // sync-layout: what joined the window in that pass lays out in this one
             root.driver.isManual = true
-            let on = TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(true))
-            if on != .bool(true) { close() }
-            try #require(on == .bool(true), "the switch motion.frameOwner.terminals is not registered")
             let line = String(repeating: "y", count: 40)
             let text = Array(repeating: line, count: 400).joined(separator: "\r\n")
             for pane: PaneID in ["p1", "p2"] {
@@ -196,7 +193,6 @@ struct TerminalKeyResizeFrameTests {
             for io in ios { io.finish() }
             window.close()
             WindowDrawPolicy.drawsWhenOccluded = drew
-            TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, nil)
         }
     }
 

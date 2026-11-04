@@ -10,7 +10,7 @@ import GhosttyNextKit
 import IOSurface
 import Testing
 
-/// FRAME OWNER REFACTOR S4 (terminals ready-or-keep, switch `motion.frameOwner.terminals`): for every terminal, in
+/// FRAME OWNER REFACTOR S4 (terminals ready-or-keep): for every terminal, in
 /// every commit, the layer's size and its pixels change together, or neither changes. Films P2: a new-size frame of a
 /// host-sized Ghostty surface came 2-4 refreshes after its view's new bounds, so those commits showed the old frame in
 /// the new bounds (cropped or beside a gap), and two terminals landed 2 refreshes apart.
@@ -249,9 +249,6 @@ struct TerminalSurfaceCommitSizeTests {
             window.contentView = root
             window.orderFrontRegardless()
             root.layoutSubtreeIfNeeded() // sync-layout: the panes exist before their terminals attach
-            let on = TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(true))
-            if on != .bool(true) { close() }
-            try #require(on == .bool(true), "the switch motion.frameOwner.terminals is not registered")
             let line = String(repeating: "y", count: 40)
             let text = Array(repeating: line, count: 400).joined(separator: "\r\n")
             for pane: PaneID in ["p1", "p2"] {
@@ -289,7 +286,6 @@ struct TerminalSurfaceCommitSizeTests {
             for io in ios { io.finish() }
             window.close()
             WindowDrawPolicy.drawsWhenOccluded = drew
-            TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, nil)
         }
 
         private func sample() {
@@ -404,8 +400,6 @@ struct TerminalSurfaceCommitSizeTests {
             window.orderFrontRegardless()
             do {
                 try #require(session.surfaceView.surface != nil, "libghostty created no surface")
-                let on = TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(true))
-                try #require(on == .bool(true), "the switch motion.frameOwner.terminals is not registered")
             } catch {
                 close()
                 throw error
@@ -426,7 +420,6 @@ struct TerminalSurfaceCommitSizeTests {
             io.finish()
             window.close()
             WindowDrawPolicy.drawsWhenOccluded = drew
-            TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, nil)
         }
 
         /// The surface layer's bounds, in pixels.

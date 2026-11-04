@@ -47,9 +47,8 @@ extension TerminalSurfaceView: PaneMotionTargeting {
     }
 
     /// Reports the grid a view of `size` points fits and holds the surface at that size in its host. In a key resize
-    /// whose pane its host follows (FRAME OWNER S3) with `motion.frameOwner.terminals` on, only the grid goes (cmux-ad m6:
-    /// the program's size per press); the surface takes its pane's size in every frame
-    /// (``TerminalHostView/followedSurfaceFrame(_:in:)``), never held at the final size.
+    /// whose pane its host follows (FRAME OWNER S3), only the grid goes (cmux-ad m6: the program's size per press); the
+    /// surface takes its pane's size in every frame (``TerminalHostView`` `surfaceFrame`), never held at the final size.
     private func restAt(_ size: NSSize, growing: Bool) -> PaneMotionAnchor {
         guard let surface else { return .top }
         let pixels = convertToBacking(size)
@@ -59,9 +58,7 @@ extension TerminalSurfaceView: PaneMotionTargeting {
               ghostty_surface_fit_grid(surface, UInt32(pixels.width), UInt32(pixels.height), &columns, &rows)
         else { return .top }
         reportFinalGrid(TerminalGridSize(columns: Int(columns), rows: Int(rows)))
-        if let host = superview as? TerminalHostView, host.followedHold != nil, TerminalDragTunables.framesOwnedByCommit.value {
-            return .top
-        }
+        if let host = superview as? TerminalHostView, host.followedHold != nil { return .top }
         let anchor = motionAnchor(growing: growing)
         (superview as? TerminalHostView)?.holdSurface(size: size, anchor: anchor)
         return anchor

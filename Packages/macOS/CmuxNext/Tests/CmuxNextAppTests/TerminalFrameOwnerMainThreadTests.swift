@@ -8,13 +8,13 @@ import Foundation
 import GhosttyNextKit
 import Testing
 
-/// FRAME OWNER REFACTOR S4 P0 (switch round ab-s4-sw-22, build ada386be): with `motion.frameOwner.terminals` turned on
-/// while terminals showed frames and the in-app recorder ran, the app's main thread stopped for good at the first
-/// terminal resize, and every RPC timed out after it. The switch-OFF films of the same build worked.
+/// FRAME OWNER REFACTOR S4 P0 (switch round ab-s4-sw-22, build ada386be): with the frame owner (then the switch
+/// `motion.frameOwner.terminals`, now always on) while terminals showed frames and the in-app recorder ran, the app's
+/// main thread stopped for good at the first terminal resize, and every RPC timed out after it.
 ///
 /// A real Ghostty surface (its renderer thread, Metal and the GPU completion thread) in a window on screen, as in the
-/// films: the switch goes on at runtime, after the first frame; resizes land; then the terminal keeps drawing at
-/// that size (output and a blinking cursor: frames that go to the screen off the main thread). The main thread must
+/// films: after the first frame, resizes land; then the terminal keeps drawing at that size (output and a blinking
+/// cursor: frames that go to the screen off the main thread). The main thread must
 /// keep turning. A sampler thread pings it every 250 ms. When a ping gets no answer within 3 s, the sampler samples
 /// this process (`/usr/bin/sample`, every thread's stack), writes the sample to stderr and ends the process with exit
 /// code 70. So a hang fails the step with the stacks, and never waits for the runner's stall limit.
@@ -44,9 +44,7 @@ struct TerminalFrameOwnerMainThreadTests {
         fixture.container.layer?.addSublayer(reader)
         defer { reader.removeFromSuperlayer() }
 
-        sampler.enter("switch on and resizes")
-        let on = TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(true))
-        try #require(on == .bool(true), "the switch motion.frameOwner.terminals is not registered")
+        sampler.enter("resizes")
         let offMainBefore = fixture.offMainPresents
         // Three resizes, each followed by 2 s of wall-clock time with output every few milliseconds (frames at the
         // shown size, which go off main once the presenter reported the landing's commit), and the reader in every
@@ -114,10 +112,6 @@ struct TerminalFrameOwnerMainThreadTests {
 
         init() async throws {
             _ = NSApplication.shared
-            TunableStore.shared.activate(file: nil)
-            TunableStore.shared.register(TerminalDragTunables.all)
-            // The switch starts off, as in the films; ``close()`` resets it.
-            TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(false))
             drew = WindowDrawPolicy.drawsWhenOccluded
             WindowDrawPolicy.drawsWhenOccluded = true
             session = TerminalSession(io: io)
@@ -146,7 +140,6 @@ struct TerminalFrameOwnerMainThreadTests {
             io.finish()
             window.close()
             WindowDrawPolicy.drawsWhenOccluded = drew
-            TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, nil)
         }
 
         /// Ghostty's frames of this surface that went to the screen off the main thread.
