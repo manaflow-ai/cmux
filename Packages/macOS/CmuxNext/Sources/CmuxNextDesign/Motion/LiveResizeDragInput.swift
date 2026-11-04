@@ -25,6 +25,8 @@ public final class LiveResizeDragInput {
     private weak var window: NSWindow?
     /// Gives an event to AppKit (the window's `super.sendEvent`).
     private let deliver: @MainActor (NSEvent) -> Void
+    /// A frame of the live resize was applied (``applyingFrame(_:)``): the window's overlay sends its page update.
+    private let frameApplied: @MainActor () -> Void
     /// The newest drag that waits for the frame tick, and the pointer travel of the drags it replaced.
     private var waiting: (event: NSEvent, dx: CGFloat, dy: CGFloat)?
     /// The switch for the resize in progress, read at its first held drag; nil between resizes.
@@ -39,9 +41,11 @@ public final class LiveResizeDragInput {
     /// Drags given to AppKit from a frame tick and drags a newer one replaced, cumulative (diagnostics and tests).
     public private(set) var tickDeliveries = 0, replaced = 0
 
-    /// `deliver` gives an event to AppKit for `window` (its `super.sendEvent`).
-    public init(window: NSWindow, deliver: @escaping @MainActor (NSEvent) -> Void) {
+    /// `deliver` gives an event to AppKit for `window` (its `super.sendEvent`); `frameApplied` runs after each `setFrame`
+    /// of its live resize (``applyingFrame(_:)``).
+    public init(window: NSWindow, frameApplied: @escaping @MainActor () -> Void = {}, deliver: @escaping @MainActor (NSEvent) -> Void) {
         self.window = window
+        self.frameApplied = frameApplied
         self.deliver = deliver
     }
 
@@ -68,6 +72,15 @@ public final class LiveResizeDragInput {
         ticksLeft = Self.tickTail
         client.activate()
         return true
+    }
+
+    /// A `setFrame` of the window in its live resize (`apply`): when this resize's drags wait for the frame tick, the
+    /// views another window follows post their frame notices once, after it, with the final geometry (``FollowedViews``);
+    /// then `frameApplied` runs.
+    public func applyingFrame(_ apply: () -> Void) {
+        defer { frameApplied() }
+        guard latched == true, let window else { return apply() }
+        FollowedViews.of(window).holdingFrameNotices(apply)
     }
 
     /// The window closes: a waiting drag goes with it, and no more frames.

@@ -263,8 +263,15 @@ final class CEFHostView: NSView {
         }.map(\.element)
     }
 
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if let window, newWindow !== window { FollowedViews.of(window).remove(self) }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // The fork's tracker follows this view and its ancestors: the window's live resize posts their notices once (S7).
+        if let window { FollowedViews.of(window).add(self) }
         if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
         windowObserver = nil
         readGeometry = nil

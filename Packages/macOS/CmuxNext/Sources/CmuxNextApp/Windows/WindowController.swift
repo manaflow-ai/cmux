@@ -468,7 +468,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     weak var keyRouter: KeyRouter?
     weak var focus: FocusCoordinator?
     private(set) lazy var overlayLayer = WindowOverlayLayer(window: self)
-    private(set) lazy var liveResizeInput = LiveResizeDragInput(window: self) { [weak self] in self?.sendHeldDrag($0) }
+    private(set) lazy var liveResizeInput = LiveResizeDragInput(window: self, frameApplied: { [weak self] in self?.overlayLayer.windowFrameDidApply() }) { [weak self] in self?.sendHeldDrag($0) }
 
     /// Zoom without AppKit's blocking animation (``WindowZoom``): every entrypoint comes here.
     private var zoomState = WindowZoom()
@@ -478,10 +478,10 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
 
     /// In an agent screenshot launch every frame stays on the test screen
     /// (`WindowPlacement.containedOnTestScreen`), whichever path sets it.
-    /// In a live resize the overlay's page update for the applied drag goes once the frame is set (FRAME OWNER S7).
+    /// On the test screen in an agent screenshot launch; in a live resize, through its drag input (FRAME OWNER S7).
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
-        super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag)
-        if Motion.isInLiveResize(self) { overlayLayer.windowFrameDidApply() }
+        let frame = WindowPlacement.containedOnTestScreen(frameRect)
+        if Motion.isInLiveResize(self) { liveResizeInput.applyingFrame { super.setFrame(frame, display: flag) } } else { super.setFrame(frame, display: flag) }
     }
 
     /// The traffic lights, found once (`StandardWindowButtons`, cx-8w027.25).
