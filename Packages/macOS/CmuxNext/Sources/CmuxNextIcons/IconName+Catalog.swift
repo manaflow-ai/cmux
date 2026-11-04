@@ -156,6 +156,9 @@ extension IconName {
         .folder,
         .gitBranch,
         .gitPullrequest,
+        .gitPullrequestClosed,
+        .gitPullrequestDraft,
+        .gitPullrequestMerged,
         .gitWorktree,
         .grant,
         .groupCollapsedDot,
@@ -328,6 +331,7 @@ extension IconName {
         .unreadDot,
         .viewGrid,
         .viewList,
+        .viewListShort,
         .windowNew,
         .workspace,
         .workspaceNew

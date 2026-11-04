@@ -2,7 +2,64 @@
 
 use super::*;
 
+/// What the roster fold lock guards: it orders folds and roster snapshot
+/// saves (`Mux::advance_agent_roster`, terminal retirement), and holds the
+/// fold's own journal reader.
+#[derive(Default)]
+pub(super) struct AgentRosterFold {
+    /// A read-only connection to the registry file, opened at the first
+    /// fold. In WAL mode it reads committed records with no daemon lock: not
+    /// the workspace registry lock, not the writer's connection lock, so a
+    /// tail read never stalls a request or a journal commit. `None` until it
+    /// opens, and always for an in-memory registry.
+    reader: Option<crate::workspace_registry::SessionJournalReader>,
+    /// Pauses the next fold after it reads one journal page (test seam).
+    #[cfg(test)]
+    page_hook: Option<(SyncSender<()>, Receiver<()>)>,
+}
+
+impl AgentRosterFold {
+    /// The fold's reader, opened on first use. `None` for an in-memory
+    /// registry, or when the file cannot open (the fold then reads one page
+    /// at a time under the registry, as the in-memory registry does).
+    fn reader(
+        &mut self,
+        kernel: &crate::journal_kernel::JournalKernel,
+    ) -> Option<&crate::workspace_registry::SessionJournalReader> {
+        if self.reader.is_none() {
+            match kernel.open_reader() {
+                Ok(reader) => self.reader = reader,
+                Err(error) => {
+                    eprintln!("cmux-tui: opening the agent roster reader failed: {error}");
+                }
+            }
+        }
+        self.reader.as_ref()
+    }
+
+    #[cfg(test)]
+    fn pause_after_page_for_test(&mut self) {
+        if let Some((entered, release)) = self.page_hook.take() {
+            // A test that gave up waiting dropped its ends; the fold goes on.
+            let _ = entered.send(());
+            let _ = release.recv();
+        }
+    }
+}
+
 impl Mux {
+    /// The next roster fold signals `entered` after it reads one page of
+    /// the journal tail and waits for `release` before it goes on.
+    #[cfg(test)]
+    pub(crate) fn pause_agent_roster_fold_after_page_for_test(
+        &self,
+        entered: SyncSender<()>,
+        release: Receiver<()>,
+    ) {
+        self.agent_roster_fold.lock().unwrap_or_else(PoisonError::into_inner).page_hook =
+            Some((entered, release));
+    }
+
     /// Committed agent hook events double as the live agent-status feed:
     /// a fresh `agent.*` journal event updates its terminal's agent record,
     /// so agents views show working/blocked/idle/done without a separate
@@ -257,60 +314,74 @@ impl Mux {
         use crate::journal_reducers::{
             AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
         };
-        let _fold = self.agent_roster_fold.lock().unwrap();
-        // Consume every intervening committed record under registry -> roster
-        // lock order. Concurrent appends and delayed hook retries cannot jump
-        // the cursor over a record that startup replay would have consumed.
-        let (deltas, cursor, snapshot) = {
-            let registry = self.workspace_registry.lock().unwrap();
-            let through = match through {
-                Some(through) => through,
-                None => match registry.session_journal_head() {
-                    Ok(head) => head,
-                    Err(error) => {
-                        eprintln!("cmux-tui: reading the journal head failed: {error}");
-                        return None;
-                    }
-                },
-            };
-            let mut host = self.agent_roster.lock().unwrap();
-            if through <= host.cursor {
+        // The fold lock orders folds, so only this fold moves the cursor
+        // until it returns. Every record through `through` is committed (a
+        // live fold's own commit, or the head), and the single journal
+        // writer commits sequences in order, so a reader of committed data
+        // sees every record the startup replay would fold. The tail is read
+        // with no daemon lock held (STATUS 6460: the read under the registry
+        // lock held it 1.378 s under load); the roster lock is taken only to
+        // apply each page that was read.
+        let mut fold = self.agent_roster_fold.lock().unwrap_or_else(PoisonError::into_inner);
+        let through = match through {
+            Some(through) => Ok(through),
+            None => match fold.reader(&self.journal_kernel) {
+                Some(reader) => reader.head(),
+                None => self.session_journal_head(),
+            },
+        };
+        let through = match through {
+            Ok(through) => through,
+            Err(error) => {
+                eprintln!("cmux-tui: reading the journal head failed: {error}");
                 return None;
             }
-            let mut deltas = Vec::new();
-            while host.cursor < through {
-                // Terminal output between agent events is skipped by the read:
-                // the roster ignores it, and this runs under the registry lock.
-                let (records, reached) = match registry.session_journal_without_output_after(
-                    host.cursor,
-                    through,
-                    512,
-                ) {
-                    Ok(page) => page,
-                    Err(error) => {
-                        eprintln!("cmux-tui: reading agent journal tail failed: {error}");
-                        return None;
-                    }
-                };
-                for record in &records {
-                    let changes = host.roster.apply(&RosterEvent::from_record(record));
-                    // Hooks already use the durable projector, which decides
-                    // events with the same session fence as this fold.
-                    // Applying their reducer delta again would duplicate its
-                    // projection mutations.
-                    if record.payload.get("format").and_then(Value::as_str)
-                        == Some(crate::journal_reducers::AGENT_PLUGIN_FORMAT)
-                    {
-                        deltas
-                            .extend(changes.into_iter().map(|delta| (delta, record.kind.clone())));
-                    }
+        };
+        let mut cursor = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner).cursor;
+        if through <= cursor {
+            return None;
+        }
+        let mut deltas = Vec::new();
+        while cursor < through {
+            // Terminal output between agent events is skipped by the read:
+            // the roster ignores it.
+            let page = match fold.reader(&self.journal_kernel) {
+                Some(reader) => reader.without_output_after(cursor, through, 512),
+                // An in-memory registry has no file to read: one page under
+                // the registry lock, which is released before the apply.
+                None => self.session_journal_without_output_after(cursor, through, 512),
+            };
+            let (records, reached) = match page {
+                Ok(page) => page,
+                Err(error) => {
+                    eprintln!("cmux-tui: reading agent journal tail failed: {error}");
+                    return None;
                 }
-                if reached <= host.cursor {
-                    break;
+            };
+            #[cfg(test)]
+            fold.pause_after_page_for_test();
+            let mut host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
+            for record in &records {
+                let changes = host.roster.apply(&RosterEvent::from_record(record));
+                // Hooks already use the durable projector, which decides
+                // events with the same session fence as this fold.
+                // Applying their reducer delta again would duplicate its
+                // projection mutations.
+                if record.payload.get("format").and_then(Value::as_str)
+                    == Some(crate::journal_reducers::AGENT_PLUGIN_FORMAT)
+                {
+                    deltas.extend(changes.into_iter().map(|delta| (delta, record.kind.clone())));
                 }
-                host.cursor = reached;
             }
-            (deltas, host.cursor, host.roster.snapshot().to_string())
+            if reached <= host.cursor {
+                break;
+            }
+            host.cursor = reached;
+            cursor = reached;
+        }
+        let (cursor, snapshot) = {
+            let host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
+            (host.cursor, host.roster.snapshot().to_string())
         };
         // The connection alone, never the workspace registry lock, so state
         // commits do not wait behind the snapshot write (issue 23038).
@@ -352,7 +423,7 @@ impl Mux {
         let entries = self
             .agent_roster
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .roster
             .entries
             .iter()
@@ -372,7 +443,7 @@ impl Mux {
         let entry = self
             .agent_roster
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .roster
             .entries
             .get(terminal_id.as_str())

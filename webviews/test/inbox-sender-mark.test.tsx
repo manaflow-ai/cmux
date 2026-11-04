@@ -86,14 +86,14 @@ const thread = (from: string, fields: Partial<InboxThread> = {}): InboxThread =>
   ...fields,
 });
 
-async function render(notice: InboxNotice) {
+async function render(notice: InboxNotice, onOpen: (sessionId: string) => void = () => undefined) {
   const store = new SubsessionStore();
   store.set(sessions);
   root = createRoot(host);
   await act(async () =>
     root!.render(
       <SubsessionContext.Provider value={{ store, open: () => undefined }}>
-        <InboxNoticeCard rowId="row-1" notice={notice} onOpen={() => undefined} />
+        <InboxNoticeCard rowId="row-1" notice={notice} onOpen={onOpen} />
       </SubsessionContext.Provider>,
     ),
   );
@@ -165,4 +165,82 @@ test("two sessions with one name are two senders: the group head draws the messa
     ],
   });
   expect(marks(".cv-inbox__head > .cv-tool__icon")).toEqual(["neutral"]);
+});
+
+// Leo, 2026-10-27, on a lane's message: "Is this, like, from another machine? But even if they're
+// from another machine, what's going on here?" A sender on another machine names it on the line;
+// this Mac's chats name none.
+test("a sender on another machine names that machine after its name; this Mac's names none", async () => {
+  sessions.push(entry({ sessionId: "s-far", name: "review-lane", harness: "codex", host: "studio-mac" }));
+  const machine = () => host.querySelector(".cv-received__sender .cv-received__host")?.textContent ?? null;
+  try {
+    await render({ threads: [thread("review-lane", { fromSession: "s-far" })] });
+    expect(machine()).toBe("studio-mac");
+    act(() => root?.unmount());
+    root = undefined;
+    await render({ threads: [thread("grid-lane", { fromSession: "s-claude" })] });
+    expect(machine()).toBeNull();
+  } finally {
+    sessions.pop();
+  }
+});
+
+// Leo, 2026-11-03, on the line's machine: "so what's this depicting? session name, then machine? hm
+// i wonder if there's anything interesting we can click around wrt machines". The machine is a menu:
+// the chats listed on that machine (a peer's `<machine>/<name>` without the prefix, archived ones
+// left out), each opening beside this chat, and Copy machine name.
+test("a sender's machine opens a menu of that machine's chats; a pick opens the chat", async () => {
+  const far = [
+    entry({ sessionId: "s-far", name: "review-lane", harness: "codex", host: "studio-mac" }),
+    entry({
+      sessionId: "s-far-2",
+      name: "studio-mac/build-lane",
+      harness: "claude",
+      host: "studio-mac",
+      peer: "studio-mac",
+    }),
+    entry({ sessionId: "s-far-old", name: "old-lane", host: "studio-mac", archived: true }),
+    entry({ sessionId: "s-other", name: "elsewhere", host: "build-box" }),
+  ];
+  sessions.push(...far);
+  const opened: string[] = [];
+  try {
+    await render({ threads: [thread("review-lane", { fromSession: "s-far" })] }, (id) => void opened.push(id));
+    const trigger = host.querySelector<HTMLButtonElement>('.cv-received__sender button[data-menu="sender-machine"]');
+    expect(trigger?.textContent).toBe("studio-mac");
+    await act(async () => trigger!.click());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    const items = [...dom.window.document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+    const labels = items.map((item) => item.textContent?.trim());
+    expect(labels.slice(0, 2)).toEqual(["build-lane", "review-lane"]);
+    expect(labels).toHaveLength(3);
+    await act(async () => items[0]!.click());
+    expect(opened).toEqual(["s-far-2"]);
+  } finally {
+    sessions.splice(sessions.length - far.length, far.length);
+  }
+});
+
+test("the store lists each machine's live chats by name, and none for this Mac", () => {
+  const store = new SubsessionStore();
+  store.set([
+    ...sessions,
+    entry({ sessionId: "a", name: "zeta", host: "vm-1" }),
+    entry({ sessionId: "b", name: "vm-1/alpha", host: "vm-1", peer: "vm-1" }),
+    entry({ sessionId: "c", name: "gone", host: "vm-1", archived: true }),
+  ]);
+  expect(store.chatsOn("vm-1")).toEqual([
+    { sessionId: "b", name: "alpha" },
+    { sessionId: "a", name: "zeta" },
+  ]);
+  expect(store.chatsOn("nowhere")).toEqual([]);
+  // The same array while the list is unchanged, so useSyncExternalStore settles.
+  const before = store.chatsOn("vm-1");
+  store.set([
+    ...sessions,
+    entry({ sessionId: "a", name: "zeta", host: "vm-1" }),
+    entry({ sessionId: "b", name: "vm-1/alpha", host: "vm-1", peer: "vm-1" }),
+    entry({ sessionId: "c", name: "gone", host: "vm-1", archived: true }),
+  ]);
+  expect(store.chatsOn("vm-1")).toBe(before);
 });

@@ -21,7 +21,8 @@ pub fn needs_gesture(object: &Map<String, Value>, is_deny: impl Fn(&str, &str) -
     match rule {
         GestureRule::Always => true,
         GestureRule::WhenTrusting => {
-            !text("level").is_some_and(|l| contains(&p.non_trusting_levels, l))
+            params.contains_key("peer")
+                || !text("level").is_some_and(|l| contains(&p.non_trusting_levels, l))
         }
         GestureRule::WhenOptionAllows => match (text("permissionId"), text("optionId")) {
             (Some(permission), Some(option)) => !is_deny(permission, option),
@@ -157,18 +158,41 @@ impl PermissionOptions {
     }
 }
 
-/// The item ids and prompts of `request.toolCall._meta.acpmux.question`,
-/// when it is an object.
+/// The keys a question request's `answers` may use (AgentPaneUserGestures
+/// .swift `questionKeys`): the item ids and prompts of
+/// `request.toolCall._meta.acpmux.question` when it is an object, else, for
+/// Claude Code's own AskUserQuestion (`toolCall._meta.claude.tool`, a shape
+/// older than the normalized envelope), the text of each
+/// `toolCall.rawInput.questions[].question`. None when the request is no
+/// question.
 fn question_keys(request: &Map<String, Value>) -> Option<BTreeSet<String>> {
-    let question = request.get("toolCall")?.get("_meta")?.get("acpmux")?.get("question")?;
-    let question = question.as_object()?;
-    let mut keys = BTreeSet::new();
-    for item in question.get("items").and_then(Value::as_array).into_iter().flatten() {
-        for key in ["id", "prompt"] {
-            if let Some(value) = item.get(key).and_then(Value::as_str) {
-                keys.insert(value.to_owned());
+    let tool = request.get("toolCall").and_then(Value::as_object);
+    let meta = tool.and_then(|t| t.get("_meta")).and_then(Value::as_object);
+    let normalized = meta
+        .and_then(|m| m.get("acpmux"))
+        .and_then(Value::as_object)
+        .and_then(|a| a.get("question"))
+        .and_then(Value::as_object);
+    if let Some(question) = normalized {
+        let mut keys = BTreeSet::new();
+        for item in question.get("items").and_then(Value::as_array).into_iter().flatten() {
+            for key in ["id", "prompt"] {
+                if let Some(value) = item.get(key).and_then(Value::as_str) {
+                    keys.insert(value.to_owned());
+                }
             }
         }
+        return Some(keys);
     }
-    Some(keys)
+    let claude_tool = meta.and_then(|m| m.get("claude")).and_then(|c| c.get("tool"));
+    if claude_tool.and_then(Value::as_str) != Some("AskUserQuestion") {
+        return None;
+    }
+    let questions = tool?.get("rawInput")?.get("questions")?.as_array()?;
+    Some(
+        questions
+            .iter()
+            .filter_map(|q| q.get("question").and_then(Value::as_str).map(str::to_owned))
+            .collect(),
+    )
 }

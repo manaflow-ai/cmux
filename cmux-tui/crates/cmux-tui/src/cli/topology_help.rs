@@ -4,6 +4,7 @@
 pub(super) const WORKSPACE_HELP: &str = "\
 USAGE
   cmux workspace list [--order session|personal]
+  cmux --machine <cloud machine> workspace list
   cmux workspace create [--name <value>] [--empty] [--ephemeral] [--focus] [--top] [--correlation-key <value>]
     [--expected-revision <revision>] [--cwd <path>] [--shell <script> | -- <argv...>]
   cmux workspace <selector> show|focus|close
@@ -36,7 +37,7 @@ USAGE
   cmux workspace [<selector>] checklist remove <item>
   cmux workspace placement list
   cmux workspace group list [--room <room>]
-  cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse]
+  cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse] [--reuse]
   cmux workspace group create --remote <host> [--name <value>]
   cmux workspace group create --parent <group> --name <value>
   cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color]
@@ -74,7 +75,11 @@ order to every caller when the session has the sidebar document; without
 the document it gives the sidebar order in the app's context (an app
 terminal or Chief addressing the app's own daemon), else the session
 order. The app's
-snapshot.get windows[].workspaces lists the order each window shows. --top-index
+snapshot.get windows[].workspaces lists the order each window shows. In the
+cmux app's session, list also gives each connected Cloud machine's
+workspaces after this Mac's, marked origin cloud with machine_id (the vm-…
+id cloud new-workspace answers), machine_name and target machine:<id>;
+--machine <vm-…|machine:vm-…|name> lists one Cloud machine's. --top-index
 puts a group right before the workspace at that placement index;
 --clear-top-index puts it after every loose workspace. --icon sets a group's
 icon (one emoji, an SF Symbol name, or a stored image:sha256-<hex> or
@@ -165,8 +170,8 @@ USAGE
 
 Zoom is a browser page zoom or a terminal font scale. Pinned tabs sort first
 and leave their group. A group or saved group is named by its id or exact
-name. Group colors: grey, blue, red, yellow, green, pink, purple, cyan, orange,
-or a custom #RRGGBB. A group icon is one emoji, an SF Symbol name, or a stored
+name. A group has no color until one is given: grey, blue, red, yellow, green,
+pink, purple, cyan, orange, a custom #RRGGBB, or none. A group icon is one emoji, an SF Symbol name, or a stored
 image:sha256-<hex> or svg:sha256-<hex> asset; --clear-icon removes it.
 
 SELECTORS

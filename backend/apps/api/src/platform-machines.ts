@@ -95,14 +95,15 @@ export class PlatformMachines extends WorkerEntrypoint<Env> {
   private async call(caller: PlatformCaller, call: PlatformCall): Promise<PlatformReply> {
     const cleanup = call.op === "find" || call.op === "destroy" || call.op === "create" || call.op === "fork" || call.op === "providerInfo"
     if (this.env.PLATFORM_MACHINES !== "on" && !cleanup) return refused("platform.machines_off", "platform machines are not enabled on this deployment", false)
-    const team = caller?.team, user = caller?.user
+    const team = caller?.team, user = caller?.user, agent = caller?.agent ?? null
     if (typeof team !== "string" || !TEAM.test(team) || typeof user !== "string" || !USER.test(user)) return refused("validation.invalid", "invalid caller", false)
+    if (agent !== null && !matches(AGENT, agent)) return refused("validation.invalid", "invalid caller", false)
     if ("name" in call && !matches(NAME, call.name)) return refused("validation.invalid", "invalid name", false)
     if ("machine" in call && !matches(MACHINE, call.machine)) return refused("validation.invalid", "invalid machine", false)
     if ("snapshot" in call && !matches(SNAPSHOT, call.snapshot)) return refused("validation.invalid", "invalid snapshot", false)
-    const stub = this.env.CLOUD_DO.get(this.env.CLOUD_DO.idFromName(team)) as unknown as { platformMachine(e: string, u: string, c: PlatformCall, recoveryOnly?: boolean): Promise<PlatformReply> }
+    const stub = this.env.CLOUD_DO.get(this.env.CLOUD_DO.idFromName(team)) as unknown as { platformMachine(e: string, u: string, c: PlatformCall, recoveryOnly?: boolean, agent?: string | null): Promise<PlatformReply> }
     try {
-      return await stub.platformMachine(team, user, call, this.env.PLATFORM_MACHINES !== "on")
+      return await stub.platformMachine(team, user, call, this.env.PLATFORM_MACHINES !== "on", agent)
     } catch {
       return refused("owner.unreachable", "the team's machines could not be reached; retry", true)
     }
@@ -113,6 +114,11 @@ export class PlatformMachines extends WorkerEntrypoint<Env> {
 export interface PlatformCaller {
   readonly team: string
   readonly user: string
+  /**
+   * The agent acting for the person, when one is (cmux-platform's MachineOwner.agent); absent or null for the
+   * person. An agent may read and exec, never create, delete, pause, start, resize or snapshot (cloud-platform.ts).
+   */
+  readonly agent?: string | null
 }
 
 export interface PlatformShape {
@@ -143,6 +149,7 @@ export interface PlatformProviderInfo {
 
 const TEAM = /^team_[A-Za-z0-9]{1,64}$/
 const USER = /^user_[A-Za-z0-9]{1,64}$/
+const AGENT = /^[A-Za-z0-9_:.-]{1,128}$/
 /** The caller's name for a builder or snapshot (one per environment and attempt): it keys the op, so a retry reaches the same one. */
 const NAME = /^[A-Za-z0-9_-]{1,96}$/
 const MACHINE = /^vm_[a-z0-9]{20}$/

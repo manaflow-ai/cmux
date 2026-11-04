@@ -315,7 +315,7 @@ mod typed_error_tests {
         assert_eq!(app.detail, "peer_unreachable");
         assert!(app.retryable);
         let text = app.text();
-        assert!(text.contains("\n  Check that b is on and online in `tailscale status`; `acpmux host doctor b` checks the link"), "{text}");
+        assert!(text.contains("\n  Check that b is on and online in `tailscale status`; `acpmux machine doctor b` checks the link"), "{text}");
         assert_eq!(app.envelope()["error"]["errorKind"], "peer.unreachable");
         assert_eq!(
             app.envelope()["error"]["data"]["details"]["lastSeenAt"],

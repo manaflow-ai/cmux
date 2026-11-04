@@ -111,6 +111,9 @@ public final class DaemonService {
         get { launchMarkSink.withLock { $0 } }
         set { launchMarkSink.withLock { $0 = newValue } }
     }
+    /// The local connection's daemon-request probe (``newRequestLatency()``), set by `start(launch:…)`;
+    /// `debug.daemon_requests` reads it off the main actor.
+    nonisolated let requestLatency = RequestLatencySlot()
     private nonisolated static let launchMarkSink = Mutex<@Sendable (String) -> Void>({ _ in })
 
     /// Fires `retryWake` when the app becomes active.
@@ -140,7 +143,7 @@ public final class DaemonService {
     @ObservationIgnored public var createReplyBound: Duration = DaemonConnection.closeReplyBound
     @ObservationIgnored private var startupDeadlineTimer: DemandTimer?
     /// The last failed connect attempt until a connection succeeds (`notConnectedReason`).
-    @ObservationIgnored private(set) var lastStartupError: DaemonError?
+    @ObservationIgnored public private(set) var lastStartupError: DaemonError?
     /// Events that may let a failed connect succeed: the daemon socket
     /// changing (watched by the connection), the app becoming active, and
     /// for a Cloud machine a network path change. Retries past their timed
@@ -202,11 +205,15 @@ public final class DaemonService {
         updateHandOff = { await launcher.handOffForUpdate(identity: $1, using: $0) }
         launchSnapshotSession = launcher.configuration.session
         showLaunchSnapshot(session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory)
+        // The prestart's connection records into its probe; later connections record into the same one.
+        let latency = prestart.map(\.requestLatency) ?? Self.newRequestLatency()
+        requestLatency.set(latency)
         // An owner the handshake refuses (an older protocol, a missing capability) is handed off to
         // the bundled build like one of another build; only a failed handoff shows the refusal.
         let configuration = launcher.handingOffIncompatibleOwners(Self.localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
-            installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift, retryWake: retryWake))
+            installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift, retryWake: retryWake,
+            requestLatency: latency))
         var first: (@Sendable () async -> DaemonPrestart.Outcome)?
         if let prestart {
             // Cancelling the startup (shutdown) cancels the attempt too.
@@ -314,6 +321,7 @@ public final class DaemonService {
     /// `bridge`: each connection runs this child instead of connecting to the
     /// socket (``DaemonEndpoint/bridge``). `onEnd` runs on each drop (EOF, heartbeat).
     public func start(remote endpoint: @escaping @Sendable () async throws -> String, bridge: DaemonBridge? = nil,
+               requiredCapabilities: [String] = DaemonCapability.required,
                admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil, onEnd: (@MainActor () -> Void)? = nil) {
         guard runTask == nil, !policyBlock.isBlocked else { return }
         remoteEndpoint = { DaemonEndpoint(socketPath: try await endpoint()) }
@@ -330,7 +338,8 @@ public final class DaemonService {
         monitor.start(queue: DispatchQueue(label: "com.cmuxterm.next.daemon.path.\(machineID)"))
         pathMonitor = monitor
         let clock = startupClock
-        var configuration = DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil, sessionEvents: true)
+        var configuration = DaemonConnection.Configuration(requiredCapabilities: requiredCapabilities,
+                                                           retryWake: wake, terminalEnvironment: nil, sessionEvents: true)
         configuration.echoesPlacementShift = echoesPlacementShift
         runTask = Task { [weak self, drainScheduler, logger, configuration] in
             weak let weakSelf = self
@@ -524,7 +533,9 @@ public final class DaemonService {
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")
             await closeTicket(ticket, label: label, error: DaemonError.notConnected)
-            return "\(label): \(notConnectedReason ?? DaemonError.notConnected.description)"
+            var failure = ActionWorkFailure("\(label): \(notConnectedReason ?? DaemonError.notConnected.description)")
+            failure.cause = .connection
+            return failure
         }
         do {
             try await body(connection)
@@ -540,6 +551,9 @@ public final class DaemonService {
     /// Receives every command task `send` starts, so an action run from the
     /// control socket can await it (`ActionRegistry.track`).
     @ObservationIgnored public var workTracker: ((ActionWork) -> Void)?
+    /// How many times the connection was shut down (`detachConnection`): a write sent again while unanswered stops
+    /// at the next one (`performUntilAnswered`).
+    @ObservationIgnored var shutdowns = 0
     /// Shows a request refused because it names a pane still opening (``PaneNotReady``) when no open action scope
     /// answers it; the app sets it (the refusal path: log + HUD). Gets the localized reason.
     @ObservationIgnored public var onPaneNotReady: ((_ reason: String) -> Void)?
@@ -593,6 +607,7 @@ public final class DaemonService {
     }
 
     private func detachConnection() -> DaemonConnection? {
+        shutdowns += 1
         // Nothing may start an owner again behind the shutdown (the unresponsive owner's restart).
         recovery.detach()
         startupDeadlineTimer?.cancel()

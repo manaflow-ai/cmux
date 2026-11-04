@@ -11,12 +11,13 @@
 // observer or frame loop: Web Animations that finish on their own, and stop() cancels them (the
 // transcript calls it on the next switch and on unmount). Motion off or a zero motion token: nothing.
 // Reduce Motion: the same elements fade, with no travel.
-import { MOTION_MS } from "../../motion/scale.generated";
+import { MOTION_MS, MOTION_SPRING } from "../../motion/scale.generated";
+import { springEasing } from "../../ui/motion/motionMode";
 import { entranceAllowed } from "../shared/pageReveal";
 import type { ChatSwitchArm } from "./chatSwitch.experiment";
 
-/** One spring for every part (critically damped, a touch of settle), as a `linear()` easing. */
-export const SWITCH_SPRING = "linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0.985 46%, 1.006 58%, 1.004 72%, 1)";
+/** One spring for every part (critically damped, a touch of settle): the motion scale's spring. */
+export const SWITCH_SPRING = MOTION_SPRING;
 /** Rows staggered at most: past that the remaining rows move with the last. */
 const MAX_STAGGERED_ROWS = 8;
 const STAGGER_MS = 16;
@@ -158,7 +159,7 @@ export function playChatSwitch(
     part.element.animate([starts[index]!, part.to], {
       duration: part.duration,
       delay: part.delay,
-      easing: mode === "reduced" ? "ease-out" : SWITCH_SPRING,
+      easing: mode === "reduced" ? "ease-out" : springEasing(SWITCH_SPRING, "ease-out", scroller.ownerDocument),
       // Before its delay a part is drawn at its start, so nothing shows whole and then jumps back.
       fill: "backwards",
     }),

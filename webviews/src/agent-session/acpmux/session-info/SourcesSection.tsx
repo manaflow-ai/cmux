@@ -4,11 +4,15 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { NativeError } from "../nativeError";
 import type { SummarySource } from "../summary/sessionSummary";
+import { extraFolderName } from "../extraFolders";
 
 export const SOURCES_SHOWN = 5;
 type RowProps = {
   source: SummarySource;
   onOpenBeside?: (url: string) => void;
+  onOpenImage?: (src: string, alt: string) => void;
+  /// A pasted image's bytes by its id, when its prompt did not carry them.
+  readImage?: (id: string) => Promise<string | undefined>;
   onOpenFile?: (path: string) => unknown;
   cwd?: string;
 };
@@ -26,7 +30,7 @@ export async function openSourceFile(
   }
 }
 
-function scopedPath(path: string, cwd?: string): string | undefined {
+export function scopedPath(path: string, cwd?: string): string | undefined {
   if (!cwd?.startsWith("/") || path.startsWith("~") || path.includes("\0")) return;
   const normalize = (value: string) => {
     const parts: string[] = [];
@@ -42,11 +46,16 @@ function scopedPath(path: string, cwd?: string): string | undefined {
 
 export function SourcesSection({
   sources,
+  folders = [],
   expanded,
   onExpandedChange,
   ...navigation
 }: Omit<RowProps, "source"> & {
   sources: readonly SummarySource[];
+  /// The folders the chat sees beside its own (acpmux `additionalDirectories`), listed first. Leo,
+  /// 2026-11-03: "being able to have chatgpt (and in this case, any harnesses) see whatever
+  /// folders/files would be cool".
+  folders?: readonly string[];
   expanded: boolean;
   onExpandedChange: (expanded: boolean) => void;
 }) {
@@ -56,8 +65,21 @@ export function SourcesSection({
   return (
     <>
       <ul className="acpmux-session-info-list" data-section="sources">
+        {folders.map((folder) => (
+          // tooltip-allow: the row shows the folder's name; the tooltip is its full path
+          <li key={`folder:${folder}`} className="acpmux-session-info-source" data-kind="folder" title={folder}>
+            <span className="acpmux-session-info-source__link">
+              <Icon name="folder" size={rowIconSize(12)} row />
+              <span className="acpmux-session-info-source__label">{extraFolderName(folder)}</span>
+            </span>
+          </li>
+        ))}
         {shown.map((source) => (
-          <SourceRow key={`${source.kind}:${source.url ?? source.label}`} source={source} {...navigation} />
+          <SourceRow
+            key={source.image ? `image:${source.image.id}` : `${source.kind}:${source.url ?? source.label}`}
+            source={source}
+            {...navigation}
+          />
         ))}
       </ul>
       {folds && (
@@ -74,7 +96,7 @@ export function SourcesSection({
   );
 }
 
-function SourceRow({ source, onOpenBeside, onOpenFile, cwd }: RowProps) {
+function SourceRow({ source, onOpenBeside, onOpenImage, readImage, onOpenFile, cwd }: RowProps) {
   const t = useT();
   const [failure, setFailure] = useState<string>();
   useEffect(() => {
@@ -88,16 +110,36 @@ function SourceRow({ source, onOpenBeside, onOpenFile, cwd }: RowProps) {
     pullRequest: "git.pullrequest",
     issue: "git.pullrequest",
     url: "link.web",
+    image: "site.permission.images",
   } as const;
   const content = (
     <>
       <Icon name={icon[source.kind ?? "url"]} size={rowIconSize(12)} row />
-      <span className="acpmux-session-info-source__label">{source.label}</span>
+      <span className="acpmux-session-info-source__label">{source.label || t("image.viewer")}</span>
     </>
   );
   const path = source.kind === "file" ? scopedPath(source.label, cwd) : undefined;
+  const image = source.image;
   let target = content;
-  if (path && onOpenFile)
+  if (image && onOpenImage && (image.src || readImage))
+    target = (
+      <button
+        type="button"
+        className="acpmux-session-info-source__link"
+        onClick={() => {
+          setFailure(undefined);
+          Promise.resolve(image.src ?? readImage?.(image.id))
+            .then((src) => {
+              if (!src) throw new Error(t("image.unavailable"));
+              onOpenImage(src, source.label || t("image.viewer"));
+            })
+            .catch((error: unknown) => setFailure(error instanceof Error ? error.message : t("image.actionFailed")));
+        }}
+      >
+        {content}
+      </button>
+    );
+  else if (path && onOpenFile)
     target = (
       <button
         type="button"

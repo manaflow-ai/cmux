@@ -301,6 +301,8 @@ final class StreamView: UIView, UIKeyInput, UIContextMenuInteractionDelegate {
     /// worked out again at each layout (rotation, split view), not only per notification.
     private var keyboardOnScreen: CGRect?
     private lazy var keyBar = StreamKeyBar(target: self)
+    /// Find in page: the system find bar; the Mac's browser finds (`rb.find`).
+    private lazy var finder = StreamedBrowserFindController(model: model)
 
     init(model: StreamedBrowserModel) {
         self.model = model
@@ -319,6 +321,13 @@ final class StreamView: UIView, UIKeyInput, UIContextMenuInteractionDelegate {
         // A long press shows the page's own menu for that spot (links, images, text), as
         // a secondary click does on the Mac: Safari's long press, with the Mac's rows.
         addInteraction(UIContextMenuInteraction(delegate: self))
+        // On the page itself: the find bar's interaction needs a view that can take the keyboard.
+        finder.install(in: self)
+        finder.pageHasFocus = { [weak self] in self?.isFirstResponder ?? false }
+        finder.ended = { [weak self] restoreFocus in
+            guard let self else { return }
+            if restoreFocus { _ = becomeFirstResponder() } else if !isFirstResponder { cover(nil) }
+        }
         isAccessibilityElement = true
         accessibilityTraits = .allowsDirectInteraction
         accessibilityIdentifier = "browser.page"
@@ -332,7 +341,9 @@ final class StreamView: UIView, UIKeyInput, UIContextMenuInteractionDelegate {
     private var pageSize: CGSize { CGSize(width: bounds.width, height: max(64, bounds.height - covered)) }
 
     @objc private func keyboardFrame(_ note: Notification) {
-        guard isFirstResponder,
+        // The page's own keyboard, or the find bar's: the page lays out above either, so the
+        // match the Mac scrolls to stays in sight.
+        guard isFirstResponder || finder.isActive,
               let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else { return }
         keyboardOnScreen = end
         setNeedsLayout()
@@ -580,6 +591,12 @@ final class StreamView: UIView, UIKeyInput, UIContextMenuInteractionDelegate {
             let modifiers = Self.modifiers(key.modifierFlags)
             if modifiers == .command, key.keyCode == .keyboardV {
                 rest.insert(press)
+            } else if modifiers == .command, key.keyCode == .keyboardF {
+                // The Mac's Cmd-F: this phone's find bar over the page (never the Mac's own).
+                finder.present()
+            } else if modifiers == .command || modifiers == [.command, .shift], key.keyCode == .keyboardG {
+                // Find Next / Find Previous.
+                finder.step(forward: modifiers == .command)
             } else if let hardware = StreamedHardwareKey(usage: key.keyCode.rawValue,
                                                          characters: key.charactersIgnoringModifiers,
                                                          modifiers: modifiers) {
@@ -677,6 +694,11 @@ final class StreamView: UIView, UIKeyInput, UIContextMenuInteractionDelegate {
     }
 
     override func paste(_ sender: Any?) { pastePhoneClipboard() }
+
+    // The standard find actions (a key command or menu that sends them): the find bar.
+    override func find(_ sender: Any?) { finder.present() }
+    override func findNext(_ sender: Any?) { finder.step(forward: true) }
+    override func findPrevious(_ sender: Any?) { finder.step(forward: false) }
 
     func done() { _ = resignFirstResponder() }
 }

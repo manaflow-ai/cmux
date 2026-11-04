@@ -9,6 +9,9 @@ final class NativePopupSliderView: NSView {
     private let minimumLabel: ThemedLabel
     private let maximumLabel: ThemedLabel
     private let recommendedLabel: ThemedLabel
+    /// Its parts span the popup row's padded box (``PopupRowView/contentGuide``): the row layout
+    /// of ``NativePopupContent``'s other rows owns the inset, so the slider moves with them.
+    private let rowLayout = PopupRowView.Layout()
     private var descriptor: NativePopupSlider
     private var lastEmittedValue: String?
     var change: (String) -> Void = { _ in }
@@ -83,13 +86,14 @@ final class NativePopupSliderView: NSView {
 
     override func layout() {
         super.layout()
-        let width = max(0, bounds.width - 16)
-        heading.frame = NSRect(x: 8, y: 5, width: width / 2, height: 20)
-        currentLabel.frame = NSRect(x: 8 + width / 2, y: 5, width: width / 2, height: 20)
-        slider.frame = NSRect(x: 8, y: 29, width: width, height: 24)
-        minimumLabel.frame = NSRect(x: 8, y: 56, width: width / 2, height: 18)
-        maximumLabel.frame = NSRect(x: 8 + width / 2, y: 56, width: width / 2, height: 18)
-        recommendedLabel.frame = NSRect(x: 8, y: 80, width: width, height: 18)
+        let start = rowLayout.leading
+        let width = max(0, bounds.width - rowLayout.leading - rowLayout.trailing)
+        heading.frame = NSRect(x: start, y: 5, width: width / 2, height: 20)
+        currentLabel.frame = NSRect(x: start + width / 2, y: 5, width: width / 2, height: 20)
+        slider.frame = NSRect(x: start, y: 29, width: width, height: 24)
+        minimumLabel.frame = NSRect(x: start, y: 56, width: width / 2, height: 18)
+        maximumLabel.frame = NSRect(x: start + width / 2, y: 56, width: width / 2, height: 18)
+        recommendedLabel.frame = NSRect(x: start, y: 80, width: width, height: 18)
     }
 
     @objc private func valueChanged(_ sender: NSSlider) { publishValue() }
@@ -118,18 +122,26 @@ final class NativePopupSliderView: NSView {
 
 @MainActor
 class NativePopupTrackingSlider: NSSlider {
-    var isInteracting = false
+    private var interactionDepth = 0
+    /// AppKit is tracking this slider (a drag or a key): the popup must not replace it.
+    var isInteracting: Bool { interactionDepth > 0 }
+    /// The outermost interaction ended: a popup update deferred during the drag applies now.
+    var interactionEnded: (() -> Void)?
+
+    /// Runs `body` as one interaction; nested calls (a subclass around `super`) end once.
+    func interact(_ body: () -> Void) {
+        interactionDepth += 1
+        body()
+        interactionDepth -= 1
+        if interactionDepth == 0 { interactionEnded?() }
+    }
 
     override func mouseDown(with event: NSEvent) {
-        isInteracting = true
-        defer { isInteracting = false }
-        super.mouseDown(with: event)
+        interact { super.mouseDown(with: event) }
     }
 
     override func keyDown(with event: NSEvent) {
-        isInteracting = true
-        defer { isInteracting = false }
-        super.keyDown(with: event)
+        interact { super.keyDown(with: event) }
     }
 }
 
@@ -141,24 +153,27 @@ final class NativePopupDiscreteSlider: NativePopupTrackingSlider {
 
     override func mouseDown(with event: NSEvent) {
         guard isEnabled else { return }
-        super.mouseDown(with: event)
-        commitValue(false)
+        // The release's commit is part of the drag: a deferred popup update waits for it.
+        interact {
+            super.mouseDown(with: event)
+            commitValue(false)
+        }
     }
 
     override func keyDown(with event: NSEvent) {
         guard isEnabled else { return }
-        isInteracting = true
-        defer { isInteracting = false }
-        if [125, 126].contains(event.keyCode), navigate(event.keyCode) { return }
-        switch event.keyCode {
-        case 36, 76: commitValue(true)
-        case 53: escape()
-        case 123, 125, 124, 126, 115, 119:
-            if event.keyCode == 115 { doubleValue = minValue }
-            else if event.keyCode == 119 { doubleValue = maxValue }
-            else { doubleValue = min(maxValue, max(minValue, doubleValue + ([124, 126].contains(event.keyCode) ? 1 : -1))) }
-            _ = sendAction(action, to: target)
-        default: super.keyDown(with: event)
+        interact {
+            if [125, 126].contains(event.keyCode), navigate(event.keyCode) { return }
+            switch event.keyCode {
+            case 36, 76: commitValue(true)
+            case 53: escape()
+            case 123, 125, 124, 126, 115, 119:
+                if event.keyCode == 115 { doubleValue = minValue }
+                else if event.keyCode == 119 { doubleValue = maxValue }
+                else { doubleValue = min(maxValue, max(minValue, doubleValue + ([124, 126].contains(event.keyCode) ? 1 : -1))) }
+                _ = sendAction(action, to: target)
+            default: super.keyDown(with: event)
+            }
         }
     }
 }

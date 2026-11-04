@@ -472,6 +472,42 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu.</string>
+			<key>pfm_name</key>
+			<string>tabs.verticalTabs</string>
+			<key>pfm_title</key>
+			<string>Use Vertical Tabs for All Workspaces</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>When the vertical tab list is collapsed to icons, show the titles while the pointer is over it.</string>
+			<key>pfm_name</key>
+			<string>tabs.verticalTabsExpandOnHover</string>
+			<key>pfm_title</key>
+			<string>Expand Collapsed Vertical Tabs on Hover</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>When a pane holds only one chat, hide its tab so the chat fills the tab bar. A second tab brings the tab bar back.</string>
+			<key>pfm_name</key>
+			<string>tabs.hideLoneChatTab</string>
+			<key>pfm_title</key>
+			<string>Hide the Tab of a Chat Alone in Its Pane</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused.</string>
 			<key>pfm_name</key>
 			<string>tabs.swapCmdTAndCmdN</string>
@@ -976,6 +1012,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Your phone's Chief page shows your running Cloud machine's screen, view only. This Mac streams it while the page is open.</string>
+			<key>pfm_name</key>
+			<string>phone.cloudDesktop</string>
+			<key>pfm_title</key>
+			<string>Show Your Cloud Machine's Screen on Your Phone</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<dict/>
 			<key>pfm_description</key>
 			<string>The color of each machine's sidebar rows and tab badges, by machine name: "#RRGGBB", or an accent name (red, green, yellow, purple, cyan, orange, pink, blue) that follows the theme. A machine without one gets a color from its name.</string>
@@ -1035,6 +1083,30 @@
 			<string>New Cloud Workspaces Start In</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead.</string>
+			<key>pfm_name</key>
+			<string>cloud.useMyClaudeLoginOnMyCloudMachines</string>
+			<key>pfm_title</key>
+			<string>Use My Claude Login on My Own Cloud Machines</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this.</string>
+			<key>pfm_name</key>
+			<string>cloud.agentsStartWithoutAsking</string>
+			<key>pfm_title</key>
+			<string>Let Agents Use Cloud Without Asking</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -1105,6 +1177,50 @@
 			<real>1</real>
 			<key>pfm_title</key>
 			<string>Deepest Nesting</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>When a model is rate limited or out of capacity, or the connection drops, the chat tries again by itself. Retry on the error card always works.</string>
+			<key>pfm_name</key>
+			<string>agents.autoRetry.enabled</string>
+			<key>pfm_title</key>
+			<string>Retry Automatically</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>0</integer>
+			<key>pfm_description</key>
+			<string>How long the chat waits before each try. 0 waits longer after each failed try: 10 seconds, 1 minute, 5 minutes, then 20 minutes.</string>
+			<key>pfm_name</key>
+			<string>agents.autoRetry.intervalSeconds</string>
+			<key>pfm_range_max</key>
+			<real>3600</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Seconds Between Retries</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>4</integer>
+			<key>pfm_description</key>
+			<string>How many times the chat tries again before it stops and waits for you.</string>
+			<key>pfm_name</key>
+			<string>agents.autoRetry.attempts</string>
+			<key>pfm_range_max</key>
+			<real>12</real>
+			<key>pfm_range_min</key>
+			<real>1</real>
+			<key>pfm_title</key>
+			<string>Retries per Error</string>
 			<key>pfm_type</key>
 			<string>real</string>
 		</dict>
@@ -1744,6 +1860,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage.</string>
+			<key>pfm_name</key>
+			<string>agents.chats.sessionRecap</string>
+			<key>pfm_title</key>
+			<string>Session Recap</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<array/>
 			<key>pfm_description</key>
 			<string>The picker lists these folders under Locations, after Home and Downloads. Use full paths or ~/ paths.</string>
@@ -1927,6 +2055,45 @@
 			<string>Theme Edits</string>
 			<key>pfm_type</key>
 			<string>dictionary</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>Themes starred in a theme picker. The picker lists them first.</string>
+			<key>pfm_name</key>
+			<string>appearance.favoriteThemes</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Starred Themes</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>off</string>
+			<key>pfm_description</key>
+			<string>When cmux opens, the terminal theme changes to the next starred theme. Needs two starred themes, and has no effect while Match System Appearance is on.</string>
+			<key>pfm_name</key>
+			<string>appearance.rotateFavoriteThemes</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+				<string>launch</string>
+				<string>daily</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Rotate Starred Themes</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -2305,6 +2472,26 @@
 			<string>Change Picture</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Map stable display identifiers to daily, folder:&lt;absolute path&gt;, desktop, a fixed background, or none.</string>
+			<key>pfm_name</key>
+			<string>appearance.displayBackgrounds</string>
+			<key>pfm_title</key>
+			<string>Per-display Backgrounds</string>
+			<key>pfm_type</key>
+			<string>dictionary</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Map stable display identifiers to 15m, hourly, or daily. Unset displays use the global rotation.</string>
+			<key>pfm_name</key>
+			<string>appearance.displayBackgroundRotations</string>
+			<key>pfm_title</key>
+			<string>Per-display Background Rotation</string>
+			<key>pfm_type</key>
+			<string>dictionary</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -3797,6 +3984,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>While the agent works, its task list stays under the latest message instead of in the bar over the composer.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.pinnedPlan</string>
+			<key>pfm_title</key>
+			<string>Pin Task List in Chat</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>markdown</string>
 			<key>pfm_name</key>
 			<string>agentPane.display.font.preset</string>
@@ -3870,7 +4069,7 @@
 			<key>pfm_description</key>
 			<string>Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.</string>
 			<key>pfm_name</key>
-			<string>agentPane.display.inspector.placement</string>
+			<string>agentPane.display.sessionInfo.placement</string>
 			<key>pfm_range_list</key>
 			<array>
 				<string>push</string>
@@ -3952,6 +4151,23 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>symbols</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.harnessPlacement</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>symbols</string>
+				<string>left</string>
+				<string>top</string>
+				<string>compact</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Model Picker Harness Placement</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>left</string>
 			<key>pfm_description</key>
 			<string>The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.</string>
@@ -3964,6 +4180,18 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Prompt Rail Side</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>How the chat names background commands: preset names such as cmux-fleet, and rules with a program or pattern and a label.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.commandLabels</string>
+			<key>pfm_title</key>
+			<string>Command Labels</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -7866,6 +8094,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them.</string>
+			<key>pfm_name</key>
+			<string>feed.needsYouInChief</string>
+			<key>pfm_title</key>
+			<string>Pin Needs You in Chief</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>steady</string>
 			<key>pfm_name</key>
 			<string>notifications.attention.style</string>
@@ -8040,6 +8280,18 @@
 			<string>notifications.attention.moveToTop</string>
 			<key>pfm_title</key>
 			<string>Move the Workspace to the Top</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>An agent that finishes its turn moves its workspace to the top of the unpinned rows, unless you are looking at its pane.</string>
+			<key>pfm_name</key>
+			<string>notifications.attention.moveToTopOnAgentFinish</string>
+			<key>pfm_title</key>
+			<string>Move the Workspace to the Top When Its Agent Finishes</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -8252,11 +8504,11 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
-			<string>Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first.</string>
+			<string>Inbox shows your GitHub notifications</string>
 			<key>pfm_name</key>
 			<string>feed.github.enabled</string>
 			<key>pfm_title</key>
-			<string>Connect GitHub</string>
+			<string>GitHub Inbox</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -8385,6 +8637,23 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>context</string>
+			<key>pfm_description</key>
+			<string>What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them.</string>
+			<key>pfm_name</key>
+			<string>agentPane.composerRing</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>context</string>
+				<string>planUsage</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Composer Ring</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>The microphone beside Send in every composer, including the New Tab page.</string>
@@ -8502,6 +8771,23 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>1h</string>
+			<key>pfm_description</key>
+			<string>How long Claude Code keeps a chat's prompt cached. One hour keeps replies after a pause cheap; its cache writes cost a little more.</string>
+			<key>pfm_name</key>
+			<string>agents.promptCache</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>1h</string>
+				<string>5m</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Prompt Cache</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>deepseek/deepseek-v4.1-flash-1017</string>
 			<key>pfm_description</key>
 			<string>The model a new chat on the cmux model router starts on. A model you pick in a chat applies to that chat only.</string>
@@ -8576,6 +8862,30 @@
 			<string>contextMenus.showCustomizeItem</string>
 			<key>pfm_title</key>
 			<string>Show Customize Menu…</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click.</string>
+			<key>pfm_name</key>
+			<string>imessage.enabled</string>
+			<key>pfm_title</key>
+			<string>Connect iMessage</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Remember skipping the Messages Automation step. This does not grant access or authorize sending.</string>
+			<key>pfm_name</key>
+			<string>imessage.automationSkipped</string>
+			<key>pfm_title</key>
+			<string>Skip Messages Automation</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -8704,6 +9014,16 @@
 			<string>DisableTelemetry</string>
 			<key>pfm_title</key>
 			<string>DisableTelemetry</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Computer use can act as me: clicks and key presses computer use makes in a chat count as the person's for Send, Retry and Approve, and nothing else. Off by default. Honored only as a forced value from an installed profile; the person can still turn it off until cmux restarts, and every action it lets through is logged.</string>
+			<key>pfm_name</key>
+			<string>ComputerUseActsAsPerson</string>
+			<key>pfm_title</key>
+			<string>ComputerUseActsAsPerson</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>

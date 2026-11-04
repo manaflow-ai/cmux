@@ -425,6 +425,10 @@
       "scope": "cloud:read",
       "class": "read"
     },
+    "cloud.vm.attention.emit": {
+      "scope": "cloud:execute",
+      "class": "mutation"
+    },
     "cloud.vm.event.emit": {
       "scope": "cloud:execute",
       "class": "mutation"
@@ -2016,6 +2020,8 @@
     "home.settings.set",
     "host.enroll",
     "host.network.bind",
+    "host.network.policy",
+    "host.network.target",
     "host.remove",
     "host.replica.purge",
     "install.list",

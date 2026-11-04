@@ -238,7 +238,9 @@ public final class LiveCoordinator {
             guard let owner, let session else {
                 return UnboundAgentSource(summary: summary, macName: owner?.name ?? self.link.target?.name)
             }
-            return owner.acpmux.source(sessionID: session, summary: summary)
+            var scoped = summary
+            scoped.accountID = self.userID
+            return owner.acpmux.source(sessionID: session, summary: scoped)
         }
         restoreSnapshot()
         watchNetwork()
@@ -592,6 +594,7 @@ public final class LiveCoordinator {
         if let macID { lastShown[macID] = ContinuousClock.now }
         pairingState = focused.pairingState
         chiefFollowsFocus()
+        ChiefComputer.shared.macChanged()
         phaseChanged(focused)
     }
 
@@ -665,6 +668,7 @@ public final class LiveCoordinator {
     /// Closes a Mac's link and forgets its session.
     private func closeSession(_ id: String) {
         guard let session = sessions.removeValue(forKey: id) else { return }
+        session.pairingRetry?.cancel()
         for relay in session.cloudChats.values { relay.retire() }
         session.cloudChats.removeAll()
         session.link.send(.target(nil))

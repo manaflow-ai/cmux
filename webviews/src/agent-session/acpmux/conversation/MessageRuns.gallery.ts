@@ -30,7 +30,7 @@ function work(): AcpmuxRow[] {
     activity(
       [
         send("lane-2/coord-dispatcher", "From claude-sr2-coord, for nightly-next freshness: the 21:00 cut is late."),
-        send("lane-2/cpu-acpmux-index", "From claude-sr2-coord: re-profile on cosmic-gray with the new index."),
+        send("lane-2/cpu-acpmux-index", "From claude-sr2-coord: re-profile on studio-mac with the new index."),
         read("Read probe 22 diagnostics", "/tmp/probe-22/diagnostics.log"),
         send("lane-12/cloud-item-11", "From claude-sr2-coord: probe 22 (HQ run 4131) failed at sign-in."),
       ],
@@ -49,8 +49,8 @@ function work(): AcpmuxRow[] {
         read("Read the lane notes", "/tmp/lanes/notes.md"),
         send("lane-2/ask-8a6cb9b118", "From claude-sr2-coord, answering your ask-8a6cb9b118: yes, land it."),
         send("lane-2/acpmux-owner", "From claude-sr2-coord: bug for you (acpmux): 'acpmux ls' hangs on a dead peer."),
-        read("Read daemon exe links on huge-blue", "/tmp/huge-blue/daemon-links.txt"),
-        send("lane-2/acpmux-owner", "From claude-sr2-coord: confirmed on huge-blue, the old exe is still linked."),
+        read("Read daemon exe links on build-box", "/tmp/build-box/daemon-links.txt"),
+        send("lane-2/acpmux-owner", "From claude-sr2-coord: confirmed on build-box, the old exe is still linked."),
       ],
       8,
     ),
@@ -76,9 +76,13 @@ function running() {
   });
 }
 
-/// Opens the run's line, as a click does.
+/// Opens the run's line, as a click does. A finished turn whose work folds under "Worked for" opens
+/// that first: the run's line is among the rows it holds.
 const openLine: Play = async (ctx) => {
   const line = () => ctx.document.querySelector<HTMLElement>("button[data-message-run]");
+  const worked = () => ctx.document.querySelector<HTMLElement>(".cv-worked.is-toggle");
+  await ctx.waitFor(() => line() ?? worked(), { capMs: 10_000 });
+  if (!line() && worked()?.getAttribute("aria-expanded") === "false") await ctx.click({ selector: ".cv-worked" });
   await ctx.waitFor(line, { capMs: 10_000 });
   if (line()?.getAttribute("aria-expanded") === "false") await ctx.click({ selector: "button[data-message-run]" });
   await ctx.waitFor(() => line()?.getAttribute("aria-expanded") === "true", { capMs: 10_000 });

@@ -112,7 +112,13 @@ async fn production_spawn(tag: &str, vm_host: bool) {
     .unwrap()
     .unwrap();
     let ready: Value = serde_json::from_str(&ready).unwrap();
-    let url = ready["webUrl"].as_str().unwrap().replace("http://", "ws://");
+    // The listener takes its token only from a header, never the URL (`server/ws_auth.rs`).
+    let (base, token) = ready["webUrl"].as_str().unwrap().split_once("#token=").unwrap();
+    let mut url = tokio_tungstenite::tungstenite::client::IntoClientRequest::into_client_request(
+        base.replace("http://", "ws://"),
+    )
+    .unwrap();
+    url.headers_mut().insert("authorization", format!("Bearer {token}").parse().unwrap());
     let (mut ws, _) =
         tokio::time::timeout(Duration::from_secs(45), tokio_tungstenite::connect_async(url))
             .await

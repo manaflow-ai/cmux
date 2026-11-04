@@ -991,6 +991,24 @@
    "family": "git"
   },
   {
+   "name": "git.pullrequest.closed",
+   "meaning": "Closed pull request, or one GitHub can't merge for conflicts (Session Info Changes).",
+   "sf": "questionmark.square.dashed",
+   "family": "git.pullrequest"
+  },
+  {
+   "name": "git.pullrequest.draft",
+   "meaning": "Draft pull request (Session Info Changes).",
+   "sf": "questionmark.square.dashed",
+   "family": "git.pullrequest"
+  },
+  {
+   "name": "git.pullrequest.merged",
+   "meaning": "Merged pull request (Session Info Changes).",
+   "sf": "questionmark.square.dashed",
+   "family": "git.pullrequest"
+  },
+  {
    "name": "git.worktree",
    "meaning": "Session runs in its own git worktree.",
    "sf": "questionmark.square.dashed",
@@ -2054,6 +2072,12 @@
    "meaning": "List / choices / all",
    "sf": "list.bullet",
    "family": "view"
+  },
+  {
+   "name": "view.list.short",
+   "meaning": "Two-row list: the chat header's Session Info panel toggle",
+   "sf": "questionmark.square.dashed",
+   "family": "view.list"
   },
   {
    "name": "window.new",

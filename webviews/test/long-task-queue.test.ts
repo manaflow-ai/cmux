@@ -47,11 +47,14 @@ await requireBrowserLane("long-task-queue.test.ts", async () => {
       console.log(`long-task-queue: ${JSON.stringify(report)}`);
       expect(report.eventCount).toBe(192_000);
       expect(report.rowCount).toBe(192_000);
-      expect(report.ticks).toBe(12);
+      // The asynchronous streaming samples may let the heartbeat interval fire a few extra times.
+      expect(report.ticks).toBeGreaterThanOrEqual(12);
       expect(report.freshSnapshots).toBe(0);
       expect(report.tasks).toBeGreaterThan(report.ticks);
       expect(report.tickTasks.every((count) => count > 0)).toBe(true);
       expect(report.tickRowReads.every((count) => count < report.eventCount / 100)).toBe(true);
+      expect(report.streamTickMs).toHaveLength(4);
+      expect(report.streamMaxTickMs).toBeGreaterThanOrEqual(0);
       expect(report.maxTickMs).toBeLessThan(16.7);
       expect(report.tickFrames.every((count) => count > 0)).toBe(true);
       expect(report.longTasks.filter((task) => task.duration >= 50)).toEqual([]);

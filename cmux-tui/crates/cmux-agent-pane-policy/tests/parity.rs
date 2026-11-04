@@ -272,7 +272,8 @@ fn gestures() {
 /// AGENT-TRUST-GATE (tests/cases/trust_gate.json, its description cites the
 /// sources): the pane is LocalApp-origin through the host's token only, the
 /// page writes neither the token nor a forward mark, Trust needs a gesture
-/// and Don't trust does not, and the gate's refusals pass unfiltered.
+/// and local Don't trust does not; every peer write needs a gesture, and
+/// the gate's refusals pass unfiltered.
 #[test]
 fn trust_gate() {
     let all = cases("trust_gate.json");
@@ -282,6 +283,26 @@ fn trust_gate() {
     for m in group(&all, "unfiltered") {
         let m = m.as_str().unwrap();
         assert!(!policy().reply_shapes.contains_key(m), "{m}: its reply would lose data.reason");
+    }
+}
+
+#[test]
+fn trust_peer_selector_requires_a_nonempty_string() {
+    for method in ["acp.trust.get", "acp.trust.set"] {
+        for peer in [
+            Value::Null,
+            serde_json::json!(""),
+            serde_json::json!(42),
+            serde_json::json!(true),
+            serde_json::json!({"name": "dev-box"}),
+            serde_json::json!(["dev-box"]),
+        ] {
+            let frame = serde_json::json!({
+                "jsonrpc": "2.0", "id": 1, "method": method,
+                "params": {"cwd": "/x", "peer": peer}
+            });
+            assert!(breaks_params_rule(&object(&frame), None), "{method} must refuse peer {peer}");
+        }
     }
 }
 
@@ -484,11 +505,9 @@ fn the_built_in_policy_parses() {
     let v: Value = serde_json::from_str(&text).unwrap();
     let p = policy();
     assert!(!p.requests.is_empty() && p.maximum_frame_bytes > 0, "policy() fell back to deny-all");
-    assert_eq!(
-        p.reply_shapes.len(),
-        v["reply_shapes"].as_object().unwrap().len(),
-        "every reply shape parsed"
-    );
+    // Whether each shape parsed is every_reply_shape_parses's question (a
+    // shape that does not parse is kept as an empty filter).
+    assert_eq!(p.reply_shapes.len(), v["reply_shapes"].as_object().unwrap().len());
     assert_eq!(p.requests.len(), v["requests"].as_array().unwrap().len());
 }
 
@@ -532,5 +551,43 @@ fn question_permissions() {
         ("never", false),
     ] {
         assert_eq!(options.question_keys(id).is_some(), question, "{id}");
+    }
+}
+
+/// The keys a question's `answers` may use (tests/cases/question_keys.json):
+/// the normalized question's item ids and prompts, else Claude Code's own
+/// AskUserQuestion's `toolCall.rawInput.questions[].question`
+/// (AgentPaneUserGestures.swift `questionKeys`, #28129); None for a request
+/// that is no question.
+#[test]
+fn question_answer_keys() {
+    for c in cases("question_keys.json").as_array().unwrap() {
+        let options = PermissionOptions::new();
+        let pending = serde_json::json!({"method": "_acpmux/permission_pending",
+            "params": {"permissionId": "p", "request": c["request"]}});
+        options.observe(pending.as_object().unwrap(), None);
+        let want: Option<BTreeSet<String>> = c["keys"]
+            .as_array()
+            .map(|a| a.iter().map(|k| k.as_str().unwrap().to_owned()).collect());
+        assert_eq!(options.question_keys("p"), want, "{}", name(c));
+    }
+}
+
+/// A prompt block's upload reference (tests/cases/prompt_uploads.json, the
+/// Swift `AgentPanePromptUploadMetaTests` cases): a top-level `image` or
+/// `resource_link` block keeps exactly `_meta.acpmux.upload {uploadId,
+/// fileName}` when it is a valid reference with no bytes; every other block
+/// `_meta`, at every depth, goes (AcpmuxPaneMethods+Uploads.swift
+/// `promptUploadMeta`, #25979).
+#[test]
+fn prompt_upload_references() {
+    let all = cases("prompt_uploads.json");
+    for c in all.as_array().unwrap() {
+        assert_eq!(
+            stripping_prompt_meta(&object(&c["frame"])).map(Value::Object),
+            c["prompt_stripped"].as_object().cloned().map(Value::Object),
+            "{}",
+            name(c)
+        );
     }
 }

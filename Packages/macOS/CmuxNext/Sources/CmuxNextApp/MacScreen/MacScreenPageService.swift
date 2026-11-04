@@ -5,6 +5,7 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
 import typealias CmuxNextDaemon.SurfaceID
+import CmuxNextDaemonService
 import CmuxNextDevices
 import CmuxNextIcons
 import CmuxNextMacScreen
@@ -53,6 +54,11 @@ final class MacScreenPageService: InternalPageProvider {
             }
         }
         events.replaceTab = { [weak self] record, key in self?.replace(key, with: record) ?? false }
+        // Sign In on a Mac Screen card or the home page: the app's one cmux sign-in (msg 3790).
+        events.signIn = { [weak self] in
+            guard let services = self?.services else { return }
+            CmuxSignInOffer(registry: services.registry, isSignedIn: { services.cloud.isSignedIn }).signIn()
+        }
         events.storeTabID = { [weak self] key in
             guard let self, let services = self.services, let pane = services.paneController(showingTab: key),
                   let id = services.pages.stripID(showing: key, in: pane), id.rawValue != key else { return nil }

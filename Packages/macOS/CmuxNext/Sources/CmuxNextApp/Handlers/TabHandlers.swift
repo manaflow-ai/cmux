@@ -7,6 +7,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextFiles
 import CmuxNextLayout
+import CmuxNextTabs
 
 /// Tab actions (category `.tab` except `tabGroup.*`): create, close,
 /// select, reorder, rename, pin, and move to other panes, splits, columns,
@@ -21,6 +22,7 @@ enum TabHandlers {
         TabHandlers.bindMoreActions(into: registry, context: ctx)
         PaneTabBarHandlers.bind(into: registry, context: ctx)
         TabRestart.bind(into: registry, context: ctx)
+        registry.bindEffect("debug.tabBarPlayground", effect: { [playground = TabBarPlaygroundWindow()] _ in playground.show(); return .done })
     }
 
     private static func bindLifecycle(_ registry: ActionRegistry, _ ctx: AppActionContext) {
@@ -138,7 +140,7 @@ enum TabHandlers {
         // `cmux pane <id> focus` / `cmux screen <id> focus`: the same reveal, by target.
         registry.bind("pane.focus", invoke: { invocation in
             guard let ref = invocation.target, ref.kind == .pane else { return ctx.refuse(RefusalStrings.paneArgumentRequired) }
-            revealPane(paneID: ref.id, ctx: ctx)
+            revealPane(paneID: ref.id, invocation: invocation, ctx: ctx)
         })
         registry.bind("screen.focus", invoke: { invocation in
             guard let ref = invocation.target, ref.kind == .screen else { return ctx.refuse(RefusalStrings.noScreen("")) }
@@ -160,16 +162,12 @@ enum TabHandlers {
     }
 
     /// pane.focus: the pane's workspace and screen shown, the pane focused.
-    static func revealPane(paneID: String, ctx: AppActionContext) {
+    /// On the invocation's machine; a bare id two machines share is refused (cmux#30755).
+    static func revealPane(paneID: String, invocation: ActionInvocation, ctx: AppActionContext) {
         guard ActionRunScope.viewChangeAllowed() else { return }
-        for (workspace, _) in ctx.services.machines.allWorkspaces {
-            for screen in workspace.screens {
-                if let pane = screen.panes.first(where: { $0.id == paneID || $0.resourceID?.rawValue == paneID }) {
-                    return reveal(workspace: workspace, screen: screen, pane: pane, tab: nil, ctx: ctx)
-                }
-            }
-        }
-        let _: Bool? = ctx.notFound(RefusalStrings.noPaneID(paneID))
+        guard let pane = ctx.targetPane(paneID, invocation) ?? ctx.notFound(RefusalStrings.noPaneID(paneID)),
+              let (workspace, screen) = owner(of: pane, ctx) ?? ctx.notFound(RefusalStrings.noPaneID(paneID)) else { return }
+        reveal(workspace: workspace, screen: screen, pane: pane, tab: nil, ctx: ctx)
     }
 
     /// screen.focus: the screen's workspace shown, the screen selected.

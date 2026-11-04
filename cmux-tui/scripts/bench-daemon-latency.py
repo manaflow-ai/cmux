@@ -32,6 +32,18 @@ Scenario "agents-hooks" is "agents" with --agent-cli 0, for the fleet
 script, which passes only --scenarios (perf-10x-daemon.sh
 --arg=scenarios=agents-hooks).
 
+Scenario "cli-storm" (not in the default list) is the TYPING UNDER LOAD L1 CLI storm against a
+session the size of L5 HEAVY (40 workspaces, 200 terminals, 5% printing): 8 workers run the real
+`cmux` CLI (one process per call, as scripts/journeys/tui-kit/rust/src/storm.rs does) in the
+storm's weighted mix (workspace, pane, tab and terminal list; tab create and close, each worker
+closing only its own tabs; terminal write; screen read; notify; workspace status, progress and
+log) on one shared schedule at --storm-rate calls a second. It first times each CLI kind alone,
+idle, at 1 workspace and at full size (the per-call cost and how it grows with the session), and
+a raw socket probe sends the same list reads during the storm (daemon time without the CLI
+process). It reports per kind p50/p95/max, the achieved rate, both daemon locks by site
+(`server-stats` `locks`) and the topology projections (`resource_projection`: full against
+scoped, read/index/diff time, changes per commit).
+
 Scenario "resize-mirror" (not in the default list) is a terminal resized
 in bursts while a byte mirror is attached, the cost cmux-ad H10 names: a
 terminal with 10,000 lines of history, one connection attached to it as a
@@ -511,6 +523,228 @@ class Bench:
                   f"n={site.get('acquisitions')} hold_total_us={site.get('hold_total_us')} "
                   f"hold_max_us={site.get('hold_max_us')}", flush=True)
 
+    # -- the "cli-storm" scenario (TYPING UNDER LOAD CLI-1)
+
+    STORM_MIX = (("workspace.list", 3), ("pane.list", 2), ("tab.list", 3), ("terminal.list", 2),
+                 ("tab.create", 2), ("tab.close", 2), ("terminal.write", 4), ("screen.read", 4),
+                 ("notify", 1), ("status.set", 3), ("progress.set", 3), ("log.append", 3))
+
+    def storm_cli(self, args):
+        """One `cmux` CLI call on this daemon: (ms, ok, stdout)."""
+        env = {"HOME": self.env["HOME"], "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_QUIET": "1"}
+        t = time.perf_counter()
+        try:
+            p = subprocess.run([self.args.bin, "--socket", self.sock_path, "--json", *args], env=env,
+                               stdin=subprocess.DEVNULL, capture_output=True, timeout=30)
+            ok, out = p.returncode == 0, p.stdout.decode(errors="replace")
+            if not ok:
+                out += p.stderr.decode(errors="replace")
+        except subprocess.TimeoutExpired:
+            ok, out = False, "timeout"
+        return (time.perf_counter() - t) * 1000, ok, out
+
+    def storm_target(self):
+        _, ok, out = self.storm_cli(["workspace", "list"])
+        ws = json.loads(out)
+        ws = (ws.get("result") if isinstance(ws, dict) else ws) or ws
+        workspace = ws[0]["id"]
+        _, ok, out = self.storm_cli(["pane", "list", "--workspace", workspace])
+        panes = json.loads(out)
+        panes = (panes.get("result") if isinstance(panes, dict) else panes) or panes
+        pane = panes[0]["id"]
+        _, ok, out = self.storm_cli(["terminal", "list", "--pane", pane])
+        terms = json.loads(out)
+        terms = (terms.get("result") if isinstance(terms, dict) else terms) or terms
+        return workspace, pane, terms[0]["id"]
+
+    def storm_argv(self, kind, target, worker, n, close):
+        ws, pane, term = target
+        return {
+            "workspace.list": ["workspace", "list"],
+            "pane.list": ["pane", "list", "--workspace", ws],
+            "tab.list": ["tab", "list", "--pane", pane],
+            "terminal.list": ["terminal", "list", "--pane", pane],
+            "tab.create": ["tab", "create", "terminal", "--workspace", ws, "--pane", pane,
+                           "--name", f"storm-{worker}-{n}"],
+            "tab.close": ["tab", close, "close"] if close else None,
+            "terminal.write": ["terminal", term, "write", "--text", f"echo storm {worker} {n}\n"],
+            "screen.read": ["terminal", term, "screen", "read"],
+            "notify": ["notify", "--title", f"bench {n}", "--body", f"worker {worker}", "--workspace", ws,
+                       "--desktop", "false"],
+            "status.set": ["workspace", ws, "status", "set", f"storm{worker}", f"call {n}"],
+            "progress.set": ["workspace", ws, "progress", "set", f"{(n % 100) / 100:.2f}", "--label", "storm"],
+            "log.append": ["workspace", ws, "log", "append", f"storm {worker} call {n}", "--level", "info",
+                           "--source", "bench"],
+        }[kind]
+
+    @staticmethod
+    def tab_id_of(out):
+        try:
+            value = json.loads(out)
+        except ValueError:
+            return None
+        stack = [value]
+        while stack:
+            v = stack.pop()
+            if isinstance(v, dict):
+                if isinstance(v.get("tab_id"), str):
+                    return v["tab_id"]
+                stack.extend(v.values())
+            elif isinstance(v, list):
+                stack.extend(v)
+        return None
+
+    def storm_idle(self, target, label, reps=15):
+        """Each kind alone, back to back: the per-call cost with no contention."""
+        out = {}
+        for kind, _ in self.STORM_MIX:
+            vals = []
+            for i in range(reps):
+                close = None
+                if kind == "tab.close":
+                    _, ok, made = self.storm_cli(self.storm_argv("tab.create", target, 99, i, None))
+                    close = self.tab_id_of(made) if ok else None
+                    if not close:
+                        continue
+                ms, ok, text = self.storm_cli(self.storm_argv(kind, target, 99, i, close))
+                if not ok:
+                    log(label, kind, "failed", text[-300:])
+                    continue
+                vals.append(ms)
+                if kind == "tab.create":
+                    made = self.tab_id_of(text)
+                    if made:
+                        self.storm_cli(["tab", made, "close"])
+            out[f"{label}-{kind}"] = stats(vals)
+        t = []
+        for _ in range(reps):
+            t0 = time.perf_counter()
+            subprocess.run([self.args.bin, "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=30)
+            t.append((time.perf_counter() - t0) * 1000)
+        out[f"{label}-cli-version-no-socket"] = stats(t)
+        return out
+
+    def cli_storm(self, name="cli-storm"):
+        log("scenario", name)
+        res = {}
+        c = Conn(self.sock_path, timeout=300)
+        must(c.call("new-workspace", name="storm", cols=80, rows=24), "new-workspace")
+        c.close()
+        target = self.storm_target()
+        res.update(self.storm_idle(target, "idle-1ws"))
+        self.grow(40, 200, 0.05)
+        time.sleep(self.args.settle)
+        res.update(self.storm_idle(target, "idle-40ws"))
+        c = Conn(self.sock_path, timeout=300)
+        before = c.call("server-stats", include=["locks", "write_path", "resource_projection"]).get("data") or {}
+        rate, workers, seconds = self.args.storm_rate, 8, self.args.load_seconds
+        weights = [k for k, w in self.STORM_MIX for _ in range(w)]
+        lat = {k: [] for k, _ in self.STORM_MIX}
+        raw = {"raw-workspace.list": [], "raw-tab.list": []}
+        failed = {k: 0 for k in lat}
+        errors = []
+        lock = threading.Lock()
+        counter = [0]
+        start = time.monotonic() + 0.5
+        end = start + seconds
+        stop = threading.Event()
+
+        def worker(index):
+            import random
+            rng = random.Random(7 + index)
+            mine = []
+            while True:
+                with lock:
+                    n = counter[0]
+                    counter[0] += 1
+                due = start + n / rate
+                if due >= end:
+                    break
+                delay = due - time.monotonic()
+                if delay > 0:
+                    time.sleep(delay)
+                kind = rng.choice(weights)
+                if kind == "tab.close" and not mine:
+                    kind = "tab.create"
+                close = mine.pop(0) if kind == "tab.close" else None
+                ms, ok, text = self.storm_cli(self.storm_argv(kind, target, index, n, close))
+                with lock:
+                    lat[kind].append(ms)
+                    if not ok:
+                        failed[kind] += 1
+                        if len(errors) < 10:
+                            errors.append(f"{kind}: {text[-200:]}")
+                if ok and kind == "tab.create":
+                    made = self.tab_id_of(text)
+                    if made:
+                        mine.append(made)
+            for tab in mine:
+                self.storm_cli(["tab", tab, "close"])
+
+        def probe():
+            conn = Conn(self.sock_path, timeout=300)
+            ws, pane, _ = target
+            k = 0
+            while not stop.is_set():
+                k += 1
+                for op, params in (("workspace.list", {}), ("tab.list", {"pane": pane})):
+                    rid = f"probe-{k}-{op}"
+                    request = {"protocol": "cmux.protocol/2", "type": "request", "id": rid, "operation": op,
+                               "params": {"machine": "current", "session": "current", **params}}
+                    t = time.perf_counter()
+                    conn.sock.sendall((json.dumps(request) + "\n").encode())
+                    while True:
+                        msg = conn.read_line()
+                        if msg.get("id") == rid and msg.get("type") == "response":
+                            break
+                    with lock:
+                        raw[f"raw-{op}"].append((time.perf_counter() - t) * 1000)
+                stop.wait(0.1)
+            conn.close()
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(workers)]
+        prober = threading.Thread(target=probe)
+        prober.start()
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        stop.set()
+        prober.join()
+        after = c.call("server-stats", include=["locks", "write_path", "resource_projection"]).get("data") or {}
+        c.close()
+        calls = sum(len(v) for v in lat.values())
+        all_ms = [v for vals in lat.values() for v in vals]
+        for kind, vals in lat.items():
+            res[f"storm-{kind}"] = {**stats(vals), "failed": failed[kind]}
+        res["storm-all"] = stats(all_ms)
+        for k, vals in raw.items():
+            res[f"storm-{k}"] = stats(vals)
+        res["storm_rate"] = {"asked_per_s": rate, "ok_per_s": round(calls / seconds, 2), "calls": calls,
+                             "failed": sum(failed.values())}
+        res["errors"] = errors
+        res["server_stats_before"] = before
+        res["server_stats_after"] = after
+        self.result["scenarios"][name] = res
+        for metric, s in res.items():
+            if isinstance(s, dict) and "n" in s:
+                print(f"PERF-DAEMON {name} {metric} n={s['n']} p50={s.get('p50_ms')} p95={s.get('p95_ms')} "
+                      f"p99={s.get('p99_ms')} max={s.get('max_ms')} mean={s.get('mean_ms')}"
+                      + (f" failed={s['failed']}" if "failed" in s else ""), flush=True)
+        print(f"PERF-DAEMON {name} rate {json.dumps(res['storm_rate'], sort_keys=True)}", flush=True)
+        if errors:
+            print(f"PERF-DAEMON {name} errors {errors}", flush=True)
+        self.print_locks(name, after)
+        rp = after.get("resource_projection") or {}
+        rp0 = before.get("resource_projection") or {}
+        delta = {k: (rp.get(k) or 0) - (rp0.get(k) or 0) for k in
+                 ("projections", "full_projections", "scoped_projections", "scope_fallbacks", "commits")}
+        hist = {k: {q: (rp.get(k) or {}).get(q) for q in ("p50", "p99", "max")}
+                for k in ("read_us", "index_us", "diff_us", "projected_changes", "commit_us", "written_changes")}
+        print(f"PERF-DAEMON-PROJECTION {name} during_storm={json.dumps(delta, sort_keys=True)} "
+              f"since_start={json.dumps(hist, sort_keys=True)}", flush=True)
+
     def resize_mirror(self, name="resize-mirror"):
         """Resize bursts of a terminal with deep history and one byte mirror."""
         steps, bursts = 24, 5
@@ -663,6 +897,8 @@ def main():
     ap.add_argument("--load-seconds", type=float, default=60.0)
     ap.add_argument("--agent-cli", type=int, choices=(0, 1), default=1,
                     help="1: each fake agent also runs `cmux workspace list` once per turn; 0: hooks only")
+    ap.add_argument("--storm-rate", type=float, default=120.0,
+                    help="cli-storm: calls a second asked of the 8 CLI workers in total")
     ap.add_argument("--resize-rounds", type=int, default=4,
                     help="resize-mirror: how many times to run its 5 bursts per case")
     args = ap.parse_args()
@@ -679,6 +915,8 @@ def main():
             b.agents()
         if "resize-mirror" in wanted:
             b.resize_mirror()
+        if "cli-storm" in wanted:
+            b.cli_storm()
         if "agents-hooks" in wanted:
             # The hooks only: no shipped agent hook calls the CLI per turn.
             args.agent_cli = 0

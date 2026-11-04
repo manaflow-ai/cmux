@@ -193,6 +193,10 @@ public nonisolated struct FocusState: Hashable, Sendable, Codable {
     public var context = Context()
     /// The focused page is in browser focus mode.
     public var isBrowserFocusModeActive = false
+    /// The tab a key typed now is for: the tab the focus is on its way to (a creation's new tab,
+    /// shown and focused in the key's frame), else the focused terminal's tab. A creation hold binds
+    /// each held key to it (P0 1193). The machine's rule (`FocusState::typing_tab`), from its reply.
+    public var typingTab: String?
 
     /// What the settle observers act on: they run only when it changed.
     public struct SettleKey: Hashable, Sendable {

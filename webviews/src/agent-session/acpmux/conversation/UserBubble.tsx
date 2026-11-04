@@ -1,8 +1,8 @@
 // A prompt's bubble, with its action row under its right edge (Leo's spec, after Claude Code
 // desktop's): the prompt's age ("3 days ago"; "Oct 18, 2026, 10:16 PM" above it on
-// hover), then Copy, Edit, Retry and Fork from here, each naming itself on hover. The ellipsis
-// is gone; its menu remains on right-click. No Pin here: an
-// answer's row has it. Fork hides where the harness cannot fork there (cx-ncc.60, Claude parity;
+// hover), then Copy, Edit, Retry, Fork from here and Bookmark, each naming itself on hover. The ellipsis
+// is gone; its menu remains on right-click. Bookmark toggles the same saved mark as the rail.
+// Fork hides where the harness cannot fork there (cx-ncc.60, Claude parity;
 // Leo, GUI push 2026-10-20/21). The row shows on hover or keyboard focus only, its height kept, so
 // nothing moves when it appears. Edit opens the prompt in place; Send forks the chat through the
 // turn before it and sends the edited text there (the App's `edit.send`), Escape or Cancel puts the
@@ -12,8 +12,19 @@
 // Fork forks the chat through the prompt's own turn, as its right-click Fork does. The images a
 // prompt sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they vanished
 // once sent). A long prompt opens collapsed on its first ten lines with Show more, and a pasted
-// block is a chip that opens in place (PromptText.tsx); Copy still copies the whole prompt.
-import { memo, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+// block is a chip that opens in place (PromptText.tsx); Copy still copies the whole prompt. A video
+// it sent with its frames is its poster and length among them, playing on a click (SentVideoTile.tsx).
+import {
+  Fragment,
+  memo,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
@@ -35,11 +46,15 @@ import {
   MessageCopy,
   MessageFooterRow,
   MessageTime,
+  PinButton,
   PromptRetry,
   ROW_ICON,
 } from "./MessageActions";
-import { TurnActionsContext } from "./turnActions";
-import { skillDollarsOf, withSkillDollars, withoutSkillDollars } from "../slashCommands";
+import { TurnActionsContext, type QueuedActions } from "./turnActions";
+import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalog } from "../slashCommands";
+import { SkillWordsContext } from "./skillWords";
+import { SentVideoTile } from "./SentVideoTile";
+import { sentVideoOf, sentVideosOf, type SentVideo } from "./sentVideos";
 
 /// The files a recorded prompt sent (its `inlineParts`: documents, audio, resource links), drawn
 /// as a sent prompt draws them; a file that is an image's companion, a video, or an image's
@@ -63,15 +78,23 @@ export function UserBubble({
 }: {
   row: AcpmuxRow;
   text: string;
-  pending?: (actions: ReactNode) => ReactNode;
+  pending?: (actions: ReactNode, queued: QueuedActions) => ReactNode;
 }) {
   // A video's frames and their note went to the agent only; the bubble draws the video's tile. A
   // Codex skill reads `/name` as typed, not `/$name` as sent (slashCommands.ts withoutSkillDollars):
   // in the bubble, its Copy and its editor; Retry sends the prompt as it went.
-  const row = useMemo(() => shownSkills(withoutVideoFrames(given)), [given]);
+  // Only a skill of the chat's list reads so (skillWords.ts).
+  const skills = useContext(SkillWordsContext);
+  const row = useMemo(() => shownSkills(withoutVideoFrames(given), skills), [given, skills]);
+  // Read before the frames go: a video's note and first frame are its tile (sentVideos.ts).
+  const videos = useMemo(() => sentVideosOf(given), [given]);
   const text = useMemo(
-    () => withoutSkillDollars(withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length)),
-    [givenText, given],
+    () =>
+      withoutSkillDollars(
+        withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length),
+        skills,
+      ),
+    [givenText, given, skills],
   );
   const t = useT();
   const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
@@ -87,13 +110,15 @@ export function UserBubble({
   // The ordered bubble below skips them by the same rule.
   const originals = imageOriginals(row);
   const recorded = recordedFiles(row.inlineParts, originals);
-  const files = recorded?.length
-    ? recorded
-    : row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
-        file.kind === "link" && !file.mimeType.startsWith("video/")
-          ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }]
-          : [],
-      );
+  const files = (
+    recorded?.length
+      ? recorded
+      : row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
+          file.kind === "link" && !file.mimeType.startsWith("video/")
+            ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }]
+            : [],
+        )
+  )?.filter((file) => !videos.some((video) => video.name === file.name && video.path === file.path));
   // A prompt that went out with an image as `data:` text (before the composer stopped making them)
   // reads each one as its name: a bubble never draws base64 (inlineImages.ts, Leo 2026-10-20).
   // Edit opens it without the images (the field would draw them full size again); Copy copies it as sent.
@@ -122,6 +147,17 @@ export function UserBubble({
   const stripMedia = orderedParts?.filter(isStripMedia).filter(banded) ?? [];
   const shownParts = orderedParts?.filter((part) => !banded(part));
   const renderImage = useCallback((image: PromptImage) => <SentImage image={image} />, []);
+  const renderFile = useCallback(
+    (part: Exclude<PromptContentPart, { kind: "text" | "image" }>) => {
+      const video = sentVideoOf(part, videos);
+      return video ? (
+        <span className="cv-user__inline-image">
+          <SentVideoTile video={video} width={sentImageWidth(video)} />
+        </span>
+      ) : undefined;
+    },
+    [videos],
+  );
   const editable = useMemo(() => (editing ? liftInlineImages(row.text ?? text).text : ""), [editing, row.text, text]);
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
@@ -134,16 +170,27 @@ export function UserBubble({
         onCancel={() => setEditing(false)}
         onSend={async (value) => {
           if (!edit || through === undefined) return;
-          // The skills it named go as `/$name` again; the App writes any other skill so too.
-          const sent = withSkillDollars(value, skillDollarsOf(given.text ?? givenText));
+          // Its skills go as `/$name` again, a skill it named keeping that name where a command
+          // shares it, and a skill added in the editor too.
+          const sent = withSkillDollars(value, skills, pickedSkillsOf(given.text ?? givenText, skills));
           if (await edit.send(row.id, through, sent)) setEditing(false);
         }}
       />
     );
   }
+  // The sent row's Retry and Fork; a waiting steer's queue row shows the same two (PendingSteer.tsx).
+  // Retry not while it is still on its way: a second send would duplicate it.
+  const retry =
+    !row.pending && row.delivery?.state !== "sending" ? <PromptRetry rowId={row.id} prompt={resend} /> : null;
+  const forkButton =
+    forkThrough !== undefined ? (
+      <ForkButton throughSeq={forkThrough} onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
+    ) : null;
   return (
     <>
-      {!hasInterleaved && row.images && row.images.length > 0 && <SentImages images={row.images} />}
+      {!hasInterleaved && (Boolean(row.images?.length) || videos.length > 0) && (
+        <SentImages images={row.images ?? []} leading={videos.length > 0 ? <SentVideoTiles videos={videos} /> : null} />
+      )}
       {!hasInterleaved && Boolean(files?.length) && (
         <div className="cv-user__files">
           {files!.map((file, index) => (
@@ -159,7 +206,9 @@ export function UserBubble({
                 {renderImage(part)}
               </span>
             ) : (
-              <PromptFile key={`${part.kind}-${part.id ?? part.name}-${index}`} part={part} />
+              <Fragment key={`${part.kind}-${part.id ?? part.name}-${index}`}>
+                {renderFile(part) ?? <PromptFile part={part} />}
+              </Fragment>
             ),
           )}
         </div>
@@ -170,7 +219,13 @@ export function UserBubble({
         {(strip ? shownParts!.some(readsAsText) : hasInterleaved || text.trim()) && (
           <div className="ui-glass cv-user__bubble selectable">
             {hasInterleaved ? (
-              <InlinePromptContent rowId={row.id} parts={shownParts!} show={show} renderImage={renderImage} />
+              <InlinePromptContent
+                rowId={row.id}
+                parts={shownParts!}
+                show={show}
+                renderImage={renderImage}
+                renderFile={renderFile}
+              />
             ) : (
               <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
             )}
@@ -183,7 +238,14 @@ export function UserBubble({
         {!row.failed && (text || pending) && (
           <UserFooter
             className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
-            pending={pending}
+            pending={
+              pending &&
+              ((actions) =>
+                pending(actions, {
+                  retry: retry && <PromptRetry rowId={row.id} prompt={resend} held />,
+                  fork: forkButton,
+                }))
+            }
           >
             <MessageFooterRow>
               {branch && branches && (
@@ -196,7 +258,7 @@ export function UserBubble({
                     disabled={branch.index === 0}
                     onClick={() => branches.open(branch.sessions[branch.index - 1]!)}
                   >
-                    <ChevronLeft size={12} />
+                    <ChevronLeft size={ROW_ICON} />
                   </button>
                   <span
                     className="cv-user__version-count"
@@ -216,7 +278,7 @@ export function UserBubble({
                     disabled={branch.index === branch.sessions.length - 1}
                     onClick={() => branches.open(branch.sessions[branch.index + 1]!)}
                   >
-                    <ChevronRight size={12} />
+                    <ChevronRight size={ROW_ICON} />
                   </button>
                 </span>
               )}
@@ -233,14 +295,9 @@ export function UserBubble({
                   <Pencil size={ROW_ICON} />
                 </button>
               )}
-              {/* Not while it is still on its way: a second send would duplicate it. */}
-              {!row.pending && row.delivery?.state !== "sending" && <PromptRetry rowId={row.id} prompt={resend} />}
-              {forkThrough !== undefined && (
-                <ForkButton
-                  throughSeq={forkThrough}
-                  onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))}
-                />
-              )}
+              {retry}
+              {forkButton}
+              <PinButton rowId={row.id} bookmark />
             </MessageFooterRow>
           </UserFooter>
         )}
@@ -251,15 +308,15 @@ export function UserBubble({
 
 /// `row` with its prompt text and placed text parts as the bubble reads them (`withoutSkillDollars`);
 /// `row` itself when it names no Codex skill.
-function shownSkills(row: AcpmuxRow): AcpmuxRow {
+function shownSkills(row: AcpmuxRow, skills: SkillCatalog): AcpmuxRow {
   const sent = [row.text, ...(row.inlineParts ?? []).map((part) => (part.kind === "text" ? part.text : ""))];
   if (!sent.some((text) => text?.includes("/$"))) return row;
   return {
     ...row,
-    ...(row.text !== undefined && { text: withoutSkillDollars(row.text) }),
+    ...(row.text !== undefined && { text: withoutSkillDollars(row.text, skills) }),
     ...(row.inlineParts && {
       inlineParts: row.inlineParts.map((part) =>
-        part.kind === "text" ? { ...part, text: withoutSkillDollars(part.text) } : part,
+        part.kind === "text" ? { ...part, text: withoutSkillDollars(part.text, skills) } : part,
       ),
     }),
   };
@@ -291,21 +348,32 @@ function UserFooter({
 }
 
 /// A prompt's images, each opening the image viewer; IncomingMessageCard shows another agent's.
+/// `leading` goes first in the same row: the prompt's videos (SentVideoTile.tsx).
 export const SentImages = memo(function SentImages({
   images,
   className,
+  leading,
 }: {
   images: readonly PromptImage[];
   className?: string;
+  leading?: ReactNode;
 }) {
   return (
     <div className={className ? `cv-user__images ${className}` : "cv-user__images"}>
+      {leading}
       {images.map((image) => (
         <SentImage key={image.id} image={image} />
       ))}
     </div>
   );
 });
+
+/// A prompt's videos, each at a sent image's height in its own shape.
+function SentVideoTiles({ videos }: { videos: readonly SentVideo[] }) {
+  return videos.map((video) => (
+    <SentVideoTile key={`${video.name}\n${video.path}`} video={video} width={sentImageWidth(video)} />
+  ));
+}
 
 /// The sent thumbnail's height (conversation.css), and the narrowest and
 /// widest it draws as a share of that: a tall phone shot or a wide screenshot is cropped to fill
@@ -441,7 +509,7 @@ export function PromptEditor({
     void onSend(value).finally(() => setSending(false));
   };
   return (
-    <div className="cv-user__edit">
+    <div className="ui-glass cv-user__edit">
       <textarea
         ref={field}
         className="cv-user__edit-field selectable"

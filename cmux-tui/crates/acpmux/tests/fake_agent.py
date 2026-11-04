@@ -93,6 +93,8 @@ known = set()
 
 
 LAST_MCP_SERVERS = None
+# The additionalDirectories of the last session/new, load or fork ("dirs" replies with them).
+LAST_DIRS = None
 RUNNING_MCP = []
 # Whether the client asked for native subagent sessions the way codex-acp 1.10.0
 # reads it: the JetBrains AIR capability in clientCapabilities._meta (its ACP
@@ -159,11 +161,56 @@ def codex_load(sid):
     return False
 
 
+def prompt_text(params):
+    """Match fixture commands on the request; opt in to echoing cmux guidance."""
+    blocks = params.get("prompt", [])
+    if os.environ.get("FAKE_ECHO_GUIDANCE") != "1":
+        blocks = [b for b in blocks if not is_cmux_guidance(b)]
+    return "".join(b.get("text", "") for b in blocks)
+
+
+def guidance_text(text):
+    """Recognize a context wrapper after an adapter dropped its metadata."""
+    if not isinstance(text, str):
+        return False
+    text = text.lstrip()
+    if not text.startswith("<cmux-"):
+        return False
+    name = text[1:].split(">", 1)[0]
+    return name.endswith("-context") and not any(c.isspace() for c in name)
+
+
+def is_cmux_guidance(block):
+    """Identify cmux's hidden first-turn guidance after an adapter drops metadata."""
+    if not isinstance(block, dict):
+        return False
+    source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
+    if source in {"cmux-default", "cmux-user", "cmux-project"}:
+        return True
+    return guidance_text(block.get("text", ""))
+
+
+def codex_transcript_content(params):
+    """Keep the harness's raw context blocks while keeping ordinary fixtures compact."""
+    blocks = [b for b in params.get("prompt", []) if isinstance(b, dict)]
+    if not any(is_cmux_guidance(b) for b in blocks):
+        return [{"type": "input_text", "text": prompt_text(params)}]
+    return [{"type": "input_text", "text": b.get("text", "")} for b in blocks
+            if isinstance(b.get("text"), str)]
+
+
+def codex_visible_text(payload):
+    """Read a fixture rollout like adopt_replay: context is not a person prompt."""
+    content = payload.get("content", [])
+    return "".join(item.get("text", "") for item in content
+                   if isinstance(item, dict) and not guidance_text(item.get("text", "")))
+
+
 def codex_store_prompt(rid, params):
     sid = params["sessionId"]
-    text = "".join(b.get("text", "") for b in params.get("prompt", []))
+    text = prompt_text(params)
     codex_write(sid, "event_msg", {"type": "task_started"})
-    codex_write(sid, "response_item", {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]})
+    codex_write(sid, "response_item", {"type": "message", "role": "user", "content": codex_transcript_content(params)})
     # A turn takes time: it never ends in the millisecond it started.
     time.sleep(0.02)
     reply = "ok: " + text
@@ -171,11 +218,13 @@ def codex_store_prompt(rid, params):
         with open(rollouts[sid]) as f:
             records = [json.loads(line) for line in f if line.strip()]
         reply = json.dumps({
-            "prompts": [r["payload"]["content"][0]["text"] for r in records
+            "prompts": [codex_visible_text(r["payload"]) for r in records
                         if r["type"] == "response_item" and r["payload"].get("role") == "user"
-                        and r["payload"]["content"][0]["text"] != "history-probe"],
+                        and codex_visible_text(r["payload"]) != "history-probe"],
             "sessions": sorted({r["payload"]["id"] for r in records if r["type"] == "session_meta"}),
         })
+    # Native rollouts retain the assistant reply as well as the user's prompt.
+    codex_write(sid, "response_item", {"type": "message", "role": "assistant", "phase": "final_answer", "content": [{"type": "output_text", "text": reply}]})
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}})
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
     # Codex's rollout writer flushes a turn's last records after the turn
@@ -196,7 +245,7 @@ def codex_prompt(rid, params):
     """codex-acp: the first prompt runs the turn; a prompt during it joins it.
     At the turn's end only the last joined prompt is answered."""
     sid = params["sessionId"]
-    text = "".join(b.get("text", "") for b in params.get("prompt", []))
+    text = prompt_text(params)
     with lock:
         running = codex_turns.get(sid)
         if running is not None:
@@ -233,12 +282,16 @@ def codex_prompt(rid, params):
 
 # FAKE_CLAUDE_STEER: sessions with a running turn.
 claude_turns = set()
+# FAKE_CLAUDE_STEER with FAKE_STEER_STEP: steers not read yet, by their hub promptId, and those
+# taken back (`_acpmux/steer_withdraw`, as Claude Code's cancel_async_message drops one).
+claude_unread = set()
+claude_withdrawn = set()
 
 
 def claude_prompt(rid, params):
     """Claude Code: a prompt during a turn is a steer, answered "steered" at once."""
     sid = params["sessionId"]
-    text = "".join(b.get("text", "") for b in params.get("prompt", []))
+    text = prompt_text(params)
     with lock:
         steer = sid in claude_turns
         if not steer:
@@ -248,9 +301,17 @@ def claude_prompt(rid, params):
         # FAKE_STEER_STEP=<fifo>: the steer is read at the agent's next tool step, which the
         # test makes by writing to the FIFO, as Claude Code answers a steer only there.
         step = os.environ.get("FAKE_STEER_STEP")
+        prompt_id = (params.get("_meta") or {}).get("promptId")
         if step:
+            with lock:
+                claude_unread.add(prompt_id)
             with open(step) as gate:
                 gate.read()
+            with lock:
+                claude_unread.discard(prompt_id)
+                if prompt_id in claude_withdrawn:
+                    send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32000, "message": "steer: withdrawn before the agent read it"}})
+                    return
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "steered"}})
         return
     try:
@@ -320,7 +381,7 @@ def handle_prompt(rid, params):
     if os.environ.get("FAKE_RESET_CANCEL_ON_PROMPT") == "1":
         cancelled.discard(sid)
     blocks = params.get("prompt", [])
-    text = "".join(b.get("text", "") for b in blocks)
+    text = prompt_text(params)
     if text.startswith("envs:"):
         names = [name.strip() for name in text[5:].split(",") if name.strip()]
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {
@@ -875,6 +936,11 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(LAST_MCP_SERVERS)}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "dirs" replies with the additionalDirectories of the last session/new, load or fork.
+    if text == "dirs":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(LAST_DIRS)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "argv" replies with this process's arguments as JSON, for spawn-time checks.
     if text == "argv":
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(sys.argv[1:])}})
@@ -1294,7 +1360,7 @@ def own_pri():
 
 
 def main():
-    global LAST_MCP_SERVERS
+    global LAST_MCP_SERVERS, LAST_DIRS
     # `--fake-login` (the terminal sign-in): sign in and exit.
     if "--fake-login" in sys.argv[1:]:
         open(os.environ["FAKE_AUTH_FILE"], "w").close()
@@ -1350,6 +1416,7 @@ def main():
             sys.exit(1)
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
+            LAST_DIRS = params.get("additionalDirectories")
         if m == "session/new" and os.environ.get("FAKE_CLASS_LOG"):
             with open(os.environ["FAKE_CLASS_LOG"], "a") as log:
                 log.write(json.dumps({"pid": os.getpid(), "pri": own_pri()}) + "\n")
@@ -1677,12 +1744,21 @@ def main():
             # file exists: a long answer then waits in the agent host's stdin writer, as it does
             # for a harness that stopped reading.
             hold = os.environ.get("FAKE_ASK_HOLDS_STDIN")
-            if hold and "".join(b.get("text", "") for b in params.get("prompt", [])).startswith("ask:"):
+            if hold and prompt_text(params).startswith("ask:"):
                 import time as clock  # main() binds `time` locally
                 while not os.path.exists(hold):
                     clock.sleep(0.02)
         elif m == "session/cancel":
             cancelled.add(params.get("sessionId"))
+        elif m == "_acpmux/steer_withdraw" and os.environ.get("FAKE_CLAUDE_STEER") == "1":
+            # A steer still unread is dropped; one read already (or none) stays.
+            with lock:
+                prompt_id = params.get("promptId")
+                # FAKE_STEER_KEEP=1: it cannot take one back (codex-acp; a batched line).
+                dropped = prompt_id in claude_unread and os.environ.get("FAKE_STEER_KEEP") != "1"
+                if dropped:
+                    claude_withdrawn.add(prompt_id)
+            send({"jsonrpc": "2.0", "id": rid, "result": {"withdrawn": dropped}})
         elif rid is not None:
             send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32601, "message": "no such method"}})
 

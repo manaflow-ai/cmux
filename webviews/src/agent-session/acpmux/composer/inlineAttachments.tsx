@@ -11,7 +11,7 @@ import {
   inlineCopyParent,
   orderedByMarks,
 } from "../attachments";
-import { FileDoc, ImageIcon, Spinner } from "../conversation/icons";
+import { FileDoc, ImageIcon, PlayTriangle, Spinner } from "../conversation/icons";
 import { usePaneLanguage, useT } from "../i18n";
 import { pasteLines, pasteName } from "../conversation/promptCollapse";
 import { imageLabel } from "../imageLabel";
@@ -331,6 +331,8 @@ const InlineChip = memo(function InlineChip({
           <>
             {pending!.image ? (
               <ImageIcon size={14} className="acpmux-attachment-failed-icon" />
+            ) : pending!.video ? (
+              <PlayTriangle size={14} className="acpmux-attachment-failed-icon" />
             ) : (
               <FileDoc size={14} className="acpmux-attachment-failed-icon" />
             )}

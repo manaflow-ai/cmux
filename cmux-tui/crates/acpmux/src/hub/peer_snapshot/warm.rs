@@ -258,7 +258,7 @@ impl Hub {
     /// The rows peer `peer` lists now.
     fn peer_rows(&self, peer: &str) -> Vec<Value> {
         let rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
-        rows.values().filter(|r| r.peer == peer).map(|r| r.summary.clone()).collect()
+        rows.of_peer(peer).map(|(_, r)| r.summary.clone()).collect()
     }
 
     /// One round of peer `peer`: reads what `plan` asks, one at a time, until the link refuses one.

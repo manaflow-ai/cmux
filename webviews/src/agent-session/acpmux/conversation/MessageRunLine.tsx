@@ -8,7 +8,8 @@ import { useMemo } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { useToolRunLook } from "../toolRunLook";
-import { ChevronRight, Envelope, Spinner } from "./icons";
+import { FailedCount } from "./FailedCount";
+import { ChevronRight, Envelope } from "./icons";
 import { messageRunSummary } from "./messageRuns";
 import { ToolLabel } from "./ToolVerb";
 
@@ -31,18 +32,20 @@ export function MessageRunLine({
     <div className="cv-tools">
       <button
         type="button"
-        className={quiet ? "cv-tool is-toggle is-run" : "cv-tool is-toggle is-run is-strong"}
+        className={`cv-tool is-toggle is-run${run.running ? " is-live" : quiet ? "" : " is-strong"}`}
         aria-expanded={expanded}
         data-message-run=""
         data-find-skip=""
         onClick={onToggle}
       >
-        <span className="cv-tool__icon">{run.running ? <Spinner size={16} /> : <Envelope />}</span>
+        <span className="cv-tool__icon">
+          <Envelope />
+        </span>
         <span className="cv-tool__text">
           <span className="cv-tool__summary">
             <ToolLabel text={summary} />
           </span>
-          {run.failed > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: run.failed })}</span>}
+          <FailedCount n={run.failed} />
         </span>
         <ChevronRight
           size={14}

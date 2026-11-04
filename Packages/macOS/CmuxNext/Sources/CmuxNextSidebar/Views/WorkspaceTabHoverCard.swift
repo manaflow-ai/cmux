@@ -14,16 +14,20 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
     private let container = WorkspaceTabHoverDocument()
     private let scrollView = NSScrollView()
     private let document = WorkspaceTabHoverDocument()
-    private var rowViews: [WorkspaceTabHoverCardRow] = []
+    private(set) var rowViews: [WorkspaceTabHoverCardRow] = []
     /// The kind groups' labels (`style.groupsByKind`), reused.
     private var groupLabels: [ChromeLabel] = []
     /// The tabs in the order the list shows them (grouped by kind when the style groups).
     private var tabs: [SidebarTab] = []
     private var workspace = ""
     private var now = Date()
+    /// The workspace's machine, which agent chat and terminal rows name (`WorkspaceTabHoverCardLine.machineText`).
+    private var machine: SidebarMachine?
     private var selectedIndex = 0
     private var showsKeyboardSelection = false
     var onSelect: ((TabID) -> Void)?
+    /// A row's ✕ was pressed: close that tab. Nil shows no ✕.
+    var onClose: ((TabID) -> Void)? { didSet { rowViews.forEach(wireClose) } }
 
     var reportedLines: [String] { rowViews.prefix(tabs.count).map(\.reportedLine) }
     override var isFlipped: Bool { true }
@@ -44,7 +48,7 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    func configure(title: String, tabs: [SidebarTab], now: Date = Date()) {
+    func configure(title: String, tabs: [SidebarTab], now: Date = Date(), machine: SidebarMachine? = nil) {
         let ordered = style.groupsByKind ? Self.grouped(tabs) : tabs
         let changed = workspace != title || self.tabs.map(\.id) != ordered.map(\.id)
         let selected = self.tabs.indices.contains(selectedIndex) ? self.tabs[selectedIndex].id : nil
@@ -52,6 +56,7 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
         workspace = title
         self.tabs = ordered
         self.now = now
+        self.machine = machine
         isHidden = tabs.isEmpty
         selectedIndex = selected.flatMap { id in ordered.firstIndex { $0.id == id } } ?? 0
         updateRows()
@@ -82,7 +87,12 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
 
     /// One pitch for every tab row (Lawrence msg 19245: "row spacing is uneven"); a group label is its own line.
     private var rowPitch: CGFloat { style.rowHeight + Metrics.space1 }
-    private var groupHeight: CGFloat { ceil(Typography.caption.ascender - Typography.caption.descender) + Metrics.space3 }
+    private var groupHeight: CGFloat {
+        let caption = Self.captionFont
+        return ceil(caption.ascender - caption.descender) + Metrics.space3
+    }
+    /// The kind labels' font: the card's caption at the sidebar's density and text size.
+    private static var captionFont: NSFont { Typography.system(.default, size: WorkspaceHoverCardView.tokens.captionSize, weight: .regular) }
 
     private func height(of items: [Item]) -> CGFloat {
         guard !items.isEmpty else { return 0 }
@@ -107,6 +117,16 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
         return NSSize(width: rows.max() ?? 0, height: listHeight)
     }
 
+    /// The row's ✕ closes its tab while the card has `onClose`; with none the row shows no ✕.
+    private func wireClose(_ row: WorkspaceTabHoverCardRow) {
+        guard onClose != nil else { row.onClose = nil; return }
+        row.onClose = { [weak self, weak row] in
+            guard let self, let row, let index = self.rowViews.firstIndex(where: { $0 === row }),
+                  index < self.tabs.count else { return }
+            self.onClose?(self.tabs[index].id)
+        }
+    }
+
     private func updateRows() {
         let count = tabs.count
         while rowViews.count < count {
@@ -118,12 +138,13 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
                 self.updateSelection()
                 self.onSelect?(self.tabs[index].id)
             }
+            wireClose(row)
             document.addSubview(row)
             rowViews.append(row)
         }
         for index in rowViews.indices {
             rowViews[index].isHidden = index >= count
-            if index < count { rowViews[index].configure(tabs[index], now: now) }
+            if index < count { rowViews[index].configure(tabs[index], now: now, machine: machine) }
         }
         let groups = items(upTo: count).compactMap { item -> String? in
             if case let .group(name) = item { return name }
@@ -131,7 +152,7 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
         }
         while groupLabels.count < groups.count {
             let label = ChromeLabel(labelWithString: "")
-            label.font = Typography.caption
+            label.font = Self.captionFont
             document.addSubview(label)
             groupLabels.append(label)
         }

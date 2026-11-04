@@ -45,10 +45,20 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 from blacksmith_linux_sizes import label as size_label, table  # noqa: E402
+from runs_on_labels import holds_signing_material, unwrap_fork_pool_reads  # noqa: E402
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 BIG = "blacksmith-32vcpu-ubuntu-2404"
 SMALL = "blacksmith-16vcpu-ubuntu-2404"
+
+POOL_BY_LABEL = {
+    "blacksmith-2vcpu-ubuntu-2404": "linux_2",
+    "blacksmith-4vcpu-ubuntu-2404": "linux_4",
+    "blacksmith-8vcpu-ubuntu-2404": "linux_8",
+    "blacksmith-16vcpu-ubuntu-2404": "linux_16",
+    "blacksmith-32vcpu-ubuntu-2404": "linux_32",
+    "blacksmith-4vcpu-ubuntu-2404-arm": "linux_arm64",
+}
 
 # (workflow, job, where the label lives, expected label). `where` is "runs-on",
 # "matrix:<key>=<value>:<field>" for a matrix row, or "env:<step id>:<NAME>"
@@ -143,16 +153,28 @@ OTHER = {
 FLEET_FIRST = {("cmux-next-fast-gates.yml", "fast-gates", "runs-on")}
 FLEET_RUNNER_LIST = ["cmux-fleet-linux-x64", SMALL, BIG]
 
-LINUX_LABEL = re.compile(r"blacksmith-\d+vcpu-ubuntu-\d+(?!-arm)\b")
 # `vars.LINUX_RUNNER` exactly; `vars.LINUX_RUNNER_DARWIN_CROSS` is its own knob.
 SHARED_VARIABLE = re.compile(r"vars\.LINUX_RUNNER(?!\w)")
 
 
-def trusted_fallback(label: str, other: str | None = None) -> str:
+def route_ref(label: str, workflow: str, job_id: str) -> str:
+    """A job's route to `label`: its pool, or the literal in a job that holds signing material (runner trust policy)."""
+    return f"'{label}'" if holds_signing_material(load(workflow)["jobs"][job_id]) else pool_ref(label)
+
+
+def pool_ref(label: str) -> str:
+    try:
+        pool = POOL_BY_LABEL[label]
+    except KeyError as error:
+        raise AssertionError(f"no declared pool for {label}") from error
+    return f"fromJSON(vars.RUNNER_POOLS).{pool}"
+
+
+def trusted_fallback(label: str, other: str | None = None, ref=pool_ref) -> str:
     """The size; the other size while the outage record exists; an operator's non-Blacksmith runner first."""
     other = other or (SMALL if label == BIG else BIG)
     return (f"!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || "
-            f"vars.CI_CLOUD_OVERFLOW_SAVED && '{other}' || '{label}'")
+            f"vars.CI_CLOUD_OVERFLOW_SAVED && {ref(other)} || {ref(label)}")
 
 
 def fleet_runner_list(value: str) -> list[str]:
@@ -237,7 +259,8 @@ def expected_selector(workflow: str, job_id: str, where: str, label: str) -> str
         else:
             fork_label = FORK_PR_LABELS.get((workflow, job_id, where), "blacksmith-4vcpu-ubuntu-2404")
             prefix = OWNER + FORK_PULL_REQUEST.format(label=fork_label)
-    return "${{ " + prefix + trusted_fallback(label, OTHER.get((workflow, job_id))) + closing + " }}"
+    ref = lambda size: route_ref(size, workflow, job_id)  # noqa: E731
+    return "${{ " + prefix + trusted_fallback(label, OTHER.get((workflow, job_id)), ref) + closing + " }}"
 
 
 def load(name: str) -> dict:
@@ -277,29 +300,29 @@ class LinuxCompileRunners(unittest.TestCase):
                     self.assertEqual(fleet_runner_list(value), FLEET_RUNNER_LIST)
                     self.assertNotIn("vars.LINUX_RUNNER", value)
                     continue
-                labels = LINUX_LABEL.findall(value)
-                self.assertTrue(labels, f"{workflow}:{job_id} {where} names no Blacksmith Ubuntu label: {value}")
-                self.assertEqual(labels[-1], label, f"{workflow}:{job_id} {where}: {value}")
+                route = route_ref(label, workflow, job_id)
+                self.assertIn(route, value, f"{workflow}:{job_id} {where} names no {route} route: {value}")
                 # vars.LINUX_RUNNER appears only in the outage guard, never as
                 # a plain `vars.LINUX_RUNNER ||` that would pick 4 vCPU.
                 self.assertEqual(
                     len(SHARED_VARIABLE.findall(value)), 2,
                     f"{workflow}:{job_id} {where} must read vars.LINUX_RUNNER only in "
-                    f"{trusted_fallback(label, OTHER.get((workflow, job_id)))!r}: {value}",
+                    f"{trusted_fallback(label, OTHER.get((workflow, job_id)), lambda size: route_ref(size, workflow, job_id))!r}: {value}",
                 )
 
     def test_each_compile_job_follows_the_blacksmith_outage_switch(self) -> None:
         # cloud_overflow_switch.py sets LINUX_RUNNER=ubuntu-24.04 when Blacksmith
         # stalls; the guard sends these jobs there too, and keeps the size otherwise.
         for workflow, job_id, where, label in EXPECTED:
-            value = selector(load(workflow)["jobs"][job_id], where)
+            # A fork keeps its label (test_fork_pull_requests_use_the_selected_blacksmith_size); this is every other run.
+            value = unwrap_fork_pool_reads(selector(load(workflow)["jobs"][job_id], where))
             with self.subTest(workflow=workflow, job=job_id, where=where):
                 if (workflow, job_id, where) in FLEET_FIRST:
                     self.assertEqual(fleet_runner_list(value), FLEET_RUNNER_LIST)
                     continue
-                self.assertEqual(value.count(trusted_fallback(label, OTHER.get((workflow, job_id)))), 1, f"{workflow}:{job_id} {where}: {value}")
+                self.assertEqual(value.count(trusted_fallback(label, OTHER.get((workflow, job_id)), lambda size: route_ref(size, workflow, job_id))), 1, f"{workflow}:{job_id} {where}: {value}")
                 self.assertRegex(
-                    value, re.escape(trusted_fallback(label, OTHER.get((workflow, job_id)))) + r"\)? \}\}$",
+                    value, re.escape(trusted_fallback(label, OTHER.get((workflow, job_id)), lambda size: route_ref(size, workflow, job_id))) + r"\)? \}\}$",
                     f"{workflow}:{job_id} {where}: the outage guard must be the trusted fallback",
                 )
 
@@ -312,7 +335,9 @@ class LinuxCompileRunners(unittest.TestCase):
                 if (workflow, job_id, where) in FLEET_FIRST:
                     self.assertTrue(value.startswith("${{ " + OWNER), value)
                     continue
-                self.assertEqual(value, expected_selector(workflow, job_id, where, label))
+                # A pool read a fork could reach is wrapped to keep the fork's old label
+                # (tests/test_ci_no_single_size_pins.py); compare what every other run takes.
+                self.assertEqual(unwrap_fork_pool_reads(value), expected_selector(workflow, job_id, where, label))
                 if "repository_owner != 'manaflow-ai'" in value:
                     self.assertRegex(value, r"github\.repository_owner != 'manaflow-ai' && '(ubuntu-24\.04|ubuntu-latest)'")
                 if (workflow, job_id) not in OWNER_ONLY and (workflow, job_id, where) not in PREFIX:

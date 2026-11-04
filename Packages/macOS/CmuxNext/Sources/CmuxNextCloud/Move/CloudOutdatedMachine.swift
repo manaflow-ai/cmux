@@ -17,22 +17,20 @@ public struct CloudOutdatedMachine {
     }
 
     /// Updates a machine before using a capability that its current daemon does not advertise.
-    /// The update restarts the daemon, so the capability must be read from the new handshake rather
-    /// than from the old connection. If the update cannot run or the new link does not arrive before
-    /// `relink`, this returns and the caller's existing capability refusal remains the final result.
+    /// The update restarts the daemon, so this waits, up to `relink`, for `holds` itself (read from the
+    /// new handshake), not just for the link to change: a new link may come up before its handshake
+    /// carries the capability, and opening then was refused although the update had worked (capture at
+    /// a799d97a, 2026-11-02). If the update cannot run or the capability does not arrive in time, this
+    /// returns and the caller's existing capability refusal remains the final result.
     @MainActor
     public static func updateBeforeUsingCapability(
         holds: @escaping @MainActor @Sendable () -> Bool,
-        link: @escaping @MainActor @Sendable () -> String?,
         relink: Duration = .seconds(90),
         update: @escaping @MainActor @Sendable () async -> Bool
     ) async {
         guard !holds() else { return }
-        let before = link()
         guard await update() else { return }
-        _ = await CloudWait.holds(within: relink) {
-            link().map { $0 != before } ?? false
-        }
+        _ = await CloudWait.holds(within: relink, until: holds)
     }
 
     /// Runs `copy` on the machine's link socket (`socket`, nil when not connected: `notConnected` is thrown); when
