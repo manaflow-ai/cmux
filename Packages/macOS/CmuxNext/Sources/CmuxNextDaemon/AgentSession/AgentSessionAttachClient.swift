@@ -110,6 +110,8 @@ public actor AgentSessionAttachClient {
         var login = false
         /// `agent-session-content-v1`.
         var content = false
+        /// `agent-session-context-v1`.
+        var context = false
     }
 
     /// A start that needs the app's person key in that machine's acpmux (cx-0w0jj): `instance`
@@ -413,6 +415,28 @@ public actor AgentSessionAttachClient {
         try await setting("agent-session-set-config", ["config_id": configId, "value": value])
     }
 
+    /// The attached session's effective context inventory, from its own machine.
+    public func context() async throws -> Data {
+        try await context(["op": "get"])
+    }
+
+    /// Saves or resets a cmux-added context override on that machine. A project scope uses
+    /// the attached session's directory; nil resets the saved override.
+    public func setContextOverride(scope: String, text: String?) async throws -> Data {
+        var params: [String: any Sendable] = ["op": "set", "scope": scope]
+        if let text { params["text"] = text }
+        return try await context(params)
+    }
+
+    private func context(_ params: [String: any Sendable]) async throws -> Data {
+        _ = try await liveTransport()
+        guard served.context else {
+            throw AgentSessionAttachError(code: "agent_session.context_unsupported",
+                                          message: "Update cmux on that machine to view or edit this chat's context.")
+        }
+        return try await call("agent-session-context", params)
+    }
+
     private func setting(_ cmd: String, _ params: [String: any Sendable]) async throws -> Data {
         _ = try await liveTransport()
         guard served.settings else {
@@ -625,7 +649,8 @@ public actor AgentSessionAttachClient {
                             folders: identity.supports(DaemonCapability.agentSessionFolders.rawValue),
                             settings: identity.supports(DaemonCapability.agentSessionSettings.rawValue),
                             login: identity.supports(DaemonCapability.agentSessionLogin.rawValue),
-                            content: identity.supports(DaemonCapability.agentSessionContent.rawValue))
+                            content: identity.supports(DaemonCapability.agentSessionContent.rawValue),
+                            context: identity.supports(DaemonCapability.agentSessionContext.rawValue))
             _ = try await DaemonConnection.perform(
                 // `agent-session-presence-v1` echoed: the daemon then streams presence (an app
                 // from before it would end its attachment on an event it does not know).

@@ -216,6 +216,8 @@ fn a_guest_reaches_only_its_verbs_and_its_prompts_wait_for_the_owner() {
             "option_id":"allow"}),
         json!({"cmd":"agent-session-children", "surface":surface}),
         json!({"cmd":"agent-session-media", "surface":surface, "path":"/tmp/a.png"}),
+        json!({"cmd":"agent-session-context", "surface":surface, "op":"get"}),
+        json!({"cmd":"agent-session-context", "surface":surface, "op":"set", "scope":"user", "text":"edit"}),
         json!({"cmd":"agent-session-start", "cwd":"/tmp"}),
         json!({"cmd":"agent-session-trust", "cwd":"/tmp"}),
         json!({"cmd":"agent-session-of", "surface":surface}),

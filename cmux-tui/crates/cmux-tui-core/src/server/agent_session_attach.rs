@@ -17,6 +17,8 @@ use serde_json::{Value, json};
 
 #[path = "agent_session_children.rs"]
 pub(super) mod agent_session_children;
+#[path = "agent_session_context.rs"]
+mod context;
 #[path = "agent_session_folders.rs"]
 mod agent_session_folders;
 #[path = "agent_session_link.rs"]
@@ -67,6 +69,8 @@ pub const AGENT_SESSION_SETTINGS_CAPABILITY: &str = "agent-session-settings-v1";
 /// teammate or link guest and never a read-only attachment. acpmux's refusal reason comes back
 /// in the answer (`refused.reason`), so the card can say why.
 pub const AGENT_SESSION_LOGIN_CAPABILITY: &str = "agent-session-login-v1";
+/// Owner-only context inventory and cmux-added overrides on the attached session.
+pub const AGENT_SESSION_CONTEXT_CAPABILITY: &str = "agent-session-context-v1";
 /// How long a login's finish may wait: Codex's waits for the person's approval in the browser.
 const LOGIN_FINISH_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// The longest login id, code or API key a login step carries, in bytes.
@@ -403,6 +407,7 @@ enum AgentSessionCommand {
     SetMode(SetModeParams),
     SetConfig(SetConfigParams),
     Login(LoginParams),
+    Context(context::Params),
 }
 
 impl AgentSessionCommand {
@@ -426,6 +431,7 @@ impl AgentSessionCommand {
             "agent-session-set-mode" => Self::SetMode(from_value(params).ok()?),
             "agent-session-set-config" => Self::SetConfig(from_value(params).ok()?),
             "agent-session-login" => Self::Login(from_value(params).ok()?),
+            "agent-session-context" => Self::Context(from_value(params).ok()?),
             _ => return None,
         })
     }
@@ -916,6 +922,7 @@ fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
         AgentSessionCommand::SetMode(params) => params.surface,
         AgentSessionCommand::SetConfig(params) => params.surface,
         AgentSessionCommand::Login(params) => params.surface,
+        AgentSessionCommand::Context(params) => params.surface(),
     }
 }
 
@@ -1157,13 +1164,15 @@ fn run_on_worker(
                 | AgentSessionCommand::SetMode(_)
                 | AgentSessionCommand::SetConfig(_)
                 | AgentSessionCommand::Login(_)
+                | AgentSessionCommand::Context(_)
         )
     {
         return refuse(writer, id, Refusal::ReadOnly);
     }
     // A teammate or link guest never changes the owner's chat's model, mode or options: a mode
     // can stop the agent asking before it acts on the owner's machine. Nor does it sign the
-    // owner's agent in: that sets whose account the machine's agent runs as.
+    // owner's agent in: that sets whose account the machine's agent runs as. Context includes
+    // the owner's instructions and saved overrides, beyond what sharing a chat grants.
     if attachment.author.is_some()
         && matches!(
             &command,
@@ -1171,6 +1180,7 @@ fn run_on_worker(
                 | AgentSessionCommand::SetMode(_)
                 | AgentSessionCommand::SetConfig(_)
                 | AgentSessionCommand::Login(_)
+                | AgentSessionCommand::Context(_)
         )
     {
         return refuse(writer, id, Refusal::NotTrusted);
@@ -1376,6 +1386,7 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             setting(attachment, ok, "session/set_config_option", params)
         }
         AgentSessionCommand::Login(params) => login(attachment, params),
+        AgentSessionCommand::Context(params) => context::call(attachment, params),
         AgentSessionCommand::Cancel(_) | AgentSessionCommand::Detach(_) => Ok(json!({})),
     }
 }

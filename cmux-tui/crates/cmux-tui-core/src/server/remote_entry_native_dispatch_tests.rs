@@ -52,7 +52,7 @@ fn provision(entry: &Entry, stream: &mut UnixStream, reader: &mut BufReader<Unix
 }
 
 #[test]
-fn native_owner_provisions_trusts_starts_and_attaches_first_chat_over_real_entry() {
+fn native_owner_provisions_attaches_and_reads_context_over_real_entry() {
     let fake = FakeAcpmux::start_with(
         "native-first",
         Fixture { start_folder_trusted: Some(true), ..Default::default() },
@@ -66,6 +66,9 @@ fn native_owner_provisions_trusts_starts_and_attaches_first_chat_over_real_entry
     let identity = ok(&mut stream, &mut reader, json!({"cmd":"identify"}));
     assert!(
         identity["capabilities"].as_array().unwrap().contains(&json!("agent-session-content-v1"))
+    );
+    assert!(
+        identity["capabilities"].as_array().unwrap().contains(&json!("agent-session-context-v1"))
     );
     let cwd = entry._directory.path().to_string_lossy().into_owned();
     ok(
@@ -94,6 +97,15 @@ fn native_owner_provisions_trusts_starts_and_attaches_first_chat_over_real_entry
     );
     ok(&mut stream, &mut reader, json!({"cmd":"agent-session-attach", "surface":surface}));
     assert_eq!(fake.frame()["method"], json!("_acpmux/attach"));
+    let context = ok(&mut stream, &mut reader,
+        json!({"cmd":"agent-session-context", "surface":surface, "op":"get"}));
+    assert_eq!(context["parts"][0]["text"], "Read early.");
+    assert_eq!(fake.frame()["params"], json!({"sessionId":SESSION}));
+    ok(&mut stream, &mut reader,
+        json!({"cmd":"agent-session-context", "surface":surface, "op":"set", "scope":"project", "text":"read together"}));
+    let sent = fake.frame();
+    assert_eq!(sent["method"], "_acpmux/context_override");
+    assert_eq!(sent["params"], json!({"sessionId":SESSION, "scope":"project", "text":"read together"}));
     ok(&mut stream, &mut reader, json!({"cmd":"agent-session-detach", "surface":surface}));
     // The grant never promotes this connection to a generic local one.
     for frame in [

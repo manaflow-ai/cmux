@@ -9714,6 +9714,28 @@ An observation attachment gets `agent_session.read_only`, and a teammate's or
 link guest's attachment `agent_session.not_trusted`: only the chat's owner signs
 its agent in. The code and key are never logged.
 
+### agent-session-context
+
+`agent-session-context-v1` (advertised with `agent-session-attach-v1`): the
+owner's context viewer for an attached session. `{id,
+cmd:"agent-session-context", surface, op:"get"}` sends acpmux's
+`_acpmux/context {sessionId}`. `{id, cmd:"agent-session-context", surface,
+op:"set", scope:"user"|"project", text?:string|null}` sends
+`_acpmux/context_override {sessionId, scope, text}`; null or omitted text
+resets the override, while an empty string is an explicit empty override.
+The daemon pins `sessionId` to the attachment, and acpmux derives a project
+override's directory from that session. A caller cannot name a session or
+directory; extra fields and unknown operations or scopes are
+`agent_session.bad_request`. Both operations return acpmux's inventory
+unchanged, including source labels, counts and available text.
+
+Only an owner carrier may use this verb: a trusted local Unix client, an
+authenticated Native owner, or the verified owner Cloud mobile carrier.
+Read-only attachments, teammate proxies and link guests are refused. The
+daemon calls acpmux over its existing local socket; direct WebSocket and peer
+connections retain acpmux's redaction and no-edit policy. Older daemons do
+not advertise the capability and the app asks to update that machine.
+
 ### agent-session-proxy-bind, agent-session-of
 
 A shared chat (`cmux host share`, chat multiplayer) reaches a teammate through

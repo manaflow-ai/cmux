@@ -361,6 +361,7 @@ pub(super) fn handle_frame(
                     | "agent-session-prompt"
                     | "agent-session-cancel"
                     | "agent-session-detach"
+                    | "agent-session-context"
             )
         );
         if allowed {

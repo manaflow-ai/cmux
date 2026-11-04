@@ -499,6 +499,10 @@ mod tests {
         assert_code(&client.request(answer), "agent_session.not_trusted");
         // Its typing or view would count as the owner's: refused, and nothing reaches acpmux.
         for frame in [
+            json!({"cmd":"agent-session-context", "surface":surface, "op":"get",
+                "_host_author":author, "_host_session":SESSION}),
+            json!({"cmd":"agent-session-context", "surface":surface, "op":"set", "scope":"user", "text":"edit",
+                "_host_author":author, "_host_session":SESSION}),
             json!({"cmd":"agent-session-typing", "surface":surface, "on":true,
                 "_host_author":author, "_host_session":SESSION}),
             json!({"cmd":"agent-session-view", "surface":surface, "visible":true,
