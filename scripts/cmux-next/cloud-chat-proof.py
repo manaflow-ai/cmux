@@ -100,9 +100,10 @@ def parsed(text: str) -> dict:
 answer = parsed(out)
 reply = answer.get("reply")
 record("cloud start-chat", code, out, err, reply=clean(reply or "", 8000) or None)
-# A failed chat answers on stderr, with the machine it made at details.answer.machine_id.
+# A failed chat answers on stderr: the machine it made is at details.machine_id (chat.turn_failed)
+# or details.answer.machine_id (the other failures).
 failure = parsed(err).get("details") or {}
-machine = answer.get("machine_id") or (failure.get("answer") or {}).get("machine_id")
+machine = answer.get("machine_id") or failure.get("machine_id") or (failure.get("answer") or {}).get("machine_id")
 
 # 4. The machine the chat made goes, pass or fail (a destructive verb needs --confirm from a script).
 killed = True
