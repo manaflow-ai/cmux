@@ -26,7 +26,9 @@ import CmuxNextWakeups
 /// - `liveResize.view_layouts_inside`: `-[NSView layout]` calls (any window) inside the `setFrame`;
 /// - `liveResize.view_layouts_after`: those calls from the `setFrame`'s end to the end of the turn's commit (what the
 ///   turn still laid out after a commit inside the `setFrame` shows one commit later);
-/// - `liveResize.after_ms`: from the `setFrame`'s end to the end of the turn's commit.
+/// - `liveResize.after_ms`: from the `setFrame`'s end to the end of the turn's commit;
+/// - `liveResize.witness_ok`: 1 when the turn's commit showed in the witness (its `commit_inside` readings are valid), 0
+///   when even the turn's commit did not (they mean nothing).
 @MainActor
 final class LiveResizeFrameProbe {
     /// A `setFrame` of the resize: when it started and the display time it can first make (nil: no recent display link).
@@ -107,6 +109,8 @@ final class LiveResizeFrameProbe {
         if let lastApplied {
             MotionTrace.sample("liveResize.view_layouts_after", Double(LayoutPassGuard.shared.viewLayoutCalls - lastApplied.viewLayouts))
             MotionTrace.sample("liveResize.after_ms", (end - lastApplied.end) * 1000)
+            // The turn's commit carried the witness's value: 1 proves `commit_inside` can see a commit in this window.
+            MotionTrace.sample("liveResize.witness_ok", witness.committed ? 1 : 0)
         }
         lastApplied = nil
         observer = nil
