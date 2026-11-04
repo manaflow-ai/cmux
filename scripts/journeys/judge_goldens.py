@@ -1031,6 +1031,26 @@ def _expectation(result, expect):
     answer it."""
     if not isinstance(result, dict) or result.get("error") and len(result) == 1:
         return f"the judge gave no result: {json.dumps(result)[:200]}"
+    if "m6_fail_frames" in expect:  # judge_pixel: the frames where one m6 rule fails for one content kind, exactly
+        kinds = (result.get("m6") or {}).get("kinds")
+        if not isinstance(kinds, dict):
+            raise Unchecked("judge_pixel's result has no m6 check (a judge before 3e)")
+        row = kinds.get(expect["m6_kind"])
+        if not isinstance(row, dict):
+            raise Unchecked(f"judge_pixel judged no {expect['m6_kind']} content on this film")
+        by_rule = row.get("fail_frames_by_rule")
+        if not isinstance(by_rule, dict) or expect["m6_rule"] not in by_rule:
+            raise Unchecked("judge_pixel's m6 result has no frames per rule (a judge before 3e.1)")
+        try:
+            got = frame_set(by_rule[expect["m6_rule"]])
+        except ValueError as error:
+            return f"the m6 frames {by_rule[expect['m6_rule']]!r} cannot be read: {error}"
+        want = {k for lo, hi in expect["m6_fail_frames"] for k in range(lo, hi + 1)}
+        if got != want:
+            return (f"{expect['m6_kind']} {expect['m6_rule']} fails in {ranges_text(got) or 'no frame'}, expected exactly "
+                    f"{ranges_text(want) or 'no frame'} (more: {ranges_text(got - want) or 'none'}; missing: "
+                    f"{ranges_text(want - got) or 'none'})")
+        return None
     if "clock_offset" in expect:  # judge_pixel: the film's fitted clock (3d), exactly; also a film it did not judge
         clock = result.get("clock")
         if not isinstance(clock, dict) or "offset" not in clock:
@@ -1125,9 +1145,11 @@ def load_truth(manifest):
 
 
 EXPECT_KINDS = ("check", "defect_frames", "absent_check", "kind", "absent_kind", "off_frames", "absent_finding",
-                "clock_offset")
+                "clock_offset", "m6_fail_frames")
 EXPECT_KEYS = {"judge", "check", "frames", "defect_frames", "absent_check", "kind", "count", "absent_kind",
-               "pixel_row", "off_frames", "absent_finding", "clock_offset"}
+               "pixel_row", "off_frames", "absent_finding", "clock_offset", "m6_fail_frames", "m6_kind", "m6_rule"}
+M6_KINDS = ("terminal", "page", "agent")
+M6_RULES = ("E2", "E3", "E4", "E5", "page early 1")
 # judge_pixel's summary rows are named by these four fields; a judge_pixel fact names one row with all four.
 PIXEL_ROW_KEYS = ("label", "side", "line", "what")
 RULER_KEYS = {"line", "at", "class", "x", "frames", "min_run_px"}
@@ -1136,7 +1158,7 @@ FACT_KEYS = {"id", "film", "why", "ruler", "expect"}
 # on any other judge would read a list that result does not have: it checks nothing (review 3 of #33930, finding A).
 KIND_JUDGE = {"check": "video_judge", "defect_frames": "video_judge", "absent_check": "video_judge",
               "kind": "judge_trace", "absent_kind": "judge_trace", "off_frames": "judge_pixel",
-              "absent_finding": "judge_pixel", "clock_offset": "judge_pixel"}
+              "absent_finding": "judge_pixel", "clock_offset": "judge_pixel", "m6_fail_frames": "judge_pixel"}
 KIND_LIST = {"video_judge": "findings", "judge_trace": "defects"}
 # The names each judge reports (video_judge's finding checks; judge_trace's defect kinds), as their source writes them
 # (a test pins these sets to the source). A fact that names anything else checks nothing: NO VERDICT. A judge PR that
@@ -1230,6 +1252,19 @@ def truth_problems(manifest, films_doc):
                     problems.append(f"{fid}: defect_frames is empty: it checks nothing")
                 else:
                     problems += [f"{fid}: defect_frames {why}" for why in map(_span_problem, spans) if why]
+            if kinds == ["m6_fail_frames"]:
+                spans = expect["m6_fail_frames"]
+                if expect.get("m6_kind") not in M6_KINDS or expect.get("m6_rule") not in M6_RULES or "pixel_row" in expect \
+                        or not isinstance(spans, list):
+                    problems.append(f"{fid}: m6_fail_frames is a list of spans (empty: no frame) with m6_kind (one of "
+                                    f"{', '.join(M6_KINDS)}) and m6_rule (one of {', '.join(M6_RULES)}), no pixel_row: "
+                                    f"{json.dumps(expect)[:160]}")
+                else:
+                    problems += [f"{fid}: m6_fail_frames {why}" for why in map(_span_problem, spans) if why]
+                continue
+            if ("m6_kind" in expect or "m6_rule" in expect) and kinds != ["m6_fail_frames"]:
+                problems.append(f"{fid}: m6_kind and m6_rule belong to an m6_fail_frames expectation: {json.dumps(expect)[:160]}")
+                continue
             if kinds == ["clock_offset"]:
                 if type(expect["clock_offset"]) is not int or not -1 <= expect["clock_offset"] <= 1 or "pixel_row" in expect:
                     problems.append(f"{fid}: clock_offset is the film's clock offset: -1, 0 or 1, with no pixel_row: "

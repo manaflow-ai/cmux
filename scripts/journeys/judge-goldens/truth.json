@@ -335,6 +335,117 @@
      ]
     }
    ]
+  },
+  {
+   "id": "3e1-s4arms-off-terminal-top-with-its-strip",
+   "film": "ab-s4arms2-5eb5406-120x2/px-row-drag-3r-s4arms-off-s1",
+   "why": "FRAME OWNER (agent pixel-perfect, 2026-11-04, the 3e FIX): 3e reported p2's terminal failing E2 in 114 / 106 / 111 / 116 frames (OFF, ON, ON+renderer, ON+direct), every one on p2's top edge, because 3e read y edges from the trace on a clock that the page (Chromium's window) set. Measured on the film itself with no judge (the owner's rowdrag_pad.py rule; R-HARNESS ran it on the stored film: /work/tmp/r-harness/3e/pad_frames.py): along column 1916 the run of terminal ground between p2's tab strip and its first content ring is exactly 8 device px in every moving frame but frame 531 (161 of 162). Frame 531 is off by both: the terminal's top is not with its strip there. The owner expects few frames late as a whole in this arm; its main window's clock is +0. Film: S4 4-arm row drag, round ab-s4arms2-5eb5406-20261104T080129Z-cmux24 (gallery folder ab-s4arms2-5eb5406-120x2; build 5eb5406, filmed by the FRAME OWNER on cmux24).",
+   "expect": [
+    {
+     "judge": "judge_pixel",
+     "m6_kind": "terminal",
+     "m6_rule": "E2",
+     "m6_fail_frames": [
+      [
+       531,
+       531
+      ]
+     ]
+    },
+    {
+     "judge": "judge_pixel",
+     "clock_offset": 0
+    }
+   ]
+  },
+  {
+   "id": "3e1-s4arms-on-terminal-top-with-its-strip",
+   "film": "ab-s4arms2-5eb5406-120x2/px-row-drag-3r-s4arms-on-s1",
+   "why": "FRAME OWNER (agent pixel-perfect, 2026-11-04, the 3e FIX): 3e reported p2's terminal failing E2 in 114 / 106 / 111 / 116 frames (OFF, ON, ON+renderer, ON+direct), every one on p2's top edge, because 3e read y edges from the trace on a clock that the page (Chromium's window) set. Measured on the film itself with no judge (the owner's rowdrag_pad.py rule; R-HARNESS ran it on the stored film: /work/tmp/r-harness/3e/pad_frames.py): along column 1916 the run of terminal ground between p2's tab strip and its first content ring is exactly 8 device px in every moving frame but 515-518 and 522-523, the white ring at the fast return (157 of 163). The off frames have a white ring 1 (the owner's rule looks for the red one); the judge reads ring 1 by the ring order and finds it with its strip. The owner expects about 105-115 frames late as a whole in this arm; its main window's clock is +1. Film: S4 4-arm row drag, round ab-s4arms2-5eb5406-20261104T080129Z-cmux24 (gallery folder ab-s4arms2-5eb5406-120x2; build 5eb5406, filmed by the FRAME OWNER on cmux24).",
+   "expect": [
+    {
+     "judge": "judge_pixel",
+     "m6_kind": "terminal",
+     "m6_rule": "E2",
+     "m6_fail_frames": []
+    },
+    {
+     "judge": "judge_pixel",
+     "clock_offset": 1
+    }
+   ]
+  },
+  {
+   "id": "3e1-s4arms-onrenderer-terminal-top-with-its-strip",
+   "film": "ab-s4arms2-5eb5406-120x2/px-row-drag-3r-s4arms-onrenderer-s1",
+   "why": "FRAME OWNER (agent pixel-perfect, 2026-11-04, the 3e FIX): 3e reported p2's terminal failing E2 in 114 / 106 / 111 / 116 frames (OFF, ON, ON+renderer, ON+direct), every one on p2's top edge, because 3e read y edges from the trace on a clock that the page (Chromium's window) set. Measured on the film itself with no judge (the owner's rowdrag_pad.py rule; R-HARNESS ran it on the stored film: /work/tmp/r-harness/3e/pad_frames.py): along column 1916 the run of terminal ground between p2's tab strip and its first content ring is exactly 8 device px in every moving frame but none (160 of 160). The owner expects few frames late as a whole in this arm; its main window's clock is +0. Film: S4 4-arm row drag, round ab-s4arms2-5eb5406-20261104T080129Z-cmux24 (gallery folder ab-s4arms2-5eb5406-120x2; build 5eb5406, filmed by the FRAME OWNER on cmux24).",
+   "expect": [
+    {
+     "judge": "judge_pixel",
+     "m6_kind": "terminal",
+     "m6_rule": "E2",
+     "m6_fail_frames": []
+    },
+    {
+     "judge": "judge_pixel",
+     "clock_offset": 0
+    }
+   ]
+  },
+  {
+   "id": "3e1-s4arms-ondirect-terminal-top-with-its-strip",
+   "film": "ab-s4arms2-5eb5406-120x2/px-row-drag-3r-s4arms-ondirect-s1",
+   "why": "FRAME OWNER (agent pixel-perfect, 2026-11-04, the 3e FIX): 3e reported p2's terminal failing E2 in 114 / 106 / 111 / 116 frames (OFF, ON, ON+renderer, ON+direct), every one on p2's top edge, because 3e read y edges from the trace on a clock that the page (Chromium's window) set. Measured on the film itself with no judge (the owner's rowdrag_pad.py rule; R-HARNESS ran it on the stored film: /work/tmp/r-harness/3e/pad_frames.py): along column 1916 the run of terminal ground between p2's tab strip and its first content ring is exactly 8 device px in every moving frame but 255, 267, 273, 313, 512, 515-519 and 522-523, the white ring at the fast return (150 of 162). The off frames are the white ring 1 at the fast return and four single frames; the judge reads ring 1 by the ring order and finds it with its strip. The owner expects about 105-115 frames late as a whole in this arm; its main window's clock is +1. Film: S4 4-arm row drag, round ab-s4arms2-5eb5406-20261104T080129Z-cmux24 (gallery folder ab-s4arms2-5eb5406-120x2; build 5eb5406, filmed by the FRAME OWNER on cmux24).",
+   "expect": [
+    {
+     "judge": "judge_pixel",
+     "m6_kind": "terminal",
+     "m6_rule": "E2",
+     "m6_fail_frames": []
+    },
+    {
+     "judge": "judge_pixel",
+     "clock_offset": 1
+    }
+   ]
+  },
+  {
+   "id": "3e1-s2b-off-content-with-its-strips",
+   "film": "ab-s2b-sw-3fbd40a-120x2/px-keys-then-drag-3-sw-sharededges-off-s025",
+   "why": "FRAME OWNER (agent pixel-perfect, 2026-11-04, the 3e FIX): measured on the film itself (the judge's strip p1 lo on row@28 against p1 lo on row@514): p1's page content minus its tab strip is a constant 8 device px in 410 of 410 moving frames, and p2's terminal the same. So no lo edge of the terminal or the page fails E2 against cmux's own strips. Film: S2B shared-edges keys-then-drag column films, round ab-s2b-sw-3fbd40a-20261104T071319Z-cmux24 (gallery folder ab-s2b-sw-3fbd40a-120x2, build 3fbd40a, cmux24).",
+   "expect": [
+    {
+     "judge": "judge_pixel",
+     "m6_kind": "terminal",
+     "m6_rule": "E2",
+     "m6_fail_frames": []
+    },
+    {
+     "judge": "judge_pixel",
+     "m6_kind": "page",
+     "m6_rule": "E2",
+     "m6_fail_frames": []
+    }
+   ]
+  },
+  {
+   "id": "3e1-s2b-on-content-with-its-strips",
+   "film": "ab-s2b-sw-3fbd40a-120x2/px-keys-then-drag-3-sw-sharededges-on-s025",
+   "why": "FRAME OWNER (agent pixel-perfect, 2026-11-04, the 3e FIX): measured on the film itself (the judge's strip p1 lo on row@28 against p1 lo on row@514): p1's page content minus its tab strip is a constant 8 device px in 437 of 437 moving frames, and p2's terminal the same. So no lo edge of the terminal or the page fails E2 against cmux's own strips. Film: S2B shared-edges keys-then-drag column films, round ab-s2b-sw-3fbd40a-20261104T071319Z-cmux24 (gallery folder ab-s2b-sw-3fbd40a-120x2, build 3fbd40a, cmux24).",
+   "expect": [
+    {
+     "judge": "judge_pixel",
+     "m6_kind": "terminal",
+     "m6_rule": "E2",
+     "m6_fail_frames": []
+    },
+    {
+     "judge": "judge_pixel",
+     "m6_kind": "page",
+     "m6_rule": "E2",
+     "m6_fail_frames": []
+    }
+   ]
   }
  ]
 }

@@ -46,13 +46,16 @@ def judge(base, all_frames=False):
            "findings": findings, "info": [], "notes": []}
     if "clock" in note:  # the fitted clock (3d): an offset, or None (clock not found)
         out["clock"] = {"offset": note["clock"], "why": "stand-in"}
+    if "m6" in note:  # the m6 check (3e.1): per kind the failing frames per rule
+        out["m6"] = {"kinds": {kind: {"fail_frames_by_rule": rules} for kind, rules in note["m6"].items()}}
     return out
 '''
 
 
 def fixture_workspace(off="3-6", findings=(), **clock):
     """The runner tests' workspace plus one fixture film (meta notes carry `pixel`) and the judge_pixel stand-in.
-    clock=OFFSET: the stand-in reports that fitted clock (None: clock not found); without it, no clock."""
+    clock=OFFSET: the stand-in reports that fitted clock (None: clock not found); without it, no clock. m6={kind: {rule:
+    ranges}}: the stand-in's m6 frames per rule; without it, no m6."""
     w = base.Workspace()
     folder = w.gallery / "build-p-120x2"
     base.write_film(folder, "px-col-drag", frames=9)
@@ -358,6 +361,68 @@ class ClockOffsetTests(unittest.TestCase):
                 try:
                     code, out = w.cli("bless", "--judges", str(w.judges), "--reason", "t", "--jobs", "2",
                                       "--no-git-check")
+                    self.assertEqual(code, 2, out)
+                    self.assertIn("px-off", out)
+                finally:
+                    w.close()
+
+
+class M6FailFramesTests(unittest.TestCase):
+    """A judge_pixel TRUTH fact can pin the frames where one m6 rule fails for one content kind (3e.1): m6_fail_frames
+    holds only when the result's frames for that kind and rule are exactly those spans (empty: no frame); a result with
+    no m6 check, no such kind or no frames per rule is NO VERDICT; a malformed fact is NO VERDICT."""
+
+    def blessed(self, expect, **m6):
+        w = fixture_workspace(**m6)
+        write_pixel_fact(w, expect)
+        self.assertEqual(w.snapshot()[0], 0)
+        return w
+
+    FACT = {"judge": "judge_pixel", "m6_kind": "terminal", "m6_rule": "E2", "m6_fail_frames": [[5, 5]]}
+
+    def test_the_exact_frames_meet_the_fact(self):
+        w = self.blessed(self.FACT, m6={"terminal": {"E2": "5"}})
+        try:
+            self.assertEqual(w.bless()[0], 0)
+            code, out = w.run()
+            self.assertEqual(code, 0, out)
+            self.assertIn("truth: 1 of 1", out)
+        finally:
+            w.close()
+
+    def test_other_frames_are_a_truth_failure(self):
+        for got in ("5-6", "", "4"):
+            with self.subTest(got=got):
+                w = self.blessed(self.FACT, m6={"terminal": {"E2": got}})
+                try:
+                    code, out = w.bless()
+                    self.assertEqual(code, 2, out)
+                    self.assertIn("TRUTH", out)
+                    self.assertIn("terminal E2 fails in", out)
+                finally:
+                    w.close()
+
+    def test_no_m6_no_kind_or_no_rule_frames_is_no_verdict(self):
+        for name, m6 in (("no m6", {}), ("no kind", {"m6": {"page": {"E2": ""}}}), ("no rule", {"m6": {"terminal": {"E3": ""}}})):
+            with self.subTest(case=name):
+                w = self.blessed(self.FACT, **m6)
+                try:
+                    code, out = w.bless()
+                    self.assertEqual(code, 2, out)
+                    self.assertIn("NO VERDICT", out)
+                finally:
+                    w.close()
+
+    def test_a_malformed_m6_fact_is_no_verdict(self):
+        for name, expect in (("a kind it does not judge", dict(self.FACT, m6_kind="browser")),
+                             ("a rule it does not have", dict(self.FACT, m6_rule="E9")),
+                             ("not spans", dict(self.FACT, m6_fail_frames=[5])),
+                             ("a row too", dict(self.FACT, pixel_row=ROW)),
+                             ("a kind on another expectation", {"judge": "judge_pixel", "clock_offset": 0, "m6_kind": "terminal"})):
+            with self.subTest(case=name):
+                w = self.blessed(expect, m6={"terminal": {"E2": "5"}})
+                try:
+                    code, out = w.cli("bless", "--judges", str(w.judges), "--reason", "t", "--jobs", "2", "--no-git-check")
                     self.assertEqual(code, 2, out)
                     self.assertIn("px-off", out)
                 finally:

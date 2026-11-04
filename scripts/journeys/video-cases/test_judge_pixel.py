@@ -596,7 +596,11 @@ class JudgePixelTests(unittest.TestCase):
         hi = side(r, "strip p0", "row@12", "hi")
         self.assertEqual(hi["frames"], 60)
         self.assertLessEqual(abs(hi["max_edge_dev_px"]), 1.0, hi["dev_top"])
-        self.assertFalse([s for s in r["summary"].values() if s["label"] == "strip p0" and s["side"] == "lo" and s["frames"]])
+        self.assertFalse([s for s in r["summary"].values() if s["label"] == "strip p0" and s["side"] == "lo"
+                          and s["line"].startswith("row@") and s["frames"]])
+        # Its top on the col@100 scan column (3e.1: cmux's own layer gives the pane's top edge) is judged, and on time.
+        top = side(r, "strip p0", "col@100", "lo")
+        self.assertEqual((top["frames"], top["off_frames"]), (60, 0))
         # A's left edge (rows cross it) is hidden: never judged. Its top edge (the col@100 line's lo) shows and is.
         self.assertFalse([s for s in r["summary"].values() if s["label"] == "p0" and s["side"] == "lo"
                           and s["line"].startswith("row@") and s["frames"]])
@@ -865,8 +869,11 @@ class ClockTests(unittest.TestCase):
     def test_a_late_layer_is_late_against_the_films_own_clock(self):
         # lag1: A on time, B one refresh late. A frame shows its own sample's geometry and a layer can only be older,
         # so the smallest offset the edges follow (A's, 0) is the clock; B's lag stays B's finding.
+        # 3e.1: a page is drawn by another window and never votes; it gets its own offset against the main window.
         r = self.reports["lag1"]
-        self.assertEqual((r["clock"]["offset"], r["clock"]["votes"]), (0, {"+0": 2, "+1": 2}))
+        self.assertEqual((r["clock"]["offset"], r["clock"]["votes"], r["clock"]["page"]["votes"]), (0, {"+0": 2}, {"+1": 2}))
+        self.assertEqual(r["clock"]["page_window_offset"], 1)
+        self.assertIn("page window offset", [f["check"] for f in r["info"]])
         self.assertIn(("lag", "p1 (page) lo on row@110"), [(f["check"], f["where"]) for f in r["findings"]])
 
     def test_no_offset_that_fits_is_clock_not_found_and_the_fixed_clock(self):
@@ -994,24 +1001,132 @@ class M6ContractTests(unittest.TestCase):
         self.assertEqual((row["fail_ranges"], row["fail_by_rule"]["E5"] > 0), ("20-22", True))
 
     def test_a_pane_whose_strip_is_not_shown_is_not_judged_never_passed(self):
-        # B's tab strip is not drawn in 20-22: B's x edges (2 row lines, lo and hi) have no pane edge there: not judged,
-        # never a pass (12 edges). Its top edge (the trace) is judged, and the shell where the strip was is a gap (E4).
+        # B's tab strip is not drawn in 20-22: B's lo x edges (2 row lines; its hi edge at the frame's edge is never read)
+        # have no pane edge there: not judged, never a pass (6 edges). Its top edge has no strip top either, and the
+        # shell where the strip was is a gap beyond its content (E4: a fact of the content, judged without a pane edge).
         hidden, shown = self.kind("strip-hidden", "page"), self.kind("strip", "page")
-        self.assertEqual((hidden["edges"].get("not judged", 0), shown["edges"].get("not judged", 0)), (12, 0))
-        self.assertEqual(hidden["sources"]["strip"], shown["sources"]["strip"] - 12)
+        self.assertEqual(hidden["edges"].get("not judged", 0) - shown["edges"].get("not judged", 0), 6)
+        self.assertEqual(hidden["sources"]["strip"], shown["sources"]["strip"] - 6)
         self.assertEqual((hidden["fail_ranges"], hidden["fail_by_rule"]["E4"]), ("20-22", 3))
 
-    def test_a_shell_gap_fails_even_when_the_edge_is_late(self):
-        # gap2 (no strip: the trace on the 3d clock): A's content 2 px short in 20-25, the shell beyond it.
+    def test_a_shell_gap_fails_even_where_no_layer_shows_the_pane_edge(self):
+        # gap2 has no strip: no layer of cmux shows A's edges, so E2 and E3 are not judged (never on the trace, 3e.1);
+        # the shell beyond A's content in 20-25 is a fact of the content itself: E4 fails.
         row = self.kind("gap2", "terminal")
-        self.assertEqual((row["fail_ranges"], row["fail_by_rule"]["E4"] > 0), ("20-25", True))
-        self.assertGreater(row["sources"]["trace"], 0)
-        self.assertEqual(row["sources"].get("strip", 0), 0)
+        self.assertEqual((row["fail_ranges"], row["fail_by_rule"]["E4"] > 0, row["not_judged"]), ("20-25", True, 54))
+        self.assertEqual(row["sources"], {})
 
-    def test_a_film_with_no_strip_is_judged_on_the_trace(self):
-        row = self.kind("clean", "page")
-        self.assertEqual((row["fail"], row["not_judged"]), (0, 0))
-        self.assertEqual(row["pass"], row["frames"])
+    def test_a_film_with_no_strip_is_not_judged_never_on_the_trace(self):
+        for kind in ("terminal", "page"):
+            row = self.kind("clean", kind)
+            self.assertEqual((row["pass"], row["fail"], row["not_judged"], row["sources"]), (0, 0, row["frames"], {}), kind)
+
+
+class MainWindowTests(unittest.TestCase):
+    """3e.1 (FRAME OWNER's FIX of 3e): every pane edge of the m6 check comes from cmux's own layer in the same film frame,
+    never the trace: x edges from the tab strip on its strip row (only a side read from the pixels), y edges from the
+    strip's top on each scan column that crosses it. The 3d clock is fitted from the main window's edges only (strips,
+    terminal and agent content); a page is drawn by another window (Chromium's) and never votes: it gets its own offset
+    against the main window ("page window offset"), and a page edge on the next frame's pane edge is "page early 1"
+    (a failure). E7 counts the strip tops too, on the fixed clock."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="judge-pixel-main-")
+        cls.reports = {v: jp.judge(build(cls.tmp, v, v), all_frames=True)
+                       for v in ("strip", "strip-lag", "strip-page-late", "strip-repeat", "lag1", "strip-stretch")}
+        MainWindowTests.stretch = cls.reports["strip-stretch"]
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_y_edges_come_from_the_strip_tops(self):
+        row = self.reports["strip"]["m6"]["kinds"]["page"]
+        self.assertGreater(row["sources"]["strip top"], 0)
+        self.assertNotIn("trace", row["sources"])
+
+    def test_a_page_never_sets_the_main_windows_clock(self):
+        r = self.reports["strip-page-late"]  # B's page one sample late; the strips and A on time
+        self.assertEqual((r["clock"]["offset"], r["clock"]["page"]["offset"], r["clock"]["page_window_offset"]), (0, 1, 1))
+        info = {f["check"]: f["detail"] for f in r["info"]}
+        self.assertIn("+1 refresh", info["page window offset"])
+
+    def test_a_page_ahead_of_its_strip_is_page_early_1(self):
+        # strip-lag: B's strip one sample late, B's page on time: the page is one frame ahead of its pane as cmux shows it.
+        row = self.reports["strip-lag"]["m6"]["kinds"]["page"]
+        self.assertEqual((row["fail_ranges"], row["fail_by_rule"]["page early 1"] > 0), ("11-30", True))
+        self.assertEqual(row["fail_frames_by_rule"]["page early 1"], "11-30")
+
+    def test_a_stretched_or_gapped_edge_is_not_also_counted_off(self):
+        # strip-stretch: B's page rings twice as wide in 20-22 (E5); its outer edge moves with the stretch, which is the
+        # defect: the frames fail E5 and are not counted again under E2.
+        row = MainWindowTests.stretch["m6"]["kinds"]["page"]
+        self.assertEqual((row["fail_frames_by_rule"]["E5"], row["fail_frames_by_rule"]["E2"]), ("20-22", ""))
+
+    def test_a_dropped_refresh_is_a_frame_late_as_a_whole(self):
+        # Frame 20 repeats frame 19: it shows sample 18's geometry where sample 19's is due: one frame late, every layer.
+        r = self.reports["strip-repeat"]
+        self.assertEqual((r["m6"]["late_as_a_whole"], r["m6"]["late_as_a_whole_ranges"]), (1, "20"))
+
+    def test_late_as_a_whole_is_read_on_the_fixed_clock(self):
+        # strip-clock-late: every layer one refresh late. Its own clock (3d) is +1, so against that clock nothing is
+        # late; on the fixed clock every moving frame is late as a whole, and E7 counts them.
+        r = jp.judge(build(self.tmp, "strip-clock-late", "strip-clock-late"))
+        self.assertEqual(r["clock"]["offset"], 1)
+        self.assertGreaterEqual(r["m6"]["late_as_a_whole"], 19)
+
+    def test_late_as_a_whole_counts_the_strip_tops(self):
+        # A pane that moves down (a row drag moves no strip x edge): its strip tops one sample late are the frame's lag.
+        film = jp.Film(build(self.tmp, "e7-tops", "clean"))
+        for k, smp in enumerate(film.samples):
+            row = list(smp.panes["pb"])
+            row[2] = 10.0 + min(max(k - 10, 0), 20)  # y: 10 pt, then 1 pt down per sample from sample 10 to 30
+            smp.panes["pb"] = row
+        shown = [film.committed(float(t)) for t in film.t]
+        series = jp.edge_series(film, "pb", "col", "lo")
+        late = [series[shown[f] - 1] if shown[f] and shown[f] >= 1 else series[0] for f in range(film.n)]
+        strips = jp.judge_strips(film, shown, list(range(8)), None, False, {}, lambda f, e: None, {}, extents={},
+                                 tops={("pb", "col@500"): late}, fixed=shown)
+        lagged = sorted(f for f, lags in strips["lags_fixed"].items() if lags and all(v == 1 for v in lags))
+        self.assertGreaterEqual(len(lagged), 15)
+
+    def test_page_early_1_reads_the_next_frame_whose_strip_differs(self):
+        # Frame 3 repeats frame 2 (a dropped refresh). The page in frame 2 is on frame 4's strip: one frame early.
+        real = jp.Film(build(self.tmp, "early-next", "clean"))
+        strip = [(100, None), (100, None), (102, None), (102, None), (104, None), (106, None)] + [(108, None)] * 4
+        content = [100, 100, 104, 104, 104, 106] + [108] * 4
+        n = len(strip)
+        film = types.SimpleNamespace(n=n, panes=real.panes, samples=real.samples[:n], scale=real.scale)
+        m = [{"status": "found", "view_edge": float(v), "gap": 0.0, "rings": [2.0, 4.0, 6.0]} for v in content]
+        key = ("pb", "row@110", "row", "lo")
+        out = jp.judge_m6(film, list(range(n)), {key: m}, {key: (0.0, [2.0, 4.0, 6.0])},
+                          {"edges": {"pb": strip}, "tops": {}, "lags_fixed": {}})
+        self.assertEqual(out["kinds"]["page"]["fail_frames_by_rule"]["page early 1"], "2-3")  # frame 3 shows frame 2
+
+    def test_the_strip_reader_never_returns_the_pane_edge(self):
+        S, X = 5, 1  # shell, strip
+        codes = np.array([S] * 10 + [X] * 30 + [S] * 10)
+        self.assertEqual(jp.strip_extent_read(codes, 25, S, 12, 38, 0, 0), (None, None))  # no shell inside: not read
+        self.assertEqual(jp.strip_extent_read(codes, 25, S, 12, 38, 4, 4), (10, 40))
+        touching = np.array([S] * 10 + [X] * 40)  # a strip that runs to the line's end
+        self.assertEqual(jp.strip_extent_read(touching, 25, S, 12, 48, 4, 4), (10, None))
+
+    def test_the_strip_top_reader(self):
+        S, X, R = 5, 1, 4
+        codes = np.array([S] * 20 + [X] * 12 + [R] * 2 + [X] * 2 + [S] * 14)
+        self.assertEqual(jp.strip_top_on_line(codes, X, 22, 12, 10), 20)
+        self.assertIsNone(jp.strip_top_on_line(codes, X, 22, 30, 10))  # under STRIP_SHARE of the height in the strip
+        glyph = codes.copy()
+        glyph[24:27] = 7  # a glyph of the pill crosses the column inside the strip
+        self.assertEqual(jp.strip_top_on_line(glyph, X, 22, 12, 10), 20)
+
+    def test_a_terminal_top_edge_is_ring_1_and_not_read_when_its_rings_are_cut(self):
+        m = {"status": "found", "ring_edge": 120.0, "view_edge": 112.0}
+        self.assertEqual(jp.content_value(m, "terminal", "col", "lo"), 120.0)
+        self.assertEqual(jp.content_value(m, "page", "col", "lo"), 112.0)
+        self.assertEqual(jp.content_value(m, "terminal", "row", "lo"), 112.0)
+        self.assertIsNone(jp.content_value({"status": "cut", "ring_edge": None, "view_edge": 112.0}, "terminal", "col", "lo"))
 
 
 class TraceDividerTests(unittest.TestCase):
