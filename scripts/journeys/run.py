@@ -430,7 +430,7 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         if before != harness:
             harness = dict(harness, dirty=harness["dirty"] + ["(the harness changed while the kit was packed)"])
         # A slot root the mini reuses (a whole-host lease) may still hold an earlier run's out/: never fetch it.
-        remote(host, f"rm -rf {q(work + '/out')} && mkdir -p {q(work + '/kit')} && tar x -C {q(work + '/kit')}",
+        remote(host, f"rm -rf {q(work + '/out')} {q(work + '/flows')} && mkdir -p {q(work + '/kit')} && tar x -C {q(work + '/kit')}",
                input=kit, timeout=left(120))
         if hog_swap_gb > 0:
             # Memory pressure (the Austin's-day hog), from before the download and launch to the end of the
@@ -467,7 +467,12 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
             raise RuntimeError(f"build {build['id']} names no commit sha ({commit!r}): capture-host launch needs --commit")
         # --whole-host: the app launches active (--activate, which capture-host allows on a whole-host lease
         # only): it is the active app with a key window, as on a person's Mac.
-        launched = run([ch, "launch", "--commit", commit, *(["--activate"] if whole_host else []), lease, app,
+        # `trace_flows` (a journey spec field): the app starts with CMUX_NEXT_TRACE_FLOWS, so its daemon, terminal hosts and
+        # holder write key-press flow marks (flows-<pid>.jsonl, cmux plans/cmux-next/trace.md) into the lease's flows
+        # folder: where a typed key stopped after the app (daemon write, PTY). capture-host made the folder; fetched below.
+        trace_flows = any(s.get("trace_flows") for s in specs)
+        flow_env = ["--env", f"CMUX_NEXT_TRACE_FLOWS={work}/flows"] if trace_flows else []
+        launched = run([ch, "launch", "--commit", commit, *(["--activate"] if whole_host else []), *flow_env, lease, app,
                         build.get("tag") or "journeys", "--"],
                        timeout=left(180), check=False)
         facts = launch_facts(launched.stdout.decode())
@@ -495,6 +500,10 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         files = remote(host, f"cd {q(work + '/out')} && tar c --exclude 'frames' . | head -c {RESULT_TAR_MAX_BYTES}",
                        timeout=left(150), check=False).stdout
         take_results(files, out, set(ids))
+        if trace_flows:
+            flows = remote(host, f"cd {q(work + '/flows')} && tar c . | head -c {RESULT_TAR_MAX_BYTES}",
+                           timeout=left(150), check=False).stdout
+            log(f"flow marks: {take_flows(flows, out / 'flows')} file(s) in {out / 'flows'}")
         if hog_started:
             hog_log = remote(host, f"tail -c 2000000 {q(work + '/hog.jsonl')}", timeout=left(60), check=False).stdout
             (out / f"hog-{lease}.jsonl").write_bytes(hog_log or b"")
@@ -521,6 +530,25 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
     return stamp_harness(collect(out, ids, host, missing_reason=f"{host}: the driver wrote no result (driver exit {drove.returncode}: "
                                                                f"{drove.stderr.decode(errors='replace').strip()[-300:]})",
                                  ident=ident), out, ident.get("harness"), harness)
+
+
+FLOW_FILE = re.compile(r"(?:\./)?(flows-\d{1,10}\.jsonl)")
+
+
+def take_flows(files, folder):
+    """The flows-<pid>.jsonl regular files of the mini's flows tarball (the app there could plant links or paths); their count."""
+    if not files:
+        return 0
+    taken = 0
+    with tarfile.open(fileobj=io.BytesIO(files)) as tar:
+        for member in tar:
+            match = FLOW_FILE.fullmatch(member.name)
+            if not match or not member.isreg() or member.size > RESULT_MAX_BYTES:
+                continue
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / match.group(1)).write_bytes(tar.extractfile(member).read())
+            taken += 1
+    return taken
 
 
 def take_results(files, out, ids):

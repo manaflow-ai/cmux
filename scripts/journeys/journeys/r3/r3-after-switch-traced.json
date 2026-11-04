@@ -2,7 +2,7 @@
  "id": "r3-after-switch-traced",
  "priority": "P1",
  "title": "R3 (f): leave the workspace and come back, then resize the window and close a split: one size everywhere [p0bisect: input trail]",
- "why": "Lawrence's v2.2.11-opt capture (2026-10-31): grid 297x87 but fit_grid 126x87 in a 2088x1233 view. After a resize the shown terminal must have one size in the app, Ghostty, the PTY and the daemon, and a typed long line must wrap at it. His window had 2 workspaces; the journeys (a)-(e) never leave the workspace. p0bisect (2026-11-04, lead): the same steps as r3-after-switch, plus a journal marker first and, in finally, the app's existing input trail (debug.journal ring, debug.desync check, debug.key last, debug.surfaces, snapshot.get), so a step-7 input loss on build 9f75df2f carries where the typed keys stopped. Reads only.",
+ "why": "Lawrence's v2.2.11-opt capture (2026-10-31): grid 297x87 but fit_grid 126x87 in a 2088x1233 view. After a resize the shown terminal must have one size in the app, Ghostty, the PTY and the daemon, and a typed long line must wrap at it. His window had 2 workspaces; the journeys (a)-(e) never leave the workspace. p0bisect (2026-11-04, lead): the same steps as r3-after-switch, plus a journal marker first and, in finally, the app's existing input trail (debug.journal ring, debug.desync check, debug.key last, debug.surfaces, snapshot.get), so a step-7 input loss on build 9f75df2f carries where the typed keys stopped. Reads only. trace_flows: the app starts with CMUX_NEXT_TRACE_FLOWS (capture-host launch --env, hq #7108), so the daemon, terminal host and holder hops of each key (the PTY write) land in out/flows/flows-<pid>.jsonl beside the result.",
  "source": "cmux-ad P0 2026-10-31 (Lawrence on v2.2.11-opt: resizing terminals is broken); R3 invariant",
  "budget_seconds": 260,
  "steps": [
@@ -455,5 +455,6 @@
    "do": "restore_window",
    "from": "before-place"
   }
- ]
+ ],
+ "trace_flows": true
 }
