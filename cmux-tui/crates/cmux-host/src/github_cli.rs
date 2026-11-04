@@ -708,20 +708,32 @@ pub fn parse_gh_hosts(hosts_yml: &str) -> GhHosts {
     out
 }
 
+/// A mapping key's text: a plain scalar, or a quoted one with no escapes
+/// (`\`, `''`). A key in any other form (escaped, tagged, anchored, an alias,
+/// a `?` complex key) is `None`, so the file counts as unread.
+fn key_text(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    let quoted = |q: char| {
+        let inner = raw.strip_prefix(q)?.strip_suffix(q)?;
+        (!inner.contains(q) && !inner.contains('\\')).then(|| inner.to_owned())
+    };
+    match raw.chars().next()? {
+        q @ ('"' | '\'') => quoted(q),
+        c if "-?{}[]&*!|>%@`,#".contains(c) => None,
+        _ => Some(raw.to_owned()),
+    }
+}
+
 /// The key of one root line `key:` / `key: value` / `"key": value`.
 fn block_key(t: &str) -> Option<String> {
     let after_colon_ok = |rest: &str| {
         rest.strip_prefix(':').is_some_and(|r| r.is_empty() || r.starts_with(char::is_whitespace))
     };
-    if let Some(q) = t.chars().next().filter(|c| *c == '"' || *c == '\'') {
-        let inner = &t[1..];
-        let end = inner.find(q)?;
-        return after_colon_ok(&inner[end + 1..]).then(|| inner[..end].to_owned());
-    }
-    let at = t.char_indices().find(|&(i, c)| c == ':' && after_colon_ok(&t[i..]))?.0;
-    let key = t[..at].trim_end();
-    let plain = key.chars().next().is_some_and(|c| !"-?{}[]&*!|>%@`,".contains(c));
-    plain.then(|| key.to_owned())
+    let at = match t.chars().next() {
+        Some(q @ ('"' | '\'')) => 1 + t[1..].find(q)? + 1,
+        _ => t.char_indices().find(|&(i, c)| c == ':' && after_colon_ok(&t[i..]))?.0,
+    };
+    after_colon_ok(&t[at..]).then(|| key_text(&t[..at])).flatten()
 }
 
 /// The root keys of an inline mapping `{a: {...}, "b": x}`, comments (`#`
@@ -729,12 +741,11 @@ fn block_key(t: &str) -> Option<String> {
 /// not close or anything but comments follows it.
 fn flow_keys(s: &str) -> Option<Vec<String>> {
     let body = s.strip_prefix('{')?;
-    let mut keys = Vec::new();
+    let mut raw_keys = Vec::new();
     let (mut depth, mut quote, mut in_key, mut key) = (0usize, None::<char>, true, String::new());
     let push = |key: &mut String, keys: &mut Vec<String>| {
-        let k = key.trim().trim_matches(|c| c == '"' || c == '\'').to_owned();
-        if !k.is_empty() {
-            keys.push(k);
+        if !key.trim().is_empty() {
+            keys.push(std::mem::take(key));
         }
         key.clear();
     };
@@ -753,9 +764,10 @@ fn flow_keys(s: &str) -> Option<Vec<String>> {
             if c == q {
                 quote = None;
             } else if c == '\\' && q == '"' {
+                // Kept, so `key_text` refuses the escaped key.
                 let next = chars.next()?;
                 if depth == 0 && in_key {
-                    key.push(next);
+                    key.extend([c, next]);
                 }
                 continue;
             }
@@ -766,19 +778,22 @@ fn flow_keys(s: &str) -> Option<Vec<String>> {
                 '}' | ']' if depth > 0 => depth -= 1,
                 '}' => {
                     if in_key {
-                        push(&mut key, &mut keys);
+                        push(&mut key, &mut raw_keys);
                     }
                     let mut rest = chars.as_str().lines().map(str::trim);
-                    return rest.all(|t| t.is_empty() || t.starts_with('#')).then_some(keys);
+                    if !rest.all(|t| t.is_empty() || t.starts_with('#')) {
+                        return None;
+                    }
+                    return raw_keys.iter().map(|k| key_text(k)).collect();
                 }
                 ':' if depth == 0 && in_key => {
-                    push(&mut key, &mut keys);
+                    push(&mut key, &mut raw_keys);
                     in_key = false;
                     continue;
                 }
                 ',' if depth == 0 => {
                     if in_key {
-                        push(&mut key, &mut keys);
+                        push(&mut key, &mut raw_keys);
                     }
                     in_key = true;
                     continue;
@@ -1644,6 +1659,12 @@ mod tests {
             "github.com: # personal\n    user: me\n",
             "---\n\"github.com\":\n  user: me\n",
             "'GitHub.com':\n  user: me\n",
+            // A key in a form this does not decode (escaped, tagged, anchored)
+            // counts as unread, so as a login.
+            "\"\\u0067ithub.com\":\n  user: me\n",
+            "{\"\\u0067ithub.com\": {user: me}}\n",
+            "!!str github.com:\n  user: me\n",
+            "{&a github.com: {user: me}}\n",
         ] {
             assert!(hosts_has_github(hosts), "{hosts:?}");
         }
