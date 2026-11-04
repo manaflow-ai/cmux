@@ -14,4 +14,5 @@ test("the header uses the pane language and ignores an invalid timestamp", () =>
   const at = new Date(2026, 10, 4, 17, 29).getTime();
   expect(replyMenuTime(at, at, "de-DE")).toBe("Heute, 17:29");
   expect(replyMenuTime(Number.NaN, at, "en-US")).toBe("");
+  expect(replyMenuTime(0, at, "en-US")).toBe("");
 });

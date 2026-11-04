@@ -2,6 +2,7 @@
 // "just now" under a minute, then "5 minutes ago", "1 hour ago", "yesterday", "3 days ago",
 // "last week", "2 months ago", "last year" (it never switches to a date there), and on hover
 // "Oct 20, 2026, 10:16 PM". Intl words both in the pane's language.
+import { hasTimestamp } from "./timestamps";
 
 /// Claude's units, largest first, in seconds: the age reads in the largest one it has reached.
 const UNITS: readonly (readonly [Intl.RelativeTimeFormatUnit, number])[] = [
@@ -66,8 +67,8 @@ export function replyTime(at: number, now: number, locale?: string): string {
 /// The reply menu's quiet header, as ChatGPT writes it: today's or yesterday's time,
 /// otherwise the exact date. Format on opening only; no clock or idle work is needed.
 export function replyMenuTime(at: number, now: number, locale?: string): string {
+  if (!hasTimestamp(at)) return "";
   const date = new Date(at);
-  if (!Number.isFinite(date.getTime())) return "";
   const today = new Date(now);
   const day = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
   const current = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
