@@ -483,9 +483,9 @@ final class CloudTerminalPaneReservation {
     var retry: (@MainActor () -> Void)?
     /// Cancels the local request; a remote terminal already created stays alive.
     var cancel: (@MainActor () -> Void)?
-    /// A restored pane's card for a machine every read answered 404 for. An
-    /// attachment that starts clears it; other failures keep their own card.
-    var isShowingRestoredMachineNotFound = false
+    /// A restored pane's card for a machine it cannot reach. Finding the machine
+    /// or starting an attachment clears it; other failures keep their own card.
+    var isShowingRestoredMachineUnavailable = false
     /// The attach stream registered while the machine creates the terminal.
     /// The first attachment adopts it; every other ending closes it.
     private(set) var attachHandshake: CloudTuiManualMirrorHandshake?

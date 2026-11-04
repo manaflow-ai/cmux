@@ -118,33 +118,80 @@ struct CloudStaleInventoryMaterializationTests {
         let card = try #require(workspace.cloudTerminalReconnectOverlayPresentation(forSurfaceId: panelID))
         #expect(card.showsReconnectButton)
 
-        // Another 404 keeps one card up, and Reconnect reads again.
-        #expect(await registry.refresh(force: true))
-        #expect(workspace.cloudMaterializationFailures[panelID] != nil)
+        // Reconnect reads again, and the card stays until a read finds the machine.
         let readsBeforeReconnect = statusReads
         #expect(workspace.retryReservedCloudTerminalPane(surfaceId: panelID))
-        #expect(workspace.cloudMaterializationFailures[panelID] == nil)
+        #expect(workspace.cloudMaterializationFailures[panelID] != nil)
         #expect(await registry.refresh(force: true))
         #expect(statusReads > readsBeforeReconnect)
         #expect(workspace.cloudMaterializationFailures[panelID] != nil)
 
-        // The machine is found again: the provider's attachment takes the pane
-        // over and the card leaves.
+        // The machine is found: the card leaves as soon as the provider registers,
+        // whether or not its terminal can attach yet.
         machineFound = true
         #expect(await registry.refresh(force: true))
         let provider = try #require(registry.provider(machineID: machineID))
+        #expect(workspace.cloudMaterializationFailures[panelID] == nil)
+
+        // A later 404 reaches the pane through the provider, and a listing clears it.
+        provider.noteAccessLost(.notFound)
+        #expect(workspace.cloudMaterializationFailures[panelID] != nil)
+        #expect(workspace.retryReservedCloudTerminalPane(surfaceId: panelID))
+        #expect(workspace.cloudMaterializationFailures[panelID] != nil)
+        provider.noteAccessConfirmed()
+        #expect(workspace.cloudMaterializationFailures[panelID] == nil)
+
+        // The saved link is still there for the attachment.
+        #expect(catalog.projectionRecords(forWorkspace: workspace.id).map(\.resource) == [resource])
         catalog.replaceCloudState(
             CloudVMState(machine: machine, cursor: nil, rawSnapshot: Data("{}".utf8),
                 workspaces: [], screens: [], panes: [], tabs: [], terminals: [], browsers: [], agents: []),
             resources: [SurfaceResource(id: resource, title: "Terminal", lifecycle: .running)],
             info: provider.info, observation: .current
         )
-        provider.attachReservedTerminalPane(
-            reservation,
-            resource: SurfaceResource(id: resource, title: "Terminal", lifecycle: .running),
-            remoteTabID: nil
-        )
         #expect(workspace.cloudMaterializationFailures[panelID] == nil)
+        await registry.accessDidEnd()
+    }
+
+    @Test("a restored terminal whose machine answers 403 keeps a card when its panes leave")
+    func restoredMachineForbiddenShowsCard() async throws {
+        let app = try #require(AppDelegate.shared)
+        let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        let workspace = Workspace()
+        manager.tabs = [workspace]
+        manager.selectedTabId = workspace.id
+        let windowID = app.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowID)
+            app.forgetRecoverableMainWindowRoute(windowId: windowID)
+            workspace.teardownAllPanels()
+            manager.tabs = []
+        }
+        let panelID = try #require(workspace.focusedPanelId)
+        let machineID = "restored-\(UUID())"
+        let machine = SurfaceMachineID.cloud(machineID)
+        let resource = SurfaceResourceID(machine: machine, kind: .terminal, key: "term_fixture")
+        let catalog = SurfaceCatalog()
+        catalog.restore([SurfaceProjectionRecord(panelID: panelID, resource: resource)], workspaceID: workspace.id)
+        let reservation = CloudTerminalPaneReservation(
+            workspaceID: workspace.id, panelID: panelID, machine: machine,
+            attachmentPlacement: SurfaceResourcePlacement(resource: resource, remoteWorkspaceID: nil, remoteTabID: nil)
+        )
+        workspace.cloudPendingCreations[panelID] = reservation
+        defer { workspace.cloudPendingCreations[panelID] = nil }
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: { VMListPage(vms: [], limits: nil) },
+            activeTeamID: { "team-a" },
+            loadMachineStatus: { _, _ in throw VMClientError.httpStatus(403, #"{"error":"forbidden"}"#) },
+            refreshProvider: { _, _ in true }
+        )
+        registry.start(catalog: catalog)
+
+        #expect(await registry.refresh(force: true))
+        #expect(catalog.pendingRestoredMachineIDs.isEmpty)
+        #expect(workspace.cloudMaterializationFailures[panelID] != nil)
         await registry.accessDidEnd()
     }
 }

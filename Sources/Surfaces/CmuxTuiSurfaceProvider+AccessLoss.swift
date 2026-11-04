@@ -21,6 +21,10 @@ extension CmuxTuiSurfaceProvider {
         manualMirrorSessions.removeAll()
         manualMirrorSurfaceIDsSocketPath = nil
         let detail = stopReason.endedPresentation?.detail ?? ""
+        // A restored terminal that has not attached yet has no session to stop.
+        catalog.showRestoredMachineUnavailable(machine, detail: detail) {
+            Task { @MainActor in _ = await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true) }
+        }
         // Cloud browser and display panes of this machine keep the same state,
         // in the browser's own unavailable card.
         for task in browserPaneTasks.values { task.cancel() }
@@ -45,6 +49,7 @@ extension CmuxTuiSurfaceProvider {
         self.accessLoss = nil
         materializedPanels.subtract(accessLostPanelIDs)
         accessLostPanelIDs.removeAll()
+        catalog.clearRestoredMachineUnavailable(machine)
         guard isRegisteredInCatalog() else { return }
         publishLinkStatus(.connecting, error: nil)
         // Browser and display panes showed the unavailable card; routing them

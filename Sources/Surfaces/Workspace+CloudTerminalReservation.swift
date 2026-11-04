@@ -243,28 +243,26 @@ extension Workspace {
         )
     }
 
-    /// A restored pane's machine answered 404 to every read. The pane keeps its
-    /// reservation and saved link; Reconnect reads the machine again.
+    /// A restored pane's machine could not be reached, so nothing will attach
+    /// it. The pane keeps its reservation and says so. Reconnect reads the
+    /// machine again and the card stays until that read finds it, so a failed
+    /// read can never leave the pane blank.
     func failRestoredCloudTerminalPane(
         panelID: UUID,
         detail: String,
         retry: @escaping @MainActor () -> Void
     ) {
         guard let reservation = cloudPendingCreations[panelID],
-              !reservation.isShowingRestoredMachineNotFound else { return }
-        reservation.isShowingRestoredMachineNotFound = true
-        reservation.retry = { [weak self, weak reservation] in
-            guard let self, let reservation else { return }
-            self.clearRestoredMachineNotFound(reservation)
-            retry()
-        }
+              !reservation.isShowingRestoredMachineUnavailable else { return }
+        reservation.isShowingRestoredMachineUnavailable = true
+        reservation.retry = retry
         setCloudMaterializationFailure(surfaceID: panelID, detail: detail, reference: nil)
     }
 
-    /// The machine is being read again or attaching: the 404 card no longer applies.
-    func clearRestoredMachineNotFound(_ reservation: CloudTerminalPaneReservation) {
-        guard reservation.isShowingRestoredMachineNotFound else { return }
-        reservation.isShowingRestoredMachineNotFound = false
+    /// The machine was found or is attaching: the card no longer applies.
+    func clearRestoredMachineUnavailable(_ reservation: CloudTerminalPaneReservation) {
+        guard reservation.isShowingRestoredMachineUnavailable else { return }
+        reservation.isShowingRestoredMachineUnavailable = false
         reservation.retry = nil
         clearCloudMaterializationFailure(surfaceID: reservation.panelID)
     }
@@ -317,6 +315,33 @@ extension Workspace {
     func cancelAllReservedCloudTerminalPanes() {
         for panelID in Array(cloudPendingCreations.keys) {
             cancelReservedCloudTerminalPane(panelID: panelID)
+        }
+    }
+}
+
+@MainActor
+extension SurfaceCatalog {
+    /// Puts the unavailable card on every restored terminal still waiting for `machine`.
+    func showRestoredMachineUnavailable(
+        _ machine: SurfaceMachineID,
+        detail: String,
+        retry: @escaping @MainActor () -> Void
+    ) {
+        for projection in pendingRestoredProjections.projections where projection.resource.machine == machine {
+            Workspace.liveWorkspace(id: projection.workspaceID)?.failRestoredCloudTerminalPane(
+                panelID: projection.panelID,
+                detail: detail,
+                retry: retry
+            )
+        }
+    }
+
+    /// A read found `machine`: its restored terminals are waiting to attach again.
+    func clearRestoredMachineUnavailable(_ machine: SurfaceMachineID) {
+        for projection in pendingRestoredProjections.projections where projection.resource.machine == machine {
+            guard let workspace = Workspace.liveWorkspace(id: projection.workspaceID),
+                  let reservation = workspace.cloudPendingCreations[projection.panelID] else { continue }
+            workspace.clearRestoredMachineUnavailable(reservation)
         }
     }
 }

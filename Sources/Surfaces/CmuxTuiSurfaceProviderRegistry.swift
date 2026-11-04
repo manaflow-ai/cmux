@@ -563,8 +563,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                 } else if Self.endsRestoredMachine(loss) {
                     // No provider ever reached this machine; its restored
                     // panes leave like any machine outside the user's reach.
-                    adoptedOwnerTeams[target.id] = nil
-                    unregisterMachine(target.id)
+                    endRestoredMachine(target.id)
                 } // A revoked sign-in keeps the owning team for the next sign-in.
                 continue
             }
@@ -587,6 +586,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                 portForwards: portForwards, portAccessStore: portAccess
             )
             providers[summary.id] = provider
+            catalog.clearRestoredMachineUnavailable(provider.machine)
             catalog.register(provider)
         }
     }
@@ -822,6 +822,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                     portForwards: portForwards, portAccessStore: portAccess
                 )
                 providers[summary.id] = provider
+                catalog.clearRestoredMachineUnavailable(provider.machine)
                 catalog.register(provider)
             }
         }
@@ -844,25 +845,21 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// Access is gone: the restored panes leave instead of reconnecting
     /// through a provider built from persisted metadata.
     private func endRestoredMachine(_ machineID: String) {
+        // Terminal panes stay open when their machine is unregistered.
+        showRestoredMachineUnavailable(machineID, loss: .forbidden)
         adoptedOwnerTeams[machineID] = nil
         unregisterMachine(machineID)
     }
 
-    /// Every read answered 404, so nothing will attach these terminals until the
-    /// machine is found. Each pane says so and offers Reconnect instead of staying
-    /// a blank terminal that queues input; the saved link stays, so a later read
-    /// that finds the machine still reconnects it.
-    private func showRestoredMachineNotFound(_ machineID: String) {
-        guard let catalog else { return }
-        let detail = CloudTuiManualMirrorStopReason(accessLoss: .notFound).endedPresentation?.detail ?? ""
-        for projection in catalog.pendingRestoredProjections.projections
-        where projection.resource.machine.cloudMachineID == machineID {
-            Workspace.liveWorkspace(id: projection.workspaceID)?.failRestoredCloudTerminalPane(
-                panelID: projection.panelID,
-                detail: detail
-            ) { [weak self] in
-                Task { @MainActor [weak self] in _ = await self?.refresh(force: true) }
-            }
+    /// Nothing will attach these terminals until the machine is found. Each pane
+    /// says so and offers Reconnect instead of staying blank. After a 404 the
+    /// saved link stays, so a later read that finds the machine reconnects it.
+    private func showRestoredMachineUnavailable(_ machineID: String, loss: CloudMachineAccessLoss = .notFound) {
+        catalog?.showRestoredMachineUnavailable(
+            .cloud(machineID),
+            detail: CloudTuiManualMirrorStopReason(accessLoss: loss).endedPresentation?.detail ?? ""
+        ) { [weak self] in
+            Task { @MainActor [weak self] in _ = await self?.refresh(force: true) }
         }
     }
 
@@ -882,7 +879,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                 // The saved team may be a guess: a legacy pane adopts the
                 // selected team. The selected team's read can still find it.
                 guard let pageTeamID, !pageTeamID.isEmpty, pageTeamID != ownerTeamID else {
-                    showRestoredMachineNotFound(machineID)
+                    showRestoredMachineUnavailable(machineID)
                     continue
                 }
                 do {
@@ -899,7 +896,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                     if loss.map(Self.endsRestoredMachine) == true {
                         endRestoredMachine(machineID)
                     } else if loss == .notFound {
-                        showRestoredMachineNotFound(machineID)
+                        showRestoredMachineUnavailable(machineID)
                     }
                     continue
                 }
@@ -933,6 +930,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                 portForwards: portForwards, portAccessStore: portAccess
             )
             providers[machineID] = provider
+            catalog.clearRestoredMachineUnavailable(provider.machine)
             catalog.register(provider)
             Task { [weak provider] in _ = await provider?.refreshCurrentGraph(force: true) }
         }
