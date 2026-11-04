@@ -17,7 +17,7 @@ struct CloudPortRecoveryTests {
     @Test("Reconnect on a paused machine's pane wakes it, then re-reads the fleet")
     func reconnectWakesPausedMachine() async {
         let probe = ReconnectWakeProbe()
-        let links = CloudMachineLinkManager(clientURL: nil, resumeMachine: { id in
+        let links = CloudMachineLinkManager(clientURL: nil, resumeMachine: { id, _ in
             await probe.recordResume(id)
             return "running"
         }, hostThemeColors: { nil })
@@ -34,10 +34,10 @@ struct CloudPortRecoveryTests {
         #expect(await probe.refreshes == 1)
     }
 
-    @Test("Reconnect on a running machine leaves waking to nobody")
+    @Test("Reconnect wakes only a machine that is asleep")
     func reconnectOnRunningMachineDoesNotWake() async {
         let probe = ReconnectWakeProbe()
-        let links = CloudMachineLinkManager(clientURL: nil, resumeMachine: { id in
+        let links = CloudMachineLinkManager(clientURL: nil, resumeMachine: { id, _ in
             await probe.recordResume(id)
             return "running"
         }, hostThemeColors: { nil })
@@ -49,6 +49,12 @@ struct CloudPortRecoveryTests {
 
         #expect(provider.wakeForReconnect(refreshFleet: { await probe.recordRefresh() }) == nil)
         #expect(await probe.resumed.isEmpty)
+        let provisioning = CmuxTuiSurfaceProvider(
+            summary: VMSummary(id: "vm-new", provider: "freestyle", status: "provisioning", image: "fixture", createdAt: 0,
+                base: nil, addressIPv4: "10.75.105.10"),
+            links: links, catalog: SurfaceCatalog()
+        )
+        #expect(provisioning.wakeForReconnect(refreshFleet: { await probe.recordRefresh() }) == nil)
     }
 
     @Test("Retry reads one machine's metadata and installs its current private route")

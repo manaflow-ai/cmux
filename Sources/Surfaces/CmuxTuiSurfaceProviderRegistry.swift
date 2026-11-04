@@ -553,6 +553,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         let generation = refreshGeneration
         for target in targets {
             let summary: VMSummary
+            let readStartedAt = Date()
             do {
                 summary = try await loadMachineStatus(target.id, target.team)
             } catch {
@@ -568,6 +569,11 @@ final class CmuxTuiSurfaceProviderRegistry {
                 } // A revoked sign-in keeps the owning team for the next sign-in.
                 continue
             }
+            guard !isRetired, epoch == accessEpoch, generation == refreshGeneration else { return }
+            // The link manager decides from this whether a connect resumes first; this page is the
+            // only read of another team's machine.
+            await links.setOwnerTeam(target.team, for: registeredMachineID(matching: target.id))
+            await links.setMachineStatus(summary.status, for: registeredMachineID(matching: target.id), observedAt: readStartedAt)
             guard !isRetired, epoch == accessEpoch, generation == refreshGeneration else { return }
             if let provider = providers[target.id] {
                 provider.noteAccessConfirmed()

@@ -84,7 +84,7 @@ public actor CloudMachineLinkManager {
     /// each waiter clean up only the task it joined if a later resume starts.
     private var resumesInFlight: [String: Task<String, Error>] = [:]
     private var resumeTokens: [String: UUID] = [:]
-    private let resumeMachine: @Sendable (String) async throws -> String
+    private let resumeMachine: @Sendable (String, String?) async throws -> String
     /// A failed link is not retried for this long, so a polling sidebar does not hammer
     /// a machine whose route is broken. Only background upkeep waits it out
     /// (``backoffRejects(failedAt:now:backoff:)``).
@@ -126,11 +126,11 @@ public actor CloudMachineLinkManager {
         hub: CloudWireGuardHub? = nil,
         operations: CloudOperationRecorder? = nil,
         isCloudEnabled: @escaping @Sendable () -> Bool = { true },
-        resumeMachine: @escaping @Sendable (String) async throws -> String = { machineID in
+        resumeMachine: @escaping @Sendable (_ machineID: String, _ ownerTeamID: String?) async throws -> String = { machineID, ownerTeamID in
             guard let client = await MainActor.run(body: { VMClient.shared }) else {
                 throw ManagerError.clientMissing
             }
-            return try await client.resume(id: machineID)
+            return try await client.resume(id: machineID, teamID: ownerTeamID)
         },
         hostThemeColors: @escaping @Sendable () async -> (foreground: String, background: String)?,
         breadcrumb: @escaping @Sendable (_ event: String, _ fields: [String: String]) -> Void = { _, _ in },
@@ -247,7 +247,9 @@ public actor CloudMachineLinkManager {
             } else {
                 token = UUID()
                 let resume = resumeMachine
-                task = Task { try await resume(machineID) }
+                // Another team's machine is read and resumed with its owning team, never the selected one.
+                let ownerTeam = ownerTeams[machineID]
+                task = Task { try await resume(machineID, ownerTeam) }
                 resumesInFlight[machineID] = task
                 resumeTokens[machineID] = token
             }

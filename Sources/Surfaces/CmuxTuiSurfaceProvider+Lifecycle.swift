@@ -24,7 +24,7 @@ extension CmuxTuiSurfaceProvider {
             _ = await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true)
         }
     ) -> Task<Void, Never>? {
-        guard !isAwake, !hasLostAccess, summary.cloudSummary != nil else { return nil }
+        guard CloudMachineLinkManager.isAsleepStatus(summary.status), !hasLostAccess, summary.cloudSummary != nil else { return nil }
         let links = links, machineID = machineID
         // task-owner: one person's request; the link manager joins a resume already in flight and
         // the connect has its own deadline. A failed wake leaves the Reconnect card up.
