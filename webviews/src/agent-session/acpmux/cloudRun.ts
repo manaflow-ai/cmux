@@ -46,11 +46,19 @@ type Native = (method: string, params?: Record<string, unknown>) => Promise<unkn
 /// sent, and the Cloud start then failed with pathOutsideRoots. A project folder granted to a tab
 /// the check then hands to a run is harmless. Only a folder Cloud would copy (cloudStartFolder);
 /// a home or root answer asks nothing here (the local start still asks on Return).
-export function newTabProjectPick(callNative: Native, offerable: boolean): { onProjectPicked?: (cwd: string) => void } {
+/// `granted` gets the grant's promise, so a Cloud send made right after the pick waits for it
+/// instead of racing it (App.tsx `cloudFolderGrant`).
+export function newTabProjectPick(
+  callNative: Native,
+  offerable: boolean,
+  granted?: (grant: Promise<unknown>) => void,
+): { onProjectPicked?: (cwd: string) => void } {
   if (!offerable) return {};
   return {
     onProjectPicked: (cwd) => {
-      if ("cwd" in cloudStartFolder(cwd)) void pickFolder(callNative, cwd, () => undefined);
+      if (!("cwd" in cloudStartFolder(cwd))) return;
+      const grant = pickFolder(callNative, cwd, () => undefined);
+      granted?.(grant);
     },
   };
 }

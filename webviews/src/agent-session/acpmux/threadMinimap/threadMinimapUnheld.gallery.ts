@@ -49,5 +49,19 @@ export default agentPaneEntry({
       snapshot: chat(heldRows(12), { title: "Rail: indexed", canLoadOlder: true, earlierPrompts: indexRows(12) }),
       play: (ctx) => ctx.hover({ selector: '[data-tick="4"]' }),
     },
+    "far-card-loading": {
+      note: "A far unloaded prompt's card while the prompt index is out (the rail asks for it on this hover): one blank line where its words go, in the card's final place.",
+      snapshot: chat(heldRows(12), { title: "Rail: far card loading", canLoadOlder: true, promptCount: TOTAL }),
+      play: (ctx) => ctx.hover({ selector: '[data-tick="2"]' }),
+    },
+    "far-card-loaded": {
+      note: "The same far prompt's card once the index answered: its words, at the same spot, and a click lands on it.",
+      snapshot: chat(heldRows(12), {
+        title: "Rail: far card loaded",
+        canLoadOlder: true,
+        earlierPrompts: indexRows(12),
+      }),
+      play: (ctx) => ctx.hover({ selector: '[data-tick="2"]' }),
+    },
   },
 });

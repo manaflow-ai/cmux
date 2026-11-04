@@ -353,6 +353,19 @@ export type QueuedPromptImage = PromptImage & { src?: string; local?: boolean };
 /// model call's (direct.ts `turnTokenSplit`); a finished turn's comes from its `turn_result`.
 export type TurnTokenSplit = { output: number; input: number; cacheRead: number; cacheWrite: number };
 
+/// One retry of a turn's failed model request, as acpmux logs it (`turn_retrying`): Claude Code's
+/// `system/api_retry` (attempt of maxRetries, error, errorStatus) or Codex's stream error.
+export type AcpmuxTurnRetry = {
+  attempt?: number;
+  maxRetries?: number;
+  error?: string;
+  errorStatus?: number;
+};
+
+/// The client's row that carries the running turn's retries (direct.ts): kind "typing", so no
+/// view draws it; the live line reads it (conversation/turns.ts `withRetry`).
+export const TURN_RETRY = "turn-retry";
+
 export type AcpmuxRow = {
   id: string;
   version: number;
@@ -510,6 +523,13 @@ export type AcpmuxRow = {
   /// A running turn's status line before the turn's first output: it reads "Thinking" beside the
   /// turn's time (WorkingFor.tsx).
   thinkingNow?: boolean;
+  /// The running turn's harness retries a model request that failed (acpmux `turn_retrying`,
+  /// hub/turn_retry.rs): on the client's `TURN_RETRY` row while it retries, and on the live line,
+  /// which then says the model cannot be reached instead of "Thinking" (conversation/Thinking.tsx).
+  retry?: AcpmuxTurnRetry;
+  /// On the `TURN_RETRY` row: how long the turn's finished retries took, which the live line's
+  /// "Thinking" time leaves out (conversation/turns.ts `withRetry`).
+  retriedMs?: number;
   /// A running turn's status line drawn as the turn's last row (Debug Settings
   /// `agentPane.debug.liveLineBelow`, conversation/turns.ts): no rule under it, and its clock
   /// never stops while the turn runs.
@@ -1284,8 +1304,9 @@ const TOOL_RUN_BOTTOM = 0;
 const LINE_FRAME = TOOL_RUN_TOP + TOOL_RUN_BOTTOM;
 const lineRow = () => LINE_FRAME + toolRowHeight();
 /// A message row (a send, SentMessageLine.tsx and AgentMessageRow.tsx; another agent's received line;
-/// a folded group's head): one tool row, and in the stacked look (conversation/messageLineLook.ts,
-/// the default) its first line's own line under it while it is shut and has one.
+/// a folded group's head): one tool row (the single look, conversation/messageLineLook.ts, the
+/// default), and in the stacked gallery look its first line's own line under it while it is shut and
+/// has one.
 const messagePreviewLine = (shown: boolean) =>
   shown && messageLineLook() === "stacked" ? MESSAGE_PREVIEW_LINE_PT * chromeScale : 0;
 const messageRowHeight = (preview: boolean) => toolRowHeight() + messagePreviewLine(preview);
@@ -1450,9 +1471,13 @@ const FALLBACK_CHAR_WIDTH = 8;
 /// column's right (the computer use live preview, `--cv-inset-end`): the column's end moves in to
 /// leave it, its start stays.
 const PAGE_EDGE = gridLength("icon-box");
-export function transcriptColumn(paneWidth: number, { min, max, share }: ChatColumn = chatColumn(), endReserve = 0) {
-  const column = Math.min(max, Math.max(min, paneWidth * share));
-  const inset = Math.max(PAGE_EDGE * gridScale(), Math.round((paneWidth - column) / 2));
+/// The column's own width (`--cv-column`), before the 4 grid's 0-7 px leftover joins it.
+export const transcriptColumnSpan = (paneWidth: number, { min, max, share }: ChatColumn = chatColumn()) =>
+  Math.min(max, Math.max(min, paneWidth * share));
+export function transcriptColumn(paneWidth: number, chat: ChatColumn = chatColumn(), endReserve = 0) {
+  const column = transcriptColumnSpan(paneWidth, chat);
+  // On the 4 grid (design/grid.md 5.5), as `round(down, ..., 4px)` in conversation.css.
+  const inset = Math.max(PAGE_EDGE * gridScale(), 4 * Math.floor((paneWidth - column) / 8));
   const insetEnd = Math.max(inset, endReserve);
   return { inset, insetEnd, width: paneWidth - inset - insetEnd };
 }
@@ -1815,8 +1840,8 @@ function fallbackRowHeight(
         : 16 + 2 + (lines(ask.question) + lines(answer)) * 20 + 4,
     );
   }
-  // The render card: its 36px head over the frame before it reports a height, and 6px below.
-  if (row.kind === RENDER) return finish(36 + RENDER_FRAME_MIN_HEIGHT + 6);
+  // The render card: its 36px head over the frame before it reports a height, and 8px below.
+  if (row.kind === RENDER) return finish(36 + RENDER_FRAME_MIN_HEIGHT + 8);
   // Card padding and border, title, button row.
   if (row.kind === "permission") return finish(87);
   // A suggested tasks card (offer/SuggestedTasks.tsx): its 28px heading, about 84px per open task
