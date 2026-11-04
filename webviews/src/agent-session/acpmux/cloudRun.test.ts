@@ -25,7 +25,9 @@ test("sign-in recovery preserves the prompt and resumes it once", async () => {
   const send = oneCloudStart(async (method, params) => {
     sends.push([method, params]);
     if (method !== "cloud.signIn") throw { code: "not_signed_in" };
-    const signedIn = await new Promise<boolean>((resolve) => { resolveSignIn = resolve; });
+    const signedIn = await new Promise<boolean>((resolve) => {
+      resolveSignIn = resolve;
+    });
     if (!signedIn) throw { code: "not_signed_in" };
     delivered += 1;
   });

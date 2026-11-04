@@ -121,9 +121,7 @@ export type CloudStartAnswer = { ok: true } | { ok: false; code: string; message
 /// Keeps the failed first-send prompt in the composer while Cloud account sign-in runs, then
 /// resumes it once. Concurrent clicks share one browser callback, and a later click after a
 /// successful callback cannot send the prompt a second time.
-export function makeCloudSignInRetry(
-  resume: () => Promise<CloudStartAnswer> | undefined,
-): () => Promise<boolean> {
+export function makeCloudSignInRetry(resume: () => Promise<CloudStartAnswer> | undefined): () => Promise<boolean> {
   let inFlight: Promise<boolean> | undefined;
   let resumed = false;
   return () => {

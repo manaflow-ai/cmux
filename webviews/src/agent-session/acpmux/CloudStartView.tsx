@@ -426,9 +426,7 @@ export function CloudStartView({
       </div>
       {failed && (
         <div className="acpmux-cloud-start__failure" role="alert">
-          <output className="acpmux-cloud-start__status">
-            {start.message ?? t("sandbox.failed")}
-          </output>
+          <output className="acpmux-cloud-start__status">{start.message ?? t("sandbox.failed")}</output>
           {signInRequired && (
             <button
               type="button"

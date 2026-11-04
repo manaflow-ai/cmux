@@ -8,6 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 import { CloudStartView, startupChecklist } from "./CloudStartView";
+import cloudStartGallery from "./CloudStartView.gallery";
 import type { CloudStartProgress } from "./cloudStartProgress";
 
 let dom: JSDOM | undefined;
@@ -132,15 +133,11 @@ test("a failure says the host's words with no spinner, and the New Tab page draw
 });
 
 test("a signed-out failure keeps the prompt card and offers inline sign-in", () => {
-  const html = renderToStaticMarkup(
-    <CloudStartView
-      start={{ ...start, state: "failed", code: "not_signed_in", message: "Sign in first" }}
-      onSignIn={() => undefined}
-    />,
-  );
-  expect(html).toContain("fix the build");
+  const variant = cloudStartGallery.variants["signed-out"]!;
+  const html = renderToStaticMarkup(<CloudStartView {...variant.props} />);
+  expect(html).toContain(variant.props.start.task);
   expect(html).toContain("Sign in to continue");
-  expect(html).toContain("Sign in first");
+  expect(html).toContain("Sign in to use Cloud.");
 });
 
 test("the startup checklist skips clone without a repository and explains a missing script", () => {

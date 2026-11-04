@@ -340,11 +340,10 @@ export function cloudStartEnded(
   // code, never the host's generic "The app refused the agent connection." (cloudRefusalText).
   const refusedHere = answer.code.startsWith("transport.") || REFUSED_HERE.has(answer.code);
   const message = refusedHere ? cloudRefusalText(answer.code, answer.message) : line(answer.message, 240);
-  const message = refusedHere ? cloudRefusalText(answer.code, answer.message) : line(answer.message, 240);
   return {
     ...current,
     state: "failed",
-    ...(answer.code ? { code: answer.code } : {}),
+    code: answer.code,
     ...(message ? { message } : {}),
     ...(refusedHere ? { refusedHere } : {}),
   };
