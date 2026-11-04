@@ -190,6 +190,23 @@ fn durable_listeners_see_each_advance_in_order() {
 }
 
 #[test]
+fn written_listeners_hear_each_batch_before_its_sync() {
+    let storage = SimStorage::new(41);
+    let (journal, _, _) = open(&storage);
+    storage.set_sync_delay(Duration::from_millis(300));
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let sink = heard.clone();
+    journal.on_written(move |lsn| sink.lock().unwrap_or_else(|e| e.into_inner()).push(lsn));
+    let lsn = journal.append(1, Class::Ack, b"x").unwrap_or_else(|e| panic!("{e}"));
+    let written = || heard.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert!(eventually(|| written().last() == Some(&lsn)), "{:?}", written());
+    // Heard while its 300 ms sync still runs: the record is written, not durable.
+    assert_eq!(journal.durable_lsn(), 0);
+    journal.wait_durable(lsn, WAIT).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(written(), vec![lsn], "one call per batch that moved the written LSN");
+}
+
+#[test]
 fn a_stream_record_is_written_at_once_and_synced_after_its_delay() {
     let storage = SimStorage::new(6);
     let config = Config { stream_sync_delay: Duration::from_millis(300), ..quick() };
