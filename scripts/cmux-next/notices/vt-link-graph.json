@@ -152,7 +152,7 @@
       }
     },
     "x86_64-windows-gnu": {
-      "generated_files": 6,
+      "generated_files": 7,
       "ghostty_files": 176,
       "names": {
         "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE": "highway",
@@ -167,9 +167,7 @@
         "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI"
       ],
       "source_paths": 338,
-      "unattributed": [
-        ".zig-cache\\o\\d87431268936e492a56af94267838893\\generated.zig"
-      ],
+      "unattributed": [],
       "vendored": {
         "pkg/highway": 5,
         "pkg/simdutf": 2,
