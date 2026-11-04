@@ -475,6 +475,28 @@ pin does not have it. cmux-next does not use that flag.
   upstream merge resolves it by taking either side. Keep the round-trip test
   in `config/io.zig`; it covers the embedded escape and parse pair together.
 
+### Display link starts and stops only on the main thread
+
+- Branch: `cmux-displaylink-main-thread` ([manaflow-ai/ghostty#276](https://github.com/manaflow-ai/ghostty/pull/276))
+- Commit: `6b6d011c5`
+- Summary: port of upstream `ffaaf5d7` (ghostty-org/ghostty#14691, fix for
+  ghostty-org/ghostty#14150). `CVDisplayLinkStop` waits once, without a
+  predicate, for the link's IO thread to exit. CoreVideo also starts and
+  stops links on the main thread during display reconfiguration, and a start
+  inside that wait leaves the stop blocked forever. The render thread used to
+  stop its own link in `setFocus`, `setVisible` and `loopExit`; when that
+  wedged, `ghostty_surface_free` blocked the main thread in `pthread_join`
+  (manaflow-ai/cmux#35300). `src/renderer/DisplayLink.zig` now records the
+  requested state on the render thread and applies it on the main queue.
+- Conflict note: the fork creates the link in `Renderer.init` and sets its
+  output callback in `loopEnter` (upstream creates it lazily in
+  `syncDisplayLink`). `Surface.deinit` calls `renderer.closeDisplayLink()`
+  before `renderer_thread.deinit()`, because the callback userdata is the
+  thread's `draw_now`; keep that order, and keep the call outside the
+  `renderer_context_ok` check. Upstream's `72cf508` does not apply: the fork
+  never stops the link under `draw_mutex`. Drop this entry when an upstream
+  sync brings in `ffaaf5d7`.
+
 ### Unfocused surface frame pacing
 
 - Branch: `perf/unfocused-draw-cap` ([manaflow-ai/ghostty#234](https://github.com/manaflow-ai/ghostty/pull/234))
