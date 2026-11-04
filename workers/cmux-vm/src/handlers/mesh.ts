@@ -59,7 +59,7 @@ import { deviceHoldsKey, type DeviceHoldsKey } from "../proofs/device-holds-key.
 import { keyHasScope, type KeyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantMayCreateDevice, tenantMayCreateMesh } from "../proofs/mesh-may-create.ts";
 import { MESH_CREATION_LABEL } from "../proofs/mesh-creation.ts";
-import { ownedDeviceAddressRules, ownedMeshRules, sameMeshDevice, sameMeshVm } from "../proofs/same-mesh.ts";
+import { ownedDeviceAddressRules, ownedMeshRules, sameMeshSnapshot } from "../proofs/same-mesh.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import { callerActsOnDevice, callerActsOnTunnel, enrolledBy, isTenantAdmin, type CallerActsOnDevice } from "../proofs/device-owner.ts";
 import { tenantOwnsDevice, tenantOwnsMesh, tenantOwnsTunnel, tenantOwnsVm, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
@@ -254,11 +254,22 @@ const ruleCreateError = (error: { readonly status: number | null }) =>
       ? new Conflict({ message: "A device or VM left the mesh during the change; apply again" })
       : unavailable(error);
 
+/** Rules created at the provider between two database writes: one multi-row insert records each batch. */
+const RULE_RECORD_BATCH = 32;
+
 /**
  * Makes the mesh's provider rules equal `desired`: creates every missing rule
  * (8 at a time), and only when all of them exist deletes the surplus, so
  * traffic both the old and the new policy allow never stops. A failed create
  * stops before any delete.
+ *
+ * Only the rules missing from the mesh's rule table are created (planApply), so
+ * a machine joining a mesh of N devices creates its N x ports rules and nothing
+ * else, and applying the same ACL again creates none. Every database read the
+ * creates need is taken once before them (sameMeshSnapshot: four queries, not
+ * four per rule) and created rules are recorded RULE_RECORD_BATCH per insert:
+ * per rule, a new VM in a test mesh of 40 capture devices made ~800 sequential
+ * round trips on the request's one database connection and its apply took ~120 s.
  */
 const reconcile = <C, M>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, ownsMesh: TenantOwnsResource<C, M>, desired: ReadonlyArray<DesiredRule>) =>
   Effect.gen(function* () {
@@ -270,52 +281,91 @@ const reconcile = <C, M>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, ow
       current.map((proof) => ({ key: proof.rule.key, proof })),
       desired,
     );
-    yield* Effect.forEach(
-      plan.create,
-      (rule) =>
-        Effect.gen(function* () {
-          const device = parseDeviceId(rule.deviceId);
-          const vm = parseVmId(rule.vmId);
-          if (Option.isNone(device) || Option.isNone(vm)) return yield* Effect.fail(unavailable());
-          return yield* name(device.value, vm.value, (source, destination) =>
-            Effect.gen(function* () {
-              const sourceProof = yield* sameMeshDevice(caller, mesh, ownsMesh, source).pipe(Effect.catchAll(dependencyDown("mesh.sameMesh")));
-              const destinationProof = yield* sameMeshVm(caller, mesh, ownsMesh, destination).pipe(Effect.catchAll(dependencyDown("mesh.sameMesh")));
-              if (sourceProof === null || destinationProof === null) {
-                return yield* Effect.fail(new Conflict({ message: "A device or VM left the mesh during the change; apply again" }));
-              }
-              const created = yield* upstream
-                .createRule(mesh, source, destination, { source: sourceProof, destination: destinationProof }, { protocol: rule.protocol, port: rule.port, sourceCidr: rule.cidr })
-                .pipe(Effect.mapError(ruleCreateError));
-              const at = yield* now;
-              yield* store
-                .recordRule(tenantId, {
-                  meshId: mesh.value,
-                  key: rule.key,
-                  upstreamRuleId: created.upstreamRuleId,
-                  deviceId: rule.deviceId,
-                  vmId: rule.vmId,
-                  protocol: rule.protocol,
-                  port: rule.port,
-                  createdAt: at,
-                })
-                .pipe(
-                  // Unrecorded, the rule could never be deleted by the ACL. A tunnel rule still goes with its tunnel and is
-                  // logged for the operator; an address rule names no tunnel, so it is deleted here at once.
-                  Effect.tapError(() =>
-                    rule.cidr === null
-                      ? logEvent("mesh_rule_record_failed", { meshId: mesh.value, ruleKey: rule.key })
-                      : upstream.discardCreatedRule(created).pipe(
-                          Effect.catchAll(() => logEvent("mesh_address_rule_discard_failed", { meshId: mesh.value, ruleKey: rule.key })),
-                        ),
-                  ),
-                  Effect.catchAll(dependencyDown("mesh.recordRule")),
-                );
-            }),
-          );
-        }),
-      { concurrency: 8, discard: true },
-    );
+    const members =
+      plan.create.length === 0
+        ? null
+        : yield* sameMeshSnapshot(
+            caller,
+            mesh,
+            ownsMesh,
+            plan.create.map((rule) => rule.deviceId),
+            plan.create.map((rule) => rule.vmId),
+          ).pipe(Effect.catchAll(dependencyDown("mesh.sameMesh")));
+    const createOne = (rule: DesiredRule) =>
+      Effect.gen(function* () {
+        const device = parseDeviceId(rule.deviceId);
+        const vm = parseVmId(rule.vmId);
+        if (members === null || Option.isNone(device) || Option.isNone(vm)) return yield* Effect.fail(unavailable());
+        return yield* name(device.value, vm.value, (source, destination) =>
+          Effect.gen(function* () {
+            const sourceProof = members.device(source);
+            const destinationProof = members.vm(destination);
+            if (sourceProof === null || destinationProof === null) {
+              return yield* Effect.fail(new Conflict({ message: "A device or VM left the mesh during the change; apply again" }));
+            }
+            const created = yield* upstream
+              .createRule(mesh, source, destination, { source: sourceProof, destination: destinationProof }, { protocol: rule.protocol, port: rule.port, sourceCidr: rule.cidr })
+              .pipe(Effect.mapError(ruleCreateError));
+            return { rule, created, at: yield* now };
+          }),
+        );
+      });
+    const createsStarted = yield* Clock.currentTimeMillis;
+    let providerMs = 0;
+    let recordMs = 0;
+    for (let start = 0; start < plan.create.length; start += RULE_RECORD_BATCH) {
+      // Every create of the batch settles (none is left unrecorded by a sibling's failure), then the batch's rows go
+      // in one insert, then the first failure, if any, stops the apply before any delete.
+      const batchStarted = yield* Clock.currentTimeMillis;
+      const settled = yield* Effect.forEach(plan.create.slice(start, start + RULE_RECORD_BATCH), (rule) => Effect.either(createOne(rule)), { concurrency: 8 });
+      const made = settled.flatMap((result) => (Either.isRight(result) ? [result.right] : []));
+      const recordStarted = yield* Clock.currentTimeMillis;
+      providerMs += recordStarted - batchStarted;
+      yield* store
+        .recordRules(
+          tenantId,
+          made.map(({ rule, created, at }) => ({
+            meshId: mesh.value,
+            key: rule.key,
+            upstreamRuleId: created.upstreamRuleId,
+            deviceId: rule.deviceId,
+            vmId: rule.vmId,
+            protocol: rule.protocol,
+            port: rule.port,
+            createdAt: at,
+          })),
+        )
+        .pipe(
+          // Unrecorded, a rule could never be deleted by the ACL. A tunnel rule still goes with its tunnel and is
+          // logged for the operator; an address rule names no tunnel, so it is deleted here at once.
+          Effect.tapError(() =>
+            Effect.forEach(
+              made,
+              ({ rule, created }) =>
+                rule.cidr === null
+                  ? logEvent("mesh_rule_record_failed", { meshId: mesh.value, ruleKey: rule.key })
+                  : upstream.discardCreatedRule(created).pipe(
+                      Effect.catchAll(() => logEvent("mesh_address_rule_discard_failed", { meshId: mesh.value, ruleKey: rule.key })),
+                    ),
+              { concurrency: 8, discard: true },
+            ),
+          ),
+          Effect.catchAll(dependencyDown("mesh.recordRules")),
+        );
+      recordMs += (yield* Clock.currentTimeMillis) - recordStarted;
+      const failed = settled.find(Either.isLeft);
+      if (failed !== undefined) return yield* Effect.fail(failed.left);
+    }
+    if (plan.create.length > 0) {
+      // Where a large apply's time goes (provider creates or database writes), readable in wrangler tail.
+      yield* logEvent("mesh_rules_created", {
+        meshId: mesh.value,
+        created: String(plan.create.length),
+        totalMs: String((yield* Clock.currentTimeMillis) - createsStarted),
+        providerMs: String(providerMs),
+        recordMs: String(recordMs),
+      });
+    }
     yield* Effect.forEach(
       plan.remove,
       ({ proof }) =>
