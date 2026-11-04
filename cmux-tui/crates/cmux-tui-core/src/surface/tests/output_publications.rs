@@ -38,9 +38,9 @@ fn shown_after(surface: &Surface, text: &str, since: Instant) -> Option<Duration
 }
 
 /// Holds `mux`'s workspace registry on another thread until the returned sender fires (or drops).
-fn hold_registry(mux: &Arc<Mux>) -> (std::sync::mpsc::SyncSender<()>, std::thread::JoinHandle<()>) {
-    let (entered, held) = std::sync::mpsc::sync_channel(1);
-    let (release, released) = std::sync::mpsc::sync_channel(1);
+fn hold_registry(mux: &Arc<Mux>) -> (SyncSender<()>, std::thread::JoinHandle<()>) {
+    let (entered, held) = sync_channel(1);
+    let (release, released) = sync_channel(1);
     let holder = {
         let mux = mux.clone();
         std::thread::spawn(move || mux.hold_workspace_registry_for_test(entered, released))
