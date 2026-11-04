@@ -182,8 +182,9 @@ fn a_notification_queued_before_an_exit_posts_before_the_exit() {
             .collect::<Vec<_>>()
     };
     let at_exit = {
-        // The last output asks for a notification; the host's Exit frame is next. The publisher runs nothing until
-        // the hold drops, so what posted by the end of the exit posted on the exit's own turn.
+        // The last output asks for a notification; then the process ends (the host's Exit frame), and the terminal,
+        // which closes on exit, leaves its tab. The publisher runs nothing until the hold drops, so what posted by
+        // the end of the exit posted on the exit's own turn.
         let _held = mux.hold_terminal_publisher_for_test();
         mux.queue_terminal_notifications(
             surface_id,
@@ -192,6 +193,11 @@ fn a_notification_queued_before_an_exit_posts_before_the_exit() {
                 body: String::new(),
                 level: NotificationLevel::Info,
             }],
+        );
+        mux.surface(surface_id).unwrap().record_process_end_for_test(
+            crate::terminal_host_protocol::TerminalExit::now(
+                crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
+            ),
         );
         mux.surface_exited(surface_id);
         posted(&mux).len()
