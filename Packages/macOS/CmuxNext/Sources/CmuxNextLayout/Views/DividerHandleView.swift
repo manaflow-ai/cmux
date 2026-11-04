@@ -142,10 +142,11 @@ final class DividerHandleView: NSView {
         cursorRectInBounds.contains(point) ? resizeCursor : nil
     }
 
-    var resizeCursor: NSCursor {
-        if #available(macOS 15, *) { return axis == .horizontal ? .columnResize : .rowResize }
-        return axis == .horizontal ? .resizeLeftRight : .resizeUpDown
-    }
+    /// One object per axis: the screen sets it again only when it changes (`ScreenDividerPointer`), and macOS 15's
+    /// frame-resize cursors may be a new object at each read.
+    var resizeCursor: NSCursor { axis == .horizontal ? Self.columnCursor : Self.rowCursor }
+    private static let columnCursor: NSCursor = if #available(macOS 15, *) { .columnResize } else { .resizeLeftRight }
+    private static let rowCursor: NSCursor = if #available(macOS 15, *) { .rowResize } else { .resizeUpDown }
 
     // No tracking area and no cursor rects: AppKit moves a view's tracking areas and cursor rects with its frame, and
     // each move rebuilt the window's structural regions (drag margins and a constraint min-size walk of every view) in
