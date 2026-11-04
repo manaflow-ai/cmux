@@ -267,7 +267,8 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
   const findByName = async (): Promise<string | null> => {
     const r = run(["cloud", "list-machines", "--json"], 60_000);
     const rows: any[] = r.json?.machines ?? r.json?.items ?? (Array.isArray(r.json) ? r.json : []);
-    const row = rows.find((m) => m?.name === appName && m.status !== "deleted");
+    // `cloud list-machines --json` rows carry `title` (the app's CloudMachine), the API's `name`.
+    const row = rows.find((m) => (m?.title ?? m?.name) === appName && m.status !== "deleted");
     return row ? String(row.id ?? row.machine_id) : null;
   };
   let machine: string | null = null;
@@ -515,9 +516,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
     // POST /v1/handoffs {sessionId, machine} (backend/apps/api/src/handoffs/routes.ts). Production leaves the
     // hand-off bindings unbound until it ships there and answers 404: that is a SKIP, not a red.
-    const handoff = await api.raw("POST", "/v1/handoffs", { sessionId: session, machine: created.id });
-    if (handoff.status === 404) J.skip("handoff record", "hand-off is not deployed on this backend (404)");
+    // A transport error is recorded as this step's failure; the journey goes on to its next steps.
+    const handoff = await api.raw("POST", "/v1/handoffs", { sessionId: session, machine: created.id }).catch((error: Error) => error);
+    if (!(handoff instanceof Error) && handoff.status === 404) J.skip("handoff record", "hand-off is not deployed on this backend (404)");
     else await J.step("handoff record", async () => {
+      if (handoff instanceof Error) throw new Error(`/v1/handoffs: ${handoff.message}`);
       if (handoff.status >= 300) throw new Error(`/v1/handoffs: HTTP ${handoff.status} ${short(handoff.body.error ?? handoff.body)}`);
       return { value: null, detail: `HTTP ${handoff.status} ${short(handoff.body.value?.id ?? handoff.body.id ?? handoff.body)}` };
     }).catch(() => undefined);
