@@ -733,11 +733,8 @@ fn an_invite_and_the_list_carry_the_invite_link() {
     let terms = ShareTerms { ttl_secs: 3600, uses: 1, create_id: None };
     let created = registry.insert(dir, SESSION.into(), 1, terms, false).unwrap();
     let share_id = created["share_id"].as_str().unwrap().to_owned();
-    let invite = |account: &str| Invite {
-        share_id: share_id.clone(),
-        account: account.into(),
-        role: None,
-    };
+    let invite =
+        |account: &str| Invite { share_id: share_id.clone(), account: account.into(), role: None };
     let shown = |registry: &LinkShares| {
         registry.with(dir, |all, now| Ok((find(all, &share_id)?.shown(now), false))).unwrap()
     };
