@@ -1805,7 +1805,7 @@ const isBlankFooter = (row: AcpmuxRow) =>
   row.status !== "error" &&
   !row.text &&
   !row.resumable &&
-  !(row.retryable === true && (row.turnCopy?.length ?? 0) > 0);
+  !(row.retryable === true && ((row.turnCopy?.length ?? 0) > 0 || (Boolean(row.prompt) && Boolean(row.retryRowId))));
 const isTurnWork = (row: AcpmuxRow) =>
   row.kind === "assistant" ||
   row.kind === "activity" ||

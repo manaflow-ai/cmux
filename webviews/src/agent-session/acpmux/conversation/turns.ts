@@ -134,14 +134,21 @@ const footerSays = (row: AcpmuxRow) =>
 /// reply after its last call, is not empty: it ends the chat, so its row with Copy (the whole turn,
 /// turnCopy.ts) shows once it ends, as ChatGPT's does under every finished turn (Leo, 2026-11-02:
 /// "the latest copy buttons auto showing when the turn is done like chatgpt"). Before, that footer
-/// drew nothing, so the chat ended on a blank band with no buttons.
+/// drew nothing, so the chat ended on a blank band with no buttons. Nor is the last turn's footer
+/// that offers Retry (`offersRetry`): a turn of tool calls alone has nothing to copy, but its Retry
+/// is the footer's now, never the prompt's (cmux#34779), so the footer shows to carry it.
 export const isEmptyFooter = (row: AcpmuxRow) =>
   row.kind === "turnSummary" &&
   row.status !== "failed" &&
   row.status !== "error" &&
   !row.text &&
   !row.resumable &&
-  !endsChatOnWork(row);
+  !endsChatOnWork(row) &&
+  !offersRetry(row);
+
+/// The last turn's footer with a prompt to send again (TurnRows.tsx TurnFooter's Retry).
+/// transcriptGrid.ts rowMark and model.ts isBlankFooter repeat it inline.
+export const offersRetry = (row: AcpmuxRow) => row.retryable === true && Boolean(row.prompt) && Boolean(row.retryRowId);
 
 /// The last turn's footer when the turn said something and ended on work (`isEmptyFooter` above).
 /// transcriptGrid.ts rowMark repeats it inline (that module imports nothing).

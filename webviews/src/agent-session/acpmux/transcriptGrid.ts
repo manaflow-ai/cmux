@@ -67,6 +67,8 @@ type MarkedRow = {
   below?: boolean;
   retryable?: boolean;
   turnCopy?: readonly unknown[];
+  prompt?: string;
+  retryRowId?: string;
 };
 export function rowMark(row: MarkedRow): number {
   if (row.kind === "user" && !row.incoming && !row.received) return MARK_PROMPT;
@@ -81,7 +83,8 @@ export function rowMark(row: MarkedRow): number {
     return row.status !== "failed" &&
       row.status !== "error" &&
       !row.resumable &&
-      ((row.text?.length ?? 0) > 0 || (row.retryable === true && (row.turnCopy?.length ?? 0) > 0))
+      ((row.text?.length ?? 0) > 0 ||
+        (row.retryable === true && ((row.turnCopy?.length ?? 0) > 0 || (Boolean(row.prompt) && Boolean(row.retryRowId)))))
       ? MARK_FOOTER_ROW
       : MARK_FOOTER;
   return MARK_OTHER;

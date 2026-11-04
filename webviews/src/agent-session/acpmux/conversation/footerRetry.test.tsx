@@ -7,7 +7,9 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../model";
+import { MARK_FOOTER_ROW, rowMark } from "../transcriptGrid";
 import { TurnFooter } from "./TurnRows";
+import { isEmptyFooter } from "./turns";
 import { TurnActionsContext, type TurnActions } from "./turnActions";
 
 const last: AcpmuxRow = {
@@ -74,4 +76,17 @@ test("a failed last turn keeps its Retry and model switch in the same place", ()
   const markup = draw({ ...last, status: "failed", error: "boom" });
   expect(markup).toMatch(/<span class="cv-turn-retry"><button[^>]*aria-label="Retry"/);
   expect(markup).toContain("cv-turn-retry-menu");
+});
+
+// A last turn of tool calls alone has nothing to copy, but it offers Retry, so its footer is a row
+// of its own, not the hidden empty footer: else the chat would offer no Retry anywhere (cmux#34779).
+test("a tool-only last turn's footer shows to carry its Retry", () => {
+  const toolsOnly: AcpmuxRow = { ...last, text: undefined, answerId: undefined };
+  expect(isEmptyFooter(toolsOnly)).toBe(false);
+  expect(rowMark(toolsOnly)).toBe(MARK_FOOTER_ROW);
+  const markup = draw(toolsOnly);
+  expect(markup).not.toContain("cv-turn-actions--empty");
+  expect(markup).toContain('aria-label="Retry"');
+  // With nothing to send again (an earlier turn), it stays the hover-only empty footer.
+  expect(isEmptyFooter({ ...toolsOnly, retryable: undefined, prompt: undefined, retryRowId: undefined })).toBe(true);
 });
