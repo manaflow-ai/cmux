@@ -180,6 +180,12 @@ async fn one(
     if !options.install {
         return Ok(());
     }
+    // The download took a while: an install that someone started meanwhile is
+    // left alone (`npm ci` would delete the tree it is using).
+    if options.if_missing && report.restore != "restored" && detect::installed(project) {
+        report.restore = "installed";
+        return Ok(());
+    }
     let started = Instant::now();
     let ok = install(&plan, &project.dir).await;
     report.install_ms = ms(started);

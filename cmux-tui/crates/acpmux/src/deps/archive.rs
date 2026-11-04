@@ -41,6 +41,20 @@ const DENIED: &[&str] = &[
 /// dependencies. Elsewhere `.cache` is kept: Cargo's sparse index lives in one.
 const SKIPPED_DIRS: &[&str] = &[".cache"];
 
+/// A file of npm's cache index (`_cacache/index-v5/...`).
+fn npm_index(rel: &Path) -> bool {
+    let mut parts = rel.components().map(|c| c.as_os_str());
+    parts.any(|c| c == "_cacache") && parts.next().is_some_and(|c| c == "index-v5")
+}
+
+/// Whether an index line records a header that can carry a credential.
+fn secret_header(line: &[u8]) -> bool {
+    let lower = line.to_ascii_lowercase();
+    ["authorization", "cookie", "_authtoken", "proxy-authorization"]
+        .iter()
+        .any(|needle| lower.windows(needle.len()).any(|w| w == needle.as_bytes()))
+}
+
 /// Whether a folder is a bare git repository: `HEAD`, `objects/` and `refs/`.
 fn bare_repo(path: &Path) -> bool {
     path.join("HEAD").is_file() && path.join("objects").is_dir() && path.join("refs").is_dir()
@@ -215,6 +229,26 @@ fn walk(
             }
             walk(builder, root, &child, packed)?;
         }
+    } else if kind.is_file() && npm_index(rel) {
+        // npm keeps a request's Authorization header in its cache index when
+        // the registry answers `Vary: Authorization`: such entries are dropped.
+        let text = std::fs::read(&path)?;
+        let kept: Vec<u8> = text
+            .split_inclusive(|b| *b == b'\n')
+            .filter(|line| !secret_header(line))
+            .flatten()
+            .copied()
+            .collect();
+        if kept.len() != text.len() {
+            packed.denied.push(rel.to_string_lossy().into_owned());
+        }
+        let mut header = tar::Header::new_gnu();
+        header.set_metadata(&meta);
+        let size = u64::try_from(kept.len()).unwrap_or(u64::MAX);
+        header.set_size(size);
+        builder.append_data(&mut header, rel, kept.as_slice())?;
+        packed.files += 1;
+        packed.raw_bytes += size;
     } else if kind.is_file() || kind.is_symlink() {
         builder.append_path_with_name(&path, rel)?;
         if kind.is_file() {
@@ -243,6 +277,24 @@ fn within(dir: &Path, target: &Path) -> Option<PathBuf> {
         }
     }
     Some(out)
+}
+
+/// Whether a path is, or passes through, one of the links written so far.
+fn through_link(path: &Path, links: &std::collections::HashSet<PathBuf>) -> bool {
+    path.ancestors().any(|a| links.contains(a))
+}
+
+/// Whether every `..` in a link target comes before its first name.
+fn leading_parents_only(target: &Path) -> bool {
+    let mut named = false;
+    for part in target.components() {
+        match part {
+            Component::Normal(_) => named = true,
+            Component::ParentDir if named => return false,
+            _ => {}
+        }
+    }
+    true
 }
 
 fn safe_relative(path: &Path) -> bool {
@@ -310,9 +362,16 @@ pub fn unpack(
         tar.set_preserve_mtime(true);
         tar.set_overwrite(true);
         tar.set_unpack_xattrs(false);
+        // Symlinks written so far: nothing is written through one, so a `..`
+        // never climbs out of a folder that a link stood in for.
+        let mut written_links: std::collections::HashSet<PathBuf> = Default::default();
         for entry in tar.entries()? {
             let mut entry = entry?;
             let path = entry.path()?.into_owned();
+            if through_link(&path, &written_links) {
+                out.outside += 1;
+                continue;
+            }
             if path.components().any(|c| denied(&c.as_os_str().to_string_lossy())) {
                 out.denied += 1;
                 continue;
@@ -333,13 +392,23 @@ pub fn unpack(
                 }
                 let kind = entry.header().entry_type();
                 let resolved = if kind.is_symlink() {
+                    // `..` only leads the target (`../pkg/bin.js`): after a
+                    // name it could climb out of a folder that is itself a link
+                    // (`anchor -> .` then `alias -> anchor/../.env`).
+                    if !leading_parents_only(&target) {
+                        out.outside += 1;
+                        continue;
+                    }
                     path.parent().and_then(|dir| within(dir, &target))
                 } else {
-                    within(Path::new(""), &target)
+                    within(Path::new(""), &target).filter(|t| !through_link(t, &written_links))
                 };
                 if !resolved.is_some_and(|r| allowed.iter().any(|prefix| r.starts_with(prefix))) {
                     out.outside += 1;
                     continue;
+                }
+                if kind.is_symlink() {
+                    written_links.insert(path.clone());
                 }
             }
             // tar 0.4.46: `Entry::unpack_in(&mut self, dst) -> io::Result<bool>`,
@@ -523,6 +592,72 @@ mod tests {
         assert_eq!(unpacked.outside, 4, "{unpacked:?}");
         assert!(!shared.path().join("registry/index/ok").exists());
         assert!(shared.path().join("registry/cache/cargo").is_file());
+    }
+
+    #[test]
+    fn unpack_refuses_link_chains_and_writes_through_links() {
+        let out = tempfile::tempdir().unwrap();
+        let archive = out.path().join("a.tar.gz");
+        {
+            let gz = flate2::write::GzEncoder::new(
+                File::create(&archive).unwrap(),
+                flate2::Compression::fast(),
+            );
+            let mut b = tar::Builder::new(gz);
+            let link = |name: &str, target: &str| {
+                let mut h = tar::Header::new_gnu();
+                h.set_entry_type(tar::EntryType::Symlink);
+                h.set_size(0);
+                h.set_mode(0o777);
+                h.set_path(name).unwrap();
+                h.set_link_name(target).unwrap();
+                h.set_cksum();
+                h
+            };
+            // anchor -> . stays inside; alias -> anchor/../.env reads the project's .env.
+            b.append(&link("node_modules/anchor", "."), &[][..]).unwrap();
+            b.append(&link("node_modules/alias", "anchor/../x"), &[][..]).unwrap();
+            // A link nested under a link: its `..` climbs from where anchor points.
+            b.append(&link("node_modules/anchor/up", "../y"), &[][..]).unwrap();
+            let mut header = tar::Header::new_gnu();
+            header.set_size(2);
+            header.set_mode(0o644);
+            header.set_cksum();
+            b.append_data(&mut header, "node_modules/anchor/z", &b"hi"[..]).unwrap();
+            b.append(&link("node_modules/.bin/ok", "../pkg/bin.js"), &[][..]).unwrap();
+            b.into_inner().unwrap().finish().unwrap();
+        }
+        let dest = tempfile::tempdir().unwrap();
+        let unpacked =
+            unpack(&archive, Codec::Gzip, dest.path(), &["node_modules".into()], true).unwrap();
+        assert_eq!(unpacked.outside, 3, "{unpacked:?}");
+        let nm = dest.path().join("node_modules");
+        assert!(nm.join("anchor").is_symlink());
+        assert!(!nm.join("alias").exists() && !nm.join("alias").is_symlink());
+        assert!(!nm.join("up").is_symlink() && !nm.join("z").exists());
+        assert!(nm.join(".bin/ok").is_symlink());
+    }
+
+    #[test]
+    fn npm_index_entries_with_credential_headers_are_dropped() {
+        let src = tempfile::tempdir().unwrap();
+        let index = src.path().join("_cacache/index-v5/ab/cd/abcdef");
+        let public =
+            "1a2b\t{\"key\":\"make-fetch-happen:request-cache:https://registry.npmjs.org/a\"}\n";
+        let private =
+            "3c4d\t{\"metadata\":{\"reqHeaders\":{\"authorization\":\"Bearer npm_x\"}}}\n";
+        write(&index, &format!("{public}{private}"));
+        write(&src.path().join("_cacache/content-v2/sha512/aa/bb"), "tarball");
+        let out = tempfile::tempdir().unwrap();
+        let archive = out.path().join("a.tar");
+        let packed = pack(src.path(), &["_cacache".into()], Codec::Gzip, &archive).unwrap();
+        assert_eq!(packed.denied, ["_cacache/index-v5/ab/cd/abcdef"]);
+        let dest = tempfile::tempdir().unwrap();
+        unpack(&archive, Codec::Gzip, dest.path(), &["_cacache".into()], false).unwrap();
+        let got =
+            std::fs::read_to_string(dest.path().join("_cacache/index-v5/ab/cd/abcdef")).unwrap();
+        assert_eq!(got, public);
+        assert!(dest.path().join("_cacache/content-v2/sha512/aa/bb").is_file());
     }
 
     #[test]
