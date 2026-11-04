@@ -153,7 +153,7 @@ async fn connect(
         return Ok(status(StatusCode::BAD_REQUEST, "invalid CONNECT target\n"));
     };
     let intercept = dns_name(&host) && (config.policy)().intercepts(&host, port);
-    let upstream = match open(&config.resolver, &host, port).await {
+    let upstream = match open(&config.resolver, &host, port, intercept).await {
         Ok(stream) => stream,
         Err(Refused::Denied) => {
             return Ok(status(StatusCode::FORBIDDEN, "destination is not a public address\n"));
@@ -181,32 +181,52 @@ enum Refused {
     Unreachable,
 }
 
-/// A public destination address: never loopback, link-local (cloud
+/// A destination this proxy connects to: never loopback, link-local (cloud
 /// metadata), unspecified, multicast or broadcast, IPv4-mapped included.
-fn public(addr: &SocketAddr) -> bool {
+/// An intercepted connection (one a value may go out on) must also reach a
+/// globally routed address: no private (RFC 1918), shared (CGNAT, tailnet),
+/// benchmarking or IETF-reserved IPv4 and no unique-local IPv6, so a name
+/// rebound into the machine's network never gets a value. A blind tunnel
+/// may reach those, as the agent could without the proxy.
+fn reachable(addr: &SocketAddr, intercept: bool) -> bool {
     let ip = match addr.ip() {
         IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(IpAddr::V6(v6), IpAddr::V4),
         ip => ip,
     };
     match ip {
         IpAddr::V4(v4) => {
-            !(v4.is_loopback()
+            let [a, b, c, _] = v4.octets();
+            let never = v4.is_loopback()
                 || v4.is_link_local()
                 || v4.is_unspecified()
                 || v4.is_multicast()
                 || v4.is_broadcast()
-                || v4.octets()[0] == 0)
+                || a == 0;
+            let internal = v4.is_private()
+                || (a == 100 && (b & 0xc0) == 64)
+                || (a == 198 && (b & 0xfe) == 18)
+                || (a == 192 && b == 0 && c == 0)
+                || a >= 240;
+            !(never || (intercept && internal))
         }
         IpAddr::V6(v6) => {
-            !(v6.is_loopback()
+            let never = v6.is_loopback()
                 || v6.is_unspecified()
                 || v6.is_multicast()
-                || v6.is_unicast_link_local())
+                || v6.is_unicast_link_local();
+            let first = v6.segments()[0];
+            let internal = (first & 0xfe00) == 0xfc00 || (first & 0xffc0) == 0xfec0;
+            !(never || (intercept && internal))
         }
     }
 }
 
-async fn open(resolver: &Resolver, host: &str, port: u16) -> Result<TcpStream, Refused> {
+async fn open(
+    resolver: &Resolver,
+    host: &str,
+    port: u16,
+    intercept: bool,
+) -> Result<TcpStream, Refused> {
     let addrs: Vec<SocketAddr> = match resolver {
         Resolver::Fixed(map) => map.get(&(host.to_owned(), port)).copied().into_iter().collect(),
         Resolver::Dns => {
@@ -219,7 +239,8 @@ async fn open(resolver: &Resolver, host: &str, port: u16) -> Result<TcpStream, R
             if all.is_empty() {
                 return Err(Refused::Unreachable);
             }
-            let allowed: Vec<SocketAddr> = all.into_iter().filter(public).collect();
+            let allowed: Vec<SocketAddr> =
+                all.into_iter().filter(|a| reachable(a, intercept)).collect();
             if allowed.is_empty() {
                 return Err(Refused::Denied);
             }
@@ -293,10 +314,13 @@ async fn forward(
     config: Arc<Config>,
 ) -> Result<Response<Body>, Infallible> {
     // The request must be for the host it was connected to: a shared front
-    // end would otherwise route it (and a value) to whoever Host names.
-    let host_header = req.headers().get(header::HOST).and_then(|v| v.to_str().ok());
+    // end would otherwise route it (and a value) to whoever Host names. One
+    // Host header, no more: a second could be the one the front end reads.
+    let mut hosts = req.headers().get_all(header::HOST).iter();
+    let host_header = hosts.next().and_then(|v| v.to_str().ok());
+    let one_host = hosts.next().is_none();
     let target_ok = req.uri().authority().is_none_or(|a| same_authority(a.as_str(), &host, port));
-    if !host_header.is_some_and(|h| same_authority(h, &host, port)) || !target_ok {
+    if !one_host || !host_header.is_some_and(|h| same_authority(h, &host, port)) || !target_ok {
         return Ok(status(
             StatusCode::MISDIRECTED_REQUEST,
             "Host does not match the CONNECT target\n",
@@ -355,8 +379,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_public_destinations() {
-        for bad in [
+    fn destinations_a_value_may_reach() {
+        let at = |a: &str, intercept| reachable(&a.parse().unwrap(), intercept);
+        for never in [
             "127.0.0.1:443",
             "169.254.169.254:80",
             "0.0.0.0:443",
@@ -365,10 +390,26 @@ mod tests {
             "224.0.0.1:443",
             "[fe80::1]:443",
         ] {
-            assert!(!public(&bad.parse().unwrap()), "{bad}");
+            assert!(!at(never, false) && !at(never, true), "{never}");
         }
-        for ok in ["140.82.112.6:443", "10.0.0.5:443", "[2606:4700::1111]:443"] {
-            assert!(public(&ok.parse().unwrap()), "{ok}");
+        // Inside the machine's network: a blind tunnel may go there, a value never.
+        for internal in [
+            "10.0.0.5:443",
+            "172.16.4.1:443",
+            "192.168.1.1:443",
+            "100.64.0.1:443",
+            "100.127.255.254:443",
+            "198.18.0.1:443",
+            "192.0.0.8:443",
+            "240.0.0.1:443",
+            "[fc00::1]:443",
+            "[fd12:3456::1]:443",
+            "[::ffff:10.0.0.5]:443",
+        ] {
+            assert!(at(internal, false) && !at(internal, true), "{internal}");
+        }
+        for public in ["140.82.112.6:443", "100.128.0.1:443", "[2606:4700::1111]:443"] {
+            assert!(at(public, false) && at(public, true), "{public}");
         }
     }
 

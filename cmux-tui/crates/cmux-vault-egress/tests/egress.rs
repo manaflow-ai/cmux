@@ -82,6 +82,21 @@ async fn a_request_for_another_host_on_an_allowed_connection_is_refused() {
     .unwrap();
     assert_eq!(code, 421);
     assert!(!body.contains(VALUE));
+
+    // A matching Host with a second one behind it is refused too: a front
+    // end could route by the second.
+    let stream = tunnel(h.proxy, "allowed.test").await.unwrap();
+    let (code, body) = get(
+        stream,
+        "allowed.test",
+        proxy_roots(&h),
+        "allowed.test",
+        &[("host", "denied.test"), ("authorization", "Bearer cmux-secret://TOKEN")],
+    )
+    .await
+    .unwrap();
+    assert_eq!(code, 421);
+    assert!(!body.contains(VALUE));
 }
 
 #[tokio::test]
