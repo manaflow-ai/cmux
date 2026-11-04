@@ -41,7 +41,8 @@ export function isWrapUp(tool: Tool | undefined): tool is Tool {
   // Cheap first: every name it goes by, and Codex's `{server, tool}` input, holds the words.
   if (!tool.title.includes(WRAP_UP) && !tool.inputSummary?.includes(WRAP_UP)) return false;
   const call = mcpCall(tool);
-  if (call) return (call.server === "acpmux" && call.tool === WRAP_UP) || (call.server === "cmux" && call.tool === FOLDED);
+  if (call)
+    return (call.server === "acpmux" && call.tool === WRAP_UP) || (call.server === "cmux" && call.tool === FOLDED);
   return /^(?:(?:acpmux\.)?wrap_up|(?:cmux\.)?acpmux_wrap_up)$/.test(tool.title.trim());
 }
 
@@ -53,7 +54,7 @@ export function execWrapUp(tool: Tool | undefined): { shown: Record<string, unkn
   const call = mcpCall(tool);
   if (!call || !isCmuxExec(call)) return undefined;
   const log = readAnswer(tool.output)?.callLog ?? [];
-  const last = log.findLast((entry) => entry.name === FOLDED && entry.ok && entry.shown);
+  const last = [...log].reverse().find((entry) => entry.name === FOLDED && entry.ok && entry.shown);
   return last?.shown ? { shown: last.shown, only: log.every((entry) => entry.name === FOLDED) } : undefined;
 }
 
@@ -99,7 +100,7 @@ export function lastWrapUp(rows: readonly AcpmuxRow[]): NextStepAsk | undefined 
     const items = row.items ?? [];
     for (let index = items.length - 1; index >= 0; index -= 1) {
       const tool = items[index]!.tool;
-      if (isWrapUp(tool) || execWrapUp(tool)) {
+      if (tool && (isWrapUp(tool) || execWrapUp(tool))) {
         const ask = wrapUpAsk(tool);
         if (ask) return ask;
       }
@@ -111,7 +112,9 @@ export function lastWrapUp(rows: readonly AcpmuxRow[]): NextStepAsk | undefined 
 /// The turn's rows without the wrap-up calls, which the card draws instead (and a script that did
 /// nothing else): an activity row loses those items, and goes when they were all it held.
 export function withoutWrapUp(rows: readonly AcpmuxRow[]): AcpmuxRow[] {
-  const drawn = (tool: Tool | undefined) => isWrapUp(tool) || execWrapUp(tool)?.only === true;
+  // Only a call the card stands in for goes: a failed or unfinished one keeps its row.
+  const drawn = (tool: Tool | undefined) =>
+    (isWrapUp(tool) && tool.status === "completed" && wrapUpAsk(tool) !== undefined) || execWrapUp(tool)?.only === true;
   const out: AcpmuxRow[] = [];
   for (const row of rows) {
     if (row.kind !== "activity" || !(row.items ?? []).some((item) => drawn(item.tool))) {

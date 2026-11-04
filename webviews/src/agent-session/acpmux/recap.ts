@@ -4,7 +4,7 @@
 // turn's final answer, so it works for Claude, Codex and any ACP agent alike.
 import type { AcpmuxRow } from "./model";
 import { nextStepAsk } from "./conversation/nextStepAsk";
-import { isWrapUp } from "./conversation/wrapUp";
+import { execWrapUp, isWrapUp } from "./conversation/wrapUp";
 
 /** A finished turn that ends on a question. */
 export type Recap = {
@@ -101,7 +101,10 @@ export function recapFrom(rows: readonly AcpmuxRow[], state: RecapState = {}): R
     const row = rows[index];
     if (row.kind === "permission" && row.permission?.pending) return null;
     // The agent's own wrap-up (conversation/wrapUp.ts) is this turn's recap already.
-    if (row.kind === "nextStep" || (row.kind === "activity" && row.items?.some((item) => isWrapUp(item.tool))))
+    if (
+      row.kind === "nextStep" ||
+      (row.kind === "activity" && row.items?.some((item) => isWrapUp(item.tool) || execWrapUp(item.tool)))
+    )
       return null;
     if (!answer && row.kind === "assistant") answer = row;
   }

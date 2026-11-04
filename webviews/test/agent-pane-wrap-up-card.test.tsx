@@ -103,6 +103,30 @@ describe("a wrap-up in the transcript", () => {
     expect(kinds.indexOf("turnSummary")).toBeGreaterThan(kinds.indexOf(NEXT_STEP));
   });
 
+  test("a failed or still-running wrap-up call keeps its row", () => {
+    for (const status of ["failed", "in_progress"]) {
+      const rows = turn(input);
+      const item = call(input, "mcp__acpmux__wrap_up", status);
+      rows[2] = activity([item], 5);
+      expect(JSON.stringify(turnView(rows, new Set()))).toContain(item.tool!.id);
+    }
+  });
+
+  test("a code-mode wrap-up also sends the recap card aside", () => {
+    const rows = turn(input);
+    rows[1] = assistant("Done. Should I open a PR?", 5);
+    rows[2] = activity(
+      [
+        tool("mcp__cmux__cmux_exec", "other", "completed", {
+          inputSummary: JSON.stringify({ script: "await cmux.acpmux_wrap_up({...})" }),
+          output: JSON.stringify({ calls: 1, call_log: [{ name: "acpmux_wrap_up", ok: true, shown: input }] }),
+        }),
+      ],
+      5,
+    );
+    expect(recapFrom(rows)).toBeNull();
+  });
+
   test("a stopped or failed turn draws no box", () => {
     for (const status of ["cancelled", "failed"])
       expect(nextSteps(turnView(turn(input, { status }), new Set()))).toHaveLength(0);
@@ -134,27 +158,40 @@ describe("a wrap-up from a code-mode script", () => {
     expect(wrapUpAsk(only.tool!)?.recap).toBe(RECAP);
     expect(execWrapUp(only.tool)?.only).toBe(true);
     const drawn = turnView(
-      [user("Fix it", 6), assistant("Done.", 5), activity([only], 5), summary(5, { status: "completed" })] as AcpmuxRow[],
+      [
+        user("Fix it", 6),
+        assistant("Done.", 5),
+        activity([only], 5),
+        summary(5, { status: "completed" }),
+      ] as AcpmuxRow[],
       new Set(),
     );
     expect(nextSteps(drawn)[0]?.nextStep?.ask.question).toBe("Should I open a PR for this?");
-    expect(drawn.some((row) => row.kind === "activity")).toBe(false);
+    expect(JSON.stringify(drawn)).not.toContain(only.tool!.id);
   });
 
   test("a script that did other work keeps its row and still draws the box", () => {
     const mixed = exec([{ name: "workspace_list", ok: true }, wrapped]);
     expect(execWrapUp(mixed.tool)?.only).toBe(false);
     const drawn = turnView(
-      [user("Fix it", 6), assistant("Done.", 5), activity([mixed], 5), summary(5, { status: "completed" })] as AcpmuxRow[],
+      [
+        user("Fix it", 6),
+        assistant("Done.", 5),
+        activity([mixed], 5),
+        summary(5, { status: "completed" }),
+      ] as AcpmuxRow[],
       new Set(),
     );
     expect(nextSteps(drawn)).toHaveLength(1);
-    expect(drawn.some((row) => row.kind === "activity")).toBe(true);
+    // A finished turn folds its work rows; the script is still in them.
+    expect(JSON.stringify(drawn)).toContain(mixed.tool!.id);
   });
 
   test("a failed wrap-up call, or a script that never called it, is no box", () => {
     expect(execWrapUp(exec([{ name: "acpmux_wrap_up", ok: false }]).tool)).toBeUndefined();
-    expect(execWrapUp(exec([{ name: "workspace_list", ok: true }], "await cmux.workspace_list()").tool)).toBeUndefined();
+    expect(
+      execWrapUp(exec([{ name: "workspace_list", ok: true }], "await cmux.workspace_list()").tool),
+    ).toBeUndefined();
   });
 });
 
