@@ -20,11 +20,11 @@ vertical divider left and right, one `debug.mouse` move per display frame:
            tabs each, 10 busy terminals); the divider between its first two columns. Every terminal
            in those columns resizes each frame, unless the build holds terminals through a drag
            (`terminalDrag.holdSurface`, on by default since #32006): then they keep their size and text
-           through the drag, which ends where it began, so none resizes or draws (the layout reports
-           `drag_holds_terminals`). Before its timed rounds each drag layout runs a probe (one drag that
+           through the drag, which ends where it began, so none resizes or draws (each round reports
+           `holds_terminals` as it ran). Before its timed rounds each drag layout runs a probe (one drag that
            ends --probe-pt away, then one back) and prints it as its own TERMINAL-RESIZE-PROBE line: the
-           divider moved and a terminal's full_resize counted the new grid at the release, or the layout
-           fails at once.
+           divider moved, a terminal fits a new grid, and its render counters counted it (full_resize or
+           full_swap, terminal_resize_verdict.resized) at the release, or the layout fails at once.
   keys     4 terminals in a 2x2 grid, each with history: Ctrl-Shift-L then Ctrl-Shift-H on the bottom-left
            one (`resizePaneRight`, `resizePaneLeft`; --key-repeat presses each, --key-gap-ms apart, the last
            one --key-settle-s before the next), so the divider between the columns moves and all 4 resize.
@@ -35,7 +35,8 @@ vertical divider left and right, one `debug.mouse` move per display frame:
   --ab KEY runs every round of the drag and key layouts once with the boolean tunable KEY off and once on, in
            this one launch (`debug.tunables set`), the order alternating per round; each layout then reports
            `arms` (terminal_resize_arms.summaries: per arm, the rounds' frames pooled into p50/p95/p99/max)
-           and the run resets KEY at the end. `--ab motion.frameOwner.terminals` is FRAME OWNER S4's A/B.
+           and the run resets KEY after each such layout. `--ab motion.frameOwner.terminals` was FRAME OWNER
+           S4's A/B.
 
 Per layout it records display-frame intervals and main-thread busy time per frame (`debug.frames`,
 missed = an interval over 1.5 refresh periods), main-thread time in Ghostty's display passes
@@ -204,7 +205,7 @@ FRAME_KEYS = ("frames", "refresh_ms", "p50_ms", "p95_ms", "p99_ms", "max_ms", "m
 
 def frame_numbers(frames):
     """A round's `debug.frames` numbers (with the main-thread p99 the reply lacks), and its raw per-frame arrays for
-    the arms' pooled distributions (dropped from the report once pooled)."""
+    the arms' pooled distributions (kept in the report as the round's `raw`)."""
     main_ms = frames.get("main_ms") or []
     raw = {"intervals_ms": frames.get("intervals_ms") or [], "main_ms": main_ms,
            "motion_main_ms": arms.motion(main_ms, frames.get("view_layouts_per_frame") or [])}
