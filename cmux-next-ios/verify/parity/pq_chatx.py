@@ -83,7 +83,7 @@ def back(j):
 
 
 def prompt_bubble(j, word):
-    for _ in range(4):
+    for _ in range(10):
         e = j.sim.wait(contains=f"the word {word}", timeout=4)
         if e and 120 < e.center[1] < 720:
             return e
@@ -266,14 +266,13 @@ def display(j, label):
     """After: Text and Width…: Zoom In twice and Standard width, read back as the transcript's
     text size; relaunched, the chat keeps it (saved per chat on this phone); Actual Size."""
     st = open_chat(j)
-    out = {"menu": page_menu(j)}
+    bubble = prompt_bubble(j, "TWO") if label == "after" else None
+    out = {"bubble_before": bubble.frame if bubble else None, "menu": page_menu(j)}
     pq.shot(f"display-{label}-menu")
     if label == "before":
         out["has_text_width"] = "Text and Width…" in out["menu"]
         c.dismiss(j)
         return out
-    bubble = prompt_bubble(j, "TWO")
-    out["bubble_before"] = bubble.frame
     c.page_row(j, "Text and Width…")
     tap_ident(j, "chat.display.zoomIn", pause=0.8)
     tap_ident(j, "chat.display.zoomIn", pause=0.8)
