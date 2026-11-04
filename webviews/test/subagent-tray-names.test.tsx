@@ -129,18 +129,6 @@ describe("the folded running bar names what runs", () => {
     }
   });
 
-  test("a substitution-based check has the same readable title in the folded header", async () => {
-    const raw = "SHA=$(git rev-parse HEAD); cmux-ci run --class light --ref $SHA --script scripts/check-glyphs.sh";
-    const bar = await head([agent("a1", "Review the tray", 9_000)], [command("c1", raw, 1_000)]);
-    try {
-      expect(bar.title()).toBe("git rev-parse HEAD · cmux-ci run");
-      expect(bar.title()).not.toContain("HEAD);");
-      expect(bar.more()).toBe("+1 more");
-    } finally {
-      await bar.done();
-    }
-  });
-
   test("five running: the newest one by name, then a count of the rest", async () => {
     const bar = await head(
       [

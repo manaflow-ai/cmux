@@ -345,7 +345,6 @@ extension IconName {
         .viewExpand,
         .viewGrid,
         .viewList,
-        .viewListShort,
         .viewTabTrailing,
         .windowNew,
         .workspace,

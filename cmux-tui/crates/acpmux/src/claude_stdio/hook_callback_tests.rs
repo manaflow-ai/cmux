@@ -36,3 +36,35 @@ async fn other_unsupported_control_requests_keep_the_error() {
     assert_eq!(replies[0]["response"]["subtype"], "error");
     assert_eq!(replies[0]["response"]["request_id"], "m1");
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn registered_pre_tool_callback_waits_and_failed_sync_returns_denial() {
+    use cmux_git::sync_barrier::Sync;
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path().canonicalize().unwrap().join("repo");
+    let sync = Sync::begin(&repo).unwrap();
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let mut call = callback("sync", hook_callback::SYNC_CALLBACK, "PreToolUse");
+    call["request"]["input"]["cwd"] = json!(repo);
+    let pending = t.answer_hook_callback("sync", &call["request"]);
+    tokio::pin!(pending);
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(50), &mut pending).await.is_err()
+    );
+    sync.complete().unwrap();
+    pending.await;
+    assert_eq!(t.take_stdin_replies().await[0]["response"]["response"], json!({}));
+
+    drop(Sync::begin(&repo).unwrap());
+    t.answer_hook_callback("sync", &call["request"]).await;
+    let replies = t.take_stdin_replies().await;
+    assert_eq!(
+        replies[0]["response"]["response"]["hookSpecificOutput"]["permissionDecision"],
+        "deny"
+    );
+    assert_eq!(
+        outbound::initialize_request(false)["hooks"]["PreToolUse"][0]["hookCallbackIds"][0],
+        hook_callback::SYNC_CALLBACK
+    );
+}

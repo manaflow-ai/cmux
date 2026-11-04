@@ -473,13 +473,6 @@ def referenced_secrets(value: Any) -> set[str]:
 FORK_PR_BLACKSMITH = re.compile(
     r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != github\.repository"
     r" && 'blacksmith-\d+vcpu-ubuntu-2404'")
-# The CI_TRUSTED_RUNNER selector (scripts/ci/validate-cla-policy.rb), split at its top-level `||`. A
-# secretless declared light job whose workflow cannot read RUNNER_POOLS may retry on it.
-TRUSTED_SELECTOR_TAIL = [
-    "contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
-    "vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER",
-    "'blacksmith-4vcpu-ubuntu-2404'",
-]
 EPHEMERAL_MIRROR_TERM = re.compile(
     r"contains\(fromJSON\('\[\"blacksmith-\d+vcpu-ubuntu-2404\"(?:,\"blacksmith-\d+vcpu-ubuntu-2404\")*\]'\), "
     r"vars\.LINUX_RUNNER\) && vars\.LINUX_RUNNER")
@@ -583,8 +576,7 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
             track_hosted = "needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && 'ubuntu-24.04'"
             hosted_terms = [part for part in alternatives if part in (hosted, track_hosted)]
             pool = "fromJSON(vars.RUNNER_POOLS).linux"
-            secretless_tail = (alternatives[-1] == pool or alternatives[-2:] == TRUSTED_SELECTOR_TAIL) and not used
-            if len(hosted_terms) != 1 or alternatives[-1] not in paid and not secretless_tail:
+            if len(hosted_terms) != 1 or alternatives[-1] not in paid and not (alternatives[-1] == pool and not used):
                 problems.append(f"hosted_light_jobs[{key!r}] must use hosted Ubuntu on attempt 1 then measured paid retries")
                 continue
             hosted_term = hosted_terms[0]
@@ -608,10 +600,7 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
                         and tail[0].split(" && ", 1)[1] in paid)
             # Or, for a job that holds no secret, the reconciled Linux pool's live member.
             pooled = tail == [pool] and not used
-            # Or, for a secretless job in a reusable workflow (which must not fromJSON a variable),
-            # the reviewed CI_TRUSTED_RUNNER selector: its own allowlist, else one ephemeral label.
-            trusted = tail == TRUSTED_SELECTOR_TAIL and not used
-            if not (len(tail) == 1 and tail[0] in paid or switched or pooled or trusted
+            if not (len(tail) == 1 and tail[0] in paid or switched or pooled
                     or tail == [measured16, "'blacksmith-32vcpu-ubuntu-2404'"]
                     or tail == [measured16_pool, "fromJSON(vars.RUNNER_POOLS).linux_32"]):
                 problems.append(f"hosted_light_jobs[{key!r}] contains an undeclared retry runner")

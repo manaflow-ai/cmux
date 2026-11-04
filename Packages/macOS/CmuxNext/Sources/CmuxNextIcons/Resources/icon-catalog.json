@@ -2159,12 +2159,6 @@
    "family": "view"
   },
   {
-   "name": "view.list.short",
-   "meaning": "Two-row list: the chat header's Session Info panel toggle",
-   "sf": "questionmark.square.dashed",
-   "family": "view.list"
-  },
-  {
    "name": "view.tab.trailing",
    "meaning": "Open in trailing tab",
    "sf": "questionmark.square.dashed",
