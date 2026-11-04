@@ -287,9 +287,19 @@ struct ChiefDisabledHomeTests {
         #expect(KeyboardShortcutSettings.unavailableSettingsActions(isChiefAvailable: false) == [.openChief])
         #expect(KeyboardShortcutSettings.unavailableSettingsActions(isChiefAvailable: true).isEmpty)
 
-        // The app installs the Settings package's provider at launch.
-        #expect(ShortcutAction.hostUnavailableActions
-            == KeyboardShortcutSettings.unavailableSettingsActions(isChiefAvailable: ChiefSettings.isAvailable))
+        // The app installs the Settings package's provider at launch, and it
+        // follows the flag: off hides Open Chief, on offers every action.
+        let flags = CmuxFeatureFlags.shared
+        let originalOverride = flags.overrideValue(for: CmuxFeatureFlags.chiefFlag)
+        defer { flags.setOverride(originalOverride, for: CmuxFeatureFlags.chiefFlag) }
+        flags.setOverride(false, for: CmuxFeatureFlags.chiefFlag)
+        try #require(!ChiefSettings.isAvailable)
+        #expect(ShortcutAction.hostUnavailableActions == [.openChief])
+        #expect(!ShortcutAction.settingsVisibleActions.contains(.openChief))
+        flags.setOverride(true, for: CmuxFeatureFlags.chiefFlag)
+        try #require(ChiefSettings.isAvailable)
+        #expect(ShortcutAction.hostUnavailableActions.isEmpty)
+        #expect(ShortcutAction.settingsVisibleActions.contains(.openChief))
 
         KeyboardShortcutSettings.resetShortcut(for: .openChief)
         defer { KeyboardShortcutSettings.resetShortcut(for: .openChief) }
