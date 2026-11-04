@@ -332,8 +332,11 @@ def cond_smoke_frame(j, want, cache):
     image = j.app.snapshot(j.out / f"check-{j.checks:02d}.png")
     lines = j.app.read_text(image)
     present = [t for t in j.sub(want.get("lacks", [])) if D.ocr_contains(lines, t)]
-    return len(lines) >= int(want.get("min_lines", 3)) and not present, \
-        {"image": image.name, "lines": len(lines), "present": present, "text": lines[-8:]}
+    detail = {"image": image.name, "lines": len(lines), "present": present, "text": lines[-8:]}
+    partial = D.lacks_not_judged(want, lines)
+    if partial:
+        return False, dict(detail, lacks_not_judged=partial)
+    return len(lines) >= int(want.get("min_lines", 3)) and not present, detail
 
 
 def _main_key(j):

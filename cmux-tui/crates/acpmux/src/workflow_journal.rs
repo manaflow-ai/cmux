@@ -428,6 +428,8 @@ fn preserve_corrupt_tail(path: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 fn private_file(path: &Path) -> Result<File> {
+    // Use the shared owner-only opener so Windows creates the file with its
+    // restrictive DACL, rather than relying on the directory's inheritance.
     crate::config::private_state_rw(path)
         .with_context(|| format!("open workflow journal {}", path.display()))
 }

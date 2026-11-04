@@ -1,3 +1,4 @@
+import Foundation
 import CmuxNextCloud
 import Testing
 
@@ -70,5 +71,44 @@ struct CloudConfigurationSignedDEVTests {
         let config = CloudConfiguration.resolve(bundleID: "com.cmuxterm.app.debug.next", bundled: ["CMUX_CLOUD_LINK": "app"], process: [:], isDebugBuild: true)
         #expect(config.linkSource == .appServer)
         #expect(config.ownerAPIBaseURL(environment: ["CMUX_NEXT_FEED_API_URL": "https://override.invalid"]).absoluteString == "https://override.invalid")
+    }
+    @Test func signedDEVOnTheNightlyAccountUsesProductionAndNightlysSession() {
+        let config = CloudConfiguration.resolve(bundleID: "com.cmuxterm.app.debug.next", bundled: [:], process: [:],
+                                                isDebugBuild: false, devAccount: .nightly)
+        #expect(config.isProductionAuth)
+        #expect(config.backend == .production)
+        #expect(config.apiBaseURL.absoluteString == "https://cmux.com")
+        #expect(config.stackProjectID == "9790718f-14cd-4f7e-824d-eaf527a82b82")
+        #expect(config.ownerAPIBaseURL(environment: [:]).absoluteString == "https://cloud-api.cmux.dev")
+        #expect(config.callbackURL.absoluteString == "cmux-next-dev://auth-callback")
+        #expect(config.linkSource == .appServer)
+        // Its own production namespace: neither the staging session nor the old unscoped one.
+        #expect(config.keychainService == "com.cmuxterm.app.debug.next.auth.9790718f-14cd-4f7e-824d-eaf527a82b82")
+        #expect(config.nightlySession?.keychainService == "com.cmuxterm.app.nightly.auth")
+        #expect(config.nightlySession?.accessGroup == "7WLXT3NR37.com.cmuxterm.app.nightly")
+        #expect(config.nightlySession?.credentialsDirectory.path.hasSuffix("Library/Application Support/cmux/com.cmuxterm.app.nightly") == true)
+    }
+
+    @Test func onlySignedDEVOnTheNightlyAccountAdoptsNightlysSession() {
+        let staging = CloudConfiguration.resolve(bundleID: "com.cmuxterm.app.debug.next", bundled: [:], process: [:], isDebugBuild: false)
+        #expect(staging.nightlySession == nil)
+        for (bundleID, debug) in [("com.cmuxterm.app.nightly", false), ("com.cmuxterm.app.debug.next", true), ("com.cmuxterm.app", false)] {
+            let config = CloudConfiguration.resolve(bundleID: bundleID, bundled: [:], process: [:], isDebugBuild: debug, devAccount: .nightly)
+            #expect(config.nightlySession == nil, "\(bundleID) debug=\(debug)")
+            #expect(config == CloudConfiguration.resolve(bundleID: bundleID, bundled: [:], process: [:], isDebugBuild: debug))
+        }
+    }
+
+    @Test func theLaunchsDevAccountIsKeptForTheNextLaunch() throws {
+        let suite = "cmux-dev-account-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        #expect(CloudConfiguration.devAccount(environment: [:], defaults: defaults) == .staging)
+        #expect(CloudConfiguration.devAccount(environment: ["CMUX_NEXT_DEV_ACCOUNT": " Nightly "], defaults: defaults) == .nightly)
+        // An update's relaunch carries no launch environment.
+        #expect(CloudConfiguration.devAccount(environment: [:], defaults: defaults) == .nightly)
+        #expect(CloudConfiguration.devAccount(environment: ["CMUX_NEXT_DEV_ACCOUNT": "bogus"], defaults: defaults) == .nightly)
+        #expect(CloudConfiguration.devAccount(environment: ["CMUX_NEXT_DEV_ACCOUNT": "staging"], defaults: defaults) == .staging)
+        #expect(CloudConfiguration.devAccount(environment: [:], defaults: defaults) == .staging)
     }
 }

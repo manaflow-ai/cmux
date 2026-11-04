@@ -86,6 +86,18 @@ fn native_workflow_journal_has_only_one_resume_owner() {
     assert!(Journal::open(directory.path(), "script", 1).is_ok());
 }
 
+#[cfg(windows)]
+#[test]
+fn native_workflow_journal_files_are_owner_only() {
+    let directory = tempfile::tempdir().unwrap();
+    let _journal = Journal::open(directory.path(), "script", 1).unwrap();
+
+    assert!(crate::owner_only::only_owner_reads(&directory.path().join("resume.lock")).unwrap());
+    assert!(
+        crate::owner_only::only_owner_reads(&directory.path().join("activities.jsonl")).unwrap()
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn native_workflow_journal_releases_ownership_with_an_inherited_descriptor() {
