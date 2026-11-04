@@ -140,8 +140,8 @@ const RAW_COMMANDS = [
   "docker compose up -d 2>&1 | tail -5",
 ];
 /** Leo's own fleet tools from his screenshot, which read in words only with the `cmux-fleet` preset
- * on (session-info/commandRulePresets.ts; Leo: "tho isn't glaeda-gh mostly me? we can prob
- * genearlize more stuff"), and a rule of one's own. */
+ * on (session-info/commandRulePresets.ts: Leo asked that our own tools not be built in), and a rule
+ * of one's own. */
 const FLEET_COMMANDS = [
   "glaeda-gh wait run manaflow-ai/cmux/41762593154 --until done --timeout 3000 2>&1 | tail -5",
   'cmux-ci test --setup playwright --timeout 2400 --workflow-ref feat-cmux-next -- "$(cat check.sh)"',
@@ -659,7 +659,7 @@ export default agentPaneEntry({
       }),
     },
     "command-words-preset": {
-      note: 'With cmux-next.json\'s agentPane.display.commandLabels set to ["cmux-fleet", a deploy rule], the fleet preset names glaeda-gh and cmux-ci lines (Waiting on cmux checks, Fleet tests · Playwright, Fleet run for #34769) and the person\'s own rule names deploy (Deploying staging). Without it they read by program, as glaeda-gh wait and cmux-ci test.',
+      note: 'With cmux-next.json\'s agentPane.display.commandLabels set to ["cmux-fleet", a deploy rule], the fleet preset names the CI wait and cmux-ci lines (Waiting on cmux checks, Fleet tests · Playwright, Fleet run for #34769) and the person\'s own rule names deploy (Deploying staging). Without it they read by program and main argument, as cmux-ci test.',
       height: 480,
       display: {
         "agentPane.display.commandLabels": [
