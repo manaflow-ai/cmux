@@ -236,9 +236,7 @@ Each client reports the cell grid available for every surface it displays with
 implemented in `crates/cmux-terminal-sizing` (re-exported as `cmux_tui_core::sizing_policy`). Every client view of a
 terminal placement is one participant with id `c<client>` (or
 `c<client>@<placement>` for a projected placement other than the terminal's
-first; with the daemon feature `terminalSizingPerApp` every view of one
-connection is a lease of the one participant `c<client>`), and every relay
-sub-view is one participant `c<client>/<view>`. A view
+first), and every relay sub-view is one participant `c<client>/<view>`. A view
 joins when it attaches or first reports a size and leaves when its last attach
 stream ends or its connection closes.
 

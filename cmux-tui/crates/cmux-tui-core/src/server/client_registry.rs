@@ -800,7 +800,6 @@ impl ClientRegistry {
         surface: SurfaceId,
         runtime: SurfaceId,
         size_state: &TerminalSizingState,
-        scheme: crate::mux::ParticipantScheme,
     ) {
         let targets = {
             let state = self.state.lock().recover_poison();
@@ -818,7 +817,7 @@ impl ClientRegistry {
                     }
                     let open = record.capabilities.contains(OPEN_DEVICE_KINDS_CAPABILITY);
                     Some((
-                        SizeStateReader { client: *client, open, scheme },
+                        SizeStateReader { client: *client, open },
                         record.writer.clone(),
                         Self::event_streams(record, surface),
                     ))

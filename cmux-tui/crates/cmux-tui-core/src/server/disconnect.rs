@@ -11,14 +11,11 @@ use super::MessageWriter;
 use super::OPEN_DEVICE_KINDS_CAPABILITY;
 use super::SHUTDOWN_ACK_FLUSH_TIMEOUT;
 use super::SIZING_VIEW_DETACH_CAPABILITY;
-use super::VIEW_ATTACHMENT_LEASE_CAPABILITY;
-use super::detach_committed_attach;
 use crate::Mux;
 use crate::MuxEvent;
 use crate::SurfaceId;
 use crate::SurfaceKind;
 use crate::browser::BrowserPointerOwner;
-use crate::mux::ParticipantScheme;
 use crate::panic_free::JsonFields;
 use crate::sizing_policy::TerminalDetachActor;
 use crate::sizing_policy::TerminalSizingState;
@@ -72,7 +69,6 @@ pub(super) struct SizeStateReader {
     pub(super) client: u64,
     /// `open-device-kinds-v1`.
     pub(super) open: bool,
-    pub(super) scheme: ParticipantScheme,
 }
 
 /// A `size-state` event. Without a reader it has only the kinds every
@@ -87,7 +83,7 @@ pub(super) fn size_state_event_json(
     let mut event =
         json!({"event": "size-state", "surface": surface, "state": state.for_client(open)});
     if let Some(reader) = reader {
-        let id = reader.scheme.view_participant_id(runtime, surface, reader.client);
+        let id = crate::mux::view_participant_id(runtime, surface, reader.client);
         if state.participant(&id).is_some() {
             event.insert("self_participant", json!(id));
         }
@@ -130,66 +126,6 @@ pub(super) fn kick_client(mux: &Arc<Mux>, client: u64, by: TerminalDetachActor) 
     // Disconnected on purpose: the grids of its terminals follow the
     // remaining views now, not after a departed view's hold.
     mux.release_terminal_grid_holds(&placements);
-    kicked
-}
-
-/// The views a kick of `target` on the terminal shown at `surface` ends
-/// without closing their connection. Under [`ParticipantScheme::PerApp`] the
-/// participant of a client whose views are leases
-/// ([`VIEW_ATTACHMENT_LEASE_CAPABILITY`]) is its views of that one terminal,
-/// so kicking it must not close the app's other terminals. `None` keeps the
-/// whole-client kick: a target with no terminal names the whole client.
-pub(super) fn terminal_views_kick_target(
-    mux: &Mux,
-    target: &DetachClientTarget,
-    surface: Option<SurfaceId>,
-) -> Option<(u64, Vec<SurfaceId>)> {
-    let DetachClientTarget::Participant(participant) = target else { return None };
-    if mux.participant_scheme() != ParticipantScheme::PerApp {
-        return None;
-    }
-    let (client, views) = mux.terminal_participant_views_on(surface?, participant)?;
-    mux.control_clients
-        .supports_capability(client, VIEW_ATTACHMENT_LEASE_CAPABILITY)
-        .then_some((client, views))
-}
-
-/// Ends `client`'s views of one terminal on behalf of another participant:
-/// each attach stream of `placements` ends with `detached
-/// {reason:"disconnected-by", by}` as its last item and its retained report
-/// goes; the connection and its views of other terminals stay. The
-/// participant leaves the sizing engine with all its views in one update
-/// first, so the grid resizes once, to the remaining participants.
-pub(super) fn kick_terminal_views(
-    mux: &Arc<Mux>,
-    client: u64,
-    placements: &[SurfaceId],
-    by: TerminalDetachActor,
-) -> bool {
-    let notice = DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) };
-    let mut kicked = false;
-    if let Some(&placement) = placements.first() {
-        mux.detach_terminal_own_view(placement, client);
-    }
-    for &placement in placements {
-        if let Some((writer, streams)) = mux.control_clients.surface_view_streams(client, placement)
-        {
-            let event = detached_event_json(placement, &notice, None);
-            for (stream, outbound) in streams {
-                // The stream's last item; it also stops the stream's producers.
-                let _ = writer.send_terminal(&event, &outbound);
-                detach_committed_attach(mux, client, placement, stream);
-                kicked = true;
-            }
-        }
-        if mux.client_surface_size(placement, client).is_some() {
-            mux.remove_surface_size_client(placement, client);
-            kicked = true;
-        }
-    }
-    mux.forget_terminal_own_view_detaches(client, placements);
-    // Disconnected on purpose: no departed-view hold.
-    mux.release_terminal_grid_holds(placements);
     kicked
 }
 
@@ -352,10 +288,6 @@ pub fn detach_size_participant(
         return Ok(());
     }
     anyhow::ensure!(client != requester, "cannot disconnect this client");
-    if let Some((client, views)) = terminal_views_kick_target(mux, &target, surface) {
-        kick_terminal_views(mux, client, &views, by);
-        return Ok(());
-    }
     anyhow::ensure!(kick_client(mux, client, by), "unknown client {client}");
     Ok(())
 }

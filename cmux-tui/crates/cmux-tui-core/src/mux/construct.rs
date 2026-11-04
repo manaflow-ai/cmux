@@ -296,9 +296,7 @@ impl Mux {
             workspace_lifecycles: Mutex::new(HashMap::new()),
             pending_workspace_surfaces: Mutex::new(HashMap::new()),
             client_sizing_lifecycle: Mutex::new(()),
-            client_sizing: Mutex::new(
-                ClientSizingState::with_scheme(ParticipantScheme::from_env()),
-            ),
+            client_sizing: Mutex::new(ClientSizingState::from_env()),
             client_focus_memory: Mutex::new(Vec::new()),
             last_reported_focus: Mutex::new(None),
             conversations: Default::default(),

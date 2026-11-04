@@ -548,7 +548,6 @@ fn run_json_command(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
     handle_command(mux, mux.local_test_client(0), command, &test_writer())
 }
 
-mod client_sizing;
 mod connection_scheduler_input_lane;
 mod deferred_commands;
 mod detach_and_browser;

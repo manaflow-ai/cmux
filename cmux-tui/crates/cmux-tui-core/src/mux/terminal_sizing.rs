@@ -309,23 +309,9 @@ impl Mux {
             .map(|member| (member.client, member.placement, member.view.clone()))
     }
 
-    /// The connection and every placement of an own-view participant on the
-    /// terminal shown at `surface`; `None` for a relay sub-view or an unknown id.
-    pub(crate) fn terminal_participant_views_on(
-        &self,
-        surface: SurfaceId,
-        participant: &str,
-    ) -> Option<(u64, Vec<SurfaceId>)> {
-        let runtime = self.surface(surface)?.terminal_runtime_id()?;
-        let sizing = self.client_sizing.lock().unwrap_or_else(PoisonError::into_inner);
-        let member = sizing.terminal_sizing.get(&runtime)?.members.get(participant)?;
-        member.view.is_none().then(|| (member.client, member.views.iter().copied().collect()))
-    }
-
     /// Detach one connection's own view participant of the terminal shown at
-    /// `placement`: every view of that participant (under
-    /// [`ParticipantScheme::PerApp`] all of the connection's views of the
-    /// terminal), keeping the connection, its streams and its relay
+    /// `placement`: every view of that participant, keeping the connection,
+    /// its streams and its relay
     /// sub-views. Each view stays out of the engine until
     /// [`Self::reattach_terminal_own_view`]. Returns the detached placements.
     pub(crate) fn detach_terminal_own_view(
@@ -344,27 +330,6 @@ impl Mux {
             }
             views.into_iter().collect()
         }))
-    }
-
-    /// Forgets the detach marks [`Self::detach_terminal_own_view`] set on
-    /// `client`'s views at `placements` (one terminal) once their streams
-    /// ended, so a later attach of that connection joins again.
-    pub(crate) fn forget_terminal_own_view_detaches(&self, client: u64, placements: &[SurfaceId]) {
-        let _lifecycle = self.lock_client_sizing_lifecycle();
-        let Some(runtime) = placements
-            .first()
-            .and_then(|placement| self.surface(*placement))
-            .and_then(|surface| surface.terminal_runtime_id())
-        else {
-            return;
-        };
-        self.mutate_terminal_sizing(runtime, |mux, sizing| {
-            for &view in placements {
-                if sizing.detached_views.remove(&(client, view)) {
-                    mux.sync_terminal_view_locked(sizing, runtime, view, client);
-                }
-            }
-        });
     }
 
     /// Restore one view detached by [`Self::detach_terminal_own_view`], with
@@ -430,18 +395,6 @@ impl Mux {
             sizing.note_size_state(runtime, changed);
             state
         }))
-    }
-
-    /// Sets how own views map to participants, as `terminalSizingPerApp`
-    /// does at daemon start. Call before any view joins.
-    #[cfg(test)]
-    pub(crate) fn set_participant_scheme_for_test(&self, scheme: ParticipantScheme) {
-        self.client_sizing.lock().unwrap().participant_scheme = scheme;
-    }
-
-    /// The participant scheme fixed at daemon start.
-    pub(crate) fn participant_scheme(&self) -> ParticipantScheme {
-        self.client_sizing.lock().unwrap_or_else(PoisonError::into_inner).participant_scheme
     }
 
     /// Pins the `latest` policy on the workspace that shows `surface`, for
@@ -523,7 +476,7 @@ impl Mux {
     /// The host participant id of `client`'s own view of `surface`.
     pub fn terminal_view_participant_id(&self, surface: SurfaceId, client: u64) -> Option<String> {
         let runtime = self.surface(surface)?.terminal_runtime_id()?;
-        Some(self.participant_scheme().view_participant_id(runtime, surface, client))
+        Some(view_participant_id(runtime, surface, client))
     }
 
     pub(crate) fn client_sizing_identity(&self, client: u64) -> ClientSizingIdentity {
@@ -747,7 +700,6 @@ impl Mux {
                     placement,
                     publication.runtime,
                     &publication.state,
-                    publication.scheme,
                 );
                 self.emit(MuxEvent::SizeStateChanged {
                     surface: placement,
@@ -777,7 +729,7 @@ impl Mux {
             // Terminals map the legacy participation switch onto the shared
             // engine: disabling sets `counts_override:false`; enabling clears
             // that choice and counts as activity.
-            let id = self.participant_scheme().view_participant_id(runtime, surface, client);
+            let id = view_participant_id(runtime, surface, client);
             if participating {
                 {
                     let _lifecycle = self.lock_client_sizing_lifecycle();

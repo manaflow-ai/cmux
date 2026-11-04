@@ -93,9 +93,7 @@ pub(super) struct SizingMember {
     /// The view whose viewport is the participant's: the connection's most
     /// recently active view of the terminal (its geometry view).
     pub(super) placement: SurfaceId,
-    /// Every placement of the terminal this participant views: only
-    /// `placement`, except under [`ParticipantScheme::PerApp`], where all of a
-    /// connection's views of one terminal are leases of one participant.
+    /// Every placement of the terminal this participant views.
     pub(super) views: BTreeSet<SurfaceId>,
     /// A view that joined before its first report while the geometry view
     /// had one: it becomes the geometry view with that report, so the
@@ -202,51 +200,15 @@ impl SizingMember {
     }
 }
 
-/// The daemon feature that makes every view of one connection a lease of one
-/// participant per terminal (schemas/features/features.d/terminalSizingPerApp.json).
-pub(crate) const PARTICIPANT_PER_APP_FEATURE: &str = "terminalSizingPerApp";
-
 /// The daemon feature that runs a hidden terminal's threads at utility
 /// (schemas/features/features.d/hiddenTerminalQos.json, mux/terminal_sizing/thread_qos.rs).
 pub(crate) const HIDDEN_TERMINAL_QOS_FEATURE: &str = "hiddenTerminalQos";
 
-/// How a connection's own views of one terminal map to sizing participants.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum ParticipantScheme {
-    /// One participant per (connection, placement): `c<client>`, or
-    /// `c<client>@<placement>` for a projected placement.
-    #[default]
-    PerPlacement,
-    /// One participant per (connection, terminal), `c<client>`: an app's
-    /// views are leases of one client, as tmux sizes per client and not per
-    /// pane. The participant's viewport is its most recently active view's;
-    /// its other views crop, pan or scale the grid as another device's do.
-    PerApp,
-}
-
-impl ParticipantScheme {
-    /// From `CMUX_ENABLE_FEATURES` and `CMUX_DISABLE_FEATURES` (disable wins).
-    pub(crate) fn from_env() -> Self {
-        Self::from_enabled(cmux_features::listed_in_env(PARTICIPANT_PER_APP_FEATURE))
-    }
-
-    pub(crate) fn from_enabled(per_app: bool) -> Self {
-        if per_app { Self::PerApp } else { Self::PerPlacement }
-    }
-
-    /// Host participant id of one client's own view of one terminal placement.
-    pub(crate) fn view_participant_id(
-        self,
-        runtime: SurfaceId,
-        placement: SurfaceId,
-        client: u64,
-    ) -> String {
-        match self {
-            Self::PerApp => format!("c{client}"),
-            Self::PerPlacement if placement == runtime => format!("c{client}"),
-            Self::PerPlacement => format!("c{client}@{placement}"),
-        }
-    }
+/// Host participant id of one client's own view of one terminal placement:
+/// one participant per (connection, placement), `c<client>`, or
+/// `c<client>@<placement>` for a projected placement.
+pub(crate) fn view_participant_id(runtime: SurfaceId, placement: SurfaceId, client: u64) -> String {
+    if placement == runtime { format!("c{client}") } else { format!("c{client}@{placement}") }
 }
 
 /// Identity of one control connection for the sizing engine.
@@ -264,7 +226,6 @@ pub(crate) struct ClientSizingIdentity {
 
 /// Where a size-state publication goes after the sizing lock is released.
 pub(super) struct SizeStatePublication {
-    pub(super) scheme: ParticipantScheme,
     pub(super) runtime: SurfaceId,
     pub(super) placements: Vec<SurfaceId>,
     pub(super) state: Arc<TerminalSizingState>,
@@ -295,8 +256,6 @@ pub(super) struct ClientSizingState {
     pub(super) host_policy: Option<host_policy::HostSizePolicy>,
     /// The settings revision `host_policy` was read at.
     pub(super) host_policy_revision: Option<u64>,
-    /// How own views map to participants, fixed for the daemon's life.
-    pub(super) participant_scheme: ParticipantScheme,
     /// Counts [`Self::visible_terminals`] publications, so an older one never
     /// replaces a newer one (the Kitty share, `mux/kitty_share.rs`).
     pub(super) visibility_publications: u64,
@@ -325,9 +284,9 @@ pub(crate) fn sub_view_participant_id(client: u64, view: &str) -> String {
 }
 
 impl ClientSizingState {
-    pub(super) fn with_scheme(participant_scheme: ParticipantScheme) -> Self {
+    pub(super) fn from_env() -> Self {
         let threads_follow_visibility = cmux_features::listed_in_env(HIDDEN_TERMINAL_QOS_FEATURE);
-        Self { participant_scheme, threads_follow_visibility, ..Self::default() }
+        Self { threads_follow_visibility, ..Self::default() }
     }
 
     /// Host participant id of `client`'s own view of `placement`.
@@ -337,7 +296,7 @@ impl ClientSizingState {
         placement: SurfaceId,
         client: u64,
     ) -> String {
-        self.participant_scheme.view_participant_id(runtime, placement, client)
+        view_participant_id(runtime, placement, client)
     }
 
     /// Whether `client` has a retained report for `placement`.
@@ -485,7 +444,6 @@ impl ClientSizingState {
             .filter_map(|runtime| {
                 let entry = self.terminal_sizing.get(&runtime)?;
                 Some(SizeStatePublication {
-                    scheme: self.participant_scheme,
                     runtime,
                     placements: entry.placements.iter().copied().collect(),
                     state: Arc::new(entry.engine.state().clone()),

@@ -109,7 +109,6 @@ pub(crate) use client_sizing_state::ClientSizingIdentity;
 use client_sizing_state::ClientSizingRollbackToken;
 use client_sizing_state::ClientSizingState;
 pub(crate) use client_sizing_state::ControlClientResize;
-pub(crate) use client_sizing_state::ParticipantScheme;
 use client_sizing_state::PreparedControlClientResize;
 use client_sizing_state::SizingMember;
 use client_sizing_state::SurfaceResizeCompletion;
@@ -117,6 +116,7 @@ use client_sizing_state::SurfaceResizeRestore;
 use client_sizing_state::TerminalSizingEntry;
 use client_sizing_state::entry_owns;
 pub(crate) use client_sizing_state::sub_view_participant_id;
+pub(crate) use client_sizing_state::view_participant_id;
 mod terminal_exit_waiters;
 use terminal_exit_waiters::TerminalExitDetachTracker;
 #[cfg(test)]

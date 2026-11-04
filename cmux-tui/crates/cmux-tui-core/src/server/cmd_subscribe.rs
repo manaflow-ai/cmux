@@ -357,11 +357,7 @@ impl SubscribeFilter {
                     .mux
                     .control_clients
                     .supports_capability(self.client, OPEN_DEVICE_KINDS_CAPABILITY);
-                let reader = SizeStateReader {
-                    client: self.client,
-                    open,
-                    scheme: self.mux.participant_scheme(),
-                };
+                let reader = SizeStateReader { client: self.client, open };
                 size_state_event_json(*surface, *runtime, state, Some(reader))
             }
             _ => subscribed_event_json(event),
