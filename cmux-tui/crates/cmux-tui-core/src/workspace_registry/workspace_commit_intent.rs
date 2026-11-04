@@ -166,6 +166,12 @@ impl WorkspaceCommitIntent {
                     .as_ref()
                     .map_or(0, |topology| topology.active_screens.len().saturating_mul(128)),
             )
+            // The fold's copy of every stated workspace value, one per workspace (#32408).
+            .saturating_add(
+                self.stated_workspaces
+                    .as_ref()
+                    .map_or(0, |(_, stated)| stated.len().saturating_mul(512)),
+            )
             .saturating_add(1024)
     }
 
@@ -401,16 +407,15 @@ fn prune_stated_workspace_upserts(
     let raw = deltas.as_array().context("resource deltas are not an array")?;
     let mut kept = Vec::with_capacity(raw.len());
     for (change, decorated_change) in raw.iter().zip(changes) {
-        let workspace_upsert = change["kind"] == "upsert" && change["resource"] == "workspace";
-        if workspace_upsert {
-            let id = change["id"].as_str().unwrap_or_default();
-            let own = keep
-                .is_some_and(|key| decorated_change["value"]["extra"]["key"].as_str() == Some(key));
-            if !own
-                && stated
-                    .get(id)
-                    .is_some_and(|value| workspace_value_stated(value, &decorated_change["value"]))
-            {
+        if text_field(change, "kind") == Some("upsert")
+            && text_field(change, "resource") == Some("workspace")
+        {
+            let id = text_field(change, "id").unwrap_or_default();
+            let value = decorated_change.get("value").unwrap_or(&Value::Null);
+            let own = keep.is_some_and(|key| {
+                value.pointer("/extra/key").and_then(Value::as_str) == Some(key)
+            });
+            if !own && stated.get(id).is_some_and(|stated| workspace_value_stated(stated, value)) {
                 continue;
             }
         }
@@ -423,4 +428,9 @@ fn prune_stated_workspace_upserts(
         kept.push(change);
     }
     Ok(Value::Array(kept))
+}
+
+/// A string field of a change, or `None` when it is absent or not a string.
+fn text_field<'a>(value: &'a Value, field: &str) -> Option<&'a str> {
+    value.get(field).and_then(Value::as_str)
 }
