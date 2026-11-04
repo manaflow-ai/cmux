@@ -365,7 +365,7 @@ public actor DaemonConnection {
         }
     }
 
-    private func transportClosed(serial: UInt64, reason: TransportCloseReason) {
+    func transportClosed(serial: UInt64, reason: TransportCloseReason) {
         guard serial == self.serial else { return }
         if case .closed = phase { return }
         if case .ready = phase {} else if case .connecting = phase {} else { return }
