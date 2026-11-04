@@ -55,6 +55,12 @@ fn path_of(local: &Path, remote_root: &str) -> anyhow::Result<PathBuf> {
     Ok(state.join("link-sync").join(format!("{name}.json")))
 }
 
+/// The folder this Mac keeps the packs a push of `local` to `remote_root`
+/// made in ([`super::packs`]): next to the record, as `<...>.packs`.
+pub(super) fn packs_dir(local: &Path, remote_root: &str) -> anyhow::Result<PathBuf> {
+    Ok(path_of(local, remote_root)?.with_extension("packs"))
+}
+
 /// Keeps `manifest` as the base of `local` synced to `remote_root`.
 pub(super) fn save(local: &Path, remote_root: &str, manifest: &Manifest) -> anyhow::Result<()> {
     let path = path_of(local, remote_root)?;
