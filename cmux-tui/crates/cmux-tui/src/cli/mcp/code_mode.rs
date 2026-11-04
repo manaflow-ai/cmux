@@ -239,14 +239,23 @@ const GITHUB_STEER: &str = " When the person asks about their GitHub (can you se
 
 /// acpmux's `wrap_up` behind this server (acpmux `acpmux_mcp_wrap_up.rs`): the next-step box the
 /// person sees under the answer. Its `call_log` record carries what it showed (`shown`), which
-/// the agent pane reads to draw the box (webviews `conversation/wrapUp.ts`).
-const WRAP_UP: &str = "acpmux_wrap_up";
-const WRAP_UP_STEER: &str = " When you end a turn that did work, call \
-    `cmux.acpmux_wrap_up({recap, ask, actions})` as its last step: recap says in two or three \
-    plain sentences what changed and where things stand, including what is not done or not \
-    verified. Add ask (one short question) and actions (one or two answers, your pick first) only \
-    when a decision waits on the person; their click comes back as their next message. Then end \
-    the turn without repeating the recap.";
+/// the agent pane reads to draw the box (webviews `conversation/wrapUp.ts`). The steer goes in
+/// `cmux_exec`'s description and in the server's instructions: Claude Code defers MCP tools, so
+/// a description is seen only after a tool search, and a DEV chat asked for "your next-step box"
+/// reached for AskUserQuestion instead (2026-11-04).
+pub(super) const WRAP_UP: &str = "acpmux_wrap_up";
+/// The acpmux upstream that serves [`WRAP_UP`] (acpmux `agent_tools.rs`).
+pub(super) const WRAP_UP_SERVER: &str = "acpmux";
+/// The server instructions' line: Claude Code may cut instructions past 2048 characters, so it
+/// stays short and the full steer is [`WRAP_UP_STEER`] in `cmux_exec`'s description.
+pub(super) const WRAP_UP_INSTRUCTION: &str = " End a turn that did work with cmux.acpmux_wrap_up({recap, ask, actions}), not AskUserQuestion.";
+pub(super) const WRAP_UP_STEER: &str = " When you end a turn that did work, call \
+    `cmux.acpmux_wrap_up({recap, ask, actions})` from cmux_exec as its last step: it draws the \
+    next-step box under your answer. recap says in two or three plain sentences what changed and \
+    where things stand, including what is not done or not verified. Add ask (one short question) \
+    and actions (one or two answers, your pick first) only when a decision waits on the person, \
+    in place of AskUserQuestion or a question in prose; their click comes back as their next \
+    message. Then end the turn without repeating the recap.";
 
 /// Tool names grouped by their first word (`pane_split` is `pane`).
 fn families(tools: &[Value]) -> BTreeMap<String, Vec<String>> {
