@@ -10,7 +10,6 @@ import { AgentMark } from "../shared/AgentMark";
 import { Popover, type UiVirtualAnchor } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { DrivenList, DrivenRow, InlineCard } from "../../ui/DrivenList";
-import { isMousePress } from "../../ui/pressRelease";
 import { useOpenSide } from "../../ui/openSide";
 import { AddAccountDialog } from "./AddAccountDialog";
 import { SearchIcon, reasoningChoices, type Choice } from "./ComposerPickers";
@@ -169,6 +168,17 @@ function rowPackedToEnd(chip: HTMLElement): boolean {
     return ["flex-end", "end", "right"].includes(style.justifyContent);
   }
   return false;
+}
+
+/** Close a sibling composer popover before the columns trigger opens its own. */
+function closeSiblingComposerPopovers(button: HTMLButtonElement) {
+  const composer = button.closest<HTMLElement>(".acpmux-composer, .nt-composer");
+  if (!composer) return;
+  for (const sibling of composer.querySelectorAll<HTMLButtonElement>(
+    '[aria-haspopup][aria-expanded="true"]',
+  )) {
+    if (sibling !== button) sibling.click();
+  }
 }
 
 function Columns({
@@ -976,9 +986,9 @@ function Columns({
         // A mouse press never focuses the chip, as the list menu's button: a press that closes the
         // menu and lands a pick leaves the keyboard in the prompt the picker focused.
         onPointerDown={(event) => {
+          closeSiblingComposerPopovers(event.currentTarget);
           press.onPointerDown(event);
-          // Diagnostic candidate: leave the compatibility mouse sequence intact so a sibling
-          // popover can receive its outside-dismiss click while this chip opens.
+          if (event.pointerType === "mouse" && event.button === 0) event.preventDefault();
         }}
         // The closed chip opens on ArrowDown too, as the list menu's did.
         onKeyDown={(event) => {
