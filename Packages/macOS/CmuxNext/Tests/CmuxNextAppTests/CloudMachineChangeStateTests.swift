@@ -223,14 +223,14 @@ struct CloudMachineChangeStateTests {
         #expect(await resolver.attempts == 1, "later identical records do not restart the connection")
     }
 
-    @Test func transitionsRejectUserConnectAttachAndActionCallers() async throws {
+    @Test func transitionsKeepPauseAndDeleteClosedToUserConnect() async throws {
         let services = MachineIconTests.services()
         let resolver = StartingLinkResolver()
         let session = CloudMachineSession(machine: CloudMachine(id: "transition-gate", status: .running),
             appLink: CloudLinkSession(key: CloudLinkKey(machine: "transition-gate"), resolver: resolver),
             localIdentity: { nil }, mainWork: services.mainWork)
         defer { session.disconnect() }
-        for status: CloudMachine.Status in [.pausing, .starting, .deleting] {
+        for status: CloudMachine.Status in [.pausing, .deleting] {
             session.machine.pendingChange = status
             session.connect(origin: .user)
             session.attach(origin: .user)
@@ -239,6 +239,20 @@ struct CloudMachineChangeStateTests {
             #expect(throws: ActionFailure.self) { try CloudHandlers.requireAttachableState(session) }
         }
         #expect(await resolver.attempts == 0)
+    }
+
+    @Test(.timeLimit(.seconds(10)))
+    func userConnectRetriesAnAppLinkDuringPassiveStarting() async throws {
+        let services = MachineIconTests.services()
+        let resolver = StartingLinkResolver()
+        let session = CloudMachineSession(machine: CloudMachine(id: "passive-start", status: .paused),
+            appLink: CloudLinkSession(key: CloudLinkKey(machine: "passive-start"), resolver: resolver),
+            localIdentity: { nil }, mainWork: services.mainWork)
+        defer { session.disconnect() }
+        session.machine.pendingChange = .starting
+        session.connect(origin: .user)
+        await resolver.waitForAttempts(1)
+        #expect(await resolver.attempts == 1)
     }
 
     @Test func killAcknowledgementReportsPendingDeletion() {

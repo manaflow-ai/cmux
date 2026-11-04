@@ -157,7 +157,8 @@ final class CloudMachineSession {
     func connect(origin: CloudLinkOrigin = .script) {
         // A person pressing Enter is an explicit retry even while a passive typing wake is
         // reflected as `starting`; never drop that intent behind the hint's provider transition.
-        guard !disconnected, !machine.shownStatus.isChanging || origin == .user else {
+        let userRetryingPassiveStart = origin == .user && appLink != nil && machine.shownStatus == .starting
+        guard !disconnected, !machine.shownStatus.isChanging || userRetryingPassiveStart else {
             if appLink == nil { Self.logger.notice("legacy connect \(self.machineID, privacy: .public): skipped (\(self.disconnected ? "disconnected" : "changing: \(self.machine.shownStatus.rawValue)", privacy: .public))") }
             return
         }
@@ -177,7 +178,8 @@ final class CloudMachineSession {
         // task-owner: one lifecycle hop; each later hop waits for this one
         linkTransition = Task {
             await previous?.value
-            guard !disconnected, !machine.shownStatus.isChanging || origin == .user else {
+            let userRetryingPassiveStart = origin == .user && appLink != nil && machine.shownStatus == .starting
+            guard !disconnected, !machine.shownStatus.isChanging || userRetryingPassiveStart else {
                 noteMutationInterruption()
                 appConnecting = false
                 retryIfHopFails = false
@@ -189,7 +191,9 @@ final class CloudMachineSession {
             }
             guard let link else { return }
             await link.resume()
-            guard !disconnected, machine.status.isLive || origin == .user, !machine.shownStatus.isChanging || origin == .user else {
+            let userRetryingPassiveStart = origin == .user && appLink != nil && machine.shownStatus == .starting
+            guard !disconnected, machine.status.isLive || userRetryingPassiveStart,
+                  !machine.shownStatus.isChanging || userRetryingPassiveStart else {
                 Self.logger.notice("legacy connect \(self.machineID, privacy: .public): dropped after its hop (status \(self.machine.shownStatus.rawValue, privacy: .public))")
                 noteMutationInterruption()
                 return
