@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR e1376b26094dcc4058ebfae8b8708916c1f9f204117cba1fee8a626ff0266943.
+// cmux-tui mux protocol 12, IR 90d0605d1f55a8b89b86ace2127f57445382f7e804efff5ba385ae75bddc84dd.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -307,6 +307,63 @@ pub struct CellPixelSurface {
     pub height_px: u16,
     pub surface: Id,
     pub width_px: u16,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChiefWorkAgentState {
+    #[serde(rename = "working")]
+    Working,
+    #[serde(rename = "waiting")]
+    Waiting,
+    #[serde(rename = "idle")]
+    Idle,
+    #[serde(rename = "failed")]
+    Failed,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChiefWorkAgent {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "startedAt")]
+    pub started_at: Nullable<u64>,
+    pub state: ChiefWorkAgentState,
+    pub task: Nullable<String>,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: Nullable<u64>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChiefWorkTaskStatus {
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "done")]
+    Done,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "cancelled")]
+    Cancelled,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChiefWorkTask {
+    pub command: String,
+    pub detail: Nullable<String>,
+    #[serde(rename = "endedAt")]
+    pub ended_at: Nullable<u64>,
+    pub id: String,
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    #[serde(rename = "startedAt")]
+    pub started_at: Nullable<u64>,
+    pub status: ChiefWorkTaskStatus,
+    pub title: String,
 }
 
 #[rustfmt::skip]
@@ -1857,7 +1914,13 @@ pub struct ServerStatsWritePath {
     pub effect_intent_batches: u64,
     pub effect_intent_failures: u64,
     pub effect_intents: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub registry_wal_frame_bytes: Option<u64>,
     pub request_effect_commits: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub wal_commits: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub wal_synced_commits: Option<u64>,
     pub writer_registry_locks: u64,
 }
 

@@ -96,6 +96,9 @@ public struct AgentPaneHeaderHooks {
     /// turn's own patch (``AgentPaneDiffPatch``), a diff tab that shows only that patch. Nil: the
     /// header runs Changes without a turn, and the page shows a patch's changes itself.
     public var diffOpen: (@MainActor (_ cwd: String?, _ arguments: [String: ActionValue], _ toggle: Bool) -> Void)?
+    /// The header's state as the page last read or was pushed it, read without starting a watch:
+    /// the palette's switches for the header toggles (``AgentPageCommand/isOn(in:)``). Nil: unknown.
+    public var shown: (@MainActor () -> AgentPaneHeaderState)?
     /// Eligible Cloud machines for the title menu's Move to machine submenu.
     public var moveTargets: @MainActor () -> [AgentPaneMoveTarget]
     /// Dispatches an existing CloudMove operation to one validated target machine, for the chat
@@ -182,6 +185,8 @@ extension AgentPaneModel {
     static let sideTabsAction = "sideTabs"
     /// The header's Preview (`pane.action {id: "preview", url}`), ``AgentPaneRequest/preview(url:toggle:)``.
     public static let previewAction = "preview"
+    /// The header's Files (`pane.action {id: "files"}`), a tree of the chat's folder beside it.
+    public static let filesAction = "files"
 
     /// `pane.action` runs a listed action on a chat (never the New Tab page); `pane.tabState`
     /// reads the header's state. Archive and Mark as Unread are the page's own acpmux requests

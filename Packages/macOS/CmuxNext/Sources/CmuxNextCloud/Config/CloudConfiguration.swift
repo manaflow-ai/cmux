@@ -123,11 +123,18 @@ public struct CloudConfiguration: Sendable, Equatable {
         let scheme = value("CMUX_AUTH_CALLBACK_SCHEME").flatMap { URL(string: "\($0)://auth-callback") == nil ? nil : $0 }
             ?? (isDebugBuild ? (tag.map { "cmux-dev-\($0)" } ?? "cmux-dev") : defaultScheme(bundleID))
         let stackBase = value("CMUX_STACK_BASE_URL").flatMap(URL.init(string:)) ?? stackOrigin
+        // CMUX_NEXT_CLOUD_LINK survives the launch: the app unsets every inherited
+        // CMUX_* variable but CMUX_NEXT_* (LaunchIdentity.stripInheritedEnvironment);
+        // CMUX_CLOUD_LINK works only when baked into the bundle's LSEnvironment.
+        // The app-server link (NEXT Cloud through the owner API) is the default in every
+        // environment, production included; `legacy` keeps the classic one as the escape hatch.
+        let linkSource: LinkSource = (value("CMUX_NEXT_CLOUD_LINK") ?? value("CMUX_CLOUD_LINK"))?.lowercased() == "legacy" ? .legacy : .appServer
         if production {
             return CloudConfiguration(
                 backend: .production, apiBaseURL: productionOrigin, authWebOrigin: productionOrigin,
                 stackBaseURL: stackBase, stackProjectID: productionProjectID, stackPublishableClientKey: productionClientKey,
-                isProductionAuth: true, callbackScheme: scheme, bundleID: bundleID, isDebugBuild: isDebugBuild)
+                isProductionAuth: true, callbackScheme: scheme, bundleID: bundleID, isDebugBuild: isDebugBuild,
+                linkSource: linkSource)
         }
         // Every non-production build (Debug, tagged fleet builds) signs in on staging and uses the
         // new cloud with no launch environment. Tagged builds bake loopback origins for a local
@@ -148,11 +155,7 @@ public struct CloudConfiguration: Sendable, Equatable {
             stackProjectID: value("CMUX_STACK_PROJECT_ID") ?? developmentProjectID,
             stackPublishableClientKey: value("CMUX_STACK_PUBLISHABLE_CLIENT_KEY") ?? developmentClientKey,
             isProductionAuth: false, callbackScheme: scheme, bundleID: bundleID, isDebugBuild: isDebugBuild,
-            // CMUX_NEXT_CLOUD_LINK survives the launch: the app unsets every inherited
-            // CMUX_* variable but CMUX_NEXT_* (LaunchIdentity.stripInheritedEnvironment);
-            // CMUX_CLOUD_LINK works only when baked into the bundle's LSEnvironment.
-            // The app-server link is the default; `legacy` keeps the classic one.
-            linkSource: (value("CMUX_NEXT_CLOUD_LINK") ?? value("CMUX_CLOUD_LINK"))?.lowercased() == "legacy" ? .legacy : .appServer)
+            linkSource: linkSource)
     }
 
     /// This process's configuration.
@@ -196,11 +199,37 @@ public struct CloudConfiguration: Sendable, Equatable {
     /// The cmux APIs a share room takes tokens from (cmux-tui `platform::share_owner_api`).
     static let shareAPIHosts: Set<String> = ["cloud-api.cmux.dev", "cloud-api-staging.cmux.dev", "cmux-api-development.debussy.workers.dev"]
 
-    public static func current(bundle: Bundle = .main, isDebugBuild: Bool) -> CloudConfiguration {
-        let bundled = bundle.object(forInfoDictionaryKey: "LSEnvironment") as? [String: String] ?? [:]
-        return resolve(bundleID: bundle.bundleIdentifier, bundled: bundled,
-                       process: ProcessInfo.processInfo.environment, isDebugBuild: isDebugBuild)
+    /// Whether this compile has the bench hooks (`reload.sh --config bench`: `CMUX_BENCH_HOOKS`, never in a
+    /// shipped app). With them, a `cap<sha10>` capture build's Cloud is configured as a Debug build's (``isCaptureBuild(bundleID:benchHooks:)``).
+    public static var benchHooksCompiled: Bool {
+        #if CMUX_BENCH_HOOKS
+        true
+        #else
+        false
+        #endif
     }
+
+    /// `benchHooks`: whether this compile has the bench hooks (``benchHooksCompiled`` unless a test says).
+    public static func current(bundle: Bundle = .main, isDebugBuild: Bool, benchHooks: Bool = benchHooksCompiled) -> CloudConfiguration {
+        let bundled = bundle.object(forInfoDictionaryKey: "LSEnvironment") as? [String: String] ?? [:]
+        let debug = isDebugBuild || isCaptureBuild(bundleID: bundle.bundleIdentifier, benchHooks: benchHooks)
+        return resolve(bundleID: bundle.bundleIdentifier, bundled: bundled,
+                       process: ProcessInfo.processInfo.environment, isDebugBuild: debug)
+    }
+
+    /// Whether this is a PR capture's Release build: the bench configuration (`CMUX_BENCH_HOOKS`, which the
+    /// release and nightly pipelines refuse to ship, scripts/cmux-next/check-no-bench-hooks.sh) of the tag
+    /// `cap<sha10>` (cmuxterm-hq build-fleet/pr-capture `--release`). Its Cloud is configured as a Debug build's:
+    /// the development backend and the capture account's automatic sign-in, so a capture can drive the Release
+    /// paths (`DevTools.isEnabled` false, which this does not change) against a test account. A shipped build
+    /// has neither the hooks nor that bundle identifier, so it keeps production.
+    public static func isCaptureBuild(bundleID: String?, benchHooks: Bool) -> Bool {
+        guard benchHooks, let bundleID, bundleID.hasPrefix(captureBundlePrefix) else { return false }
+        let tag = bundleID.dropFirst(captureBundlePrefix.count)
+        return tag.count == 10 && tag.allSatisfy { ("0"..."9").contains($0) || ("a"..."f").contains($0) }
+    }
+
+    static let captureBundlePrefix = "com.cmuxterm.app.debug.cap"
 
     static func isLoopback(_ url: URL) -> Bool {
         guard let host = url.host?.lowercased() else { return true }

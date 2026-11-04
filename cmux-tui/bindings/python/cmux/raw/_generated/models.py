@@ -519,6 +519,30 @@ class CellPixelSurface:
 
 
 @dataclass(frozen=True)
+class ChiefWorkAgent:
+    __cmux_schema_path__: ClassVar[str] = 'types/ChiefWorkAgent'
+    id: str
+    name: str
+    startedAt: Union[int, None]
+    state: Literal['working', 'waiting', 'idle', 'failed']
+    task: Union[str, None]
+    updatedAt: Union[int, None]
+
+
+@dataclass(frozen=True)
+class ChiefWorkTask:
+    __cmux_schema_path__: ClassVar[str] = 'types/ChiefWorkTask'
+    command: str
+    detail: Union[str, None]
+    endedAt: Union[int, None]
+    id: str
+    sessionId: str
+    startedAt: Union[int, None]
+    status: Literal['running', 'done', 'failed', 'cancelled', 'unknown']
+    title: str
+
+
+@dataclass(frozen=True)
 class ClientInfo:
     __cmux_schema_path__: ClassVar[str] = 'types/ClientInfo'
     client: int
@@ -1650,6 +1674,9 @@ class ServerStatsWritePath:
     effect_intents: int
     request_effect_commits: int
     writer_registry_locks: int
+    registry_wal_frame_bytes: Union[int, MissingType] = field(default=MISSING)
+    wal_commits: Union[int, MissingType] = field(default=MISSING)
+    wal_synced_commits: Union[int, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2423,6 +2450,21 @@ class ChiefInspectResult:
     status: int
     body: Union[JsonValue, None, MissingType] = field(default=MISSING)
     error: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ChiefWorkRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/chief-work/request'
+    chief: str
+
+
+@dataclass(frozen=True)
+class ChiefWorkResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/chief-work/result'
+    agents: List[ChiefWorkAgent]
+    taskSources: List[str]
+    tasks: List[ChiefWorkTask]
+    truncated: bool
 
 
 @dataclass(frozen=True)
@@ -3864,6 +3906,7 @@ class MoveTabToColumnRequest:
     after_column: Union[Id, None, MissingType] = field(default=MISSING)
     dock: Union[ColumnPin, None, MissingType] = field(default=MISSING)
     keep_focus: Union[bool, MissingType] = field(default=MISSING)
+    pane_id: Union[str, None, MissingType] = field(default=MISSING)
     respawn: Union[SplitRespawn, None, MissingType] = field(default=MISSING)
     transaction: Union[str, None, MissingType] = field(default=MISSING)
     width: Union[float, None, MissingType] = field(default=MISSING)
@@ -6145,6 +6188,8 @@ __all__ = [
     'CellPixelFailure',
     'CellPixelResize',
     'CellPixelSurface',
+    'ChiefWorkAgent',
+    'ChiefWorkTask',
     'ClientInfo',
     'ClientSize',
     'CloseTerminalResult',
@@ -6339,6 +6384,8 @@ __all__ = [
     'BrowserWheelGuardedRequest',
     'ChiefInspectRequest',
     'ChiefInspectResult',
+    'ChiefWorkRequest',
+    'ChiefWorkResult',
     'ClearHistoryRequest',
     'ClearWindowTitleRequest',
     'ClientFocusRequest',

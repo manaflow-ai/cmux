@@ -1753,7 +1753,12 @@ fn start(
     // The app watches only the default Chief's state/ (cx-oqnw3 review): another
     // Chief still hears a compactor fault as its message until the app watches its home.
     .with_compactor_messages(membership.participant != crate::chief_profile::DEFAULT_CHIEF)
-    .with_workspaces(workspaces);
+    .with_workspaces(workspaces)
+    // Sign-ins that wait on the person go to the app's Feed (Needs you).
+    .with_feed(
+        crate::needs_you_feed::ControlSocketFeed::from_env(&|k: &str| env(k))
+            .map(|f| Arc::new(f) as Arc<dyn crate::needs_you_feed::FeedPort>),
+    );
     // The rights table and the audit log (rights.rs, audit.rs);
     // OPTCHAT_RIGHTS=0 turns both off.
     let brain = if env("OPTCHAT_RIGHTS").as_deref() == Some("0") {
