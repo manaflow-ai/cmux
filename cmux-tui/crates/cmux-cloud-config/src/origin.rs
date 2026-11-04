@@ -32,8 +32,8 @@ pub fn parse(raw: &str) -> Option<Parts<'_>> {
         Some((rest, query)) => (rest, Some(query)),
         None => (rest, None),
     };
-    let (authority, path) = match rest.find('/') {
-        Some(at) => (&rest[..at], &rest[at..]),
+    let (authority, path) = match rest.split_once('/') {
+        Some((authority, _)) => (authority, rest.strip_prefix(authority).unwrap_or_default()),
         None => (rest, ""),
     };
     let (userinfo, hostport) = match authority.rsplit_once('@') {

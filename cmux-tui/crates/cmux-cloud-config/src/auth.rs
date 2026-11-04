@@ -42,12 +42,10 @@ pub fn auth_environment(
 
 /// An email with everything but its first letter and its domain masked, for logs.
 pub fn mask(email: &str) -> String {
-    match email.find('@') {
-        Some(at) => format!(
-            "{}***{}",
-            email.chars().next().map(String::from).unwrap_or_default(),
-            &email[at..]
-        ),
+    match email.split_once('@') {
+        Some((_, domain)) => {
+            format!("{}***@{domain}", email.chars().next().map(String::from).unwrap_or_default())
+        }
         None => "***".to_owned(),
     }
 }
@@ -199,12 +197,13 @@ pub fn parse(text: &str) -> BTreeMap<String, String> {
         }
         let Some((key, value)) = line.split_once('=') else { continue };
         let mut value = value.trim();
-        if value.len() >= 2
-            && let (Some(first), Some(last)) = (value.chars().next(), value.chars().last())
-            && first == last
-            && (first == '"' || first == '\'')
-        {
-            value = &value[1..value.len() - 1];
+        for quote in ['"', '\''] {
+            if value.len() >= 2
+                && let Some(inner) = value.strip_prefix(quote).and_then(|v| v.strip_suffix(quote))
+            {
+                value = inner;
+                break;
+            }
         }
         values.insert(key.trim().to_owned(), value.to_owned());
     }

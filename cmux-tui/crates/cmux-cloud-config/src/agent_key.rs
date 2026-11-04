@@ -166,20 +166,21 @@ pub const KEY_PREFIX: &str = "cmuxvm_sk_";
 /// `message` with the answer's own key and anything shaped like a VM API key taken out, so a
 /// refusal never carries a secret whatever the service put in its text.
 fn redacted(message: &str, key: Option<&str>) -> String {
-    let mut text = match key.filter(|key| !key.is_empty()) {
+    let text = match key.filter(|key| !key.is_empty()) {
         Some(key) => message.replace(key, "<redacted>"),
         None => message.to_owned(),
     };
-    let mut from = 0;
-    while let Some(at) = text[from..].find(KEY_PREFIX).map(|at| from + at) {
-        let secret_start = at + KEY_PREFIX.len();
-        let secret_end = text[secret_start..]
-            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
-            .map_or(text.len(), |end| secret_start + end);
-        text.replace_range(secret_start..secret_end, "<redacted>");
-        from = secret_start + "<redacted>".len();
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text.as_str();
+    while let Some((before, after)) = rest.split_once(KEY_PREFIX) {
+        out.push_str(before);
+        out.push_str(KEY_PREFIX);
+        out.push_str("<redacted>");
+        rest =
+            after.trim_start_matches(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-');
     }
-    text
+    out.push_str(rest);
+    out
 }
 
 /// What a mint refused by the app means for the CLI's exit status: the cmux-vm CLI maps each
