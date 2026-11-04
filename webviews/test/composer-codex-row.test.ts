@@ -233,7 +233,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
           probe.remove();
           return {
             fill: style.backgroundColor,
-            radius: parseFloat(style.borderTopLeftRadius),
+            radius: style.borderTopLeftRadius,
             width: r.width,
             ready: el.classList.contains("acpmux-send-ready"),
             afterMic: mic ? r.left >= mic.getBoundingClientRect().right : null,
@@ -247,11 +247,25 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
       expect(empty!.afterMic).toBe(true);
       expect(empty!.ready).toBe(false);
       expect(transparent(empty!.fill)).toBe(false);
-      expect(empty!.radius).toBeGreaterThanOrEqual(empty!.width / 2 - 0.5);
+      expect(empty!.radius).toBe("50%");
       const ready = await send("codex-send-accent-disc");
       expect(ready!.ready).toBe(true);
       expect(ready!.afterMic).toBe(true);
       expect(ready!.fill).toBe(ready!.accentColor);
+      // Mid-turn, the first Esc still lights Stop in Codex's look (composerStates.css
+      // data-escape-armed). A theme with an accent: a neutral theme's accent is its text colour.
+      await page.goto(
+        `http://127.0.0.1:${port}${galleryFrame("agent-pane.composer-look", { variant: "codex-send-stop", accent: "magenta" })}`,
+      );
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      await page.locator(".acpmux-composer-box .acpmux-md").first().click();
+      const stopColor = () =>
+        page.evaluate(() => getComputedStyle(document.querySelector(".acpmux-composer-box .acpmux-cancel")!).color);
+      const rest = await stopColor();
+      await page.keyboard.press("Escape");
+      await page.locator(".acpmux-composer-box .acpmux-cancel[data-escape-armed]").waitFor();
+      await settle(page);
+      expect(await stopColor()).not.toBe(rest);
       const claude = await send("send-alt-after-mic-claude");
       expect(claude).not.toBeNull();
       expect(transparent(claude!.fill)).toBe(true);

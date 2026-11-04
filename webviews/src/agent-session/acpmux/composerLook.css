@@ -148,7 +148,8 @@
   background: var(--agent-accent);
   color: var(--agent-accent-text, Canvas);
 }
-:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-send.acpmux-cancel {
+/* The first Esc keeps its accent (composerStates.css data-escape-armed). */
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-send.acpmux-cancel:not([data-escape-armed]) {
   color: var(--agent-text);
 }
 @media (hover: hover) and (pointer: fine) {

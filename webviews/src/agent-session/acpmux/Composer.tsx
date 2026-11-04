@@ -2290,9 +2290,9 @@ export function Composer({
       // One send control in both looks (Leo 2026-10-31: "THE F***ING TWO SEND
       // BUTTONS"): mid-turn the empty prompt's slot is Stop, and the first letter turns it
       // into Send, which does what Return does: it steers an agent that steers, else queues.
-      // The box draws no Send at rest until there is a draft, the mic alone on the right; its
-      // one slot sits before the mic with Claude desktop's ↵, so the mic keeps the right edge
-      // through a turn, in both looks.
+      // Claude's look draws no Send at rest until there is a draft, the mic alone on the right;
+      // its one slot sits before the mic with Claude desktop's ↵, so the mic keeps the right edge
+      // through a turn. Codex's look always draws its ↑ disc after the mic (quietActions off).
       <button
         key="send"
         ref={sendButton}

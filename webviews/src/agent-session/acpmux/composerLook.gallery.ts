@@ -399,12 +399,12 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "claude"),
     },
     "send-one-slot-codex-running": {
-      note: "The pick, Codex's look: the same one slot before the mic as Claude's, Stop while the prompt is empty.",
+      note: "The pick, Codex's look: the one slot after the mic on its disc, Stop while the prompt is empty.",
       snapshot: runningChat(),
       play: (ctx) => look(ctx, "codex"),
     },
     "send-one-slot-codex-typed": {
-      note: "The pick, Codex's look: Send (↵) in the same slot once a prompt is typed.",
+      note: "The pick, Codex's look: Send (↑ on the accent disc) in the same slot once a prompt is typed.",
       snapshot: runningChat(),
       ready: DRAFT,
       play: (ctx) => look(ctx, "codex"),
