@@ -1,9 +1,9 @@
 //! R-DAEMON-STATE stage S1 (handoff/rewrites/R-DAEMON-STATE/DESIGN.md, section 2.6): the person's key takes no lock
 //! that another terminal, another connection, a reader or a writer of the session takes.
 //!
-//! #31940 took the session lock (`Mux::state`) off the key. The key line still takes the client registry lock about
-//! nine times: the daemon handoff checks, the remote-client and remote-device checks, the request's actor, the kept
-//! terminal of the key and the reply's incognito filter. Every connect, disconnect, attach, detach and capability
+//! #31940 took the session lock (`Mux::state`) off the key. The key line still took the client registry lock about
+//! nine times: the daemon handoff checks, the remote-client and remote-device checks, the request's actor, the lookup
+//! of the key's terminal and the reply's incognito filter. Every connect, disconnect, attach, detach and capability
 //! change of every client holds that lock, and an agent storm connects and disconnects about 120 times a second.
 //! Under the L6 storm the fixed build still showed a daemon key part of p99 20-24 ms and max 74-223 ms (STATUS 7761).
 //!
@@ -52,15 +52,8 @@ struct TypingConnection {
 }
 
 impl TypingConnection {
-    /// A typing connection with stage S1 on (the lane under test).
     fn open() -> Self {
-        Self::open_with(true)
-    }
-
-    /// A typing connection with stage S1 `lane` on or off (off: the old path, a test's control).
-    fn open_with(lane: bool) -> Self {
         let mux = test_mux();
-        mux.set_input_lane_for_test(lane);
         let terminal = mux.new_workspace(Some("typing".into()), Some((80, 24))).unwrap();
         let (sent, input) = mpsc::channel();
         terminal.replace_input_writer_for_test(Box::new(TimedInput(sent)));
@@ -149,10 +142,6 @@ fn hold_session(mux: &Arc<Mux>, hold: &dyn Fn()) {
     mux.with_state(|_| hold());
 }
 
-fn hold_surface_admission(mux: &Arc<Mux>, hold: &dyn Fn()) {
-    mux.surface_operation_admission.hold_for_test(hold);
-}
-
 fn hold_workspace_registry(mux: &Arc<Mux>, hold: &dyn Fn()) {
     let _held = mux.workspace_registry.lock().unwrap_or_else(|e| e.into_inner());
     hold();
@@ -185,8 +174,8 @@ const CREATING_TERMINAL: &str = "000000000000000000000000c4ea7e01";
 const OTHER_TERMINAL: &str = "000000000000000000000000c4ea7e02";
 
 /// While another terminal is being created, one thread holds the session lock and another asks about a terminal
-/// under the creating-input lock. The old path looked up the live terminal under that lock, so the reader waited
-/// for the session lock while it held the creating-input lock, and a key behind it waited too.
+/// under the creating-input lock. A reader that looked the live terminal up in the session state under that lock
+/// would wait for the session lock while it held the creating-input lock, and a key behind it would wait too.
 fn hold_session_behind_a_creating_input_reader(mux: &Arc<Mux>, hold: &dyn Fn()) {
     let generation =
         mux.begin_creating_input(CREATING_TERMINAL).expect("no live terminal has the id");
@@ -194,7 +183,7 @@ fn hold_session_behind_a_creating_input_reader(mux: &Arc<Mux>, hold: &dyn Fn()) 
     mux.with_state(|_| {
         let asking = mux.clone();
         let asked = std::thread::spawn(move || asking.knows_terminal_input_target(OTHER_TERMINAL));
-        // Until the reader holds the creating-input lock (the old path waits under it) or has its answer.
+        // Until the reader holds the creating-input lock or has its answer.
         let deadline = Instant::now() + Duration::from_secs(1);
         while !asked.is_finished()
             && !mux.creating_inputs_held_for_test()
@@ -273,42 +262,14 @@ fn assert_keys_wait_for_none(locks: &[(&str, Holder)]) {
     );
 }
 
-/// The control of a lock test: on the old path (stage S1 off) the key does wait for the held lock, so the hold is
-/// real and the lane's result is not a test that holds nothing.
-fn assert_old_path_waits_for(name: &str, holder: Holder) {
-    let connection = warmed(TypingConnection::open_with(false));
-    let waited = key_wait_while_held(&connection, 0, holder);
-    connection.close();
-    eprintln!("SHARED-LOCKS control (lane off) key wait while {name} is held {HOLD:?}: {waited:?}");
-    assert!(
-        waited != Duration::MAX,
-        "control: with stage S1 off a key never reached its terminal while {name} was held"
-    );
-    assert!(
-        waited >= BUDGET,
-        "control: with stage S1 off the key took {waited:?} while {name} was held {HOLD:?}; the hold does not reach \
-         the old path, so the lane's test proves nothing"
-    );
-}
-
 /// Stage S1 step 1: the key line reads the facts of the session's connections from the client registry's published
 /// projection, never through its lock.
 #[test]
 fn a_key_waits_for_no_client_registry_lock() {
-    assert_old_path_waits_for("client registry (ClientRegistry.state)", hold_client_registry);
     assert_keys_wait_for_none(&[(
         "client registry (ClientRegistry.state)",
         hold_client_registry as Holder,
     )]);
-}
-
-/// Stage S1 step 3: every request of every connection reserves its bytes from one daemon-wide budget; the reservation
-/// is an atomic compare-and-swap, so a key never waits for another connection's request to reserve or release.
-#[test]
-fn a_key_waits_for_no_surface_admission_lock() {
-    let name = "surface admission (ServerSurfaceOperationAdmission)";
-    assert_old_path_waits_for(name, hold_surface_admission);
-    assert_keys_wait_for_none(&[(name, hold_surface_admission as Holder)]);
 }
 
 /// Stage S1 step 2: the key line asks whether its connection has a link peer record (the remote-client check and the
@@ -319,8 +280,6 @@ fn a_key_waits_for_no_surface_admission_lock() {
 fn a_key_waits_for_neither_the_link_peers_nor_the_proxy_authors_lock() {
     let peers = "link peers (RemoteRelayState.peers)";
     let authors = "host proxy authors (AgentSessions.proxy_authors)";
-    assert_old_path_waits_for(peers, hold_link_peers);
-    assert_old_path_waits_for(authors, hold_proxy_authors);
     assert_keys_wait_for_none(&[
         (peers, hold_link_peers as Holder),
         (authors, hold_proxy_authors as Holder),
@@ -334,8 +293,6 @@ fn a_key_waits_for_neither_the_link_peers_nor_the_proxy_authors_lock() {
 fn a_key_waits_for_no_creating_input_lock() {
     let creating = "creating input (CreatingInputs.terminals)";
     let behind = "session (Mux.state) behind a creating-input reader";
-    assert_old_path_waits_for(creating, hold_creating_inputs);
-    assert_old_path_waits_for(behind, hold_session_behind_a_creating_input_reader);
     assert_keys_wait_for_none(&[
         (creating, hold_creating_inputs as Holder),
         (behind, hold_session_behind_a_creating_input_reader as Holder),
@@ -351,8 +308,6 @@ fn a_key_waits_for_no_creating_input_lock() {
 fn a_key_waits_for_neither_the_sizing_nor_the_activity_lock() {
     let sizing = "client sizing (Mux.client_sizing)";
     let activity = "VM activity stream (ActivityStream)";
-    assert_old_path_waits_for(sizing, hold_client_sizing);
-    assert_old_path_waits_for(activity, hold_activity);
     assert_keys_wait_for_none(&[
         (sizing, hold_client_sizing as Holder),
         (activity, hold_activity as Holder),
@@ -397,38 +352,26 @@ fn after_a_respawn_keys_wait_for_no_sizing_lock_again() {
     );
 }
 
-/// #34261 review 2: a settled terminal's sizing entry looks its surface up only when it makes the entry, so a size
-/// state read takes the session lock once with the switch off (the caller's own lookup), never again under the
-/// sizing lock, and none with the switch on. Looked up on every access, it took the session lock under the sizing
-/// lock in every attach, size report, claim and size-state read, so with the switch off (the default) a key's sizing
-/// note waited for automation's session-lock holds behind them.
+/// #34261 review 2: a settled terminal's sizing entry looks its surface up only when it makes the entry, never again
+/// under the sizing lock, and the lookup reads the published routes, so a size state read takes no session lock.
+/// Looked up on every access through the session lock, it took that lock under the sizing lock in every attach, size
+/// report, claim and size-state read, and a key's sizing note waited for automation's session-lock holds behind them.
 #[test]
-fn a_settled_size_state_read_takes_the_session_lock_once_with_the_switch_off() {
-    let mut counts = Vec::new();
-    for (lane, expected) in [(false, 1), (true, 0)] {
-        let connection = TypingConnection::open_with(lane);
-        // The view's attach and its 100x30 report made the entry; this read settles nothing new.
-        assert!(connection.mux.terminal_size_state(connection.surface).is_some());
-        let before = crate::mux::state_locks_taken_on_this_thread();
-        assert!(connection.mux.terminal_size_state(connection.surface).is_some());
-        let taken = crate::mux::state_locks_taken_on_this_thread() - before;
-        connection.close();
-        counts.push((lane, taken, expected));
-    }
-    eprintln!(
-        "SHARED-LOCKS session locks per settled size-state read (lane, taken, expected): {counts:?}"
-    );
-    for (lane, taken, expected) in counts {
-        assert_eq!(
-            taken, expected,
-            "lane {lane}: one settled size-state read took the session lock {taken} times, not {expected}"
-        );
-    }
+fn a_settled_size_state_read_takes_no_session_lock() {
+    let connection = TypingConnection::open();
+    // The view's attach and its 100x30 report made the entry; this read settles nothing new.
+    assert!(connection.mux.terminal_size_state(connection.surface).is_some());
+    let before = crate::mux::state_locks_taken_on_this_thread();
+    assert!(connection.mux.terminal_size_state(connection.surface).is_some());
+    let taken = crate::mux::state_locks_taken_on_this_thread() - before;
+    connection.close();
+    eprintln!("SHARED-LOCKS session locks per settled size-state read: {taken}");
+    assert_eq!(taken, 0, "one settled size-state read took the session lock {taken} times");
 }
 
-/// R-DAEMON-STATE S1.6b: on the lane the person's key (a connection attached to the terminal it types into) answers
-/// when the input port took it; any other client's write (a script's `cmux send`, MCP) answers when the port wrote it,
-/// with its error, as the old path answered.
+/// R-DAEMON-STATE S1.6b: the person's key (a connection attached to the terminal it types into) answers when the input
+/// port took it; any other client's write (a script's `cmux send`, MCP) answers when the port wrote it, with its
+/// error.
 #[test]
 fn the_persons_keys_answer_when_taken_and_other_writes_when_written() {
     let connection = TypingConnection::open();
@@ -471,58 +414,45 @@ fn next_activity_event(outbound: &BoundedOutbound, wait: Duration) -> Option<Val
     None
 }
 
-/// #34261 review: a `subscribe-activity` subscriber hears the person's keys on both arms (the lock-free arm notes a
-/// key's time in an atomic and wakes the worker only while a subscriber exists): a key typed before the subscription
-/// is in its snapshot, a key after it comes as an event at once (the leading edge), and a key inside the one-second
-/// spacing comes in the trailing event, with a time never older than the one before.
+/// #34261 review: a `subscribe-activity` subscriber hears the person's keys (a key's time is an atomic, and the worker
+/// wakes only while a subscriber exists): a key typed before the subscription is in its snapshot, a key after it comes
+/// as an event at once (the leading edge), and a key inside the one-second spacing comes in the trailing event, with a
+/// time never older than the one before.
 #[test]
-fn an_activity_subscriber_hears_the_persons_keys_on_both_arms() {
-    for lane in [false, true] {
-        let connection = TypingConnection::open_with(lane);
-        connection.submit("before", b'b');
-        connection.settle(&["before"]);
-        let (subscriber_writer, subscriber_outbound) = captured_writer();
-        let subscriber = connection
-            .mux
-            .control_clients
-            .register(ClientTransport::Unix, subscriber_writer.clone());
-        let snapshot = handle_command(
-            &connection.mux,
-            subscriber,
-            Command::SubscribeActivity,
-            &subscriber_writer,
-        )
-        .unwrap();
-        let before = snapshot["activity"]["last_user_input_at_ms"].as_u64().unwrap_or_else(|| {
-            panic!("lane {lane}: the snapshot has no time for the key before it: {snapshot}")
-        });
-        // Events the subscription itself caused (an attach count) are not the key's.
-        while subscriber_outbound.try_pop().is_some() {}
+fn an_activity_subscriber_hears_the_persons_keys() {
+    let connection = TypingConnection::open();
+    connection.submit("before", b'b');
+    connection.settle(&["before"]);
+    let (subscriber_writer, subscriber_outbound) = captured_writer();
+    let subscriber =
+        connection.mux.control_clients.register(ClientTransport::Unix, subscriber_writer.clone());
+    let snapshot =
+        handle_command(&connection.mux, subscriber, Command::SubscribeActivity, &subscriber_writer)
+            .unwrap();
+    let before = snapshot["activity"]["last_user_input_at_ms"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("the snapshot has no time for the key before it: {snapshot}"));
+    // Events the subscription itself caused (an attach count) are not the key's.
+    while subscriber_outbound.try_pop().is_some() {}
 
-        connection.submit("first", b'1');
-        connection.settle(&["first"]);
-        let first = next_activity_event(&subscriber_outbound, Duration::from_secs(3))
-            .unwrap_or_else(|| panic!("lane {lane}: no activity event after the first key"));
-        let first_ms = first["activity"]["last_user_input_at_ms"].as_u64().unwrap_or(0);
-        assert!(
-            first_ms >= before,
-            "lane {lane}: the first key's time went back: {first_ms} < {before}"
-        );
+    connection.submit("first", b'1');
+    connection.settle(&["first"]);
+    let first = next_activity_event(&subscriber_outbound, Duration::from_secs(3))
+        .unwrap_or_else(|| panic!("no activity event after the first key"));
+    let first_ms = first["activity"]["last_user_input_at_ms"].as_u64().unwrap_or(0);
+    assert!(first_ms >= before, "the first key's time went back: {first_ms} < {before}");
 
-        std::thread::sleep(Duration::from_millis(20));
-        connection.submit("second", b'2');
-        connection.settle(&["second"]);
-        let second = next_activity_event(&subscriber_outbound, Duration::from_secs(3))
-            .unwrap_or_else(|| {
-                panic!("lane {lane}: no trailing activity event after the second key")
-            });
-        let second_ms = second["activity"]["last_user_input_at_ms"].as_u64().unwrap_or(0);
-        assert!(
-            second_ms > first_ms,
-            "lane {lane}: the trailing event does not carry the second key's time: {second_ms} <= {first_ms}"
-        );
-        connection.close();
-    }
+    std::thread::sleep(Duration::from_millis(20));
+    connection.submit("second", b'2');
+    connection.settle(&["second"]);
+    let second = next_activity_event(&subscriber_outbound, Duration::from_secs(3))
+        .unwrap_or_else(|| panic!("no trailing activity event after the second key"));
+    let second_ms = second["activity"]["last_user_input_at_ms"].as_u64().unwrap_or(0);
+    assert!(
+        second_ms > first_ms,
+        "the trailing event does not carry the second key's time: {second_ms} <= {first_ms}"
+    );
+    connection.close();
 }
 
 /// One step of a sizing scenario for [`grid_trace`].
@@ -539,9 +469,15 @@ enum SizingStep {
 }
 
 /// The grid after each step, for a terminal with the typing view and one other view of `other` identity
-/// (`set-client-info` fields) under the size policy `policy`, on the lane or the old path.
-fn grid_trace(lane: bool, policy: &Value, other: &Value, steps: &[SizingStep]) -> Vec<(u16, u16)> {
-    let connection = TypingConnection::open_with(lane);
+/// (`set-client-info` fields) under the size policy `policy`. A key is a `send` (its sizing note skipped when the view
+/// is the settled newest), or with `full_note` the full sizing note that every key took before the skip.
+fn grid_trace(
+    full_note: bool,
+    policy: &Value,
+    other: &Value,
+    steps: &[SizingStep],
+) -> Vec<(u16, u16)> {
+    let connection = TypingConnection::open();
     let mux = connection.mux.clone();
     let surface = connection.surface;
     let (other_writer, _other_outbound) = captured_writer();
@@ -559,6 +495,11 @@ fn grid_trace(lane: bool, policy: &Value, other: &Value, steps: &[SizingStep]) -
     )
     .unwrap();
     let key = |client: u64, writer: &MessageWriter| {
+        if full_note {
+            // What a key's `send` noted before the skip: the activity of the client's own view.
+            let _ = mux.note_terminal_activity(surface, client, None);
+            return;
+        }
         let send = json!({"cmd": "send", "surface": surface, "bytes": "eA=="});
         handle_command(&mux, client, json_command(send), writer).unwrap();
     };
@@ -597,11 +538,11 @@ fn grid_trace(lane: bool, policy: &Value, other: &Value, steps: &[SizingStep]) -
     trace
 }
 
-/// #34261 review: the key's sizing-note skip (stage S1.5) never changes a grid the old path would have set, for every
-/// policy, with a desktop or a phone as the other view, while a departed phone holds the grid, and with a relay's
-/// phone sub-view: the lane's grid after every step equals the old path's.
+/// #34261 review: the key's sizing-note skip (stage S1.5) never changes a grid the full sizing note would have set, for
+/// every policy, with a desktop or a phone as the other view, while a departed phone holds the grid, and with a relay's
+/// phone sub-view: the grid after every step of the keys equals the grid after the same steps with the full note.
 #[test]
-fn the_sizing_note_skip_sets_the_grids_the_old_path_sets() {
+fn the_sizing_note_skip_sets_the_grids_the_full_note_sets() {
     let mac = json!({"kind": "frontend", "device_kind": "mac"});
     let phone = json!({"kind": "ios", "device_kind": "iphone"});
     let relay = json!({
@@ -633,52 +574,49 @@ fn the_sizing_note_skip_sets_the_grids_the_old_path_sets() {
         vec![TypingKey, RelayPhoneActivity, TypingKey, RelayPhoneActivity, TypingKey],
     ));
     for (name, policy, other, steps) in cases {
-        let old_path = grid_trace(false, &policy, &other, &steps);
-        let lane = grid_trace(true, &policy, &other, &steps);
+        let full_note = grid_trace(true, &policy, &other, &steps);
+        let keys = grid_trace(false, &policy, &other, &steps);
         assert_eq!(
-            lane, old_path,
-            "{name}: the lane's grids differ from the old path's after {steps:?}"
+            keys, full_note,
+            "{name}: the keys' grids differ from the full note's after {steps:?}"
         );
     }
 }
 
 /// The skipped note must never keep the grid from a view: under the default policy (the newest view sets the grid),
-/// another view's focus click takes the grid, and the next key from the first view takes it back, on both arms.
+/// another view's focus click takes the grid, and the next key from the first view takes it back.
 #[test]
 fn after_another_views_click_a_key_takes_the_grid_back() {
-    for lane in [false, true] {
-        let first = TypingConnection::open_with(lane);
-        let mux = first.mux.clone();
-        let surface = first.surface;
-        mux.pin_latest_size_policy_for_test(surface);
-        let (second_writer, _second_outbound) = captured_writer();
-        let second = mux.control_clients.register(ClientTransport::Unix, second_writer.clone());
-        attach_test_view(&mux, second, surface, &second_writer);
-        mux.resize_surface_for_client(surface, first.client, 100, 30).unwrap();
-        mux.resize_surface_for_client(surface, second, 60, 20).unwrap();
+    let first = TypingConnection::open();
+    let mux = first.mux.clone();
+    let surface = first.surface;
+    mux.pin_latest_size_policy_for_test(surface);
+    let (second_writer, _second_outbound) = captured_writer();
+    let second = mux.control_clients.register(ClientTransport::Unix, second_writer.clone());
+    attach_test_view(&mux, second, surface, &second_writer);
+    mux.resize_surface_for_client(surface, first.client, 100, 30).unwrap();
+    mux.resize_surface_for_client(surface, second, 60, 20).unwrap();
 
-        first.submit("first-key", b'a');
-        assert!(first.arrival(b'a').is_some(), "lane {lane}: the first key never arrived");
-        first.settle(&["first-key"]);
-        let grid =
-            |mux: &Mux| mux.terminal_size_state(surface).map(|state| (state.cols, state.rows));
-        assert_eq!(grid(&mux), Some((100, 30)), "lane {lane}: the typing view sets the grid");
+    first.submit("first-key", b'a');
+    assert!(first.arrival(b'a').is_some(), "the first key never arrived");
+    first.settle(&["first-key"]);
+    let grid = |mux: &Mux| mux.terminal_size_state(surface).map(|state| (state.cols, state.rows));
+    assert_eq!(grid(&mux), Some((100, 30)), "the typing view sets the grid");
 
-        assert_eq!(mux.note_terminal_activity(surface, second, None), Some(true), "lane {lane}");
-        assert_eq!(grid(&mux), Some((60, 20)), "lane {lane}: the clicked view takes the grid");
+    assert_eq!(mux.note_terminal_activity(surface, second, None), Some(true));
+    assert_eq!(grid(&mux), Some((60, 20)), "the clicked view takes the grid");
 
-        first.submit("second-key", b'b');
-        assert!(first.arrival(b'b').is_some(), "lane {lane}: the second key never arrived");
-        first.settle(&["second-key"]);
-        assert_eq!(grid(&mux), Some((100, 30)), "lane {lane}: the key took the grid back");
-        assert!(mux.activity.user_input_ms_for_test().is_some(), "lane {lane}: the input time");
+    first.submit("second-key", b'b');
+    assert!(first.arrival(b'b').is_some(), "the second key never arrived");
+    first.settle(&["second-key"]);
+    assert_eq!(grid(&mux), Some((100, 30)), "the key took the grid back");
+    assert!(mux.activity.user_input_ms_for_test().is_some(), "the input time");
 
-        disconnect_client(&mux, second, false);
-        first.close();
-    }
+    disconnect_client(&mux, second, false);
+    first.close();
 }
 
-/// #31940 and TYPING FIX 2 took these two off the key; this keeps them off on the stage's new path.
+/// #31940 and TYPING FIX 2 took these two off the key; this keeps them off.
 #[test]
 fn a_key_waits_for_neither_the_session_nor_the_workspace_registry_lock() {
     assert_keys_wait_for_none(&[

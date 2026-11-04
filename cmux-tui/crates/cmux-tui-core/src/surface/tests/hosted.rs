@@ -88,25 +88,19 @@ fn hosted_receipted_input_requests_pipeline_through_surface_reader() {
     });
 }
 
-/// A hosted surface on a fake host connection (the host end is the second value), with the mux's stage S1 switch
-/// `lane`.
+/// A hosted surface on a fake host connection (the host end is the second value).
 #[cfg(unix)]
-fn hosted_typing_surface(
-    name: &str,
-    lane: bool,
-) -> (Arc<Mux>, Arc<Surface>, std::os::unix::net::UnixStream) {
-    hosted_surface_with(name, lane, |_| {})
+fn hosted_typing_surface(name: &str) -> (Arc<Mux>, Arc<Surface>, std::os::unix::net::UnixStream) {
+    hosted_surface_with(name, |_| {})
 }
 
 /// [`hosted_typing_surface`] with the fake host's attachment changed by `configure` before the surface takes it.
 #[cfg(unix)]
 fn hosted_surface_with(
     name: &str,
-    lane: bool,
     configure: impl FnOnce(&mut crate::terminal_host_runtime::HostAttachment),
 ) -> (Arc<Mux>, Arc<Surface>, std::os::unix::net::UnixStream) {
     let mux = Mux::new_for_test(name, SurfaceOptions::default());
-    mux.set_input_lane_for_test(lane);
     let workspace = mux.create_empty_workspace(None, None, None).unwrap();
     let (mut attachment, host) = crate::terminal_host_runtime::input_ack_surface_fixture();
     configure(&mut attachment);
@@ -139,10 +133,10 @@ const HOST_STALL: Duration = Duration::from_millis(600);
 
 /// A key while another client's large paste to the same hosted terminal is in its socket write and the host reads
 /// nothing for [`HOST_STALL`]: how long the key took to return, and the frame kinds the host then read, in order.
-/// The host drains on its own thread after the stall, so the old path (the key waits for the paste) cannot hang.
+/// The host drains on its own thread after the stall, so a key that waits for the paste cannot hang the test.
 #[cfg(unix)]
-fn key_behind_a_blocked_paste(lane: bool) -> (Duration, Vec<MessageKind>) {
-    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port", lane);
+fn key_behind_a_blocked_paste() -> (Duration, Vec<MessageKind>) {
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port");
     // Far larger than the socket buffer: its write blocks while the host reads nothing.
     let paste = vec![b'p'; 8 * 1024 * 1024];
     std::thread::scope(|scope| {
@@ -164,7 +158,7 @@ fn key_behind_a_blocked_paste(lane: bool) -> (Duration, Vec<MessageKind>) {
         // Long enough for the paste's writer to be inside its blocked socket write, well inside the stall.
         std::thread::sleep(Duration::from_millis(150));
         let started = Instant::now();
-        // The person's key: it answers when the port took it (on the old path, after its write).
+        // The person's key: it answers when the port took it.
         surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the key was accepted");
         let took = started.elapsed();
         pasting.join().unwrap().expect("the paste was written");
@@ -173,22 +167,14 @@ fn key_behind_a_blocked_paste(lane: bool) -> (Duration, Vec<MessageKind>) {
 }
 
 /// R-DAEMON-STATE stage S1 step 6 (DESIGN.md section 2.6.1): a key to a hosted terminal never waits for another
-/// writer's blocked write to the same terminal's host socket. On the old path the paste's write holds the
-/// terminal's runtime lock and the host writer for the whole write (bounded only by the socket's send timeout), and
-/// the key waits behind it. With the stage on, the key is handed to the terminal's own input port and returns at
-/// once; the port writes in order, the paste first, once the host reads.
+/// writer's blocked write to the same terminal's host socket. A paste's write once held the terminal's runtime lock
+/// and the host writer for the whole write (bounded only by the socket's send timeout), and the key waited behind it.
+/// The key is handed to the terminal's own input port and returns at once; the port writes in order, the paste first,
+/// once the host reads.
 #[cfg(unix)]
 #[test]
 fn a_key_does_not_wait_for_another_writers_blocked_host_socket() {
-    let (old_took, old_kinds) = key_behind_a_blocked_paste(false);
-    assert!(
-        old_took >= HOST_STALL / 2,
-        "control: on the old path the key took {old_took:?} behind a paste blocked {HOST_STALL:?}; the hold does not \
-         reach the old path, so the lane's test proves nothing"
-    );
-    assert_eq!(old_kinds.last(), Some(&MessageKind::Input), "old path: the key reached the host");
-
-    let (took, kinds) = key_behind_a_blocked_paste(true);
+    let (took, kinds) = key_behind_a_blocked_paste();
     assert!(
         took < Duration::from_millis(100),
         "the key waited {took:?} for another writer's blocked host socket"
@@ -209,13 +195,12 @@ fn a_key_does_not_wait_for_another_writers_blocked_host_socket() {
     );
 }
 
-/// A key to a terminal whose host connection the reader shut down (`Failed`, still retrying) is refused at once, as
-/// the old path's write to the shut connection failed (`cmux send` exits non-zero); once a replacement's route is
-/// published, keys go through again (#34544 review 3).
+/// A key to a terminal whose host connection the reader shut down (`Failed`, still retrying) is refused at once
+/// (`cmux send` exits non-zero); once a replacement's route is published, keys go through again (#34544 review 3).
 #[cfg(unix)]
 #[test]
 fn a_key_to_a_failed_link_is_refused_until_a_live_route_is_published() {
-    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-failed", true);
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-failed");
     let pty = surface.as_pty().expect("a terminal");
     pty.input_route.store(Some(Arc::new(input_port::InputRoute::Failed)));
     let refused = surface.write_bytes(b"x").expect_err("a key to a failed link was accepted");
@@ -244,7 +229,7 @@ fn a_key_to_a_failed_link_is_refused_until_a_live_route_is_published() {
 #[cfg(unix)]
 #[test]
 fn a_frame_sent_after_a_key_the_port_holds_reaches_the_host_after_it() {
-    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-order-barrier", true);
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-order-barrier");
     let pty = surface.as_pty().expect("a terminal");
     let resume = pty.input_port.pause_writes_for_test();
     surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
@@ -281,13 +266,12 @@ fn a_frame_sent_after_a_key_the_port_holds_reaches_the_host_after_it() {
 }
 
 /// R-DAEMON-STATE S1.6b: a write that is not the person's key (a script's `cmux send`, a resource input effect, the
-/// creating-input flush) answers when the input port wrote it, as the old path answered after its socket write, so
-/// it never answers ok for bytes the port has not written.
+/// creating-input flush) answers when the input port wrote it, so it never answers ok for bytes the port has not
+/// written.
 #[cfg(unix)]
 #[test]
 fn an_automation_write_answers_after_the_port_wrote_it() {
-    let (_mux, surface, mut host) =
-        hosted_typing_surface("hosted-input-port-automation-reply", true);
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-automation-reply");
     let pty = surface.as_pty().expect("a terminal");
     let resume = pty.input_port.pause_writes_for_test();
     std::thread::scope(|scope| {
@@ -308,12 +292,12 @@ fn an_automation_write_answers_after_the_port_wrote_it() {
 }
 
 /// R-DAEMON-STATE S1.6b: a write that is not the person's key gets the error of its own frame (here the reader
-/// shut the connection down after the port took the bytes), as the old path's write failed, so `cmux send` exits
-/// non-zero and a resource input effect is marked failed.
+/// shut the connection down after the port took the bytes), so `cmux send` exits non-zero and a resource input effect
+/// is marked failed.
 #[cfg(unix)]
 #[test]
 fn an_automation_write_gets_the_error_of_its_frame() {
-    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-automation-error", true);
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-automation-error");
     let pty = surface.as_pty().expect("a terminal");
     let resume = pty.input_port.pause_writes_for_test();
     std::thread::scope(|scope| {
@@ -335,7 +319,7 @@ fn an_automation_write_gets_the_error_of_its_frame() {
 #[cfg(unix)]
 #[test]
 fn keys_on_the_input_port_reach_the_host_once_each_in_order() {
-    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-order", true);
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-order");
     let keys: Vec<u8> = (b'a'..=b'z').collect();
     for key in &keys {
         surface.write_bytes_replying(&[*key], InputReply::Accepted).expect("the port took the key");
@@ -958,7 +942,7 @@ fn install_replacement(pty: &PtySurface) -> std::os::unix::net::UnixStream {
 #[cfg(unix)]
 #[test]
 fn a_frame_sent_after_a_replacement_install_waits_for_the_keys_the_port_held() {
-    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-install-order", true);
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-install-order");
     let pty = surface.as_pty().expect("a terminal");
     pty.input_route.store(Some(Arc::new(dead_host_route())));
     surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
@@ -986,12 +970,12 @@ fn a_frame_sent_after_a_replacement_install_waits_for_the_keys_the_port_held() {
 }
 
 /// R-DAEMON-STATE S1.6b review 1 (must-fix 2): a host connection lost again later (here after a replacement that got
-/// no write) gives its writes their own reconnect wait, as the old path gave each write. The port kept the first
-/// loss's deadline until a write succeeded, so the later write failed at once.
+/// no write) gives its writes their own reconnect wait. The port kept the first loss's deadline until a write
+/// succeeded, so the later write failed at once.
 #[cfg(unix)]
 #[test]
 fn a_later_host_loss_waits_for_its_own_reconnect() {
-    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-second-loss", true);
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-second-loss");
     let pty = surface.as_pty().expect("a terminal");
     pty.input_port.set_reconnect_wait_for_test(Duration::from_millis(300));
     pty.input_route.store(Some(Arc::new(dead_host_route())));
@@ -1023,7 +1007,7 @@ fn a_later_host_loss_waits_for_its_own_reconnect() {
 #[cfg(unix)]
 #[test]
 fn a_frame_sent_while_the_port_waits_for_a_reconnect_does_not_wait_for_it() {
-    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-reconnect-skip", true);
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-reconnect-skip");
     let pty = surface.as_pty().expect("a terminal");
     pty.input_route.store(Some(Arc::new(dead_host_route())));
     surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
@@ -1043,12 +1027,12 @@ fn a_frame_sent_while_the_port_waits_for_a_reconnect_does_not_wait_for_it() {
     );
 }
 
-/// Writes queued behind a lost host that does not come back fail together, one reconnect wait after they were sent
-/// (as the old path's concurrent writes did), not one wait after another.
+/// Writes queued behind a lost host that does not come back fail together, one reconnect wait after they were sent,
+/// not one wait after another.
 #[cfg(unix)]
 #[test]
 fn writes_queued_behind_a_lost_host_fail_together() {
-    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-fail-together", true);
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-fail-together");
     let pty = surface.as_pty().expect("a terminal");
     let wait = Duration::from_millis(300);
     pty.input_port.set_reconnect_wait_for_test(wait);
@@ -1078,8 +1062,7 @@ fn writes_queued_behind_a_lost_host_fail_together() {
 #[cfg(unix)]
 #[test]
 fn receipted_input_sent_after_a_key_the_port_holds_reaches_the_host_after_it() {
-    let (_mux, surface, mut host) =
-        hosted_typing_surface("hosted-input-port-receipted-order", true);
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-receipted-order");
     let pty = surface.as_pty().expect("a terminal");
     let resume = pty.input_port.pause_writes_for_test();
     surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
@@ -1110,7 +1093,7 @@ fn receipted_input_sent_after_a_key_the_port_holds_reaches_the_host_after_it() {
 #[cfg(unix)]
 #[test]
 fn a_write_whose_wait_ends_before_the_port_takes_it_is_never_written() {
-    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-reply-timeout", true);
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-reply-timeout");
     let pty = surface.as_pty().expect("a terminal");
     pty.input_port.set_reply_wait_for_test(Duration::from_millis(300));
     let resume = pty.input_port.pause_writes_for_test();
@@ -1135,8 +1118,7 @@ fn a_write_whose_wait_ends_before_the_port_takes_it_is_never_written() {
 #[cfg(unix)]
 #[test]
 fn a_write_whose_wait_ends_during_its_write_may_be_written() {
-    let (_mux, surface, mut host) =
-        hosted_typing_surface("hosted-input-port-reply-in-flight", true);
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-reply-in-flight");
     let pty = surface.as_pty().expect("a terminal");
     let resume = running_paused_writer(&surface, pty);
     // The running writer takes "y" at once and holds it at its pause; the wait ends long after that.
@@ -1160,7 +1142,7 @@ fn a_write_whose_wait_ends_during_its_write_may_be_written() {
 #[cfg(unix)]
 #[test]
 fn the_creating_input_flush_keeps_input_that_may_have_been_written() {
-    let (mux, surface, mut host) = hosted_typing_surface("hosted-input-port-creating-flush", true);
+    let (mux, surface, mut host) = hosted_typing_surface("hosted-input-port-creating-flush");
     let pty = surface.as_pty().expect("a terminal");
     let terminal_id = surface.terminal_host_identity().expect("a hosted terminal").terminal_id;
     let generation =
@@ -1196,13 +1178,13 @@ fn the_creating_input_flush_keeps_input_that_may_have_been_written() {
 }
 
 /// R-DAEMON-STATE S1.6c (#35082 review 2, should-do 1): a write that waits out a lost host connection fails as soon
-/// as the reader gives that host up (the link is `Failed` and nothing will install a replacement), as the old path's
-/// write failed then, not at its own reconnect deadline. The reader's wake reached only `stream_progress`, which the
+/// as the reader gives that host up (the link is `Failed` and nothing will install a replacement), not at its own
+/// reconnect deadline. The reader's wake reached only `stream_progress`, which the
 /// port's writer no longer waits on.
 #[cfg(unix)]
 #[test]
 fn a_write_waiting_for_a_reconnect_fails_when_the_reader_gives_up() {
-    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-give-up", true);
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-give-up");
     let pty = surface.as_pty().expect("a terminal");
     pty.input_port.set_reconnect_wait_for_test(Duration::from_secs(5));
     pty.input_route.store(Some(Arc::new(dead_host_route())));
@@ -1231,7 +1213,7 @@ fn a_write_waiting_for_a_reconnect_fails_when_the_reader_gives_up() {
 #[cfg(unix)]
 #[test]
 fn a_viewer_size_behind_a_key_the_port_holds_goes_after_it_without_waiting() {
-    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-viewer-size", true);
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-viewer-size");
     let pty = surface.as_pty().expect("a terminal");
     let resume = pty.input_port.pause_writes_for_test();
     surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
@@ -1262,7 +1244,7 @@ fn a_viewer_size_behind_a_key_the_port_holds_goes_after_it_without_waiting() {
 #[test]
 fn a_viewer_size_settle_ends_by_its_own_deadline_behind_a_held_frame() {
     let (_mux, surface, _host) =
-        hosted_surface_with("hosted-input-port-settle-deadline", true, |attachment| {
+        hosted_surface_with("hosted-input-port-settle-deadline", |attachment| {
             attachment.viewer_size_acks = true;
         });
     let pty = surface.as_pty().expect("a terminal");
@@ -1329,7 +1311,7 @@ fn size_frames_until_quiet(host: &mut std::os::unix::net::UnixStream) -> Vec<Opt
 #[cfg(unix)]
 #[test]
 fn a_viewer_size_sent_during_a_reconnect_wait_is_the_new_hosts_last_size() {
-    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-size-reconnect", true);
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-size-reconnect");
     let pty = surface.as_pty().expect("a terminal");
     a_size_queued_then_a_reconnect_wait(&surface, pty);
     surface.resize(100, 30).expect("the newer viewer size was sent");
@@ -1347,7 +1329,7 @@ fn a_viewer_size_sent_during_a_reconnect_wait_is_the_new_hosts_last_size() {
 #[cfg(unix)]
 #[test]
 fn a_viewer_size_release_during_a_reconnect_wait_is_the_new_hosts_last_size_frame() {
-    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-release-reconnect", true);
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-release-reconnect");
     let pty = surface.as_pty().expect("a terminal");
     a_size_queued_then_a_reconnect_wait(&surface, pty);
     surface.release_viewer_size().expect("the release was sent");
@@ -1366,7 +1348,7 @@ fn a_viewer_size_release_during_a_reconnect_wait_is_the_new_hosts_last_size_fram
 #[cfg(unix)]
 #[test]
 fn a_write_the_writer_lost_after_taking_it_may_be_written() {
-    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-writer-lost", true);
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-writer-lost");
     let pty = surface.as_pty().expect("a terminal");
     pty.input_port.panic_after_take_for_test();
     let error = surface.write_bytes(b"w").expect_err("a write its writer lost answered ok");
@@ -1383,7 +1365,7 @@ fn write_waiting_for_a_reconnect_then(
     name: &str,
     end: impl FnOnce(&Surface, &PtySurface),
 ) -> (std::io::Result<()>, Duration) {
-    let (_mux, surface, _host) = hosted_typing_surface(name, true);
+    let (_mux, surface, _host) = hosted_typing_surface(name);
     let pty = surface.as_pty().expect("a terminal");
     pty.input_port.set_reconnect_wait_for_test(Duration::from_secs(5));
     pty.input_route.store(Some(Arc::new(dead_host_route())));

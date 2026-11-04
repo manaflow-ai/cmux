@@ -444,16 +444,11 @@ fn test_stream_id(index: u64) -> StreamPublicId {
         .expect("test stream id uses the public wire format")
 }
 
-/// How many clear-history requests run at once across two connections that share one admission budget; `lock_free`
-/// picks the budget's arm (R-DAEMON-STATE stage S1: atomics on, the mutex counts off).
-fn active_clear_lanes_across_connections(
-    request_count: usize,
-    retained_bytes: usize,
-    lock_free: bool,
-) -> usize {
+/// How many clear-history requests run at once across two connections that share one admission budget.
+fn active_clear_lanes_across_connections(request_count: usize, retained_bytes: usize) -> usize {
     let mux = test_mux();
     let writer = test_writer();
-    let admission = Arc::new(ServerSurfaceOperationAdmission::new(lock_free));
+    let admission = Arc::new(ServerSurfaceOperationAdmission::default());
     let schedulers = [
         Arc::new(ConnectionSurfaceScheduler::new(admission.clone())),
         Arc::new(ConnectionSurfaceScheduler::new(admission)),

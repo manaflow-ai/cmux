@@ -27,15 +27,6 @@ fn key(surface: SurfaceId, byte: u8) -> Command {
     })
 }
 
-/// The kept-terminal tests below cover the old path (F4, TYPING FIX 2), the fallback that `CMUX_TUI_RDS_INPUT=0` keeps
-/// for one nightly after the input lane became the default (R-DAEMON-STATE S1.7); server/tests/rds_input_lane.rs
-/// covers the lane. S1.8 deletes them with the old path.
-fn old_path_mux() -> Arc<Mux> {
-    let mux = test_mux();
-    mux.set_input_lane_for_test(false);
-    mux
-}
-
 /// A typing terminal attached by a frontend client, as the app's terminal view attaches it.
 fn attached_terminal(mux: &Arc<Mux>) -> (Arc<crate::Surface>, u64, MessageWriter) {
     let surface = mux.new_workspace(Some("typing".into()), Some((80, 24))).unwrap();
@@ -51,7 +42,7 @@ fn attached_terminal(mux: &Arc<Mux>) -> (Arc<crate::Surface>, u64, MessageWriter
 #[cfg(unix)]
 #[test]
 fn a_key_reaches_its_terminal_while_automation_holds_the_session_lock() {
-    let mux = old_path_mux();
+    let mux = test_mux();
     let (typing, client, writer) = attached_terminal(&mux);
     // The first key of a terminal may find it the long way; every key after it must not wait.
     handle_command(&mux, client, key(typing.id, b'a'), &writer).unwrap();
@@ -96,13 +87,13 @@ impl Write for InputRecorder {
     }
 }
 
-/// REOPEN-F4/F5 class (lead 2026-11-02): a terminal kept for the person's keys must never outlive the terminal its
-/// id routes to. A respawn takes the dead runtime out of the tab and puts a new one in under the same placement id
+/// REOPEN-F4/F5 class (lead 2026-11-02): the person's keys must never reach a terminal that no longer owns the id
+/// they name. A respawn takes the dead runtime out of the tab and puts a new one in under the same placement id
 /// (`terminal_respawn.rs`, `install_respawned_runtime`); the next key must reach the new shell, never the old one.
 #[cfg(unix)]
 #[test]
 fn after_a_respawn_the_next_key_reaches_the_new_terminal() {
-    let mux = old_path_mux();
+    let mux = test_mux();
     let (old, client, writer) = attached_terminal(&mux);
     let (old_sent, old_input) = mpsc::channel();
     old.replace_input_writer_for_test(Box::new(InputRecorder(old_sent)));
@@ -140,12 +131,12 @@ fn after_a_respawn_the_next_key_reaches_the_new_terminal() {
 }
 
 /// A durable mutation that routes nothing (a rename, a focus or layout change) clones the session state and drops a
-/// copy. That must not drop the terminal kept for the person's keys: if it did, the next key would take the session
-/// lock again and wait behind automation, the F4 delay this lane removes (#31940 review).
+/// copy. That must not send the person's next key to the session lock, where it would wait behind automation (the F4
+/// delay, #31940 review).
 #[cfg(unix)]
 #[test]
 fn a_mutation_that_routes_nothing_keeps_the_key_off_the_session_lock() {
-    let mux = old_path_mux();
+    let mux = test_mux();
     let (typing, client, writer) = attached_terminal(&mux);
     handle_command(&mux, client, key(typing.id, b'a'), &writer).unwrap();
     // A pane rename (a durable mutation through the mutation plan) and a state clone dropped, as plans do.
@@ -187,14 +178,13 @@ fn session_locks_of<R>(f: impl FnOnce() -> R) -> (R, u64) {
     (result, crate::mux::state_locks_taken_on_this_thread() - before)
 }
 
-/// TYPING FIX 2 (follow-up A of #31940): the kept terminal is dropped only when its own route changes. A tab created
-/// or closed in another workspace routes nothing this client types into; it must not send the person's next key back
-/// to the session lock. Before, any routing write anywhere moved one process-wide generation, so every attached
-/// client's next key took the lock again (O(clients) per tab create, during the agents' tab storms).
+/// TYPING FIX 2 (follow-up A of #31940): a tab created or closed in another workspace routes nothing this client
+/// types into; it must not send the person's next key back to the session lock. Once, any routing write anywhere sent
+/// every attached client's next key to the lock again (O(clients) per tab create, during the agents' tab storms).
 #[cfg(unix)]
 #[test]
 fn a_tab_created_or_closed_elsewhere_keeps_the_key_off_the_session_lock() {
-    let mux = old_path_mux();
+    let mux = test_mux();
     let (typing, client, writer) = attached_terminal(&mux);
     handle_command(&mux, client, key(typing.id, b'a'), &writer).unwrap();
 
@@ -221,7 +211,7 @@ fn a_tab_created_or_closed_elsewhere_keeps_the_key_off_the_session_lock() {
 #[cfg(unix)]
 #[test]
 fn a_workspace_size_default_keeps_the_key_off_the_session_lock() {
-    let mux = old_path_mux();
+    let mux = test_mux();
     let (typing, client, writer) = attached_terminal(&mux);
     // The settings owner's host policy, and a size default on the typing terminal's workspace.
     let host = crate::mux::host_policy::HostSizePolicy {
@@ -239,13 +229,13 @@ fn a_workspace_size_default_keeps_the_key_off_the_session_lock() {
     mux.shutdown();
 }
 
-/// TYPING FIX 2 (follow-up C of #31940): `send-key` (a named key such as Return or Ctrl-C from an attached view) goes
-/// to the same kept terminal as `send`, under the same route rules, so it takes no session lock either. Before, it
-/// looked its terminal up through the session lock on every call.
+/// TYPING FIX 2 (follow-up C of #31940): `send-key` (a named key such as Return or Ctrl-C from an attached view) finds
+/// its terminal as `send` does, under the same route rules, so it takes no session lock either. Before, it looked its
+/// terminal up through the session lock on every call.
 #[cfg(unix)]
 #[test]
 fn a_named_key_reaches_its_terminal_without_the_session_lock() {
-    let mux = old_path_mux();
+    let mux = test_mux();
     let (typing, client, writer) = attached_terminal(&mux);
     let named = |keys: &[&str]| Command::SendKey {
         surface: typing.id,
@@ -412,7 +402,7 @@ fn a_read_only_viewers_keys_do_not_get_the_persons_priority() {
     let (typing, client, writer) = attached_terminal(&mux);
     let (viewer, viewer_writer) = read_only_viewer(&mux, typing.id);
     let named = || Command::SendKey { surface: typing.id, keys: vec!["enter".into()] };
-    // The first key finds the terminal the long way, the next ones use the kept terminal.
+    // The first key of each kind and a key after it.
     for command in [key(typing.id, b'a'), named(), key(typing.id, b'b'), named()] {
         handle_command(&mux, viewer, command, &viewer_writer).unwrap();
     }
