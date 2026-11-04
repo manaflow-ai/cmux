@@ -767,6 +767,11 @@ TAP_STATE_URL = "https://raw.githubusercontent.com/manaflow-ai/cmux/ci-test-heal
 TAP_MIN_OBSERVATIONS = 8
 TAP_MIN_FLIP_RATE = 0.2
 TAP_MAX_AGE = timedelta(hours=48)
+# Keep the consumer bound to the producer's public snapshot limits. A bounded
+# list prevents malformed state from turning into an unbounded comparison,
+# while the byte cap keeps one diagnostic cheap to inspect.
+TAP_MAX_QUARANTINE_SIGNATURES = 32
+TAP_MAX_SIGNATURE_BYTES = 4096
 
 
 def load_flake_state(path: str | Path | None = None, *, fetch: bool = False) -> dict:
@@ -802,6 +807,21 @@ def _tap_time(value) -> datetime | None:
         return when.astimezone(timezone.utc) if when.tzinfo else None
     except (AttributeError, TypeError, ValueError):
         return None
+
+
+def _tap_quarantine_signatures(value) -> list[str] | None:
+    """Validate the producer-owned diagnostic binding for a quarantine row."""
+    if not isinstance(value, list) or not value or len(value) > TAP_MAX_QUARANTINE_SIGNATURES:
+        return None
+    for signature in value:
+        if not isinstance(signature, str) or not signature:
+            return None
+        try:
+            if len(signature.encode("utf-8")) > TAP_MAX_SIGNATURE_BYTES:
+                return None
+        except UnicodeEncodeError:
+            return None
+    return value
 
 
 def flaky_failures(head_log: str | None, job: str, workflow: str, state: dict | None,
@@ -840,11 +860,14 @@ def flaky_failures(head_log: str | None, job: str, workflow: str, state: dict | 
             continue
         # Recompute instead of trusting a rounded, corrupt or hand-edited score in the JSON.
         rate = flips / (count - 1)
-        signatures = row.get("failure_signatures")
-        if (rate < TAP_MIN_FLIP_RATE or not isinstance(signatures, list)
-                or not all(isinstance(value, str) for value in signatures) or signature not in signatures):
-            continue
         quarantine = row.get("quarantine")
+        historical_signatures = row.get("failure_signatures")
+        quarantine_signatures = _tap_quarantine_signatures(
+            quarantine.get("signatures") if isinstance(quarantine, dict) else None)
+        if (rate < TAP_MIN_FLIP_RATE or not isinstance(historical_signatures, list)
+                or not all(isinstance(value, str) and value for value in historical_signatures)
+                or quarantine_signatures is None or signature not in quarantine_signatures):
+            continue
         if not isinstance(quarantine, dict):
             continue
         until, issue = _tap_time(quarantine.get("until")), quarantine.get("issue", "")

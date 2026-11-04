@@ -41,7 +41,8 @@ def state(log=HEAD, job=JOB, workflow=WORKFLOW):
          "last_observed_at": NOW.isoformat(),
          "passes": 6, "failures": 4, "flips": 4, "flip_rate": 4 / 9,
          "failure_signatures": [failed["signature"]],
-         "quarantine": {"issue": ISSUE, "until": (NOW + timedelta(days=1)).isoformat()}}]}
+         "quarantine": {"issue": ISSUE, "until": (NOW + timedelta(days=1)).isoformat(),
+                        "signatures": [failed["signature"]]}}]}
 
 
 class PositiveObservations(unittest.TestCase):
@@ -166,6 +167,19 @@ class QuarantineEvidence(unittest.TestCase):
                                flake_state=state(), workflow=WORKFLOW)
         self.assertTrue(result.own)
 
+    def test_historical_signature_cannot_authorize_a_new_diagnostic(self):
+        old = FAIL
+        new = FAIL.replace("ready == true", "saved == true")
+        snapshot = state()
+        row = snapshot["tests"][0]
+        row["failure_signatures"] = [old, new]
+        row["quarantine"]["signatures"] = [old]
+        self.assertTrue(reds.classify(new + "\n" + SUMMARY, SUMMARY, JOB,
+                                      flake_state=snapshot, workflow=WORKFLOW).own)
+        row["quarantine"]["signatures"] = [old, new]
+        self.assertFalse(reds.classify(new + "\n" + SUMMARY, SUMMARY, JOB,
+                                       flake_state=snapshot, workflow=WORKFLOW).own)
+
     def test_insufficient_stale_expired_malformed_or_ambiguous_evidence_is_ignored(self):
         changes = [lambda s: s.update(generated_at=(NOW - timedelta(days=3)).isoformat()),
                    lambda s: s.update(generated_at=(NOW + timedelta(days=1)).isoformat()),
@@ -177,6 +191,17 @@ class QuarantineEvidence(unittest.TestCase):
                        {"failures": 1, "passes": 9}, {"last_observed_at": None},
                        {"last_observed_at": (NOW - timedelta(days=3)).isoformat()},
                        {"failure_signatures": [""]}, {"quarantine": None},
+                       {"quarantine": {"issue": ISSUE, "until": (NOW + timedelta(days=1)).isoformat()}},
+                       {"quarantine": {"issue": ISSUE, "until": (NOW + timedelta(days=1)).isoformat(),
+                                        "signatures": []}},
+                       {"quarantine": {"issue": ISSUE, "until": (NOW + timedelta(days=1)).isoformat(),
+                                        "signatures": [""]}},
+                       {"quarantine": {"issue": ISSUE, "until": (NOW + timedelta(days=1)).isoformat(),
+                                        "signatures": [1]}},
+                       {"quarantine": {"issue": ISSUE, "until": (NOW + timedelta(days=1)).isoformat(),
+                                        "signatures": ["x"] * (reds.TAP_MAX_QUARANTINE_SIGNATURES + 1)}},
+                       {"quarantine": {"issue": ISSUE, "until": (NOW + timedelta(days=1)).isoformat(),
+                                        "signatures": ["x" * (reds.TAP_MAX_SIGNATURE_BYTES + 1)]}},
                        {"workflow": "another"}, {"job": "another"},
                        {"quarantine": {"issue": ISSUE, "until": (NOW - timedelta(seconds=1)).isoformat()}},
                        {"quarantine": {"issue": ISSUE, "until": (NOW + timedelta(days=8)).isoformat()}},

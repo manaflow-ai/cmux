@@ -8,7 +8,7 @@ a pass. Crashed, truncated and runner-loss logs contribute no observations.
 
 The state contains `generated_at` and a `tests` list. Each row contains `workflow`,
 `job`, `test`, `last_observed_at`, `observations`, `passes`, `failures`, `flips`, `flip_rate`,
-`failure_signatures`, and optionally `quarantine: {issue, until}`. Jobs use their
+`failure_signatures`, and optionally `quarantine: {issue, until, signatures}`. Jobs use their
 canonical name without a matrix shard suffix. Workflow names remain distinct.
 The reconciler stores the durable history and opens the public quarantine issue.
 
@@ -22,8 +22,9 @@ A quarantine contributes base evidence only with a snapshot and latest observati
 at least eight observations including a pass and two failures, at least two
 flips, and a flip rate of at least 0.2. The consumer recomputes the rate as
 `flips / (observations - 1)`. The issue must be a public cmux issue and its expiry
-must still be in the future and no more than seven days away. The head's nonempty diagnostic must exactly match
-one of the observed base signatures. Missing or malformed state retains the
+must still be in the future and no more than seven days away. The head's nonempty diagnostic must exactly match one
+of the quarantine's producer-bound `signatures` (at most 32 nonempty strings, each at most 4 KiB). The aggregate
+historical `failure_signatures` list is retained for history and never authorizes a waiver by itself. Missing or malformed state retains the
 existing deterministic comparison.
 
 An active matching quarantine can bridge a green base verdict in
