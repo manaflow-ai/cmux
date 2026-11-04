@@ -29,11 +29,11 @@ const conversation = readFileSync(path.join(src, "agent-session/acpmux/conversat
 /// Every rule in conversation.css whose selector names `pattern`, as [selector, body].
 function rules(pattern: RegExp): [string, string][] {
   return [...conversation.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-    .filter((match) => pattern.test(match[1]!))
-    .map((match) => [match[1]!.trim(), match[2]!]);
+    .map((match): [string, string] => [match[1]!.trim(), match[2]!])
+    .filter(([selector]) => pattern.test(selector));
 }
 
-const CARDS = /\.cv-(repo-recovery|recap|user__edit|user__versions|turn-error)\b/;
+const CARDS = /\.cv-(repo-recovery(--\w+)?|recap|user__edit|user__versions|turn-error(--card|--rail)?)(?![\w-])/;
 
 describe("transcript prompt and card tokens", () => {
   test("every custom property they read is defined", () => {
