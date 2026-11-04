@@ -442,8 +442,9 @@ final class ScreenContentView: NSView {
         if presents { applyPresentation() }
         let moving = animate && hasMotion
         if !(moving && holdsGrids) { holdsGrids = false }
-        // Nothing moves: no frame will land the motion, so what it retired goes now.
-        if !moving { releaseClosing() }
+        // Nothing moves: no frame will land the motion, so what it retired goes now (once the camera is set, when panes
+        // this change began closing wait for it: `settleClosing`).
+        if !moving, !closingPanes.hasAwaiting { releaseClosing() }
         return moving
     }
 

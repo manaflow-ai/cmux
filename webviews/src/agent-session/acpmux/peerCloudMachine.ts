@@ -13,9 +13,6 @@ type Call = (method: string, params?: Record<string, unknown>) => Promise<unknow
 const STARTING = new Set(["requesting", "creating", "booting", "connecting"]);
 /// How often the account's list is read again while the machine starts.
 export const STARTING_READ_MS = 3_000;
-/// Reads while it starts, at most (3 minutes): a machine stuck starting is read no more, and the
-/// banner keeps saying it starts until the chat's machine answers or the banner goes.
-export const STARTING_READS = 60;
 
 /// What the banner shows of the chat's machine.
 export type PeerMachineState = "paused" | "starting" | undefined;
@@ -43,10 +40,10 @@ export function peerMachineState(machine: CloudMachine | undefined, resuming: bo
 
 /// The chat's Cloud machine while `peer` (the chat's machine) does not answer; `peer` undefined
 /// once it does. The account's list is read once when the machine goes down, and every
-/// STARTING_READ_MS while it starts, at most STARTING_READS times. The reads stop when the machine
-/// leaves the starting stages, after the last one, when the chat's machine answers again (`peer`
-/// undefined), or when the banner goes; nothing outlives the banner. A Resume belongs to the
-/// machine it was asked for: another peer never reads as starting because of it.
+/// STARTING_READ_MS while it starts. Reads continue until the machine leaves the starting stages,
+/// the chat's machine answers again (`peer` undefined), or the banner goes; a busy machine never
+/// turns a slow start into a terminal state. A Resume belongs to the machine it was asked for:
+/// another peer never reads as starting because of it.
 export function usePeerCloudMachine(peer: string | undefined, call: Call = postNative) {
   const machine = peerCloudMachine(useCloudMachines(), peer);
   const [resumingId, setResumingId] = useState<string | undefined>(undefined);
@@ -57,10 +54,7 @@ export function usePeerCloudMachine(peer: string | undefined, call: Call = postN
   const starting = peer !== undefined && state === "starting";
   useEffect(() => {
     if (!starting) return;
-    let reads = 0;
     const timer = setInterval(() => {
-      reads += 1;
-      if (reads >= STARTING_READS) clearInterval(timer);
       void refreshCloudMachines(call);
     }, STARTING_READ_MS);
     return () => clearInterval(timer);
