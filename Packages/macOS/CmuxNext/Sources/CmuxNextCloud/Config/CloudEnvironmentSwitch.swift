@@ -12,8 +12,7 @@ import Foundation
                       bootstrap: CloudEnvironmentBootstrap,
                       signOut: @escaping @MainActor () async -> Void,
                       stopServices: @escaping @MainActor () -> Void,
-                      stopDaemon: @escaping @MainActor () async throws -> Void,
-                      quit: @escaping @MainActor () -> Void) throws -> Task<Bool, Error> {
+                      stopDaemon: @escaping @MainActor () async throws -> Void) throws -> Task<Bool, Error> {
         guard pending == nil else { throw DaemonError.launchFailed("A Cloud environment change is already in progress.") }
         let task = Task { @MainActor () throws -> Bool in
             defer { pending = nil }
@@ -28,7 +27,6 @@ import Foundation
             let helper = try await bootstrap.startRelaunch()
             do {
                 try await stopDaemon()
-                quit()
                 return true
             } catch {
                 kill(helper, SIGTERM)
