@@ -279,8 +279,14 @@ button.cv-agentmsg__name:focus-visible {
   flex-shrink: 1000;
 }
 .acpmux-row .cv-tool:is(.cv-sent, .cv-agentmsg__line, .cv-message-group__head, [data-message-run]),
-.acpmux-row .cv-agentmsg__card,
+.acpmux-row .cv-agentmsg__card {
+  color: var(--cv-text);
+}
+/* An opened send reads as an opened received message does: the transcript's text tone and size,
+   never the muted detail size (SubsessionCallCard.css keeps it for a sub-session's own body). */
 .acpmux-row .cv-sent + .cv-subsession__under .cv-subsession__markdown > .cv-md {
+  --cv-font-size: inherit;
+  --cv-line-height: inherit;
   color: var(--cv-text);
 }
 .acpmux-row :is(.cv-agentmsg__preview, .cv-message-group__senders, .cv-msgline__preview, .cv-sent__more) {
