@@ -322,6 +322,16 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
   }
 }
 
+/**
+ * Steps that passed on the version before a deploy and fail after it: the deploy's own reds. A step that
+ * was already red before (a known backend bug) is not the deploy's fault and never triggers a rollback.
+ * With no baseline (the first run, or it could not sign in), every failed step counts.
+ */
+export function newReds(before: Step[] | null, after: Step[]): Step[] {
+  const passed = new Set((before ?? []).filter((s) => s.status === "pass").map((s) => s.step));
+  return after.filter((s) => s.status === "fail" && (before === null || passed.has(s.step)));
+}
+
 function argValue(flag: string, argv: string[]): string | undefined {
   const i = argv.indexOf(flag);
   return i >= 0 ? argv[i + 1] : undefined;
@@ -331,6 +341,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (argv.includes("--help") || argv.includes("-h")) {
     console.log(readFileSync(fileURLToPath(import.meta.url), "utf8").split("*/")[0]);
     return 0;
+  }
+  // --compare BEFORE.json AFTER.json: exit 3 when the deploy made a step red (newReds), 0 otherwise.
+  const compare = argv.indexOf("--compare");
+  if (compare >= 0) {
+    const load = (f: string | undefined): Step[] | null => {
+      try { return f ? (JSON.parse(readFileSync(f, "utf8")).steps as Step[]) : null; } catch { return null; }
+    };
+    const before = load(argv[compare + 1]);
+    const after = load(argv[compare + 2]) ?? [];
+    const reds = newReds(before, after);
+    for (const r of reds) console.log(`NEW RED ${r.step}: ${r.detail.slice(0, 300)}`);
+    console.log(reds.length ? `${reds.length} step(s) red after the deploy that were green before it` : "no new reds");
+    return reds.length ? 3 : 0;
   }
   const backend = resolveBackend(argValue("--backend", argv) ?? (argValue("--api", argv) ? "custom" : "staging"), argValue("--api", argv), argValue("--stack", argv), Number(argValue("--local-port", argv) ?? 8787));
   const outArg = argValue("--out", argv);
