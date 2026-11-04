@@ -468,11 +468,13 @@ fn a_crash_inside_the_quarantine_step_never_reuses_a_quarantined_lsn() {
     let (damaged, config) = damaged_in_the_middle(50);
     // Every open after the damage reports it (G2 of the re-review), also after a crash at the
     // open's last step, which no later open can see the damage from.
+    // At the segment where the journal ends (N4 of the fourth review: the record is made before
+    // the moves, so a crash after them never turns it into a vaguer one).
     let reports_the_loss = |report: &OpenReport| {
-        report
-            .damage
-            .iter()
-            .any(|damage| matches!(damage, Damage::Corrupt { lost_through: 40, .. }))
+        report.damage.iter().any(|damage| {
+            matches!(damage, Damage::Corrupt { lost_through: 40, segment, .. }
+                if segment.as_str() == "00000000000000000002.seg")
+        })
     };
     // And tells it once (N1 of the third review): no reported loss lies inside another one.
     let reports_it_once = |report: &OpenReport| {
@@ -503,8 +505,8 @@ fn a_crash_inside_the_quarantine_step_never_reuses_a_quarantined_lsn() {
         for at in 1..=operations {
             let storage = damaged.snapshot(Crash::Process);
             storage.crash_after(at);
-            let (journal, report) = match open_at(&storage, config.clone(), 0) {
-                Ok((journal, report, _)) => (journal, report),
+            let (journal, report, opened) = match open_at(&storage, config.clone(), 0) {
+                Ok((journal, report, _)) => (journal, report, storage),
                 Err(_) => {
                     let restarted = storage.restart(crash);
                     if !restarted.names_in(&dir().join("quarantine")).is_empty() {
@@ -512,7 +514,7 @@ fn a_crash_inside_the_quarantine_step_never_reuses_a_quarantined_lsn() {
                     }
                     let (journal, report, _) = open_at(&restarted, config.clone(), 0)
                         .unwrap_or_else(|e| panic!("{crash:?} at op {at}, then open: {e}"));
-                    (journal, report)
+                    (journal, report, restarted)
                 }
             };
             assert_eq!(
@@ -522,6 +524,7 @@ fn a_crash_inside_the_quarantine_step_never_reuses_a_quarantined_lsn() {
             );
             assert!(reports_the_loss(&report), "{crash:?} at op {at}: {report:?}");
             assert!(reports_it_once(&report), "{crash:?} at op {at}: {report:?}");
+            assert_names_every_quarantined_file(&opened, &report);
         }
     }
     assert!(crashed_after_a_move > 0, "no crash point fell after a move");
@@ -761,6 +764,69 @@ fn a_damaged_newest_segment_after_a_quarantine_reports_its_records() {
         .unwrap_or(0);
     assert!(lost_through >= 43, "the loss of 41..43 is not reported: {report:?}");
     assert_eq!(journal.append(3, Class::Ack, b"after"), Ok(44), "{report:?}");
+    // N3 of the fourth review: the absorbed loss's files stay named, for a salvage.
+    assert_names_every_quarantined_file(&storage, &report);
+}
+
+/// Every segment file in `quarantine/` is named by a reported loss (a salvage finds its records).
+fn assert_names_every_quarantined_file(storage: &SimStorage, report: &OpenReport) {
+    let named: std::collections::BTreeSet<&str> = report
+        .damage
+        .iter()
+        .flat_map(|damage| match damage {
+            Damage::Corrupt { moved, .. } => moved.iter().map(String::as_str).collect(),
+            _ => Vec::new(),
+        })
+        .collect();
+    for name in storage.names_in(&dir().join("quarantine")) {
+        if !name.starts_with("damage-report") {
+            assert!(named.contains(name.as_str()), "{name} is not named: {report:?}");
+        }
+    }
+}
+
+/// G8 of the fourth review: a recovery copy is numbered above the quarantine, but its records
+/// start below the quarantined LSNs. Records 2..5 are written, not synced, and a kill -9 comes:
+/// open #1 copies them into segment 2 (C1), and the writer goes on there with 6..10. C1's header
+/// is damaged: open #2 quarantines C1, copies 2..5 again into segment 3 (C2) and makes the empty
+/// segment 4 (E, first LSN 11). E's header is damaged too. Open #3 must still give 11.
+#[test]
+fn a_recovery_copy_above_a_quarantine_never_reuses_a_quarantined_lsn() {
+    let storage = SimStorage::new(58);
+    let config = Config { stream_sync_delay: Duration::from_secs(60), ..quick() };
+    let (journal, _, _) = open_at(&storage, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(journal.append(1, Class::Ack, b"one"), Ok(1));
+    journal.wait_durable(1, WAIT).unwrap_or_else(|e| panic!("{e}"));
+    assert!(eventually(|| journal.full_durable_lsn() >= 1), "{:?}", journal.stats());
+    for lsn in 2..=5 {
+        assert_eq!(journal.append(1, Class::Stream, &payload(lsn)), Ok(lsn));
+    }
+    assert!(eventually(|| journal.stats().written_lsn >= 5), "{:?}", journal.stats());
+    assert_eq!(journal.durable_lsn(), 1, "the stream records must not be synced yet");
+    let killed = storage.restart(Crash::Process);
+    drop(journal);
+    // Open #1: the copy C1 (segment 2), and 6..10 in it.
+    let (journal, report, seen) =
+        open_at(&killed, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!((lsns(&seen), report.rewritten), ((1..=5).collect::<Vec<_>>(), 4), "{report:?}");
+    for lsn in 6..=10 {
+        assert_eq!(journal.append(1, Class::Ack, &payload(lsn)), Ok(lsn));
+    }
+    assert_eq!(journal.seal(WAIT), Ok(10));
+    drop(journal);
+    let killed = killed.restart(Crash::Process);
+    killed.corrupt(&dir().join(format::segment_name(2)), 20);
+    // Open #2: C1 to quarantine, C2 (segment 3) and the empty E (segment 4); no append.
+    let (journal, report, _) =
+        open_at(&killed, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(report.next_lsn, 11, "{report:?}");
+    drop(journal);
+    let killed = killed.restart(Crash::Process);
+    killed.corrupt(&dir().join(format::segment_name(4)), 20);
+    // Open #3.
+    let (journal, report, _) = open_at(&killed, config, 0).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(journal.append(1, Class::Ack, b"after"), Ok(11), "{report:?}");
+    assert_names_every_quarantined_file(&killed, &report);
 }
 
 // ---------------------------------------------------------------- real file system
