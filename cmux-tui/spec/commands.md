@@ -624,7 +624,8 @@ object{
   write_path?:object{
     effect_intents:uint64, effect_intent_failures:uint64,
     effect_intent_batches:uint64, request_effect_commits:uint64,
-    writer_registry_locks:uint64
+    writer_registry_locks:uint64, wal_commits?:uint64,
+    wal_synced_commits?:uint64, registry_wal_frame_bytes?:uint64
   },
   locks?:object{registry:lock_detail, state:lock_detail},
   hook_queue?:object{queued_events:uint64,reset_dropped_events:uint64,undeliverable_events:uint64}
@@ -680,7 +681,14 @@ stopped, or not yet running. `writer_registry_locks` counts, process-wide,
 registry lock, registry connection or mux state lock acquisitions on a
 journal writer thread. It is always `0`: a request thread holds the registry
 lock (and may hold state) while it waits for its writer receipt, so the
-writer never takes either.
+writer never takes either. `wal_commits` counts the registry commits written
+to the WAL (`synchronous=NORMAL`) and `wal_synced_commits` those the WAL syncer
+has flushed to disk. `registry_wal_frame_bytes` counts the bytes of the WAL
+frames those commits appended (each frame is a 24-byte header and one page):
+what the registry's writes put on the disk, before the checkpoint copies each
+page into the database once more. Its first count after a start also holds the
+frames a previous run left in the WAL, so a reader compares two reads (the
+bytes one change writes). Daemons older than each field omit it.
 
 `locks` reports the workspace registry lock (`registry`) and the mux state
 lock (`state`) by acquiring site, so a convoy names the code that holds it.

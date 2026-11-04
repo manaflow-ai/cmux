@@ -48,7 +48,7 @@ public final class AddressBarView: NSView {
     let panel = OmniboxSuggestionPanel()
     let density = DensityBinding()
 
-    private var reportedURL: URL?
+    var reportedURL: URL?
     /// Whether the field's cursor rects were last built for editing.
     private var cursorRectsEditing = false
     /// The text area the bar's cursor rects were last built for.
@@ -143,6 +143,8 @@ public final class AddressBarView: NSView {
 
     /// The tab this omnibar belongs to: never offered as its own Switch to Tab row.
     public var tabKey: String?
+    /// The profile badge shown now (`setProfileBadge`).
+    private(set) var shownProfileBadge: BrowserProfileBadge?
 
     var resolver: OmniboxResolver {
         var resolver = suggestionEngine.resolver
@@ -267,6 +269,7 @@ public final class AddressBarView: NSView {
     /// The tab's browser profile as a small avatar; nil hides it (one
     /// profile, or an incognito tab).
     public func setProfileBadge(_ badge: BrowserProfileBadge?) {
+        shownProfileBadge = badge
         if let badge { profileBadgeView.show(badge) }
         profileBadgeView.isHidden = badge == nil
         updateBadgeSpace()
