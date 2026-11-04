@@ -61,7 +61,9 @@ public enum TeamCreationRoute: Equatable, Sendable {
     ///   - teamAPIBase: The cmux web API origin (`https://cmux.com` for production).
     ///   - mobileServiceBase: The cmux mobile service base, when configured.
     public init(productionAccount: Bool, teamAPIBase: URL?, mobileServiceBase: URL?) {
-        if let mobileServiceBase {
+        if productionAccount, let teamAPIBase {
+            self = .teamAPI(teamAPIBase)
+        } else if let mobileServiceBase {
             self = .mobileService(mobileServiceBase)
         } else {
             self = .unavailable
