@@ -15,11 +15,14 @@ public struct ImportedTokenPair: Equatable, Sendable {
 
 /// A token store that adopts a session another app already holds when it has none of its own.
 ///
-/// The first read in a process that finds no refresh token in `primary` asks each source in order and
-/// copies the first pair found into `primary`; every later read and write is `primary`'s alone. A source
-/// is only ever read: signing out, a refresh and a definitive rejection change `primary` and never the
-/// app the session came from. An explicit write (a sign-in, a sign-out) before the first read ends the
-/// import for the process, so a sign-out is never undone by a source until the next launch.
+/// The first use in a process that finds no refresh token in `primary` asks each source in order and
+/// copies the first pair found into `primary`; every later read and write is `primary`'s alone. Every
+/// method waits for that one import, so no caller sees the empty store it started from and no write
+/// lands under it. A source is only ever read: a refresh or a sign-out changes `primary` and never the
+/// app the session came from. The adopted refresh token is the other app's own Stack session, so a
+/// sign-out must not revoke it on the server: ``isShared(refreshToken:)`` says so for
+/// `StackAuthClient`'s `keepsServerSession`. A write (a sign-in, a sign-out) before the first use ends
+/// the import for the process; the next launch with an empty `primary` adopts again.
 ///
 /// ```swift
 /// let store = ImportingTokenStore(primary: ownStore, sources: [{ nightlyKeychain.read() }])
@@ -29,7 +32,7 @@ public actor ImportingTokenStore: StackAuthTokenStoreProtocol {
 
     private let primary: any StackAuthTokenStoreProtocol
     private let sources: [Source]
-    private var settled = false
+    private var importTask: Task<Void, Never>?
     private let log = AuthDebugLog()
 
     /// - Parameters:
@@ -40,47 +43,65 @@ public actor ImportingTokenStore: StackAuthTokenStoreProtocol {
         self.sources = sources
     }
 
-    private func importIfNeeded() async {
-        guard !settled else { return }
-        settled = true
-        if let own = await primary.getStoredRefreshToken(), !own.isEmpty { return }
-        for (index, source) in sources.enumerated() {
-            guard let pair = await source() else { continue }
-            await primary.setTokens(accessToken: pair.accessToken, refreshToken: pair.refreshToken)
-            log.log("importing.store: adopted a session from source \(index) hasAccess=\(pair.accessToken != nil)")
-            return
+    /// Runs the import once per process (or not at all after an earlier write) and waits for it.
+    private func settle(skippingImport: Bool = false) async {
+        if importTask == nil {
+            if skippingImport {
+                importTask = Task {}
+            } else {
+                let primary = primary
+                let sources = sources
+                let log = log
+                importTask = Task {
+                    if let own = await primary.getStoredRefreshToken(), !own.isEmpty { return }
+                    for (index, source) in sources.enumerated() {
+                        guard let pair = await source() else { continue }
+                        await primary.setTokens(accessToken: pair.accessToken, refreshToken: pair.refreshToken)
+                        log.log("importing.store: adopted a session from source \(index) hasAccess=\(pair.accessToken != nil)")
+                        return
+                    }
+                    log.log("importing.store: no source had a session")
+                }
+            }
         }
-        log.log("importing.store: no source had a session")
+        await importTask?.value
+    }
+
+    /// Whether `refreshToken` is the session a source holds now: the other app's own, which a sign-out
+    /// here must leave alive on the server.
+    public func isShared(refreshToken: String) async -> Bool {
+        for source in sources where await source()?.refreshToken == refreshToken { return true }
+        return false
     }
 
     public func getStoredAccessToken() async -> String? {
-        await importIfNeeded()
+        await settle()
         return await primary.getStoredAccessToken()
     }
 
     public func getStoredRefreshToken() async -> String? {
-        await importIfNeeded()
+        await settle()
         return await primary.getStoredRefreshToken()
     }
 
     public func setTokens(accessToken: String?, refreshToken: String?) async {
-        settled = true
+        await settle(skippingImport: true)
         await primary.setTokens(accessToken: accessToken, refreshToken: refreshToken)
     }
 
     public func clearTokens() async {
-        settled = true
+        await settle(skippingImport: true)
         await primary.clearTokens()
     }
 
     @discardableResult
     public func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool {
-        settled = true
+        await settle(skippingImport: true)
         return await primary.clearTokensIfCurrent(accessToken: accessToken, refreshToken: refreshToken)
     }
 
     public func compareAndSet(compareRefreshToken: String, newRefreshToken: String?, newAccessToken: String?) async {
-        await importIfNeeded()
+        await settle()
         await primary.compareAndSet(compareRefreshToken: compareRefreshToken, newRefreshToken: newRefreshToken,
                                     newAccessToken: newAccessToken)
     }

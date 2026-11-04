@@ -220,8 +220,14 @@ public final class CloudAuth {
             magicLinkCallbackURL: configuration.authWebOrigin.appendingPathComponent("auth/callback").absoluteString,
             apiBaseURL: configuration.apiBaseURL.absoluteString
         )
+        // A session adopted from cmux NIGHTLY is NIGHTLY's own: a sign-out here leaves it alive on the server.
+        let importing = tokenStore as? ImportingTokenStore
+        let keepsServerSession: (@Sendable (String) async -> Bool)? = importing.map { store in
+            { refreshToken in await store.isShared(refreshToken: refreshToken) }
+        }
         return StackAuthClient(config: config, tokenStore: .custom(tokenStore),
-                               baseURL: configuration.stackBaseURL.absoluteString, noAutomaticPrefetch: true)
+                               baseURL: configuration.stackBaseURL.absoluteString, noAutomaticPrefetch: true,
+                               keepsServerSession: keepsServerSession)
     }
 
     /// Starts restoring the stored session (and dev auto sign-in).

@@ -82,6 +82,43 @@ import Testing
         #expect(await store.getStoredAccessToken() == "access-2")
     }
 
+    @Test func concurrentFirstReadsAllSeeTheAdoptedSession() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let nightly = CountingSource(ImportedTokenPair(accessToken: "access-n", refreshToken: "refresh-n"))
+        let store = ImportingTokenStore(primary: FileStackTokenStore(directory: directory), sources: [{ await nightly.read() }])
+
+        let reads = await withTaskGroup(of: String?.self) { group in
+            for _ in 0..<8 { group.addTask { await store.getStoredRefreshToken() } }
+            return await group.reduce(into: [String?]()) { $0.append($1) }
+        }
+        #expect(reads == Array(repeating: "refresh-n", count: 8))
+        #expect(await nightly.reads == 1)
+    }
+
+    @Test func aSignInRacingTheImportIsNotOverwritten() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let nightly = CountingSource(ImportedTokenPair(accessToken: "access-n", refreshToken: "refresh-n"))
+        let store = ImportingTokenStore(primary: FileStackTokenStore(directory: directory), sources: [{ await nightly.read() }])
+
+        async let read = store.getStoredRefreshToken()
+        async let signIn: Void = store.setTokens(accessToken: "access-signin", refreshToken: "refresh-signin")
+        _ = await (read, signIn)
+        // Whichever ran first, the sign-in's pair is the one left stored.
+        #expect(await store.getStoredRefreshToken() == "refresh-signin")
+    }
+
+    @Test func onlyTheSourcesCurrentSessionIsShared() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let nightly = CountingSource(ImportedTokenPair(accessToken: "access-n", refreshToken: "refresh-n"))
+        let store = ImportingTokenStore(primary: FileStackTokenStore(directory: directory), sources: [{ await nightly.read() }])
+
+        #expect(await store.isShared(refreshToken: "refresh-n"))
+        #expect(!(await store.isShared(refreshToken: "refresh-own")))
+    }
+
     @Test func aPairWithoutARefreshTokenIsNoSession() {
         #expect(ImportedTokenPair(accessToken: "access", refreshToken: nil) == nil)
         #expect(ImportedTokenPair(accessToken: "access", refreshToken: "") == nil)
