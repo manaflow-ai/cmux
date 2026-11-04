@@ -15,15 +15,23 @@ public import Foundation
 public nonisolated struct DaemonDiagnosticKnobs: Sendable, Equatable {
     /// App launch knob to daemon variable: key-press flow marks (scripts/cmux-next/trace.py), the
     /// create-path debug timing marks, the terminal host model (`holder`: the install's one holder
-    /// instead of a host process per terminal; scripts/cmux-next/holder-dogfood.py, default off), and
+    /// instead of a host process per terminal; scripts/cmux-next/holder-dogfood.py, default off),
     /// the R-DAEMON-STATE stage switches (`1` turns a stage's new path on; default off, deleted with
-    /// the old path when the stage passes; handoff/rewrites/R-DAEMON-STATE/DESIGN.md section 3).
+    /// the old path when the stage passes; handoff/rewrites/R-DAEMON-STATE/DESIGN.md section 3), and
+    /// the R-LIFECYCLE keepers switch (`0` keeps the app's daemon and Chief daemon running after the
+    /// app left with nothing to keep them, as before; default on; deleted when the stage has passed
+    /// dogfood).
     public static let names: [(app: String, daemon: String)] = [
         ("CMUX_NEXT_TRACE_FLOWS", "CMUX_TRACE_FLOWS"),
         ("CMUX_NEXT_TUI_DEBUG_SPANS", "CMUX_TUI_DEBUG_SPANS"),
         ("CMUX_NEXT_TUI_TERMINAL_HOST_MODEL", "CMUX_TUI_TERMINAL_HOST_MODEL"),
         ("CMUX_NEXT_TUI_RDS_INPUT", "CMUX_TUI_RDS_INPUT"),
+        ("CMUX_NEXT_TUI_OWNER_KEEPERS", ownerKeepersDaemonName),
     ]
+
+    /// The R-LIFECYCLE keepers switch under the daemon's name; the Chief owner's launch passes it on too
+    /// (`DaemonLauncher.chiefEnvironment`).
+    static let ownerKeepersDaemonName = "CMUX_TUI_OWNER_KEEPERS"
 
     /// The daemon variables to set, from the knobs present and non-empty in the app's environment.
     public let daemonEnvironment: [String: String]
