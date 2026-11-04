@@ -1,0 +1,20 @@
+{
+  "title": "Diff viewer from a lone chat",
+  "settings": {"layout": {"mainPane": "agent-chats"}},
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Main"], "shot": false},
+    {"title": "A repository with an unstaged change",
+     "cmux": ["workspace", "name:Main", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "write", "--text", "rm -rf /tmp/vrs-dev && git init -q /tmp/vrs-dev && cd /tmp/vrs-dev && echo one > notes.txt && git add notes.txt && git -c user.name=cmux -c user.email=cmux@example.com commit -qm notes && echo two >> notes.txt && echo READY\r"],
+     "wait": 3, "shot": false},
+    {"title": "An agent chat docks left, the terminal on its right", "cmux": ["agent", "new-chat"], "wait": 5},
+    {"title": "Focus the terminal column", "cmux": ["action", "run", "focusRight"], "shot": false},
+    {"title": "Close it: the chat is alone", "cmux": ["action", "run", "closePane"], "wait": 3,
+     "optional": "closing the terminal asked to confirm"},
+    {"title": "Panes before (one pane, the chat)", "cmux": ["--json", "workspace", "name:Main", "screen", "current", "pane", "list"], "shot": false},
+    {"title": "Open Diff Viewer on the lone chat", "cmux": ["action", "run", "openDiffViewer", "--arg", "path=/tmp/vrs-dev", "--focus"], "wait": 4},
+    {"title": "Panes after (the chat, and the diff in a right split)", "cmux": ["--json", "workspace", "name:Main", "screen", "current", "pane", "list"], "shot": false},
+    {"title": "Screen tree after", "cmux": ["--json", "workspace", "name:Main", "screen", "current", "show"], "shot": false},
+    {"title": "Surfaces after", "rpc": {"method": "debug.surfaces", "params": {}}, "shot": false, "optional": "debug.surfaces is DEBUG only"}
+  ]
+}
