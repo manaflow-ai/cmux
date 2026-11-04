@@ -38,7 +38,9 @@ A found (or cut) side gives:
   strip      the ground strip's width; remainder (high side): minus the low side's, the whole-cell remainder
   lag        k: the content edge shows the pane edge of k samples before the shown one (the first k of 0..12, -1..-3
              within 1 px)
-and per pane and line, shell inside the pane: exact shell pixels inside the pane's rect (beyond the rest count).
+and per pane and line, on one row of its own (side "inside", never on the side rows: it is no side's), shell inside
+the pane: exact shell pixels in the pane's visible span on the line (beyond the rest count), and the frames that show
+none of the pane's fill on the line (no fill).
 Dividers: the middle of the gap between the content edges of the two fixture panes beside each trace divider, read
 only in frames where both content edges are on their pane edges (less than 1 px off; a late edge is off). In a frame
 where one is off, the derived middle moves with that edge while the divider can be on time, and the edge's own row
@@ -856,11 +858,10 @@ def judge(base, all_frames=False):
         gap_rest = float(np.median([per[f]["gap"] for f in pool])) if pool else 0.0
         strips = [per[f]["strip"] for f in pool if per[f].get("strip") is not None]
         strip_rest = float(np.median(strips)) if strips else None
-        shell_rest = float(np.median([inside[(pid, name, axis)][f][0] for f in rest_pool if inside[(pid, name, axis)][f]] or [0]))
         other = measured.get((pid, name, axis, "lo")) if side == "hi" else None
-        worst = {"gap_dev": 0.0, "hidden": 0, "cut": 0, "no_fill": 0, "strip_max": None, "remainder_max": None, "backdrop": 0,
-                 "backdrop_max": 0.0, "shell_max": 0.0}
-        lists = {"not_found": [], "cue": [], "shell_in": []}
+        worst = {"gap_dev": 0.0, "hidden": 0, "cut": 0, "strip_max": None, "remainder_max": None, "backdrop": 0,
+                 "backdrop_max": 0.0}
+        lists = {"not_found": [], "cue": []}
         for f in range(film.n):
             m = per[f]
             if m is None:
@@ -868,15 +869,6 @@ def judge(base, all_frames=False):
             entry = {"f": f, "t_ms": round((film.t[f] - film.t[0]) * 1000, 2), "sample": shown[f], "line": name, "pane": pid,
                      "label": info["label"], "side": side, "status": m.get("status")}
             problems = []
-            shell_px, has_fill = inside[(pid, name, axis)][f] or (0, True)
-            if shell_px > shell_rest + 0.5:
-                lists["shell_in"].append(f)
-                worst["shell_max"] = max(worst["shell_max"], shell_px - shell_rest)
-                entry["shell_in"] = shell_px
-                problems.append(f"shell inside the pane: {shell_px - shell_rest:.0f} px")
-            if not has_fill:
-                worst["no_fill"] += 1
-                entry["no_fill"] = True
             status = m.get("status")
             if status == "not found":
                 lists["not_found"].append(f)
@@ -933,12 +925,13 @@ def judge(base, all_frames=False):
             add_frame(f, entry)
         summary[f"{info['label']}:{pid}:{name}:{side}"] = row_summary(
             "pane", pid, info["label"], "agent" if info["agent"] else info["kind"], name, side, track,
-            rest={"edge_err": track["rest_offset"], "gap": gap_rest, "strip": strip_rest, "rings": rings_rest, "shell_in": shell_rest},
+            rest={"edge_err": track["rest_offset"], "gap": gap_rest, "strip": strip_rest, "rings": rings_rest},
             max_gap_px=round(worst["gap_dev"], 2), hidden_ring_frames=worst["hidden"], cut_ring_frames=worst["cut"],
-            no_fill_frames=worst["no_fill"], not_found_frames=len(lists["not_found"]), not_found_ranges=ranges(lists["not_found"]),
-            cue_frames=len(lists["cue"]), cue_ranges=ranges(lists["cue"]), shell_in_frames=len(lists["shell_in"]),
-            shell_in_ranges=ranges(lists["shell_in"]), shell_in_max_px=round(worst["shell_max"], 1), strip_max_px=worst["strip_max"],
+            not_found_frames=len(lists["not_found"]), not_found_ranges=ranges(lists["not_found"]),
+            cue_frames=len(lists["cue"]), cue_ranges=ranges(lists["cue"]), strip_max_px=worst["strip_max"],
             remainder_max_px=worst["remainder_max"], backdrop_frames=worst["backdrop"], backdrop_max_px=worst["backdrop_max"])
+
+    judge_inside(film, shown, inside, rest_frames, summary, add_frame)
 
     # -- dividers: the middle of the gap between the two fixture panes beside each one --
     for did, (axis, centres, rects) in sorted(dividers.items(), key=lambda kv: str(kv[0])):
@@ -1012,6 +1005,41 @@ def judge(base, all_frames=False):
     report["frame_findings"] = [{"f": f, "entries": frames_out[f]} for f in sorted(frames_out)]
     report["findings"], report["info"] = findings_of(report)
     return report
+
+
+def judge_inside(film, shown, inside, rest_frames, summary, add_frame):
+    """The shell inside each pane: one row per pane and line (side "inside"), never on its side rows. measure() counts it
+    in the pane's whole visible span on the line, so it is no side's; on both side rows it was each defect twice (FRAME
+    OWNER's 3c). INSIDE: (pid, line, axis) -> per frame (shell px, has fill) or None. A line that shows none of the
+    pane's fill at rest (a ring row or its strip) is not judged. The rest count is the median over the rest frames that
+    measure the pane (the first REST_FALLBACK frames when none do); a frame more than 0.5 px above it shows the shell
+    inside the pane. No fill: the frames that show none of the pane's fill on the line."""
+    for (pid, name, axis), per in sorted(inside.items()):
+        info = film.panes[pid]
+        rest_pool = [f for f in rest_frames if per[f] is not None] or [f for f in range(film.n) if per[f] is not None][:REST_FALLBACK]
+        if not any(per[f][1] for f in rest_pool):
+            continue  # the line shows none of the pane's fill at rest: not judged
+        shell_rest = float(np.median([per[f][0] for f in rest_pool]))
+        shell_in, no_fill, shell_max = [], [], 0.0
+        for f in range(film.n):
+            if per[f] is None:
+                continue
+            shell_px, has_fill = per[f]
+            entry = {"f": f, "t_ms": round((film.t[f] - film.t[0]) * 1000, 2), "sample": shown[f], "line": name, "pane": pid,
+                     "label": info["label"], "side": "inside", "shell_px": shell_px}
+            if not has_fill:
+                no_fill.append(f)
+                entry["no_fill"] = True
+            if shell_px > shell_rest + 0.5:
+                shell_in.append(f)
+                shell_max = max(shell_max, shell_px - shell_rest)
+                entry["shell_in"] = shell_px
+                entry["problems"] = [f"shell inside the pane: {shell_px - shell_rest:.0f} px"]
+            add_frame(f, entry)
+        summary[f"{info['label']}:{pid}:{name}:inside"] = row_summary(
+            "pane", pid, info["label"], "agent" if info["agent"] else info["kind"], name, "inside",
+            rest={"shell_in": shell_rest}, shell_in_frames=len(shell_in), shell_in_ranges=ranges(shell_in),
+            shell_in_max_px=round(shell_max, 1), no_fill_frames=len(no_fill), no_fill_ranges=ranges(no_fill))
 
 
 def judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, line_codes):
