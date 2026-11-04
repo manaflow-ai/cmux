@@ -18,6 +18,14 @@ export const newTabComposerTrailingGap = defineExperiment({
       label: "Roomy",
       description: "The legacy 8px action gap.",
     },
+    touching: {
+      label: "Touching",
+      description: "No gap between the mic and Send.",
+    },
+    wide: {
+      label: "Wide",
+      description: "A 16px action gap.",
+    },
   },
   defaultArm: "shared",
 });

@@ -465,6 +465,8 @@
 .nt-composer[data-trailing-gap="tight"] { --acpmux-composer-action-gap: 2px; }
 .nt-composer[data-trailing-gap="shared"] { --acpmux-composer-action-gap: var(--ds-space-1); }
 .nt-composer[data-trailing-gap="roomy"] { --acpmux-composer-action-gap: var(--ds-space-2); }
+.nt-composer[data-trailing-gap="touching"] { --acpmux-composer-action-gap: 0px; }
+.nt-composer[data-trailing-gap="wide"] { --acpmux-composer-action-gap: 16px; }
 /* The style dots (StyleSwitch.tsx, Leo 2026-10-14): a 24px target per style around a 6px round dot,
    the rest dim on the text ink and the current one under the accent dot that slides to a pick
    (useSlidingIndicator places and slides it; no CSS transition here). A
