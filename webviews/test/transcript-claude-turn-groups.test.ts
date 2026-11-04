@@ -4,9 +4,11 @@
 //
 // - Codex and ChatGPT: the turn's work, its interim chatter with it, folds under one "Worked for";
 //   the final answer stays below it.
-// - Claude, as Claude desktop: no "Worked for". Each run of calls, the short notes inside it with
-//   it, folds into its own summary line; a longer message between runs stays in place; the final
-//   answer stays last.
+// - Claude: the same one "Worked for" at the top (Leo, 2026-11-04: "ofc claude code doesn't
+//   actually have the worked for... but i think we should be able to do that replacing the top
+//   level thingy maybe"). Opened, it draws as Claude desktop does: each run of calls, the short
+//   notes inside it with it, folds into its own summary line; a longer message between runs stays
+//   in place; the final answer stays last.
 // - Both: a steer and the reply before it are never folded (Leo, 2026-10-31: "THE FACT THAT YOUR
 //   INTERIM MESSAGE YOU SENT BETWEEN STEERS GOT COLLAPSED" was the miss).
 //
@@ -17,7 +19,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
+import { SUPERSEDED, turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000c1";
 const history = readFileSync(new URL("./fixtures/claude-turn-groups.ndjson", import.meta.url), "utf8")
@@ -83,10 +85,21 @@ const LONG = /^Step (\d+) found/;
 const longAt = (row: AcpmuxRow) => Number(LONG.exec(row.text ?? "")?.[1]);
 const assistants = (rows: readonly AcpmuxRow[]) => rows.filter((row) => row.kind === "assistant");
 
-test("the recorded Claude turn ends as Claude desktop draws it: a line per run, longer messages between", async () => {
+test("the recorded Claude turn folds under one Worked for, the answer below it", async () => {
   const rows = await replayRows();
   const view = turnView(rows, new Set(), { now: history.at(-1).at + 60_000, liveRuns: true, agentFamily: "claude" });
-  expect(view.some((row) => row.kind === WORKED)).toBe(false);
+  expect(view.filter((row) => row.kind === WORKED)).toHaveLength(1);
+  expect(view.some((row) => row.kind === "activity" && !row.merged)).toBe(false);
+  expect(assistants(view).map(longAt)).toEqual([17]);
+  expect(view.find((row) => row.kind === "turnSummary")?.folded).toBe(true);
+});
+
+test("the recorded Claude turn, its Worked for opened, draws as Claude desktop: a line per run, longer messages between", async () => {
+  const rows = await replayRows();
+  const options = { now: history.at(-1).at + 60_000, liveRuns: true, agentFamily: "claude" };
+  const worked = turnView(rows, new Set(), options).find((row) => row.kind === WORKED)!;
+  const view = turnView(rows, new Set([worked.id]), options);
+  expect(view.filter((row) => row.kind === WORKED).map((row) => row.foldOpen)).toEqual([true]);
   // Every run folds into its summary line, which opens on a click (the edited-files card is not a run).
   const runs = view.filter((row) => row.kind === "activity" && !row.merged);
   expect(runs.length).toBeGreaterThan(1);
@@ -113,7 +126,7 @@ test("the recorded Claude turn ends as Claude desktop draws it: a line per run, 
   ).toEqual([14, 16, 17]);
   const summary = view.findIndex((row) => row.kind === "turnSummary");
   expect(assistants(view.slice(0, summary)).at(-1)?.text).toMatch(/^Step 17 found/);
-  expect(view[summary]?.folded).toBe(false);
+  expect(view[summary]?.folded).toBe(true);
 });
 
 test("the same turn in a Codex chat folds all its work and chatter under one Worked for", async () => {
@@ -155,13 +168,32 @@ function steered() {
   ];
 }
 
-test("a steered Claude turn keeps the steer and the reply before it in sight, each run on its own line", () => {
-  const view = turnView(steered(), new Set(), {
-    now: Date.UTC(2026, 10, 1, 10),
-    liveRuns: true,
-    agentFamily: "claude",
-  });
-  expect(view.map((row) => row.id)).toEqual(["u", "b1", "r1", "b3", "s1", "b4", "answer", "sum"]);
+test("a steered Claude turn folds as Codex's does; opened, each run is on its own line", () => {
+  const options = { now: Date.UTC(2026, 10, 1, 10), liveRuns: true, agentFamily: "claude" };
+  expect(turnView(steered(), new Set(), options).map((row) => row.id)).toEqual([
+    "u",
+    `${WORKED}-u`,
+    "r1",
+    `${SUPERSEDED}-s1`,
+    "s1",
+    "answer",
+    "sum",
+  ]);
+  // The stretch the person came in on ends on its own footer, right over the steer (turns.ts
+  // supersededFooters).
+  const view = turnView(steered(), new Set([`${WORKED}-u`]), options);
+  expect(view.map((row) => row.id)).toEqual([
+    "u",
+    `${WORKED}-u`,
+    "b1",
+    "r1",
+    "b3",
+    `${SUPERSEDED}-s1`,
+    "s1",
+    "b4",
+    "answer",
+    "sum",
+  ]);
   // The notes inside a run draw as its quiet lines; the reply before the steer is never one.
   const notes = (id: string) =>
     (view.find((row) => row.id === id)?.items ?? []).filter((item) => item.kind === "note").map((item) => item.text);
@@ -172,5 +204,5 @@ test("a steered Claude turn keeps the steer and the reply before it in sight, ea
 
 test("a steered Codex turn still folds everything but the steer, the reply before it and the answer", () => {
   const view = turnView(steered(), new Set(), { now: Date.UTC(2026, 10, 1, 10), liveRuns: true, agentFamily: "codex" });
-  expect(view.map((row) => row.id)).toEqual(["u", `${WORKED}-u`, "r1", "s1", "answer", "sum"]);
+  expect(view.map((row) => row.id)).toEqual(["u", `${WORKED}-u`, "r1", `${SUPERSEDED}-s1`, "s1", "answer", "sum"]);
 });

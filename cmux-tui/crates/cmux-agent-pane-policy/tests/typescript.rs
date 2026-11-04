@@ -306,23 +306,37 @@ fn trust_refusal_reasons_are_the_daemons() {
 /// AGENT-TRUST-GATE: the page sends `sessionId` on `acp.trust.get` and
 /// `acp.trust.set` when a chat is selected (direct.ts `trustGet`,
 /// `trustSet`; acpmux routes a remote session's answer to its peer), and the
-/// hosts allow it (`knownParams`) when the session is the pane's
+/// shared trustTarget helper selects a peer before a session exists. The
+/// hosts allow both (`knownParams`) when the session is the pane's
 /// (`optionallySessionScoped`, sessions.json).
 #[test]
 fn trust_session_id_is_sent_and_scoped() {
     let dir = pane();
     let direct = read(&dir, "direct.ts");
+    let start = direct.find("private trustTarget()").expect("trustTarget in direct.ts");
+    let target = &direct[start..];
+    let target = &target[..target.find("\n  }").unwrap()];
+    assert!(
+        target.contains("sessionId: this.selectedSessionId"),
+        "selected chat routes by session"
+    );
+    assert!(target.contains("const peer = this.trustPeer"), "new chat uses its trust peer");
+    assert!(target.contains("return peer ? { peer } : {}"), "local new chat has no selector");
     for (function, method) in [("trustGet(", "acp.trust.get"), ("trustSet(", "acp.trust.set")] {
         let start = direct.find(function).unwrap_or_else(|| panic!("{function} in direct.ts"));
         let body = &direct[start..];
         let body = &body[..body.find("\n  }").unwrap()];
         assert!(
-            body.contains("sessionId: this.selectedSessionId"),
-            "{method}: the page sends sessionId"
+            body.contains("...this.trustTarget()"),
+            "{method}: the page uses the shared trust target"
         );
         assert!(
             policy().known_params[method].params.contains("sessionId"),
             "{method}: the hosts allow sessionId"
+        );
+        assert!(
+            policy().known_params[method].params.contains("peer"),
+            "{method}: the hosts allow a peer before session creation"
         );
         assert!(
             policy().optionally_session_scoped.contains(method),

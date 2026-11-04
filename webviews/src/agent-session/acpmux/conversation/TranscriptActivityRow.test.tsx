@@ -68,12 +68,14 @@ test("subagent, messaging, and inbox activity use the shared row and agent tag",
   expect(source("./TranscriptActivityRow.tsx")).toContain("<AgentTag name={name}");
 });
 
-test("the shared activity row keeps one tone under the pointer; only keyboard focus lifts it", () => {
+test("the shared activity row lights only its chevron on hover and press, never its words", () => {
   const css = source("./TranscriptActivityRow.css");
-  expect(css).toContain(".cv-agent-activity-row:has(:focus-visible)");
-  // No hover or press tone on the line (design/chat-transcript.md steady tone): its controls keep
-  // their own highlights (AgentTag.css).
-  expect(css).not.toMatch(/\.cv-agent-activity-row[^{]*:(?:hover|active)[^{]*\{/);
+  expect(css).toContain(
+    ".cv-agent-activity-row:is(:hover, :active, :focus-visible, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) > button.cv-agent-activity__control .cv-agent-activity__chevron,",
+  );
+  expect(css).not.toMatch(/\) > \.cv-agent-activity__control \{/);
+  // A chevron beside the line's button lifts too (SubagentDoneLine.tsx).
+  expect(css).toContain(":has(> button.cv-agent-activity__control) > .cv-agent-activity__chevron {");
   expect(source("./AgentTag.css")).toContain(":is(:hover, :focus-visible, :active)");
 });
 

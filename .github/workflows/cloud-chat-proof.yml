@@ -1,0 +1,164 @@
+name: Cloud chat proof (staging, tagged DEV app)
+
+# One manual trip through a Cloud chat from a tagged DEV build of the dispatched commit, signed in as
+# the team's agent test account: build and launch the app with `scripts/reload.sh --auth-profile agent
+# --credentials-file`, then through its own CLI run `cmux vm token create` and `cmux cloud start-chat
+# --wait`, read the reply back and kill the machine the chat made. A tagged Debug build signs in on the
+# staging Stack project, talks to cmux-staging.vercel.app for Cloud and mints VM keys at
+# vm-staging.cmux.dev (CloudConfiguration.resolve, AppControl+VMAgentKey.vmBaseURL). Nothing gates on
+# it. The evidence (each step's exit code and message, and the reply text; never a key) is the run
+# summary and the only artifact.
+#
+# Secrets: the repo's dev stack pair (CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD, the pair ios-e2e.yml
+# writes as CMUX_UITEST_STACK_* for the agent profile) reaches one step through env, which writes them
+# to a 0600 file only the app reads; an always() step removes it. Manual dispatch on feat-cmux-next only.
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: Extra context for the Cloud chat; the browser proof is always required
+        required: false
+        default: "After the browser proof, mention the result in one short sentence."
+        type: string
+      agent:
+        description: The harness the chat starts (claude or codex)
+        required: false
+        default: claude
+        type: choice
+        options: [claude, codex]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-chat-proof-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  proof:
+    if: github.ref == 'refs/heads/feat-cmux-next'
+    # The environment machine-join-e2e.yml and machine-vault-e2e.yml use: limited to feat-cmux-next
+    # by GitHub's branch policy. The job holds the stack pair, so an ephemeral Blacksmith macOS VM
+    # from the declared pool, never a variable that could name a persistent Mac.
+    environment: cmux-next-vm-image-dev
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 120
+    env:
+      CMUX_PROOF_TAG: ccp-${{ github.run_id }}
+      CMUX_SKIP_ZIG_BUILD: "1"
+      SWIFT_BACKTRACE: interactive=no,timeout=0s,symbolicate=off,color=no
+    steps:
+      - name: Refuse any ref but feat-cmux-next
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != refs/heads/feat-cmux-next ]; then
+            echo "::error::cloud-chat-proof runs on feat-cmux-next only (got $REF)"
+            exit 1
+          fi
+
+      - name: Checkout cmux
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      # Same toolchain as reload-build.yml: the webviews `vp build` runs on node,
+      # and check-webviews-bun-version.sh refuses a bun older than the
+      # webviews/package.json devEngines pin, which stopped run 41798237731.
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install build prerequisites
+        run: |
+          set -euo pipefail
+          ./scripts/install-zig-ci.sh
+          ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
+
+      - name: Materialize the agent auth profile
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CMUX_DOGFOOD_STACK_EMAIL:-}" ] || [ -z "${CMUX_DOGFOOD_STACK_PASSWORD:-}" ]; then
+            echo "::error::the dev stack pair is missing from cmux-next-vm-image-dev"
+            exit 1
+          fi
+          mkdir -p "$HOME/.secrets"
+          (
+            umask 077
+            printf 'CMUX_UITEST_STACK_EMAIL=%s\n' "$CMUX_DOGFOOD_STACK_EMAIL"
+            printf 'CMUX_UITEST_STACK_PASSWORD=%s\n' "$CMUX_DOGFOOD_STACK_PASSWORD"
+          ) > "$HOME/.secrets/cmuxterm-dev.env"
+          chmod 600 "$HOME/.secrets/cmuxterm-dev.env"
+
+      - name: Build and launch the tagged app
+        run: |
+          set -euo pipefail
+          ./scripts/reload.sh \
+            --tag "$CMUX_PROOF_TAG" \
+            --launch \
+            --auth-profile agent \
+            --credentials-file "$HOME/.secrets/cmuxterm-dev.env" \
+            --swift-frontend-workaround | tee "$RUNNER_TEMP/reload.out"
+          app="$(awk '/^App path:/{getline; sub(/^ +/, ""); print; exit}' "$RUNNER_TEMP/reload.out")"
+          if [ -z "$app" ] || [ ! -d "$app" ]; then
+            echo "::error::reload.sh printed no app path"
+            exit 1
+          fi
+          echo "CMUX_PROOF_APP=$app" >> "$GITHUB_ENV"
+
+      - name: Token, Cloud chat and reply
+        timeout-minutes: 30
+        env:
+          PROOF_PROMPT: ${{ inputs.prompt }}
+          PROOF_AGENT: ${{ inputs.agent }}
+        run: |
+          python3 -I scripts/cmux-next/cloud-chat-proof.py --app "$CMUX_PROOF_APP" --tag "$CMUX_PROOF_TAG" \
+            --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" --evidence "$RUNNER_TEMP/cloud-chat-proof/evidence.json"
+
+      - name: Summarize the evidence
+        id: evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          file="$RUNNER_TEMP/cloud-chat-proof/evidence.json"
+          [ -s "$file" ] || { echo "::warning::no evidence was written"; exit 0; }
+          if grep -Eiq '(cmvm|cmk|crt|crk|cmm|cmj)_[A-Za-z0-9_-]{8,}|sk-(ant-)?[A-Za-z0-9_-]{10,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|bearer[[:space:]]+[A-Za-z0-9._~+/=-]+|((api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|token|password|secret|credential)[[:space:]]*[:=])' "$file"; then
+            echo "::error::the evidence holds a secret-shaped value; it is not uploaded"
+            exit 1
+          fi
+          echo "clean=true" >> "$GITHUB_OUTPUT"
+          {
+            echo '## Cloud chat proof (staging)'
+            echo
+            echo '```json'
+            cat "$file"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the evidence
+        if: always() && steps.evidence.outputs.clean == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-chat-proof-evidence
+          path: ${{ runner.temp }}/cloud-chat-proof/evidence.json
+          if-no-files-found: warn
+          retention-days: 3
+
+      - name: Remove the auth profile
+        if: always()
+        run: |
+          rm -f "$HOME/.secrets/cmuxterm-dev.env"
+          rmdir "$HOME/.secrets" 2>/dev/null || true

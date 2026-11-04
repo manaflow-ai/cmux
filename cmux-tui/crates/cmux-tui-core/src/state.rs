@@ -62,6 +62,8 @@ mod group_icon_tests;
 mod group_pin_tests;
 #[cfg(test)]
 mod group_reuse_tests;
+#[cfg(test)]
+mod group_update_latency_tests;
 pub(crate) mod home;
 pub(crate) mod home_store;
 #[cfg(test)]

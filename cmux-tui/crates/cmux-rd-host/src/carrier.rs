@@ -112,6 +112,8 @@ pub struct LinkCarrier {
     pub net: cmux_rd_link::net::Net,
     /// Path changes for the caller (the pane's path badge, the congestion controller).
     pub paths: Vec<cmux_rd_link::EndpointEvent>,
+    /// The current path's round trip, until the engine reads it.
+    pub rtt_us: Option<u64>,
 }
 
 #[cfg(feature = "link")]
@@ -137,8 +139,11 @@ impl Carrier for LinkCarrier {
                     return Err("viewer closed the link".into());
                 }
                 NetEvent::Failed(reason) => return Err(format!("link failed: {reason}")),
-                NetEvent::Endpoint(path @ EndpointEvent::PathChanged { .. }) => {
-                    self.paths.push(path)
+                NetEvent::Endpoint(path @ EndpointEvent::PathChanged { rtt_us, .. }) => {
+                    if rtt_us.is_some() {
+                        self.rtt_us = rtt_us;
+                    }
+                    self.paths.push(path);
                 }
                 _ => {}
             }
@@ -156,4 +161,31 @@ impl Carrier for LinkCarrier {
         self.net.send_control(record);
         Ok(())
     }
+}
+
+/// A TURN relay as the app passes it (the hub ticket's relays): `host:port` and
+/// the long-term credential. Resolved to IPv4 here; an unresolvable one is skipped.
+#[cfg(feature = "link")]
+#[derive(serde::Deserialize)]
+pub struct TurnSetup {
+    pub addr: String,
+    pub username: String,
+    pub password: String,
+}
+
+#[cfg(feature = "link")]
+pub fn turn_servers(setups: &[TurnSetup]) -> Vec<cmux_rd_link::net::TurnServer> {
+    setups
+        .iter()
+        .filter_map(|t| {
+            let addr = std::net::ToSocketAddrs::to_socket_addrs(&t.addr)
+                .ok()?
+                .find(SocketAddr::is_ipv4)?;
+            Some(cmux_rd_link::net::TurnServer {
+                addr,
+                username: t.username.clone(),
+                password: t.password.clone(),
+            })
+        })
+        .collect()
 }

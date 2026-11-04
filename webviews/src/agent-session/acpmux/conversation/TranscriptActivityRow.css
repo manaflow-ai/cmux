@@ -9,11 +9,14 @@
   cursor: default;
   user-select: none;
 }
-/* One steady tone under the pointer, as the tool rows keep (design/chat-transcript.md "steady
-   tone"; cmux#29754 lifted these lines to the text colour on hover): only keyboard focus lifts the
-   line, so it still shows where focus is. */
-.cv-agent-activity-row:has(:focus-visible):not(:has(.cv-agent-tag.is-open:focus)) > .cv-agent-activity__control,
-.cv-agent-activity-row:has(:focus-visible):not(:has(.cv-agent-tag.is-open:focus)) .cv-agent-activity__chevron {
+/* The line's words keep their rest tone under the pointer and focus; only its chevron lifts, and
+   only on a line that is a button and opens something. A hover highlight covers only its own
+   control, never the whole row (Leo, 2026-11-03, on "2 background updates" brightening edge to
+   edge: "this thing appears/lights up on hover for no reason!?"; test
+   webviews/test/transcript-row-hover-scope.test.ts). */
+/* A line whose chevron sits beside its button, not inside it (SubagentDoneLine.tsx). */
+.cv-agent-activity-row:is(:hover, :active, :focus-visible, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) > button.cv-agent-activity__control .cv-agent-activity__chevron,
+.cv-agent-activity-row:is(:hover, :active, :focus-visible, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))):has(> button.cv-agent-activity__control) > .cv-agent-activity__chevron {
   color: var(--cv-text);
 }
 .cv-agent-activity__control {
@@ -53,7 +56,9 @@
   flex: none;
 }
 
-/* A disclosure line (a report batch, a received message) lifts only for keyboard focus too. */
-.cv-agent-activity-row.cv-disclosure__line:not(.cv-received > *):has(:focus-visible):not(:has(.cv-agent-tag.is-open:focus)) {
+/* A disclosure line (DisclosureRow: subagent, inbox and subsession lines) keeps its words at one
+   tone too; only its chevron lifts. A received message's line keeps even that steady
+   (conversation.css `.cv-received__text`). */
+.cv-agent-activity-row.cv-disclosure__line:not(.cv-received > *):is(:hover, :active, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) .cv-disclosure__toggle > .cv-rotor {
   color: var(--cv-text);
 }
