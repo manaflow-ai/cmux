@@ -831,12 +831,14 @@ fn a_workspace_pin_journals_its_workspace() {
 }
 
 /// A workspace commit prepared before another one lands holds a fold copy at an older revision, so it states every
-/// workspace, as before #32408. Here the late commit writes workspace 5's earlier name back over the early commit's
-/// rename: pruning against the old copy would drop that upsert and leave the journal stating the early name.
+/// workspace, as before #32408. Here an early commit moves workspace 30 to index 10; a late one, prepared on the base
+/// before that move landed, renames workspace 17 and writes the base order back. Its fold copy states the base
+/// indexes, so pruning against it would drop the 21 workspaces it moves back and leave the journal stating the early
+/// move's order.
 #[test]
 fn a_workspace_commit_prepared_before_another_lands_states_every_workspace() {
     let mux = mux_with_workspaces(40);
-    let (desired, active) = mux.with_state(|state| {
+    let (base, active) = mux.with_state(|state| {
         (
             mux.registry_projection(state),
             state
@@ -845,28 +847,32 @@ fn a_workspace_commit_prepared_before_another_lands_states_every_workspace() {
                 .map(|workspace| workspace.public_id.clone()),
         )
     });
+    let mut moved = base.clone();
+    let workspace = moved.remove(30);
+    moved.insert(10, workspace);
+    let mut renamed = base.clone();
+    renamed[17].name = "late".into();
+    renamed[17].name_source = crate::resource_name::NameSource::User;
+    renamed[17].name_revision += 1;
     let mut registry = mux.workspace_registry.lock().unwrap();
-    let mut prepare = |index: usize, name: &str| {
-        let mut workspaces = desired.clone();
-        workspaces[index].name = name.into();
-        let key = workspaces[index].key.clone();
+    let mut prepare = |workspaces: &[RegistryWorkspace], key: &str, op: &str| {
         registry
             .prepare_workspace_commit(
                 &WorkspaceMutation::daemon_local("cmux-tui"),
-                &serde_json::json!({"op": "test-rename", "index": index, "name": name}),
+                &serde_json::json!({"op": op}),
                 None,
                 None,
-                "workspace-renamed",
-                &key,
-                &workspaces,
+                op,
+                key,
+                workspaces,
                 active.as_ref(),
                 &serde_json::json!({"changed": true}),
                 true,
             )
             .unwrap()
     };
-    let late = prepare(17, "late");
-    let early = prepare(5, "early");
+    let late = prepare(&renamed, &base[17].key, "workspace-renamed");
+    let early = prepare(&moved, &base[30].key, "workspace-moved");
     for intent in [early, late] {
         registry
             .commit_registry_intent(crate::workspace_registry::RegistryIntent::Workspace(intent))
