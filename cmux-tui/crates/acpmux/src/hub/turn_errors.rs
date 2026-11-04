@@ -337,6 +337,34 @@ mod tests {
         }
     }
 
+    /// Claude Code's own words when a chat outgrew its model's window (Leo, 2026-11-03: "this
+    /// should not have happened. this should have just started compacting"): a 400 that is
+    /// still worth going on from, once the chat is compacted (`auto_resume/compact_first.rs`).
+    const CONTEXT: &[&str] = &[
+        "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"prompt is too long: 211234 tokens > 200000 maximum\"},\"request_id\":\"req_011CUx2\"}",
+        "Prompt is too long",
+        "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"input length and `max_tokens` exceed context limit: 188000 + 32000 > 200000, decrease input length or `max_tokens` and try again\"}}",
+        "{\"error\":{\"code\":\"context_length_exceeded\",\"message\":\"This model's maximum context length is 128000 tokens.\"}}",
+    ];
+
+    #[test]
+    fn a_chat_that_outgrew_its_context_is_continued_after_compacting() {
+        for m in CONTEXT {
+            assert_eq!(resume_cause(m, m), Some("context"), "{m}");
+            // A dead agent's last line says so too.
+            let shown = format!("agent process closed (claude): {m}");
+            assert_eq!(resume_cause("agent process closed", &shown), Some("context"), "{m}");
+        }
+        // Any other bad request is still refused for good.
+        let other = "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.3: tool_use ids must be unique\"}}";
+        assert_eq!(resume_cause(other, other), None);
+        // A sign-in failure wins over the window's words.
+        let signed_out = "Not logged in · Please run /login (prompt is too long)";
+        assert_eq!(resume_cause(signed_out, signed_out), None);
+        // Not a transient error: nothing else retries it as one.
+        assert_eq!(transient_cause(CONTEXT[0]), None);
+    }
+
     #[test]
     fn limits_sign_in_bad_requests_and_refusals_are_never_continued() {
         for m in [
@@ -346,7 +374,7 @@ mod tests {
             "API Error: 401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}}",
             "Not logged in · Please run /login",
             "Invalid API key · Fix external API key",
-            "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"prompt is too long\"}}",
+            "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.3: tool_use ids must be unique\"}}",
             "The user doesn't want to proceed with this tool use. The tool use was rejected.",
             "Permission denied: the person refused this command",
             "simulated internal error",
