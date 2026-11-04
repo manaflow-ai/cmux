@@ -514,10 +514,10 @@ const sleepVariants = {
   },
   "machine-sleep-paused-list": {
     height: 320,
-    note: "The machine chip's list with that machine paused: its row reads Paused · Resume and is a pick (it resumes the machine, and the chat moves there once it links), never a greyed Reconnecting row.",
-    props: { ...sleepingMachine("paused"), summary: { sessionId: "", harness: "claude" } },
+    note: "Machines… with that machine paused: its row reads Paused · Resume and is a pick (it resumes the machine, and the chat moves there once it links), never a greyed Reconnecting row.",
+    props: { ...sleepingMachine("paused"), stripLayout: "combined" as const },
     play: async (ctx: Parameters<Play>[0]) => {
-      await openMachineChip(ctx);
+      await openMachineList(ctx);
       const row = [...ctx.document.querySelectorAll(".acpmux-env-popover .acpmux-env-row")].find((candidate) =>
         candidate.textContent?.includes("Cloud machine"),
       );
