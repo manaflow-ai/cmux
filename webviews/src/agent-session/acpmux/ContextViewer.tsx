@@ -123,7 +123,8 @@ function NextSessionEditor({
 }) {
   const t = useT();
   const currentSettings: ContextSettings = settings ?? { user: null, project: null, defaultText: fallbackText };
-  const [partId, setPartId] = useState("");
+  const [selectedPartId, setPartId] = useState("");
+  const partId = selectedPartId && currentSettings.parts?.[selectedPartId] ? selectedPartId : "";
   const currentPart = (partId && currentSettings.parts?.[partId]) || currentSettings;
   const initialScope: ContextOverrideScope = currentPart.project !== null ? "project" : "user";
   const [scope, setScope] = useState<ContextOverrideScope>(initialScope);
@@ -212,7 +213,7 @@ function NextSessionEditor({
       )}
       <textarea
         className="acpmux-context-editor__textarea"
-        aria-label={t("context.nextSessionGuidance")}
+        aria-label={partId ? currentSettings.parts![partId]!.label : t("context.nextSessionGuidance")}
         placeholder={inherited ? undefined : t("context.noOverride")}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}

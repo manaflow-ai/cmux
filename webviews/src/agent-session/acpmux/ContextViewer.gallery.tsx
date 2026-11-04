@@ -98,6 +98,15 @@ export default componentEntry<Props>({
       props: baseline,
       play: editPlay,
     },
+    "preset-prompt": {
+      note: "A local Claude preset exposes its cmux-owned system prompt as an independently editable part.",
+      props: {
+        ...baseline,
+        settings: { ...baseline.settings!, parts: {
+          "cmux-system-prompt": { label: "Preset system prompt", user: null, project: "Read the project guide first.", defaultText: "You are a coding assistant." },
+        } },
+      },
+    },
     "existing-project-override": {
       note: "A project override replaces the user value and is reset independently.",
       props: {
