@@ -12,6 +12,7 @@ import { elapsed, groupElapsed, ticking } from "../src/agent-session/acpmux/suba
 import { subagentStatus, subagentStateText } from "../src/agent-session/acpmux/summary/SubagentStatusList";
 import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { attentionFirst, type TrayCard } from "../src/agent-session/acpmux/subagents/trayAttention";
 
 setPaneLanguage("en");
 const t = (key: Parameters<typeof translate>[0], values?: Parameters<typeof translate>[1]) =>
@@ -75,4 +76,29 @@ test("a line's latest words: its step while it runs, its last words while it wai
     "Started the notarization run.",
   );
   expect(latestLine(t, agent("e"), false)).toBeUndefined();
+});
+
+// What needs the person leads the open list, so the list's height cap never clips it: four agents at
+// 360px clipped the fourth line, the failed one, while the header said "1 failed".
+test("a failed or waiting line leads the open list, its nested lines with it; the rest keep their order", () => {
+  const items = trayItems(
+    [
+      agent("a", { background: true, startedAt: 3_000 }),
+      agent("b", { background: true, startedAt: 2_000 }),
+      agent("c", { parent: "b", background: true, startedAt: 2_500 }),
+    ],
+    [],
+    [],
+    false,
+  );
+  const finished = finishedTrayItems(
+    [agent("d", { state: "completed", endedAt: 6_000 }), agent("e", { state: "failed", endedAt: 5_000 })],
+    [],
+  );
+  const ids = (cards: readonly TrayCard[]) => cards.map((card) => `${card.item.id}${card.finished ? "!" : ""}`);
+  expect(ids(attentionFirst(items, finished, new Set()))).toEqual(["e!", "a", "b", "c", "d!"]);
+  // A nested line that waits on the person brings its parent's group up, the tree whole.
+  expect(ids(attentionFirst(items, finished, new Set(["c"])))).toEqual(["b", "c", "e!", "a", "d!"]);
+  // Nothing needs the person: the order is the lists' own.
+  expect(ids(attentionFirst(items, finished.slice(0, 1), new Set()))).toEqual(["a", "b", "c", "d!"]);
 });

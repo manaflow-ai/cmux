@@ -95,6 +95,7 @@ import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, SubagentHarnessContext, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
+import { attentionFirst } from "./trayAttention";
 import { latestLine, toolDetail } from "./trayDetail";
 import { trayLatestLook } from "./trayLatest.experiment";
 import { trayPanelLook, trayRowLook, trayStopLook } from "./trayPanel.experiment";
@@ -116,6 +117,10 @@ import { PlanList } from "../conversation/PlanList";
 import type { AcpmuxPlanEntry } from "../model";
 
 const ROW_ICON = rowIconSize(12);
+/// The widest tray whose lines take two rows: under it a title keeps no room beside the time, Stop
+/// and chevron columns. Wider, every line is one row (Leo, 2026-11-04: "how Claude code just has one
+/// lines too").
+const TIGHT_WIDTH = 260;
 
 const itemKey = (item: TrayItem): string =>
   item.kind === "command" ? `command:${arrivalKey(item.command)}` : `${item.kind}:${item.id}`;
@@ -202,6 +207,8 @@ export const SubagentTray = memo(function SubagentTray({
   const now = useNow(items.length > 0);
   const trayNode = useRef<HTMLElement | null>(null);
   const [narrow, setNarrow] = useState(false);
+  // Too narrow for a line's title and its trailing columns on one row (subagents.css): two rows.
+  const [tight, setTight] = useState(false);
   // Room for one name in the folded header, not two: a measured narrow tray (an unmeasured one, 0px,
   // keeps two).
   const [oneName, setOneName] = useState(false);
@@ -245,6 +252,10 @@ export const SubagentTray = memo(function SubagentTray({
     const update = (width: number) => {
       setNarrow((current) => {
         const next = width <= 400;
+        return current === next ? current : next;
+      });
+      setTight((current) => {
+        const next = width > 0 && width <= TIGHT_WIDTH;
         return current === next ? current : next;
       });
       setOneName((current) => {
@@ -353,6 +364,7 @@ export const SubagentTray = memo(function SubagentTray({
     };
   }, []);
   const newest = useMemo(() => newestNames(t, items), [t, items]);
+  const ordered = useMemo(() => attentionFirst(items, finished, waiting), [items, finished, waiting]);
   const headMarks = useMemo(
     () => (head === "stack" ? stackMarks(t, items, finished, chatHarness) : NO_MARKS),
     [t, head, items, finished, chatHarness],
@@ -430,24 +442,23 @@ export const SubagentTray = memo(function SubagentTray({
   };
   // A fully folded tray has only its header. Avoid building hundreds of hidden row
   // elements on each header clock tick; keep them while a close animation still plays.
+  // What waits on the person or failed leads (trayAttention.ts), so the list's cap never hides it.
+  let firstFinished = true;
   const cards = fold.present
-    ? [
-        ...items.map((item) => (
-          <li key={itemKey(item)} {...arriving(itemKey(item))}>
-            {line(item)}
-          </li>
-        )),
-        ...finished.map((item, index) => (
+    ? ordered.map(({ item, finished: ended }) => {
+        const first = ended && firstFinished;
+        if (ended) firstFinished = false;
+        return (
           <li
             key={itemKey(item)}
-            data-finished=""
-            data-first-finished={index === 0 || undefined}
+            data-finished={ended ? "" : undefined}
+            data-first-finished={first || undefined}
             {...arriving(itemKey(item))}
           >
             {line(item)}
           </li>
-        )),
-      ]
+        );
+      })
     : [];
   // The header's mark is in the accent while anything under it runs.
   const runs = running > 0 || commands > 0 || planned;
@@ -476,6 +487,7 @@ export const SubagentTray = memo(function SubagentTray({
       data-card={items.length > 0 || planned || surface !== "none" || undefined}
       data-motion={motion}
       data-narrow={narrow || undefined}
+      data-tight={tight || undefined}
       data-head={head}
       data-stop={stopLook}
       data-opens={(headed && opensPanel) || undefined}
@@ -657,7 +669,7 @@ export const SubagentTray = memo(function SubagentTray({
           label={t("subagents.open", { name: subagentTaskLabel(t, item.agent) })}
           chevron
           trayColumns
-          // A narrow tray's second line is its time and controls: the stats wrap under the title.
+          // A narrow tray's workflow progress wraps under the title, above its time and controls.
           progressAt={row === "below" || narrow ? "below" : "meta"}
           // What it did last, on its own quiet line (Leo, 2026-11-03: "Tray only, richer").
           latest={latestAt === "tooltip" ? undefined : latestLine(t, item.agent, awaitsOwnWork(item.agent))}
