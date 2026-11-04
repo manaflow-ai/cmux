@@ -27,7 +27,7 @@ extension TerminalSurfaceView {
     /// refreshes later. On: a new size goes to Ghostty and the view keeps its size, its old frame on the `anchor` edge
     /// of `frame` (the host clips it and paints the terminal background beside it), until its window's commit shows
     /// the frame drawn at the new size with the new bounds. One size waits at a time; the newest goes next.
-    func place(_ frame: CGRect, anchor: PaneMotionAnchor) {
+    func place(_ frame: CGRect, anchor: PaneMotionAnchor) { // perf-hot: 1ms motion-frame (each frame of a key resize)
         let owned = TerminalDragTunables.framesOwnedByCommit.value
         if owned != frameOwnership.embedderPresents { setFramesOwnedByCommit(owned) }
         guard owned, isShown, window != nil, surface != nil else {
@@ -58,7 +58,7 @@ extension TerminalSurfaceView {
     }
 
     /// Asks Ghostty for a frame at the wanted size, keeps the view's size and waits for its window's commit.
-    func requestWantedFrame() {
+    func requestWantedFrame() { // perf-hot: 1ms motion-frame (each frame of a key resize)
         guard frameOwnership.embedderPresents, let wanted = frameOwnership.wanted else { return }
         guard isShown, let presenter = framePresenter else {
             // Not shown (or no window): nothing to keep; the view takes the size and the scale it wants now.
@@ -80,7 +80,7 @@ extension TerminalSurfaceView {
     /// Inside the commit: the view takes the size Ghostty's shown frame has, on the anchor edge of the wanted frame,
     /// and its layer the same geometry (a held display scale included) in this commit. Returns whether it wants
     /// another size since.
-    func landRequestedFrame() -> Bool {
+    func landRequestedFrame() -> Bool { // perf-hot: 1ms motion-frame (each frame of a key resize, under the CA lock)
         applyHeldScale()
         guard let size = frameOwnership.inFlight, let wanted = frameOwnership.wanted else { return false }
         frameOwnership.inFlight = nil

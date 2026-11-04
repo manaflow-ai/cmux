@@ -45,10 +45,12 @@ struct PaneContentPolicyTests {
 
     // MARK: Note 2: the surface stays fixed at the pane edge that does not move
 
-    /// One press on each side of each axis. p2 grows to the left (H: its leading edge moves, the surface rides the
-    /// trailing edge), p1 grows to the right (L on p1: the trailing edge moves, it rides the leading edge), p2 grows up
-    /// (K: its top edge moves, it rides the bottom), p1 grows down (J on p1: its bottom edge moves, it rides the top).
-    /// The shrinking pane beside each rides its own edge that stays. The host follows the pane in every frame.
+    /// One press on each side of each axis. p2 grows to the left (H: its leading edge moves), p1 grows to the right (L
+    /// on p1: the trailing edge moves), p2 grows up (K: its top edge moves), p1 grows down (J on p1: its bottom edge
+    /// moves). In every frame each surface keeps its place against the pane edge that does not move, and the host
+    /// follows the pane. With `motion.frameOwner.terminals` on (cmux-ad m6) the surface fills its area, so it is on that
+    /// edge because it is on every edge; aKeyPressShowsEachSurfaceAtItsPanesSizeAndSendsOneGrid checks the size. This case
+    /// guards the switch-off path and the low-prompt bottom hold (aPromptOnTheLastRowRidesTheBottomOfAPaneAKeyGrowsDown).
     nonisolated struct Side: Sendable, CustomTestStringConvertible {
         let vertical: Bool
         let pressed: PaneID

@@ -35,7 +35,9 @@ struct KeyResizeFirstTickPinTests {
     }
 
     /// (a) Ctrl-Shift-H on p2 (right of p1): p2 grows to the left and its right edge stays. The first tick is late (0.1 s:
-    /// most of the travel in one step). In every frame p2's surface keeps its place against the right edge.
+    /// most of the travel in one step). In every frame p2's surface keeps its place against the right edge. With
+    /// `motion.frameOwner.terminals` on (cmux-ad m6) the surface fills its area, so it keeps that place because it follows
+    /// the pane; with the switch off it holds the final size against that edge (the hold's edge picked once).
     @Test(arguments: [0.1, 1.0 / 120])
     func theHeldSurfaceRidesTheEdgeThatStaysWhenTheFirstTickIsLate(firstStep: Double) throws {
         let rig = Ground.Rig(Ground.column(Ground.pair), focused: "p2")

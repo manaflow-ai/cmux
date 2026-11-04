@@ -3,10 +3,11 @@ public import CmuxNextDesign
 
 /// FRAME OWNER REFACTOR S3: in a keyboard resize the terminal host is a container
 /// that follows its pane in every frame: the pane's content area gives it its bounds each frame, so the terminal's own
-/// ground, padding, scroller and overlays cover the whole pane and the window's shell never shows inside it. Only the
-/// surface (the producer: Ghostty draws it on its renderer thread) keeps its size: the final size the press asked for
-/// (``holdSurface(size:anchor:)``, one grid per press), else the size it had when the hold began, fixed at the pane edge
-/// that does not move. No grid and no reflow per frame: only the surface's origin moves.
+/// ground, padding, scroller and overlays cover the whole pane and the window's shell never shows inside it. With
+/// `motion.frameOwner.terminals` on (cmux-ad m6) the surface follows too: it takes the area it shows in, in every frame
+/// (``followedSurfaceFrame(_:in:)``), and the PTY gets one grid per press. With the switch off only the surface's origin
+/// moves: it keeps the final size the press asked for (``holdSurface(size:anchor:)``), else the size it had when the
+/// hold began, fixed at the pane edge that does not move.
 extension TerminalHostView: PaneMotionHoldFollowing {
     public func followPaneMotion(_ hold: PaneMotionHold?, heldSize: CGSize?) {
         followedHold = hold.map { ($0, heldSize ?? bounds.size) }

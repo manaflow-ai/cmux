@@ -117,6 +117,7 @@ final class TerminalFramePresenter {
     /// Whether `view` waits for a present here.
     func isWaiting(_ view: TerminalSurfaceView) -> Bool { requests[ObjectIdentifier(view)] != nil }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// What this presenter holds for `view` (`debug.motion` trace): "request" (a size waits for its frame), "watch"
     /// (its shown size changed outside a present), "commit" (its commit is reported at the next refresh), or "-".
     func debugState(of view: TerminalSurfaceView) -> String {
@@ -126,6 +127,7 @@ final class TerminalFramePresenter {
         if commits[id] != nil { return "commit" }
         return "-"
     }
+    #endif
 
     // MARK: Frames
 
