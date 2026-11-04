@@ -7,11 +7,11 @@ action run inside the dispatch of a mouse event (source mouse) or after the menu
 This step answers it on a real build and changes nothing:
 
   rinput_menu_mouse {menu: "View", item: "Focus Right Sidebar", name: "menu"}
-    - CuaDriver tools/list (names and argument schemas) and its accessibility tree of the app, kept as diag files;
-    - a desktop-scope (true screen pixels) click on the menu bar title MENU, the tree again, a click on ITEM;
+    - a desktop screenshot (CuaDriver get_desktop_state) and its text boxes (ocr_boxes.swift, Vision), kept as diag
+      files; a desktop-scope (true screen pixels) click on the menu bar title MENU; the same again; a click on ITEM;
     - the app's focus events since (debug.focus recent_events per window, with their sources), its action log since
       (debug.action_budget recent: entrypoint, outcome), and the frontmost app after.
-Never fails on what it sees: what it cannot do (no tree, no title found) is NOT RUN with the reason.
+Never fails on what it sees: what it cannot do (no screenshot, no title found) is NOT RUN with the reason.
 """
 import json
 import re
@@ -28,100 +28,61 @@ def install(driver):
     R = realkey
 
 
-FRAME_KEYS = (("x", "y", "width", "height"), ("x", "y", "w", "h"))
-
-
-def _frame(node):
-    """A node's frame (x, y, w, h) in global points from the primary display's top-left, if it names one."""
-    for key in ("frame", "bounds", "rect"):
-        value = node.get(key)
-        if isinstance(value, dict):
-            for names in FRAME_KEYS:
-                if all(n in value for n in names):
-                    return tuple(float(value[n]) for n in names)
-        if isinstance(value, (list, tuple)) and len(value) == 4:
-            return tuple(float(v) for v in value)
-        if isinstance(value, str):
-            nums = re.findall(r"-?\d+(?:\.\d+)?", value)
-            if len(nums) == 4:
-                return tuple(float(v) for v in nums)
-    pos, size = node.get("position"), node.get("size")
-    if isinstance(pos, dict) and isinstance(size, dict):
-        return (float(pos.get("x", 0)), float(pos.get("y", 0)), float(size.get("width", size.get("w", 0))),
-                float(size.get("height", size.get("h", 0))))
-    return None
-
-
-def _walk(obj):
-    if isinstance(obj, dict):
-        yield obj
-        for value in obj.values():
-            yield from _walk(value)
-    elif isinstance(obj, list):
-        for value in obj:
-            yield from _walk(value)
-
-
-def _text_of(node):
-    return " ".join(str(node.get(k) or "") for k in ("title", "label", "name", "description", "value", "text"))
-
-
-def _find(tree, title, roles):
-    """The first node whose role is one of ROLES and whose title is TITLE, with its frame; else from text lines."""
-    for node in _walk(tree):
-        role = str(node.get("role") or node.get("AXRole") or "")
-        if any(r.lower() in role.lower() for r in roles) and title.lower() in _text_of(node).lower():
-            frame = _frame(node)
-            if frame and frame[2] > 0 and frame[3] > 0:
-                return {"role": role, "title": _text_of(node).strip(), "frame": frame}
-    # A compact text tree: lines such as `[12] AXMenuBarItem "View" ... (x, y, w, h)` or `frame: {x, y, w, h}`.
-    text = json.dumps(tree) if not isinstance(tree, str) else tree
-    for line in text.replace("\\n", "\n").split("\n"):
-        if title.lower() in line.lower() and any(r.lower() in line.lower() for r in roles):
-            nums = re.findall(r"-?\d+(?:\.\d+)?", line.split(title, 1)[-1])
-            if len(nums) >= 4:
-                x, y, w, h = (float(v) for v in nums[-4:])
-                if w > 0 and h > 0:
-                    return {"role": "text", "title": line.strip()[:200], "frame": (x, y, w, h)}
-    return None
-
-
-def _tree(j, name, n):
-    """CuaDriver's accessibility tree of the app (first the app's pid, then no argument), saved as diag-NAME<n>.json."""
-    tries = [{"pid": j.app.pid}, {}]
-    last = None
-    for args in tries:
-        bad, data, raw = R._session(j).call("get_accessibility_tree", args)
-        last = {"args": args, "bad": bad, "data": data, "raw": raw}
-        if not bad and (data or raw):
-            break
-    (j.out / f"diag-{name}tree{'abcdefgh'[n]}.json").write_text(json.dumps(last, default=str)[:4_000_000])
-    content = last["data"] or last["raw"]
-    if isinstance(content, dict) and isinstance(content.get("content"), list):
-        texts = [c.get("text") for c in content["content"] if isinstance(c, dict) and c.get("text")]
-        parsed = []
-        for t in texts:
-            try:
-                parsed.append(json.loads(t))
-            except ValueError:
-                parsed.append(t)
-        content = {"structured": last["data"], "texts": parsed}
-    return content, last
-
-
-def _click(j, frame, scale):
-    x, y, w, h = frame
-    args = {"scope": "desktop", "x": round((x + w / 2) * scale), "y": round((y + h / 2) * scale)}
-    before = D.now()
-    bad, data, raw = R._session(j).call("click", args)
-    return {"args": args, "bad": bad, "effect": (data or {}).get("effect"), "at": round(before, 4),
-            "raw": json.dumps(raw, default=str)[:400]}
-
-
 def _focus_events(j):
     report = j.app.rpc("debug.focus") or {}
     return [{"id": w.get("id"), "is_key": w.get("is_key"), "recent_events": w.get("recent_events"),
              "model": w.get("model")} for w in report.get("windows", [])]
+
+
+def _ocr_bin():
+    """ocr_boxes.swift built once on the mini (Vision text with its box)."""
+    import os
+    import subprocess
+    here = os.path.dirname(os.path.abspath(__file__))
+    exe = os.path.join(os.path.dirname(here), "ocrboxes", "ocr_boxes")
+    if not os.path.exists(exe):
+        os.makedirs(os.path.dirname(exe), exist_ok=True)
+        built = subprocess.run(["xcrun", "swiftc", "-O", "-swift-version", "5", "-target", "arm64-apple-macos14.4",
+                                os.path.join(here, "ocr_boxes.swift"), "-o", exe], capture_output=True, text=True, timeout=300)
+        if built.returncode:
+            raise D.StepError(f"rinput_menu_mouse: ocr_boxes build failed: {built.stderr[-600:]}")
+    return exe
+
+
+def _desktop_boxes(j, name, n):
+    """A desktop screenshot (CuaDriver get_desktop_state, native pixels) and its text boxes [(x, y, w, h, text)]."""
+    import subprocess
+    shot = j.out / f"diag-{name}shot{'abcdefgh'[n]}.png"
+    bad, data, raw = R._session(j).call("get_desktop_state", {"screenshot_out_file": str(shot)})
+    if bad or not shot.exists():
+        raise D.NotRun(f"rinput_menu_mouse: no desktop screenshot: {json.dumps(raw, default=str)[:300]}")
+    done = subprocess.run([_ocr_bin(), str(shot)], capture_output=True, text=True, timeout=120)
+    boxes = []
+    for line in done.stdout.splitlines():
+        head, _, text = line.partition("\t")
+        nums = head.split()
+        if len(nums) == 4:
+            boxes.append((*(float(v) for v in nums), text))
+    (j.out / f"diag-{name}ocr{'abcdefgh'[n]}.txt").write_text("\n".join(f"{b[0]:.0f} {b[1]:.0f} {b[2]:.0f} {b[3]:.0f}\t{b[4]}" for b in boxes))
+    return boxes, shot
+
+
+def _box(boxes, text, top_band=None, below=None):
+    """The box whose text is TEXT (case-insensitive, trimmed): in the top TOP_BAND pixels (the menu bar), or under
+    BELOW's y (the open menu); the leftmost first."""
+    want = text.strip().lower()
+    found = [b for b in boxes if b[4].strip().lower() == want
+             and (top_band is None or b[1] < top_band) and (below is None or b[1] > below)]
+    return sorted(found, key=lambda b: (b[1], b[0]))[0] if found else None
+
+
+def _desktop_click(j, box):
+    x, y, w, h, _ = box
+    args = {"scope": "desktop", "x": round(x + w / 2), "y": round(y + h / 2)}
+    before = D.now()
+    bad, data, raw = R._session(j).call("click", args)
+    return {"args": args, "bad": bad, "effect": (data or {}).get("effect"), "at": round(before, 4),
+            "raw": json.dumps(raw, default=str)[:300]}
 
 
 def step_rinput_menu_mouse(j, step):
@@ -130,34 +91,26 @@ def step_rinput_menu_mouse(j, step):
         raise D.StepError("rinput_menu_mouse: name must be lowercase letters (diag-<name>*.json)")
     R.require_front(j)
     out = {"menu": step.get("menu", "View"), "item": step.get("item", "Focus Right Sidebar")}
-    listed = R._session(j).request("tools/list", {})
-    tools = [{"name": t.get("name"), "schema": t.get("inputSchema")} for t in (listed.get("tools") or [])]
-    (j.out / f"diag-{name}tools.json").write_text(json.dumps(tools, indent=1, default=str))
-    out["tools"] = [t["name"] for t in tools]
-    bad, size, raw = R._session(j).call("get_screen_size", {})
-    scale = float((size or {}).get("scale_factor") or 1.0)
-    out["scale"] = scale
     focus_before = _focus_events(j)
     seq_before = R._last_sequence(j)
-    tree, meta = _tree(j, name, 0)
-    title = _find(tree, out["menu"], ("MenuBarItem",))
+    boxes, shot = _desktop_boxes(j, name, 0)
+    band = float(step.get("menu_bar_px", 80))
+    title = _box(boxes, out["menu"], top_band=band)
     out["menu_title"] = title
     if not title:
-        out["tree_head"] = json.dumps(meta, default=str)[:3000]
         (j.out / f"diag-{name}result.json").write_text(json.dumps(out, indent=1, default=str))
-        raise D.NotRun(f"rinput_menu_mouse: no menu bar item {out['menu']!r} with a frame in CuaDriver's tree "
-                       f"(tools {out['tools']}; diag-{name}treea.json)")
-    out["click_title"] = _click(j, title["frame"], scale)
+        raise D.NotRun(f"rinput_menu_mouse: the desktop screenshot shows no menu bar title {out['menu']!r} in its top "
+                       f"{band:.0f} px (diag-{name}ocra.txt)")
+    out["click_title"] = _desktop_click(j, title)
     time.sleep(float(step.get("open_wait", 0.8)))
-    tree2, meta2 = _tree(j, name, 1)
-    item = _find(tree2, out["item"], ("MenuItem",))
+    boxes2, _ = _desktop_boxes(j, name, 1)
+    item = _box(boxes2, out["item"], below=title[1] + title[3])
     out["menu_item"] = item
     if not item:
         R._session(j).call("press_key", {"key": "escape"})  # close the open menu
         (j.out / f"diag-{name}result.json").write_text(json.dumps(out, indent=1, default=str))
-        raise D.NotRun(f"rinput_menu_mouse: the open menu shows no item {out['item']!r} with a frame "
-                       f"(diag-{name}treeb.json)")
-    out["click_item"] = _click(j, item["frame"], scale)
+        raise D.NotRun(f"rinput_menu_mouse: the open menu shows no item {out['item']!r} (diag-{name}ocrb.txt)")
+    out["click_item"] = _desktop_click(j, item)
     time.sleep(float(step.get("settle", 1.0)))
     out["focus_before"] = focus_before
     out["focus_after"] = _focus_events(j)
@@ -172,7 +125,7 @@ def step_rinput_menu_mouse(j, step):
     (j.out / f"diag-{name}result.json").write_text(json.dumps(out, indent=1, default=str))
     return {"menu_title": title, "menu_item": item, "click_title": out["click_title"], "click_item": out["click_item"],
             "new_focus_events": out["new_focus_events"], "sources_seen": out["sources_seen"],
-            "actions_since": out["actions_since"], "tools": out["tools"]}
+            "actions_since": out["actions_since"]}
 
 
 STEPS = {"rinput_menu_mouse": step_rinput_menu_mouse}

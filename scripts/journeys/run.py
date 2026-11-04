@@ -380,6 +380,7 @@ def kit_tar(specs):
         tar.add(HERE / "vdisplay120.m", arcname="vdisplay120.m")  # built only with --vdisplay
         tar.add(HERE / "sck_probe.swift", arcname="sck_probe.swift")  # built only by ext_video's sck_probe step
         tar.add(HERE / "hid_inject.swift", arcname="hid_inject.swift")  # built only by ext_video's hid_inject steps
+        tar.add(HERE / "ocr_boxes.swift", arcname="ocr_boxes.swift")  # scratch (R-INPUT): built only by ext_rinputmenu
         tar.add(HERE / "hid_inject_log.py", arcname="hid_inject_log.py")
         tar.add(OCR_SOURCE, arcname="ocr.swift")
         # TYPING UNDER LOAD (ext_load.py): the load tools and the typist/echo programs, from this commit.
