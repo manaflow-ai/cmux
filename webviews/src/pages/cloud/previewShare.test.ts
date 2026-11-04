@@ -51,4 +51,15 @@ describe("Cloud preview share action", () => {
     const malformed: PageClient = { ...client, call: async <R>() => ({ ran: true, result: { confirmed: true, copied: false } }) as R };
     expect(await createPreviewShare(malformed, "vm_sample", 3000)).toBeUndefined();
   });
+
+  test("treats an already-revoked link as a successful revoke", async () => {
+    const client: PageClient = {
+      async call<R>(): Promise<R> {
+        return { ran: true, result: { confirmed: true, revoked: false } } as R;
+      },
+      async subscribe() { return () => {}; },
+      handle() { return () => {}; },
+    };
+    expect(await revokePreviewShare(client, "vm_sample", 3000, "gone-link")).toBe(true);
+  });
 });

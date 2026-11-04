@@ -67,5 +67,8 @@ export async function revokePreviewShare(client: PageClient, machine: string, po
     args: { port, linkId },
   });
   const result = actionResult(reply);
-  return result?.confirmed !== false && result?.revoked === true;
+  // The platform's idempotent revoke answers `false` when the link was
+  // already revoked. That is still success for the UI: remove Revoke and do
+  // not surface an error for a state that is already safe.
+  return result?.confirmed !== false && (result?.revoked === true || result?.revoked === false);
 }

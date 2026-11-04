@@ -79,7 +79,7 @@ extension CloudHandlers {
                     throw ActionFailure(message: CloudPortStrings.failed(names, detail: "the platform returned an invalid share URL"))
                 }
                 context.copy(created.url)
-                return CloudAnswer(title: "Preview link copied", text: created.url, fields: [
+                return CloudAnswer(title: CloudPortStrings.previewLinkCopied, text: created.url, fields: [
                     "machine_id": .string(session.machineID), "port": .int(port),
                     "linkId": .string(created.link.linkId), "url": .string(created.url),
                     "expiresAt": .int(created.link.expiresAt), "redemptions": .int(created.link.redemptions),
@@ -98,8 +98,9 @@ extension CloudHandlers {
                    pending: ["machine_id": .string(session.machineID), "port": .int(port), "linkId": .string(linkID)]) {
                 guard let api = context.services.cloud.previewAPI else { throw ActionFailure(message: CloudPortStrings.noLink(names)) }
                 let revoked = try await wrapped(names) { try await api.revokePreviewShareLink(session.machineID, port: port, linkID: linkID) }
-                guard revoked.revoked else { throw ActionFailure(message: CloudPortStrings.failed(names, detail: "the link was already revoked")) }
-                return CloudAnswer(title: "Preview link revoked", text: "Port \(port) share link revoked", fields: [
+                return CloudAnswer(title: CloudPortStrings.previewLinkRevoked,
+                                   text: revoked.revoked ? CloudPortStrings.previewLinkRevoked : CloudPortStrings.previewLinkAlreadyRevoked,
+                                   fields: [
                     "machine_id": .string(session.machineID), "port": .int(port), "linkId": .string(linkID), "revoked": .bool(true),
                 ])
             }

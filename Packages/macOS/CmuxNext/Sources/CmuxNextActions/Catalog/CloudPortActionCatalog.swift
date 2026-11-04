@@ -83,6 +83,6 @@ nonisolated enum CloudPortActionCatalog: ActionCatalogGroup {
     }
 
     static var linkID: ActionArgument {
-        ActionArgument(name: "linkId", title: "Link ID", kind: .string)
+        ActionArgument(name: "linkId", title: String(localized: "argument.linkID", defaultValue: "Link ID", table: "CloudPortActions", bundle: .module), kind: .string)
     }
 }

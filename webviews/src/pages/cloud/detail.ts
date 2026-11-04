@@ -235,11 +235,18 @@ export class DetailReader {
     return this.portAction(machine, port, "share", async () => {
       const shared = await createPreviewShare(this.client!, machine, port);
       const latest = this.host.get();
-      if (!shared || generation !== this.generation || latest?.machine !== machine) return false;
-      const sharedPreviews = { ...this.sharedByMachine.get(machine), ...latest.sharedPreviews, [port]: shared };
+      if (!shared) return false;
+      // The platform has already created a bearer link even if this selection
+      // changed while the request was in flight. Keep it in the per-machine
+      // cache so returning to the machine still offers Revoke.
+      const sharedPreviews = { ...this.sharedByMachine.get(machine), ...latest?.sharedPreviews, [port]: shared };
       this.sharedByMachine.set(machine, sharedPreviews);
-      this.host.set({ ...latest, sharedPreviews });
-      return true;
+      // If the user has already returned to this machine, surface the link
+      // immediately even though the request started in an older selection.
+      // The link is revocable and must never disappear just because its answer
+      // arrived late.
+      if (latest?.machine === machine) this.host.set({ ...latest, sharedPreviews });
+      return generation === this.generation && latest?.machine === machine;
     });
   }
 

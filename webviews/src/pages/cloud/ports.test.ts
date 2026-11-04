@@ -228,7 +228,7 @@ describe("Cloud port action boundaries", () => {
     expect(f.get().sharedPreviews?.[3000]).toBeUndefined();
   });
 
-  test("a late A share after A → B → A does not resurrect stale state", async () => {
+  test("a late A share after A → B → A remains available for revoke", async () => {
     const f = await fixture();
     const request = f.hold(ACTION_RUN);
     const running = f.reader.sharePreview("a", 3000);
@@ -244,7 +244,7 @@ describe("Cloud port action boundaries", () => {
       expiresAt: 1_999_999_999_999,
     });
     expect(await running).toBe(false);
-    expect(f.get().sharedPreviews?.[3000]).toBeUndefined();
+    expect(f.get().sharedPreviews?.[3000]?.linkId).toBe("late-link");
     expect(f.pending()).toEqual([]);
   });
 
