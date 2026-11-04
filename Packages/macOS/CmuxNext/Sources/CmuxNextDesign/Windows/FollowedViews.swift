@@ -7,9 +7,8 @@ public import AppKit
 @MainActor
 public final class FollowedViews {
     private var views: [ObjectIdentifier: Weak] = [:]
-    /// The views whose frame notices are held now (nil: no hold), and those whose bounds notices are (DEBUG and bench).
+    /// The views whose frame notices are held now (nil: no hold).
     private var heldViews: [NSView]?
-    private var heldBounds: [NSView] = []
 
     private struct Weak {
         weak var view: NSView?
@@ -34,9 +33,9 @@ public final class FollowedViews {
     /// deepest first: a follower sees the final geometry once per view, never the in-between places an ancestor had
     /// before the views under it were laid out (FRAME OWNER REFACTOR S7). AppKit posts the held notice when a view
     /// posts frame notices again (`postsFrameChangedNotifications`).
-    public func holdingFrameNotices(throughFrameView: Bool = false, _ apply: () -> Void) { // perf-hot: 4ms motion-frame
+    public func holdingFrameNotices(_ apply: () -> Void) { // perf-hot: 4ms motion-frame
         guard !isHolding else { return apply() }
-        beginHold(throughFrameView: throughFrameView)
+        beginHold()
         apply()
         endHold()
     }
@@ -44,18 +43,10 @@ public final class FollowedViews {
     /// Whether the followed views' frame notices are held now.
     public var isHolding: Bool { heldViews != nil }
 
-    /// Holds the frame notices of every followed view and its ancestors up to the content view until ``endHold()`` (no
-    /// effect while held). `throughFrameView` (the S7 diagnostic `motion.frameOwner.liveResize.holdsToRoot`, DEBUG and
-    /// bench builds; ignored in others): also the window's frame view and the bounds notices of all of them, every view the
-    /// fork's tracker observes (it posts before AppKit lays the tree out in a live resize's `setFrame`).
-    public func beginHold(throughFrameView: Bool = false) { // perf-hot: 4ms motion-frame
+    /// Holds the frame notices of every followed view and its ancestors until ``endHold()`` (no effect while held).
+    public func beginHold() { // perf-hot: 4ms motion-frame
         guard heldViews == nil else { return }
-        #if DEBUG || CMUX_BENCH_HOOKS
-        let toRoot = throughFrameView
-        #else
-        let toRoot = false
-        #endif
-        var held: [NSView] = [], heldBounds: [NSView] = [], seen: Set<ObjectIdentifier> = []
+        var held: [NSView] = [], seen: Set<ObjectIdentifier> = []
         for entry in views.values {
             guard let followed = entry.view, let root = followed.window?.contentView else { continue }
             var view: NSView? = followed
@@ -64,15 +55,10 @@ public final class FollowedViews {
                     current.postsFrameChangedNotifications = false
                     held.append(current)
                 }
-                if toRoot, current.postsBoundsChangedNotifications {
-                    current.postsBoundsChangedNotifications = false
-                    heldBounds.append(current)
-                }
-                view = current === root && !toRoot ? nil : current.superview
+                view = current === root ? nil : current.superview
             }
         }
         heldViews = held
-        self.heldBounds = heldBounds
     }
 
     /// Lets the held views post again: each that changed since ``beginHold()`` posts one notice, deepest first.
@@ -80,8 +66,5 @@ public final class FollowedViews {
         guard let held = heldViews else { return }
         heldViews = nil
         for view in held { view.postsFrameChangedNotifications = true }
-        let bounds = heldBounds
-        heldBounds = []
-        for view in bounds { view.postsBoundsChangedNotifications = true }
     }
 }
