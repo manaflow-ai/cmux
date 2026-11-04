@@ -26,6 +26,9 @@ pub struct ContextPart {
     pub measurement: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_bytes: Option<u64>,
+    /// Delivery channel, when known. Describing a source never injects it again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
 }
@@ -80,6 +83,7 @@ fn push_breakdown(parts: &mut Vec<ContextPart>, breakdown: &Value) {
             editable: false,
             measurement: "measured".into(),
             source_bytes: None,
+            channel: None,
             text: None,
         });
     }
@@ -96,6 +100,7 @@ fn push_breakdown(parts: &mut Vec<ContextPart>, breakdown: &Value) {
             editable: false,
             measurement: "measured".into(),
             source_bytes: None,
+            channel: None,
             text: None,
         });
     }
@@ -112,6 +117,7 @@ fn push_breakdown(parts: &mut Vec<ContextPart>, breakdown: &Value) {
             editable: false,
             measurement: "measured".into(),
             source_bytes: None,
+            channel: None,
             text: None,
         });
     }
@@ -127,6 +133,7 @@ fn push_breakdown(parts: &mut Vec<ContextPart>, breakdown: &Value) {
                 editable: false,
                 measurement: "measured".into(),
                 source_bytes: None,
+                channel: None,
                 text: None,
             });
         }
@@ -166,6 +173,7 @@ pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
             editable: false,
             measurement: "unavailable".into(),
             source_bytes: None,
+            channel: None,
             text: None,
         });
     }
@@ -218,6 +226,7 @@ pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
             editable: false,
             measurement: "estimated".into(),
             source_bytes: Some(text.len() as u64),
+            channel: None,
             text: Some(text),
         });
     }
@@ -246,6 +255,7 @@ pub fn snapshot(cfg: &Config, cwd: &Path) -> Vec<ContextPart> {
         editable: true,
         measurement: "estimated".into(),
         source_bytes: Some(text.len() as u64),
+        channel: None,
         text: Some(text.to_owned()),
     }]
 }
