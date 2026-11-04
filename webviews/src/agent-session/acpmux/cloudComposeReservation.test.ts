@@ -90,7 +90,13 @@ test("Send reserves its native gesture before a slow reserve, ignores a second R
     ["cloud.reserve", { composeKey: "compose-1" }],
     [
       "cloud.startChat",
-      { task: "reply PONG", home: true, key: "send-1", reservationKey: "compose-1", gestureTicket: "ticket-1" },
+      {
+        task: "reply PONG",
+        home: true,
+        key: "send-1",
+        reservationKey: "compose-1",
+        gestureTicket: "ticket-1",
+      },
     ],
   ]);
 });
