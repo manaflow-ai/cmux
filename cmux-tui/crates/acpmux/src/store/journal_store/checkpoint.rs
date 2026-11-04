@@ -30,29 +30,6 @@ pub(super) fn read_checkpoint(home: &Path) -> Result<Lsn> {
     }
 }
 
-/// Writes the freeze marker `<home>/journal-frozen` durably: the next open writes every replayed
-/// chat's lines again (a failed sync may have left pages that read back but never reach the
-/// disk). Removed by the first checkpoint after such an open.
-fn write_frozen_marker(home: &Path, why: &str) -> Result<()> {
-    crate::config::write_atomic(&home.join(FROZEN_NAME), why.as_bytes())
-}
-
-/// Whether the freeze marker is there.
-pub(super) fn frozen_marker(home: &Path) -> bool {
-    std::fs::symlink_metadata(home.join(FROZEN_NAME)).is_ok()
-}
-
-/// Removes the freeze marker (the open that wrote the lines again has checkpointed them).
-fn clear_frozen_marker(home: &Path) -> Result<()> {
-    let path = home.join(FROZEN_NAME);
-    crate::config::refuse_lost_home(&path)?;
-    match std::fs::remove_file(&path) {
-        Ok(()) => sync_directory(home),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(anyhow::Error::from(error).context(format!("remove {}", path.display()))),
-    }
-}
-
 /// Removes the temporary files of checkpoints a crash interrupted (`write_checkpoint`).
 pub(super) fn remove_checkpoint_temporaries(home: &Path) {
     let Ok(entries) = std::fs::read_dir(home) else { return };
@@ -178,19 +155,13 @@ impl Inner {
             );
         }
         write_checkpoint(&self.home, lsn)?;
-        let (damage, repairs) = {
+        let damage = {
             let mut order = self.order.lock_or_recover();
             order.checkpointed = order.checkpointed.max(lsn);
-            (std::mem::take(&mut order.damage), !order.repairs.is_empty())
+            std::mem::take(&mut order.damage)
         };
         if damage && let Err(error) = self.journal.clear_damage() {
             tracing::warn!("clear the event journal's damage report: {error}");
-        }
-        // The lines a frozen run's restart wrote again are durable now; a chat whose repair
-        // failed (its repair file, `Order::repairs`) keeps the marker, so the start that repairs
-        // it writes its lines again too.
-        if !repairs && let Err(error) = clear_frozen_marker(&self.home) {
-            tracing::warn!("remove the event journal's freeze marker: {error:#}");
         }
         self.retire(lsn);
         Ok(())
@@ -244,14 +215,35 @@ impl Inner {
         log_sync::sync_directory_ordered(&self.local.root).map_err(failed)
     }
 
-    /// A log sync failed: no checkpoint until a restart, and the daemon is asked to stop. A
-    /// durable marker (`journal-frozen`) tells the next open to write every replayed chat's lines
-    /// again, because the kernel may have dropped pages it still shows.
+    /// A sync of the store's files failed: no checkpoint until a restart, and the daemon is asked
+    /// to stop. The freeze is a `frozen` record in the journal, after every line it covers (it is
+    /// appended under the appends' lock): the open that replays it writes every replayed chat's
+    /// lines again, as a later sync may report success for the pages the failed one dropped. A
+    /// record and not a file of its own (review of #35866, P2-1 and P2-2): no checkpoint in
+    /// flight can take it back, as a checkpoint retires only what its LSN covers and that LSN was
+    /// read before this record; and it needs no write that can fail apart from the journal's own.
+    /// The group commit makes it durable as any acknowledged record, and the shutdown that
+    /// follows seals the journal.
     pub(super) fn freeze(&self, why: String) {
-        self.order.lock_or_recover().frozen = true;
-        if let Err(error) = write_frozen_marker(&self.home, &why) {
-            tracing::error!("write the event journal's freeze marker: {error:#}");
+        let mut order = self.order.lock_or_recover();
+        if !order.frozen {
+            order.frozen = true;
+            let mut appended = self.journal.append(KIND_FROZEN, Class::Ack, why.as_bytes());
+            if appended == Err(AppendError::Backlog) {
+                // The writer is behind: wait for it off the appends' lock, then append again.
+                drop(order);
+                let _ = self.journal.wait_durable(self.journal.last_lsn(), SEAL_WAIT);
+                order = self.order.lock_or_recover();
+                appended = self.journal.append(KIND_FROZEN, Class::Ack, why.as_bytes());
+            }
+            match appended {
+                Ok(lsn) => order.applied = order.applied.max(lsn),
+                Err(error) => tracing::error!(
+                    "journal the freeze: {error}: the next start may trust pages the failed sync dropped"
+                ),
+            }
         }
+        drop(order);
         self.ask_to_stop(why);
     }
 

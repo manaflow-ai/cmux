@@ -15,6 +15,8 @@ thread_local! {
 #[derive(Default)]
 pub(super) struct Replay {
     chats: BTreeMap<String, Vec<(Lsn, Vec<u8>)>>,
+    /// A `frozen` record was replayed: a run after the checkpoint had a sync fail.
+    pub(super) frozen: bool,
     /// Each chat's newest metadata image after its last `forget` (S3a, `journal_store/meta.rs`).
     pub(super) metas: BTreeMap<String, super::meta::Replayed>,
 }
@@ -36,6 +38,7 @@ impl Replay {
                 self.metas.remove(chat);
             }
             super::meta::KIND_META => self.take_meta(&record)?,
+            KIND_FROZEN => self.frozen = true,
             other => return Err(format!("unknown event journal record kind {other}")),
         }
         Ok(())
@@ -132,7 +135,8 @@ impl Inner {
     ///
     /// Otherwise every merged line is written again from the repair start; also when the
     /// previous run froze (a failed sync: the kernel may have dropped pages it still shows and
-    /// that a later sync reports as written), which the freeze marker says. Either way the first
+    /// that a later sync reports as written), which a replayed `frozen` record says, and for a
+    /// chat whose lines come from a repair file. Either way the first
     /// checkpoint after this open syncs the bytes before it retires their records (review 2 of
     /// #34901, finding 1). The lines that only the log has from the repair
     /// start are journaled and made durable first; then the log is cut there and the merged lines
@@ -180,8 +184,12 @@ impl Inner {
         // stays as it is, and the next checkpoint syncs the segments read here before it retires
         // their records (a killed daemon's writes may be in the page cache only). After a frozen
         // run (`rewrite_all`), the kernel may have dropped pages that still read back, so every
-        // replayed chat's lines are written again.
-        let rewrite_all = self.order.lock_or_recover().rewrite_all;
+        // replayed chat's lines are written again, as are those of a chat whose earlier repair
+        // failed (its repair file's).
+        let rewrite = {
+            let order = self.order.lock_or_recover();
+            order.rewrite_all || order.rewrite.contains(id)
+        };
         let whole = pieces.len() == merged.len()
             && pieces.iter().zip(&merged).all(|(piece, (seq, line))| {
                 piece
@@ -189,7 +197,7 @@ impl Inner {
                     .as_ref()
                     .is_some_and(|(at, bytes)| at == seq && bytes.as_slice() == *line)
             });
-        if whole && !rewrite_all {
+        if whole && !rewrite {
             let read: BTreeSet<PathBuf> = self
                 .local
                 .segments(id)
@@ -389,6 +397,7 @@ impl Inner {
         }
         let mut removed = false;
         for (path, chat, lines) in taken {
+            self.order.lock_or_recover().rewrite.insert(chat.clone());
             replay.chats.entry(chat).or_default().extend(lines);
             match crate::config::refuse_lost_home(&path)
                 .and_then(|()| std::fs::remove_file(&path).map_err(anyhow::Error::from))

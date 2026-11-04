@@ -1017,11 +1017,13 @@ fn an_idle_store_does_not_wake_its_checkpointer() {
     );
 }
 
-/// A freeze leaves a durable marker (`journal-frozen`): the next open writes every replayed
-/// chat's lines again even when its log reads whole (the kernel may have dropped pages that still
-/// read back), and the first checkpoint after it removes the marker.
+/// A freeze is a `frozen` record in the journal: the next open writes every replayed chat's
+/// lines again even when its log reads whole (the kernel may have dropped pages that still read
+/// back), and its first checkpoint retires the record, so the open after that takes the whole log
+/// as it is (no write on the opening thread).
 #[test]
-fn a_freeze_marker_makes_the_next_open_write_the_lines_again_then_goes() {
+fn a_freeze_makes_the_next_open_write_the_lines_again_and_only_that_open() {
+    use super::log_sync::ALL_SYNCS;
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let journal = SimStorage::new(48);
     let store = open(home.path(), &journal);
@@ -1034,16 +1036,16 @@ fn a_freeze_marker_makes_the_next_open_write_the_lines_again_then_goes() {
     let failed = store.flush();
     FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
     assert!(failed.is_err(), "the checkpoint went on past a failed log sync");
-    let marker = home.path().join("journal-frozen");
-    assert!(marker.exists(), "a freeze left no marker");
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
     drop(store);
     let log = home.path().join("sessions").join(CHAT).join("events").join("000001.ndjson");
-    let inode = || {
-        use std::os::unix::fs::MetadataExt;
-        std::fs::metadata(&log).map(|meta| (meta.ino(), meta.len())).unwrap_or((0, 0))
-    };
     let before = std::fs::read(&log).unwrap_or_default();
+    // The restart after the freeze writes the chat's lines again (its repair cuts and writes the
+    // log, with syncs on the opening thread).
+    let syncs = ALL_SYNCS.with(std::cell::Cell::get);
     let store = open(home.path(), &journal);
+    let rewritten = ALL_SYNCS.with(std::cell::Cell::get).saturating_sub(syncs);
+    assert!(rewritten > 0, "the open after a freeze did not write the chat's lines again");
     store.flush().unwrap_or_else(|e| panic!("{e:#}"));
     assert_eq!(seqs(store.as_ref(), CHAT), vec![1, 2]);
     assert_eq!(
@@ -1051,8 +1053,19 @@ fn a_freeze_marker_makes_the_next_open_write_the_lines_again_then_goes() {
         before,
         "the rewrite changed the log's bytes"
     );
-    assert!(inode().1 > 0, "the log is gone");
-    assert!(!marker.exists(), "the checkpoint after the rewrite left the marker");
+    // A kill after that checkpoint (which retired the record): the next open trusts the log.
+    store.append(CHAT, &record(3, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    let syncs = ALL_SYNCS.with(std::cell::Cell::get);
+    let store = open(home.path(), &killed);
+    let again = ALL_SYNCS.with(std::cell::Cell::get).saturating_sub(syncs);
+    assert_eq!(seqs(store.as_ref(), CHAT), vec![1, 2, 3]);
+    assert!(
+        again < rewritten,
+        "an open long after a freeze still wrote the lines again ({again} syncs on its thread, {rewritten} at the open after the freeze)"
+    );
 }
 
 /// The idle checkpointer (follow-up 4) and its period. A change whose `touched` takes the idle

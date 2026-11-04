@@ -20,8 +20,9 @@
 //!   retires the journal segments before it. A failed log sync (in it, at a log's close, or in
 //!   `flush_session`) freezes it: a later sync may report success for pages the kernel dropped,
 //!   so the journal keeps every line and the store asks the daemon to stop
-//!   ([`Store::stop_reason`]); the next start's replay writes the logs again. Ten failed
-//!   checkpoints in a row ask the same.
+//!   ([`Store::stop_reason`]). The freeze is a `frozen` record in the journal: the open that
+//!   replays it writes every replayed chat's lines again. Ten failed checkpoints in a row ask the
+//!   daemon to stop too.
 //! - Recovery (open) repairs each log and never deletes a whole line or a folder: see
 //!   [`Inner::repair`]. It writes every replayed chat's lines again from the point the journal
 //!   takes over, so the first checkpoint after it syncs bytes this process wrote (a killed
@@ -72,15 +73,18 @@ use repair::Replay;
 pub(super) use repair::STOP_AFTER_CUT;
 
 /// The journal record kinds. (Kind 3, a `cancel` of a line the log refused, was used before the
-/// review of #34901 and never shipped: a refused line is never journaled now.)
+/// review of #34901 and never shipped: a refused line is never journaled now. Kind 4 is `meta`,
+/// `journal_store/meta.rs`; kind 5 was planned for S3 and never used.)
 const KIND_LOG: u16 = 1;
 const KIND_FORGET: u16 = 2;
+/// A freeze (a failed sync of the store's files; its reason as text): the open that replays it
+/// writes every replayed chat's lines again (`Inner::freeze`).
+const KIND_FROZEN: u16 = 6;
 
 const JOURNAL_DIR: &str = "journal";
 const CHECKPOINT_NAME: &str = "journal-projected.json";
 /// A durable marker that a log sync failed (the checkpoint froze): the next open writes every
 /// replayed chat's lines again (`journal_store/checkpoint.rs`).
-const FROZEN_NAME: &str = "journal-frozen";
 const CHECKPOINT_SCHEMA: &str = "acpmux.journal-projected.v1";
 /// Where the journaled lines of a log that recovery leaves as it is go.
 const UNAPPLIED_DIR: &str = "journal-unapplied";
@@ -250,8 +254,12 @@ struct Order {
     /// them before it retires their records (a killed daemon's writes may be in the page cache
     /// only).
     read_segments: BTreeSet<PathBuf>,
-    /// The open found the freeze marker: its repair writes every replayed chat's lines again.
+    /// The open replayed a `frozen` record (a previous run's failed sync): its repair writes every
+    /// replayed chat's lines again.
     rewrite_all: bool,
+    /// Chats whose lines the open took from a repair file (`journal_store/repair.rs`): written
+    /// again too, as their earlier repair could not write them.
+    rewrite: BTreeSet<String>,
     /// An upper bound of the LSN of each chat's newest log record in this process (an append, or
     /// the open's replay and repair). A chat without one has no log record past the checkpoint
     /// the open started from: a retention rewrite of a chat at or below the checkpoint needs no
@@ -320,7 +328,7 @@ impl JournalStore {
             order: Mutex::new(Order {
                 checkpointed: from,
                 damage: !report.damage.is_empty(),
-                rewrite_all: checkpoint::frozen_marker(home),
+                rewrite_all: replay.frozen,
                 ..Order::default()
             }),
             checkpointing: Mutex::new(()),
