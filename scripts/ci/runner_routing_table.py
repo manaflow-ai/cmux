@@ -121,6 +121,16 @@ def blacksmith_linux_term(term: str, pools: dict[str, list[str]] | None = None,
                                   for member in members)
 
 
+# Nightlies never run on Blacksmith (user, 2026-10-30): a nightly route's overflow is our own
+# nightly-only pool, the nightly build slot, or an ephemeral hosted Ubuntu runner.
+NIGHTLY_OVERFLOW = ("'glaeda-nightly-only-m4pro'", "'glaeda-nightly-std-xcode-26.6'", "'ubuntu-24.04'")
+
+
+def nightly_overflow_term(term: str) -> bool:
+    """Whether a nightly route term is an overflow that is never Blacksmith."""
+    return term.strip() in NIGHTLY_OVERFLOW
+
+
 def nightly_reservation(term: str) -> bool:
     """The explicit all-nightly reservation, restricted to NEXT and attempt one.
 
@@ -147,7 +157,7 @@ def portable_order(runs_on: str, nightly: bool = False, pools: dict[str, list[st
     """Why a portable job's runs-on is out of the routing order, or "".
 
     The order (Leo's rulebook, 2026-10-31): fleet Linux, then a free mini, then Blacksmith as the
-    overflow. The value terms must read portable placement's linux_runner before its mini_runner,
+    overflow. A nightly route instead ends on ``NIGHTLY_OVERFLOW``: nightlies never run on Blacksmith. The value terms must read portable placement's linux_runner before its mini_runner,
     and end on a Blacksmith Linux label.
     """
     expressions = EXPRESSION.findall(json.loads(runs_on) if runs_on.startswith('"') else runs_on)
@@ -171,15 +181,14 @@ def portable_order(runs_on: str, nightly: bool = False, pools: dict[str, list[st
         admitted_terms = value_terms(admitted)
         if len(admitted_terms) != 1 or not re.fullmatch(r"needs\.decide\.outputs\.early_[a-z_]+_runner", admitted_terms[0]):
             return "early admission must use only its verified runner output"
-        if not alternatives[-1:] or not blacksmith_linux_term(
-                alternatives[-1], pools, {"linux_16", "linux_32"}):
-            return "early admission must retain measured Linux overflow"
+        if not alternatives[-1:] or not nightly_overflow_term(value_terms(alternatives[-1])[-1]):
+            return "early admission must retain an overflow that is never Blacksmith"
         if "needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)" not in admitted:
             return "early admission must consume only its own attempt"
         return ""
     if nightly:
         if has_nightly_reservation(runs_on):
-            return "" if blacksmith_linux_term(terms[-1], pools) else "the nightly reservation lost its fallback"
+            return "" if nightly_overflow_term(terms[-1]) else "the nightly reservation lost its fallback"
         mini = next((i for i, term in enumerate(terms) if NIGHTLY_MINI.search(term) or NIGHTLY_SLOT.search(term)), None)
         if mini is None:
             return "it does not read needs.build-nightly-app.outputs.light_mini_runner (or the nightly slot)"
@@ -193,6 +202,8 @@ def portable_order(runs_on: str, nightly: bool = False, pools: dict[str, list[st
         return "it does not read needs.portable-placement.outputs.linux_runner and mini_runner"
     if linux > mini:
         return "it takes the mini before fleet Linux"
+    if nightly:
+        return "" if nightly_overflow_term(terms[-1]) else "it does not end on an overflow that is never Blacksmith"
     if not blacksmith_linux_term(terms[-1], pools) or not any(
             blacksmith_linux_term(term, pools) for term in terms[mini + 1:]):
         return "it does not end on a Blacksmith Linux label after the mini"
@@ -574,9 +585,17 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
                 # A declaration may precede the separate workflow routing change.
                 continue
             track_hosted = "needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && 'ubuntu-24.04'"
-            hosted_terms = [part for part in alternatives if part in (hosted, track_hosted)]
+            # Nightlies never run on Blacksmith (Lawrence, 2026-10-30): a nightly.yml light job keeps hosted
+            # Ubuntu on every attempt (a bare last term), or retries on the owned nightly-only pool.
+            nightly = path.name == "nightly.yml"
+            always_hosted = "'ubuntu-24.04'"
+            owned_tail = ["vars.CI_NIGHTLY_ONLY_RUNNER", "'glaeda-nightly-only-m4pro'"]
+            hosted_forms = (hosted, track_hosted, always_hosted) if nightly else (hosted, track_hosted)
+            hosted_terms = [part for part in alternatives if part in hosted_forms]
             pool = "fromJSON(vars.RUNNER_POOLS).linux"
-            if len(hosted_terms) != 1 or alternatives[-1] not in paid and not (alternatives[-1] == pool and not used):
+            ours = nightly and (alternatives[-1:] == [always_hosted] or alternatives[-2:] == owned_tail)
+            if len(hosted_terms) != 1 or (not ours and alternatives[-1] not in paid
+                                          and not (alternatives[-1] == pool and not used)):
                 problems.append(f"hosted_light_jobs[{key!r}] must use hosted Ubuntu on attempt 1 then measured paid retries")
                 continue
             hosted_term = hosted_terms[0]
@@ -600,7 +619,8 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
                         and tail[0].split(" && ", 1)[1] in paid)
             # Or, for a job that holds no secret, the reconciled Linux pool's live member.
             pooled = tail == [pool] and not used
-            if not (len(tail) == 1 and tail[0] in paid or switched or pooled
+            owned = nightly and (tail == [] and hosted_term == always_hosted or tail == owned_tail and hosted_term != always_hosted)
+            if not (len(tail) == 1 and tail[0] in paid or switched or pooled or owned
                     or tail == [measured16, "'blacksmith-32vcpu-ubuntu-2404'"]
                     or tail == [measured16_pool, "fromJSON(vars.RUNNER_POOLS).linux_32"]):
                 problems.append(f"hosted_light_jobs[{key!r}] contains an undeclared retry runner")
