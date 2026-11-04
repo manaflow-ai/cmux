@@ -278,10 +278,14 @@ test("an invitee the owner removes (uninvite) ends on You were removed", async (
 test("a link guest's waiting messages stay its own: accepting the invite neither resends nor shows them", async () => {
   const { rememberJoined } = await import("../src/agent-session/guest/redeem");
   // This tab joined by the link as g-link and left one message unsent and one held for the owner.
-  const tab = memoryStorage(SHARE, [
-    { clientId: "c-sending", text: "Link guest, never acknowledged", at: 1, state: "sending" },
-    { clientId: "c-held", text: "Link guest, waiting for the owner", at: 2, state: "held" },
-  ], "g-link");
+  const tab = memoryStorage(
+    SHARE,
+    [
+      { clientId: "c-sending", text: "Link guest, never acknowledged", at: 1, state: "sending" },
+      { clientId: "c-held", text: "Link guest, waiting for the owner", at: 2, state: "held" },
+    ],
+    "g-link",
+  );
   rememberJoined(SHARE, "g-link", tab, "Ana");
   const sent: Record<string, unknown>[] = [];
   const frames = joinFrames(askingRecords());
