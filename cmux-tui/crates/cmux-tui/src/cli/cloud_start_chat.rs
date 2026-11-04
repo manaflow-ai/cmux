@@ -387,21 +387,31 @@ fn signed_out(error: &Value) -> bool {
 }
 
 /// Where a start the app answered `pending` for is stuck, read from the app's own machine list
-/// (`cloud list-machines`): the machine's status there, or that the create is still in flight
-/// (`creating`), or that the list has no such machine yet. A machine that is listed and running
-/// is waiting on its link (the machine's acpmux), not on the provider.
+/// (`cloud list-machines`, `CloudHandlers+List.swift`): the listed machine's status, or its
+/// create still on the way (`creating` rows: `name`, `status` `creating` or `failed`, `reason`),
+/// or neither. A machine that is listed and running is waiting on its link (the machine's
+/// acpmux), not on the provider.
 #[derive(Debug, Default, PartialEq)]
 pub(super) struct StartStage {
     pub(super) machine_id: Option<String>,
     pub(super) status: Option<String>,
     pub(super) creating: bool,
     pub(super) listed: bool,
-    pub(super) error: Option<String>,
+    /// Why the create failed, as the app's `creating` row says.
+    pub(super) reason: Option<String>,
+    /// The machine list could not be read.
+    pub(super) unread: bool,
 }
 
 impl StartStage {
+    /// The machine will not come up: asking again cannot help.
+    pub(super) fn is_final(&self) -> bool {
+        matches!(self.status.as_deref(), Some("failed" | "destroyed" | "deleting" | "deleted"))
+    }
+
     pub(super) fn describe(&self) -> String {
         let base = match (self.listed, self.status.as_deref()) {
+            (_, Some("failed")) if self.creating => "the machine's create failed".to_owned(),
             (_, Some("failed")) => "the machine failed".to_owned(),
             (true, Some("running")) => {
                 "the machine is running; waiting for the link to its agent daemon".to_owned()
@@ -409,17 +419,20 @@ impl StartStage {
             (true, Some(status)) => format!("the machine is {status}"),
             (true, None) => "the machine is listed with no status".to_owned(),
             (false, _) if self.creating => "the create request is still in flight".to_owned(),
+            (false, _) if self.unread => {
+                "unknown (the app's machine list could not be read)".to_owned()
+            }
             (false, _) => "the machine is not in the app's machine list yet".to_owned(),
         };
-        match &self.error {
-            Some(error) => format!("{base}: {error}"),
+        match &self.reason {
+            Some(reason) => format!("{base}: {reason}"),
             None => base,
         }
     }
 
     fn json(&self) -> Value {
         json!({"describe": self.describe(), "machine_id": self.machine_id, "status": self.status,
-               "creating": self.creating, "listed": self.listed, "error": self.error})
+               "creating": self.creating, "listed": self.listed, "reason": self.reason})
     }
 }
 
@@ -429,33 +442,36 @@ pub(super) fn start_stage(runner: &mut dyn Runner, started: &Value) -> StartStag
     let name = at(started, "machine_name").as_str().map(str::to_owned);
     let Ok(listed) = step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"])))
     else {
-        return StartStage { machine_id: id, ..StartStage::default() };
+        return StartStage { machine_id: id, unread: true, ..StartStage::default() };
     };
-    let matches = |row: &Value| {
+    let row = at(&listed, "machines").as_array().into_iter().flatten().find(|row| {
         id.as_deref().is_some_and(|id| at(row, "machine_id").as_str() == Some(id))
             || name.as_deref().is_some_and(|name| at(row, "title").as_str() == Some(name))
-    };
-    let row = at(&listed, "machines").as_array().into_iter().flatten().find(|row| matches(row));
-    let creating = match at(&listed, "creating") {
-        Value::Array(rows) => rows.iter().any(|row| {
-            matches(row) || name.as_deref().is_some_and(|name| row.as_str() == Some(name))
-        }),
-        Value::Number(count) => count.as_u64().is_some_and(|count| count > 0),
-        Value::Bool(flag) => *flag,
-        _ => false,
-    };
-    let error = row.and_then(|row| {
-        let error = at(row, "error");
-        error.get("message").or(Some(error)).and_then(Value::as_str).map(str::to_owned)
     });
+    if let Some(row) = row {
+        return StartStage {
+            machine_id: at(row, "machine_id").as_str().map(str::to_owned).or(id),
+            status: at(row, "status").as_str().map(str::to_owned),
+            listed: true,
+            ..StartStage::default()
+        };
+    }
+    // A create on its way names the machine it asks for; a nameless one (the server picks the
+    // name) is this start's only when it is the only create on its way.
+    let creations: Vec<&Value> = at(&listed, "creating").as_array().into_iter().flatten().collect();
+    let creation = creations
+        .iter()
+        .find(|row| name.as_deref().is_some_and(|name| at(row, "name").as_str() == Some(name)))
+        .or_else(|| match creations.as_slice() {
+            [only] if at(only, "name").is_null() => Some(only),
+            _ => None,
+        });
     StartStage {
-        machine_id: row
-            .and_then(|row| at(row, "machine_id").as_str().map(str::to_owned))
-            .or(id),
-        status: row.and_then(|row| at(row, "status").as_str().map(str::to_owned)),
-        creating,
-        listed: row.is_some(),
-        error,
+        machine_id: id,
+        status: creation.and_then(|row| at(row, "status").as_str().map(str::to_owned)),
+        creating: creation.is_some(),
+        reason: creation.and_then(|row| at(row, "reason").as_str().map(str::to_owned)),
+        ..StartStage::default()
     }
 }
 
@@ -515,7 +531,7 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     if at(&started, "pending").as_bool() == Some(true) {
         let again = again_command(request, &machine);
         let stage = start_stage(runner, &started);
-        if stage.status.as_deref() == Some("failed") {
+        if stage.is_final() {
             return failed(
                 "cloud.start_failed",
                 format!(
@@ -525,7 +541,7 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
                     again_command(request, &Machine::New)
                 ),
                 json!({"stage": stage.json(), "machine_name": at(&started, "machine_name"),
-                       "machine_id": stage.machine_id.clone().map_or_else(|| at(&started, "machine_id").clone(), Value::String),
+                       "machine_id": stage.machine_id.map_or_else(|| at(&started, "machine_id").clone(), Value::String),
                        "app": at(&started, "text")}),
                 1,
             );
