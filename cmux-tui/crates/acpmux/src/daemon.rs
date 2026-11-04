@@ -1724,7 +1724,6 @@ async fn start_daemon() -> Result<String> {
 /// `start_daemon`, with a person key for the daemon (`start_keyed`).
 #[cfg(unix)]
 async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<String> {
-    #[cfg(target_os = "macos")]
     let path = socket_path();
     // Outside the login session (an ssh client): the daemon goes to the user's GUI
     // session so its agents read the login keychain (`daemon/login_session.rs`). A
