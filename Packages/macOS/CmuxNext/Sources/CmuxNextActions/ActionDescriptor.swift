@@ -113,6 +113,11 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     /// `action.run` with `wait` (the default) then allows that retry budget
     /// instead of failing at the control-plane deadline while the tab opens.
     public var waitsForKeyedCreate: Bool = false
+    /// The action opens a new tab or pane in the window's workspace (New
+    /// Terminal Tab, New Tab, a split): over a top page a person's run leaves
+    /// the page and runs there (``ActionTopPageRules``). The catalog marks
+    /// these in `ActionCatalog.workspaceContentActionIDs`.
+    public var opensWorkspaceContent: Bool = false
 
     public init(
         id: ActionID,
