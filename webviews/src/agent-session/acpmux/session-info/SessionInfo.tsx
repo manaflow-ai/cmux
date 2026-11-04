@@ -1989,7 +1989,8 @@ export function SessionInfo({
   // Usage shows once acpmux reports what this chat or any listed chat spends.
   const ownUsage = summary?.usageStats;
   const usageValue = usageMeta(t, ownUsage, language);
-  const usageSection = (ownUsage || anyUsage) && (
+  const planLimits = typeof summary?.usageLimits === "object" ? summary.usageLimits : undefined;
+  const usageSection = (ownUsage || anyUsage || planLimits) && (
     <SessionInfoSection
       id="usage"
       title={t("sessionInfo.usage")}
@@ -2000,6 +2001,7 @@ export function SessionInfo({
     >
       <UsageSection
         own={ownUsage}
+        planLimits={planLimits}
         sessions={allSessions ?? []}
         chatId={chatId}
         onOpen={onOpenChat}

@@ -523,6 +523,33 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__head {
   flex: none;
 }
+/* The running turn's todo list, opened from the header (SubagentTray.tsx `plan`; Leo, 2026-11-03, on
+   the composer hat): the plan's own marks in the lines' icon column, one line per step, no card of its
+   own inside the tray's glass. Past five steps it scrolls in place, as the lines do. In a short pane
+   it gives up height alongside the lines, so neither one is pushed out of the clipped tray. */
+.acpmux-running-tray__plan {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: calc(5 * var(--ui-row-height, 28px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.acpmux-running-tray__plan .cv-plan {
+  margin: 0;
+  padding: 0 var(--acpmux-tray-inset);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.acpmux-running-tray__plan .cv-plan__item {
+  align-items: center;
+  min-height: var(--ui-row-height, 28px);
+  padding-block: 0;
+}
+.acpmux-running-tray__plan .cv-plan__mark {
+  margin-top: 0;
+}
+
 /* Past five lines (eight in the `tall` look, trayPanel.experiment.ts) the list scrolls in place;
    the stack never scrolls the transcript. Every line is in it, what ended too: no View all under it
    (Leo, 2026-11-01: "why is there even a view all 5 button it's useless just let it be
@@ -685,6 +712,24 @@ button.cv-subagent > :last-child {
    guys not remove the 3/4"): its slot stays, unseen, so the counts keep the text column. */
 .acpmux-running-tray__head .acpmux-lineage__icon[data-blank] {
   visibility: hidden;
+}
+/* The `stack` arm's marks (trayHead.experiment.ts): the first lines' own glyphs side by side where
+   the blank slot was, as the sidebar's status row draws its toned sparkles before "8 done" (Leo,
+   2026-11-04: "the top of the bar not having anything is weird"). Its first mark sits in the lines'
+   icon column; the counts follow one gap after the last. */
+.acpmux-running-tray__stack {
+  /* It gives way before the time and the chevron: never pushes them out of the lines' columns. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+}
+.acpmux-running-tray__stack-mark {
+  flex: none;
+  display: inline-flex;
+  color: var(--agent-muted);
 }
 /* The header (Leo's collapsed strip, 2026-10-31: the time floated in a column of its own far from
    the words it belongs to): the counts take only their width, the elapsed time follows them as quiet
@@ -1009,6 +1054,17 @@ button.cv-subagent > :last-child {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.acpmux-running-tray__command {
+  flex: 1 1 100%;
+  min-width: 0;
+  color: var(--agent-muted);
+  font-family: var(--cv-mono, ui-monospace, monospace);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.acpmux-running-tray__tail a,
 .acpmux-running-tray__tail button {
   display: inline-flex;
   align-items: center;
@@ -1020,6 +1076,11 @@ button.cv-subagent > :last-child {
   background: transparent;
   cursor: default;
 }
+.acpmux-running-tray__tail a {
+  text-decoration: none;
+}
+.acpmux-running-tray__tail a:hover,
+.acpmux-running-tray__tail a:focus-visible,
 .acpmux-running-tray__tail button:hover,
 .acpmux-running-tray__tail button:focus-visible {
   color: var(--agent-text);
@@ -1344,6 +1405,41 @@ button.cv-subagent > :last-child {
   }
 }
 
+/* What a running agent did last (AgentLine.tsx `latest`, trayLatest.experiment.ts): one quiet
+   line under the title, cut with an ellipsis, so a new step changes its words and never the
+   line's height. The state, time and Stop centre on the two lines (Leo, 2026-11-03: "Tray only,
+   richer"). */
+.acpmux-agent-line__latest {
+  display: block;
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* A line with its latest line is taller than one row: five such lines still fit before the list
+   scrolls (SubagentTrayKinds.gallery.ts `columns`, "no scrollbar under five lines"). */
+.acpmux-running-tray__list:has(.acpmux-agent-line__latest),
+.acpmux-running-tray__head + .acpmux-running-tray__fold > .acpmux-running-tray__list:has(.acpmux-agent-line__latest) {
+  max-height: calc(var(--acpmux-tray-lines) * (var(--ui-row-height, 28px) + var(--ds-space-4)) + 2px);
+}
+/* The time, state and Stop stay centred on the line, as on every tray line (subagent-tray-trailing). */
+.acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__latest) > .acpmux-agent-line__button {
+  height: auto;
+  padding-block: var(--ds-space-1);
+}
+/* The mark stays on the title's line, centred on its words (glyph-alignment), while the latest line
+   sits under the title. */
+.acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__latest) > .acpmux-agent-line__button > :is(.acpmux-lineage__icon, .acpmux-summary-text) {
+  align-self: start;
+}
+.acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__latest) > .acpmux-agent-line__button > .acpmux-lineage__icon {
+  height: 1lh;
+  align-items: center;
+}
+
 /* Counts and warnings remain readable even when the name or action needs truncation. */
 .acpmux-agent-line__progress {
   display: block;
@@ -1486,4 +1582,16 @@ button.cv-subagent > :last-child {
 .cv-subagent-done-row[data-look="grid"] > .cv-subagent-done__chevron {
   grid-column: 6;
   grid-row: 1;
+}
+
+/* Narrow, the title and its latest line take the first row, the controls the second. */
+@container running-tray (max-width: 400px) {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__latest) > .acpmux-agent-line__button {
+    grid-template-rows: auto var(--ui-row-height, 28px);
+    height: auto;
+    padding-block: var(--ds-space-1) 0;
+  }
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__latest) > .acpmux-agent-line__button > .acpmux-lineage__icon {
+    top: var(--ds-space-1);
+  }
 }

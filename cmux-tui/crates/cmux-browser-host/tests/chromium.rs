@@ -97,6 +97,10 @@ fn serve() -> u16 {
                     );
                     return;
                 }
+                // A navigation failure after Chromium has opened the proof tab.
+                if path == "/preview-proof-fail" {
+                    return;
+                }
                 // One hop to the other loopback origin (host fetch redirects).
                 if path == "/redirect" {
                     let mut stream = stream;
@@ -158,6 +162,7 @@ fn serve() -> u16 {
                     "/script.js" => "window.__loaded = true;".to_owned(),
                     "/scripted" => "<!doctype html><html><head><title>Scripted</title><script src=\"/script.js\"></script></head><body><p>second</p><script>window.__inline = 1;</script></body></html>".to_owned(),
                     "/preview-proof" => "<!doctype html><title>Preview proof fixture</title><main style=\"font:24px sans-serif;padding:48px\">Preview is rendered</main><script>console.error('fixture console error'); throw new Error('fixture page error');</script>".to_owned(),
+                    "/preview-proof-late" => "<!doctype html><title>Late preview errors</title><main>Rendered before errors</main><script>addEventListener('load', () => setTimeout(() => { console.error('late fixture console error'); throw new Error('late fixture page error'); }, 500));</script>".to_owned(),
                     "/files" => files_page(),
                     "/clip" => clipboard::clip_page(),
                     "/leak" => clipboard::leak_page(),
@@ -581,16 +586,50 @@ fn preview_proof_returns_screenshot_and_console_errors() {
         .take()
         .unwrap()
         .write_all(
-            format!(
-                "const proof = await previewProof({port}, {{ path: '/preview-proof' }}); \
-             const imagePath = proof.screenshot.match(/png: (.+)\\]/)[1]; \
-             console.log('PNG_SIGNATURE:' + Array.from(fs.readFileSync(imagePath).slice(0, 8)).join(',')); \
-             proof"
-            )
+            r#"
+const userTab = await tabs.open('http://127.0.0.1:__PORT__/second');
+const tabState = async () => (await tabs.list()).map(({ id, active, current }) => ({ id, active, current })).sort((a, b) => a.id.localeCompare(b.id));
+const before = JSON.stringify(await tabState());
+const unchanged = async (label) => {
+    if (JSON.stringify(await tabState()) !== before || tabs.current() !== userTab || page.url() !== 'http://127.0.0.1:__PORT__/second') throw new Error(label + ': user tab changed or proof tab leaked');
+    console.log(label + ':UNCHANGED');
+};
+const proof = await previewProof(__PORT__, { path: '/preview-proof' });
+await unchanged('success');
+const imagePath = proof.screenshot.match(/png: (.+)\]/)[1];
+console.log('PNG_SIGNATURE:' + Array.from(fs.readFileSync(imagePath).slice(0, 8)).join(','));
+console.log(proof);
+const late = await previewProof(__PORT__, { path: '/preview-proof-late', settleMs: 1000, timeout: 5000 });
+await unchanged('repeated');
+if (!late.consoleErrors.some(e => e.text === 'late fixture console error') || !late.pageErrors.some(e => e.message.includes('late fixture page error'))) throw new Error('late errors missing');
+console.log('LATE_ERRORS_CAPTURED');
+for (const option of ['settleMs', 'timeout']) {
+    for (const value of [-1, NaN, Infinity, '100', null]) {
+        let error;
+        try { await previewProof(__PORT__, { [option]: value }); } catch (e) { error = e; }
+        if (!error || !error.message.includes(option)) throw new Error('invalid ' + option + ' accepted');
+        await unchanged('invalid ' + option);
+    }
+}
+let loadError;
+try { await previewProof(__PORT__, { path: '/preview-proof-fail' }); } catch (e) { loadError = e; }
+if (!loadError) throw new Error('failed navigation accepted');
+await unchanged('load failure');
+const started = Date.now();
+let timeoutError;
+try { await previewProof(__PORT__, { path: '/hold?preview-proof-timeout', timeout: 100 }); } catch (e) { timeoutError = e; }
+if (!timeoutError || !/timed out|timeout/i.test(timeoutError.message) || Date.now() - started > 5000) throw new Error('navigation timeout not honored: ' + timeoutError);
+await unchanged('timeout');
+await previewProof(__PORT__, { path: '/preview-proof', settleMs: 0, timeout: 0 });
+await unchanged('zero timing');
+console.log('PROOF_LIFECYCLE_OK');
+"#
+            .replace("__PORT__", &port.to_string())
             .as_bytes(),
         )
         .unwrap();
     let output = child.wait_with_output().unwrap();
+    release("preview-proof-timeout");
     let success = output.status.success();
     let output = format!(
         "{}{}",
@@ -604,6 +643,17 @@ fn preview_proof_returns_screenshot_and_console_errors() {
     let _ = std::fs::remove_dir_all(&dir);
 
     assert!(success, "preview proof command failed: {output}");
+    for marker in [
+        "success:UNCHANGED",
+        "repeated:UNCHANGED",
+        "LATE_ERRORS_CAPTURED",
+        "load failure:UNCHANGED",
+        "timeout:UNCHANGED",
+        "zero timing:UNCHANGED",
+        "PROOF_LIFECYCLE_OK",
+    ] {
+        assert!(output.contains(marker), "missing {marker}: {output}");
+    }
     assert!(
         output.contains("PNG_SIGNATURE:137,80,78,71,13,10,26,10"),
         "valid PNG missing: {output}"
