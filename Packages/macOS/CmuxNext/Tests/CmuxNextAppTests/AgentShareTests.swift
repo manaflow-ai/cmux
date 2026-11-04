@@ -456,37 +456,6 @@ struct AgentShareTests {
         #expect(pasteboard.copied == [link])
     }
 
-    /// While the sheet shows it reads the shares again each time the daemon says they changed (a join,
-    /// a leave, an expiry), with no timer; it stops listening when it closes.
-    @Test func theSheetReadsAgainWhenTheDaemonsSharesChange() async {
-        @MainActor final class Daemon {
-            var shares: [AgentSessionShare] = []
-            var onChange: (@MainActor () -> Void)?
-            var stopped = 0
-        }
-        let daemon = Daemon()
-        let model = AgentShareInviteSheetModel(chat: "Fix the build", session: Self.session, work: .init(
-            list: { daemon.shares },
-            invite: { _, _ in },
-            remove: { _ in },
-            changes: { onChange in
-                daemon.onChange = onChange
-                return { daemon.stopped += 1 }
-            }))
-        await model.load()
-        #expect(model.rows.isEmpty)
-        model.startWatching()
-        daemon.shares = [AgentSessionShare(shareId: "s", state: "active", session: Self.session, surface: 1,
-                                           guests: [AgentSessionShareGuest(guestId: "g", name: "Theo", joinedAt: 2, state: "active", account: "@theo", role: "view")],
-                                           invitees: [AgentSessionShareInvitee(account: "@theo", role: "view", invitedAt: 1, state: "invited")])]
-        daemon.onChange?()
-        for _ in 0..<200 where model.rows.isEmpty { await Task.yield() }
-        #expect(model.rows == [AgentShareInviteSheetModel.Row(account: "@theo", role: "view", joined: true)])
-        model.stopWatching()
-        model.stopWatching()
-        #expect(daemon.stopped == 1)
-    }
-
     /// Invite and Remove run one after the other, in the order pressed: a Remove pressed while an
     /// Invite of the same account runs waits for it, so the account ends removed.
     @Test func anInviteAndARemoveOfOneAccountRunInTheOrderPressed() async {
@@ -528,7 +497,7 @@ struct AgentShareTests {
             var shareFocusedTabID: String? { nil }
             func shareConnection(holding tab: TabModel) -> DaemonConnection? { nil }
             func shareIsOnThisMac(_ tab: TabModel) -> Bool { true }
-            var shareLocalDaemon: DaemonService? { nil }
+            var shareLocalConnection: DaemonConnection? { nil }
             func shareOwnerToken(api: URL?) async -> String? { nil }
             func shareCopy(_ text: String) {}
             func shareNotice(_ message: String) {}

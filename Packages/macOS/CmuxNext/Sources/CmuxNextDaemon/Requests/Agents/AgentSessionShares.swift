@@ -36,21 +36,14 @@ public struct AgentSessionShareCreateRequest: DaemonRequest {
     }
 }
 
-/// `agent-session-share-list`: every share, or the shares of the chat on `surface`. With `watch`, this
-/// connection is also sent `agent-session-shares-changed` after every later change of the shares.
+/// `agent-session-share-list`: every share, or the shares of the chat on `surface`.
 public struct AgentSessionShareListRequest: DaemonRequest {
     public typealias Response = AgentSessionShareList
     public static let command = "agent-session-share-list"
-    /// The event a watching connection gets when the shares change (no fields: list again).
-    public static let changedEvent = "agent-session-shares-changed"
 
     public var surface: UInt64?
-    public var watch: Bool?
 
-    public init(surface: UInt64? = nil, watch: Bool? = nil) {
-        self.surface = surface
-        self.watch = watch
-    }
+    public init(surface: UInt64? = nil) { self.surface = surface }
 }
 
 /// `agent-session-share-room`: the room new links go to and the cmux API whose install token it takes

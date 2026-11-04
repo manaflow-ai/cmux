@@ -6,7 +6,7 @@ public import Observation
 /// one chat, an account field and a role, the chat's invite link, and the work the sheet runs. Invite
 /// and Remove are the same work `agent.share.invite` and `agent.share.uninvite` run
 /// (``AgentShareActions/inviteWork(_:account:role:ttl:host:)``), so the sheet holds no share logic of
-/// its own: it reads the chat's shares again after each change, its own or the daemon's.
+/// its own: it reads the chat's shares again after each change.
 @MainActor @Observable
 public final class AgentShareInviteSheetModel {
     /// One invited account.
@@ -37,19 +37,15 @@ public final class AgentShareInviteSheetModel {
         public var remove: @MainActor (_ account: String) async throws -> Void
         /// Puts the invite link on the pasteboard.
         public var copy: @MainActor (_ text: String) -> Void
-        /// Calls `onChange` after each change of the daemon's shares until the answered stop runs.
-        public var changes: @MainActor (_ onChange: @escaping @MainActor () -> Void) -> @MainActor () -> Void
 
         public init(list: @escaping @MainActor () async throws -> [AgentSessionShare],
                     invite: @escaping @MainActor (_ account: String, _ role: String) async throws -> Void,
                     remove: @escaping @MainActor (_ account: String) async throws -> Void,
-                    copy: @escaping @MainActor (_ text: String) -> Void = { _ in },
-                    changes: @escaping @MainActor (_ onChange: @escaping @MainActor () -> Void) -> @MainActor () -> Void = { _ in {} }) {
+                    copy: @escaping @MainActor (_ text: String) -> Void = { _ in }) {
             self.list = list
             self.invite = invite
             self.remove = remove
             self.copy = copy
-            self.changes = changes
         }
     }
 
@@ -80,9 +76,6 @@ public final class AgentShareInviteSheetModel {
     /// The last Invite or Remove: the next one runs after it.
     @ObservationIgnored private var lastStep: Task<Void, Never>?
     @ObservationIgnored private var copiedReset: Task<Void, Never>?
-    @ObservationIgnored private var stopChanges: (@MainActor () -> Void)?
-    @ObservationIgnored private var reading = false
-    @ObservationIgnored private var readAgain = false
 
     public init(chat: String, session: String, role: String = "talk", work: Work) {
         self.chat = chat
@@ -94,25 +87,15 @@ public final class AgentShareInviteSheetModel {
     /// Invite is on once the field names someone and no Invite runs.
     public var canInvite: Bool { !isWorking && !account.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
-    /// Reads who is invited (when the sheet opens, after every step, and after each change the daemon
-    /// tells of). A read asked for while one runs makes that one read once more instead.
+    /// Reads who is invited and the invite link (when the sheet opens, and after every change).
     public func load() async {
-        if reading {
-            readAgain = true
-            return
+        do {
+            let shares = try await work.list()
+            rows = AgentShareInvites.rows(of: session, in: shares)
+            inviteLink = AgentShareInvites.inviteLink(of: session, in: shares)
+        } catch {
+            status = AgentShareStrings.failure(error).message
         }
-        reading = true
-        defer { reading = false }
-        repeat {
-            readAgain = false
-            do {
-                let shares = try await work.list()
-                rows = AgentShareInvites.rows(of: session, in: shares)
-                inviteLink = AgentShareInvites.inviteLink(of: session, in: shares)
-            } catch {
-                status = AgentShareStrings.failure(error).message
-            }
-        } while readAgain
     }
 
     /// Invites the field's account with ``role``; the field clears when the daemon took it, unless
@@ -165,22 +148,6 @@ public final class AgentShareInviteSheetModel {
             guard !Task.isCancelled else { return }
             self?.copied = false
         }
-    }
-
-    /// Reads the shares again after each change of them in the daemon (a device joins or leaves, a
-    /// share expires, another run invites) while the sheet shows. No timer: the daemon says when.
-    public func startWatching() {
-        guard stopChanges == nil else { return }
-        stopChanges = work.changes { [weak self] in
-            // task-owner: one read per change the daemon tells of; load() folds reads that overlap
-            Task { await self?.load() }
-        }
-    }
-
-    /// Stops reading on the daemon's changes (the sheet closed).
-    public func stopWatching() {
-        stopChanges?()
-        stopChanges = nil
     }
 
     /// Runs `step` after every Invite and Remove pressed before it, so two steps for one account (an

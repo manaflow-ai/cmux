@@ -14,7 +14,7 @@ extension AppServices: AgentShareHost {
     var shareFocusedTabID: String? { windows.active?.focusedPane?.stripModel.selectedID?.rawValue }
     func shareConnection(holding tab: TabModel) -> DaemonConnection? { locateTab(tab.id).map(\.1).map(daemon(for:))?.connection }
     func shareIsOnThisMac(_ tab: TabModel) -> Bool { machines.local.store.tab(idOrResource: tab.id) === tab }
-    var shareLocalDaemon: DaemonService? { machines.local }
+    var shareLocalConnection: DaemonConnection? { machines.local.connection }
     func shareOwnerToken(api: URL?) async -> String? { await cloud.shareOwnerToken(api: api) }
     func shareCopy(_ text: String) { AppActionContext(services: self).copy(text) }
     func shareNotice(_ message: String) { BrowserFileImport.toast(self, id: "agent-share", message) }

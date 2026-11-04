@@ -88,8 +88,7 @@ package final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
     override package func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         generation += 1
-        guard window != nil else { return model.stopWatching() }
-        model.startWatching()
+        guard window != nil else { return }
         follow(generation)
         focusField()
     }

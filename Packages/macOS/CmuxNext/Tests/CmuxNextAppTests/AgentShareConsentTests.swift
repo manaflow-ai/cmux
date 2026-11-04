@@ -25,7 +25,7 @@ struct AgentShareConsentTests {
         var shareFocusedTabID: String? { nil }
         func shareConnection(holding tab: TabModel) -> DaemonConnection? { nil }
         func shareIsOnThisMac(_ tab: TabModel) -> Bool { true }
-        var shareLocalDaemon: DaemonService? { nil }
+        var shareLocalConnection: DaemonConnection? { nil }
         func shareOwnerToken(api: URL?) async -> String? {
             tokenAsked = true
             return "owner-token"
