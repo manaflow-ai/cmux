@@ -133,7 +133,7 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
     try {
       const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
       await page.goto(
-        base + galleryFrame(PANE_ENTRY, { variant: "wrap-up-code-mode", width: 760, height: 560, colorScheme: "dark" }),
+        base + galleryFrame(PANE_ENTRY, { variant: "wrap-up-click", width: 760, height: 560, colorScheme: "dark" }),
       );
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
         timeout: 90_000,
@@ -147,15 +147,13 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
       ]);
       if (out) await page.screenshot({ path: path.join(out, "pane-wrap-up-code-mode-dark.png") });
       await card.locator(".acpmux-next-step__answer", { hasText: "Yes, add README" }).click();
-      // The pane's send path: `chat.send` to the host (this frame answers it as the app does), or
-      // `session/prompt` straight to acpmux on a direct link.
+      // The pane's send path on its acpmux link: the in-page mock logs each request it answers.
       const sent = await page
         .waitForFunction(
           () => {
-            type Entry = { method: string; params?: { text?: unknown; prompt?: unknown } };
+            type Entry = { method: string; params?: { prompt?: unknown } };
             const log = (window as unknown as { cmuxGalleryLog: Entry[] }).cmuxGalleryLog;
             for (const entry of log) {
-              if (entry.method === "chat.send" && typeof entry.params?.text === "string") return entry.params.text;
               if (entry.method === "acpmux session/prompt" && Array.isArray(entry.params?.prompt))
                 return (entry.params.prompt as { text?: string }[]).map((block) => block.text ?? "").join("");
             }

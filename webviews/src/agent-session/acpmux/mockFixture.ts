@@ -287,6 +287,55 @@ export const mockSessions: MockSession[] = [
     ],
   },
   {
+    // A real chat's wrap-up from a code-mode script: a DEV build's SR2 Claude chat called
+    // `cmux.acpmux_wrap_up` from `cmux_exec`, and this is the call_log it recorded (code_mode.rs keeps
+    // the box as `shown`). The pane reads the box from it; a click sends an answer as the next prompt.
+    sessionId: "mock-wrap-up-code-mode",
+    title: "Look in an empty folder",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 25,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "The folder is empty. I asked in the wrap-up box whether to add a README.",
+    history: (at) => {
+      const shown = {
+        recap: "Checked the folder: it is empty.",
+        ask: "Should I add a README here?",
+        actions: ["Yes, add README", "No thanks"],
+      };
+      const log = JSON.stringify({ calls: 1, call_log: [{ name: "acpmux_wrap_up", ok: true, shown }] });
+      return [
+        { ago: at + 60_000, mux: "user_message", msg: { text: "What's in this folder?" } },
+        { ago: at + 60_000, mux: "turn_started" },
+        {
+          ago: at + 30_000,
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "mock-wrap-up-exec",
+            kind: "other",
+            title: "mcp__cmux__cmux_exec",
+            status: "in_progress",
+            rawInput: { script: `await cmux.acpmux_wrap_up(${JSON.stringify(shown)})` },
+          },
+        },
+        {
+          ago: at + 29_000,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "mock-wrap-up-exec",
+            status: "completed",
+            content: [{ type: "content", content: { type: "text", text: log } }],
+          },
+        },
+        { ago: at + 20_000, update: text("The folder is empty. I asked in the wrap-up box whether to add a README.") },
+        { ago: at, mux: "turn_result", msg: { status: "completed" } },
+      ];
+    },
+  },
+  {
     // The person came back to a Claude chat after 5+ minutes away (Leo, 2026-11-03: "lkewise with
     // teh cli summarization thing? how do those get turned on? maybe we can expose it in cmux-next
     // too"): acpmux's `recap` record, drawn as the recap row under the last turn.

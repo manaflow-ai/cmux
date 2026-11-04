@@ -11006,7 +11006,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         const config: AcpmuxHostConfig = mockModule
           ? host.newSession
             ? { ...mockModule.mockHost, sessionId: undefined, newSession: true }
-            : mockModule.mockHost
+            : // A host that names a mock session (a gallery scene) opens that one.
+              { ...mockModule.mockHost, sessionId: host.sessionId || mockModule.mockHost.sessionId }
           : (host as AcpmuxHostConfig);
         let connectingClient: AcpmuxDirectClient | undefined;
         const client = await AcpmuxDirectClient.connect(

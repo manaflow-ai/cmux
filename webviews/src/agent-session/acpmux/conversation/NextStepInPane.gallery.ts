@@ -74,5 +74,10 @@ export default agentPaneEntry({
       note: "A real chat's wrap-up from a cmux_exec script: the recap, the question and its two answers.",
       snapshot: codeModeTurn,
     },
+    "wrap-up-click": {
+      note: "The same turn on the in-page mock acpmux, so a click on an answer sends it as the next prompt.",
+      ready: { transport: "mock", sessionId: "mock-wrap-up-code-mode" },
+      snapshot: codeModeTurn,
+    },
   },
 });
