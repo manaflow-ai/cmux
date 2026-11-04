@@ -2081,31 +2081,57 @@ class GitHub:
                 break
         return found
 
-    def rescue_jobs(self, earliest_end: dt.datetime, run_id: int = 0) -> list[int]:
+    def rescue_jobs(self, earliest_end: dt.datetime, run_id: int = 0, *,
+                    events: Sequence[str] | None = None,
+                    titles: Sequence[str] | None = None) -> list[int]:
         """The job ids of the finished ci-owned-pool-rescue.yml runs that ended at or after `earliest_end`,
         newest first (a sweeper or a single watch).
 
         Listed by creation, which precedes the start by the run's wait in the sweeper's concurrency group: at most
-        the one sweeper ahead of it (it never cancels in progress, so one waits), RESCUE_JOB_LIFETIME_SECONDS."""
+        the one sweeper ahead of it (it never cancels in progress, so one waits), RESCUE_JOB_LIFETIME_SECONDS.
+        Optional event filters are sent to GitHub; title filters are applied locally because the API has no title
+        filter. Consumers that own only one kind of rescue receipt should use both."""
         since = (earliest_end - dt.timedelta(seconds=2 * RESCUE_JOB_LIFETIME_SECONDS)).astimezone(dt.timezone.utc)
+        event_filter = tuple(dict.fromkeys(str(event) for event in (events or ()) if event))
+        title_filter = frozenset(str(title) for title in (titles or ()) if title)
         runs: list[Mapping[str, Any]] = []
-        for page in range(1, RESCUE_RUN_PAGES + 1):
-            # Every status: a rescue run re-run is in progress while its earlier attempts' finished jobs hold marks.
-            data = self.request("GET", f"/actions/workflows/{RESCUE_WORKFLOW_FILE}/runs?per_page=100"
-                                       f"&page={page}&created=%3E%3D{since.strftime('%Y-%m-%dT%H:%M:%SZ')}")
-            batch = [run for run in (data or {}).get("workflow_runs") or [] if isinstance(run, Mapping)]
-            runs += batch
-            total = (data or {}).get("total_count") if isinstance(data, Mapping) else None
-            if page == 1 and isinstance(total, int) and total > 100 * RESCUE_RUN_PAGES:
-                # GitHub already counts more than the pages would hold: the other nine pages would only end in the
-                # same RescueHistoryCapped. The window holds every skipped rescue run too (360 an hour on
-                # 2026-10-30), so every read of it ended here, after ten charged pages, 64 times in one sweeper.
-                raise RescueHistoryCapped(f"{total} rescue runs in the window, more than {RESCUE_RUN_PAGES} pages")
-            # A page can come back short before the last one (failed_runs()): only an empty one ends.
-            if not batch:
-                break
-        else:
-            raise RescueHistoryCapped(f"{RESCUE_RUN_PAGES} pages of rescue runs and no end")
+        # Every status: a rescue run re-run is in progress while its earlier attempts' finished jobs hold marks.
+        # Separate event listings are merged below so the caller still reads logs newest first.
+        for event in event_filter or (None,):
+            for page in range(1, RESCUE_RUN_PAGES + 1):
+                path = (f"/actions/workflows/{RESCUE_WORKFLOW_FILE}/runs?per_page=100"
+                        f"&page={page}&created=%3E%3D{since.strftime('%Y-%m-%dT%H:%M:%SZ')}")
+                if event is not None:
+                    path += f"&event={urllib.parse.quote(event, safe='')}"
+                data = self.request("GET", path)
+                raw_batch = [run for run in (data or {}).get("workflow_runs") or [] if isinstance(run, Mapping)]
+                batch = raw_batch
+                if event is not None:
+                    batch = [run for run in batch if run.get("event") == event]
+                if title_filter:
+                    batch = [run for run in batch
+                             if str(run.get("display_title") or run.get("name") or "") in title_filter]
+                runs += batch
+                total = (data or {}).get("total_count") if isinstance(data, Mapping) else None
+                if page == 1 and isinstance(total, int) and total > 100 * RESCUE_RUN_PAGES:
+                    raise RescueHistoryCapped(f"{total} rescue runs in the window, more than {RESCUE_RUN_PAGES} pages")
+                # A short page is not necessarily the end; only an empty page ends the listing.
+                if not raw_batch:
+                    break
+            else:
+                raise RescueHistoryCapped(f"{RESCUE_RUN_PAGES} pages of rescue runs and no end")
+        unique: dict[tuple[int, int], Mapping[str, Any]] = {}
+        for run in runs:
+            key = (int(run.get("id") or 0), int(run.get("run_attempt") or 1))
+            unique.setdefault(key, run)
+        runs = list(unique.values())
+        if event_filter or title_filter:
+            # Filtered event streams are merged here. Keep the newest completed rescue job first so a later
+            # CANCEL_SETTLED mark wins over an older CANCEL_SENT when callers use setdefault while reading logs.
+            runs.sort(key=lambda run: (
+                parse_time(run.get("created_at")) or parse_time(run.get("run_started_at"))
+                or dt.datetime.min.replace(tzinfo=dt.timezone.utc),
+                int(run.get("id") or 0), int(run.get("run_attempt") or 1)), reverse=True)
         found: list[int] = []
         for run in runs:
             attempts = int(run.get("run_attempt") or 1)
