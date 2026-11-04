@@ -54,12 +54,18 @@ struct Setup {
     scope: String,
     #[serde(default)]
     stun: Vec<String>,
+    /// The hub's TURN relays, for a relayed path when no direct one works.
+    #[serde(default)]
+    turn: Vec<crate::carrier::TurnSetup>,
     #[serde(default)]
     display: Option<String>,
     #[serde(default)]
     max_fps: Option<u32>,
     #[serde(default)]
     max_width: Option<u32>,
+    /// This side reaches the viewer through TURN alone.
+    #[serde(default)]
+    relay_only: bool,
 }
 
 #[derive(Deserialize)]
@@ -189,6 +195,12 @@ pub fn run(opts: &Opts) -> Res<()> {
         .iter()
         .filter_map(|s| std::net::ToSocketAddrs::to_socket_addrs(s).ok()?.find(SocketAddr::is_ipv4))
         .collect();
+    // The displays first, so the viewer can offer a display picker; then the session key.
+    #[cfg(target_os = "macos")]
+    match crate::mac::capture::displays() {
+        Ok((sizes, current)) => say(json!({"displays": sizes, "current": current})),
+        Err(e) => say(json!({"displays": [], "current": 0, "error": e.to_string()})),
+    }
     let keys = KeyPair::generate()?;
     say(json!({"key": hex(&keys.public)}));
     let net = Net::start(NetConfig {
@@ -198,7 +210,8 @@ pub fn run(opts: &Opts) -> Res<()> {
         expected_remote: peer_key,
         stun,
         bind: "0.0.0.0:0".parse()?,
-        turn: Vec::new(),
+        turn: crate::carrier::turn_servers(&setup.turn),
+        relay_only: setup.relay_only,
     })?;
     // SAFETY: fcntl on our own stdin, after the blocking setup read.
     unsafe {
@@ -209,7 +222,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         );
     }
     let mut carrier = ServeCarrier {
-        link: LinkCarrier { net, paths: Vec::new() },
+        link: LinkCarrier { net, paths: Vec::new(), rtt_us: None },
         app: AppLines { buf: Vec::new() },
     };
     let reason = match serve_session(opts, &setup, view_only, &mut carrier) {
@@ -233,6 +246,9 @@ fn serve_session(
     let started = Instant::now();
     let mut hello = None;
     let mut start = None;
+    // Lines that came in the same read as the setup sit in stdin's buffer, where a wait on the
+    // descriptor never sees them.
+    carrier.pump_app()?;
     while hello.is_none() || start.is_none() {
         let left = CONNECT_TIMEOUT.saturating_sub(started.elapsed());
         if left.is_zero() {
@@ -257,7 +273,11 @@ fn serve_session(
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Closed)) => {
                     return Ok("viewer closed the link".into())
                 }
-                NetEvent::Endpoint(path @ EndpointEvent::PathChanged { .. }) => {
+                NetEvent::Endpoint(path @ EndpointEvent::PathChanged { rtt_us, .. }) => {
+                    // The round trip sizes the frames in flight when the stream starts.
+                    if rtt_us.is_some() {
+                        carrier.link.rtt_us = rtt_us;
+                    }
                     carrier.link.paths.push(path)
                 }
                 NetEvent::Failed(reason) => return Ok(format!("link failed: {reason}")),
@@ -327,6 +347,13 @@ fn serve_session(
         upstream_record: None,
         upstream_record_max_bytes: 0,
         max_width: setup.max_width,
+        // Enough frames in flight to cover the path's round trip, at least two: the next
+        // frame encodes while the last one waits for its acknowledgement.
+        frames_in_flight: carrier
+            .link
+            .rtt_us
+            .map_or(2, |rtt| cmux_rd_engine::frames_in_flight_for(rtt, setup.max_fps.unwrap_or(60)))
+            .max(2),
     };
     let mut media = MediaSession::open(&cfg, MAX_DATAGRAM, &negotiated.caps, sink)?;
     let (width, height) = media.size();

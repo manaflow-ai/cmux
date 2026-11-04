@@ -567,23 +567,36 @@ class OrganizationFallback(unittest.TestCase):
 
 
 class Wiring(unittest.TestCase):
-    def test_early_nightly_controls_try_fleet_before_blacksmith_without_signing_secrets(self):
-        nightly = jobs("nightly.yml")
-        step = next(s for s in nightly["decide"]["steps"] if s.get("id") == "place-early")
-        self.assertEqual(step["env"]["NIGHTLY_WAIT_FOR_FLEET"], "1")
-        self.assertNotIn("signer-build", step["env"]["JOBS"].split())
-        for name in step["env"]["JOBS"].split():
-            with self.subTest(job=name):
-                job = nightly[name]
-                route = job["runs-on"]
-                self.assertIn("decide", job["needs"])
-                self.assertIn("needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)", route)
-                selected = f"needs.decide.outputs.early_{name.replace('cmux-', '').replace('-', '_')}_runner"
-                self.assertIn(selected, route)
-                self.assertLess(route.index(selected), route.index("fromJSON(vars.RUNNER_POOLS).linux_32"))
-                self.assertIn("needs.decide.outputs.track == 'nightly-next'", route)
-                self.assertNotIn("secrets.APPLE", yaml.safe_dump(job))
-                self.assertNotIn("secrets.CMUX_RELEASE_APP_KEY", yaml.safe_dump(job))
+    def test_status_reports_consume_live_capacity_without_a_routing_app(self):
+        offered = 0
+        for workflow, name in (("pr-red-checks-comment.yml", "comment"),
+                               ("ci-guards.yml", "guard-status")):
+            with self.subTest(workflow=workflow):
+                workflow_jobs = jobs(workflow)
+                bootstrap = workflow_jobs.get("portable-placement")
+                if bootstrap is None:
+                    continue
+                step = bootstrap["steps"][-1]
+                config = {key: str(value) for key, value in step["env"].items() if "${{" not in str(value)}
+                config.update(SIDE_LABEL=SIDE, FLEET_LINUX="", GITHUB_RUN_ATTEMPT="1")
+                placed = placement.decide(config, idle(1), snapshot(), NOW)
+                self.assertEqual(placed.mini_jobs, (name,))
+                self.assertEqual(placed.mini_runner, SIDE)
+                self.assertEqual(placement.decide(config, idle(0), snapshot(), NOW).mini_jobs, ())
+                job = workflow_jobs[name]
+                needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
+                self.assertIn("portable-placement", needs)
+                self.assertIn("always()", job["if"])
+                self.assertIn("!cancelled()", job["if"])
+                self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)",
+                              job["runs-on"])
+                self.assertIn(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')", job["runs-on"])
+                self.assertEqual(bootstrap["permissions"], {"contents": "read"})
+                self.assertNotIn("secrets.", yaml.safe_dump(bootstrap))
+                self.assertIn("CI_PORTABLE_LIGHT_JOBS_OFF != '1'", bootstrap["if"])
+                offered += len(placed.mini_jobs)
+        print(f"status reports offered an idle mini: {offered}/2")
+        self.assertEqual(offered, 2)
 
     PLACED = {"cmux-next.yml": {"checks": "linux_16"},
               "cmux-next-guards.yml": {"ci-guard-group": "linux_8", "tooling-tests": "linux_4"}}
@@ -663,50 +676,25 @@ class Wiring(unittest.TestCase):
         self.assertLess(inspect.index('echo "run_macos=$run_macos"'), inspect.index("place_macos=false"))
         self.assertLess(inspect.index('echo "owns_key=$owns_key"'), inspect.index("place_macos=false"))
 
-    def test_the_nightly_light_jobs_read_build_nightly_app_s_placement_then_blacksmith(self):
+    def test_the_nightly_light_jobs_read_build_nightly_app_s_placement_then_our_nightly_macs(self):
         nightly = jobs("nightly.yml")
         step = next(step for step in nightly["build-nightly-app"]["steps"] if step.get("id") == "place-light-start")
         self.assertEqual(step["env"]["NIGHTLY"], "1")
-        # About one core each (.github/runners.json linux_sizes): the Linux 4 vCPU pool, and 16 vCPU
-        # for prepare-nightly-variant's retry after a failed primary.
-        expected_pools = {"prepare-nightly-variant-primary": "linux_4",
-                          "prepare-nightly-variant": "linux_16",
-                          "await-nightly-tree-marker": "linux_4"}
+        # Unplaced, each takes our nightly-only Macs, never Blacksmith (nightlies never use it).
+        fallback = "vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"
         for name in step["env"]["JOBS"].split():
             with self.subTest(job=name):
                 job = nightly[name]
                 self.assertIn("build-nightly-app", job["needs"])
                 runs_on = job["runs-on"]
                 mini = runs_on.index(f"contains(needs.build-nightly-app.outputs.light_mini_jobs, ' {name} ')")
-                self.assertLess(mini, runs_on.rindex(f"fromJSON(vars.RUNNER_POOLS).{expected_pools[name]}"))
+                self.assertTrue(runs_on.endswith(fallback), runs_on)
+                self.assertLess(mini, runs_on.rindex(fallback))
+                self.assertNotIn("blacksmith", runs_on)
+                self.assertNotIn("RUNNER_POOLS", runs_on)
                 self.assertIn("needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt)",
                               runs_on)
 
-    def test_the_primary_preparation_takes_fleet_linux_only_from_an_idle_runner(self):
-        # build-nightly-app's place-fleet: fleet Linux while a runner idles there now, else nothing
-        # (the light placement's mini, then Blacksmith); it never waits and never offers a mini.
-        nightly = jobs("nightly.yml")
-        build = nightly["build-nightly-app"]
-        step = next(step for step in build["steps"] if step.get("id") == "place-fleet")
-        self.assertEqual(build["outputs"]["light_linux_runner"], "${{ steps.place-fleet.outputs.linux_runner }}")
-        config = {key: str(value) for key, value in step["env"].items() if "${{" not in str(value)}
-        self.assertEqual(config["JOBS"], "prepare-nightly-variant-primary")
-        self.assertEqual(config["LINUX_ONLY"], config["JOBS"])
-        self.assertEqual(config["REQUIRE_LIVE_CAPACITY"], "1")
-        self.assertNotIn("NIGHTLY_WAIT_FOR_FLEET", step["env"])
-        self.assertTrue(step["continue-on-error"])
-        config["GITHUB_RUN_ATTEMPT"] = "1"
-        for runners, expected in (([fleet_runner()], "cmux-fleet-linux-x64"), ([fleet_runner(busy=True)], ""),
-                                  ([fleet_runner(status="offline")], ""), ([], ""), (None, "")):
-            with self.subTest(runners=runners):
-                placed = placement.decide(config, runners, snapshot(), NOW)
-                self.assertEqual(placed.linux_runner, expected)
-                self.assertEqual(placed.mini_jobs, ())
-        # A job already queued on the label takes the one idle runner first.
-        queued = snapshot({"cmux-fleet-linux-x64": {"queued": 1}})
-        self.assertEqual(placement.decide(config, [fleet_runner()], queued, NOW).linux_runner, "")
-        readers = [name for name, job in nightly.items() if "light_linux_runner" in str(job.get("runs-on", ""))]
-        self.assertEqual(readers, ["prepare-nightly-variant-primary"])
 
     def test_new_light_workflows_place_status_jobs_before_hosted_overflow(self):
         expected = {
