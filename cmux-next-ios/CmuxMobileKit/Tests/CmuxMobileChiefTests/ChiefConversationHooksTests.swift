@@ -9,14 +9,24 @@ import UIKit
 /// The Chief zoom (Zoom In, Zoom Out, Actual Size: the Mac's `home.zoomIn`,
 /// `home.zoomOut`, `home.zoomReset`), saved on the phone.
 @MainActor
-@Suite struct ChiefTextZoomTests {
-    private func zoom() -> (ChiefTextZoom, UserDefaults) {
-        let defaults = UserDefaults(suiteName: "chief-zoom-\(UUID().uuidString)") ?? .standard
-        return (ChiefTextZoom(defaults: defaults), defaults)
+@Suite final class ChiefTextZoomTests {
+    /// Each test's own defaults suite, removed when the suite's test ends.
+    private final class Suite {
+        let name = "chief-zoom-\(UUID().uuidString)"
+        let defaults: UserDefaults
+        init() throws { defaults = try #require(UserDefaults(suiteName: name)) }
+        deinit { defaults.removePersistentDomain(forName: name) }
+    }
+    private var suites: [Suite] = []
+
+    private func zoom() throws -> (ChiefTextZoom, UserDefaults) {
+        let suite = try Suite()
+        suites.append(suite)
+        return (ChiefTextZoom(defaults: suite.defaults), suite.defaults)
     }
 
-    @Test func zoomStepsDynamicTypeSizesFromThePersonsOwnAndIsSaved() {
-        let (zoom, defaults) = zoom()
+    @Test func zoomStepsDynamicTypeSizesFromThePersonsOwnAndIsSaved() throws {
+        let (zoom, defaults) = try self.zoom()
         #expect(zoom.textSize(system: .large) == nil)
         #expect(zoom.percent(system: .large) == 100)
         zoom.zoomIn(system: .large)
@@ -32,12 +42,12 @@ import UIKit
         #expect(defaults.object(forKey: ChiefTextZoom.defaultsKey) == nil)
     }
 
-    @Test func zoomStopsAtTheSmallestAndLargestSizes() {
-        let (zoom, _) = zoom()
+    @Test func zoomStopsAtTheSmallestAndLargestSizes() throws {
+        let (zoom, _) = try self.zoom()
         #expect(zoom.canZoomOut(system: .extraSmall) == false)
         zoom.zoomOut(system: .extraSmall)
         #expect(zoom.step == 0)
-        let (top, _) = self.zoom()
+        let (top, _) = try self.zoom()
         #expect(!top.canZoomIn(system: .accessibilityExtraExtraExtraLarge))
         top.zoomOut(system: .accessibilityExtraExtraExtraLarge)
         #expect(top.textSize(system: .accessibilityExtraExtraExtraLarge) == .accessibilityExtraExtraLarge)
@@ -46,8 +56,8 @@ import UIKit
 
     /// A zoom saved at a smaller system size that now reaches past the largest:
     /// Zoom Out moves the text at once instead of spending taps past the end.
-    @Test func aStepPastTheEndCountsFromWhereItStops() {
-        let (zoom, _) = zoom()
+    @Test func aStepPastTheEndCountsFromWhereItStops() throws {
+        let (zoom, _) = try self.zoom()
         for _ in 0..<6 { zoom.zoomIn(system: .large) }
         #expect(zoom.step == 6)
         let system = ConversationTextSize.accessibilityExtraLarge
@@ -214,6 +224,30 @@ struct ChiefConversationHooksTests {
         ConversationTextSizeOwners.disappeared(sheet)
         #expect(ConversationTheme.textSizeTraits?.preferredContentSizeCategory == .accessibilityLarge)
         #expect(ConversationTheme.bubbleFont.pointSize == 33)
+    }
+
+    /// The zoom counts from the person's own size once the screen is in a window.
+    @Test(.timeLimit(.minutes(1))) func zoomStepsFromThePersonsSizeInTheWindow() throws {
+        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil))
+        let conversation = ConversationViewController(store: session.store, options: .chief)
+        let container = ChiefConversationContainer(conversation: conversation, session: session)
+        let host = UIViewController()
+        host.traitOverrides.preferredContentSizeCategory = .extraExtraLarge
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.rootViewController = host
+        window.isHidden = false
+        defer { session.store.stop(); ChiefTextZoom.shared.actualSize(); window.isHidden = true }
+        ChiefTextZoom.shared.actualSize()
+        ChiefTextZoom.shared.zoomIn(system: .extraExtraLarge)
+        host.addChild(container)
+        host.view.addSubview(container.view)
+        container.didMove(toParent: host)
+        container.beginAppearanceTransition(true, animated: false)
+        container.endAppearanceTransition()
+        host.view.layoutIfNeeded()
+        #expect(container.systemTextSize == .extraExtraLarge)
+        #expect(conversation.textSize == .extraExtraExtraLarge)
+        ConversationTextSizeOwners.disappeared(conversation)
     }
 
     @Test(.timeLimit(.minutes(1))) func chiefScreenPutsInviteAndTheZoomInItsPageMenu() throws {

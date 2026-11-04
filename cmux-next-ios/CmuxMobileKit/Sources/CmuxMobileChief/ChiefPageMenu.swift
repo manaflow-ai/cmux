@@ -42,7 +42,7 @@ extension ChiefConversationContainer {
     func installPageMenu() {
         let invite = UIAction(title: ChiefInvite.actionTitle, image: UIImage(systemName: ChiefInvite.symbol)) { [weak self] _ in
             guard let self else { return }
-            self.presentInvite(anchor: self.conversation.view.chiefFirstSubview { $0.accessibilityIdentifier == "conversation.header.trailing" })
+            self.presentInvite(anchor: self.conversation.view.firstSubview { $0.accessibilityIdentifier == "conversation.header.trailing" })
         }
         // Built each time the menu opens, so the size and what can still zoom are current.
         let zoom = UIDeferredMenuElement.uncached { [weak self] completion in
@@ -70,7 +70,7 @@ extension ChiefConversationContainer {
             ChiefTextZoom.shared.zoomOut(system: self.systemTextSize)
         }
         let actual = UIAction(title: ChiefPageMenu.actualSizeTitle, image: UIImage(systemName: "1.magnifyingglass"),
-                              attributes: zoom.step == 0 ? .disabled : []) { _ in
+                              attributes: zoom.percent(system: system) == 100 ? .disabled : []) { _ in
             ChiefTextZoom.shared.actualSize()
         }
         return UIMenu(title: ChiefPageMenu.textSizeTitle(percent: zoom.percent(system: system)), options: .displayInline,
@@ -92,18 +92,6 @@ extension ChiefConversationContainer {
                 self?.observeTextZoom()
             }
         }
-    }
-}
-
-extension UIView {
-    /// The first view under this one that matches (CmuxConversation marks its
-    /// composer and header controls with accessibility identifiers).
-    func chiefFirstSubview(where match: (UIView) -> Bool) -> UIView? {
-        for view in subviews {
-            if match(view) { return view }
-            if let found = view.chiefFirstSubview(where: match) { return found }
-        }
-        return nil
     }
 }
 #endif
