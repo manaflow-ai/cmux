@@ -170,4 +170,46 @@ struct KeyResizeWindowLayoutPassesTests {
         for line in extra.prefix(40) { print("S1B-WINDOW-LAYOUT shell \(shell) \(line)") }
         #expect(extra.isEmpty, "\(extra.count) of \(frames) spring frames needed a second window layout pass: \(extra.prefix(4))")
     }
+
+    /// The app's clock: page mode, the layout's own display link (not a manual driver), one real press, then the main
+    /// run loop for 0.6 s, as pixel-perfect's capture does. Prints the window passes and the layout calls per view class.
+    @Test(.enabled("the display link needs a screen") { await Self.hasDisplay() })
+    func aColumnKeyOnTheDisplayLinkInPageMode() throws {
+        LayoutPassGuard.shared.install()
+        let rig = Ground.Rig(Ground.column(Ground.pair), focused: "p2")
+        defer { rig.close() }
+        let shell = ShellWindow(contentRect: NSRect(x: 200, y: 200, width: 1200, height: 800), styleMask: [.titled, .resizable],
+                                backing: .buffered, defer: false)
+        shell.isReleasedWhenClosed = false
+        rig.window.contentView = nil
+        shell.contentView = rig.root
+        shell.orderFrontRegardless()
+        rig.root.driver.isManual = false
+        rig.root.context.afterCommit = { work in DispatchQueue.main.async { work() } }
+        let page = NSWindow(contentRect: shell.frame.insetBy(dx: 300, dy: 200), styleMask: [.borderless], backing: .buffered, defer: false)
+        page.isReleasedWhenClosed = false
+        page.orderFrontRegardless()
+        shell.addChildWindow(page, ordered: .above)
+        shell.overlayLayer.evaluate()
+        defer {
+            shell.removeChildWindow(page)
+            page.close()
+            shell.close()
+        }
+        try #require(shell.overlayLayer.placement == .overlayWindow, "the page did not put the window in page mode")
+        _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.5))
+        func classes() -> [String: Int] { Dictionary(LayoutPassGuard.shared.passesByClass.map { ($0.viewClass, $0.passes) }, uniquingKeysWith: +) }
+        for round in 0..<3 {
+            let before = classes(), passes = LayoutPassGuard.shared.windowLayoutPasses, frames = rig.root.screenViews.values.first?.presentationPasses ?? 0
+            #expect(PaneResize.press("p2", round.isMultiple(of: 2) ? .left : .right, model: rig.model, view: rig.root))
+            _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.6))
+            let after = classes()
+            let delta = after.compactMap { key, value -> (String, Int)? in
+                let d = value - (before[key] ?? 0)
+                return d > 0 ? (key, d) : nil
+            }.sorted { $0.1 > $1.1 }
+            let shown = (rig.root.screenViews.values.first?.presentationPasses ?? 0) - frames
+            print("S1B-WINDOW-LAYOUT live round \(round): window passes \(LayoutPassGuard.shared.windowLayoutPasses - passes), presentations \(shown), classes \(delta.prefix(16).map { "\($0.0)=\($0.1)" })")
+        }
+    }
 }
