@@ -547,6 +547,8 @@ export type GitHubConnectionState = {
   refresh: string;
   canConnect: boolean;
   connections: Array<{ id: string; account: string; status: string; permissions: string[]; canDisconnect: boolean }>;
+  /** The Sign In button's title while nobody is signed in to cmux; null (or absent from an older host) otherwise. */
+  signIn?: string | null;
 };
 
 export type AccountsState = {
