@@ -15,6 +15,8 @@ thread_local! {
 #[derive(Default)]
 pub(super) struct Replay {
     chats: BTreeMap<String, Vec<(Lsn, Vec<u8>)>>,
+    /// Each chat's newest metadata image after its last `forget` (S3a, `journal_store/meta.rs`).
+    pub(super) metas: BTreeMap<String, super::meta::Replayed>,
 }
 
 impl Replay {
@@ -31,7 +33,9 @@ impl Replay {
                 let chat = std::str::from_utf8(record.payload)
                     .map_err(|_| format!("forget record {} does not read", record.lsn))?;
                 self.chats.entry(chat.to_owned()).or_default().clear();
+                self.metas.remove(chat);
             }
+            super::meta::KIND_META => self.take_meta(&record)?,
             other => return Err(format!("unknown event journal record kind {other}")),
         }
         Ok(())
@@ -67,11 +71,15 @@ struct Piece {
 }
 
 impl Inner {
-    /// Writes the replayed records' effects to the logs ([module docs](self)). One chat's failure
+    /// Writes the replayed records' effects to the logs and the chats' metadata
+    /// ([module docs](self)). One chat's failure
     /// keeps its lines in `journal-unapplied/` and the open goes on; only a failure to keep them
     /// fails it.
     pub(super) fn apply(&self, replay: Replay) -> Result<()> {
-        for (chat, journaled) in replay.chats {
+        let Replay { chats, metas } = replay;
+        // The metadata, then the logs. Neither makes a folder that is gone (`meta.rs`).
+        self.apply_metas(metas)?;
+        for (chat, journaled) in chats {
             let Some(first_lsn) = journaled.first().map(|(lsn, _)| *lsn) else { continue };
             match self.repair(&chat, &journaled) {
                 Ok(Repaired::Done) => {

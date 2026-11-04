@@ -1,4 +1,5 @@
 import CmuxNextCompat
+public import CmuxNextWakeups
 
 /// Bounded waits on main-actor state for the Cloud flows.
 @MainActor
@@ -20,17 +21,27 @@ public struct CloudWait {
         }
     }
 
-    /// Whether `condition` holds within `tries` waits of `each`: `redial` runs before each wait, so a link
-    /// that ended while the condition did not hold yet is dialed again (a new machine's daemon may answer
-    /// a little after its record runs). The first wait that sees `condition` hold ends the tries.
-    public static func holds(tries: Int, each: Duration, redial: @MainActor () -> Void,
+    /// How a start's wait spaces its redials (``holds(within:redialing:redial:until:)``): 1 s growing to 10 s, so a
+    /// new machine's receiver that answers half a minute after its record runs is dialed again within seconds.
+    public static let startRedial = Backoff(initial: .seconds(1), maximum: .seconds(10))
+
+    /// Whether `condition` holds within `limit`: `redial` runs first and again after each of `backoff`'s delays,
+    /// so a link that ended while the condition did not hold yet is dialed again (a new machine's daemon may
+    /// answer a little after its record runs). Never past `limit`, and never without a delay between redials.
+    public static func holds(within limit: Duration, redialing backoff: Backoff, redial: @MainActor () -> Void,
                              until condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
-        var up = false
-        for _ in 0..<tries where !up {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: limit)
+        var backoff = backoff
+        // wakeup-allow: each pass waits one backoff delay (at least its initial's floor) and ends at the deadline
+        while !Task.isCancelled {
+            let left = clock.now.duration(to: deadline)
+            guard left > .zero else { break }
             redial()
-            up = await holds(within: each, until: condition)
+            if await holds(within: min(backoff.next(), left), until: condition) { return true }
         }
-        return up
+        // The deadline passed or the wait was cancelled: a change racing either is not this wait's answer.
+        return false
     }
 
     /// Waits within `limit` for a link to come up: nil once `connected`, else `failure`, or `deadline`

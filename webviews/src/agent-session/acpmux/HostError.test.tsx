@@ -126,6 +126,7 @@ test("a Retry waiting on the attempt in flight says so and holds", async () => {
 
 test("a folder harness keeps its card with its own hint and action", async () => {
   const container = installDom();
+  let enabled = 0;
   await act(async () => {
     root = createRoot(container);
     root.render(
@@ -133,13 +134,19 @@ test("a folder harness keeps its card with its own hint and action", async () =>
         message="Claude Code is not enabled."
         hint={null}
         action="Enable Claude Code"
-        onRetry={() => undefined}
+        onRetry={() => (enabled += 1)}
       />,
     );
   });
-  expect(container.querySelector(".acpmux-host-error-card")).not.toBeNull();
+  const card = container.querySelector(".acpmux-host-error .ui-notice");
+  expect(card?.getAttribute("data-kind")).toBe("warning");
   expect(buttons(container)).toEqual(["Enable Claude Code"]);
-  expect(container.querySelectorAll("p")).toHaveLength(1);
+  const messages = container.querySelectorAll(".ui-notice-message");
+  expect(messages).toHaveLength(1);
+  expect(messages[0]!.textContent).toBe("Claude Code is not enabled.");
+  expect(container.querySelector(".ui-notice-title")).toBeNull();
+  await act(async () => container.querySelector<HTMLButtonElement>("[data-notice-action=action]")!.click());
+  expect(enabled).toBe(1);
 });
 
 // Leo, 2026-10-30, on a red card while a chat's machine was only reconnecting: "it was literally

@@ -26,6 +26,12 @@ test("rows and text grow from Ultra-compact to Spacious (as the app's)", () => {
   expect(PRESETS.map((preset) => resolve(preset).body)).toEqual([11.5, 12, 12.5, 13, 14]);
 });
 
+test("every density's icons sit on the icon scale (as the app's)", () => {
+  // Leo 2026-11-04: "ofc we'll want to be doing proportion/scales per compact/comfortable/whatever ui scaling modes too"
+  expect(PRESETS.map((preset) => resolve(preset).iconSize)).toEqual([12, 14, 16, 16, 20]);
+  expect(resolve({ id: "x", name: "X", level: 0.5, tokens: { iconSize: 15 } }).iconSize).toBe(15);
+});
+
 test("a custom font size and exact tokens win", () => {
   const sizes = resolve({ id: "big", name: "Big", level: 0, fontSize: 15, tokens: { sidebarRowHeight: 22 } });
   expect(sizes.body).toBe(15);
