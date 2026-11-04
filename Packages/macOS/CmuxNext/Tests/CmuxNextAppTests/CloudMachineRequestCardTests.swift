@@ -87,7 +87,7 @@ import Testing
         defer { window.close() }
         try await CloudStartSessionTests.askingFirst(services)
         let settings = try #require(services.settings)
-        await services.letAgentsUseCloudWithoutAsking()
+        await settings.stopAskingCloudAgents?()
         await settings.reload()
         #expect(CloudAgentStartSetting().delegated(in: settings.snapshot.root), "the switch did not turn asking off")
     }

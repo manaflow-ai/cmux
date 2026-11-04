@@ -126,9 +126,9 @@ struct CloudStartSessionTests {
         #expect(startsAsPerson(.user, delegated: false), "the person's own run never asks")
         // The create flow's own question (Leo, 2026-11-04: "just auto/bypass permissions by default").
         let services = Self.fixture().services
-        #expect(!services.agentsAskBeforeUsingCloud, "by default a CLI start would wait on the create card")
+        #expect(services.settings?.cloudAgentsSkipAsking != false, "by default a CLI start would wait on the create card")
         try await Self.askingFirst(services)
-        #expect(services.agentsAskBeforeUsingCloud, "asking turned on, a CLI start would not ask")
+        #expect(services.settings?.cloudAgentsSkipAsking == false, "asking turned on, a CLI start would not ask")
     }
 
     // MARK: Refusals before anything starts
@@ -552,13 +552,13 @@ struct CloudStartSessionTests {
     @Test func onlyAFreshListOfThisAccountIsCurrent() {
         let now = ContinuousClock.now
         let account = Self.account
-        #expect(CloudService.listIsCurrent(loadedAt: now - .seconds(5), loadedFor: account, account: account, now: now, within: CloudStartSession.listFresh))
+        #expect(CloudListFreshness.isCurrent(loadedAt: now - .seconds(5), loadedFor: account, account: account, now: now, within: CloudStartSession.listFresh))
         // A failed or superseded refresh leaves the last landing time: an old list is not current.
-        #expect(!CloudService.listIsCurrent(loadedAt: now - .seconds(60), loadedFor: account, account: account, now: now, within: CloudStartSession.listFresh))
+        #expect(!CloudListFreshness.isCurrent(loadedAt: now - .seconds(60), loadedFor: account, account: account, now: now, within: CloudStartSession.listFresh))
         // Never loaded, or dropped at a sign-out.
-        #expect(!CloudService.listIsCurrent(loadedAt: nil, loadedFor: account, account: account, now: now, within: CloudStartSession.listFresh))
+        #expect(!CloudListFreshness.isCurrent(loadedAt: nil, loadedFor: account, account: account, now: now, within: CloudStartSession.listFresh))
         // A team switch keeps the user: the previous team's list is not this team's.
-        #expect(!CloudService.listIsCurrent(loadedAt: now, loadedFor: ["user-1", "team-0"], account: account, now: now, within: CloudStartSession.listFresh))
+        #expect(!CloudListFreshness.isCurrent(loadedAt: now, loadedFor: ["user-1", "team-0"], account: account, now: now, within: CloudStartSession.listFresh))
     }
 
     @Test func theRetryCommandKeepsTheNameOneShellWord() {

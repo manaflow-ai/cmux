@@ -71,9 +71,7 @@ struct CloudStartSession {
                     // A person's gesture only as the outermost run's origin says (a script's nested run is not one).
                     let delegated = CloudAgentStartSetting().delegated(in: services.settings?.snapshot.root ?? .object([:]))
                     return try await start.run(request, invocation, context, account: key.account,
-                                               byPerson: CloudStartCore().startsAsPerson(byPerson: CloudHandlers.origin(of: invocation) == .user, delegated: delegated),
-                                               // Only the person's own run opens the cap card; any other run's refusal answers the run.
-                                               capCard: CloudHandlers.origin(of: invocation) == .user)
+                                               byPerson: CloudStartCore().startsAsPerson(byPerson: CloudHandlers.origin(of: invocation) == .user, delegated: delegated), capCard: CloudHandlers.origin(of: invocation) == .user)
                 }
             }
         }
@@ -109,7 +107,6 @@ struct CloudStartSession {
             let key = CloudStartSessionRuns.Key(request, caller: invocation.callerAgentSession, account: services.cloud.account)
             return CloudHandlers.result("start cloud session", context) {
                 try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services), forgotten: ActionFailure(message: CloudStartSessionStrings.accountChanged(asked))) {
-                    // Nobody clicked: a refusal at the plan's cap answers the agent's run, not a cap card.
                     try await start.run(request, asPerson, context, account: key.account, byPerson: true, capCard: false, askedBy: invocation.callerAgentSession, revealing: false)
                 }
             }
@@ -218,8 +215,7 @@ struct CloudStartSession {
     /// that changes anything and after each wait, so a team switch or sign-out mid-run starts
     /// nothing in the account signed in now.
     /// `byPerson`: the person's own gesture (a palette or menu run, or Start on an agent's card);
-    /// it decides how the machine is created and connected.
-    /// `capCard`: a refusal at the plan's cap opens the cap card (the person is there); false answers the run with it.
+    /// it decides how the machine is created and connected. `capCard`: a refusal at the cap opens the cap card, else answers the run.
     func run(_ request: Request, _ invocation: ActionInvocation, _ context: AppActionContext, account: [String?], byPerson: Bool, capCard: Bool = true, askedBy: String? = nil,
              revealing: Bool = true) async throws -> [String: ActionResultValue] {
         let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, request.asked(machine: machine)) }

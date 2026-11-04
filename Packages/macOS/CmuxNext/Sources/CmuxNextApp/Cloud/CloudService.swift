@@ -115,8 +115,7 @@ final class CloudService {
     /// The person's confirmation of a create (set by AppServices: a sheet in the active window, or the
     /// sidebar card for an agent's or a script's request while that sidebar shows); none answers false.
     @ObservationIgnored var confirmCreate: (@MainActor (CloudMachineCreateFlow.Prompt) async -> Bool)?
-    /// Whether a create no person started asks first (set by AppServices: `cloud.agentsStartWithoutAsking` off,
-    /// ``CloudAgentStartSetting``). Unset, nothing asks: agents use Cloud without asking by default.
+    /// Whether a create no person started asks first (`cloud.agentsStartWithoutAsking` off); unset, nothing asks.
     @ObservationIgnored var agentsAskFirst: @MainActor () -> Bool = { false }
     /// At the plan's cap: the card's pick for a person's create (nil: Not now), and the notice naming the machine paused to make room.
     @ObservationIgnored var chooseAtCap: (@MainActor (CloudMachineCap) async -> CloudMachineCap.Choice?)?
@@ -572,7 +571,7 @@ final class CloudService {
     /// Whether the store holds a list the server answered, within `age`, for the user and team
     /// signed in now: a failed or superseded refresh, or another team's list, is not one.
     func hasCurrentList(within age: Duration) -> Bool {
-        Self.listIsCurrent(loadedAt: hasLoadedMachines ? listLoadedAt : nil, loadedFor: loadedAccount, account: listAccount, now: .now, within: age)
+        CloudListFreshness.isCurrent(loadedAt: hasLoadedMachines ? listLoadedAt : nil, loadedFor: loadedAccount, account: listAccount, now: .now, within: age)
     }
 
     /// Takes a read ticket before sending. A one-record request names its machine; a list does not.
@@ -726,9 +725,7 @@ final class CloudService {
     /// Creates a machine and connects to it. Returns its session.
     /// `creation` moves to its `creating` stage when the request is sent.
     /// `startedByPerson`: the person's own gesture in this app; any other
-    /// create goes out at once on a paid plan (a person's create at the cap gets the cap card, ``CloudMachineCap``) unless the
-    /// person turned asking on (``agentsAskFirst``; on the legacy link also the opt-in `cloud.askBeforeAgentCreate`), when it
-    /// shows the "Create a Cloud machine?" card first (``CloudMachineCreateFlow``); `askedBy` names the agent chat that asked.
+    /// create goes out at once on a paid plan (a person's create at the cap gets the cap card, ``CloudMachineCap``; ``agentsAskFirst`` or the legacy opt-in `cloud.askBeforeAgentCreate` asks first) (``CloudMachineCreateFlow``); `askedBy` names the agent chat that asked.
     /// `request`: `cloud new-machine`'s size and idle pause, sent with the create (the legacy
     /// `/api/vm` create only; the app server's create refuses them for now). A server that did
     /// not store the idle pause gets it through `PUT /api/vm/{id}/idle-pause` right after.
