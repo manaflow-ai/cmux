@@ -50,10 +50,10 @@ const leoTray = chat(
     row(SUBAGENTS, 40, { subagents: [agent("Fix nightly guard base red from 93d162ae", 40, "completed")] }),
     activity(
       [
-        command("glaeda-gh wait run manaflow-ai/app/41723867191 --until done", "Wait for the nightly run", 6.8),
-        command("cmux-ci test -- bash -c 'python3 scripts/check-test-determinism.py'", "Check test determinism", 5.8),
-        command("cmux-ci compile-check --ref d0133bc33e16b8ede754815541ede9d8a5e", "Compile the head", 2.6),
-        command("glaeda-gh status pr 34260", "Read the compile-check result", 2),
+        command("gh run watch 41723867191 --exit-status", "Wait for the nightly run", 6.8),
+        command("python3 scripts/check-test-determinism.py --runs 20", "Check test determinism", 5.8),
+        command("swift build -c release --product App", "Compile the head", 2.6),
+        command("gh pr checks 34260 --watch", "Read the compile-check result", 2),
       ],
       7,
     ),
@@ -105,12 +105,14 @@ const mixed: AcpmuxSnapshot = (() => {
 
 const head = (ctx: PlayContext) => ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
 
-async function open(ctx: PlayContext, lines: number): Promise<void> {
+/** Opens the tray and waits for its lines: `lines` of them, or any when the variant is not known. */
+async function open(ctx: PlayContext, lines?: number): Promise<void> {
   await ctx.waitFor(() => head(ctx));
   if (head(ctx)!.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: ".acpmux-running-tray__head" });
-  await ctx.waitFor(
-    () => ctx.document.querySelectorAll(".acpmux-running-tray__list .acpmux-agent-line").length === lines,
-  );
+  await ctx.waitFor(() => {
+    const count = ctx.document.querySelectorAll(".acpmux-running-tray__list .acpmux-agent-line").length;
+    return lines === undefined ? count > 0 : count === lines;
+  });
 }
 
 const box = (node: Element | null | undefined) => node?.getBoundingClientRect();
@@ -162,13 +164,10 @@ export default agentPaneEntry({
   height: 440,
   widths: { narrow: 360 },
   anchors: [{ selector: ".acpmux-header" }, { selector: ".acpmux-composer" }],
-  covers: [
-    "agent-session/acpmux/subagents/SubagentTray.tsx",
-    "agent-session/acpmux/subagents/AgentLine.tsx",
-  ],
+  covers: ["agent-session/acpmux/subagents/SubagentTray.tsx", "agent-session/acpmux/subagents/AgentLine.tsx"],
   experiment: {
     definition: trayHeadKindsLook,
-    script: [{ name: "open the tray", run: (ctx) => open(ctx, 7) }],
+    script: [{ name: "open the tray", run: (ctx) => open(ctx) }],
   },
   variants: {
     "leo-tray": {

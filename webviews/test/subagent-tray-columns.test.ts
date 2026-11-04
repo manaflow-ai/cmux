@@ -388,13 +388,11 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                     : null,
                   stop: rect(".acpmux-agent-line__stop-slot", row),
                   hasStop: Boolean(row.querySelector(".acpmux-agent-line__stop-slot > button")),
-                  // How far the cluster (the state word, then the time) ends from the line's next
-                  // control (Stop, else the chevron).
+                  // How far the cluster (the state word, then the time) ends from Stop's track,
+                  // empty or not (Leo, 2026-11-03: "let's align the right").
                   stateToNext: (() => {
                     const end = time.getBoundingClientRect();
-                    const next =
-                      row.querySelector<HTMLElement>(".acpmux-agent-line__stop-slot > button") ??
-                      row.querySelector<HTMLElement>(".acpmux-agent-line__chevron")!;
+                    const next = row.querySelector<HTMLElement>(".acpmux-agent-line__stop-track")!;
                     return next.getBoundingClientRect().left - end.right;
                   })(),
                 };

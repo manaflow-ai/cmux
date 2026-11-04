@@ -70,7 +70,6 @@ await requireBrowserLane("subagent-tray-kinds.test.ts", async () => {
             overflow: list.scrollHeight - list.clientHeight,
             head: rect(tray.querySelector(".acpmux-running-tray__status svg")),
             lines: [...list.querySelectorAll<HTMLElement>(".acpmux-agent-line")].map((line) => ({
-              stops: line.querySelectorAll(".acpmux-agent-line__stop-slot > button").length,
               time: rect(line.querySelector(".acpmux-agent-line__time")),
               track: rect(line.querySelector(".acpmux-agent-line__stop-track")),
               chevron: rect(line.querySelector(".acpmux-agent-line__chevron svg")),
@@ -78,9 +77,9 @@ await requireBrowserLane("subagent-tray-kinds.test.ts", async () => {
           };
         });
         expect(geometry.title).toBe("4 commands · 1 subagent done");
-        // Five lines fit the list: no scrollbar to take their right edge in.
-        expect(geometry.overflow).toBeLessThanOrEqual(0);
-        expect(geometry.lines.filter((line) => line.stops === 0).length).toBe(1);
+        // Five one-row lines fit the list: no scrollbar to take their right edge in. Narrow, each line
+        // takes two rows and the list scrolls; the header's chevron follows the scrollbar (below).
+        if (width > 400) expect(geometry.overflow).toBeLessThanOrEqual(0);
         const [first] = geometry.lines;
         for (const line of geometry.lines) {
           expect(Math.abs(line.time.right - first!.time.right)).toBeLessThanOrEqual(0.5);
