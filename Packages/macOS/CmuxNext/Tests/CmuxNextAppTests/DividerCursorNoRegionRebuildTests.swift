@@ -9,10 +9,12 @@ import Testing
 /// divider that moves in a spring frame, and the cursor clip `applyPresentation` sets on it every frame, made AppKit
 /// invalidate its cursor rects, and each invalidation scheduled a rebuild of the window's structural regions (drag
 /// margins and the constraint min-size walk of every view: 14.6 % of a STRESS divider drag's busy main-thread time,
-/// fleet job 02225774; 206 invalidations in 36 frames of a 12-pane spring, job 8d0c5e73). The divider now sets its
-/// cursor from a hit test on the pointer event (`cursorUpdate`, `mouseMoved` in its tracking area), as Chrome does
-/// (the cursor comes from the hit test of the mouse event, never from rects kept per frame): a spring frame
-/// invalidates no divider's cursor rects. Needs a window on screen (a display worker): off screen AppKit tracks nothing.
+/// fleet job 02225774; 206 invalidations in 36 frames of a 12-pane spring, job 8d0c5e73). A divider's own tracking
+/// area did the same (240 in 36 frames, job b971c2f8; with neither, 0: job 5146dc44). The screen's one tracking area,
+/// which does not move, now hit-tests the current divider frames for the hover and the resize cursor
+/// (`ScreenDividerPointer`), as Chrome sets the cursor from the hit test of each mouse event: a spring frame
+/// invalidates no divider's cursor rects, and no AppKit call is skipped. The count needs a window on screen (a display
+/// worker): off screen AppKit tracks nothing.
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct DividerCursorNoRegionRebuildTests {
     @Test func aSpringFrameInvalidatesNoDividerCursorRects() async throws {
@@ -38,6 +40,33 @@ struct DividerCursorNoRegionRebuildTests {
         print("HPA-COUNT case=divider-cursor-rects frames=\(frames) divider_invalidations=\(CursorRectSpy.dividers) all_invalidations=\(CursorRectSpy.all)")
         try #require(frames > 1, "the change started no spring")
         #expect(CursorRectSpy.dividers == 0, "\(frames) spring frames invalidated divider cursor rects \(CursorRectSpy.dividers) times")
+    }
+
+    /// A divider that springs away from a still pointer takes its resize cursor and hover with it, and the pointer at
+    /// its new place gets them: both come from the current frames, never from where the handle was.
+    @Test func theResizeCursorFollowsADividerThatMovesUnderAStillPointer() throws {
+        let columns = (0..<2).map { PaneMotionBench.column($0, rows: 3, width: 0.5) }
+        let probe = LayoutWorkProbe(.columns(columns), focused: PaneID("p0-0"))
+        defer { probe.close() }
+        let screen = probe.screen
+        let handle = try #require(screen.dividerViews[.split("s1-0")])
+        let center = { CGPoint(x: handle.frame.midX, y: handle.frame.midY) }
+        let old = center()
+        probe.hoverAt = screen.convert(old, to: nil)
+        screen.refreshDividerHover()
+        #expect(handle.isHovered && screen.dividerPointer.shownCursor === handle.resizeCursor, "the pointer on the divider")
+
+        var next = columns
+        next[1] = PaneMotionBench.column(1, rows: 2, width: 0.5)
+        probe.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(next))])
+        let frames = probe.settle()
+        try #require(frames > 1, "the change started no spring")
+        try #require(abs(center().y - old.y) > 40, "the divider did not move: \(old) -> \(center())")
+        #expect(!handle.isHovered && screen.dividerPointer.shownCursor == nil, "the divider left the still pointer: no resize cursor at its old place")
+
+        probe.hoverAt = screen.convert(center(), to: nil)
+        screen.refreshDividerHover()
+        #expect(handle.isHovered && screen.dividerPointer.shownCursor === handle.resizeCursor, "the pointer at the divider's new place")
     }
 
     /// The pointer over a divider still gets the resize cursor, and over the part a dock covers it does not.

@@ -13,9 +13,11 @@ struct ScreenDividers {
     /// catcher panel's event, every presentation pass including strip and
     /// row scrolls, key-window changes). The topmost visible handle under the
     /// pointer is hovered; every other one is not.
-    func refreshHover() {
+    /// The same handle shows the resize cursor (`ScreenDividerPointer`); `event` is the pointer event that asked.
+    func refreshHover(event: NSEvent? = nil) {
         let hovered = hoveredHandle()
         for view in screen.dividerViews.values { view.setHovered(view === hovered) }
+        screen.dividerPointer.show(hovered, in: screen, event: event)
     }
 
     private func hoveredHandle() -> DividerHandleView? {
