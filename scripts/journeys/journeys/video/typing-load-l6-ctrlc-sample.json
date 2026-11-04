@@ -148,7 +148,7 @@
   },
   {
    "do": "bg_sample_start",
-   "name": "typinghalf1",
+   "name": "typinghalfone",
    "seconds": 40.0,
    "title": "background sample of every thread across the first 40 s of the typist's first half (its first Ctrl-C is at about 27 s)"
   },
@@ -167,7 +167,7 @@
   },
   {
    "do": "bg_sample_wait",
-   "name": "typinghalf1",
+   "name": "typinghalfone",
    "title": "the sample ends"
   },
   {
