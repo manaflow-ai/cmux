@@ -355,26 +355,37 @@ jobs:
           sparse-checkout: scripts/ci/ui_review_advisory.py
           sparse-checkout-cone-mode: false
 
+      # The changed paths from the event's merge commit without blobs, as pr-design-spec-check.yml reads
+      # them: no API call. The paginated REST file list (one call a page, from the repository's shared
+      # GITHUB_TOKEN budget) is only the fallback when git cannot answer.
       - name: Read changed files and body
         id: read
         if: steps.checkout.outcome == 'success'
         continue-on-error: true
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        timeout-minutes: 2
         env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          MERGE_SHA: ${{ github.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BODY: ${{ github.event.pull_request.body }}
           FILES_JSON: ${{ runner.temp }}/ui-review-files.json
           BODY_FILE: ${{ runner.temp }}/ui-review-body.md
-        with:
-          script: |
-            const fs = require('fs');
-            const { owner, repo } = context.repo;
-            const files = await github.paginate(github.rest.pulls.listFiles, {
-              owner,
-              repo,
-              pull_number: context.payload.pull_request.number,
-              per_page: 100,
-            });
-            fs.writeFileSync(process.env.FILES_JSON, JSON.stringify(files.map(file => ({ filename: file.filename }))));
-            fs.writeFileSync(process.env.BODY_FILE, context.payload.pull_request.body || '');
+        run: |
+          set -euo pipefail
+          paths="$RUNNER_TEMP/ui-review-paths.txt"
+          if git fetch --no-tags --quiet --depth=2 --filter=blob:none origin "$MERGE_SHA" \
+            && [ "$(git rev-parse "$MERGE_SHA^2")" = "$HEAD_SHA" ] \
+            && git diff --name-only -z --no-renames "$MERGE_SHA^1" "$MERGE_SHA" | tr '\0' '\n' > "$paths"; then
+            echo "changed files: $(wc -l < "$paths" | tr -d ' ') from the merge commit (git)"
+          else
+            echo "::notice title=UI review::git could not list the changed files; reading them over the API"
+            gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' > "$paths"
+          fi
+          python3 -c 'import json, sys; json.dump([{"filename": l} for l in open(sys.argv[1]).read().splitlines() if l], open(sys.argv[2], "w"))' \
+            "$paths" "$FILES_JSON"
+          printf '%s' "$BODY" > "$BODY_FILE"
 
       - name: Warn when the UI review is missing
         if: steps.read.outcome == 'success'
