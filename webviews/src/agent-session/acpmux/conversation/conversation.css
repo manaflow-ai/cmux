@@ -3708,7 +3708,9 @@ button.cv-video-frames__frame:focus-visible {
   display: inline-flex;
   flex: none;
   align-items: center;
-  max-width: 45%;
+  /* The name keeps its room: the first line after it gives way first, and the name is cut only past
+     70% of the line (Leo, 2026-11-03: "idk why names are ellipses'd so early"). */
+  max-width: 70%;
   min-width: 0;
   height: var(--cv-message-line);
   gap: var(--cv-row-icon-gap);
@@ -3740,7 +3742,7 @@ button.cv-video-frames__frame:focus-visible {
   white-space: nowrap;
   color: var(--cv-activity-text);
 }
-/* The sender span already caps the name at 45% of the line: its tag takes the span's room (less
+/* The sender span already caps the name at 70% of the line: its tag takes the span's room (less
    the mark), never a percentage of a percentage that cuts the name short beside an empty gap. */
 .cv-received__sender > .cv-agent-tag {
   flex: 0 1 auto;

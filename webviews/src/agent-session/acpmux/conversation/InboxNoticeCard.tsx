@@ -116,7 +116,7 @@ function InboxThreadLine({
   }, [holds, reveal]);
   // Several messages each say who sent them; one alone is under its sender's line already.
   const heads = (messages?.length ?? 0) > 1;
-  // Stacked (the default, messageLineLook.ts): the preview on its own line under the sender.
+  // Stacked (a gallery look, messageLineLook.ts): the preview on its own line under the sender.
   const lineLook = useMessageLineLook();
   const preview = thread.preview || t("message.noText");
   return (

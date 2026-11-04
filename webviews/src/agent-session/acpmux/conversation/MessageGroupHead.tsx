@@ -68,7 +68,7 @@ export function MessageGroupHead({
   mark?: ReactNode;
 }) {
   const look = useInboxNoticeLook();
-  // Stacked (the default, messageLineLook.ts): the senders on their own line under the count, cut
+  // Stacked (a gallery look, messageLineLook.ts): the senders on their own line under the count, cut
   // there, as a message row's first line is; `quiet` keeps them in the tooltip only.
   const lineLook = useMessageLineLook();
   const below = lineLook === "stacked" && look !== "group-count" && !open ? senders : undefined;

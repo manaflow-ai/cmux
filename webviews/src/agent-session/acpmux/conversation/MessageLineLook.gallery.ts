@@ -5,10 +5,11 @@
 // truncated on one line, and of the same rows: "i also think this is quite weird looking". The turn
 // holds `acpmux send` calls that also ran other commands, a SendMessage, another machine's lane's
 // message, the live "Sending message to …" line and seven messages from six sessions that wait.
-// Each look (messageLineLook.ts, theme `messageLineLook`) draws the same chat: `stacked`, the
-// default, puts the verb, recipient chip, count and chevron on the line and the message's first line
-// (a group's senders) on its own line under it; `single` is the one line from before; `quiet` keeps
-// the line alone until the row opens. `opened` shows an opened send: the message at the text
+// Each look (messageLineLook.ts, theme `messageLineLook`) draws the same chat: `single`, the default
+// since Leo's 2026-11-03 "just doing it directly in the same line", is one line whose first line
+// gives way before the name; `stacked` (cmux#33249) puts the verb, recipient chip, count and chevron
+// on the line and the message's first line (a group's senders) on its own line under it; `quiet`
+// keeps the line alone until the row opens. `opened` shows an opened send: the message at the text
 // column, Copy and Raw quiet under it, nothing beside the chevron.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
@@ -162,7 +163,8 @@ export default agentPaneEntry({
   keywords: ["message", "sent", "received", "preview", "two lines", "stacked", "and more commands", "sending"],
   variants: {
     stacked: {
-      note: "The default: each message row's verb, recipient chip, count and chevron on its line, the message's first line on its own line under it, cut there. The live send line has the envelope and no token counts; the waiting group's senders sit under its count.",
+      note: "Gallery version (theme messageLineLook stacked, cmux#33249): each message row's verb, recipient chip, count and chevron on its line, the message's first line on its own line under it, cut there. The waiting group's senders sit under its count.",
+      theme: { messageLineLook: "stacked" },
       snapshot: coordinatorTurn(),
     },
     opened: {
@@ -171,7 +173,7 @@ export default agentPaneEntry({
       play: openFirstSend,
     },
     single: {
-      note: "Gallery version (theme messageLineLook single): the one line from before, the chip, count and first line cut together.",
+      note: "The default (Leo, 2026-11-03: \"just doing it directly in the same line\"): the verb, the recipient chip whole, the count and the message's first line on one line, the first line cut first, then the chevron. The live send line has the envelope and no token counts.",
       theme: { messageLineLook: "single" },
       snapshot: coordinatorTurn(),
     },

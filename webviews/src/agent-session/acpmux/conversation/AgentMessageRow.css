@@ -76,6 +76,12 @@
   cursor: default;
   letter-spacing: var(--text-control--letter-spacing);
 }
+/* The name keeps its room on the one line (messageLineLook.ts `single`): it is cut only past 70% of
+   the line, and the first line after it gives way first (Leo, 2026-11-03: "idk why names are
+   ellipses'd so early"). */
+.cv-agentmsg__name.cv-recipient {
+  max-width: 70%;
+}
 /* Opened, the line names its other chat whole: the panel under it never names it. */
 .cv-agentmsg[data-open] .cv-agentmsg__name {
   flex: 0 1 auto;
@@ -229,7 +235,7 @@ button.cv-agentmsg__name:focus-visible {
   color: var(--cv-text);
 }
 
-/* A stacked message row's first line (messageLineLook.ts, the default): on its own line under the
+/* A stacked message row's first line (messageLineLook.ts `stacked`, a gallery look): on its own line under the
    row's verb, recipient and count, at the text column, dim, cut there with one ellipsis (Leo said
    yes, 2026-11-02, to splitting "Sent to <chip> · and 5 more commands <preview>" so the chip and
    count read on the first line and the preview below). The row's one tone, never lit on hover.
