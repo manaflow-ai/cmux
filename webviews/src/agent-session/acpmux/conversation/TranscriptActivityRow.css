@@ -14,9 +14,10 @@
    control, never the whole row (Leo, 2026-11-03, on "2 background updates" brightening edge to
    edge: "this thing appears/lights up on hover for no reason!?"; test
    webviews/test/transcript-row-hover-scope.test.ts). */
-/* A line whose chevron sits beside its button, not inside it (SubagentDoneLine.tsx). */
-.cv-agent-activity-row:is(:hover, :active, :focus-visible, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) > button.cv-agent-activity__control .cv-agent-activity__chevron,
-.cv-agent-activity-row:is(:hover, :active, :focus-visible, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))):has(> button.cv-agent-activity__control) > .cv-agent-activity__chevron {
+/* A line whose chevron sits beside its button, not inside it (SubagentDoneLine.tsx). A disabled
+   button opens nothing, so its chevron stays at rest. */
+.cv-agent-activity-row:is(:hover, :active, :focus-visible, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) > button.cv-agent-activity__control:not(:disabled) .cv-agent-activity__chevron,
+.cv-agent-activity-row:is(:hover, :active, :focus-visible, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))):has(> button.cv-agent-activity__control:not(:disabled)) > .cv-agent-activity__chevron {
   color: var(--cv-text);
 }
 .cv-agent-activity__control {
