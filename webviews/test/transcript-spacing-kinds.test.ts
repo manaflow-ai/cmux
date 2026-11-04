@@ -269,7 +269,7 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
           notesFooter && notesFooter.height > 0
             ? diff(
                 (notesFooter.top + notesFooter.bottom) / 2,
-                head(document.querySelector('[data-row-id="notes-task-1"]') ?? undefined),
+                head(document.querySelector('[data-row-id="backgroundRun-notes-task-1"]') ?? undefined),
               )
             : null,
         "note-to-live": diff(head(document.querySelector('[data-row-id="notes-last"]') ?? undefined), head(live)),
