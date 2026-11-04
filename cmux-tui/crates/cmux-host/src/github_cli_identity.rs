@@ -58,8 +58,8 @@ fn github_host(host: Option<&String>) -> bool {
     host.is_some_and(|h| h.eq_ignore_ascii_case("github.com"))
 }
 
-/// Whether `hosts.yml` may hold a login for any host: any root key, or content the shared
-/// reader (`github_cli::parse_gh_hosts`) cannot read; blank lines, comments, document
+/// Whether `hosts.yml` may hold a login for any host: any string key of its root mapping (a host), or a file the shared
+/// YAML reader (`github_cli::parse_gh_hosts`) cannot parse; blank lines, comments, document
 /// markers (`---`, `...`) and an empty `{}` are none. So a GitHub
 /// Enterprise login, an indented root mapping, or a login in any other form gh reads keeps
 /// gh's own answer. Unsure means yes.

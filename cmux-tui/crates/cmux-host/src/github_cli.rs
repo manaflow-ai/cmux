@@ -649,14 +649,16 @@ pub fn first_token(
     Err(last)
 }
 
-/// What gh's `hosts.yml` holds at its root: the host keys read from it, and
-/// whether any content was left that this could not read. The one reader
-/// behind both own-login checks (`hosts_has_github` here and
-/// `github_cli_identity::hosts_has_any_login`).
+/// What gh's `hosts.yml` holds at its root: the host keys of its root
+/// mapping, or `unread` when the file is not YAML this can read or its root
+/// is not a mapping. The one reader behind both own-login checks
+/// (`hosts_has_github` here and `github_cli_identity::hosts_has_any_login`).
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct GhHosts {
     pub hosts: Vec<String>,
-    /// Content outside the forms read below. Unsure means a login may be there.
+    /// The file did not parse, or its root is not a mapping. Fail-safe: this
+    /// counts as the person's own login, so gh keeps its own answer and the
+    /// team's token is never routed when we can't read the person's config.
     pub unread: bool,
 }
 
@@ -672,152 +674,33 @@ impl GhHosts {
     }
 }
 
-/// Reads the root mapping's keys from gh's `hosts.yml`: a block mapping at
-/// whatever indent its first key sets (spaces or tabs), or an inline
-/// `{host: {...}, ...}` mapping. Blank lines, comments and document markers
-/// (`---`, `...`) are skipped. Anything else is `unread`.
+/// Parses gh's `hosts.yml` with a YAML parser and reads its root mapping's
+/// string keys (the hosts). A file of only blank lines, comments and document
+/// markers, or an empty document, holds no host. A file that does not parse,
+/// or whose root is anything but a mapping, is `unread` (see `GhHosts`).
 pub fn parse_gh_hosts(hosts_yml: &str) -> GhHosts {
-    let lines: Vec<&str> = hosts_yml
-        .lines()
-        .filter(|line| {
-            let t = line.trim();
-            !t.is_empty() && !t.starts_with('#') && t != "---" && t != "..."
-        })
-        .collect();
-    let mut out = GhHosts::default();
-    let Some(first) = lines.first() else { return out };
-    if first.trim_start().starts_with('{') {
-        match flow_keys(lines.join("\n").trim()) {
-            Some(keys) => out.hosts = keys,
-            None => out.unread = true,
-        }
-        return out;
+    let no_content = hosts_yml.lines().all(|line| {
+        let t = line.trim();
+        t.is_empty() || t.starts_with('#') || t == "---" || t == "..."
+    });
+    if no_content {
+        return GhHosts::default();
     }
-    let indent = |line: &str| line.len() - line.trim_start().len();
-    let root = indent(first);
-    for line in lines {
-        match indent(line) {
-            n if n > root => {}
-            n if n < root => out.unread = true,
-            _ => match block_key(line.trim()) {
-                Some(key) => out.hosts.push(key),
-                None => out.unread = true,
-            },
-        }
+    let unread = GhHosts { hosts: Vec::new(), unread: true };
+    let Ok(docs) = yaml_rust::YamlLoader::load_from_str(hosts_yml) else { return unread };
+    match docs.into_iter().next() {
+        None | Some(yaml_rust::Yaml::Null) => GhHosts::default(),
+        Some(yaml_rust::Yaml::Hash(root)) => GhHosts {
+            hosts: root.keys().filter_map(|k| k.as_str().map(str::to_owned)).collect(),
+            unread: false,
+        },
+        Some(_) => unread,
     }
-    out
-}
-
-/// A mapping key's text: a plain scalar, or a quoted one with no escapes
-/// (`\`, `''`). A key in any other form (escaped, tagged, anchored, an alias,
-/// a `?` complex key) is `None`, so the file counts as unread.
-fn key_text(raw: &str) -> Option<String> {
-    let raw = raw.trim();
-    let quoted = |q: char| {
-        let inner = raw.strip_prefix(q)?.strip_suffix(q)?;
-        (!inner.contains(q) && !inner.contains('\\')).then(|| inner.to_owned())
-    };
-    match raw.chars().next()? {
-        q @ ('"' | '\'') => quoted(q),
-        c if "-?{}[]&*!|>%@`,#".contains(c) => None,
-        _ => Some(raw.to_owned()),
-    }
-}
-
-/// The key of one root line `key:` / `key: value` / `"key": value`.
-fn block_key(t: &str) -> Option<String> {
-    let after_colon_ok = |rest: &str| {
-        rest.strip_prefix(':').is_some_and(|r| r.is_empty() || r.starts_with(char::is_whitespace))
-    };
-    let at = match t.chars().next() {
-        Some(q @ ('"' | '\'')) => 1 + t[1..].find(q)? + 1,
-        _ => t.char_indices().find(|&(i, c)| c == ':' && after_colon_ok(&t[i..]))?.0,
-    };
-    after_colon_ok(&t[at..]).then(|| key_text(&t[..at])).flatten()
-}
-
-/// The root keys of an inline mapping `{a: {...}, "b": x}`, comments (`#`
-/// after whitespace, to the end of the line) skipped, or `None` when it does
-/// not close or anything but comments follows it.
-fn flow_keys(s: &str) -> Option<Vec<String>> {
-    let body = s.strip_prefix('{')?;
-    let mut raw_keys = Vec::new();
-    let (mut depth, mut quote, mut in_key, mut key) = (0usize, None::<char>, true, String::new());
-    let push = |key: &mut String, keys: &mut Vec<String>| {
-        if !key.trim().is_empty() {
-            keys.push(std::mem::take(key));
-        }
-        key.clear();
-    };
-    let mut chars = body.chars();
-    // The char just before `c`, and the last one that was not whitespace,
-    // outside quotes: a `#` after whitespace or a separator starts a comment,
-    // and a quote starts a quoted scalar only where a scalar starts.
-    let (mut last, mut last_solid) = ('{', '{');
-    while let Some(c) = chars.next() {
-        let (prev, prev_solid) = (last, last_solid);
-        last = c;
-        if !c.is_whitespace() {
-            last_solid = c;
-        }
-        if quote.is_none() && c == '#' && (prev.is_whitespace() || "{[,".contains(prev)) {
-            if chars.by_ref().all(|c| c != '\n') {
-                return None;
-            }
-            (last, last_solid) = ('\n', prev_solid);
-            continue;
-        }
-        if let Some(q) = quote {
-            if c == q {
-                quote = None;
-            } else if c == '\\' && q == '"' {
-                // Kept, so `key_text` refuses the escaped key.
-                let next = chars.next()?;
-                if depth == 0 && in_key {
-                    key.extend([c, next]);
-                }
-                continue;
-            }
-        } else {
-            match c {
-                '"' | '\'' if "{[,:".contains(prev_solid) => quote = Some(c),
-                '{' | '[' => depth += 1,
-                '}' | ']' if depth > 0 => depth -= 1,
-                '}' => {
-                    if in_key {
-                        push(&mut key, &mut raw_keys);
-                    }
-                    let mut rest = chars.as_str().lines().map(str::trim);
-                    if !rest.all(|t| t.is_empty() || t.starts_with('#')) {
-                        return None;
-                    }
-                    return raw_keys.iter().map(|k| key_text(k)).collect();
-                }
-                ':' if depth == 0 && in_key => {
-                    push(&mut key, &mut raw_keys);
-                    in_key = false;
-                    continue;
-                }
-                ',' if depth == 0 => {
-                    if in_key {
-                        push(&mut key, &mut raw_keys);
-                    }
-                    in_key = true;
-                    continue;
-                }
-                _ => {}
-            }
-        }
-        if depth == 0 && in_key {
-            key.push(c);
-        }
-    }
-    None
 }
 
 /// Whether gh's `hosts.yml` may hold a github.com login (a `github.com` key
-/// at its root, indented, tab-indented or inline), the person's own
-/// `gh auth login`. Content this cannot read counts as one, so an unsure
+/// in its root mapping, in any form YAML writes it), the person's own
+/// `gh auth login`. A file that does not parse counts as one, so an unsure
 /// read keeps the person's own gh rather than the team's token.
 pub fn hosts_has_github(hosts_yml: &str) -> bool {
     parse_gh_hosts(hosts_yml).github_login()
@@ -1666,13 +1549,12 @@ mod tests {
             "github.com: # personal\n    user: me\n",
             "---\n\"github.com\":\n  user: me\n",
             "'GitHub.com':\n  user: me\n",
-            // A key in a form this does not decode (escaped, tagged, anchored)
-            // counts as unread, so as a login.
+            // Escaped, tagged and anchored keys are decoded by the YAML parser.
             "\"\\u0067ithub.com\":\n  user: me\n",
             "{\"\\u0067ithub.com\": {user: me}}\n",
             "!!str github.com:\n  user: me\n",
             "{&a github.com: {user: me}}\n",
-            // A comment right after a separator, with an apostrophe in it.
+            // Not valid YAML (`,#` is no comment): unread, so the person's own.
             "{ghe.example.com: {oauth_token: x,# Alice's account\n user: a},\ngithub.com:\n {oauth_token: y, # Bob's account\n user: b}}\n",
             "{ghe.example.com: {user: it's me}, github.com: {user: b}}\n",
         ] {
@@ -1684,6 +1566,8 @@ mod tests {
             "{ghe.example.com: {user: a, note: github.com}}\n",
             "{ghe.example.com: {github.com: 1}}\n",
             "{mygithub.com: {user: a}}\n",
+            "mygithub.com:\n  user: a\n",
+            "# a comment\n  # another\n---\n",
             "{ghe.example.com: {user: a, note: \"github.com: x\"}}\n",
             "  x:\n      github.com: 1\n",
             "{}\n",
