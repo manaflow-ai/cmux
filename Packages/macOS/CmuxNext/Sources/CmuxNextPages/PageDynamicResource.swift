@@ -52,10 +52,10 @@ public nonisolated struct PageRangedResource: Sendable, Equatable {
     }
 }
 
-/// A dynamic source whose resources are played in byte ranges (a `<video>` asks for one range at a
-/// time and needs 206 with `Content-Range`, which a whole-body 200 does not give). The WebKit scheme
-/// handler asks it with the request's `Range` header instead of ``PageDynamicResourceSource/resource(for:)``;
-/// nil is a 404.
-public protocol PageRangedResourceSource: PageDynamicResourceSource {
+/// A page's dynamic source (``PageDynamicResourceSource``) that also answers in byte ranges (a
+/// `<video>` asks for one range at a time and needs 206 with `Content-Range`, which a whole-body 200
+/// does not give). When the page's source conforms, the WebKit scheme handler asks it with the
+/// request's `Range` header instead of ``PageDynamicResourceSource/resource(for:)``; nil is a 404.
+public protocol PageRangedResourceSource: AnyObject {
     func rangedResource(for request: PageResourceRequest, range: String?) async -> PageRangedResource?
 }
