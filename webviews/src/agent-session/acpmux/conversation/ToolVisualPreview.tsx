@@ -16,7 +16,7 @@ export function ToolVisualRow({ sources, label, children }: { sources: string[];
   return (
     <div className="cv-tool-with-visual">
       {children}
-      <ToolVisualPreview key={source} source={source} label={label} />
+      <ToolVisualPreview source={source} label={label} />
     </div>
   );
 }
