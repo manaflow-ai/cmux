@@ -2141,7 +2141,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextLayout",
             // CmuxNextInput: the root's scroll, magnify and button routing is an intercept on the app's input tap.
-            // CmuxNextInputCore: the strip pan's InputResampler.
+            // CmuxNextInputCore: the drags' DragResampler.
             dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextTrace", "CmuxNextSignposts", "CmuxNextInput",
                            "CmuxNextInputCore"],
             resources: [

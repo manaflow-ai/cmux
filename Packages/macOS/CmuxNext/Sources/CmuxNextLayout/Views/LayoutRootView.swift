@@ -539,8 +539,6 @@ public final class LayoutRootView: NSView {
     private func stepFrame(_ dt: Double) -> Bool {
         // Reduce Motion (or the no-animation switch) turned on mid-flight: the final layout now, no more frames.
         if context.reduceMotion {
-            // A resampled pan's event that waited for this frame shows now, unresampled.
-            for view in screenViews.values where !view.isHidden { view.presentFramePan(at: nil) }
             for view in screenViews.values where view.hasMotion { view.settleMotion() }
             stopScreenSwitch()
             for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
@@ -554,8 +552,8 @@ public final class LayoutRootView: NSView {
         let policy = Motion.panes.policy
         var moving = false, panning = false
         for view in screenViews.values where !view.isHidden {
-            // Pan events that waited in the last frame show first (resampled at the frame's time), then the springs step.
-            if view.displayFrameBegan(at: driver.frameTime) { panning = true }
+            // Pan events that waited in the last frame show first, then the springs step.
+            if view.displayFrameBegan() { panning = true }
             if view.step(dt, policy: policy) { moving = true }
         }
         // Only a switch the CPU steps places screens per frame; one on the render server placed them once.
@@ -577,7 +575,7 @@ public final class LayoutRootView: NSView {
         // A switch on the render server ends the motion when it lands (`screenSwitchLanded`).
         if !moving && !gesturing && !screenSwitch.isInFlight { setLayoutInMotion(false) }
         // A strip pan that moves the frames keeps the ticks until its finger lifts
-        // (`ScreenContentView.displayFrameBegan`); a pan on the motion container keeps them only resampled.
+        // (`ScreenContentView.displayFrameBegan`); a pan on the motion container keeps none.
         return moving || panning
     }
 

@@ -103,7 +103,6 @@ public nonisolated struct FeatureDogfoodSet: Sendable, Equatable {
         "sidebarRowsNearViewport",
         "sidebarSlideHoldsContent",
         "sleepWakeKeepalives",
-        "stripPanResampling",
         "taskManagerMemorySaved",
         "terminalGPURelease",
         "terminalPointerFrames",

@@ -115,9 +115,6 @@ final class LayoutViewContext {
     var dragFrameInput: FrameInputCoalescers?
     /// A new divider drag's resampler (``LayoutRootView/dragResampler``); nil: drawn at the real pointer.
     var dragResampler: () -> DragResampler? = { nil }
-    /// A strip pan on the motion container shows at each display frame's time, resampled
-    /// (feature `stripPanResampling`, ``LayoutRootView/resamplesStripPan``).
-    var resamplesStripPan = false
     /// Whether a pane's content keeps its size through a layout spring (feature `paneHoldsContentInMotion`,
     /// ``LayoutRootView/holdsContentInMotion``), asked by each host at its spring's start.
     var holdsContentInMotion: () -> Bool = { false }

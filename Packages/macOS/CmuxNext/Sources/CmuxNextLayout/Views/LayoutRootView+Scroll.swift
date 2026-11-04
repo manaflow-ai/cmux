@@ -330,7 +330,7 @@ extension LayoutRootView: ScrollGestureOwning {
             }
             if dx > dy, let view = targets.columns {
                 scrollLock = .horizontal(view, verticalDeltas: false)
-                view.beginUserScroll(trackpad: true)
+                view.beginUserScroll()
                 view.userScroll(deltaX: event.scrollingDeltaX, timestamp: event.timestamp)
                 return nil
             }
@@ -342,7 +342,7 @@ extension LayoutRootView: ScrollGestureOwning {
             }
             if dy >= dx, targets.columnsTakeEitherAxis, let view = targets.columns {
                 scrollLock = .horizontal(view, verticalDeltas: true)
-                view.beginUserScroll(trackpad: true)
+                view.beginUserScroll()
                 view.userScroll(deltaX: event.scrollingDeltaY, timestamp: event.timestamp)
                 return nil
             }

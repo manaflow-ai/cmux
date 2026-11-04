@@ -157,7 +157,7 @@ extension ScreenContentView {
     }
 
     /// Shows a strip pan event: now when this display frame shows no pan yet, else at the frame's
-    /// tick (``displayFrameBegan(at:)``), so a burst of events costs one presentation (one layout
+    /// tick (``displayFrameBegan()``), so a burst of events costs one presentation (one layout
     /// pass and commit of the moved panes) per frame. The frame's first event still shows in its
     /// own turn, so a pan of about one event per frame shows each event as soon as before.
     func presentPan() {
@@ -176,13 +176,11 @@ extension ScreenContentView {
     /// the frame ticks: until its finger lifts, so a gap of a frame or two between trackpad events
     /// never drops the window's display link (an idle scheduler drops its link, and the next event
     /// would make a new one). A pan on the strip container (``panBase``) shows each event in its own
-    /// turn and keeps none, unless it is resampled: then this frame shows it at `frameTime`
-    /// (``presentFramePan(at:)``) and the ticks run until the finger lifts.
-    func displayFrameBegan(at frameTime: TimeInterval? = nil) -> Bool {
+    /// turn and keeps none.
+    func displayFrameBegan() -> Bool {
         panPresentedInFrame = false
         if panPresentationPending { applyPresentation() }
-        presentFramePan(at: frameTime)
-        return isUserScrolling && (panBase == nil || scrollState.resamplesPan)
+        return isUserScrolling && panBase == nil
     }
 
     /// New dock columns' panes still growing in from their screen edge (their frames).
@@ -220,8 +218,8 @@ extension ScreenContentView {
         let zooming = zoomMotion.pane
         var placedHosts: [PaneHostView] = []
         var changed = force
-        // The container shows the camera (a resampled pan's frame offset); a fling on the render server owns it until it lands.
-        let translation = geometry.viewShift(offset: shownCameraOffset) - strip
+        // The container shows the camera; a fling on the render server owns it until it lands.
+        let translation = geometry.viewShift(offset: scrollState.spring.value) - strip
         if stripContainer.fling == nil, stripContainer.translation != translation {
             stripContainer.setTranslation(translation)
             changed = true
