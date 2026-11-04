@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 // Windows are frontend-local, so which workspace each window shows (and its
 // frame) lives in a `personal` frontend projection, not the shared tree
