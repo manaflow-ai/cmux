@@ -121,7 +121,7 @@ export function RunCard({ entry, author, strings, onOpen, onLoad, live, draftTur
               {tokens && <span className="lg-run-meta">{strings.format("run.tokens", tokens)}</span>}
             </span>
           )}
-          <ChevronRight size={14} strokeWidth={1.2} className={`lg-run-chevron cv-rotor${open ? " is-open" : ""}`} />
+          <ChevronRight size={14} className={`lg-run-chevron cv-rotor${open ? " is-open" : ""}`} />
         </button>
         <button type="button" className="lg-link-button lg-run-open" onClick={() => onOpen(run)}>
           {strings.t("run.open")}

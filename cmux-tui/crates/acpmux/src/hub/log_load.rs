@@ -69,6 +69,9 @@ impl Hub {
             (m.status == SessionStatus::Closed, std::cmp::Reverse(m.updated_at))
         });
         self.load_session_logs(&sessions);
+        // Deferred startup must restore ownership epochs before the move watchdog can issue an
+        // automatic commit/abort. Starting it earlier could fence a valid in-flight move.
+        self.watch_transfers();
         // Every log is read: a person's prompt no longer resumes pairs ahead of their logs.
         self.logs_ready.send_replace(true);
         self.forget_pair_peers();
@@ -165,6 +168,10 @@ impl Hub {
             panic!("ACPMUX_TEST_PANIC_IN_LOAD_LOGS");
         }
         self.catch_up(session);
+        if let Err(error) = self.restore_ownership_epoch(session) {
+            session.invalidate_ownership_epoch();
+            tracing::warn!(session = %session.id, "ownership epoch unreadable: {error}");
+        }
         self.restore_transfer_authority(session);
         let (hosted, waiting) = {
             let plan = self.load_plan.lock().unwrap_or_else(|e| e.into_inner());
