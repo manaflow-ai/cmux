@@ -762,7 +762,7 @@ export async function runE2E(
       let hit = false
       for (const v of scanned) if (text.includes(v)) { held += 1; hit = true }
       if (login && text.includes(login)) { loginHits += 1; hit = true }
-      if (hit) files.add(plainLine(redact(entry.name, [...scanned, login])).slice(0, 200))
+      if (hit) files.add(plainLine(redact(entry.name, secrets)).slice(0, 200))
     }
     evidence.secretScan.home = { held, cmj, login: login ? loginHits : null, files: [...files].sort().slice(0, 20) }
   } catch {

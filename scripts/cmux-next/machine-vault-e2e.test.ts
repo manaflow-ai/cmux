@@ -360,8 +360,11 @@ describe("machine-vault-e2e", () => {
     expect(inHome.secretScan.home.login).toBe(1)
     expect(inHome.secretScan.home.files).toEqual(["./.zshenv"])
     // A file name that is itself a secret is redacted.
-    const named = await runE2E(opts, env(), fakes({ homeFiles: { [`./${LOGIN}`]: "x" } }).deps)
-    expect(named.secretScan.home.files?.join(" ")).not.toContain(LOGIN)
+    const nf = fakes({ homeFiles: { [`./${LOGIN}`]: "x" } })
+    await runE2E(opts, env(), nf.deps)
+    // The written evidence keeps the redacted path (it is not the redaction-failure stub).
+    const written = JSON.parse(nf.files.get(opts.evidence) ?? "{}")
+    expect(written.secretScan.home.files).toEqual(["./[secret]"])
   })
 
   test("a reply in the login's shape is never written as evidence", async () => {
