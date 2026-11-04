@@ -99,12 +99,14 @@ nonisolated final class MacScreenRdHost: Sendable {
                 // The answer goes once every candidate this side will find is known.
                 if line.candidatesDone == true, !answered, let document = answer {
                     answered = true
+                    logger.info("cmux rd: answer sent (\(document.candidates.count, privacy: .public) candidates)")
                     do { try await signaling.send(.answer(document.text)) } catch {
                         logger.error("answer not sent: \(String(describing: error), privacy: .public)")
                     }
                 }
                 if line.connected == true, !connected {
                     connected = true
+                    logger.info("cmux rd: viewer connected")
                     emit(.viewerConnected)
                 }
                 if let path = line.path, let kind = path.kind {
@@ -146,7 +148,11 @@ nonisolated final class MacScreenRdHost: Sendable {
                     if let server { try await server(forwarded) } else { try await serveWebRTC(forwarded) }
                 }
             case let .offer(text):
-                guard !started, let offer = MacScreenRdDocument(text: text) else { continue }
+                guard !started, let offer = MacScreenRdDocument(text: text) else {
+                    logger.info("cmux rd: offer ignored (\(started ? "already serving" : "not a cmux.rd/1 document", privacy: .public))")
+                    continue
+                }
+                logger.info("cmux rd: offer received (\(offer.candidates.count, privacy: .public) candidates); starting the host")
                 started = true
                 do { try process.start(.serve) } catch {
                     emit(.sourceFailed("the screen host could not start: \(error.localizedDescription)"))

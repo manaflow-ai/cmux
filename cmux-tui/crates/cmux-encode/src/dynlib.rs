@@ -86,7 +86,9 @@ macro_rules! framework {
             use super::*;
 
             /// Stand-ins for a framework that did not load: they do nothing and return zero
-            /// (NULL, 0, false), which every caller already handles as a failure.
+            /// (NULL, 0, false). Zero is success for a status-code function, so callers check
+            /// `available()` before the first call; the stand-ins only keep a missed check from
+            /// calling through a NULL address.
             mod fallback {
                 use super::*;
                 $(

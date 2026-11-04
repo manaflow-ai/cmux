@@ -230,6 +230,8 @@ pub fn sel(name: &CStr) -> Sel {
 /// `F` must be the method's C signature, receiver and selector first.
 pub unsafe fn msg<F: Copy>() -> F {
     const { assert!(size_of::<F>() == size_of::<*const u8>()) };
+    // `load()` ran first: libobjc is loaded, so the address is never NULL here.
+    debug_assert!(!objc::objc_msgSend().is_null());
     // SAFETY: objc_msgSend's address, reinterpreted as the caller's stated signature.
     unsafe { std::mem::transmute_copy::<*const u8, F>(&objc::objc_msgSend()) }
 }
@@ -289,6 +291,8 @@ impl Drop for AutoreleasePool {
 struct BlockDescriptor {
     reserved: c_long,
     size: c_long,
+    /// The block's type encoding (BLOCK_HAS_SIGNATURE), for runtimes that ask a block for it.
+    signature: *const c_char,
 }
 
 /// A block literal (the Blocks ABI) whose invoke function reads `context`. It is marked global
@@ -305,13 +309,19 @@ pub struct Block<C> {
 }
 
 const BLOCK_IS_GLOBAL: c_int = 1 << 28;
+const BLOCK_HAS_SIGNATURE: c_int = 1 << 30;
 
 /// A leaked block that calls `invoke` with itself first, then the block's arguments.
-pub fn block<C>(invoke: *const c_void, context: C) -> *mut Block<C> {
-    let descriptor = Box::leak(Box::new(BlockDescriptor { reserved: 0, size: size_of::<Block<C>>() as c_long }));
+/// `signature` is its type encoding (`v@?@` for a handler taking one object).
+pub fn block<C>(invoke: *const c_void, signature: &'static CStr, context: C) -> *mut Block<C> {
+    let descriptor = Box::leak(Box::new(BlockDescriptor {
+        reserved: 0,
+        size: size_of::<Block<C>>() as c_long,
+        signature: signature.as_ptr(),
+    }));
     Box::leak(Box::new(Block {
         isa: system::_NSConcreteGlobalBlock(),
-        flags: BLOCK_IS_GLOBAL,
+        flags: BLOCK_IS_GLOBAL | BLOCK_HAS_SIGNATURE,
         reserved: 0,
         invoke,
         descriptor,

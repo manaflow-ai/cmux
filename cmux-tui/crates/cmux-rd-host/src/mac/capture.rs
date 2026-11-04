@@ -29,6 +29,8 @@ const PIXEL_420V: u32 = u32::from_be_bytes(*b"420v");
 /// SCStreamOutputTypeScreen and SCFrameStatusComplete.
 const OUTPUT_SCREEN: c_long = 0;
 const FRAME_COMPLETE: i64 = 0;
+/// How long a session end waits for ScreenCaptureKit to confirm the stop.
+const STOP_TIMEOUT: Duration = Duration::from_secs(2);
 /// How long ScreenCaptureKit may take to answer (it asks the window server).
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -99,6 +101,8 @@ fn sinks() -> &'static SinkList {
 
 pub struct Capture {
     stream: Id,
+    /// The output was added to the stream (removed again before the stream is released).
+    added: bool,
     output: Id,
     queue: sys::DispatchQueue,
     shared: Arc<Mutex<Shared>>,
@@ -178,7 +182,12 @@ extern "C" fn shareable_content_done(block: *mut Block<SyncSender<ContentAnswer>
         Ok(sys::send_id(content, c"retain"))
     };
     // SAFETY: the block this handler was built with (leaked, never freed).
-    let _ = unsafe { &(*block).context }.send(answer);
+    if let Err(late) = unsafe { &(*block).context }.send(answer) {
+        // The caller gave up waiting: the retained content is nobody's.
+        if let Ok(content) = late.0 {
+            sys::release(content);
+        }
+    }
 }
 
 /// The displays ScreenCaptureKit offers, as (SCDisplay retained, display id), left to right.
@@ -187,7 +196,7 @@ fn shareable_displays() -> Res<(Id, Vec<(Id, u32)>)> {
     sys::load()?;
     let _pool = AutoreleasePool::new();
     let (tx, rx) = sync_channel::<ContentAnswer>(1);
-    let done = block(shareable_content_done as *const c_void, tx);
+    let done = block(shareable_content_done as *const c_void, c"v@?@@", tx);
     // SAFETY: +[SCShareableContent getShareableContentWithCompletionHandler:] with a block of
     // the (SCShareableContent *, NSError *) handler type.
     unsafe {
@@ -366,7 +375,10 @@ extern "C" fn capture_started(block: *mut Block<SyncSender<StartAnswer>>, error:
     let _ = unsafe { &(*block).context }.send(answer);
 }
 
-extern "C" fn capture_stopped(_block: *mut Block<()>, _error: Id) {}
+extern "C" fn capture_stopped(block: *mut Block<SyncSender<()>>, _error: Id) {
+    // SAFETY: the block this handler was built with (leaked, never freed).
+    let _ = unsafe { &(*block).context }.send(());
+}
 
 impl Capture {
     pub fn start(which: &str, fps: u32, max_width: Option<u32>) -> Res<Self> {
@@ -393,6 +405,11 @@ impl Capture {
         // SAFETY: each message below is sent with its documented C signature to the object
         // just created (alloc/init pairs return +1 references this capture releases).
         unsafe {
+            // The pipe, the output and its queue first: every later error path releases them.
+            let (wake_read, wake_write) = wake_pipe()?;
+            let class = output_class()?;
+            let output = sys::send_id(sys::send_id(class, c"alloc"), c"init");
+            let queue = sys::system::dispatch_queue_create(c"com.cmuxterm.rd.capture".as_ptr(), std::ptr::null());
             let empty = sys::send_id(sys::class(c"NSArray"), c"array");
             let filter = msg::<unsafe extern "C" fn(Id, Sel, Id, Id) -> Id>()(
                 sys::send_id(sys::class(c"SCContentFilter"), c"alloc"),
@@ -404,6 +421,8 @@ impl Capture {
             if filter.is_null() || config.is_null() {
                 sys::release(filter);
                 sys::release(config);
+                sys::release(output);
+                sys::system::dispatch_release(queue);
                 return Err("ScreenCaptureKit did not make a filter and configuration".into());
             }
             let set_size = msg::<unsafe extern "C" fn(Id, Sel, usize)>();
@@ -429,14 +448,13 @@ impl Capture {
             sys::release(filter);
             sys::release(config);
             if stream.is_null() {
+                sys::release(output);
+                sys::system::dispatch_release(queue);
                 return Err("ScreenCaptureKit did not make a stream".into());
             }
-            let (wake_read, wake_write) = wake_pipe()?;
             let shared = Arc::new(Mutex::new(Shared::default()));
-            let output = sys::send_id(sys::send_id(output_class()?, c"alloc"), c"init");
             let sink = Arc::new(Sink { shared: shared.clone(), wake: wake_write, scale, size });
             sinks().lock().unwrap_or_else(|p| p.into_inner()).push((output as usize, sink));
-            let queue = sys::system::dispatch_queue_create(c"com.cmuxterm.rd.capture".as_ptr(), std::ptr::null());
             let mut error: Id = null_mut();
             let added = msg::<unsafe extern "C" fn(Id, Sel, Id, c_long, sys::DispatchQueue, *mut Id) -> bool>()(
                 stream,
@@ -446,12 +464,12 @@ impl Capture {
                 queue,
                 &raw mut error,
             );
-            let capture = Self { stream, output, queue, shared, wake_read, size, bounds };
+            let capture = Self { stream, output, queue, shared, wake_read, size, bounds, added };
             if !added {
                 return Err(format!("capture output handler: {}", sys::error_text(error)).into());
             }
             let (tx, rx) = sync_channel::<StartAnswer>(1);
-            let started = block(capture_started as *const c_void, tx);
+            let started = block(capture_started as *const c_void, c"v@?@", tx);
             msg::<unsafe extern "C" fn(Id, Sel, *mut c_void)>()(
                 stream,
                 sel(c"startCaptureWithCompletionHandler:"),
@@ -520,20 +538,34 @@ impl Capture {
 
 impl Drop for Capture {
     fn drop(&mut self) {
-        let stopped = block(capture_stopped as *const c_void, ());
-        // SAFETY: -[SCStream stopCaptureWithCompletionHandler:]; the handler does nothing. The
-        // stream, output and queue are this capture's own references, released after the stop.
+        let _pool = AutoreleasePool::new();
+        let (tx, rx) = sync_channel::<()>(1);
+        let stopped = block(capture_stopped as *const c_void, c"v@?@", tx);
+        // SAFETY: each message is sent with its documented C signature to this capture's own
+        // stream. The output leaves the stream first, then the stop is awaited (bounded), so no
+        // frame reaches the output after it is released.
         unsafe {
+            if self.added {
+                let mut error: Id = null_mut();
+                msg::<unsafe extern "C" fn(Id, Sel, Id, c_long, *mut Id) -> bool>()(
+                    self.stream,
+                    sel(c"removeStreamOutput:type:error:"),
+                    self.output,
+                    OUTPUT_SCREEN,
+                    &raw mut error,
+                );
+            }
             msg::<unsafe extern "C" fn(Id, Sel, *mut c_void)>()(
                 self.stream,
                 sel(c"stopCaptureWithCompletionHandler:"),
                 stopped.cast(),
             );
         }
+        let _ = rx.recv_timeout(STOP_TIMEOUT);
         sinks().lock().unwrap_or_else(|p| p.into_inner()).retain(|(object, _)| *object != self.output as usize);
         sys::release(self.stream);
         sys::release(self.output);
-        // SAFETY: the queue this capture created.
+        // SAFETY: the queue this capture created; ScreenCaptureKit retains it while it uses it.
         unsafe { sys::system::dispatch_release(self.queue) };
     }
 }

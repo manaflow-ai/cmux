@@ -100,6 +100,8 @@ public final class MacScreenSession {
             return
         }
         self.process = process
+        signalingOpen = false
+        pendingOffer = nil
         let sessionID = (signaling as? TicketSignaling)?.ticket.sessionID ?? UUID().uuidString
         tasks.append(Task { [weak self] in
             let servers = MacScreenRdServers((try? await signaling.iceServers()) ?? [])
@@ -137,8 +139,19 @@ public final class MacScreenSession {
             for try await signal in signaling.messages() {
                 guard isCurrent(process) else { return }
                 switch signal {
+                case .hello:
+                    // The session socket is open: an offer waiting for it goes now.
+                    signalingOpen = true
+                    if let offer = pendingOffer {
+                        pendingOffer = nil
+                        await sendOffer(offer, signaling: signaling, process: process)
+                    }
                 case let .answer(text):
-                    guard let answer = MacScreenRdDocument(text: text) else { continue }
+                    guard let answer = MacScreenRdDocument(text: text) else {
+                        logger.error("cmux rd: an answer that is not a cmux.rd/1 document")
+                        continue
+                    }
+                    logger.info("cmux rd: answer received (\(answer.candidates.count, privacy: .public) candidates)")
                     if !answer.displays.isEmpty { onStreamDisplays?(answer.displays, answer.currentDisplay ?? 0) }
                     answered(answer)
                 case let .candidate(candidate) where candidate.sdpMid == "cmux-rd":
@@ -154,6 +167,19 @@ public final class MacScreenSession {
             if isCurrent(process), phase == .connecting {
                 fail(L.t("macScreen.rd.signalingFailed", "The session could not reach the other Mac."))
             }
+        }
+    }
+
+    /// The session socket said hello (it is open, so an offer can go).
+    @ObservationIgnored private var signalingOpen = false
+    /// This side's offer, made before the socket opened.
+    @ObservationIgnored private var pendingOffer: String?
+
+    private func sendOffer(_ text: String, signaling: any ScreenSignaling, process: MacScreenRdProcess) async {
+        logger.info("cmux rd: offer sent")
+        do { try await signaling.send(.offer(text)) } catch {
+            guard isCurrent(process) else { return }
+            fail(L.t("macScreen.rd.signalingFailed", "The session could not reach the other Mac."))
         }
     }
 
@@ -179,17 +205,22 @@ public final class MacScreenSession {
                 offer.display = wantedDisplay
                 stats.targetFps = wish.maxFps
                 pendingAnswer = { [weak self] answer in self?.sendAnswer(answer, sessionID: sessionID, servers: servers, to: process) }
-                do { try await signaling.send(.offer(offer.text)) } catch {
-                    guard isCurrent(process) else { return }
-                    fail(L.t("macScreen.rd.signalingFailed", "The session could not reach the other Mac."))
-                    return
+                // The signaling socket opens on its own task: the offer waits for its `hello`.
+                if signalingOpen {
+                    await sendOffer(offer.text, signaling: signaling, process: process)
+                } else {
+                    pendingOffer = offer.text
                 }
             }
             if let candidate = line.candidate {
                 try? await signaling.send(.candidate(ScreenICECandidate(candidate: candidate, sdpMid: "cmux-rd", sdpMLineIndex: 0)))
             }
-            if line.listening == true { attachTransport() }
+            if line.listening == true {
+                logger.info("cmux rd: link listening for the pane")
+                attachTransport()
+            }
             if let path = line.path {
+                logger.info("cmux rd: path \(path.kind ?? "-", privacy: .public) \(path.rttMs ?? -1, privacy: .public) ms")
                 streamPath = Self.pathLabel(path.kind)
                 stats.latencyMs = path.rttMs
                 if let kind = path.kind { try? await signaling.send(.path(relay: Self.isRelayed(kind))) }
@@ -215,6 +246,7 @@ public final class MacScreenSession {
         }
         socketDirectory = directory
         socketPath = directory.appendingPathComponent("s").path
+        logger.info("cmux rd: link started toward the host")
         process.send(Answer(session: sessionID, peerKey: answer.key, stun: servers.stun, turn: servers.turn,
                             candidates: answer.candidates, socket: socketPath ?? "", relayOnly: relayOnly))
     }
