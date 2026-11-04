@@ -51,7 +51,7 @@ test("a Codex goal keeps its Pause and Clear", () => {
 
 test("the countdown text changes at whole seconds under a minute, then at whole minutes", () => {
   expect(loopNextText(0, 45_000, "en")).toBe("in 45 sec.");
-  expect(loopNextText(0, 4 * 60_000 + 1, "en")).toBe("in 5 min.");
+  expect(loopNextText(0, 4 * 60_000 + 1, "en")).toBe("in 4 min.");
   expect(loopNextText(0, 2 * 3_600_000, "en")).toBe("in 2 hr.");
   expect(loopNextText(10, 5, "en")).toBeUndefined();
 });

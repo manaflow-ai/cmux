@@ -69,7 +69,14 @@ async fn the_next_wakeup_moves_the_next_run_and_stop_clears_the_loop() {
         let id = id.to_owned();
         async move {
             goals(&t, call(&id, "ScheduleWakeup", json!({"delaySeconds": 60, "reason": "r", "prompt": "/loop tidy", "noop": true}))).await;
-            goals(&t, result(&id, json!({"scheduledFor": at, "clampedDelaySeconds": 60, "wasClamped": false}))).await
+            goals(
+                &t,
+                result(
+                    &id,
+                    json!({"scheduledFor": at, "clampedDelaySeconds": 60, "wasClamped": false}),
+                ),
+            )
+            .await
         }
     };
     assert_eq!(arm("w1", 1_000).await[0]["nextRunAt"], json!(1_000));
@@ -86,7 +93,11 @@ async fn the_next_wakeup_moves_the_next_run_and_stop_clears_the_loop() {
 async fn an_autonomous_loop_names_no_prompt() {
     let t = translator();
     goals(&t, call("w1", "ScheduleWakeup", json!({"delaySeconds": 600, "reason": "r", "prompt": "<<loop.md-dynamic>>", "noop": false}))).await;
-    let got = goals(&t, result("w1", json!({"scheduledFor": 5, "clampedDelaySeconds": 600, "wasClamped": false}))).await;
+    let got = goals(
+        &t,
+        result("w1", json!({"scheduledFor": 5, "clampedDelaySeconds": 600, "wasClamped": false})),
+    )
+    .await;
     assert_eq!(got[0]["objective"], json!(""));
     assert_eq!(got[0]["autonomous"], json!(true));
 }
@@ -94,14 +105,23 @@ async fn an_autonomous_loop_names_no_prompt() {
 #[tokio::test]
 async fn a_refused_wakeup_arms_nothing() {
     let t = translator();
-    goals(&t, call("w1", "ScheduleWakeup", json!({"delaySeconds": 60, "reason": "r", "prompt": "p", "noop": false}))).await;
+    goals(
+        &t,
+        call(
+            "w1",
+            "ScheduleWakeup",
+            json!({"delaySeconds": 60, "reason": "r", "prompt": "p", "noop": false}),
+        ),
+    )
+    .await;
     assert_eq!(goals(&t, failed("w1")).await, Vec::<Value>::new());
 }
 
 #[tokio::test]
 async fn a_recurring_cron_is_a_loop_until_its_delete() {
     let t = translator();
-    goals(&t, call("c1", "CronCreate", json!({"cron": "*/5 * * * *", "prompt": "/babysit-prs"}))).await;
+    goals(&t, call("c1", "CronCreate", json!({"cron": "*/5 * * * *", "prompt": "/babysit-prs"})))
+        .await;
     let got = goals(&t, result("c1", json!({"id": "job-7", "humanSchedule": "every 5 minutes", "recurring": true, "nextFireAt": 9_000}))).await;
     assert_eq!(
         got,
@@ -118,18 +138,47 @@ async fn a_recurring_cron_is_a_loop_until_its_delete() {
 #[tokio::test]
 async fn a_one_shot_cron_is_not_a_loop() {
     let t = translator();
-    goals(&t, call("c1", "CronCreate", json!({"cron": "30 14 28 2 *", "prompt": "remind me", "recurring": false}))).await;
-    let got = goals(&t, result("c1", json!({"id": "job-1", "humanSchedule": "once", "recurring": false}))).await;
+    goals(
+        &t,
+        call(
+            "c1",
+            "CronCreate",
+            json!({"cron": "30 14 28 2 *", "prompt": "remind me", "recurring": false}),
+        ),
+    )
+    .await;
+    let got = goals(
+        &t,
+        result("c1", json!({"id": "job-1", "humanSchedule": "once", "recurring": false})),
+    )
+    .await;
     assert_eq!(got, Vec::<Value>::new());
 }
 
 #[tokio::test]
 async fn stopping_one_loop_shows_the_one_still_armed() {
     let t = translator();
-    goals(&t, call("c1", "CronCreate", json!({"cron": "*/5 * * * *", "prompt": "cron work"}))).await;
-    goals(&t, result("c1", json!({"id": "job-1", "humanSchedule": "every 5 minutes", "recurring": true}))).await;
-    goals(&t, call("w1", "ScheduleWakeup", json!({"delaySeconds": 60, "reason": "r", "prompt": "wake work", "noop": false}))).await;
-    let both = goals(&t, result("w1", json!({"scheduledFor": 7, "clampedDelaySeconds": 60, "wasClamped": false}))).await;
+    goals(&t, call("c1", "CronCreate", json!({"cron": "*/5 * * * *", "prompt": "cron work"})))
+        .await;
+    goals(
+        &t,
+        result("c1", json!({"id": "job-1", "humanSchedule": "every 5 minutes", "recurring": true})),
+    )
+    .await;
+    goals(
+        &t,
+        call(
+            "w1",
+            "ScheduleWakeup",
+            json!({"delaySeconds": 60, "reason": "r", "prompt": "wake work", "noop": false}),
+        ),
+    )
+    .await;
+    let both = goals(
+        &t,
+        result("w1", json!({"scheduledFor": 7, "clampedDelaySeconds": 60, "wasClamped": false})),
+    )
+    .await;
     assert_eq!(both[0]["objective"], json!("wake work"));
     goals(&t, call("w2", "ScheduleWakeup", json!({"stop": true}))).await;
     let left = goals(&t, result("w2", json!({"stopped": true, "scheduledFor": 0}))).await;
@@ -139,16 +188,30 @@ async fn stopping_one_loop_shows_the_one_still_armed() {
 #[tokio::test]
 async fn claudes_exit_ends_its_loops() {
     let t = translator();
-    goals(&t, call("w1", "ScheduleWakeup", json!({"delaySeconds": 60, "reason": "r", "prompt": "p", "noop": false}))).await;
-    goals(&t, result("w1", json!({"scheduledFor": 7, "clampedDelaySeconds": 60, "wasClamped": false}))).await;
+    goals(
+        &t,
+        call(
+            "w1",
+            "ScheduleWakeup",
+            json!({"delaySeconds": 60, "reason": "r", "prompt": "p", "noop": false}),
+        ),
+    )
+    .await;
+    goals(
+        &t,
+        result("w1", json!({"scheduledFor": 7, "clampedDelaySeconds": 60, "wasClamped": false})),
+    )
+    .await;
     let ended: Vec<Value> = t
         .end_background_shells()
         .await
         .iter()
         .filter_map(|m| match m {
-            Message::Notification { params, .. } => {
-                params.as_ref()?.pointer("/update/_meta").filter(|m| m.get("goal").is_some()).cloned()
-            }
+            Message::Notification { params, .. } => params
+                .as_ref()?
+                .pointer("/update/_meta")
+                .filter(|m| m.get("goal").is_some())
+                .cloned(),
             _ => None,
         })
         .collect();
