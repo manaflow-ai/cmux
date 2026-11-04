@@ -47,6 +47,15 @@
         "ghostty-next"
       ],
       "binaries": "Contents/MacOS/cmux (GhosttyNextKit), bin/cmux and bin/cmux-tui-ssh/* (libghostty-vt): Zig std and compiler_rt"
+    },
+    {
+      "version": "0.17.0",
+      "ci_version": "0.17.0",
+      "file": "zig-0.17.0/LICENSE",
+      "sha256": "5c537d6853e005298a285d508cff9ac7192cea23576c840d485b2b586a7ff177",
+      "source": "zig-0.17.0/LICENSE in https://ziglang.org/download/0.17.0/zig-0.17.0.tar.xz (sha256 b6c7f1728f043700d6529bac980800792f824256a9d2f1839b3d62beed0b8abd in https://ziglang.org/download/index.json; byte-identical to the Zig 0.16.0 LICENSE)",
+      "ghostty_sources": [],
+      "binaries": "Reviewed for the ghostty-next sync to upstream Ghostty (manaflow-ai/ghostty-next#74), whose build.zig.zon needs Zig 0.17.0; it takes ghostty_sources [\"ghostty-next\"] (and the binaries note) from 0.16.0 in the commit that moves the ghostty-next gitlink and the GhosttyNextKit pin"
     }
   ]
 }

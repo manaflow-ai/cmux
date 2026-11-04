@@ -1146,6 +1146,9 @@ and `bin/ghostty` link the Zig 0.16.0 standard library and compiler_rt:
 - **Copyright:** Copyright (c) Zig contributors
 - **Source:** https://ziglang.org/download/0.16.0/zig-0.16.0.tar.xz
 - **License text:** `Contents/Resources/toolchain-licenses/zig-0.16.0/LICENSE`
+- **Also bundled:** `Contents/Resources/toolchain-licenses/zig-0.17.0/LICENSE`, the
+  same text from https://ziglang.org/download/0.17.0/zig-0.17.0.tar.xz (Zig 0.17.0,
+  reviewed for the next Ghostty update)
 
 The MIT License (Expat)
 

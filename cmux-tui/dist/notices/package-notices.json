@@ -4,7 +4,7 @@
     "version": "1.2.5",
     "file": "texts/musl-1.2.5/COPYRIGHT",
     "sha256": "f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af",
-    "source": "musl-1.2.5/COPYRIGHT in https://musl.libc.org/releases/musl-1.2.5.tar.gz (sha256 a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4). Rust 1.95.0 builds its self-contained musl from musl 1.2.5 (src/ci/docker/scripts/musl.sh); Zig 0.16.0's lib/libc/musl/COPYRIGHT is byte-identical."
+    "source": "musl-1.2.5/COPYRIGHT in https://musl.libc.org/releases/musl-1.2.5.tar.gz (sha256 a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4). Rust 1.95.0 builds its self-contained musl from musl 1.2.5 (src/ci/docker/scripts/musl.sh); the lib/libc/musl/COPYRIGHT of Zig 0.16.0 and of Zig 0.17.0 is byte-identical."
   },
   "libghostty_vt": {
     "source": "ghostty-next",
