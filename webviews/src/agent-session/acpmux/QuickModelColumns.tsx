@@ -977,7 +977,8 @@ function Columns({
         // menu and lands a pick leaves the keyboard in the prompt the picker focused.
         onPointerDown={(event) => {
           press.onPointerDown(event);
-          if (isMousePress(event)) event.preventDefault();
+          // Diagnostic candidate: leave the compatibility mouse sequence intact so a sibling
+          // popover can receive its outside-dismiss click while this chip opens.
         }}
         // The closed chip opens on ArrowDown too, as the list menu's did.
         onKeyDown={(event) => {

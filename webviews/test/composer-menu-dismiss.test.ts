@@ -338,15 +338,19 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
                 if (stage.variant === "new-chat-reasoning" && width === 760 && from === "Folder" && to === "Model") {
                   await page.evaluate(() => {
                     const events = ((window as unknown as { chipSwitchEvents?: unknown[] }).chipSwitchEvents = []);
-                    for (const type of ["pointerdown", "mousedown", "click"])
+                    for (const type of ["pointerdown", "pointerup", "mousedown", "mouseup", "click", "pointercancel"])
                       document.addEventListener(
                         type,
-                        (event) =>
+                        (event) => {
+                          const button = (event.target as Element | null)?.closest<HTMLButtonElement>("button");
                           events.push({
                             type,
-                            target: (event.target as Element | null)?.closest("button")?.getAttribute("aria-label"),
+                            target: button?.getAttribute("aria-label"),
+                            connected: button?.isConnected,
                             defaultPrevented: event.defaultPrevented,
-                          }),
+                            point: document.elementFromPoint((event as PointerEvent).clientX, (event as PointerEvent).clientY)?.closest("button")?.getAttribute("aria-label"),
+                          });
+                        },
                         true,
                       );
                   });
