@@ -76,6 +76,8 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     /// Compose at the chat's top-left at every list width, as in Messages (`HomeChatColumnView`,
     /// which `HomeSidebarSplitView` places beside this list); the list's `compose` stays hidden.
     let chatCompose = HomeChatComposeButton(label: HomeConversationStrings.newMessage)
+    /// The on filter's chip under the search row (Unread ×): a click turns the filter off.
+    let filterChip = HomeFilterChip(title: CmuxSidebarView.unreadTitle)
     /// The search field's glass capsule (Messages' search field, the user 2026-10-28); a hairline
     /// rim shows while the field edits (the composer's focus, #22114), never AppKit's blue ring.
     let searchCapsule = HomeSearchCapsule()
@@ -356,6 +358,12 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         host.addSubview(filterGlass)
         host.addSubview(searchGlass)
         for button in [unreadToggle, searchButton, compose] { host.addSubview(button) }
+        filterChip.isHidden = true
+        filterChip.target = self
+        filterChip.action = #selector(showAll)
+        host.addSubview(filterChip)
+        // The empty list's Show All turns the filter off the same way.
+        list.onShowAll = { [weak self] in self?.showAll() }
         list.layoutHeader = { [weak self] bounds in self?.layoutHeader(bounds) ?? HomeSidebarHeaderLayout.band }
     }
 
@@ -380,8 +388,20 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     private func layoutHeader(_ bounds: CGRect) -> CGFloat {
         let controls = list.headerView.homeWindowControls(band: HomeSidebarHeaderLayout.band)
         windowControls = controls
-        let h = HomeSidebarHeaderLayout(width: bounds.width, searchOpen: searchOpen, windowControls: controls)
+        var chipRow = unreadOnly, chipFill = false, chipCentered = false
+        #if DEBUG || CMUX_BENCH_HOOKS
+        chipRow = unreadOnly && debugFilterLook.showsChip
+        chipFill = debugFilterLook == .banner
+        chipCentered = debugFilterLook == .centeredChip
+        #endif
+        let h = HomeSidebarHeaderLayout(width: bounds.width, searchOpen: searchOpen, windowControls: controls, filterOn: chipRow)
         header = h
+        filterChip.isHidden = h.filterChip.isEmpty
+        if !h.filterChip.isEmpty {
+            let w = chipFill ? h.filterChip.width : min(h.filterChip.width, filterChip.fittingSize.width)
+            filterChip.frame = CGRect(x: h.compact || chipCentered ? ((bounds.width - w) / 2).rounded() : h.filterChip.minX,
+                                      y: h.filterChip.minY, width: w, height: h.filterChip.height)
+        }
         dragStrip.frame = CGRect(x: 0, y: 0, width: bounds.width, height: h.listTop)
         let compactClosed = h.compact && !h.buttonsCovered
         searchCapsule.frame = h.search
@@ -438,7 +458,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
             searchCapsule.layer?.borderColor = text.withAlphaComponent(editing ? 0.36 : 0).cgColor
             searchCapsule.layer?.borderWidth = editing ? 1 / max(1, window?.backingScaleFactor ?? 2) : 0
             field.textColor = text
-            field.placeholderAttributedString = NSAttributedString(string: CmuxSidebarView.searchTitle, attributes: [
+            field.placeholderAttributedString = NSAttributedString(string: searchPlaceholder, attributes: [
                 .foregroundColor: Palette.textSecondary,
                 .font: field.font ?? .systemFont(ofSize: NSFont.systemFontSize),
             ])
@@ -451,12 +471,39 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
 
     @objc func toggleUnread() { unreadOnly.toggle() }
 
-    /// Only unread conversations show (the Unread toggle's state).
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// DEBUG ONLY: the playground's way to show an on filter (`debug.home.sidebar_fixture` `filter_look`).
+    var debugFilterLook: HomeFilterLook = .chip {
+        didSet {
+            applySearchColors()
+            list.headerView.needsLayout = true
+        }
+    }
+    #endif
+
+    /// The search field's placeholder (DEBUG: the playground's Search Unread variant names the filter).
+    private var searchPlaceholder: String {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if debugFilterLook == .searchPlaceholder, unreadOnly { return "Search Unread" }
+        #endif
+        return CmuxSidebarView.searchTitle
+    }
+
+    /// The filter chip's click and the empty list's Show All: every conversation shows again.
+    @objc func showAll() { unreadOnly = false }
+
+    /// Only unread conversations show (the Unread toggle's state): the toggle lights, the chip
+    /// shows under the search row, and an empty list says No Unread Chats with Show All.
     public var unreadOnly: Bool {
         get { list.unreadOnly }
         set {
             list.unreadOnly = newValue
             unreadToggle.isOn = newValue
+            // The chip row moves the list down: the header lays out again now.
+            list.headerView.needsLayout = true
+            #if DEBUG || CMUX_BENCH_HOOKS
+            if debugFilterLook == .searchPlaceholder { applySearchColors() }
+            #endif
         }
     }
 
@@ -481,7 +528,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     /// points from the top-left or NSNull while hidden); nil when `select` names no row, and
     /// nothing changes then. `buttons` is the compose and Unread buttons' glyph state
     /// (`HomeHeaderButton.debugState`) as the call found it (`before`) and after its layout.
-    public func debugLook(width: Double?, select: Int?, unread: Bool?, search: Bool?) -> [String: Any]? {
+    public func debugLook(width: Double?, select: Int?, unread: Bool?, search: Bool?, filterLook: Int? = nil) -> [String: Any]? {
         if let select, !model.rows.indices.contains(select) { return nil }
         let before = [compose, unreadToggle, searchButton].map(\.debugState)
         // The header as it stood before this call lays anything out, and the traffic lights it
@@ -497,6 +544,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
             onSelect(model.rows[select].id)
             self.select(model.rows[select].id)
         }
+        if let filterLook, let look = HomeFilterLook(rawValue: filterLook) { debugFilterLook = look }
         if let unread { unreadOnly = unread }
         if let search { debugSearch(search) }
         (split?.superview ?? self).layoutSubtreeIfNeeded()

@@ -165,6 +165,8 @@ struct HomeAgentMessagesTests {
         // a1's newest message is its report, a2 has only the Chief's message; the newest words are the report.
         expectedFold.peerStates = [.reported, .told]
         expectedFold.latest = "checked"
+        // Each agent's title: the first words of the Chief's first message to it.
+        expectedFold.peerTitles = ["please check", "please build"]
         #expect(rows[1].agentMessage == expectedFold)
         #expect(rows[2].agentMessage?.kind == .message(from: "agent_mux", to: "a1", outgoing: true, text: "please check"))
         #expect(rows[3].agentMessage?.kind == .message(from: "agent_mux", to: "a2", outgoing: true, text: "please build"))
@@ -272,6 +274,7 @@ struct HomeAgentMessagesTests {
             count: 3, peers: ["a1", "a2", "a3"], reason: .stopped(session: "Disconnected"), expanded: false))
         expectedNotes.peerStates = [.stopped, .stopped, .stopped]
         expectedNotes.latest = "stopped without a report: its session is Disconnected"
+        expectedNotes.peerTitles = ["a1", "a2", "a3"]
         #expect(folded[1].agentMessage == expectedNotes)
         let open = book.inserting(into: [question()], summary: nil, expanded: [notesGroup])
         #expect(open.count == 5)
@@ -359,5 +362,13 @@ struct HomeAgentMessagesTests {
         #expect(store.agentMessageReads[id] == nil)
         #expect(store.agentMessages[id] == nil)
         #expect(store.transcript(for: id).isEmpty)
+    }
+
+    /// A pill names an agent by its task's `Title:` line (the spawn task's first line), else the
+    /// first words of the Chief's first message (user 2026-11-03, msg 19960: the ChatGPT-style pills).
+    @Test func anAgentsTitleIsItsTasksTitleLineElseItsFirstWords() {
+        #expect(HomeAgentMessageRow.title(of: "Title: Fix caret blink\n\nUser msg 1: the caret blinks.") == "Fix caret blink")
+        #expect(HomeAgentMessageRow.title(of: "**Please** check the `nightly` build and report back today") == "Please check the nightly build")
+        #expect(HomeAgentMessageRow.title(of: "\n\n") == nil)
     }
 }
