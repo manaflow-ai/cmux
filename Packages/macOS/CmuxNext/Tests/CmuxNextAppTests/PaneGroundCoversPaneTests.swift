@@ -151,6 +151,22 @@ struct PaneGroundCoversPaneTests {
             + "\(type(of: culprit)) at x \(Int(r.minX))..\(Int(r.maxX)) y \(Int(r.minY))..\(Int(r.maxY))"
     }
 
+    /// Turns `motion.frameOwner.terminals` on for the frames that follow (off by default until its held-key cost is fixed):
+    /// the key-resize contract tests (cmux-ad m6) run with it on. The store is process-wide and another test resets it
+    /// when it ends, so an async test calls this again after each `await`, before its next press or frame (main-actor
+    /// code between two awaits never interleaves with another test). Its value: whether the switch is on now.
+    @discardableResult
+    static func ownFrames() -> Bool {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(TerminalDragTunables.all)
+        return TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(true)) == .bool(true)
+    }
+
+    /// The switch back to its default (a test that called ``ownFrames()`` defers this).
+    static func releaseFrames() {
+        TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, nil)
+    }
+
     nonisolated static let pair: SplitNode = .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))
     nonisolated static let stack: SplitNode = .split("x", axis: .vertical, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))
 

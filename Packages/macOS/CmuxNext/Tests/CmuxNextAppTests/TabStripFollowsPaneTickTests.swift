@@ -264,6 +264,7 @@ struct TabStripFollowsPaneTickTests {
         let vertical = direction == .up || direction == .down
         let rig = Ground.Rig(Ground.column(vertical ? Ground.stack : Ground.pair), focused: "p2")
         defer { rig.close() }
+        defer { PaneGroundCoversPaneTests.releaseFrames() }
         let panes: [PaneID] = ["p1", "p2"]
         for pane in panes { _ = try await PaneContentPolicyTests.grids(pane, rig) }
         func off(_ label: String, terminals: Bool) throws -> [String] {
@@ -291,6 +292,7 @@ struct TabStripFollowsPaneTickTests {
         let atRest = try off("at rest", terminals: true)
         try #require(atRest.isEmpty, "\(atRest)")
         let before = try panes.map { try #require(rig.root.context.hosts[$0]).frame }
+        PaneGroundCoversPaneTests.ownFrames()
         #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         var found: [String] = [], frames = 0, moving = true

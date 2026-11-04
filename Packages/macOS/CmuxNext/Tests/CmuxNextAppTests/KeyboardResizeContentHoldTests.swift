@@ -76,6 +76,8 @@ struct KeyboardResizeContentHoldTests {
     @Test func theTerminalFollowsItsPaneInEveryFrameAndSendsOneGridPerTerminal() throws {
         let rig = PaneGroundCoversPaneTests.Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
+        defer { PaneGroundCoversPaneTests.releaseFrames() }
+        try #require(PaneGroundCoversPaneTests.ownFrames(), "the switch motion.frameOwner.terminals did not turn on")
         let panes: [PaneID] = ["p1", "p2"]
         var hosts: [PaneID: [CGSize]] = [:], surfaces: [PaneID: [CGSize]] = [:], off: [String] = []
         var last: [PaneID: (host: CGSize, surface: CGSize)] = [:]

@@ -113,8 +113,10 @@ struct PaneContentPolicyTests {
         let vertical = direction == .up || direction == .down
         let rig = Rig(PaneGroundCoversPaneTests.column(vertical ? PaneGroundCoversPaneTests.stack : PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
+        defer { PaneGroundCoversPaneTests.releaseFrames() }
         let panes: [PaneID] = ["p1", "p2"]
         for pane in panes { _ = try await Self.grids(pane, rig) }
+        PaneGroundCoversPaneTests.ownFrames()
         var off: [String] = [], sizes: [PaneID: [CGSize]] = [:]
         var last: [PaneID: CGSize] = [:]
         for pane in panes { last[pane] = try Self.surface(pane, in: rig).frame.size }
@@ -127,6 +129,7 @@ struct PaneContentPolicyTests {
             }
         }
         let reportsBefore = TerminalSurfaceView.gridReports
+        PaneGroundCoversPaneTests.ownFrames()
         #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         rig.root.layoutSubtreeIfNeeded()
@@ -138,6 +141,7 @@ struct PaneContentPolicyTests {
         #expect(TerminalSurfaceView.gridReports - reportsBefore <= UInt64(panes.count), "more grid reports than terminals for one press")
         for pane in panes {
             let grids = try await Self.grids(pane, rig)
+            PaneGroundCoversPaneTests.ownFrames()
             let final = try #require(try Self.surface(pane, in: rig).fittedGrid)
             #expect(grids == [final], "\(pane) asked its PTY for \(grids), not its final grid \(final) once")
             #expect((sizes[pane] ?? []).count > 3, "\(pane)'s surface took \(sizes[pane]?.count ?? 0) sizes in a \(frames)-frame spring: its text did not follow its pane")
@@ -150,17 +154,21 @@ struct PaneContentPolicyTests {
     @Test func aHeldKeyShowsEachSurfaceAtItsPanesSizeAndSendsAtMostOneGridPerPress() async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
+        defer { PaneGroundCoversPaneTests.releaseFrames() }
         let panes: [PaneID] = ["p1", "p2"]
         for pane in panes { _ = try await Self.grids(pane, rig) }
+        PaneGroundCoversPaneTests.ownFrames()
         var off: [String] = [], grids: [PaneID: [TerminalGridSize]] = [:]
         var frames = 0
         for press in 1...3 {
+            PaneGroundCoversPaneTests.ownFrames()
             #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root), "press \(press) moved nothing")
             rig.root.syncWithModel()
             // The press's first frame is its own (S1B): its grid goes there.
             if rig.frame() { frames += 1 }
             off += try Self.offTheirPanes(panes, in: rig, "press \(press)")
             for pane in panes { grids[pane, default: []] += try await Self.grids(pane, rig) }
+            PaneGroundCoversPaneTests.ownFrames()
             for _ in 1...3 where rig.frame() {
                 frames += 1
                 off += try Self.offTheirPanes(panes, in: rig, "frame \(frames)")
@@ -176,6 +184,7 @@ struct PaneContentPolicyTests {
         for pane in panes {
             let final = try #require(try Self.surface(pane, in: rig).fittedGrid)
             let sent = (grids[pane] ?? []) + (try await Self.grids(pane, rig))
+            PaneGroundCoversPaneTests.ownFrames()
             #expect(sent.count <= 3 && sent.last == final, "\(pane) asked its PTY for \(sent) over 3 presses (final \(final))")
         }
     }
@@ -187,30 +196,36 @@ struct PaneContentPolicyTests {
     @Test func aPressAndItsReverseInOneHoldSendEachGridInItsTurn() async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
+        defer { PaneGroundCoversPaneTests.releaseFrames() }
         let panes: [PaneID] = ["p1", "p2"]
         for pane in panes { _ = try await Self.grids(pane, rig) }
+        PaneGroundCoversPaneTests.ownFrames()
         var start: [PaneID: (size: CGSize, grid: TerminalGridSize?)] = [:]
         for pane in panes {
             let surface = try Self.surface(pane, in: rig)
             start[pane] = (surface.frame.size, surface.fittedGrid)
         }
         var off: [String] = []
+        PaneGroundCoversPaneTests.ownFrames()
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         #expect(rig.frame(), "the first press did not spring")
         off += try Self.offTheirPanes(panes, in: rig, "frame 1")
         var atPress: [PaneID: [TerminalGridSize]] = [:]
         for pane in panes { atPress[pane] = try await Self.grids(pane, rig) }
+        PaneGroundCoversPaneTests.ownFrames()
         for frame in 2...4 {
             #expect(rig.frame(), "the first press landed after \(frame) frames")
             off += try Self.offTheirPanes(panes, in: rig, "frame \(frame)")
         }
+        PaneGroundCoversPaneTests.ownFrames()
         #expect(PaneResize.press("p2", .right, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         #expect(rig.frame(), "the reverse press did not spring")
         off += try Self.offTheirPanes(panes, in: rig, "the reverse press's first frame")
         var atReverse: [PaneID: [TerminalGridSize]] = [:]
         for pane in panes { atReverse[pane] = try await Self.grids(pane, rig) }
+        PaneGroundCoversPaneTests.ownFrames()
         let frames = try Self.run(rig) { frame in off += try Self.offTheirPanes(panes, in: rig, "reverse frame \(frame)") }
         #expect(frames > 3, "the reverse press did not spring (\(frames) frames)")
         #expect(off.isEmpty, "\(off.count) frames showed a surface off its pane's size: \(off.prefix(3))")
@@ -220,6 +235,7 @@ struct PaneContentPolicyTests {
             #expect(atPress[pane]?.count == 1 && atPress[pane]?.first != startGrid, "\(pane): the first press sent \(atPress[pane] ?? [])")
             #expect(atReverse[pane] == [startGrid], "\(pane): the reverse press sent \(atReverse[pane] ?? []), not the start grid \(startGrid)")
             #expect(try await Self.grids(pane, rig).isEmpty, "\(pane) sent a grid at the landing")
+            PaneGroundCoversPaneTests.ownFrames()
             #expect(surface.frame.size == was.size, "\(pane)'s surface rests at \(surface.frame.size), not its start size \(was.size)")
         }
     }
@@ -241,6 +257,7 @@ struct PaneContentPolicyTests {
     @Test func aParkedTerminalShownDuringAKeyHoldFollowsFromItsFirstFrame() async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
+        defer { PaneGroundCoversPaneTests.releaseFrames() }
         let pane = try #require(rig.root.context.hosts["p2"]?.content as? PaneContentView)
         let shown = try #require(rig.provider.sessions["p2"]?.session)
         let io = GridRecordingTerminalIO()
@@ -255,6 +272,7 @@ struct PaneContentPolicyTests {
         _ = pane.show(shown.view)
         rig.root.layoutSubtreeIfNeeded()
         try #require(parked.view.isHidden && parked.view.superview != nil, "the second tab was not parked in the pane")
+        PaneGroundCoversPaneTests.ownFrames()
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         rig.root.layoutSubtreeIfNeeded()
@@ -282,10 +300,12 @@ struct PaneContentPolicyTests {
     @Test func aPromptOnTheLastRowRidesTheBottomOfAPaneAKeyGrowsDown() async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.stack), focused: "p1")
         defer { rig.close() }
+        defer { PaneGroundCoversPaneTests.releaseFrames() }
         let terminal = try #require(rig.provider.sessions["p1"])
         // A device attributes query after the prompt: its reply says the lines before it were parsed.
         terminal.io.send(.output(Data((String(repeating: "line\r\n", count: 200) + "$ \u{1b}[c").utf8)))
         await terminal.io.nextWrite()
+        PaneGroundCoversPaneTests.ownFrames()
         #expect(PaneResize.press("p1", .down, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         rig.root.layoutSubtreeIfNeeded()

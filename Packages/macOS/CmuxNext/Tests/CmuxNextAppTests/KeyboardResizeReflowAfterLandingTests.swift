@@ -65,6 +65,8 @@ struct KeyboardResizeReflowAfterLandingTests {
     func theTerminalFollowsItsPaneInEveryFrameAndItsGridGoesAtThePress(direction: LayoutDirection) throws {
         let rig = PaneGroundCoversPaneTests.Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
+        defer { PaneGroundCoversPaneTests.releaseFrames() }
+        try #require(PaneGroundCoversPaneTests.ownFrames(), "the switch motion.frameOwner.terminals did not turn on")
         let panes: [PaneID] = ["p1", "p2"]
         func sizes() throws -> [PaneID: (host: CGSize, surface: CGSize)] {
             try Dictionary(uniqueKeysWithValues: panes.map { pane in
