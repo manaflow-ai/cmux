@@ -29,6 +29,65 @@ if ! reviewed_zig_versions | grep -qxF "$ZIG_REQUIRED"; then
   echo "error: zig ${ZIG_REQUIRED} is not a reviewed Zig version ($(reviewed_zig_versions | tr '\n' ' ')); record its LICENSE in cmux-tui/build-support/notices/toolchains/toolchains.json (ci_version) first" >&2
   exit 1
 fi
+# A one-line Zig standard library fix that a reviewed Zig needs, the same one
+# ghostty-next's next/install-zig.sh applies (next/toolchain.env): Zig master
+# 0bfd34342b ("std.Io.Threaded: only use spawnDarwin in processReplace when
+# spawning is supported", not in 0.17.0). Without it no iOS slice of
+# libghostty-vt compiles (processReplace reaches getDevNullFd, and iOS's NullFile
+# has no fd). The file's sha256 is checked before and after the edit, so a fresh
+# or reused install is byte-identical; the file is the same in every 0.17.0
+# tarball (macOS and Linux, aarch64 and x86_64).
+ZIG_STD_PATCH_FILE=""
+ZIG_STD_PATCH_FROM=""
+ZIG_STD_PATCH_TO=""
+case "$ZIG_REQUIRED" in
+  0.17.0)
+    ZIG_STD_PATCH_FILE="std/Io/Threaded.zig"
+    ZIG_STD_PATCH_FROM="1a770001e309f24c8c58a9fdb3c095994c454cbfa9dba9d4f1dede2f134eeac7"
+    ZIG_STD_PATCH_TO="1d7bdb0d31fb82dc47c3b5568691db2ef2f7c8313b6a02a311644f212acb412f"
+    ;;
+esac
+
+file_sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  else
+    shasum -a 256 "$1" | cut -d' ' -f1
+  fi
+}
+
+# True when the Zig lib dir carries the reviewed std (patched, when this Zig
+# needs the patch).
+zig_std_is_reviewed() {
+  local lib_dir="$1"
+  [ -n "$ZIG_STD_PATCH_FILE" ] || return 0
+  [ -f "$lib_dir/$ZIG_STD_PATCH_FILE" ] || return 1
+  [ "$(file_sha256 "$lib_dir/$ZIG_STD_PATCH_FILE")" = "$ZIG_STD_PATCH_TO" ]
+}
+
+# Apply the std fix to an extracted Zig lib dir (before it is installed).
+patch_zig_std() {
+  local lib_dir="$1"
+  [ -n "$ZIG_STD_PATCH_FILE" ] || return 0
+  local file="$lib_dir/$ZIG_STD_PATCH_FILE"
+  local sum
+  sum="$(file_sha256 "$file")"
+  [ "$sum" = "$ZIG_STD_PATCH_TO" ] && return 0
+  if [ "$sum" != "$ZIG_STD_PATCH_FROM" ]; then
+    echo "error: unexpected ${file} sha256 ${sum} (expected ${ZIG_STD_PATCH_FROM})" >&2
+    exit 1
+  fi
+  # Portable edit (BSD and GNU sed differ on -i).
+  sed 's/^    if (is_darwin) if (t.spawnDarwin($/    if (is_darwin and process.can_spawn) if (t.spawnDarwin(/' "$file" > "$file.patched"
+  mv "$file.patched" "$file"
+  sum="$(file_sha256 "$file")"
+  if [ "$sum" != "$ZIG_STD_PATCH_TO" ]; then
+    echo "error: the Zig std patch gave ${file} sha256 ${sum} (expected ${ZIG_STD_PATCH_TO})" >&2
+    exit 1
+  fi
+  echo "patched ${file} (Zig 0bfd34342b: no spawnDarwin where spawning is unsupported)"
+}
+
 ZIG_MINISIGN_PUBLIC_KEY="${ZIG_MINISIGN_PUBLIC_KEY:-RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U}"
 ZIG_INDEX_URL="${ZIG_INDEX_URL:-https://ziglang.org/download/index.json}"
 ZIG_EXPECTED_SHA256="${ZIG_EXPECTED_SHA256:-}"
@@ -119,6 +178,12 @@ zig_has_required_version() {
   zig_lib_dir="$(read_zig_lib_dir "$zig_path" || true)"
   [ -n "$zig_lib_dir" ] || return 1
   [ -f "$zig_lib_dir/compiler/build_runner.zig" ] || return 1
+  # An unpatched install of a Zig that needs the std fix is not reused; a
+  # verified copy is installed instead (never an in-place edit of another install).
+  zig_std_is_reviewed "$zig_lib_dir" || {
+    echo "zig ${ZIG_REQUIRED} at ${zig_path} lacks the reviewed ${ZIG_STD_PATCH_FILE}; installing a patched copy" >&2
+    return 1
+  }
 }
 
 use_existing_zig_if_available() {
@@ -532,6 +597,7 @@ fi
 
 rm -rf "$ZIG_DIR"
 tar xf "$ZIG_TAR" -C "$ZIG_WORK_ROOT"
+patch_zig_std "$ZIG_DIR/lib"
 if [ "${ZIG_FORCE_LOCAL_INSTALL:-0}" != "1" ] && command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
   install_zig_with_sudo
   exit 0
