@@ -7,18 +7,19 @@ extension CloudAPIClient {
     public static func slackRequest(configuration: CloudConfiguration, auth: CloudAuth,
                                     identity: MacInstallIdentity, method: String) async throws -> Data {
         guard auth.isSignedIn else { throw CloudAPIError.notSignedIn }
-        guard !configuration.isProductionAuth, let base = configuration.artifactsAPIBaseURL() else {
+        guard let base = configuration.artifactsAPIBaseURL() else {
             throw CloudAPIError.http(status: 501, code: "unavailable", message: nil)
         }
         let team = try auth.accessTokenTeam(requested: nil)
-        let client = slack(baseURL: base, accessToken: { try await identity.accessToken(team: team).accessToken })
+        let client = slack(baseURL: base, accessToken: { try await identity.accessToken(team: team).accessToken }, teamID: team)
         return try await client.slackRequest(method: method)
     }
 
     /// The Slack bridge uses the signed-in person's cmux bearer against cmux-platform.
     /// Like the owner API, this transport never caches credentials or follows redirects.
-    public static func slack(baseURL: URL, accessToken: @escaping @Sendable () async throws -> String) -> CloudAPIClient {
-        workerMachines(baseURL: baseURL, accessToken: accessToken, teamID: { nil }, session: CloudOwnerAPIClient.transport)
+    public static func slack(baseURL: URL, accessToken: @escaping @Sendable () async throws -> String,
+                             teamID: String? = nil, session: URLSession = CloudOwnerAPIClient.transport) -> CloudAPIClient {
+        workerMachines(baseURL: baseURL, accessToken: accessToken, teamID: { teamID }, session: session)
     }
 
     /// Relays one of the three fixed Slack endpoints. Connection state stays in the Settings page.
