@@ -176,6 +176,16 @@ pub(crate) struct McpStore {
 impl McpStore {
     /// A store under `<home>/mcp`, or in memory with `home` None.
     pub(crate) fn open(home: Option<&Path>) -> Self {
+        let secrets = match home {
+            Some(h) => McpSecrets::for_home(h),
+            None => McpSecrets::memory(),
+        };
+        Self::open_with(home, secrets)
+    }
+
+    /// A store under `<home>/mcp` whose secrets live in `secrets`. The tests pass a file store, so
+    /// they never touch the login keychain (a fleet host's locked keychain blocks the call).
+    fn open_with(home: Option<&Path>, secrets: McpSecrets) -> Self {
         let dir = home.map(|h| h.join("mcp"));
         let connections = dir
             .as_ref()
@@ -190,10 +200,6 @@ impl McpStore {
                 Some((last.field("seq").as_u64()?, last.field("hash").as_str()?.to_owned()))
             })
             .unwrap_or((0, String::new()));
-        let secrets = match home {
-            Some(h) => McpSecrets::for_home(h),
-            None => McpSecrets::memory(),
-        };
         Self {
             audit: StdMutex::new(Audit {
                 file: dir.as_ref().map(|d| d.join("audit.jsonl")),
@@ -419,6 +425,11 @@ fn append_private(dir: &Path, file: &Path, line: &Value) -> std::io::Result<()> 
 mod tests {
     use super::*;
 
+    /// A file secret store in the test's own home, never the login keychain.
+    fn file_secrets(home: &Path) -> McpSecrets {
+        McpSecrets::Files { dir: home.join("mcp").join("secrets") }
+    }
+
     fn conn(url: &str, scope: &str, owner: &str) -> Connection {
         Connection {
             id: new_id(),
@@ -460,7 +471,7 @@ mod tests {
     fn mcp_connect_store_saves_no_secret_and_replaces_a_second_approval() {
         let home = std::env::temp_dir().join(format!("acpmux-mcp-store-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
-        let store = McpStore::open(Some(&home));
+        let store = McpStore::open_with(Some(&home), file_secrets(&home));
         let first = conn("https://a/mcp", "chat", "s1");
         let first_id = first.id.clone();
         store.add(first).unwrap();
@@ -483,7 +494,11 @@ mod tests {
                 std::fs::metadata(home.join("mcp/connections.json")).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o600);
         }
-        assert_eq!(McpStore::open(Some(&home)).all().len(), 2, "records survive a restart");
+        assert_eq!(
+            McpStore::open_with(Some(&home), file_secrets(&home)).all().len(),
+            2,
+            "records survive a restart"
+        );
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -491,10 +506,10 @@ mod tests {
     fn mcp_connect_audit_is_a_hash_chain_that_shows_an_edit() {
         let home = std::env::temp_dir().join(format!("acpmux-mcp-audit-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
-        let store = McpStore::open(Some(&home));
+        let store = McpStore::open_with(Some(&home), file_secrets(&home));
         store.audit(json!({"event": "add", "id": "mcp_0123456789abcdef"}));
         store.audit(json!({"event": "call", "tool": "get_doc", "input": hex_sha256(b"{}")}));
-        let reopened = McpStore::open(Some(&home));
+        let reopened = McpStore::open_with(Some(&home), file_secrets(&home));
         reopened.audit(json!({"event": "remove"}));
         let lines = reopened.audit_tail(10);
         assert_eq!(lines.len(), 3);
