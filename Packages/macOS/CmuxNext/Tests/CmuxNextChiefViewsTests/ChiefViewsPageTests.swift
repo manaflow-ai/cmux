@@ -18,7 +18,7 @@ struct ChiefViewsPageTests {
     private static let click = PageCallContext(page: "cmux.chief-views", userGesture: true, gestureEvent: 1)
 
     /// The gallery renders repository text and PR titles with no host-power op: the viewer group
-    /// (its row of PageProcessGroupTableTests).
+    /// (its descriptor's processGroup).
     @Test func theGalleryIsInTheViewerGroup() {
         #expect(PageDescriptor.chiefViews.processGroup == .viewer)
     }

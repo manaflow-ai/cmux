@@ -49,8 +49,7 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// later default change cannot turn them on). A page that is off keeps WebKit's answer.
     public let acceptsFirstMouse: Bool
     /// The declared ops of some of ``namespaces`` (``PageOpTable``): under a namespace with a table
-    /// the page may call only the names the table lists. A namespace with none is undeclared, and
-    /// its page shares a renderer with no other page (``PageCapability``).
+    /// the page may call only the names the table lists. A namespace with none is undeclared.
     public let opTables: [PageOpTable]
 
     public init(id: String, resource: String, processGroup: PageProcessGroup, namespaces: [String], nativeOps: Set<String> = [],

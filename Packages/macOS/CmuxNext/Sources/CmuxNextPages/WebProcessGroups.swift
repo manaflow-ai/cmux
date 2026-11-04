@@ -19,7 +19,7 @@ public import WebKit
 /// `IsWebUIAndUsesTLDForProcessLockURL`) and reuses a site's process through
 /// `RenderProcessHostImpl::GetProcessHostForSiteInstance`
 /// (content/browser/renderer_host/render_process_host_impl.cc). A cmux page joins the group of its
-/// ``PageProcessGroup`` (the capability class ``PageProcessGroupAudit`` checks), so pages share a
+/// ``PageProcessGroup``, so pages share a
 /// process only with pages Chromium would let share a renderer: ``Membership`` names the group.
 /// There is one group per membership, process pool and data store; a page of another store or pool
 /// starts its own group and leaves the others as they are. The group size bounds what one crash

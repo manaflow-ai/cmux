@@ -1,8 +1,7 @@
 @testable import CmuxNextPages
 import Testing
 
-/// The pages declared in CmuxNextPages are in their capability group (p13-webui.md 3.B as task 087 corrects it); the
-/// app's PageProcessGroupTableTests checks all 22.
+/// The pages declared in CmuxNextPages are in their capability group (p13-webui.md 3.B as task 087 corrects it).
 @Suite struct PageProcessGroupTests {
     @Test func thePagesOfThisModuleAreInTheirGroups() {
         let expected: [(PageDescriptor, PageProcessGroup)] = [

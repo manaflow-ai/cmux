@@ -2,10 +2,8 @@ import Foundation
 
 /// The ops and streams of one page namespace, each with what it can do (p13-webui.md 3.B, task 087).
 /// A descriptor that declares a namespace's table admits only the names in it (``PageDescriptor/admits(_:)``),
-/// so the router refuses an op the table does not list before any provider sees it, and
-/// ``PageCapability`` reads the same table to put the page in a process group. A namespace with no
-/// table is undeclared: its page may reach anything under it, so it shares a renderer with no other
-/// page. This is Chrome's per-interface rule for WebUI bindings: a renderer gets only the Mojo
+/// so the router refuses an op the table does not list before any provider sees it. A namespace with no
+/// table is undeclared: its page may reach anything under it. This is Chrome's per-interface rule for WebUI bindings: a renderer gets only the Mojo
 /// interfaces its WebUI controller binds (`content/public/browser/web_ui_controller_interface_binder.h`),
 /// and the process lock follows what those can reach.
 public nonisolated struct PageOpTable: Sendable, Hashable {

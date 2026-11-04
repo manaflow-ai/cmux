@@ -16,12 +16,6 @@ struct UpdateSurfacePageTests {
         #expect(card.processGroup == .privileged)
         #expect(card.id == PageDescriptor.changelog.id && card.resource == PageDescriptor.changelog.resource,
                 "the card is the changelog bundle on its own origin")
-        let capability = PageCapability(card)
-        #expect(capability.capabilityClass == .appContent, "\(capability.summary)")
-        var groups = PageProcessGroupTableTests.groups
-        groups[.privileged, default: []].append(card)
-        let audit = PageProcessGroupTableTests.audit(groups)
-        #expect(audit.violations.isEmpty, "\(audit.report)")
     }
 
     /// The table admits the surface's own ops and the notes the card reads, and nothing the
