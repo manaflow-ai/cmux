@@ -126,6 +126,7 @@ export function Thinking({
   thoughtMs,
   turnTotal = false,
   untimed = false,
+  verbKey,
   quietKey,
   quietAt,
   below = false,
@@ -158,6 +159,8 @@ export function Thinking({
   /// finished step's own time when it has one, so no wait reads as that long a think or call.
   turnTotal?: boolean;
   untimed?: boolean;
+  /// The turn the line belongs to (its prompt's row id): picks the turn's verb (thinkingVerbs.ts).
+  verbKey?: string;
   quietKey?: string;
   /// When the reply `quietKey` names was written (turns.ts `codexLiveTurn`): a reply already
   /// still past WRITING_MS when the line mounts reads "Thinking" at once.
@@ -187,7 +190,7 @@ export function Thinking({
   const sendName = useSubsessionInfo(sendSession)?.name ?? sendTo;
   const waitsOnAgents = liveState === "subagents" && liveAgents > 0;
   // The turn's playful verb in place of "Thinking", when the pane gives some (thinkingVerbs.ts).
-  const verb = thinkingVerb(useContext(ThinkingVerbsContext), since);
+  const verb = thinkingVerb(useContext(ThinkingVerbsContext), verbKey);
   const writing = liveState === "writing" && stillWriting;
   const label =
     doing === undefined

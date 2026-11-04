@@ -2,7 +2,8 @@
 // The live line's word before a turn's first step: a playful verb per turn, as the Claude Code CLI's
 // spinner says "Pondering…" or "Noodling…", instead of "Thinking" every time (Leo, 2026-11-04: "instead
 // of just always saying thinking all the time. I feel like it's got a little spunk, a little personality
-// to it"). The pane provides the list (`ThinkingVerbsContext`); with none, the line reads "Thinking".
+// to it"). The agent pane provides the list (`ThinkingVerbsContext`); with none (the guest page, Chief
+// web, galleries and replays, until they opt in) the line reads "Thinking".
 import { createContext } from "react";
 
 export const THINKING_VERBS: readonly string[] = [
@@ -77,14 +78,15 @@ export function thinkingVerbsFor(language: string): readonly string[] | undefine
   return language === "en" || language.startsWith("en-") ? THINKING_VERBS : undefined;
 }
 
-/// The turn's verb, from when its prompt was sent (`since`): one verb for the whole turn, so the
-/// line never changes its word while it runs, and a new one for the next turn.
-export function thinkingVerb(verbs: readonly string[] | undefined, since: number | undefined): string | undefined {
-  if (!verbs?.length || since === undefined) return undefined;
-  // A small integer hash (FNV-style) of the time, so turns a second apart don't walk the list in order.
+/// The turn's verb, from its prompt's row id (`key`, the live row's `verbKey`): one verb for the
+/// whole turn, since the id outlives the prompt's echo, clock offsets and retries that move its time,
+/// and a new one for the next turn.
+export function thinkingVerb(verbs: readonly string[] | undefined, key: string | undefined): string | undefined {
+  if (!verbs?.length || !key) return undefined;
+  // FNV-1a over the id, so ids that differ by one character still land far apart in the list.
   let hash = 2166136261;
-  for (let value = Math.floor(since); value > 0; value = Math.floor(value / 256)) {
-    hash ^= value % 256;
+  for (let index = 0; index < key.length; index += 1) {
+    hash ^= key.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
   return verbs[(hash >>> 0) % verbs.length];
