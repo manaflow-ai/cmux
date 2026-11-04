@@ -18,14 +18,15 @@ pub mod socket;
 
 pub use approval::{
     ApprovalRequest, ApprovalState, ApprovalTarget, Decision, DecisionEvidence, Expectation,
-    HubApproval, KnownDevice, Rejection, VerifiedDecision, decision_message, verify_decision,
+    HubApproval, KnownDevice, PinnedApprover, Rejection, VerifiedDecision, decision_message,
+    display_fingerprint, key_fingerprint, pin_of, verify_decision,
 };
 pub use approver::{
     ApprovalAsk, ApprovalOutcome, HubApprover, LateDecisionHandler, NoHubApprover, RemoteApprover,
 };
 pub use client::{
-    AccountSession, Handshake, HubClient, HubClientConfig, HubDevice, HubMe, StackTokenSource,
-    StaticToken,
+    AccountSession, CommandToken, Handshake, HubClient, HubClientConfig, HubDevice, HubMe,
+    StackTokenSource, StaticToken,
 };
 pub use error::{ErrorCode, HubError};
 pub use identity::{
@@ -49,5 +50,28 @@ pub fn default_key_store(dir: &std::path::Path) -> Box<dyn KeyStore> {
     #[cfg(not(any(windows, target_os = "linux")))]
     {
         Box::new(FileKeyStore::new(dir, Platform::host()))
+    }
+}
+
+/// Where this user's device identity lives when no Secret Service or CNG key
+/// holds it, shared by the `cmux` CLI (`computer-use setup`) and the cmux
+/// Remote host so both are the same device: `$XDG_STATE_HOME/cmux/device-hub`
+/// (else `~/.local/state/cmux/device-hub`), `%LOCALAPPDATA%\cmux\device-hub` on Windows.
+pub fn default_identity_dir() -> Option<std::path::PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var_os("LOCALAPPDATA")
+            .map(|base| std::path::PathBuf::from(base).join("cmux").join("device-hub"))
+    }
+    #[cfg(not(windows))]
+    {
+        let state = std::env::var_os("XDG_STATE_HOME")
+            .map(std::path::PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .or_else(|| {
+                std::env::var_os("HOME")
+                    .map(|home| std::path::PathBuf::from(home).join(".local").join("state"))
+            })?;
+        Some(state.join("cmux").join("device-hub"))
     }
 }

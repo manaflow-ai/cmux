@@ -34,6 +34,58 @@ impl StackTokenSource for StaticToken {
     }
 }
 
+/// The token a program prints (a box's own sign-in helper, named by the
+/// owner in the root- or SYSTEM-owned Computer Use config): run with no
+/// arguments and stdin closed, it prints the access token on stdout, bare or as
+/// `{"access_token"|"accessToken": "..."}`. The token stays in memory only.
+pub struct CommandToken {
+    pub program: std::path::PathBuf,
+    pub timeout: Duration,
+}
+
+impl CommandToken {
+    pub fn new(program: impl Into<std::path::PathBuf>) -> CommandToken {
+        CommandToken { program: program.into(), timeout: Duration::from_secs(30) }
+    }
+
+    /// The token in a program's output.
+    pub fn parse(stdout: &str) -> Option<String> {
+        let text = stdout.trim();
+        if text.starts_with('{') {
+            let value: serde_json::Value = serde_json::from_str(text).ok()?;
+            let token = value.get("access_token").or_else(|| value.get("accessToken"))?;
+            return token.as_str().filter(|token| !token.is_empty()).map(str::to_owned);
+        }
+        (!text.is_empty() && !text.contains(char::is_whitespace)).then(|| text.to_owned())
+    }
+}
+
+#[async_trait]
+impl StackTokenSource for CommandToken {
+    async fn stack_access_token(&self) -> Result<String, HubError> {
+        let mut command = tokio::process::Command::new(&self.program);
+        command
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true);
+        let output = tokio::time::timeout(self.timeout, command.output())
+            .await
+            .map_err(|_| HubError::NotSignedIn(format!("{} did not answer", self.program.display())))?
+            .map_err(|error| HubError::NotSignedIn(format!("{}: {error}", self.program.display())))?;
+        if !output.status.success() {
+            return Err(HubError::NotSignedIn(format!(
+                "{} exited with {}",
+                self.program.display(),
+                output.status
+            )));
+        }
+        CommandToken::parse(&String::from_utf8_lossy(&output.stdout)).ok_or_else(|| {
+            HubError::NotSignedIn(format!("{} printed no token", self.program.display()))
+        })
+    }
+}
+
 /// The hub session from `POST /v1/auth/stack`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccountSession {
@@ -54,6 +106,9 @@ pub struct HubDevice {
     pub signing_key: String,
     #[serde(default)]
     pub agreement_key: String,
+    /// `macos`/`ios` only: the Secure Enclave key that signs Allows (null when none).
+    #[serde(default)]
+    pub approval_key: Option<String>,
     #[serde(default)]
     pub created_at: Option<i64>,
     #[serde(default)]
@@ -72,6 +127,7 @@ impl HubDevice {
             id: self.id.clone(),
             platform: self.platform,
             signing_key: self.signing_key.clone(),
+            approval_key: self.approval_key.clone(),
         }
     }
 }
@@ -435,4 +491,19 @@ pub(crate) fn unix_seconds() -> i64 {
 
 pub(crate) fn unix_millis() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+}
+
+#[cfg(test)]
+mod command_token_tests {
+    use super::CommandToken;
+
+    #[test]
+    fn a_token_is_bare_or_json() {
+        assert_eq!(CommandToken::parse("tok-1\n"), Some("tok-1".into()));
+        assert_eq!(CommandToken::parse(r#"{"access_token":"tok-2","expires_at":1}"#), Some("tok-2".into()));
+        assert_eq!(CommandToken::parse(r#"{"accessToken":"tok-3"}"#), Some("tok-3".into()));
+        assert_eq!(CommandToken::parse(""), None);
+        assert_eq!(CommandToken::parse("two words"), None);
+        assert_eq!(CommandToken::parse(r#"{"access_token":""}"#), None);
+    }
 }

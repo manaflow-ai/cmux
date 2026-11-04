@@ -7,6 +7,9 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use base64::Engine as _;
+use sha2::{Digest as _, Sha256};
+
 use crate::canonical::{CanonicalError, canonical_sha256};
 use crate::identity::Platform;
 use crate::signing;
@@ -188,6 +191,34 @@ pub struct VerifiedDecision {
     pub decider_platform: Platform,
 }
 
+/// An approver the asking machine's owner pinned at setup
+/// (`cmux computer-use setup --approver`): the device and the fingerprint of
+/// its **approval key** (the Secure Enclave key that needs Face ID or the
+/// passcode for each Allow) the owner confirmed. The hub's device list only
+/// supplies the key, which must match this pin: the hub's word alone never
+/// grants.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PinnedApprover {
+    pub device_id: String,
+    /// [`key_fingerprint`] of the device's `approvalKey`.
+    pub approval_key_fingerprint: String,
+}
+
+/// SHA-256 of a base64 X9.63 P-256 public key (65 bytes), as 64 lowercase
+/// hex digits; None when the text is not one.
+pub fn key_fingerprint(key_base64: &str) -> Option<String> {
+    let bytes = base64::engine::general_purpose::STANDARD.decode(key_base64.trim()).ok()?;
+    (bytes.len() == 65 && bytes[0] == 0x04).then(|| hex::encode(Sha256::digest(&bytes)))
+}
+
+/// A fingerprint as people compare it, the same as the iPhone and Mac show it
+/// (Swift `DeviceIdentity.displayFingerprint`): its first 32 hex digits,
+/// uppercase, in eight groups of four.
+pub fn display_fingerprint(fingerprint: &str) -> String {
+    let characters: Vec<char> = fingerprint.chars().take(32).map(|c| c.to_ascii_uppercase()).collect();
+    characters.chunks(4).map(|chunk| chunk.iter().collect::<String>()).collect::<Vec<_>>().join(" ")
+}
+
 /// Why a decision was not applied.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Rejection {
@@ -197,6 +228,12 @@ pub enum Rejection {
     SelfDecider,
     /// The decider is not one of the user's devices.
     UnknownDecider,
+    /// The decider is not an approver this machine's owner pinned.
+    NotPinned,
+    /// An Allow from a device the hub lists without an approval key.
+    NoApprovalKey,
+    /// The hub's approval key for the decider is not the key the owner pinned.
+    PinnedKeyMismatch,
     /// The decider is not a `macos` or `ios` device.
     NotApprover(Platform),
     /// Not this request's digest.
@@ -204,7 +241,8 @@ pub enum Rejection {
     UnknownDecision(String),
     /// `always` without this machine's `phoneAlwaysAllow`.
     AlwaysNotAllowed,
-    /// `sig` does not verify with the decider's signing key.
+    /// `sig` does not verify with the decider's key for this decision
+    /// (its approval key for an Allow, its signing key for a deny).
     BadSignature,
 }
 
@@ -215,6 +253,11 @@ impl fmt::Display for Rejection {
             Rejection::SelfDecider => f.write_str("the decider is this device"),
             Rejection::UnknownDecider => {
                 f.write_str("the decider is not one of the account's devices")
+            }
+            Rejection::NotPinned => f.write_str("the decider is not a pinned approver of this machine"),
+            Rejection::NoApprovalKey => f.write_str("the decider has no approval key"),
+            Rejection::PinnedKeyMismatch => {
+                f.write_str("the decider's approval key is not the key pinned on this machine")
             }
             Rejection::NotApprover(platform) => {
                 write!(f, "a {} device cannot approve", platform.as_str())
@@ -232,8 +275,11 @@ impl fmt::Display for Rejection {
 pub struct KnownDevice {
     pub id: String,
     pub platform: Platform,
-    /// Base64 X9.63.
+    /// Base64 X9.63; signs a deny.
     pub signing_key: String,
+    /// Base64 X9.63 approval key (`macos`/`ios`, Secure Enclave with user
+    /// presence); signs an Allow. None when the device has none.
+    pub approval_key: Option<String>,
 }
 
 /// What the asking machine expects of a decision.
@@ -243,12 +289,32 @@ pub struct Expectation<'a> {
     pub own_device_id: &'a str,
     pub request_digest: &'a str,
     pub allow_always: bool,
+    /// The approvers the owner pinned; no other device's decision applies.
+    pub pinned: &'a [PinnedApprover],
 }
 
-/// The asking machine's check, fail closed (PROTOCOL.md): the decider is not
-/// this machine, is a `macos` or `ios` device of the account, the digest is
-/// this request's, `always` only with `allow_always`, and `sig` verifies with
-/// the decider's signing key.
+/// The approval key of `device` when it is one of `pinned` and the key the
+/// hub lists has the pinned fingerprint.
+pub fn pin_of<'d>(device: &'d KnownDevice, pinned: &[PinnedApprover]) -> Result<&'d str, Rejection> {
+    let pin = pinned
+        .iter()
+        .find(|pin| pin.device_id.eq_ignore_ascii_case(&device.id))
+        .ok_or(Rejection::NotPinned)?;
+    let key = device.approval_key.as_deref().ok_or(Rejection::NoApprovalKey)?;
+    let fingerprint = key_fingerprint(key).ok_or(Rejection::PinnedKeyMismatch)?;
+    if !fingerprint.eq_ignore_ascii_case(&pin.approval_key_fingerprint) {
+        return Err(Rejection::PinnedKeyMismatch);
+    }
+    Ok(key)
+}
+
+/// The asking machine's check, fail closed (PROTOCOL.md,
+/// docs/computer-use-approvals.md "Device hub approvals"): the decider is not
+/// this machine and is a `macos` or `ios` device of the account; the digest is
+/// this request's; `always` only with `allow_always`. An Allow (`once`,
+/// `session`, `always`) applies only from a device the owner pinned, signed
+/// with its approval key whose fingerprint is the pinned one. A `deny` (it
+/// only refuses) applies when signed with the decider's signing key.
 pub fn verify_decision(
     evidence: &DecisionEvidence,
     expected: &Expectation<'_>,
@@ -275,8 +341,12 @@ pub fn verify_decision(
     if decision == Decision::Always && !expected.allow_always {
         return Err(Rejection::AlwaysNotAllowed);
     }
+    let key = match decision {
+        Decision::Deny => decider.signing_key.as_str(),
+        Decision::Once | Decision::Session | Decision::Always => pin_of(decider, expected.pinned)?,
+    };
     let message = decision_message(expected.request_digest, decision);
-    if !signing::verify_base64(&decider.signing_key, message.as_bytes(), &evidence.sig) {
+    if !signing::verify_base64(key, message.as_bytes(), &evidence.sig) {
         return Err(Rejection::BadSignature);
     }
     Ok(VerifiedDecision {
@@ -286,4 +356,172 @@ pub fn verify_decision(
         decider_id: decider.id.clone(),
         decider_platform: decider.platform,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identity::{Assurance, DeviceKeys as _, SoftwareKeys};
+
+    struct Approver {
+        signing: SoftwareKeys,
+        approval: SoftwareKeys,
+        device: KnownDevice,
+    }
+
+    fn encode(keys: &SoftwareKeys) -> String {
+        base64::engine::general_purpose::STANDARD.encode(keys.signing_public_key())
+    }
+
+    fn approver(id: &str, platform: Platform) -> Approver {
+        let signing = SoftwareKeys::generate(Assurance::Hardware).unwrap();
+        let approval = SoftwareKeys::generate(Assurance::Hardware).unwrap();
+        let device = KnownDevice {
+            id: id.into(),
+            platform,
+            signing_key: encode(&signing),
+            approval_key: Some(encode(&approval)),
+        };
+        Approver { signing, approval, device }
+    }
+
+    fn pin(approver: &Approver) -> PinnedApprover {
+        PinnedApprover {
+            device_id: approver.device.id.clone(),
+            approval_key_fingerprint: key_fingerprint(approver.device.approval_key.as_deref().unwrap())
+                .unwrap(),
+        }
+    }
+
+    fn signed(id: &str, keys: &SoftwareKeys, digest: &str, decision: Decision) -> DecisionEvidence {
+        let sig = keys.sign(decision_message(digest, decision).as_bytes()).unwrap();
+        DecisionEvidence {
+            approval_id: "a1".into(),
+            decision: decision.as_str().into(),
+            digest: digest.into(),
+            decider_id: id.into(),
+            sig: base64::engine::general_purpose::STANDARD.encode(sig),
+        }
+    }
+
+    /// The right key for the decision: the approval key for an Allow, the signing key for a deny.
+    fn evidence(approver: &Approver, digest: &str, decision: Decision) -> DecisionEvidence {
+        let keys = if decision == Decision::Deny { &approver.signing } else { &approver.approval };
+        signed(&approver.device.id, keys, digest, decision)
+    }
+
+    fn expected<'a>(digest: &'a str, pinned: &'a [PinnedApprover]) -> Expectation<'a> {
+        Expectation {
+            approval_id: "a1",
+            own_device_id: "box",
+            request_digest: digest,
+            allow_always: true,
+            pinned,
+        }
+    }
+
+    #[test]
+    fn a_pinned_approval_key_allows() {
+        let digest = "d".repeat(64);
+        let phone = approver("phone", Platform::Ios);
+        let pinned = vec![pin(&phone)];
+        for decision in [Decision::Once, Decision::Session, Decision::Always] {
+            let verified = verify_decision(
+                &evidence(&phone, &digest, decision),
+                &expected(&digest, &pinned),
+                std::slice::from_ref(&phone.device),
+            )
+            .unwrap();
+            assert_eq!(verified.decision, decision);
+        }
+    }
+
+    #[test]
+    fn an_allow_signed_with_the_signing_key_is_refused() {
+        let digest = "d".repeat(64);
+        let phone = approver("phone", Platform::Ios);
+        let pinned = vec![pin(&phone)];
+        let with_signing_key = signed("phone", &phone.signing, &digest, Decision::Session);
+        assert_eq!(
+            verify_decision(&with_signing_key, &expected(&digest, &pinned), std::slice::from_ref(&phone.device)),
+            Err(Rejection::BadSignature)
+        );
+    }
+
+    #[test]
+    fn an_allow_whose_approval_key_is_not_pinned_is_refused() {
+        let digest = "d".repeat(64);
+        let phone = approver("phone", Platform::Ios);
+        let forged = approver("forged", Platform::Ios);
+        let devices = vec![phone.device.clone(), forged.device.clone()];
+        let pinned = vec![pin(&phone)];
+        let expect = expected(&digest, &pinned);
+        // Registered on the hub as an iPhone with an approval key, signature valid, never pinned.
+        assert_eq!(
+            verify_decision(&evidence(&forged, &digest, Decision::Always), &expect, &devices),
+            Err(Rejection::NotPinned)
+        );
+        // The pinned device, but the hub lists another approval key for it.
+        let swapped = vec![KnownDevice { approval_key: forged.device.approval_key.clone(), ..phone.device.clone() }];
+        let forged_as_phone = signed("phone", &forged.approval, &digest, Decision::Once);
+        assert_eq!(verify_decision(&forged_as_phone, &expect, &swapped), Err(Rejection::PinnedKeyMismatch));
+        // The pinned device with no approval key on the hub.
+        let keyless = vec![KnownDevice { approval_key: None, ..phone.device.clone() }];
+        assert_eq!(
+            verify_decision(&evidence(&phone, &digest, Decision::Once), &expect, &keyless),
+            Err(Rejection::NoApprovalKey)
+        );
+        // No pins: no Allow applies.
+        assert_eq!(
+            verify_decision(&evidence(&phone, &digest, Decision::Once), &expected(&digest, &[]), &devices),
+            Err(Rejection::NotPinned)
+        );
+    }
+
+    #[test]
+    fn a_deny_needs_only_the_deciders_signing_key() {
+        let digest = "d".repeat(64);
+        let mac = approver("mac", Platform::Macos);
+        let devices = vec![KnownDevice { approval_key: None, ..mac.device.clone() }];
+        let verified = verify_decision(&evidence(&mac, &digest, Decision::Deny), &expected(&digest, &[]), &devices)
+            .unwrap();
+        assert_eq!(verified.decision, Decision::Deny);
+        let with_approval_key = signed("mac", &mac.approval, &digest, Decision::Deny);
+        assert_eq!(
+            verify_decision(&with_approval_key, &expected(&digest, &[]), std::slice::from_ref(&mac.device)),
+            Err(Rejection::BadSignature)
+        );
+    }
+
+    #[test]
+    fn this_machine_never_decides_even_when_pinned() {
+        let digest = "d".repeat(64);
+        let own = approver("box", Platform::Ios);
+        let pinned = vec![pin(&own)];
+        for decision in [Decision::Once, Decision::Deny] {
+            assert_eq!(
+                verify_decision(
+                    &evidence(&own, &digest, decision),
+                    &expected(&digest, &pinned),
+                    std::slice::from_ref(&own.device)
+                ),
+                Err(Rejection::SelfDecider)
+            );
+        }
+    }
+
+    #[test]
+    fn fingerprints_are_sha256_of_the_key_and_group_for_people() {
+        let phone = approver("phone", Platform::Ios);
+        let fingerprint = key_fingerprint(phone.device.approval_key.as_deref().unwrap()).unwrap();
+        assert_eq!(fingerprint.len(), 64);
+        let raw = base64::engine::general_purpose::STANDARD.decode(phone.device.approval_key.as_deref().unwrap()).unwrap();
+        assert_eq!(fingerprint, hex::encode(Sha256::digest(&raw)));
+        assert_eq!(
+            display_fingerprint(&"0123456789abcdef".repeat(4)),
+            "0123 4567 89AB CDEF 0123 4567 89AB CDEF"
+        );
+        assert_eq!(key_fingerprint("not base64"), None);
+        assert_eq!(key_fingerprint("AAAA"), None);
+    }
 }
