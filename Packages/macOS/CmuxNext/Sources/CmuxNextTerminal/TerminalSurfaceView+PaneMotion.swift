@@ -35,13 +35,14 @@ extension TerminalSurfaceView: PaneMotionTargeting {
     /// The surface's size once its pane's content area grows by `sizeChange` (measured against the area's
     /// live size): from its host's live size, never from `bounds`, which a spring already under way holds
     /// at the last rest size (``TerminalHostView/holdSurface(size:anchor:)``). A spring retargeted mid-flight
-    /// (a window resize, a second Cmd-D) got the held size plus the change against the live size.
+    /// (a window resize, a second Cmd-D) got the held size plus the change against the live size. A host that follows
+    /// its pane through a key hold (FRAME OWNER S3) measures from its size when the hold began, as the change is.
     private func restSize(sizeChange: CGSize) -> NSSize {
         guard let host = superview as? TerminalHostView else {
             return NSSize(width: max(0, bounds.width + sizeChange.width), height: max(0, bounds.height + sizeChange.height))
         }
-        let hostSize = CGSize(width: max(0, host.bounds.width + sizeChange.width),
-                              height: max(0, host.bounds.height + sizeChange.height))
+        let basis = host.paneMotionBasisSize
+        let hostSize = CGSize(width: max(0, basis.width + sizeChange.width), height: max(0, basis.height + sizeChange.height))
         return host.surfaceSize(forHostSize: hostSize)
     }
 

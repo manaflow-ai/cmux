@@ -45,13 +45,13 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `sidebar`: 93
 - `notifications`: 29
 - `agents`: 130
-- `cloud`: 74
+- `cloud`: 71
 - `remote`: 21
 - `settings`: 142
 
-## Counts (1347 actions)
+## Counts (1344 actions)
 
-Palette 1289, CLI verbs 800, right-click 582, MCP tools 715.
+Palette 1286, CLI verbs 797, right-click 582, MCP tools 712.
 
 ## Menus
 

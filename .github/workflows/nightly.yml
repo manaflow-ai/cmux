@@ -2339,9 +2339,6 @@ jobs:
       - name: Build nightly app (Release)
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
         env:
-          # The opt-in Cloud Tunnel ships only on a channel with a provisioning profile
-          # (plans/cmux-next/cloud-tunnel-DESIGN.md); cloud-tunnel-prepare.sh signs or removes it.
-          CMUX_CLOUD_TUNNEL: ${{ needs.decide.outputs.profile_channel != '' && needs.decide.outputs.notary_probe != 'true' && 'YES' || '' }}
           IMPORT_VARIANT: ${{ needs.decide.outputs.import_variant }}
           SWIFT_IMPORT_FLAGS: ${{ needs.decide.outputs.swift_import_flags }}
           EMPTY_BROWSER_SOURCES: ${{ needs.decide.outputs.empty_browser_sources }}
@@ -2699,11 +2696,11 @@ jobs:
   build-nightly-remote-daemon:
     # Pure Go (CGO_ENABLED=0), manifests and uploads do not need the app builder, so it
     # builds beside build-nightly-app (its `if`), on the Ghostty helper's owned Mac pick,
-    # else the owned nightly-only Mac pool: nightlies never run on Blacksmith (user, Oct 30;
-    # run 41683652930 still took blacksmith-32vcpu-ubuntu-2404). Resume already retained these exact assets in build-nightly-app.
+    # else the owned nightly-only Mac pool (the all-nightly reservation on NEXT's first attempt; run
+    # 41683652930 took blacksmith-32vcpu-ubuntu-2404), else the Linux pool as overflow. Resume already retained these exact assets in build-nightly-app.
     needs: [decide, resolve-nightly-cmux-tui-client, pick-nightly-build-runner]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.build_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref == 'refs/heads/nightly-next' && needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.helper != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.helper || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref == 'refs/heads/nightly-next' && needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.helper != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.helper || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}
     permissions:
       contents: read
     timeout-minutes: 20
@@ -2750,12 +2747,13 @@ jobs:
 
   attest-nightly-remote-daemon:
     # Provenance is advisory, as it was inside the app job. No publishing job
-    # needs this job: a quota wait must neither occupy a Mac nor delay the feed.
+    # needs this job: a quota wait must not delay the feed.
     needs: [build-nightly-remote-daemon]
     if: inputs.nightly_next_unsigned_run == ''
-    # The owned nightly-only Mac pool, never Blacksmith (user, Oct 30). Its OIDC token only writes
-    # provenance for these assets; the pool already builds the nightly app those assets ship in.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    # The owned nightly-only Mac pool first (the all-nightly reservation, as route-visual-gate-nightly),
+    # then the Linux pool as overflow: a reservation never stands alone (no pins). Its OIDC token only
+    # writes provenance for these assets; the pool already builds the nightly app those assets ship in.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || contains(fromJSON('["blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux) && fromJSON(vars.RUNNER_POOLS || '{}').linux || github.run_attempt > 1 && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}
     permissions:
       contents: read
       attestations: write
@@ -3882,16 +3880,6 @@ jobs:
         run: bash -e scripts/ci/nightly-steps/embed-provisioning-profile.sh
 
 
-      # The opt-in Cloud Tunnel: channel identity, its own profile, the app's two tunnel
-      # entitlements; removed when the channel has no tunnel profile.
-      - name: Prepare the Cloud Tunnel extension
-        if: hashFiles('scripts/ci/nightly-steps/cloud-tunnel-prepare.sh') != ''
-        env:
-          PROFILE_CHANNEL: ${{ needs.decide.outputs.profile_channel }}
-          TUNNEL_PROVISIONING_PROFILE_BASE64: ${{ needs.decide.outputs.profile_channel != '' && secrets[format('APPLE_{0}_TUNNEL_PROVISIONING_PROFILE_BASE64', needs.decide.outputs.profile_channel)] || '' }}
-        run: bash scripts/ci/nightly-steps/cloud-tunnel-prepare.sh
-
-
       # The Computer Use helper has its own notarization ticket (a copy outside
       # the app stays Gatekeeper-valid). Its submission starts here, signed
       # with its final Developer ID signature, so Apple's wait overlaps the
@@ -3932,7 +3920,7 @@ jobs:
           fi
           CMUX_SIGN_MODE="$sign_mode" ./scripts/sign-cmux-bundle.sh \
             "$CHANNEL_APP_PATH" \
-            "${CMUX_APP_TUNNEL_ENTITLEMENTS:-$CHANNEL_ENTITLEMENTS}" \
+            "$CHANNEL_ENTITLEMENTS" \
             "$APPLE_SIGNING_IDENTITY"
 
 

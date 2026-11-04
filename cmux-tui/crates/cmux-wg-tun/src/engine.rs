@@ -247,10 +247,9 @@ impl Driver {
                 Ok(Some(range)) => range,
                 Ok(None) | Err(_) => break,
             };
-            if range.is_empty() {
+            let Some(packet) = self.frame.get(range).filter(|packet| !packet.is_empty()) else {
                 continue;
-            }
-            let packet = &self.frame[range];
+            };
             self.shared.tx_bytes.fetch_add(packet.len() as u64, Ordering::Relaxed);
             if let TunnResult::WriteToNetwork(datagram) =
                 self.tunn.encapsulate(packet, &mut self.scratch)
@@ -270,7 +269,7 @@ impl Driver {
             let Ok(length) = self.socket.recv(&mut self.datagram) else { break };
             let now = Instant::now();
             let mut source = Some(self.endpoint.ip());
-            let mut input = &self.datagram[..length];
+            let Some(mut input) = self.datagram.get(..length) else { break };
             loop {
                 match self.tunn.decapsulate(source, input, &mut self.scratch) {
                     TunnResult::WriteToNetwork(reply) => {

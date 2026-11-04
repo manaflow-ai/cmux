@@ -72,7 +72,7 @@ pub(in crate::cli) fn run_if_requested(args: &[String]) -> Option<Chat> {
         return None;
     }
     let (verb, rest) = rest.split_first()?;
-    let prefix = &args[..args.len() - command.len()];
+    let prefix = args.get(..args.len().saturating_sub(command.len())).unwrap_or_default();
     match verb.as_str() {
         "send" => send(&global, prefix, rest),
         "read" | "wait" | "list" => Some(Chat::Exit(read(&global, verb, rest))),
@@ -84,8 +84,7 @@ fn parse_send(args: &[String]) -> Result<Send, String> {
     let mut send = Send::default();
     let mut words = Vec::new();
     let mut index = 0;
-    while index < args.len() {
-        let arg = args[index].as_str();
+    while let Some(arg) = args.get(index).map(String::as_str) {
         let (flag, inline) = match arg.split_once('=') {
             Some((flag, value)) if flag.starts_with("--") => (flag, Some(value.to_owned())),
             _ => (arg, None),
@@ -112,7 +111,7 @@ fn parse_send(args: &[String]) -> Result<Send, String> {
             "--class" => send.class = Some(value()?),
             "--json" => send.json = true,
             "--" => {
-                words.extend(args[index + 1..].iter().cloned());
+                words.extend(args.iter().skip(index + 1).cloned());
                 break;
             }
             other if other.starts_with("--") => {
