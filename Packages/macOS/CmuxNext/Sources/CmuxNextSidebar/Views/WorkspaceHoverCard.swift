@@ -405,6 +405,8 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     private var builtIn: [NSView] = []
     /// The shown content, for the live elapsed times (`tick`).
     private var content: WorkspaceHoverCardContent?
+    /// Hidden history is measured only when details open, never on a hover retarget.
+    private var pendingTimelineAt: Date?
     /// The machine `hostLabel` names, whose color pick (`appearance.machineColors`) it draws in.
     private var hostMachine: String?
     /// The shown status word, before its elapsed time.
@@ -635,12 +637,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
             factsStack.setCustomSpacing(next?.isPreview == true ? Metrics.space3 : NSStackView.useDefaultSpacing, after: row)
         }
         factsStack.isHidden = !content.facts.contains { $0.kind != "machine" }
-        let log = content.options.layout == .log
-        timeline.isHidden = content.timeline.isEmpty
-        if !content.timeline.isEmpty {
-            timeline.configure(content.timeline, width: width - 2 * Self.padding,
-                               maxHeight: log ? Self.logMaxHeight : Self.timelineMaxHeight, textLines: log ? 3 : 2, now: now)
-        }
+        pendingTimelineAt = now
         applyColors()
         updateDetailsVisibility()
     }
@@ -699,6 +696,14 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     }
 
     private func updateDetailsVisibility() {
+        if detailsExpanded, let now = pendingTimelineAt, let content {
+            pendingTimelineAt = nil
+            if !content.timeline.isEmpty {
+                let log = content.options.layout == .log
+                timeline.configure(content.timeline, width: width - 2 * Self.padding,
+                                   maxHeight: log ? Self.logMaxHeight : Self.timelineMaxHeight, textLines: log ? 3 : 2, now: now)
+            }
+        }
         detailsToggle.title = detailsExpanded ? Strings.hideDetails : Strings.showDetails
         detailsToggle.isExpanded = detailsExpanded
         if !detailsExpanded {
