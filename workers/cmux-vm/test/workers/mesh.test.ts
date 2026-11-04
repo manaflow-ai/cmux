@@ -269,6 +269,37 @@ describe("ACL", () => {
     expect(await json(allowed)).toMatchObject({ version: 3, rulesCreated: 1, rulesDeleted: 1 });
   });
 
+  it("a VM joining a mesh of many devices creates only its own rules, in a bounded number of database round trips", async () => {
+    // The Cloud mesh: every device to every member VM on three ports. Before, each new rule read its two proofs
+    // and wrote its row on its own (four sequential store calls per rule), so a new VM in a mesh of 40 capture
+    // devices took ~120 s on staging's one database connection per request.
+    const key = await h.addKey(A, ALL_SCOPES);
+    const meshId = await createMesh(key);
+    const first = h.addVm(A);
+    await attach(key, meshId, first.vmId);
+    const devices = 10;
+    for (let index = 0; index < devices; index++) await enroll(key, meshId, btoa(`device-key-${String(index).padStart(2, "0")}`.padEnd(32, "x")), `device ${index}`);
+    const allow = ["tcp:22", "tcp:4100", "udp:4101"];
+    expect(await json(await putAcl(key, meshId, 0, [{ src: ["device:*"], dst: [first.vmId], allow }]))).toMatchObject({ version: 1, rulesCreated: devices * 3 });
+    const second = h.addVm(A);
+    await attach(key, meshId, second.vmId);
+    const delayMs = 50;
+    h.mesh.delayStoreCalls(delayMs);
+    const started = Date.now();
+    const applied = await putAcl(key, meshId, 1, [{ src: ["device:*"], dst: [first.vmId, second.vmId], allow }]);
+    const elapsed = Date.now() - started;
+    h.mesh.delayStoreCalls(0);
+    expect(applied.status).toBe(200);
+    expect(await json(applied)).toMatchObject({ version: 2, ruleCount: devices * 3 * 2, rulesCreated: devices * 3, rulesDeleted: 0 });
+    // About eight serial waves today (the gate's reads, the ACL, the compile's inventory, the rule list, the
+    // snapshot, one batch insert, the version); per rule it was about forty. Allow sixteen.
+    expect(elapsed).toBeLessThan(16 * delayMs);
+    // The same document again is a no-op at the provider.
+    const before = h.upstreamRequests.length;
+    expect(await json(await putAcl(key, meshId, 2, [{ src: ["device:*"], dst: [first.vmId, second.vmId], allow }]))).toMatchObject({ version: 3, rulesCreated: 0, rulesDeleted: 0 });
+    expect(h.upstreamRequests).toHaveLength(before);
+  });
+
   it("refuses a stale expectedVersion with 409 and changes nothing", async () => {
     const { key, meshId } = await meshWithPeers();
     await putAcl(key, meshId, 0, [{ src: ["device:*"], dst: ["vm:*"], allow: ["icmp"] }]);
