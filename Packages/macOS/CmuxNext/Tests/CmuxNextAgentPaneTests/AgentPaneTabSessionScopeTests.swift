@@ -20,6 +20,24 @@ struct AgentPaneTabSessionScopeTests {
         #expect(AgentPaneTransport.sessionRefusal(Self.prompt("acp-review-1"), sessions: sessions) == nil)
     }
 
+    @Test func raceParentUsesThePaneSessionScope() {
+        let sessions = AcpmuxPaneSessions()
+        sessions.add("race-parent")
+        let frame: [String: Any] = [
+            "jsonrpc": "2.0", "id": 10, "method": "_acpmux/race/list",
+            "params": ["parent": "race-parent"],
+        ]
+        #expect(AcpmuxPaneMethods.decideFrame(Self.json(frame), isFirst: false) != nil)
+        #expect(AgentPaneTransport.sessionRefusal(frame, sessions: sessions) == nil)
+        var outside = frame
+        outside["params"] = ["parent": "other"]
+        #expect(AgentPaneTransport.sessionRefusal(outside, sessions: sessions) != nil)
+    }
+
+    private static func json(_ frame: [String: Any]) -> String {
+        String(decoding: try! JSONSerialization.data(withJSONObject: frame), as: UTF8.self)
+    }
+
     @Test func onlyAWatchReplyNamesIt() {
         let sessions = AcpmuxPaneSessions()
         sessions.observeTabSession(["id": 3, "result": ["tabSessionId": "from-attach"]], replyTo: "_acpmux/attach")
