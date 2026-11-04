@@ -44,10 +44,11 @@ const { createRoot } = await import("react-dom/client");
 const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { trayItems } = await import("../src/agent-session/acpmux/subagents/runningTray");
 const { SubagentTray } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
-const { TrayPullTab, tuckTray } = await import("../src/agent-session/acpmux/subagents/TrayPullTab");
+const { pullTabCounts, TrayPullTab, tuckTray } = await import("../src/agent-session/acpmux/subagents/TrayPullTab");
 const { resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
-const { registerChatDisplayHost, setChatDisplay, useTrayTucked, TRAY_TUCKED_KEY } =
+const { registerChatDisplayHost, setChatDisplay, useTrayHandle, useTrayTucked, TRAY_HANDLE_KEY, TRAY_TUCKED_KEY } =
   await import("../src/agent-session/acpmux/chatDisplay");
+type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
 type BackgroundCommand = import("../src/agent-session/acpmux/session-info/processes").BackgroundCommand;
 
 // The composer hat tucks away (Leo, 2026-11-04: "what if you wanted to collapse that one line?"):
@@ -70,17 +71,31 @@ const commands: BackgroundCommand[] = [
   { id: "c2", command: "bun test", state: "running", startedAt: now - 30_000, description: "Watch the tests" },
 ];
 
+const CHAT = "chat-1";
+const reviewer: Subagent = {
+  id: "agent-reviewer",
+  parent: null,
+  name: "Reviewer",
+  task: "Review the diff",
+  state: "running",
+  startedAt: now - 20_000,
+};
+
 /// What App.tsx draws in the bottom stack: the hat, or tucked, its pull tab.
-function Stack() {
+function Stack({ agents = [], waiting = new Set<string>() }: { agents?: Subagent[]; waiting?: Set<string> }) {
   const tucked = useTrayTucked();
+  const side = useTrayHandle();
+  const items = trayItems(agents, commands, [], true);
   return tucked
-    ? createElement(TrayPullTab, { running: true })
+    ? createElement(TrayPullTab, { chat: CHAT, ...pullTabCounts(items, waiting), working: false, side })
     : createElement(SubagentTray, {
-        items: trayItems([], commands, [], true),
+        chat: CHAT,
+        items,
         working: true,
-        waiting: new Set<string>(),
+        waiting,
         onOpen: () => {},
         onTuck: tuckTray,
+        tuckSide: side,
       });
 }
 
@@ -101,7 +116,7 @@ describe("the composer hat tucks away and comes back", () => {
       await act(async () => tuck.click());
       expect(host.querySelector(".acpmux-running-tray")).toBeNull();
       const tab = host.querySelector<HTMLButtonElement>(".acpmux-tray-pull__tab")!;
-      expect(tab.getAttribute("aria-label")).toBe("Show Running Work");
+      expect(tab.getAttribute("aria-label")).toBe("Show Running Work · 2 running");
       await act(async () => tab.click());
       expect(host.querySelector(".acpmux-running-tray")).not.toBeNull();
       // The page sends the host one write 250 ms after the last change (chatDisplay.ts WRITE_DELAY_MS).
@@ -148,6 +163,73 @@ describe("the composer hat tucks away and comes back", () => {
     );
     try {
       expect(host.querySelector(".acpmux-running-tray__tuck")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  // Leo said "Yes" (2026-11-04) to "the tucked state, the hover tab with its dot or count", and asked
+  // about "the grabber/dogear/whatever design thing on maybe the left… or the right…".
+  test("tucked, the tab counts what runs, and a dot replaces the count while something waits on you", async () => {
+    resetTrayOpenMemory();
+    registerChatDisplayHost(undefined);
+    setChatDisplay({ [TRAY_TUCKED_KEY]: true });
+    const host = dom.window.document.getElementById("root")!;
+    const root = createRoot(host);
+    await act(async () => root.render(createElement(Stack, { agents: [reviewer] })));
+    try {
+      expect(host.querySelector(".acpmux-tray-pull__count")?.textContent).toBe("3");
+      expect(host.querySelector(".acpmux-tray-pull__dot")).toBeNull();
+      await act(async () => root.render(createElement(Stack, { agents: [reviewer], waiting: new Set([reviewer.id]) })));
+      expect(host.querySelector(".acpmux-tray-pull__dot")).not.toBeNull();
+      expect(host.querySelector(".acpmux-tray-pull__count")).toBeNull();
+      expect(host.querySelector(".acpmux-tray-pull")?.hasAttribute("data-waiting")).toBe(true);
+      expect(host.querySelector(".acpmux-tray-pull__tab")?.getAttribute("aria-label")).toBe(
+        "Show Running Work · 1 waiting · 2 running",
+      );
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  test("a click brings the hat back folded; Option-click brings it back opened", async () => {
+    registerChatDisplayHost(undefined);
+    const host = dom.window.document.getElementById("root")!;
+    for (const altKey of [false, true]) {
+      resetTrayOpenMemory();
+      setChatDisplay({ [TRAY_TUCKED_KEY]: true });
+      const root = createRoot(host);
+      await act(async () => root.render(createElement(Stack)));
+      try {
+        const tab = host.querySelector<HTMLButtonElement>(".acpmux-tray-pull__tab")!;
+        await act(async () => {
+          tab.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, altKey }));
+        });
+        const tray = host.querySelector(".acpmux-running-tray");
+        expect(tray).not.toBeNull();
+        expect(tray!.hasAttribute("data-open")).toBe(altKey);
+      } finally {
+        await act(async () => root.unmount());
+      }
+    }
+  });
+
+  test("the handle sits at the middle by default, or at the left or right the setting names", async () => {
+    resetTrayOpenMemory();
+    registerChatDisplayHost(undefined);
+    setChatDisplay({});
+    const host = dom.window.document.getElementById("root")!;
+    const root = createRoot(host);
+    await act(async () => root.render(createElement(Stack)));
+    try {
+      expect(host.querySelector(".acpmux-running-tray")?.getAttribute("data-tucks")).toBe("middle");
+      await act(async () => setChatDisplay({ [TRAY_HANDLE_KEY]: "right" }));
+      expect(host.querySelector(".acpmux-running-tray")?.getAttribute("data-tucks")).toBe("right");
+      await act(async () => setChatDisplay({ [TRAY_HANDLE_KEY]: "left", [TRAY_TUCKED_KEY]: true }));
+      expect(host.querySelector(".acpmux-tray-pull")?.getAttribute("data-side")).toBe("left");
+      // A value the schema refuses reads as the default.
+      await act(async () => setChatDisplay({ [TRAY_HANDLE_KEY]: "top", [TRAY_TUCKED_KEY]: true }));
+      expect(host.querySelector(".acpmux-tray-pull")?.getAttribute("data-side")).toBe("middle");
     } finally {
       await act(async () => root.unmount());
     }

@@ -28,8 +28,11 @@ public struct Metrics {
 
     /// The user's `appearance.metrics.*` override, else the density's value for this metric
     /// (`DensityTokens.resolve`). Debug Settings overrides apply on top (`MetricTunable`).
-    static func pick(_ compact: CGFloat, _ comfortable: CGFloat, _ key: MetricKey? = nil, token: String? = nil) -> CGFloat {
+    /// A `glyph` metric lands on the icon scale (`DensityTokens.resolveGlyph`).
+    static func pick(_ compact: CGFloat, _ comfortable: CGFloat, _ key: MetricKey? = nil, token: String? = nil,
+                     glyph: Bool = false) -> CGFloat {
         if let key, let value = DesignSettings.shared.overrides[key] { return value }
+        if glyph { return tokens.resolveGlyph(compact: compact, comfortable: comfortable, token: token) }
         return tokens.resolve(compact: compact, comfortable: comfortable, token: token)
     }
 
