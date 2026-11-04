@@ -2,7 +2,7 @@ import CmuxNextApps
 import CmuxNextCompat
 public import CmuxNextControl
 public import CmuxNextDaemon
-import Foundation
+public import Foundation
 import os
 
 // The launch snapshot (`launch-snapshot-v1`, plans/cmux-next/cmux-tui-contract.md):
@@ -31,9 +31,25 @@ extension DaemonService {
         Self.launchMark("launch_snapshot_applied")
     }
 
-    /// Keeps the launch snapshot's sidebar document for the sidebar document's start.
+    /// Keeps the launch snapshot's sidebar document for the sidebar document's start, or hands it to the one
+    /// that started already (`onLaunchSnapshotSidebarDoc`), so the first window's sidebar draws the document
+    /// (its pins and top items in the list) in its first frame rather than moving them there when the daemon answers.
     func receiveLaunchSnapshotSidebarDoc(_ data: Data?) {
-        launchSnapshotSidebarDoc = data
+        guard let data, let take = onLaunchSnapshotSidebarDoc else {
+            launchSnapshotSidebarDoc = data
+            return
+        }
+        onLaunchSnapshotSidebarDoc = nil
+        launchSnapshotSidebarDoc = nil
+        take(data)
+    }
+
+    /// Calls `take` once with the launch snapshot's sidebar document: now when the snapshot was applied already,
+    /// else when it is (`receiveLaunchSnapshotSidebarDoc`). Never without a document.
+    public func whenLaunchSnapshotSidebarDoc(_ take: @escaping @MainActor (Data) -> Void) {
+        guard let data = launchSnapshotSidebarDoc else { onLaunchSnapshotSidebarDoc = take; return }
+        launchSnapshotSidebarDoc = nil
+        take(data)
     }
 
     /// Records the snapshot path the local daemon reported, for the next launch.
