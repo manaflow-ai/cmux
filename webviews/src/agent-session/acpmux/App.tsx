@@ -1,5 +1,6 @@
 import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP } from "./transcriptGrid";
 import { composerHealthHarness } from "./composerPickerEntries";
+import { RacePanel } from "./races/RacePanel";
 import { forkMenuRows } from "./header/forkMenu";
 import { openFork } from "./conversation/openFork";
 import { setSessionRefResolver } from "./conversation/sessionRefs";
@@ -6213,6 +6214,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [newSession, setNewSession] = useState(false);
   /// The chat whose recorded history plays back read-only in place of it (chat menu Replay, cx-osmw).
   const [replaying, setReplaying] = useState<string | undefined>();
+  const [raceParent, setRaceParent] = useState<string>();
   /// The focused pane's rail visibility. The experiment still chooses compact/full when visible;
   /// this local switch is only the command-palette toggle and does not write shared experiment state.
   const [minimapVisible, setMinimapVisible] = useState(true);
@@ -15038,7 +15040,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     {snapshot.handoff.error}
                   </p>
                 )}
-                {viewedSandbox ? (
+                {raceParent === snapshot.sessionId && raceParent && directClient.current ? (
+                  <RacePanel
+                    key={raceParent}
+                    parent={raceParent}
+                    catalog={snapshot.catalog}
+                    client={directClient.current}
+                    onClose={() => setRaceParent(undefined)}
+                  />
+                ) : viewedSandbox ? (
                   // The person opened the tab's Sandboxed Run: it shows whatever the chat's state
                   // (its composer is hidden while it does).
                   <SandboxRunView

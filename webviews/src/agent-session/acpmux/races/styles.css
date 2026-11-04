@@ -1,0 +1,104 @@
+.race-panel {
+  padding: 20px;
+  overflow: auto;
+  min-height: 0;
+  color: var(--page-text);
+  font: inherit;
+}
+.race-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.race-panel h2 {
+  font-size: var(--text-heading);
+  letter-spacing: var(--text-heading--letter-spacing);
+}
+.race-panel h3 {
+  font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+.race-panel button,
+.race-panel select,
+.race-panel textarea {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--page-separator);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+.race-panel button {
+  cursor: pointer;
+}
+.race-panel button:hover {
+  background: var(--page-hover);
+}
+.race-panel button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.race-panel :is(button, input, select, textarea):focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+.race-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-block: 16px;
+}
+.race-panel textarea {
+  resize: vertical;
+}
+.race-panel fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.race-models {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px;
+  margin-block: 10px;
+  max-height: 240px;
+  overflow: auto;
+}
+.race-models label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.race-comparison {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 24px;
+}
+.race-candidate {
+  min-width: 0;
+  border-top: 1px solid var(--page-separator);
+}
+.race-candidate[data-winner="true"] {
+  border-top: 2px solid currentColor;
+}
+.race-candidate pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+.race-prompt,
+.race-decision,
+.race-worktree {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.race-recent {
+  display: block;
+  max-width: 100%;
+  text-align: start;
+  margin-block: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
