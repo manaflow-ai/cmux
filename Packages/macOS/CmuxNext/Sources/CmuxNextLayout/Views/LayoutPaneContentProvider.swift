@@ -139,6 +139,7 @@ final class LayoutViewContext {
             // Before it shows again, in this turn: a release held for it ran after its new content, and took it (base order).
             runClosingWork(of: pane, now: true)
             entry.host.isHidden = false
+            entry.host.endClosingGround()
             entry.host.chrome.isHidden = false
             // Its ring is placed again by the next overlay sync, whatever it last showed.
             entry.host.overlaySyncKey = nil
@@ -190,9 +191,11 @@ final class LayoutViewContext {
 
     /// Takes `pane`'s host out of the layout without tearing it down: hidden now (no hit, no focus, no AX, its ring
     /// with it; a hidden terminal stops drawing), released at `until`. A pane with no host does nothing.
-    func retire(_ pane: PaneID, from screen: ScreenID, until: Retirement = .landing) {
+    /// `showsGround` (FRAME OWNER S3c, a springing close off a canvas): the host stays shown with only
+    /// its own ground, its content hidden now as above, on the frame its screen collapses (`ClosingPanes`).
+    func retire(_ pane: PaneID, from screen: ScreenID, until: Retirement = .landing, showsGround: Bool = false) {
         guard let host = hosts.removeValue(forKey: pane) else { return }
-        host.isHidden = true
+        if showsGround { host.showClosingGround() } else { host.isHidden = true }
         host.chrome.isHidden = true
         retired[pane] = (host, screen, until)
         // A close took it out of the layout now: the provider's shown panes lose it in this update, only its teardown
@@ -215,6 +218,12 @@ final class LayoutViewContext {
     func isClosing(_ pane: PaneID) -> Bool {
         if case .landing? = retired[pane]?.until { return true }
         return false
+    }
+
+    /// The host of `pane` while a close on `screen` still springs it out (FRAME OWNER S3c); nil otherwise.
+    func closingHost(_ pane: PaneID, of screen: ScreenID) -> PaneHostView? {
+        guard let entry = retired[pane], entry.screen == screen, case .landing = entry.until else { return nil }
+        return entry.host
     }
 
     /// Holds `work` until closing `pane` goes (its motion lands, its screen goes) or comes back, then runs it after

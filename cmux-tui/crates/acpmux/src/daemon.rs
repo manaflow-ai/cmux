@@ -50,6 +50,8 @@ pub(crate) mod owner_exit;
 mod persist_retry;
 #[cfg(unix)]
 mod socket_rebind;
+#[cfg(unix)]
+mod term_sender;
 pub(crate) mod unused_exit;
 #[cfg(windows)]
 mod windows;
@@ -589,7 +591,14 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     #[cfg(unix)]
     let mut stop_signals = {
         use tokio::signal::unix::{SignalKind, signal};
-        (signal(SignalKind::terminate()).ok(), signal(SignalKind::interrupt()).ok())
+        let term = signal(SignalKind::terminate()).ok();
+        // Who sends SIGTERM is named on the stop line (`daemon/term_sender.rs`). Only once tokio's
+        // own stream is registered: an action of ours alone would replace SIGTERM's default
+        // action, and a daemon whose stream failed would then never stop on SIGTERM.
+        if term.is_some() {
+            term_sender::record();
+        }
+        (term, signal(SignalKind::interrupt()).ok())
     };
     #[cfg(not(unix))]
     let ctrl_c = tokio::signal::ctrl_c();
@@ -694,6 +703,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         })
     };
     tokio::spawn(notify::notify_loop(hub.clone()));
+    // A paused machine or a stopped daemon is noticed on resume (`hub/resume.rs`).
+    tokio::spawn(Hub::resume_loop(Arc::downgrade(&hub)));
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
     #[cfg(target_os = "linux")]
@@ -712,7 +723,13 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 // Supervisors use SIGTERM for updates and permanent stops alike. Advertise
                 // handoff: a stopped service causes one immediate retry, then normal backoff.
                 _ = next_signal(term.as_mut()) => {
-                    tracing::warn!("stopping: SIGTERM (a restart handoff)");
+                    match term_sender::last() {
+                        Some(pid) => tracing::warn!(
+                            "stopping: SIGTERM from {} (a restart handoff)",
+                            term_sender::describe(pid)
+                        ),
+                        None => tracing::warn!("stopping: SIGTERM (a restart handoff)"),
+                    }
                     hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
                 },
                 _ = next_signal(int.as_mut()) => tracing::warn!("stopping: SIGINT"),
@@ -1285,7 +1302,7 @@ async fn take_over_holder(socket: &std::path::Path) {
         return;
     }
     tracing::info!(
-        pid = status["pid"].as_u64(),
+        pid = status.get("pid").and_then(serde_json::Value::as_u64),
         "another daemon of this home serves its socket; asking it to hand over"
     );
     let _ = tokio::time::timeout(

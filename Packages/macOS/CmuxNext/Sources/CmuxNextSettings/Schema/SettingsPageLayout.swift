@@ -296,7 +296,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"]),
             card("settings.pageGroup.chatLayout", "Chat Layout", [
                 "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap",
-                "agentPane.display.vscodeMinimap", "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement",
+                "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement",
                 "agentPane.display.environment.placement",
             ]),
             card("settings.pageGroup.chatText", "Chat Text", [
@@ -304,7 +304,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 "agentPane.display.code.family", "agentPane.display.code.scale",
             ]),
             card("settings.pageGroup.messageBox", "Message Box", [
-                "agentPane.showContextUsage", "agentPane.showDictation", "agentPane.spellChecking",
+                "agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.spellChecking",
                 "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement",
             ]),
             card("settings.pageGroup.filesLinks", "Files and Links", [
@@ -417,7 +417,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
         // Phone access sits beside the account it signs in with and the machines list. The
         // Machines card draws Machine Colors on its rows (a color well per machine).
         groups: [group("settings.group.phone"), group("settings.group.messagesServer"), group("settings.group.machineColors"),
-                 group("settings.group.cloudWorkspaces"), group("settings.group.cloudTunnel")],
+                 group("settings.group.cloudWorkspaces")],
         lead: [.accounts, .machines, .cloudEnvironments], actions: [.accounts, .machines], aliases: [.accounts, .machines])
 
     // Phones reaching this Mac: the iPhone host's switch, then its live status and phones.

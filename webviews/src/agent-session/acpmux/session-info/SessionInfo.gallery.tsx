@@ -452,6 +452,22 @@ const gripOnHeadHoverOnly: Play = async (ctx) => {
   const icon = head.querySelector(".acpmux-session-info-section__icon");
   if (icon && handle.getBoundingClientRect().right > icon.getBoundingClientRect().left + 0.5)
     throw new Error("The grip overlaps the head's icon");
+  // Leo, 2026-11-03: "just align the draggable. in fact, make it a more horizontally wide symbol". The
+  // dots are wider than tall, centred on the head's left edge (where its hover pill starts) and on its
+  // middle line.
+  const dots = handle.querySelector("svg")!.getBoundingClientRect();
+  const pill = head.getBoundingClientRect();
+  if (!(dots.width > dots.height)) throw new Error(`The grip is ${dots.width}x${dots.height}, not wider than tall`);
+  if (Math.abs(dots.left + dots.width / 2 - pill.left) > 0.5)
+    throw new Error("The grip is not centred on its head's left edge");
+  if (Math.abs(dots.top + dots.height / 2 - (pill.top + pill.height / 2)) > 0.5)
+    throw new Error("The grip is not on its head's middle line");
+};
+
+/// Shows a compared grip placement: the pointer rests on the first foldable section head.
+const hoverFirstHead: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(FOLDABLE_HEAD));
+  await ctx.hover({ selector: FOLDABLE_HEAD });
 };
 
 /// Leo, 2026-11-03: "why dont we have the drag grabber to the left of the title". Every section's grip,
@@ -1564,6 +1580,17 @@ export default componentEntry<Props>({
         await ctx.hover({ selector: "a.acpmux-session-info-source__link" });
       },
     },
+    "sources-folders": {
+      note: "A chat started with two folders beside its own (acpmux additionalDirectories): Sources lists them first, by name with the path on hover, then what it read.",
+      props: {
+        ...full,
+        summary: { ...summary, additionalDirectories: ["/Users/you/notes", "/Users/you/design/specs"] },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('[data-kind="folder"]') !== null);
+        ctx.document.querySelector('[data-section="sources"]')?.scrollIntoView({ block: "center" });
+      },
+    },
     "subagents-open": {
       note: "A click on the ended row (40 done · 1 failed) opens their lines, the failed one first; each opens its subagent or chat.",
       props: full,
@@ -1724,6 +1751,21 @@ export default componentEntry<Props>({
       note: "A section head under the pointer: the six-dot grip shows left of the title, in the head's leading padding (Leo, 2026-11-03: \"why dont we have the drag grabber to the left of the title\"). The title does not move. At rest no grip draws, and a pointer over the section's other rows shows none.",
       props: { ...full, placement: "push" },
       play: gripOnHeadHoverOnly,
+    },
+    "header-grip-inside": {
+      note: "Compared, not chosen: the wide grip inside the head's pill, in its leading padding. It crowds the icon or title it ends at.",
+      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-center:var(--grid-base)" },
+      play: hoverFirstHead,
+    },
+    "header-grip-gutter": {
+      note: "Compared, not chosen: the wide grip wholly in the gutter left of the pill. It reads as detached from its row and runs into the panel's resize edge.",
+      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-center:calc(-1 * var(--grid-base))" },
+      play: hoverFirstHead,
+    },
+    "header-grip-tall": {
+      note: "Before, for comparison: the grip turned upright (two across, three down), as cmux#32930 drew it, half on the pill's edge.",
+      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-turn:rotate(90deg)" },
+      play: hoverFirstHead,
     },
     "header-grip-left": {
       note: "Every section's grip, icon heads and the bare Environment rows included, sits left of its head's icon or title, away from the scrollbar's thumb on the right.",

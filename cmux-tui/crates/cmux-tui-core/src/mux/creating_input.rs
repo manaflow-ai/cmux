@@ -51,8 +51,36 @@ struct CreatingTerminal {
 #[derive(Default)]
 pub(crate) struct CreatingInputs {
     terminals: Mutex<HashMap<String, CreatingTerminal>>,
+    /// How many terminals are creating: the map's length, stored under its lock after each change. A key reads it
+    /// with no lock and takes the lock only while a terminal is creating (R-DAEMON-STATE stage S1).
+    creating: AtomicUsize,
     ended: Condvar,
     next_generation: AtomicU64,
+}
+
+impl CreatingInputs {
+    /// Adds the creating terminal `terminal_id`; the count follows, under the lock.
+    fn insert(
+        &self,
+        terminals: &mut HashMap<String, CreatingTerminal>,
+        terminal_id: &str,
+        creating: CreatingTerminal,
+    ) {
+        terminals.insert(terminal_id.to_string(), creating);
+        self.creating.store(terminals.len(), Ordering::Release);
+    }
+
+    /// Removes the creating terminal `terminal_id` (its queue was written or given back); the count follows, under
+    /// the lock, after every byte of the queue went to the terminal.
+    fn remove(
+        &self,
+        terminals: &mut HashMap<String, CreatingTerminal>,
+        terminal_id: &str,
+    ) -> Option<CreatingTerminal> {
+        let removed = terminals.remove(terminal_id);
+        self.creating.store(terminals.len(), Ordering::Release);
+        removed
+    }
 }
 
 /// Where `write_terminal_input` put the bytes.
@@ -99,8 +127,14 @@ impl Mux {
     /// it), or an earlier creation of the id is still in flight and owns it.
     pub(crate) fn begin_creating_input(&self, terminal_id: &str) -> Option<u64> {
         let inputs = &self.creating_inputs;
-        // The live check and the insert are one step under the creating lock (lock order:
-        // creating, then state), so a commit cannot make the id live in between.
+        // The live check and the insert are one step under the creating lock. The check reads the
+        // session state (lane off, or a poisoned state; lock order: creating, then state) or, on the
+        // input lane, the published routes of the last finished change: a commit still in progress has
+        // not made the id live, as when the old path takes the state before that commit, so every
+        // answer is one the old path can give. On both arms the read ends before the insert, so a
+        // commit can make the id live in between; the entry is then written to the live terminal in
+        // order, by the creation's finish or by the next input on another path
+        // (`wait_for_creating_input_flush`), or given back, as any queue.
         let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
         if terminals.contains_key(terminal_id)
             || self.live_surface_for_terminal(terminal_id).is_some()
@@ -108,8 +142,9 @@ impl Mux {
             return None;
         }
         let generation = inputs.next_generation.fetch_add(1, Ordering::Relaxed);
-        terminals.insert(
-            terminal_id.to_string(),
+        inputs.insert(
+            &mut terminals,
+            terminal_id,
             CreatingTerminal {
                 generation,
                 queued: Vec::new(),
@@ -175,6 +210,12 @@ impl Mux {
     /// when no terminal is creating. The caller holds no mux lock.
     pub(crate) fn wait_for_creating_input_flush(&self, surface: &Surface) {
         let inputs = &self.creating_inputs;
+        // No terminal is creating, so no queue can be ahead of this input: the count says so with no lock
+        // (R-DAEMON-STATE stage S1). A queue of this surface's terminal was added before the terminal went live,
+        // and the count drops to zero only after the last queue was written (Release, read here with Acquire).
+        if self.control_clients.input_lane.on() && inputs.creating.load(Ordering::Acquire) == 0 {
+            return;
+        }
         let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
         if terminals.is_empty() {
             return;
@@ -219,7 +260,7 @@ impl Mux {
         let live =
             if failure.is_none() { self.live_surface_for_terminal(terminal_id) } else { None };
         let Some(surface) = live else {
-            let queued = terminals.remove(terminal_id).map(|creating| creating.queued);
+            let queued = inputs.remove(&mut terminals, terminal_id).map(|creating| creating.queued);
             inputs.ended.notify_all();
             drop(terminals);
             return give_back(terminal_id, queued.unwrap_or_default(), failure.unwrap_or("failed"));
@@ -236,7 +277,7 @@ impl Mux {
                 // A flushing entry stays until this loop removes it.
                 let Some(creating) = terminals.get_mut(terminal_id) else { break };
                 if creating.queued.is_empty() {
-                    terminals.remove(terminal_id);
+                    inputs.remove(&mut terminals, terminal_id);
                     inputs.ended.notify_all();
                     break;
                 }
@@ -251,18 +292,24 @@ impl Mux {
                 };
                 if let Err(error) = written {
                     // The terminal took the earlier bytes; the rest, and all queued since, go
-                    // back to their senders.
+                    // back to their senders. Bytes whose write may still reach the program (its
+                    // wait ended during the write) are not given back: that would type them twice.
                     eprintln!(
                         "cmux-tui: queued input for terminal {terminal_id} not written: {error}"
                     );
                     let later = {
                         let mut terminals =
                             inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
-                        let creating = terminals.remove(terminal_id);
+                        let creating = inputs.remove(&mut terminals, terminal_id);
                         inputs.ended.notify_all();
                         creating.map(|creating| creating.queued).unwrap_or_default()
                     };
-                    let mut rest: Vec<_> = batch.into_iter().skip(index).collect();
+                    let first_given_back = if crate::surface::input_may_be_written(&error) {
+                        index.saturating_add(1)
+                    } else {
+                        index
+                    };
+                    let mut rest: Vec<_> = batch.into_iter().skip(first_given_back).collect();
                     rest.extend(later);
                     return give_back(terminal_id, rest, "write-failed");
                 }
@@ -312,24 +359,52 @@ impl Mux {
         }
     }
 
-    /// The live terminal surface whose host id is `terminal_id`.
+    /// Runs `hold` while this thread holds the creating-input lock (tests: a person's key must not wait for it).
+    #[cfg(test)]
+    pub(crate) fn hold_creating_inputs_for_test(&self, hold: &dyn Fn()) {
+        let _held = self.creating_inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
+        hold();
+    }
+
+    /// Whether a thread holds the creating-input lock now (tests).
+    #[cfg(test)]
+    pub(crate) fn creating_inputs_held_for_test(&self) -> bool {
+        matches!(
+            self.creating_inputs.terminals.try_lock(),
+            Err(std::sync::TryLockError::WouldBlock)
+        )
+    }
+
+    /// The live terminal surface whose host id is `terminal_id`. The creating-input lock's holders call it under
+    /// that lock; on the input lane (R-DAEMON-STATE stage S1) it reads the routes of the last finished change, so no
+    /// holder waits for the session lock under it and a key that takes it never waits behind one. A commit publishes
+    /// its routes before it releases the session lock, and a queue is removed only after its terminal is live, so the
+    /// creation checks give the answers they gave under the session lock.
+    ///
+    /// On the lane, the creating-input lock is a leaf only while the state is not poisoned: on a poisoned state this
+    /// takes the session lock under it (creating, then state), as the old path always does. So no code may take the
+    /// creating-input lock while it holds the session lock.
     #[track_caller]
     fn live_surface_for_terminal(&self, terminal_id: &str) -> Option<Arc<Surface>> {
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(surface) = state.indexed_catalog_terminal(terminal_id)
-            && state.surfaces.contains_key(&surface.id)
-        {
-            return Some(surface.clone());
+        // As `Mux::surface`: the routes are loaded before the poison check (poison never clears), so routes used here
+        // come from a change that finished before any panic, and a poisoned state takes the old read. Unlike
+        // `Mux::surface`'s, this old read recovers the poison: the creation checks answer from the state, as the old
+        // path did (a create whose commit panicked has its terminal in the state, and the routes lack it until a later
+        // change that recovers the poison publishes them).
+        if self.control_clients.input_lane.on() {
+            let routes = self.state.routes();
+            if !self.state.is_poisoned() {
+                return routes.live_terminal(terminal_id);
+            }
         }
-        state
-            .surfaces
-            .values()
-            .find(|surface| {
-                surface
-                    .terminal_host_identity()
-                    .is_some_and(|identity| identity.terminal_id == terminal_id)
-            })
-            .cloned()
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        crate::route_table::live_terminal(
+            &state.surfaces,
+            &state.terminal_catalog,
+            &state.terminal_catalog_by_host,
+            terminal_id,
+        )
+        .cloned()
     }
 }
 

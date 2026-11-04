@@ -20,6 +20,49 @@ int32_t cmux_layout_reducer_json(
     uint8_t *output,
     size_t output_capacity,
     size_t *output_len);
+
+/* Tab drag rules (cmux NEXT TabMoveIndex and DropRevealPolicy).  Tab ids are
+ * caller-owned UInt32 values; arrays are read for the duration of the call.
+ * A non-zero boolean is true.  Index functions return -1 for a null pointer
+ * paired with a non-zero count. */
+int64_t cmux_tab_move_wire_index(
+    int64_t final_index,
+    uint8_t has_current_index,
+    int64_t current_index);
+int64_t cmux_tab_move_pane_final_index(
+    const uint32_t *display,
+    size_t display_len,
+    uint32_t moving,
+    int64_t display_index,
+    const uint32_t *pane,
+    size_t pane_len);
+int64_t cmux_tab_move_group_index(
+    const uint32_t *display,
+    size_t display_len,
+    const uint32_t *members,
+    size_t members_len,
+    uint32_t moving,
+    int64_t display_index);
+
+enum {
+    CMUX_DROP_REVEAL_NONE = 0,
+    CMUX_DROP_REVEAL_FOCUSES_TAB = 1,
+    CMUX_DROP_REVEAL_SHOWS_WORKSPACE = 2,
+    CMUX_DROP_REVEAL_MAKES_KEY = 4,
+};
+/* outcome values mirror TabDragOutcome: cancel 0, strip 1, newSplit 2,
+ * newColumn 3, newDock 4, newWorkspace 5, workspace 6, tearOff 7,
+ * moveWindow 8, moveWorkspaceToNewWindow 9, moveWorkspace 10. */
+uint8_t cmux_drop_reveal_decide(
+    uint8_t outcome,
+    uint8_t landed,
+    uint8_t user_initiated,
+    uint8_t focus_requested,
+    uint8_t files_away,
+    uint8_t crosses_windows,
+    uint8_t app_active,
+    uint8_t no_activate,
+    uint8_t landing_on_active_space);
 /* Focus operations of cmux_layout_reducer_json (cmux-focus-core wire.rs):
  *   focus_input_world   InputObservation -> {violations:[{invariant,window?,detail}], unsettled:[window]}
  *   focus_input_step    {old, event, new, window?} (FocusState read views, a FocusEvent) -> {violations}

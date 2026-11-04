@@ -65,6 +65,8 @@ export type NativeSessionInfoProps = {
   top: number;
   side: number;
   foot?: number;
+  /// It lies over the chat (model.ts `overChat`).
+  overChat?: boolean;
   label: string;
   /// A subagent's panel names it.
   title?: string;
@@ -371,6 +373,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
       sourcesSection(
         {
           sources,
+          ...(summary?.additionalDirectories ? { folders: summary.additionalDirectories } : {}),
           cwd: summary?.cwd,
           onOpenFile: sourceFiles.open,
           failures: sourceFiles.failures,
@@ -466,6 +469,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
       usageSection(
         {
           own: summary?.usageStats,
+          planLimits: typeof summary?.usageLimits === "object" ? summary.usageLimits : undefined,
           sessions: props.allSessions ?? [],
           chatId,
           onOpen: props.onOpenChat,
@@ -495,6 +499,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
     top: props.top,
     side: props.side,
     ...(props.foot !== undefined ? { foot: props.foot } : {}),
+    ...(props.overChat ? { overChat: true } : {}),
     label: props.label,
     ...(props.title ? { title: props.title } : {}),
     ...(props.onBack ? { back: actions.add("scope.back", props.onBack), backLabel: props.backLabel } : {}),

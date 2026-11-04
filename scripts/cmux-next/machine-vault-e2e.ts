@@ -7,34 +7,45 @@
  *     --cmux PATH --user USER --home DIR --ssh PATH --name NAME --work DIR --evidence FILE --run ID --sha SHA
  *
  * The stack account comes only from this process's environment (CMUX_UITEST_STACK_EMAIL and
- * CMUX_UITEST_STACK_PASSWORD, the repo's dev stack pair) and, optionally, CMUX_E2E_ANTHROPIC_API_KEY.
- * This process signs in, gets a cmux-api-development access token and writes it to one 0600 file in
- * `--work` (a 0700 directory in the runner's temp) for the CLI's `--cloud-token-file`; the file is
- * removed in `finally`. Every held value is masked (::add-mask::) the moment it exists, children get
- * a fixed environment, no argv carries a secret, and vault values reach the CLI on stdin only.
+ * CMUX_UITEST_STACK_PASSWORD, the repo's dev stack pair), and the team's Claude subscription login from
+ * CLAUDE_CODE_OAUTH_TOKEN. This process signs in, gets a cmux-api-development access token and writes it
+ * to one 0600 file in `--work` (a 0700 directory in the runner's temp) for the CLI's
+ * `--cloud-token-file`; the file is removed in `finally`. Every held value is masked (::add-mask::) the
+ * moment it exists, children get a fixed environment, no argv carries a secret, and vault values reach
+ * the CLI on stdin only. The Claude login never enters the vault (the vault refuses subscription logins,
+ * and that refusal stays): it reaches only the disposable user's acpmux daemon, on ssh's stdin.
  *
  * Steps, each a real command a person runs:
- *   1. `cmux machine vault set MACHINE_VAULT_E2E` (a random nonce on stdin), then, right before the
- *      join and only when the API key is given, `cmux machine vault set ANTHROPIC_API_KEY` (stdin).
+ *   1. `cmux machine vault set MACHINE_VAULT_E2E --host postman-echo.com` (a random nonce on stdin):
+ *      proxy delivery, so agents get the placeholder and only that host gets the value.
  *   2. `cmux machine add --vault --yes USER@localhost`: the token reaches the new user's shell on
  *      ssh's stdin, the served join.sh installs acpmux, Claude Code and Codex and pulls the vault.
- *   3. As that user: acpmux has `machine.vault.pull.v1` (else the channel is too old: refused),
- *      `acpmux machine vault status --json` lists MACHINE_VAULT_E2E in the keychain.
- *   4. With the API key: a Claude Code session through acpmux runs `printenv MACHINE_VAULT_E2E`;
- *      the pass is its reply equal to the nonce. The key leaves the vault right after the reply.
- *      Without the key this part is skipped and the evidence says so (the run fails: a skip is
- *      never a pass).
- *   5. Cleanup in `finally` and on SIGINT/SIGTERM, most important first: the machine revoke (the
- *      join's machine id directly, then confirmed on the list), the vault entries this run set, the
+ *   3. As that user: acpmux has `machine.vault.pull.v1` and `machine.vault.egress.v1` (else the channel
+ *      is too old: refused), `acpmux machine vault status --json` lists MACHINE_VAULT_E2E in the keychain,
+ *      delivered through the proxy.
+ *   4. Claude Code signs in the normal way, from CLAUDE_CODE_OAUTH_TOKEN in its env: one ssh session to
+ *      the user reads the token from its stdin into its shell's env (never argv, never a file), restarts
+ *      the user's acpmux daemon with it (a daemon's own env reaches the agents it starts), drops it from
+ *      the shell, and runs a Claude Code session through acpmux that prints `MACHINE_VAULT_E2E` (the
+ *      placeholder `cmux-secret://MACHINE_VAULT_E2E`), sends it as a header to an echo API on the allowed
+ *      host and to one on a host it does not allow, and replies with the three values and one sentence.
+ *      The pass: the env holds the placeholder, the allowed host got this run's nonce, the other host got
+ *      the placeholder, and a real model sentence; the reply text is the evidence's `agentReply`. Without the token this part
+ *      is skipped and the evidence says so (the run fails: a skip is never a pass).
+ *   5. Cleanup in `finally` and on SIGINT/SIGTERM, most important first: the user's processes (the
+ *      daemon and agent that held the Claude login) are killed and confirmed gone, the machine revoke
+ *      (the join's machine id directly, then confirmed on the list), the vault entries this run set, the
  *      install revoke, the sign-out, then the token file. A cleanup step it cannot confirm fails the
  *      run. After a cancel the whole cleanup ends by CANCEL_BUDGET_MS (GitHub's grace is SIGINT, then
  *      SIGTERM 7.5 s later, then SIGKILL): every request and command on what is left of it, less a
  *      killed child's grace; a step with no time left fails, and so does a pass still going then.
- *      Then a secret scan of the disposable home (skipped after a cancel) and the output.
+ *      Then a secret scan of the disposable home (skipped after a cancel) and the output: every held
+ *      value, join tokens, and the Claude login on its own (a count only, which must be 0).
  * Exit 0 when the evidence says pass, 1 otherwise, 2 for a refused invocation.
  */
 import { spawn } from "node:child_process"
-import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { CANCEL_BUDGET_MS, byteForm, escapeData, evidenceLeaks, plainLine, redact, safeId, tarEntries } from "./machine-join-e2e.ts"
 
@@ -51,9 +62,65 @@ const DEV_STACK_CLIENT_KEY = "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g"
 const USER_AGENT = "cmux-machine-vault-e2e/1"
 /** The vault var this run proves. Not CMUX_*: the vault refuses names cmux owns. */
 export const NONCE_VAR = "MACHINE_VAULT_E2E"
-export const KEY_VAR = "ANTHROPIC_API_KEY"
+/** The team's Claude subscription login: Claude Code reads it from its env. Never a vault entry. */
+export const LOGIN_VAR = "CLAUDE_CODE_OAUTH_TOKEN"
 export const VAULT_CAPABILITY = "machine.vault.pull.v1"
-export const PROMPT = `Run \`printenv ${NONCE_VAR}\` and reply with exactly its output.`
+/** The proxy delivery's capability (placeholders and the machine's egress proxy). */
+export const EGRESS_CAPABILITY = "machine.vault.egress.v1"
+/** The placeholder an agent sees in place of the value. */
+export const PLACEHOLDER = `cmux-secret://${NONCE_VAR}`
+/** The one host the nonce is allowed to: an echo API that answers the request's headers as JSON. */
+export const ALLOWED_HOST = "postman-echo.com"
+/** An echo API on a host the nonce does not allow: it must get the placeholder. */
+export const DENIED_HOST = "httpbin.org"
+/** The header the agent sends the placeholder in (not an auth header: the evidence check refuses those). */
+export const ECHO_HEADER = "x-cmux-e2e"
+/** No single quote: it goes inside one in the ssh session's script. `$NAME` is the agent shell's own. */
+export const PROMPT = `Run these three commands one at a time: \`printenv ${NONCE_VAR}\`, then \`curl -s https://${ALLOWED_HOST}/headers -H "${ECHO_HEADER}: $${NONCE_VAR}"\`, then \`curl -s https://${DENIED_HOST}/headers -H "${ECHO_HEADER}: $${NONCE_VAR}"\`. Then reply with exactly four lines and nothing else: env= followed by the output of the first; allowed= followed by the value of the ${ECHO_HEADER} header (any letter case) in the JSON the second printed; denied= followed by the value of that header in the JSON the third printed; then one short friendly sentence of your own.`
+/** The reply as evidence: printable text, at most this long. */
+export const REPLY_CAP = 400
+/** A Claude login's shape (sk-ant-oat01-...), and every other Anthropic key's. */
+export const ANTHROPIC_SHAPE = /sk-ant-/
+/**
+ * The ssh session that signs Claude Code in and runs the agent. Its stdin is the login, one line: read
+ * into the shell's env, never argv or a file. The user's daemon restarts with it in its env (a daemon's
+ * own env reaches every agent it starts, `cmux-tui/crates/acpmux/src/login_env.rs`), the shell drops it,
+ * and the client runs one Claude Code session. Exit 90: no login on stdin; 91: no home; 92: the daemon
+ * did not start again; 93: the join's daemon did not stop.
+ */
+/** The model stub's address on the runner (tests/fixtures/model-stub, started by the workflow): loopback only. */
+export const STUB_URL = /^http:\/\/127\.0\.0\.1:\d{2,5}$/
+/** The stub's script for this run: the three commands the prompt names, then the four-line reply from their output. */
+export const STUB_SCRIPT = "tests/fixtures/model-stub/machine-vault-e2e.json"
+
+/** With a model stub, Claude Code's own settings point it there before the daemon starts, so the login the run
+ * passes goes nowhere but the stub. Without one, the script is the real-login one. */
+export function agentScript(stubUrl = ""): string {
+  if (stubUrl && !STUB_URL.test(stubUrl)) throw new Error("MODEL_STUB_URL must be http://127.0.0.1:PORT")
+  const stub = stubUrl
+    ? [
+        `mkdir -p "$HOME/.claude" || exit 94`,
+        `python3 -c 'import json,os,sys; p=os.path.expanduser("~/.claude/settings.json"); c=json.load(open(p)) if os.path.exists(p) else {}; c.setdefault("env", {})["ANTHROPIC_BASE_URL"]=sys.argv[1]; json.dump(c, open(p, "w"))' ${stubUrl} || exit 94`
+      ]
+    : []
+  // After the PATH export and the cd (the first five lines), before the daemon restarts. Exit 94: the stub settings failed.
+  return [...AGENT_LOGIN_LINES.slice(0, 5), ...stub, ...AGENT_LOGIN_LINES.slice(5)].join("\n")
+}
+
+const AGENT_LOGIN_LINES = [
+  `IFS= read -r ${LOGIN_VAR} || exit 90`,
+  `[ -n "$${LOGIN_VAR}" ] || exit 90`,
+  `export ${LOGIN_VAR}`,
+  `export PATH="$HOME/.local/bin:$HOME/.cmux/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" LANG=C.UTF-8`,
+  "cd || exit 91",
+  "acpmux daemon shutdown >/dev/null 2>&1",
+  // The join's daemon (no login in its env) must be gone, or the start below would leave it serving.
+  `case "$(acpmux daemon status 2>&1)" in "daemon not running"*) ;; *) exit 93 ;; esac`,
+  "acpmux daemon start >/dev/null 2>&1 || exit 92",
+  `unset ${LOGIN_VAR}`,
+  `exec acpmux --json run -m claude --policy approve-all --on-permission fail --timeout 300 '${PROMPT}'`
+]
+export const AGENT_SCRIPT = agentScript()
 /** After a SIGKILL, a child's result comes at most this much later. */
 export const KILL_GRACE_MS = 500
 export const CHILD_PATH = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -85,6 +152,8 @@ export interface Deps {
   /** An aborted `signal` kills the child (SIGTERM, then SIGKILL); the result still comes. */
   run(argv: string[], options: { env: Record<string, string>; stdin?: string; timeoutMs: number; binary?: boolean; signal?: AbortSignal }): Promise<ChildResult>
   write(line: string): void
+  /** Reads a file the run owns (the model stub's log); "" when it is missing. */
+  readFile?(path: string): string
   /** Writes `text` to a new file with mode 0600. */
   writeFile(path: string, text: string): void
   removeFile(path: string): void
@@ -100,13 +169,24 @@ export interface Evidence {
   name: string
   user: string
   nonce: string | null
-  vaultSet: { nonce: boolean; anthropicKey: "set" | "kept-existing" | "skipped" | "failed" }
+  vaultSet: { nonce: boolean }
   join: { exit: number | null; joinTokenId: string | null; machineId: string | null }
   acpmuxCapability: boolean | null
-  vaultStatus: { env: string[]; secretStore: string | null; joined: boolean | null; lastResult: string | null } | null
-  agentReply: "pass" | "mismatch" | "failed" | "skipped (no CMUX_E2E_ANTHROPIC_API_KEY)" | null
-  secretScan: { home: { held: number | null; cmj: number | null }; log: { held: number; cmj: number } }
+  vaultStatus: { env: string[]; proxied: string[]; secretStore: string | null; joined: boolean | null; lastResult: string | null } | null
+  /** The Claude Code session's reply text (the nonce line and one sentence), or null with no reply. */
+  agentReply: string | null
+  agentResult: "pass" | "mismatch" | "failed" | "skipped (no CLAUDE_CODE_OAUTH_TOKEN)" | null
+  /** stub: the model was tests/fixtures/model-stub on the runner and the login a made-up one; real: the team's
+   * subscription (the canary). `requests` and `loginMatched` read the stub's log: every model request carried the
+   * login the run passed (SHA-256 match). */
+  model: { mode: "stub" | "real"; requests: number | null; loginMatched: boolean | null }
+  /** How the subscription login was used: on ssh's stdin into the restarted daemon's env. */
+  claudeLogin: { delivery: "ssh-stdin"; daemonRestarted: boolean | null }
+  /** Hits, counts only. `login` is the Claude login's value; null where the scan did not run. */
+  secretScan: { home: { held: number | null; cmj: number | null; login: number | null; files?: string[] }; log: { held: number; cmj: number; login: number | null } }
   cleanup: {
+    /** True when no acpmux or claude process of the user is left (they held the login); null when unchecked. */
+    loginHoldersStopped: boolean | null
     machinesRevoked: number
     /** True when the list shows none of this run's machines live; null when no join started. */
     machinesConfirmed: boolean | null
@@ -158,10 +238,40 @@ export function lastJson(text: string): any {
   }
 }
 
+/** The model stub's log rows for Claude Code's turns (streamed POST /v1/messages). */
+export function stubTurns(log: string): { cred_sha256: string }[] {
+  return log
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => {
+      try {
+        return JSON.parse(l)
+      } catch {
+        return null
+      }
+    })
+    .filter((r) => r && r.protocol === "anthropic" && r.path === "/v1/messages" && r.method === "POST")
+}
+
 /** The reply text of `acpmux --json run`: its `reply`, trimmed. */
 export function replyText(stdout: string): string | null {
   const reply = lastJson(stdout)?.reply
   return typeof reply === "string" ? reply.trim() : null
+}
+
+/** The reply as evidence: printable characters and newlines, at most REPLY_CAP. */
+export const replyEvidence = (reply: string) =>
+  reply.replace(/[^\x20-\x7e\n]/g, "").slice(0, REPLY_CAP)
+
+/** A pass (backticks or quotes around a line are fine): `env=` the placeholder (the agent never saw the
+ * value), `allowed=` this run's nonce (the proxy put it in for the allowed host), `denied=` the
+ * placeholder (the other host never got the value), and another line of real words, the model's own. */
+export function replyPasses(reply: string, nonce: string): boolean {
+  const lines = reply.split("\n").map((l) => l.trim().replace(/^[`'"*]+|[`'"*]+$/g, "").trim()).filter(Boolean)
+  const want = [`env=${PLACEHOLDER}`, `allowed=${nonce}`, `denied=${PLACEHOLDER}`]
+  const at = want.map((w) => lines.findIndex((l) => l === w))
+  if (at.some((i) => i < 0)) return false
+  return lines.some((l, i) => !at.includes(i) && /[A-Za-z]{2,}(?:\W+[A-Za-z]{2,}){2,}/.test(l))
 }
 
 export async function runE2E(
@@ -191,13 +301,16 @@ export async function runE2E(
     name: opts.name,
     user: opts.user,
     nonce: null,
-    vaultSet: { nonce: false, anthropicKey: "skipped" },
+    vaultSet: { nonce: false },
     join: { exit: null, joinTokenId: null, machineId: null },
     acpmuxCapability: null,
     vaultStatus: null,
     agentReply: null,
-    secretScan: { home: { held: null, cmj: null }, log: { held: 0, cmj: 0 } },
-    cleanup: { machinesRevoked: 0, machinesConfirmed: null, vaultRemoved: [], installRevoked: null, signedOut: null, tokenFileRemoved: false, cancelCleanupMs: null },
+    agentResult: null,
+    model: { mode: env.MODEL_STUB_URL ? "stub" : "real", requests: null, loginMatched: null },
+    claudeLogin: { delivery: "ssh-stdin", daemonRestarted: null },
+    secretScan: { home: { held: null, cmj: null, login: null }, log: { held: 0, cmj: 0, login: null } },
+    cleanup: { loginHoldersStopped: null, machinesRevoked: 0, machinesConfirmed: null, vaultRemoved: [], installRevoked: null, signedOut: null, tokenFileRemoved: false, cancelCleanupMs: null },
     result: "fail",
     reason: ""
   }
@@ -299,6 +412,13 @@ export async function runE2E(
     return r
   }
   const acpmux = `${opts.home}/.local/bin/acpmux`
+  /** One ssh session to the user (the workflow's key wrapper), `script` its only argument, `stdin` its input. */
+  const sshUser = async (script: string, stdin: string, timeoutMs: number) => {
+    live()
+    const r = await track(deps.run([opts.ssh, "--", `${opts.user}@localhost`, script], { env: { PATH: CHILD_PATH, LANG: "C.UTF-8" }, stdin, timeoutMs, signal: stopChildren.signal }))
+    childText.push(r.stdout, r.stderr)
+    return r
+  }
 
   const call = async (url: string, init: { method: string; headers?: Record<string, string>; body?: unknown }, own?: AbortSignal) => {
     if (own) {
@@ -333,10 +453,10 @@ export async function runE2E(
   let access: { token: string; expiresAt: number } | undefined
   let tokenWritten = false
   let addStarted = false
+  // The ssh session that hands the daemon the Claude login started: cleanup confirms its holders are gone.
+  let agentStarted = false
   // A name goes here before its write starts: cleanup removes it whether or not the write finished.
   const vaultAttempted: string[] = []
-  // Names the main flow already removed (the API key, right after the agent's reply).
-  const removedEarly = new Set<string>()
 
   const op = async (name: string, params: unknown, own?: AbortSignal) => {
     const r = await call(`${DEV_API}/v1/ops`, {
@@ -436,7 +556,7 @@ export async function runE2E(
       if (vaultAttempted.length > 0) {
         try {
           await writeToken(own)
-          for (const name of vaultAttempted) if (!removedEarly.has(name)) await cli(["machine", "vault", "rm", name], undefined, 60_000, own)
+          for (const name of vaultAttempted) await cli(["machine", "vault", "rm", name], undefined, 60_000, own)
           // The proof is the list, not rm's exit: a write that never landed has nothing to remove.
           const after = await cli(["--json", "machine", "vault", "ls"], undefined, 60_000, own)
           const rows = lastJson(after.stdout)?.entries
@@ -462,6 +582,20 @@ export async function runE2E(
       if (!evidence.cleanup.signedOut) found.push("could not sign out the run's Stack session")
     }
     await killing
+    // The daemon and the agent held the Claude login in their env: none of them may be left.
+    if (agentStarted && !cancelled) {
+      evidence.cleanup.loginHoldersStopped = false
+      for (let look = 0; look < 5; look++) {
+        const left = await deps.run(["/usr/bin/pgrep", "-U", opts.user, "-f", "acpmux|claude"], { env: { PATH: CHILD_PATH }, timeoutMs: 10_000, signal: own })
+        if (left.code === 1) {
+          evidence.cleanup.loginHoldersStopped = true
+          break
+        }
+        await deps.run(["sudo", "-n", "-u", opts.user, "--", "/bin/kill", "-KILL", "-1"], { env: { PATH: CHILD_PATH }, timeoutMs: 5_000, signal: own }).catch(() => undefined)
+        await deps.sleep(1_000, own)
+      }
+      if (!evidence.cleanup.loginHoldersStopped) found.push("a process that held the Claude login is still running after cleanup")
+    }
   }
 
   // The pass running now, its stop and its findings; only the last pass's findings count.
@@ -533,16 +667,22 @@ export async function runE2E(
     if (cleaning) throw new Failed("cancelled before the next step")
   }
 
+  // The Claude login: masked as soon as it is read, given only to the ssh session's stdin.
+  let login = ""
+  const stubUrl = env.MODEL_STUB_URL ?? ""
   try {
     const why = refusal(opts)
     if (why) throw new Refused(why)
     const email = env.CMUX_UITEST_STACK_EMAIL ?? ""
     const password = env.CMUX_UITEST_STACK_PASSWORD ?? ""
-    const apiKey = env.CMUX_E2E_ANTHROPIC_API_KEY ?? ""
+    // With the model stub the login is made up here: the stub checks it arrived, and no real one exists.
+    login = stubUrl ? `sk-ant-oat01-vaultstub-${deps.random()}${deps.random()}` : env.CLAUDE_CODE_OAUTH_TOKEN ?? ""
+    // A real login in the env of a stub run is never used, but is still masked and scanned for.
+    if (stubUrl && env.CLAUDE_CODE_OAUTH_TOKEN) hold(env.CLAUDE_CODE_OAUTH_TOKEN)
     if (!email || !password) throw new Refused("CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD must be set")
     hold(email)
     hold(password)
-    hold(apiKey)
+    hold(login)
 
     // 0. Sign in (development stack), a throwaway install and its cmux access token.
     const signIn = await call(`${STACK_API}/auth/password/sign-in`, { method: "POST", headers: stackHeaders(), body: { email, password } })
@@ -566,7 +706,7 @@ export async function runE2E(
     await writeToken()
     say("signed in to the development platform")
 
-    // 1. The vault: the nonce, and the API key when given (never over an entry this run did not make).
+    // 1. The vault: the nonce (never over an entry this run did not make). Never the Claude login.
     live()
     const nonce = deps.random()
     evidence.nonce = nonce
@@ -581,30 +721,12 @@ export async function runE2E(
     }
     live()
     vaultAttempted.push(NONCE_VAR)
-    const setNonce = await cli(["machine", "vault", "set", NONCE_VAR], `${nonce}\n`)
+    const setNonce = await cli(["machine", "vault", "set", NONCE_VAR, "--host", ALLOWED_HOST], `${nonce}\n`)
     if (setNonce.code !== 0) throw new Failed(`vault set ${NONCE_VAR}: exit ${setNonce.code}`)
     evidence.vaultSet.nonce = true
-    say(`vault: set ${NONCE_VAR}`)
+    say(`vault: set ${NONCE_VAR} (proxy, ${ALLOWED_HOST} only)`)
 
-    // 2. The API key, as late as it can go: right before the join that pulls it (it leaves the vault
-    // right after the agent's reply). Then the one command.
-    if (apiKey) {
-      if (existing.has(KEY_VAR)) {
-        evidence.vaultSet.anthropicKey = "kept-existing"
-        say(`vault: ${KEY_VAR} is already in this account's vault; left as it is`)
-      } else {
-        live()
-        vaultAttempted.push(KEY_VAR)
-        const setKey = await cli(["machine", "vault", "set", KEY_VAR], `${apiKey}\n`)
-        if (setKey.code === 0) {
-          evidence.vaultSet.anthropicKey = "set"
-          say(`vault: set ${KEY_VAR}`)
-        } else {
-          evidence.vaultSet.anthropicKey = "failed"
-          problems.push(`vault set ${KEY_VAR}: exit ${setKey.code}`)
-        }
-      }
-    }
+    // 2. The one command.
     live()
     await writeToken()
     addStarted = true
@@ -619,12 +741,14 @@ export async function runE2E(
     // 3. The joined machine's vault, as the user.
     live()
     const caps = await userRun([acpmux, "capabilities"])
-    evidence.acpmuxCapability = caps.code === 0 && caps.stdout.split("\n").some((l) => l.trim() === VAULT_CAPABILITY)
-    if (!evidence.acpmuxCapability) throw new Failed(`the installed acpmux lacks ${VAULT_CAPABILITY}: its channel predates the vault (cmux#33020)`)
+    const capLines = caps.code === 0 ? caps.stdout.split("\n").map((l) => l.trim()) : []
+    evidence.acpmuxCapability = capLines.includes(VAULT_CAPABILITY) && capLines.includes(EGRESS_CAPABILITY)
+    if (!evidence.acpmuxCapability) throw new Failed(`the installed acpmux lacks ${VAULT_CAPABILITY} or ${EGRESS_CAPABILITY}: its channel predates the vault's egress proxy`)
     const status = await userRun([acpmux, "--json", "machine", "vault", "status"])
     const s = lastJson(status.stdout)
     evidence.vaultStatus = {
       env: Array.isArray(s?.env) ? (s.env as any[]).map((e) => String(e?.name ?? "")).filter((n) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(n)) : [],
+      proxied: Array.isArray(s?.env) ? (s.env as any[]).filter((e) => e?.delivery === "proxy").map((e) => String(e?.name ?? "")).filter((n) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(n)) : [],
       secretStore: typeof s?.secretStore === "string" ? s.secretStore.replace(/[^a-z-]/g, "") : null,
       joined: typeof s?.joined === "boolean" ? s.joined : null,
       lastResult: typeof s?.lastResult === "string" ? s.lastResult.replace(/[^A-Za-z0-9._-]/g, "").slice(0, 64) : null
@@ -633,29 +757,30 @@ export async function runE2E(
     expect(evidence.vaultStatus.joined === true, "vault status: not joined")
     expect(evidence.vaultStatus.secretStore === "keychain", "vault status: the secret store is not the keychain")
     expect(evidence.vaultStatus.env.includes(NONCE_VAR), `vault status: ${NONCE_VAR} is not on the machine`)
+    expect(evidence.vaultStatus.proxied.includes(NONCE_VAR), `vault status: ${NONCE_VAR} is not delivered through the proxy`)
 
-    // 4. A Claude Code agent through acpmux reads it.
+    // 4. A Claude Code agent through acpmux, signed in with the team's subscription, reads it.
     live()
-    if (!apiKey) {
-      evidence.agentReply = "skipped (no CMUX_E2E_ANTHROPIC_API_KEY)"
-      deps.write("::notice::the agent part was skipped: the CMUX_E2E_ANTHROPIC_API_KEY secret is empty, so no Claude Code session ran")
-      problems.push("agent part skipped (no CMUX_E2E_ANTHROPIC_API_KEY)")
+    if (!login) {
+      evidence.agentResult = "skipped (no CLAUDE_CODE_OAUTH_TOKEN)"
+      deps.write("::notice::the agent part was skipped: the CLAUDE_CODE_OAUTH_TOKEN secret is empty, so no Claude Code session ran")
+      problems.push("agent part skipped (no CLAUDE_CODE_OAUTH_TOKEN)")
     } else {
-      const run = await userRun(
-        [acpmux, "--json", "run", "-m", "claude", "--policy", "approve-all", "--on-permission", "fail", "--timeout", "300", PROMPT],
-        6 * 60_000
-      )
+      agentStarted = true
+      // The login is this ssh session's stdin, one line; the script is the only argument.
+      const run = await sshUser(agentScript(stubUrl), `${login}\n`, 6 * 60_000)
+      evidence.claudeLogin.daemonRestarted = run.code !== null && ![90, 91, 92, 93, 94].includes(run.code)
       const reply = replyText(run.stdout)
-      evidence.agentReply = run.code !== 0 || reply === null ? "failed" : reply === nonce ? "pass" : "mismatch"
-      expect(evidence.agentReply === "pass", `agent reply: ${evidence.agentReply}${run.code !== 0 ? ` (acpmux exit ${run.code})` : ""}`)
-      // The key's use is over: out of the vault now, not at cleanup (which still checks the list).
-      if (vaultAttempted.includes(KEY_VAR)) {
-        live()
-        const rmKey = await cli(["machine", "vault", "rm", KEY_VAR])
-        if (rmKey.code === 0) {
-          removedEarly.add(KEY_VAR)
-          say(`vault: removed ${KEY_VAR} after the reply`)
-        }
+      evidence.agentReply = reply === null ? null : replyEvidence(reply)
+      evidence.agentResult = run.code !== 0 || reply === null ? "failed" : replyPasses(reply, nonce) ? "pass" : "mismatch"
+      expect(evidence.agentResult === "pass", `agent reply: ${evidence.agentResult}${run.code !== 0 ? ` (exit ${run.code})` : ""}`)
+      if (stubUrl) {
+        const turns = stubTurns(env.MODEL_STUB_LOG ? (deps.readFile?.(env.MODEL_STUB_LOG) ?? "") : "")
+        const want = createHash("sha256").update(login).digest("hex")
+        evidence.model.requests = turns.length
+        evidence.model.loginMatched = turns.length > 0 && turns.every((t) => t.cred_sha256 === want)
+        expect(turns.length > 0, "model stub: Claude Code sent it no /v1/messages request")
+        expect(evidence.model.loginMatched === true, "model stub: a model request did not carry the login the run passed")
       }
     }
   } catch (e) {
@@ -681,27 +806,39 @@ export async function runE2E(
     if (archive.stderr.trim() !== "") throw new Error("tar complained")
     let held = 0
     let cmj = 0
+    let loginHits = 0
+    // Where a hit is, as a path in the home (never the value), so a failure names the file to fix.
+    const files = new Set<string>()
     for (const entry of tarEntries(archive.stdout)) {
       const text = `${entry.name}\n${entry.link}\n${entry.body}`
       // A join token's shape, outside program files: an installed binary (acpmux, Claude Code, Codex)
       // carries the bare prefix as a constant, never a token. Held values are matched everywhere.
       if (!isProgram(entry.body)) cmj += tokenCount(text)
-      for (const v of scanned) if (text.includes(v)) held += 1
+      let hit = false
+      for (const v of scanned) if (text.includes(v)) { held += 1; hit = true }
+      if (login && text.includes(login)) { loginHits += 1; hit = true }
+      if (hit) files.add(plainLine(redact(entry.name, secrets)).slice(0, 200))
     }
-    evidence.secretScan.home = { held, cmj }
+    evidence.secretScan.home = { held, cmj, login: login ? loginHits : null, files: [...files].sort().slice(0, 20) }
   } catch {
     if (!cancelled) problems.push("could not scan the whole disposable home")
   }
   const logText = [...transcript, ...childText].join("\n")
-  evidence.secretScan.log = { held: scanned.filter((v) => logText.includes(v)).length, cmj: tokenCount(logText) }
-  expect(evidence.secretScan.home.held === 0, "the home holds a value of this run's sign-in, token or API key")
+  evidence.secretScan.log = {
+    held: scanned.filter((v) => logText.includes(v)).length,
+    cmj: tokenCount(logText),
+    login: login ? logText.split(login).length - 1 : null
+  }
+  expect(evidence.secretScan.home.held === 0, "the home holds a value of this run's sign-in, token or Claude login")
+  expect(!evidence.secretScan.home.login, "the home holds the Claude login")
+  expect(!evidence.secretScan.log.login, "the output holds the Claude login")
   expect(evidence.secretScan.home.cmj === 0, "the home holds a join token")
   expect(evidence.secretScan.log.held === 0 && evidence.secretScan.log.cmj === 0, "the output holds a secret value or a join token")
 
   evidence.result = problems.length === 0 ? "pass" : "fail"
-  evidence.reason = problems.length === 0 ? "vault set, joined over ssh, vault on the machine, the agent read it, cleaned up, no secrets found" : problems.join("; ")
+  evidence.reason = problems.length === 0 ? `vault set, joined over ssh, vault on the machine, the agent ${stubUrl ? "on the model stub (its login reached every model request)" : "signed in with the subscription"} saw only the placeholder, the allowed host got the value and the other host the placeholder, cleaned up, no secrets found` : problems.join("; ")
   let text = JSON.stringify(evidence, null, 2)
-  if (evidenceLeaks(text, secrets).length > 0) {
+  if (evidenceLeaks(text, secrets).length > 0 || ANTHROPIC_SHAPE.test(text)) {
     text = JSON.stringify({ run: evidence.run, result: "fail", reason: "evidence redaction check failed" })
     evidence.result = "fail"
   }
@@ -789,6 +926,7 @@ export function realDeps(): Deps {
     write: (line) => process.stdout.write(`${line}\n`),
     writeFile: (path, text) => writeFileSync(path, text, { mode: 0o600 }),
     removeFile: (path) => rmSync(path, { force: true }),
+    readFile: (path) => (existsSync(path) ? readFileSync(path, "utf8") : ""),
     now: () => Date.now(),
     sleep: (ms, signal) =>
       new Promise((resolve) => {
@@ -806,7 +944,9 @@ if (import.meta.main) {
   const env = {
     CMUX_UITEST_STACK_EMAIL: process.env.CMUX_UITEST_STACK_EMAIL,
     CMUX_UITEST_STACK_PASSWORD: process.env.CMUX_UITEST_STACK_PASSWORD,
-    CMUX_E2E_ANTHROPIC_API_KEY: process.env.CMUX_E2E_ANTHROPIC_API_KEY
+    CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN,
+    MODEL_STUB_URL: process.env.MODEL_STUB_URL,
+    MODEL_STUB_LOG: process.env.MODEL_STUB_LOG
   }
   for (const key of Object.keys(env)) delete process.env[key]
   const opts = parseArgs(process.argv.slice(2))
