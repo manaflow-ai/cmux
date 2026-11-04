@@ -59,7 +59,7 @@ extension ShellWindow {
 
     override func becomeKey() {
         cursorRectHold?.windowKeyStateWillChange(self)
-        super.becomeKey()
+        BenchSpans.measure("window.becomeKey") { super.becomeKey() }
     }
 
     override func resignKey() {
