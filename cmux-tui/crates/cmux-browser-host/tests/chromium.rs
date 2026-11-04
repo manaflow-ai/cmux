@@ -97,6 +97,10 @@ fn serve() -> u16 {
                     );
                     return;
                 }
+                // A navigation failure after Chromium has opened the proof tab.
+                if path == "/preview-proof-fail" {
+                    return;
+                }
                 // One hop to the other loopback origin (host fetch redirects).
                 if path == "/redirect" {
                     let mut stream = stream;
@@ -157,6 +161,8 @@ fn serve() -> u16 {
                         .to_owned(),
                     "/script.js" => "window.__loaded = true;".to_owned(),
                     "/scripted" => "<!doctype html><html><head><title>Scripted</title><script src=\"/script.js\"></script></head><body><p>second</p><script>window.__inline = 1;</script></body></html>".to_owned(),
+                    "/preview-proof" => "<!doctype html><title>Preview proof fixture</title><main style=\"font:24px sans-serif;padding:48px\">Preview is rendered</main><script>console.error('fixture console error'); throw new Error('fixture page error');</script>".to_owned(),
+                    "/preview-proof-late" => "<!doctype html><title>Late preview errors</title><main>Rendered before errors</main><script>addEventListener('load', () => setTimeout(() => { console.error('late fixture console error'); throw new Error('late fixture page error'); }, 500));</script>".to_owned(),
                     "/files" => files_page(),
                     "/clip" => clipboard::clip_page(),
                     "/leak" => clipboard::leak_page(),
@@ -548,6 +554,120 @@ fn host_sessions_reach_the_page_agent_after_goto() {
     let mut stop = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
     let _ = stop.args(["close", "--socket"]).arg(&socket).output();
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The high-level proof helper opens a local preview, captures browser errors,
+/// and leaves a screenshot path in the same result for transcript attachment.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn preview_proof_returns_screenshot_and_console_errors() {
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let dir = std::env::temp_dir().join(format!("cmux-host-preview-proof-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("host.sock");
+    let _host = HostGuard::start(&socket, &binary);
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+        .args(["eval", "--engine", "headless", "--socket"])
+        .arg(&socket)
+        .arg("-")
+        .current_dir(&dir)
+        .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("run cmux-browser-host eval");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(
+            r#"
+const userTab = await tabs.open('http://127.0.0.1:__PORT__/second');
+const tabState = async () => (await tabs.list()).map(({ id, active, current }) => ({ id, active, current })).sort((a, b) => a.id.localeCompare(b.id));
+const before = JSON.stringify(await tabState());
+const unchanged = async (label) => {
+    if (JSON.stringify(await tabState()) !== before || tabs.current() !== userTab || page.url() !== 'http://127.0.0.1:__PORT__/second') throw new Error(label + ': user tab changed or proof tab leaked');
+    console.log(label + ':UNCHANGED');
+};
+const proof = await previewProof(__PORT__, { path: '/preview-proof' });
+await unchanged('success');
+const imagePath = proof.screenshot.match(/png: (.+)\]/)[1];
+console.log('PNG_SIGNATURE:' + Array.from(fs.readFileSync(imagePath).slice(0, 8)).join(','));
+console.log(proof);
+const late = await previewProof(__PORT__, { path: '/preview-proof-late', settleMs: 1000, timeout: 5000 });
+await unchanged('repeated');
+if (!late.consoleErrors.some(e => e.text === 'late fixture console error') || !late.pageErrors.some(e => e.message.includes('late fixture page error'))) throw new Error('late errors missing');
+console.log('LATE_ERRORS_CAPTURED');
+for (const option of ['settleMs', 'timeout']) {
+    for (const value of [-1, NaN, Infinity, '100', null]) {
+        let error;
+        try { await previewProof(__PORT__, { [option]: value }); } catch (e) { error = e; }
+        if (!error || !error.message.includes(option)) throw new Error('invalid ' + option + ' accepted');
+        await unchanged('invalid ' + option);
+    }
+}
+let loadError;
+try { await previewProof(__PORT__, { path: '/preview-proof-fail' }); } catch (e) { loadError = e; }
+if (!loadError) throw new Error('failed navigation accepted');
+await unchanged('load failure');
+const started = Date.now();
+let timeoutError;
+try { await previewProof(__PORT__, { path: '/hold?preview-proof-timeout', timeout: 100 }); } catch (e) { timeoutError = e; }
+if (!timeoutError || !/timed out|timeout/i.test(timeoutError.message) || Date.now() - started > 5000) throw new Error('navigation timeout not honored: ' + timeoutError);
+await unchanged('timeout');
+await previewProof(__PORT__, { path: '/preview-proof', settleMs: 0, timeout: 0 });
+await unchanged('zero timing');
+console.log('PROOF_LIFECYCLE_OK');
+"#
+            .replace("__PORT__", &port.to_string())
+            .as_bytes(),
+        )
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    release("preview-proof-timeout");
+    let success = output.status.success();
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let _ = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+        .args(["close", "--socket"])
+        .arg(&socket)
+        .output();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(success, "preview proof command failed: {output}");
+    for marker in [
+        "success:UNCHANGED",
+        "repeated:UNCHANGED",
+        "LATE_ERRORS_CAPTURED",
+        "load failure:UNCHANGED",
+        "timeout:UNCHANGED",
+        "zero timing:UNCHANGED",
+        "PROOF_LIFECYCLE_OK",
+    ] {
+        assert!(output.contains(marker), "missing {marker}: {output}");
+    }
+    assert!(
+        output.contains("PNG_SIGNATURE:137,80,78,71,13,10,26,10"),
+        "valid PNG missing: {output}"
+    );
+    assert!(output.contains("fixture console error"), "console error missing: {output}");
+    assert!(output.contains("fixture page error"), "page error missing: {output}");
+    assert!(
+        output.contains(&format!("http://127.0.0.1:{port}/preview-proof")),
+        "preview URL missing: {output}"
+    );
+    assert!(
+        output.lines().any(|line| line.contains("/image-") && line.contains(".png")),
+        "screenshot attachment path missing: {output}"
+    );
 }
 
 /// A headless session starts with no tabs: the start tab Chromium opens is

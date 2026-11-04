@@ -5,11 +5,12 @@ import CmuxNextAgentPane
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 import XCTest
 
 /// Capture fixtures decode real page payloads and use a removable overlay, never a page-store tab.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct DebugNativeRowToolsFixtureTests {
     private let fixture = DebugNativeRowToolsFixture(overlay: DebugNativeRowToolsFixtureView.self)
 

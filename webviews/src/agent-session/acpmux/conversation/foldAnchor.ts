@@ -84,10 +84,16 @@ export type FoldAnchor = {
   until: number;
 };
 
+/// A message row's first line, on its own line under the row (messageLineLook.ts, stacked: a sent
+/// message, an agent message, a received line, a folded group's head). It toggles its row, so a click
+/// on it holds the row's line, as a click on the line does; the first line itself goes as the row opens.
+const FIRST_LINE = ".cv-msgline__preview";
+
 /// The disclosure line `target` is on, inside one of `scroller`'s rows; undefined for anything else.
 export function foldToggleAt(target: EventTarget | null, scroller: HTMLElement): HTMLElement | undefined {
   const element = target && typeof (target as Element).closest === "function" ? (target as Element) : null;
-  const toggle = element?.closest<HTMLElement>(FOLD_TOGGLE);
+  const line = element?.closest(FIRST_LINE)?.previousElementSibling;
+  const toggle = line?.matches(FOLD_TOGGLE) ? (line as HTMLElement) : element?.closest<HTMLElement>(FOLD_TOGGLE);
   if (!toggle || !scroller.contains(toggle) || !toggle.closest(".acpmux-row")) return undefined;
   // A control of its own inside the toggle (a sent line's recipient, its Copy) opens nothing there.
   const control = element?.closest<HTMLElement>(NESTED_CONTROL);

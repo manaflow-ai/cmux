@@ -8,10 +8,12 @@
 // compared to our claude code version", then "we already have a good version"); Codex's keeps its
 // folder tray. The `codex-*-alt-*` variants are the other Codex layouts drawn for the pick
 // (gallery-only CSS over the shipped one), the replaced in-box row among them.
+import { GALLERY_NOW } from "../../gallery/clock";
 import { agentPaneEntry } from "../../gallery/format";
 import type { PlayContext } from "../../gallery/play";
 import { assistant, chat, CWD, manySessions, noChat, user } from "../../gallery/fixtures/acpmux";
 import { setComposerLook, type ComposerLook } from "./composerLook";
+import type { TaskGoal } from "./goal";
 
 /// A started Claude Code chat in a project: the transcript over the composer. It reports its modes,
 /// as a running Claude Code session does, so the mode chip (the permission capsule) draws in both looks.
@@ -54,6 +56,16 @@ const goalChat = (status: "active" | "paused") => {
         tokensUsed: 12400,
       },
     },
+  };
+};
+
+/// A Claude Code /loop between its runs (acpmux reads it from ScheduleWakeup and CronCreate,
+/// `claude_stdio/loops.rs`): the goal strip shows its prompt, that it loops, and when it next runs.
+const loopChat = (goal: Omit<TaskGoal, "kind" | "status">) => {
+  const snapshot = startedChat();
+  return {
+    ...snapshot,
+    summary: { ...snapshot.summary!, goal: { kind: "loop" as const, status: "active" as const, ...goal } },
   };
 };
 
@@ -211,6 +223,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/composerLook.ts",
     "agent-session/acpmux/composerFooterShared.css",
     "agent-session/acpmux/LookSwitch.tsx#LookSwitch",
+    "agent-session/acpmux/TaskGoalStrip.tsx#TaskGoalStrip",
     "agent-session/acpmux/newtab/PageDots.tsx#PageDots",
     "agent-session/acpmux/newtab/StyleSwitch.tsx#DotSwitch",
   ],
@@ -223,6 +236,25 @@ export default agentPaneEntry({
     "goal-paused": {
       note: "A paused goal remains visible when the conversation reopens.",
       snapshot: goalChat("paused"),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "loop-wakeup": {
+      note: "A self-paced Claude Code /loop (ScheduleWakeup): its prompt, Looping, and when it next runs. No controls: Claude stops a loop only from its own turn.",
+      snapshot: loopChat({
+        objective: "check the deploy and fix anything red",
+        reason: "the rollout takes a few minutes",
+        nextRunAt: GALLERY_NOW + 4 * 60_000,
+      }),
+      play: (ctx) => look(ctx, "claude"),
+    },
+    "loop-cron": {
+      note: "An interval /loop (CronCreate): its schedule as Claude Code words it, and its first run.",
+      snapshot: loopChat({ objective: "/babysit-prs", schedule: "every 5 minutes", nextRunAt: GALLERY_NOW + 90_000 }),
+      play: (ctx) => look(ctx, "claude"),
+    },
+    "loop-autonomous": {
+      note: "An autonomous /loop (no prompt of the person's), in Codex's look.",
+      snapshot: loopChat({ objective: "", autonomous: true, nextRunAt: GALLERY_NOW + 25_000 }),
       play: (ctx) => look(ctx, "codex"),
     },
     "newtab-codex-speed": {
@@ -262,9 +294,34 @@ export default agentPaneEntry({
       },
     },
     "codex-chat": {
-      note: "The second dot, Codex's look (the pick): Claude's button layout, + left of the prompt, the mic right of it, the mode, model, effort and ring in the quiet row under the box.",
+      note: "The second dot, Codex's look: ChatGPT's full-width prompt over one lower controls row, with + left and the mic and Send right. Every mode, model and context control stays inside the box.",
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "codex"),
+    },
+    "codex-chat-spacing-compact": {
+      note: "Spacing A: 16px after the prompt. Compact, but the placeholder and lower controls are closer than ChatGPT's reference.",
+      snapshot: startedChat(),
+      play: (ctx) =>
+        look(
+          ctx,
+          "codex",
+          '.acpmux-composer[data-composer-look="codex"] { --acpmux-codex-prompt-gap: calc(16px * var(--cmux-interface-scale, 1)); }',
+        ),
+    },
+    "codex-chat-spacing-balanced": {
+      note: "Spacing B (selected): 24px after the prompt, 16px above it, + and the trailing actions 8px from the lower edges. Reference: chatgpt/live/composer-empty-placeholder-plus-button.",
+      snapshot: startedChat(),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "codex-chat-spacing-airy": {
+      note: "Spacing C: 32px after the prompt. More empty space than the reference without improving the control row's separation.",
+      snapshot: startedChat(),
+      play: (ctx) =>
+        look(
+          ctx,
+          "codex",
+          '.acpmux-composer[data-composer-look="codex"] { --acpmux-codex-prompt-gap: calc(32px * var(--cmux-interface-scale, 1)); }',
+        ),
     },
     "codex-chat-alt-in-box-row": {
       note: "Replaced (cmux #28901, last good commit 8b44a8a1dc2): Codex's own 52 px row in the box under the prompt. Replaced on Leo's \"we already have a good version\" (2026-11-01). Gallery-only CSS, close to the old layout.",

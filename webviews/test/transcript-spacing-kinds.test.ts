@@ -231,6 +231,14 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
       };
       const diff = (a: number | null | undefined, b: number | null | undefined) =>
         a == null || b == null ? null : Math.round((b - a) * 100) / 100;
+      // A stacked row's first line sits on its own line under the row: the pitch from it to the row under it is one
+      // row line plus that line (#34370 measures the closed waiting group this way).
+      const below = (row: Element | undefined) => {
+        const first = row?.querySelector(".cv-msgline__preview")?.getBoundingClientRect();
+        return first && first.height > 0 ? first.height : 0;
+      };
+      const after = (row: Element | undefined, gap: number | null) =>
+        gap == null ? null : Math.round((gap - below(row)) * 100) / 100;
       const live = rows.find(
         (row) => row.classList.contains("acpmux-thinking") || row.classList.contains("acpmux-working"),
       );
@@ -242,8 +250,12 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
       const sent = byText(/^Sent to/m) ?? document.querySelector('[data-row-id="received-sent"]') ?? undefined;
       const gaps: Record<string, number | null> = {
         "work-to-subagent": diff(head(byText(/Sent a message/)), head(byClass("acpmux-subagentDone"))),
-        "subagent-to-live": diff(head(byClass("acpmux-subagentDone")), head(live)),
-        "live-to-waiting": diff(head(live), head(byClass("acpmux-pendingMessages"))),
+        "subagent-to-waiting": diff(head(byClass("acpmux-subagentDone")), head(byClass("acpmux-pendingMessages"))),
+        // The closed group draws its first line under its head (stacked): the live line is a row under that.
+        "waiting-to-live": after(
+          byClass("acpmux-pendingMessages"),
+          diff(head(byClass("acpmux-pendingMessages")), head(live)),
+        ),
         "reply-footer-to-received":
           footer && footer.height > 0 ? diff((footer.top + footer.bottom) / 2, head(received)) : null,
         "received-to-sent": diff(head(received), head(sent)),

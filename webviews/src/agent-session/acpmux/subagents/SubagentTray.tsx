@@ -17,10 +17,11 @@
 // quiet meta right after the counts (never a column of its own far from them), and the chevron in
 // the trailing column every line's chevron ends in; between turns it says "Running in background ·
 // 2 subagents · 1 command". The
-// header counts exactly the lines under it: what runs or waits on the person. The chat's subagents
-// and the chats its agent started are all "subagents" (Leo 2026-10-21: "SHOULDN'T THIS SAY
-// SUBAGENTS?"). What ended stays as compact status cards after them, never counted. A command is
-// named by what its call says it does (inspector/processes.ts `commandLabel`), a chat by its title
+// header counts what runs or waits on the person kind by kind, then what ended in the list ("1
+// subagent done", its failures in red) and the mark of a subagent of another model family
+// (trayHeadKinds.ts; Leo, 2026-11-03: "the top should be able to split per background task/scheduled
+// wait/subagent/subsession?"). A session the agent started reads as a session. A command is
+// named by what its call says it does, else in words (session-info/commandRules.ts `commandRead`), a chat by its title
 // and what its turn does now. A headed tray starts folded to its header, one line, so the tray never
 // takes the transcript's room (https://github.com/manaflow-ai/cmux/issues/28875: two commands and a
 // done subagent stood open over the chat), and the chevron opens it. The person's choice holds for
@@ -59,6 +60,7 @@
 // (conversation/fold.ts), a line that joins it rises in, and its header's words tick. What runs
 // turns the shared spinner, never a breathing dot.
 import {
+  type CSSProperties,
   memo,
   type ReactElement,
   useCallback,
@@ -77,10 +79,12 @@ import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { arrivalKey, type BackgroundCommand, commandLabel, sendLabel } from "../session-info/processes";
+import { arrivalKey, type BackgroundCommand, sendLabel } from "../session-info/processes";
+import { commandRead } from "../session-info/commandRules";
 import { StopButton as ProcessStopButton } from "../session-info/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/SubagentStatusList";
 import { retrying, retryLabel, sessionRetry } from "./retryState";
+import { AgentMark } from "../../shared/AgentMark";
 import { AgentLine } from "./AgentLine";
 import { SUBAGENT_FALLBACK } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
@@ -95,6 +99,8 @@ import { trayMotionLook } from "./trayMotion.experiment";
 import { trayHeadLook } from "./trayHead.experiment";
 import { trayFoldHeadLook } from "./trayFoldHead.experiment";
 import { trayOpenLook } from "./trayOpen.experiment";
+import { trayHeadKindsLook } from "./trayHeadKinds.experiment";
+import { trayHead } from "./trayHeadKinds";
 import { traySurfaceLook } from "./traySurface.experiment";
 import { Tick, useTrayMotion } from "./trayMotion";
 import type { StartedSession } from "../started/startedSessions";
@@ -202,6 +208,7 @@ export const SubagentTray = memo(function SubagentTray({
   const [foldHead] = useState(() => experimentArm(trayFoldHeadLook));
   const [stopLook] = useState(() => experimentArm(trayStopLook));
   const [opensArm] = useState(() => experimentArm(trayOpenLook));
+  const [kindsArm] = useState(() => experimentArm(trayHeadKindsLook));
   // How the header reaches the Background tasks panel, where the chat has one (Leo, 2026-11-03: "a
   // thing like this that can either expand OR open up to this sort of thing"): a panel button beside
   // its chevron (the default), or the whole header, Claude's chip.
@@ -307,28 +314,45 @@ export const SubagentTray = memo(function SubagentTray({
   const arrivals = { arrived, played };
   const arrivalRefs = useRef(new Map<string, (node: HTMLElement | null) => (() => void) | undefined>());
   // What runs by name, newest first: computed when the items change (an event), never per tick.
+  // The width the list's scrollbar takes, if it takes any (a classic, always-shown scrollbar): the
+  // header's panel button and chevron move in by it too, so they stay over the lines' Stop and chevron
+  // columns (Leo, 2026-11-03: "all that alignment can be done better ... the chevrons with the stop
+  // symbols"). One observer on the list while it is mounted; it disconnects with the list.
+  const [gutter, setGutter] = useState(0);
+  const listRef = useCallback((node: HTMLUListElement | null) => {
+    if (!node) return undefined;
+    const update = () => {
+      const next = Math.max(0, node.offsetWidth - node.clientWidth);
+      setGutter((current) => (current === next ? current : next));
+    };
+    update();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+      setGutter(0);
+    };
+  }, []);
   const newest = useMemo(() => newestNames(t, items), [t, items]);
+  const headCounts = useMemo(
+    () => trayHead(t, { items, finished, waiting, working, chatHarness, arm: kindsArm }),
+    [t, items, finished, waiting, working, chatHarness, kindsArm],
+  );
   if (items.length === 0 && finished.length === 0) return null;
-  // Its subagents and the chats it started are one word: subagents.
-  const subagents = items.filter((item) => item.kind !== "command").length;
-  const commands = items.length - subagents;
-  // Running is what runs: a subagent or chat that waits on the person is counted as waiting.
-  const waitingOnYou = items.filter((item) =>
+  // The counts, split by kind, then what ended and failed (trayHeadKinds.ts; Leo, 2026-11-03: "the
+  // top bit aka what the collapsed area shows i think can show much more interesting stuf fthan it
+  // does now").
+  const counts = headCounts;
+  const title = counts.text;
+  // Its subagents and the chats it started run, or a command does: the header's mark is lit.
+  const commands = items.filter((item) => item.kind === "command").length;
+  const running = items.filter((item) =>
     item.kind === "agent"
-      ? subagentStatus(item.agent, waiting) === "waiting"
-      : item.kind === "session" && item.session.state === "waiting",
+      ? subagentStatus(item.agent, waiting) !== "waiting"
+      : item.kind === "session" && item.session.state !== "waiting",
   ).length;
-  const running = subagents - waitingOnYou;
   const starts = items.map(itemStart).filter((start): start is number => start !== undefined);
-  const title =
-    [
-      working ? running > 0 && t("subagents.allRunning", { n: running }) : items.length > 0 && t("bgWork.running"),
-      !working && running > 0 && t("subagents.count", { n: running }),
-      waitingOnYou > 0 && t("summary.subagents.waiting", { n: waitingOnYou }),
-      commands > 0 && t("turn.working.commands", { n: commands }),
-    ]
-      .filter((part): part is string => typeof part === "string")
-      .join(" · ") || t("summary.subagents");
   // Folded, the header is the one line above the composer, so it names what runs, newest first, as
   // Claude Code's running-tasks list does (trayFoldHead.experiment.ts; Leo, 2026-11-03: "the
   // "running" bar above the composer is currently no longer usable bc it doesn't display much").
@@ -415,6 +439,7 @@ export const SubagentTray = memo(function SubagentTray({
       data-head={head}
       data-stop={stopLook}
       data-opens={(headed && opensPanel) || undefined}
+      style={gutter > 0 ? ({ "--acpmux-tray-gutter": `${gutter}px` } as CSSProperties) : undefined}
     >
       {headed && (
         <button
@@ -443,6 +468,21 @@ export const SubagentTray = memo(function SubagentTray({
             <Icon name={head === "session" ? "agent.session" : HEAD_ICON} size={ROW_ICON} row />
           </span>
           <Tick className="acpmux-summary-text acpmux-running-tray__title" text={headText} steadyCounts />
+          {/* Open (or in the counts arm), what ended failed, in the danger colour, and a subagent of
+              another model family by its harness's mark, as its line draws it. */}
+          {!named && counts.failed > 0 && (
+            <span className="acpmux-running-tray__failed">
+              {title && <span aria-hidden="true">· </span>}
+              {t("summary.subagents.failed", { n: counts.failed })}
+            </span>
+          )}
+          {!named && counts.marks.length > 0 && (
+            <span className="acpmux-running-tray__marks" data-tray-marks>
+              {counts.marks.map((harness) => (
+                <AgentMark key={harness} agent={harness} size={ROW_ICON} label={harness} />
+              ))}
+            </span>
+          )}
           {named && moreCount > 0 && (
             <span className="acpmux-summary-meta acpmux-running-tray__more">{t("tools.more", { n: moreCount })}</span>
           )}
@@ -477,7 +517,7 @@ export const SubagentTray = memo(function SubagentTray({
             if (to && !event.currentTarget.contains(to)) focusInList.current = false;
           }}
         >
-          <ul id={listId} className="acpmux-running-tray__list">
+          <ul ref={listRef} id={listId} className="acpmux-running-tray__list">
             {cards}
           </ul>
         </div>
@@ -575,15 +615,18 @@ export const SubagentTray = memo(function SubagentTray({
     if (item.kind === "command") {
       const key = itemKey(item);
       const processId = item.command.processId;
+      // Named in words (session-info/commandRules.ts); the command as typed is its tooltip and the
+      // first line of its tail.
+      const read = commandRead(t, item.command);
       return (
         <>
           {menu(
             <AgentLine
-              name={sendLabel(t, item.command) ?? commandLabel(item.command)}
+              name={sendLabel(t, item.command) ?? read.label}
               title={item.command.command}
               kind={t("tray.kind.command")}
               chevron
-              icon="terminal"
+              icon={read.icon}
               working
               status="running"
               state={t("subagents.state.running")}
@@ -627,7 +670,9 @@ export const SubagentTray = memo(function SubagentTray({
           )}
           <BackgroundTaskTail
             command={item.command}
-            open={openCommands.has(key) && canReadTail}
+            open={openCommands.has(key) && (canReadTail || read.link !== undefined)}
+            readOutput={canReadTail}
+            link={read.link}
             onOpenTerminal={
               canOpenTerminal && onOpenCommand && item.command.toolCallId
                 ? () => onOpenCommand(item.command)
@@ -685,7 +730,7 @@ function agentTooltip(t: Translate, agent: Subagent): string | undefined {
 }
 
 /// What each running item is called, newest first: a subagent by its task, a command by its
-/// description or its short command (processes.ts `commandLabel`), a chat by its title. An item with
+/// description or its words (session-info/commandRules.ts `commandRead`), a chat by its title. An item with
 /// no start time sorts after those with one, in its list order.
 /// At most the newest two are named (the default arm names one), so a long list costs a sort of its
 /// start times, never a label per item.
@@ -698,7 +743,7 @@ function newestNames(t: Translate, items: readonly TrayItem[]): readonly string[
       item.kind === "agent"
         ? subagentTaskLabel(t, item.agent)
         : item.kind === "command"
-          ? (sendLabel(t, item.command) ?? commandLabel(item.command))
+          ? (sendLabel(t, item.command) ?? commandRead(t, item.command).label)
           : item.session.title,
     );
 }
