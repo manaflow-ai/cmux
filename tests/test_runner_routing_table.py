@@ -136,10 +136,12 @@ class RoutingTableTests(unittest.TestCase):
         gate = "needs.decide.outputs.track == 'nightly-next'"
         attempt = "needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)"
         picked = "needs.decide.outputs.early_resolve_nightly_tui_client_runner"
-        expression = "${{ " + gate + " && (" + attempt + " && " + picked + ") || 'blacksmith-16vcpu-ubuntu-2404' }}"
+        expression = "${{ " + gate + " && (" + attempt + " && " + picked + ") || 'ubuntu-24.04' }}"
         self.assertEqual(table.portable_order(expression, nightly=True), "")
-        for changed in (expression.replace(picked, picked + " || 'cmux-fleet-linux-x64'"),
-                        expression.replace("${{ ", "${{ 'blacksmith-16vcpu-ubuntu-2404' || "),
+        # Nightlies never run on Blacksmith: a Blacksmith overflow is refused.
+        for changed in (expression.replace("'ubuntu-24.04' }}", "'blacksmith-16vcpu-ubuntu-2404' }}"),
+                        expression.replace(picked, picked + " || 'cmux-fleet-linux-x64'"),
+                        expression.replace("${{ ", "${{ 'ubuntu-24.04' || "),
                         expression.replace(attempt, "github.run_attempt == 1"),
                         expression.replace(gate, "needs.decide.outputs.track != 'nightly-next'")):
             with self.subTest(expression=changed):
@@ -150,8 +152,11 @@ class RoutingTableTests(unittest.TestCase):
         linux = attempt + " && needs.build-nightly-app.outputs.light_linux_runner"
         mini = (attempt + " && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' prepare-nightly-variant-primary ')"
                 " && needs.build-nightly-app.outputs.light_mini_runner")
-        tail = "fromJSON(vars.RUNNER_POOLS).linux_32"
+        tail = "vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro'"
         self.assertEqual(table.portable_order("${{ " + " || ".join((linux, mini, tail)) + " }}", nightly=True), "")
+        # Nightlies never run on Blacksmith: a Blacksmith pool tail is refused.
+        self.assertTrue(table.portable_order(
+            "${{ " + " || ".join((linux, mini, "fromJSON(vars.RUNNER_POOLS).linux_32")) + " }}", nightly=True))
         self.assertTrue(table.portable_order("${{ " + " || ".join((mini, linux, tail)) + " }}", nightly=True))
         self.assertTrue(table.portable_order("${{ " + " || ".join((linux, tail)) + " }}", nightly=True))
 
