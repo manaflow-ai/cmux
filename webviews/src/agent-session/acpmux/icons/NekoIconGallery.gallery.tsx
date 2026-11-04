@@ -147,8 +147,11 @@ function TokenRow({
                   height: px(BASE.glyph),
                   background: "currentColor",
                   maskImage: `url(${drawings[name]})`,
+                  WebkitMaskImage: `url(${drawings[name]})`,
                   maskSize: "contain",
+                  WebkitMaskSize: "contain",
                   maskRepeat: "no-repeat",
+                  WebkitMaskRepeat: "no-repeat",
                 }}
               />
             ) : (
