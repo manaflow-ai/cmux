@@ -2779,6 +2779,8 @@ def launch_shift_rows(variant, record, launched, chat_watch):
                                                           "scroll_jumps", "asked_s", "error") if k in chat_watch}
     dump(f"launch-shift-{variant}.json", summary)
     say(f"  LAUNCH-SHIFT {variant} {json.dumps(total)}")
+    marks = (rpc("debug.timings") or {}).get("launch_ms_since_process_start") or {}
+    say("  DIAG " + json.dumps({k: v for k, v in sorted(marks.items(), key=lambda kv: kv[1]) if k.startswith("diag_") or "snapshot" in k or "sidebar" in k or "first_window" in k}))
     say(launch_shift.table(summary))
     LOG.write(launch_shift.table(summary) + "\n")
     windows = [w for w in summary["windows"] if "error" not in w]

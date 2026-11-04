@@ -42,6 +42,8 @@ extension SidebarDocument {
         }
         store.onUndoRefused = { origin in (origin as? PinUndoStep)?.abandon() }
         DaemonSidebarDocRemote.follow(local.store.session, into: store)
+        DebugTimings.markLaunch(local.launchSnapshotSidebarDoc == nil ? "diag_doc_start_without_snapshot" : "diag_doc_start_with_snapshot")
+        defer { DebugTimings.markLaunch(store.shown == nil ? "diag_doc_start_not_shown" : "diag_doc_start_shown") }
         if let data = local.launchSnapshotSidebarDoc {
             local.launchSnapshotSidebarDoc = nil // read once: the daemon owns the document from here on
             docMachines.showLaunchSnapshot(data, in: store, connected: { local.connection != nil }, serves: serves) { layout.docLayout = $0 }

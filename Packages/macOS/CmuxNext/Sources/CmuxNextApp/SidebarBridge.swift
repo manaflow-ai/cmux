@@ -260,6 +260,7 @@ final class SidebarBridge {
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections, window: state?.id, windows: services.windows.connectingRowWindows(making: state?.id)) }
         let hadDocDrag = model.docDrag != nil
         model.docDrag = services.sidebarDoc.drag(room: state?.profileID.rawValue) // the document's drag half, nil keeps the older resolver
+        if !hadDocDrag { DebugTimings.markLaunch(model.docDrag == nil ? "diag_show_doc_inactive_active\(services.sidebarDoc.store?.isActive == true)_shown\(services.sidebarDoc.store?.shown != nil)" : "diag_show_doc_attached") }
         if let id = state?.id { model.docDrag?.listedElsewhere = WorkspaceLayoutRefs(machines: services.machines).listedElsewhere(window: id, registry: services.windows.registry) }
         model.ungroupedFirst = model.docDrag == nil && !usesMixedOrder
         if model.layout != layout { model.layout = layout }

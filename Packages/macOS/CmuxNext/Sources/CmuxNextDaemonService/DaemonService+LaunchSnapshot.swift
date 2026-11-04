@@ -19,16 +19,18 @@ extension DaemonService {
     /// the first window.
     func showLaunchSnapshot(session: String, stateDirectory: URL?) {
         guard let path = launchSnapshotLocation.path(session: session)
-            ?? LaunchSnapshotLocation.find(session: session, in: stateDirectory) else { return }
+            ?? LaunchSnapshotLocation.find(session: session, in: stateDirectory) else { Self.launchMark("diag_snapshot_no_path"); return }
         let snapshot: LaunchSnapshot
         do { snapshot = try LaunchSnapshot.load(path: path, session: session) } catch {
             logger.error("launch snapshot skipped: \(String(describing: error), privacy: .public)")
+            Self.launchMark("diag_snapshot_skipped_" + String(String(describing: error).prefix(60)).replacingOccurrences(of: " ", with: "_"))
             return
         }
         store.applyProvisional(snapshot: snapshot.tree)
         launchSnapshotWindows = snapshot.windows
         launchSnapshotSidebarDoc = snapshot.sidebarDoc
         Self.launchMark("launch_snapshot_applied")
+        Self.launchMark(snapshot.sidebarDoc == nil ? "diag_snapshot_without_doc" : "diag_snapshot_with_doc")
     }
 
     /// Records the snapshot path the local daemon reported, for the next launch.
