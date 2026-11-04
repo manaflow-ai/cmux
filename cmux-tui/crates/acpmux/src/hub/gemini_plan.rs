@@ -94,10 +94,11 @@ pub(super) fn read_plan(path: &str, cwd: &Path, homes: &[PathBuf]) -> Option<Str
         let Ok(rest) = real.strip_prefix(&tmp) else { return false };
         let parts: Vec<_> = rest.components().map(|c| c.as_os_str()).collect();
         // <project>/plans/<file...> or <project>/<session>/plans/<file...>.
-        let planned = (parts.len() >= 3 && parts[1] == "plans")
-            || (parts.len() >= 4 && parts[2] == "plans");
+        let plans = |at: usize| parts.get(at).is_some_and(|part| *part == "plans");
+        let planned = (parts.len() >= 3 && plans(1)) || (parts.len() >= 4 && plans(2));
+        let Some(project) = parts.first() else { return false };
         planned
-            && std::fs::read_to_string(tmp.join(parts[0]).join(PROJECT_ROOT_FILE))
+            && std::fs::read_to_string(tmp.join(project).join(PROJECT_ROOT_FILE))
                 .is_ok_and(|marker| names_project(&marker, cwd))
     });
     if !inside || !std::fs::metadata(&real).ok()?.is_file() {
