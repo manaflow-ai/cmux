@@ -118,16 +118,19 @@ class ClassicApiGuardTests(unittest.TestCase):
                 self.assertIn(key, deploy, deploy.get("id"))
         self.assertTrue(any(d["guarded"] for d in data["deploys"]))
 
-    def test_workflow_runs_the_base_copy_on_both_bases(self) -> None:
+    def test_workflow_runs_the_base_copy_on_pull_request_target(self) -> None:
         text = WORKFLOW.read_text()
-        self.assertIn("branches: [main, feat-cmux-next]", text)
+        self.assertIn("pull_request_target:", text)
+        self.assertNotIn("\n  pull_request:", text)
+        self.assertIn("branches: [main]", text)
         self.assertIn("edited", text)
         self.assertNotIn("changes.body", text)
         self.assertIn("--expected-files", text)
         self.assertIn("--listed-records", text)
         self.assertIn("ref: ${{ github.event.pull_request.base.sha }}", text)
         self.assertIn("scripts/ci/classic_api_guard.py", text)
-        self.assertNotIn("pull_request_target", text)
+        for head_ref in ("head.sha", "head.ref", "refs/pull", "merge_commit_sha", "${{ secrets"):
+            self.assertNotIn(head_ref, text)
 
 
 if __name__ == "__main__":
