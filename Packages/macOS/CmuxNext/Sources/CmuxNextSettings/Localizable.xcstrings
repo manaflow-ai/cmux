@@ -76435,6 +76435,58 @@
         }
       }
     },
+    "settings.tabs.hideLoneChatTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Hide the Tab of a Chat Alone in Its Pane"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إخفاء علامة تبويب المحادثة الوحيدة في جزئها"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Sakrij karticu razgovora koji je sam u svom oknu"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Skjul fanen for en chat, der er alene i sin rude"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Tab eines Chats ausblenden, der allein im Bereich ist"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Ocultar la pestaña de un chat solo en su panel"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Masquer l’onglet d’une discussion seule dans son volet"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Nascondi la scheda di una chat da sola nel suo riquadro"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ペインに 1 つだけのチャットのタブを隠す"}},
+        "km": {"stringUnit": {"state": "translated", "value": "លាក់ផ្ទាំងនៃការជជែកដែលនៅតែឯងក្នុងផ្ទាំងរបស់វា"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "창에 하나뿐인 채팅의 탭 숨기기"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Skjul fanen til en chat som er alene i ruten"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Ukryj kartę czatu, który jest sam w panelu"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Ocultar a aba de um chat sozinho no painel"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Скрывать вкладку чата, если он один в панели"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ซ่อนแท็บของแชตที่อยู่เดี่ยวในบานหน้าต่าง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bölmesinde tek başına olan sohbetin sekmesini gizle"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Приховувати вкладку чату, якщо він один на панелі"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Ẩn thẻ của cuộc trò chuyện duy nhất trong ngăn"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "隐藏窗格中唯一聊天的标签页"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "隱藏窗格中唯一聊天的分頁"}}
+      }
+    },
+    "settings.tabs.hideLoneChatTab.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "When a pane holds only one chat, hide its tab so the chat fills the tab bar. A second tab brings the tab bar back."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "عندما يحتوي الجزء على محادثة واحدة فقط، تُخفى علامة تبويبها لتملأ المحادثة شريط علامات التبويب. تعيد علامة تبويب ثانية الشريط."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Kada okno sadrži samo jedan razgovor, sakrij njegovu karticu da razgovor ispuni traku kartica. Druga kartica vraća traku kartica."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Når en rude kun indeholder én chat, skjules dens fane, så chatten fylder fanelinjen. En fane mere bringer fanelinjen tilbage."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Enthält ein Bereich nur einen Chat, wird sein Tab ausgeblendet, sodass der Chat die Tableiste füllt. Ein zweiter Tab bringt die Tableiste zurück."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cuando un panel tiene un solo chat, oculta su pestaña para que el chat ocupe la barra de pestañas. Una segunda pestaña la vuelve a mostrar."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Lorsqu’un volet ne contient qu’une discussion, son onglet est masqué pour que la discussion occupe la barre d’onglets. Un deuxième onglet la fait revenir."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Quando un riquadro contiene una sola chat, ne nasconde la scheda così la chat occupa la barra delle schede. Una seconda scheda la fa tornare."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ペインにチャットが 1 つしかないとき、そのタブを隠してチャットがタブバーまで広がります。2 つ目のタブを開くとタブバーが戻ります。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "នៅពេលផ្ទាំងមានការជជែកតែមួយ លាក់ផ្ទាំងរបស់វា ដើម្បីឱ្យការជជែកពេញរបារផ្ទាំង។ ផ្ទាំងទីពីរនាំរបារផ្ទាំងត្រឡប់មកវិញ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "창에 채팅이 하나만 있으면 탭을 숨겨 채팅이 탭 막대까지 채웁니다. 두 번째 탭을 열면 탭 막대가 돌아옵니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Når en rute bare har én chat, skjules fanen slik at chatten fyller fanelinjen. En fane til henter fanelinjen tilbake."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Gdy panel zawiera tylko jeden czat, jego karta jest ukryta, a czat wypełnia pasek kart. Druga karta przywraca pasek kart."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Quando um painel tem só um chat, oculta a aba para que o chat ocupe a barra de abas. Uma segunda aba traz a barra de volta."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Когда в панели только один чат, его вкладка скрывается и чат занимает полосу вкладок. Вторая вкладка возвращает полосу."}},
+        "th": {"stringUnit": {"state": "translated", "value": "เมื่อบานหน้าต่างมีแชตเดียว จะซ่อนแท็บเพื่อให้แชตเต็มแถบแท็บ แท็บที่สองจะนำแถบแท็บกลับมา"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bir bölmede yalnızca bir sohbet varsa sekmesi gizlenir ve sohbet sekme çubuğunu doldurur. İkinci bir sekme çubuğu geri getirir."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Коли на панелі лише один чат, його вкладка ховається і чат займає смугу вкладок. Друга вкладка повертає смугу."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Khi một ngăn chỉ có một cuộc trò chuyện, ẩn thẻ của nó để cuộc trò chuyện lấp đầy thanh thẻ. Thẻ thứ hai sẽ đưa thanh thẻ trở lại."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "窗格中只有一个聊天时，隐藏其标签页，让聊天占满标签栏。打开第二个标签页时标签栏会回来。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "窗格中只有一個聊天時，隱藏其分頁，讓聊天佔滿分頁列。開啟第二個分頁時分頁列會回來。"}}
+      }
+    },
     "settings.choice.diffUnified": {
       "extractionState": "manual",
       "localizations": {
