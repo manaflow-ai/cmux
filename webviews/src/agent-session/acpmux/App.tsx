@@ -8672,7 +8672,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     onMode: (mode: RunMode) => {
       if (mode === "cloud") {
         const folder = cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);
-        if ("cwd" in folder) cloudFolderGrant.granting(folder.cwd, pickFolder(callNative, folder.cwd, () => undefined));
+        if ("cwd" in folder)
+          cloudFolderGrant.granting(
+            folder.cwd,
+            pickFolder(callNative, folder.cwd, () => undefined),
+          );
       }
       sandboxModeRows.onMode(mode);
     },
@@ -13846,10 +13850,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A subagent's own pane is a tab on the chat's session: the chat's composer, queue and pull
   // request bars there were the chat's, and a prompt typed in it went to the chat. It draws the
   // subagent's composer instead, whose prompt the chat passes on to the subagent.
+  // The subagent's draft is its own: by the chat that passes it on and the subagent's id (its name
+  // when it has none).
+  const subagentDraftKey = `${subagentRelayChat ?? chatName}\u0000${shownSubagentTarget?.id ?? shownSubagentTarget?.name ?? ""}`;
   const composer = readOnlySubagent ? (
     <SubagentComposer
+      key={subagentDraftKey}
       subagent={shownSubagentTarget?.name ?? t("tray.kind.subagent")}
       chat={chatName}
+      draftKey={subagentDraftKey}
       onSend={sendToSubagent}
     />
   ) : (
