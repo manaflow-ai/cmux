@@ -122,12 +122,13 @@ extension SharedEdgeMotion {
         var probes: [DividerDragValue]
         var axis: SplitAxis
         var speedChange: CGFloat
+        /// The line moves against its anchor (shows off its rest distance, or at another speed): the press catches it.
+        /// False: `value` is the layout's own, and the press only checks what the drag will resize.
+        var catches = true
     }
 
     /// What a press on `kind` finds on `screen`.
     enum Press {
-        /// The line shows at its rest distance from its anchor and moves with it: nothing to catch.
-        case atRest
         case caught(Caught)
         /// No frame for the line or its anchor, or a row edge (its drag lays out a preview of rest rows).
         case cannotCatch
@@ -151,13 +152,13 @@ extension SharedEdgeMotion {
             guard let anchor = anchor(nearest: base, high: false, axis: divider.axis, of: side.panes, in: screen.paneFrames) else {
                 return .cannotCatch
             }
-            guard let span = span(line: line, spring: horizontal ? handle.x : handle.y, base: base, anchor: anchor) else { return .atRest }
+            let span = span(line: line, spring: horizontal ? handle.x : handle.y, base: base, anchor: anchor) ?? (line - base, anchor.velocity, false)
             func ratio(_ extent: CGFloat) -> DividerDragValue {
                 .ratio(id, SplitGeometry.ratio(forPointer: base + extent, container: divider.container, axis: divider.axis, style: style,
                                                minimumA: divider.minimumA, minimumB: divider.minimumB))
             }
             return .caught(Caught(value: ratio(span.extent), probes: [ratio(span.extent + probeStep), ratio(span.extent - probeStep)],
-                                  axis: divider.axis, speedChange: anchor.velocity - span.velocity))
+                                  axis: divider.axis, speedChange: anchor.velocity - span.velocity, catches: span.moves))
         case let .columnEdge(id):
             guard let frame = geometry.columns[id], let column = screen.layout.columns.first(where: { $0.id == id }) else { return .cannotCatch }
             let edge = geometry.columnEdges.first { $0.column == id }?.dockEdge
@@ -173,7 +174,7 @@ extension SharedEdgeMotion {
             guard let anchor = anchor(nearest: base, high: high, axis: axis, of: column.root.panes, in: screen.paneFrames) else {
                 return .cannotCatch
             }
-            guard let span = span(line: line, spring: band ? handle.y : handle.x, base: base, anchor: anchor) else { return .atRest }
+            let span = span(line: line, spring: band ? handle.y : handle.x, base: base, anchor: anchor) ?? (line - base, anchor.velocity, false)
             let minimum = band ? column.minimumSize(style: style).height : column.minimumSize(style: style).width
             let viewport = switch edge {
             case nil: geometry.stripWidth
@@ -184,7 +185,7 @@ extension SharedEdgeMotion {
                 .width(id, ColumnStripGeometry.fraction(forPixelWidth: max(extent * sign, minimum), viewportWidth: viewport, gap: style.stripGap))
             }
             return .caught(Caught(value: width(span.extent), probes: [width(span.extent + probeStep * sign), width(span.extent - probeStep * sign)],
-                                  axis: axis, speedChange: anchor.velocity - span.velocity))
+                                  axis: axis, speedChange: anchor.velocity - span.velocity, catches: span.moves))
         case .rowEdge:
             return .cannotCatch
         }
@@ -211,10 +212,10 @@ extension SharedEdgeMotion {
     /// How far the dragged line shows from its anchor (signed along the axis, not rounded) and its velocity; nil when
     /// the line shows at its rest distance from the anchor and moves with it.
     private static func span(line: CGFloat, spring: SpringValue, base: CGFloat, anchor: (offset: CGFloat, velocity: CGFloat))
-        -> (extent: CGFloat, velocity: CGFloat)? {
+        -> (extent: CGFloat, velocity: CGFloat, moves: Bool)? {
         let offset = spring.value - spring.target
         guard abs(offset - anchor.offset) > 0.001 || abs(spring.velocity - anchor.velocity) > 0.001 else { return nil }
-        return ((line + offset) - (base + anchor.offset), spring.velocity)
+        return ((line + offset) - (base + anchor.offset), spring.velocity, true)
     }
 
     /// How far each edge moved with the dragged line between the caught layout and the probe layout, as a fraction of
@@ -235,6 +236,20 @@ extension SharedEdgeMotion {
             let move = axis == .horizontal ? to.minX - from.minX : to.minY - from.minY
             guard abs(move) >= 1 else { return nil }
             (self.caught, self.probe, self.axis, lineMove) = (caught, probe, axis, move)
+        }
+
+        /// Whether a pane whose size the drag changes shows narrower than its caught rest size by more than `minimum`
+        /// along the axis: a drag that shrinks it to its minimum would then show it with a negative size (a move keeps
+        /// each edge's leftover). Its press then takes the drag from before S2B.
+        func leavesNegativeSize(_ frames: [PaneID: AnimatedFrame], minimum: CGFloat) -> Bool {
+            let horizontal = axis == .horizontal
+            for (pane, frame) in frames {
+                guard let from = caught.panes[pane], let to = probe.panes[pane] else { continue }
+                let (size, change) = horizontal ? (from.width, to.width - from.width) : (from.height, to.height - from.height)
+                guard abs(change) > 0.01 else { continue }
+                if (horizontal ? frame.width.value : frame.height.value) - size < 1 - minimum { return true }
+            }
+            return false
         }
 
         static func target(_ kind: DividerHandleView.Kind, in geometry: ScreenGeometry) -> CGRect? {

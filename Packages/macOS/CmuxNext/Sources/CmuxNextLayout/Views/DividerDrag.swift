@@ -130,7 +130,7 @@ struct DividerDrag {
     func apply(at windowPoint: NSPoint, phase: LayoutGesturePhase) {
         guard var drag = screen.activeDrag else { return }
         let point = drag.effective(contentPoint(fromWindow: windowPoint, kind: drag.kind))
-        let targets: [DividerDragValue]
+        var targets: [DividerDragValue]
         switch drag.kind {
         case let .split(id):
             targets = splitTargets(id, drag: &drag, point: point, phase: phase)
@@ -140,7 +140,7 @@ struct DividerDrag {
             screen.activeDrag = drag
             return applyRowEdge(column, upper: upper, drag: drag, windowPoint: windowPoint, phase: phase)
         }
-        var targets = targets, keys = Set(targets.map(\.key))
+        var keys = Set(targets.map(\.key))
         // The caught value is this drag's start for its key (rule C): a mode that stops setting it puts it back there.
         if let caught = drag.caughtValue, drag.touched.contains(caught.key), !keys.contains(caught.key) {
             (targets, keys) = (targets + [caught], keys.union([caught.key]))

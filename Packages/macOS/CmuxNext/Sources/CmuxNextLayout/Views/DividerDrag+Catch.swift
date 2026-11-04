@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// FRAME OWNER REFACTOR S2B, rule C: a drag that starts while its edge springs takes over where the edge shows.
 extension DividerDrag {
@@ -9,14 +10,14 @@ extension DividerDrag {
     /// (`SharedEdgeMotion.Influence`), and the drag starts again from that layout (``start(_:at:)``), so the pointer's
     /// travel changes the pane 1:1. A cancel (a click, Escape) sends again the unconfirmed release the catch replaced
     /// (`DividerDragState.replaced`), in a new transaction, so it settles or is refused as any release. Nothing to
-    /// catch (the edge at rest from its anchor), a canvas or a zoomed screen: the drag as before; a press that cannot
-    /// catch while the screen moves turns the rule off for its drag.
+    /// catch (the edge at rest from its anchor), a canvas or a zoomed screen: the drag as before. A press that cannot
+    /// catch while the screen moves, or whose drag would shrink a pane that still shows far under its rest size past
+    /// zero, turns the rule off for its drag (whole frames snap, as before S2B).
     func catchShown(_ kind: DividerHandleView.Kind, at windowPoint: NSPoint) {
         guard let drag = screen.activeDrag, drag.sharedEdges else { return }
         guard !screen.context.reduceMotion, screen.canvasGeometry == nil, !screen.zoomed else { return }
         let caught: SharedEdgeMotion.Caught
         switch SharedEdgeMotion.press(kind, on: screen) {
-        case .atRest: return
         case let .caught(found): caught = found
         case .cannotCatch: return turnSharedEdgesOff()
         }
@@ -27,7 +28,16 @@ extension DividerDrag {
         let caughtGeometry = geometry(caught.value)
         guard let influence = caught.probes.lazy.compactMap({
             SharedEdgeMotion.Influence(kind, caught: caughtGeometry, probe: geometry($0), axis: caught.axis)
-        }).first else { return turnSharedEdgesOff() }
+        }).first else {
+            if caught.catches { turnSharedEdgesOff() }
+            return
+        }
+        // A pane the drag resizes that still shows far narrower than its rest size (its own size spring, which a catch
+        // of this line does not stop: an inner split's release) would show a negative size when the drag shrinks it.
+        if influence.leavesNegativeSize(screen.paneFrames, minimum: style.minimumPaneSize.extent(along: caught.axis)) {
+            return turnSharedEdgesOff()
+        }
+        guard caught.catches else { return }
         // The value the layout showed before the catch, when a local one (a release the daemon has not confirmed): a
         // cancel sends it again, in a new transaction, so it lands as it would have.
         screen.activeDrag?.replaced = shownOverride(caught.value.key)
