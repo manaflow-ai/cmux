@@ -82,3 +82,15 @@ test("no copy where nothing was said, nor on a prompt or another agent's message
   );
   expect(copyOf(message, "s1")).toBeUndefined();
 });
+
+test("the steer draws again when a row its copy is read from changes", () => {
+  const steer = (rows: readonly AcpmuxRow[]) =>
+    turnView(rows, new Set(), { now: 10_000, working: true }).find((one) => one.id === "s1")!;
+  const before = steer(source);
+  const edited = source.map((one) => (one.id === "a1" ? { ...one, version: 2, text: `${ASK} Or not.` } : one));
+  const after = steer(edited);
+  expect(turnCopyText(t, after.segmentCopy!)).toContain("Or not.");
+  expect(after.version).not.toBe(before.version);
+  // The same rows give the same version, so an unchanged steer keeps its memo.
+  expect(steer(source).version).toBe(before.version);
+});

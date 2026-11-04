@@ -749,23 +749,33 @@ function shapeTurn(...args: Parameters<typeof shapeTurnRows>): AcpmuxRow[] {
 /// lets that happen if the user comes in"). Read from the turn's own rows, so work a closed "Worked
 /// for" hides is copied too. One pass over the turn; `shaped` is returned as it is when no steer copies.
 function withSegmentCopy(turn: readonly AcpmuxRow[], shaped: AcpmuxRow[]): AcpmuxRow[] {
-  let copies: Map<string, TurnCopyPart[]> | undefined;
+  let copies: Map<string, { parts: TurnCopyPart[]; revision: number }> | undefined;
   let from = 0;
   for (let at = 0; at < turn.length; at += 1) {
     const row = turn[at]!;
     if (row.kind === "turnSummary") from = at + 1;
     if (row.kind !== "user" || row.incoming || row.steer === "waiting" || !continuesTurn(row)) continue;
-    const parts = turnCopyParts(turn.slice(from, at));
+    const part = turn.slice(from, at);
+    const parts = turnCopyParts(part);
     from = at + 1;
-    if (parts) (copies ??= new Map()).set(row.id, parts);
+    if (parts) (copies ??= new Map()).set(row.id, { parts, revision: segmentRevision(part) });
   }
   if (!copies) return shaped;
   const found = copies;
-  // A new version, so the memoized row draws its copy (memos compare versions).
+  // The version moves with the steer's and with every row the copy is read from, so the memoized
+  // row draws again when a reply or a call before the steer changes (memos compare versions).
   return shaped.map((row) => {
-    const parts = row.kind === "user" ? found.get(row.id) : undefined;
-    return parts ? { ...row, segmentCopy: parts, version: row.version * 2 + 1 } : row;
+    const copy = row.kind === "user" ? found.get(row.id) : undefined;
+    return copy ? { ...row, segmentCopy: copy.parts, version: row.version * VERSION_SPAN + copy.revision + 1 } : row;
   });
+}
+
+/// One number for the rows a steer's copy is read from: their ids' order and versions, kept below
+/// VERSION_SPAN - 1 so the steer's derived version stays unique to it (``withSegmentCopy``).
+function segmentRevision(rows: readonly AcpmuxRow[]): number {
+  let revision = rows.length;
+  for (const row of rows) revision = (revision * 31 + row.version) % (VERSION_SPAN - 1);
+  return revision;
 }
 
 function shapeTurnRows(
