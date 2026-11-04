@@ -225,7 +225,12 @@ extension CEFRuntime {
         if let tab = tabBeingAdded {
             // cmux_tab_add runs OnAfterCreated before it returns.
             tabBeingAdded = nil
+            #if DEBUG || CMUX_BENCH_HOOKS
+            // cmux's own attach work inside `cef.tab_add` (its span includes this one): what is Chromium's and what is cmux's.
+            benchMarks.span("cef.tab_add.attach") { register(tab, browser: browser) }
+            #else
             register(tab, browser: browser)
+            #endif
             return
         }
         // Chromium created the tab itself (target=_blank, chrome.tabs.create).
