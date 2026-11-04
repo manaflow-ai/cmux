@@ -124,7 +124,7 @@ fn a_last_used_entry_the_spare_moved_off_waits_only_the_pool_idle_time() {
     pool.want(Role::Spare, key("/b", "claude"), Duration::from_secs(1));
     let kept = pool.view().into_iter().find(|v| v.key == a).expect("still last used");
     assert!(kept.last_used && !kept.spare, "{kept:?}");
-    assert_eq!(pool.expire(IDLE), vec!["claude-a"]);
+    assert_eq!(pool.expire(IDLE + Duration::from_secs(1)), vec!["claude-a"]);
 }
 
 #[test]
