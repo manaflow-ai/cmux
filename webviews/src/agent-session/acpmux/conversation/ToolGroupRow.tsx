@@ -5,8 +5,8 @@ import { WrittenArtifactButtons } from "./writtenArtifacts";
 // then one row per step (a call's one-line summary, a later thought cut to one line), each with
 // its disclosure right after its words, hairlines between them. Edits keep their diffs on a tree
 // guide.
-import { useFindReveal } from "./chatFind";
-import { memo, useId, useMemo, useRef, type ReactNode } from "react";
+import { FindReveal, foldFind, useFindReveal } from "./chatFind";
+import { memo, useContext, useId, useMemo, useRef, type ReactNode } from "react";
 import { toolFiles } from "../diff";
 import type { AcpmuxActivity } from "../model";
 import { CommandRow } from "./CommandRow";
@@ -173,17 +173,22 @@ export function ToolGroupRow({
   items,
   disclosureKey,
   folded = false,
+  findTitle,
   thoughtId = (n) => `${disclosureKey}:thought:${n}`,
 }: {
   kind: ToolGroupKind;
   items: readonly AcpmuxActivity[];
   disclosureKey: string;
   folded?: boolean;
+  /** Original single-call title, revealed when Find matches a path the summary shortens. */
+  findTitle?: string;
   /// The id of the group's n-th thought (TurnRows.tsx `thoughtIds`): the same one the thought had
   /// drawn on its own before a call joined it to this group.
   thoughtId?: (n: number) => string;
 }) {
   const t = useT();
+  const reveal = useContext(FindReveal);
+  const showFindTitle = Boolean(findTitle && reveal?.needle && foldFind(findTitle).includes(reveal.needle));
   // The Verbose transcript view opens every group, edits included. Thinking opens a group that
   // holds a thought, so the thought it opens is on screen.
   const thinking = useTranscriptViewContext() === "thinking";
@@ -268,6 +273,7 @@ export function ToolGroupRow({
       <ToolFailureCause failure={failure} />
       {fold.present && (
         <div {...fold.bodyProps}>
+          {showFindTitle && <pre className="cv-mcp-call__body selectable">{findTitle}</pre>}
           {kind === "edits" ? (
             <div className="cv-tool-group" id={detailsId} data-tool-group-items={disclosureKey}>
               {!files.length

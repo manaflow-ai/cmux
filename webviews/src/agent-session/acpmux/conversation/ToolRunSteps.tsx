@@ -31,7 +31,13 @@ const RunStep = memo(
           mcpCall(item.tool) ? (
             <McpCallRow item={item} />
           ) : toolGroupKind(item.tool) === "edits" ? (
-            <ToolGroupRow kind="edits" items={own} folded disclosureKey={`group:edits:${item.tool.id || stepId}`} />
+            <ToolGroupRow
+              kind="edits"
+              items={own}
+              folded
+              disclosureKey={`group:edits:${item.tool.id || stepId}`}
+              findTitle={item.tool.title}
+            />
           ) : item.tool.kind === "execute" && item.tool.command ? (
             <CommandRow item={item} />
           ) : (

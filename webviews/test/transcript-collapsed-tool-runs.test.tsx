@@ -248,3 +248,66 @@ test("the gallery's quieter versions dim the line", () => {
   configureToolRunLook("kind");
   expect(line()).toContain("is-strong");
 });
+
+test("Find highlights an edit step's original full path without changing its normal heading or counts", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { FindReveal, findMatches, paintFindHighlights } =
+    await import("../src/agent-session/acpmux/conversation/chatFind");
+  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  resetTranscriptDisclosure();
+  const work = row("find-edit-path", "activity", { foldRun: true, items: [edit("src/client.ts"), command("pwd")] });
+  const view = (
+    <div data-row-id={work.id}>
+      <ToolRows row={work} sessionId="find-edit-path" />
+    </div>
+  );
+  const highlights = new Map<string, { ranges: Range[] }>();
+  const replacements = {
+    NodeFilter: window.NodeFilter,
+    CSS: {
+      highlights: {
+        set: (name: string, value: { ranges: Range[] }) => highlights.set(name, value),
+        delete: (name: string) => highlights.delete(name),
+      },
+    },
+    Highlight: class {
+      constructor(...ranges: Range[]) {
+        this.ranges = ranges;
+      }
+      ranges: Range[];
+    },
+  };
+  const prior = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
+  Object.assign(scope, replacements);
+  const root: Root = createRoot(host);
+  try {
+    await act(async () => root.render(view));
+    const run = host.querySelector<HTMLButtonElement>(".cv-tools > .cv-tool.is-toggle")!;
+    await act(async () => run.click());
+    const heading = host.querySelector("[data-tool-group] .cv-tool__text")!;
+    expect(heading.textContent?.replace(/\s+/g, "")).toBe("Editedclient.ts+1-1");
+    expect(host.querySelector("pre.cv-mcp-call__body")).toBeNull();
+    for (const needle of ["src/client.ts", "edit src/client.ts"]) {
+      expect(findMatches([work], needle)).toHaveLength(1);
+      await act(async () =>
+        root.render(
+          <FindReveal.Provider value={{ rowId: work.id, card: false, needle, repaint: () => {} }}>
+            {view}
+          </FindReveal.Provider>,
+        ),
+      );
+      const active = paintFindHighlights(host, needle, { rowId: work.id, card: false, occurrence: 0 });
+      expect(active?.toString()).toBe(needle === "src/client.ts" ? "src/client.ts" : "Edit src/client.ts");
+      expect(highlights.get("acpmux-find-active")?.ranges).toHaveLength(1);
+      expect(host.querySelector("[data-tool-group] .cv-tool__text")?.textContent?.replace(/\s+/g, "")).toBe(
+        "Editedclient.ts+1-1",
+      );
+    }
+  } finally {
+    act(() => root.unmount());
+    for (const [key, had, value] of prior) {
+      if (had) scope[key] = value;
+      else delete scope[key];
+    }
+  }
+});
