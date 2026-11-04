@@ -801,7 +801,8 @@ while True:
             import datetime
             at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
             with open(stored(SESSION), "a") as f:
-                f.write(json.dumps({"type": "user", "sessionId": SESSION, "timestamp": at, "message": {"role": "user", "content": said}}) + "\n")
+                f.write(json.dumps({"type": "user", "sessionId": SESSION, "timestamp": at,
+                                    "message": {"role": "user", "content": transcript_content(content, said)}}) + "\n")
                 reply = {"role": "assistant", "stop_reason": "end_turn", "content": [{"type": "text", "text": "ok"}]}
                 # FAKE_CLAUDE_TRANSCRIPT_USAGE=1: the reply carries its call's model and usage, as Claude Code's does.
                 if os.environ.get("FAKE_CLAUDE_TRANSCRIPT_USAGE") == "1":
@@ -902,9 +903,9 @@ while True:
                       if isinstance(b, dict)]
             used = [b["id"] for b in blocks if b.get("type") == "tool_use"]
             answered = {b["tool_use_id"] for b in blocks if b.get("type") == "tool_result"}
-            text = json.dumps({"prompts": [r["message"]["content"] for r in records
-                                           if r.get("type") == "user" and isinstance(r["message"]["content"], str)
-                                           and r["message"]["content"] != "history-probe"],
+            text = json.dumps({"prompts": [visible_transcript_text(r["message"]["content"]) for r in records
+                                           if r.get("type") == "user"
+                                           and visible_transcript_text(r["message"]["content"]) != "history-probe"],
                                "sessions": sorted({r["sessionId"] for r in records}),
                                # Tool calls the conversation holds with no result: Claude's API refuses those.
                                "unresolved": [i for i in used if i not in answered]})
