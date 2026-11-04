@@ -176,8 +176,9 @@ RUNNER_VARIABLE = re.compile(
 )
 ANY_VARS = re.compile(r"\bvars\b", re.IGNORECASE)
 RUNS_ON_END = re.compile(r"\s*\}\}\s*$")
-# Rule 7a: owned pool variables a claim-gated signing job may fall back to.
-OWNED_ROUTE_VARIABLES = frozenset({"CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER"})
+# Rule 7a: owned pool variables a claim-gated signing job may fall back to. CI_NIGHTLY_SIGNING_POOL names
+# glaeda's signing label (runner_label_policy holds its live value to glaeda-signing-xcode-<v>).
+OWNED_ROUTE_VARIABLES = frozenset({"CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER", "CI_NIGHTLY_SIGNING_POOL"})
 # These declared pools contain only ephemeral Blacksmith members.  Secret-bearing
 # jobs may use them as their pool-backed fallback; the hosted pools are excluded.
 EPHEMERAL_POOL_KEYS = frozenset({
