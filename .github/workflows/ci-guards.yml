@@ -856,6 +856,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_rescue.py
 
+      - name: Validate hosted light-job rescue
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_hosted_light_rescue.py
+
       # Reads the other branch's workflows too (origin/feat-cmux-next here, origin/main on
       # feat-cmux-next); under Actions the test fetches it blob-less and fails if it cannot.
       - name: Validate that the persistent-pool rescue watches every owned-pool workflow

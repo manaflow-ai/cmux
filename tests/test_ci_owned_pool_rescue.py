@@ -4654,6 +4654,24 @@ class Sweeper(unittest.TestCase):
                                     wait=clock.sleep, running_code=running)
         return clock, watched, outcomes
 
+    def test_light_rescue_starts_once_and_hands_over_even_when_the_app_budget_is_spent(self):
+        import hosted_light_rescue
+        api, clock, calls = SweepAPI([]), Clock(), []
+        api.pace = lambda interval: 1800.0
+        stopped = []
+        def worker(callback, **kwargs):
+            calls.append(callback)
+            # Its independent cadence lives in hosted_light_rescue.follow, not in the paced App tick.
+            stopped.append(kwargs["stopped"])
+            callback()
+        with unittest.mock.patch.object(hosted_light_rescue, "follow", worker):
+            rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0", now=clock.now,
+                         log=lambda text: None, sweep_seconds=120, tick_seconds=60, wait=clock.sleep,
+                         light_rescue=lambda: calls.append("light pass"))
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[1], "light pass")
+        self.assertTrue(stopped[0](0), "handover must stop the light worker before joining it")
+
     def test_a_re_run_whose_jobs_read_failed_is_adopted_on_a_later_tick(self):
         run = dict(nightly_event(head_branch="nightly-next")["workflow_run"], id=7, run_attempt=4,
                    status="in_progress")
@@ -5173,6 +5191,18 @@ class Sweeper(unittest.TestCase):
             text = summary.read_text()
         self.assertEqual(code, 0)
         self.assertIn("swept: 1 done, 4 stopped", text)
+
+    def test_unavailable_light_policy_still_starts_the_primary_sweep(self):
+        import hosted_light_rescue
+        clock = Clock()
+        env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "POOL_OWNED": "1", "SWEEP": "1"}
+        with unittest.mock.patch.object(hosted_light_rescue, "from_env", side_effect=FileNotFoundError("policy")), \
+                unittest.mock.patch.object(rescue, "sweep", return_value={}) as sweep, \
+                unittest.mock.patch("sys.stdout", io.StringIO()):
+            code = rescue.main([], env, api=SweepAPI([]), now=clock.now, sleep=clock.sleep)
+        self.assertEqual(code, 0)
+        sweep.assert_called_once()
+        self.assertIsNone(sweep.call_args.kwargs["light_rescue"])
 
 class Tokens(unittest.TestCase):
     """Reads may use the App's token; writes always use GITHUB_TOKEN."""

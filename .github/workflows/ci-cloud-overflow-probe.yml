@@ -210,43 +210,6 @@ jobs:
             python3 scripts/ci/runner_pools.py
           fi
 
-      # The hosted light jobs (feat-cmux-next .github/runners.json hosted_light_jobs: routers,
-      # resolvers, report steps) take GitHub-hosted ubuntu-24.04 on attempt 1 and their
-      # fallback only on a re-run. The reviewed feat-cmux-next rescue at this pinned commit
-      # cancels a pull request run whose only unfinished jobs have waited 3+ minutes on
-      # ubuntu-* with no runner (attempt 1, current head) and re-runs its failed jobs, so
-      # attempt 2 takes the fallback route. At most 10 a pass; never push, dispatch, nightly,
-      # DEV, promote or release runs. It never fails the watch.
-      - name: Check out the reviewed hosted light rescue
-        id: hosted-light-tooling
-        if: always() && steps.switch.outcome != 'skipped'
-        continue-on-error: true
-        timeout-minutes: 2
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: 1ecf8a89abe506ae2ec97feb245d6ba642adfac6 # cmux#32023 + #32120 on feat-cmux-next
-          path: .hosted-light-tooling
-          sparse-checkout: |
-            scripts/ci/hosted_light_rescue.py
-            .github/runners.json
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
-
-      - name: Fail stalled hosted light jobs over to their re-run route
-        if: always() && steps.hosted-light-tooling.outcome == 'success'
-        continue-on-error: true
-        timeout-minutes: 4
-        env:
-          # All rescue reads and writes use the job token. The route App's shared
-          # installation budget is reserved for runner and repository-variable operations.
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.probe_label != '') && 'true' || 'false' }}
-        run: >-
-          python3 .hosted-light-tooling/scripts/ci/hosted_light_rescue.py
-          --runners .hosted-light-tooling/.github/runners.json
-          --workflows .signing-workflows/feat-cmux-next/.github/workflows
-
       # Last, in its own step so the summary above is already saved. If the
       # switch did not observe every probe start (one may still be queued),
       # cancel this run even when the switch failed before it could write its
