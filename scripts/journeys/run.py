@@ -494,6 +494,7 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
     left = lambda cap: max(10.0, min(cap, deadline - time.monotonic()))
     log(f"leased {lease}")
     facts, host, hog_started, work, drove, harness = {}, None, None, None, None, None
+    parked = None
     try:
         info = dict(kv.split("=", 1) for kv in run([ch, "slot-info", lease]).stdout.decode().split() if "=" in kv)
         host, root = info["host"], info["root"]
@@ -586,21 +587,19 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         files = remote(host, f"cd {q(work + '/out')} && tar c --exclude 'frames' --exclude 'video' --exclude 'flows' . | head -c {RESULT_TAR_MAX_BYTES}",
                        timeout=left(150), check=False).stdout
         take_results(files, out, set(ids))
-        # ext_video's recordings (handoff resize-videos/KIT.md): movies are hundreds of MB, fetched on their own.
-        videos = remote(host, f"cd {q(work + '/out')} && ls -d */video >/dev/null 2>&1 && tar c */video || true",
-                        timeout=left(420), check=False).stdout
-        take_videos(videos, out, set(ids))
         if hog_started:
             hog_log = remote(host, f"tail -c 2000000 {q(work + '/hog.jsonl')}", timeout=left(60), check=False).stdout
             (out / f"hog-{lease}.jsonl").write_bytes(hog_log or b"")
-        try:
-            flows = remote(host, f"cd {q(work + '/out')} && ls -d */flows >/dev/null 2>&1 && tar cz */flows | "
-                                 f"head -c {FLOWS_TAR_MAX_BYTES} || true", timeout=left(120), check=False).stdout
-            if flows:
-                take_results(flows, out, set(ids))
-            log(f"flow traces: {len(flows or b'')} bytes (gzip) fetched")
-        except (RuntimeError, subprocess.TimeoutExpired, OSError, EOFError, tarfile.TarError) as error:
-            log(f"flow traces not fetched (best effort; the results are kept): {str(error)[-200:]}")
+        # ext_video's movies (hundreds of MB) and the flow traces: moved out of the lease root on the mini (a rename,
+        # instant) and fetched AFTER the release, with no lease bound. Inside the lease the movie fetch had what was
+        # left of 540 s and timed out (round s1ab-v3b-1-off-21, 2026-11-04: 303 s, no movies, no flows).
+        if re.fullmatch(r"[A-Za-z0-9_-]+", str(ident.get("run_id") or "")):
+            parked = f"$HOME/.cache/cmux-journeys/fetch/{ident['run_id']}"
+            remote(host, f"f=$HOME/.cache/cmux-journeys/fetch; mkdir -p \"$f\"; "
+                         f"find \"$f\" -mindepth 1 -maxdepth 1 -mmin +360 -exec rm -rf {{}} + 2>/dev/null; "
+                         f"p={parked}; mkdir -p \"$p\"; setopt null_glob 2>/dev/null || shopt -s nullglob; cd {q(work + '/out')} && for d in */video */flows; do "
+                         f"[ -d \"$d\" ] && [ ! -L \"$d\" ] && mkdir -p \"$p/${{d%/*}}\" && mv \"$d\" \"$p/$d\"; done; true",
+                   timeout=left(60), check=False)
     except (RuntimeError, subprocess.TimeoutExpired, KeyError, ValueError, OSError, tarfile.TarError) as error:
         log(f"lease {lease}: {error}")
         reason = f"{host or lease}: {str(error)[-400:]}"
@@ -626,9 +625,33 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         released = subprocess.run([ch, "release", lease], capture_output=True, timeout=120)
         log(f"released {lease}" if released.returncode == 0 else
             f"release of {lease} exited {released.returncode} (it expires within 10 minutes)")
+        if parked and host:
+            fetch_parked(host, parked, out, set(ids))
     return stamp_harness(collect(out, ids, host, missing_reason=f"{host}: the driver wrote no result (driver exit {drove.returncode}: "
                                                                f"{drove.stderr.decode(errors='replace').strip()[-300:]})",
                                  ident=ident), out, ident.get("harness"), harness)
+
+
+def fetch_parked(host, parked, out, ids):
+    """The movies and flow traces run_lease moved to PARKED on the mini, fetched after the lease (no lease bound),
+    then removed there. Best effort: a failed fetch is logged, never a changed result."""
+    try:
+        videos = remote(host, f"cd {parked} && ls -d */video >/dev/null 2>&1 && tar c */video || true",
+                        timeout=900, check=False).stdout
+        take_videos(videos, out, ids)
+        log(f"movies: {len(videos or b'')} bytes fetched after the release")
+        flows = remote(host, f"cd {parked} && ls -d */flows >/dev/null 2>&1 && tar cz */flows | "
+                             f"head -c {FLOWS_TAR_MAX_BYTES} || true", timeout=300, check=False).stdout
+        if flows:
+            take_results(flows, out, ids)
+        log(f"flow traces: {len(flows or b'')} bytes (gzip) fetched after the release")
+    except (RuntimeError, subprocess.TimeoutExpired, OSError, EOFError, tarfile.TarError) as error:
+        log(f"parked movies or flow traces not fetched: {str(error)[-200:]}")
+    finally:
+        try:
+            remote(host, f"rm -rf {parked}", timeout=60, check=False)
+        except (RuntimeError, subprocess.TimeoutExpired, OSError):
+            log(f"{parked} on {host} not removed (removed after 6 h by the next run)")
 
 
 VIDEO_FILE = re.compile(r"(?:\./)?([a-z0-9][a-z0-9-]*/video/[a-z0-9][a-z0-9-]*\.(?:mov|mov\.frames\.json|mov\.scan|trace\.json|events\.json|meta\.json))")
