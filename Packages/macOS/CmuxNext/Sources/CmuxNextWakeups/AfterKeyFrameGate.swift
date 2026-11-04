@@ -17,13 +17,13 @@ public final class AfterKeyFrameGate {
     private let afterFrame: (@escaping @MainActor () -> Void) -> Void
 
     /// - Parameter afterFrame: runs work after the current pass's frame committed (`AfterFrameCommit` in the app;
-    ///   tests collect the work or run it at once).
+    ///   tests collect the work and run it later). It must not run the work inside the call: the wait starts first.
     public init(afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void) {
         self.afterFrame = afterFrame
     }
 
     /// Whether `key`'s content must not be made in this turn. The first ask for a stand-in (`standIn`) with no
-    /// content yet (`exists` false) starts the wait; it lasts until the frame committed. Then `showAgain` (the
+    /// content yet (`exists` false) starts the wait; it lasts until the frame committed, whatever later asks say. Then `showAgain` (the
     /// latest asker's) runs and answers whether anything still shows the stand-in; nothing does (it closed or
     /// another tab was selected): the key is forgotten, so a later show waits for its own frame.
     public func waits(_ key: String, standIn: Bool, exists: Bool, showAgain: @escaping @MainActor () -> Bool) -> Bool {
