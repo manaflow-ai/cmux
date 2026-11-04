@@ -9,7 +9,12 @@ pub(crate) async fn clear_peer_snapshots() -> Result<()> {
 }
 
 async fn clear_at(home: &Path, socket: &Path) -> Result<()> {
-    if let Ok(client) = Client::connect_without_caller(socket).await {
+    // timeout: an accepted socket that never completes initialization is a hung
+    // writer; after this grace the lock-protected path can safely decide.
+    const SNAPSHOT_CONNECT_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
+    if let Ok(Ok(client)) =
+        tokio::time::timeout(SNAPSHOT_CONNECT_BUDGET, Client::connect_without_caller(socket)).await
+    {
         let status = client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})).await?;
         let served = status
             .get("home")

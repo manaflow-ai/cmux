@@ -263,8 +263,13 @@ pub(super) async fn start_daemon(home: &Path, prefix: &[OsString]) -> Result<Str
             ));
         }
     };
-    if line.trim().is_empty() {
-        wait_for_winner(home).await;
+    if line.trim().is_empty() && !wait_for_winner(home).await {
+        return Err(anyhow!(
+            "daemon did not come up at {} within {:?}; see {}",
+            crate::config::socket_path().display(),
+            crate::daemon::START_BUDGET,
+            home.join("daemon.log").display()
+        ));
     }
     Ok(line)
 }
@@ -273,10 +278,11 @@ pub(super) async fn start_daemon(home: &Path, prefix: &[OsString]) -> Result<Str
 /// holds `daemon.lock`; that daemon may not have bound its socket yet. While
 /// a daemon holds the lock and the socket file is missing, wait so the
 /// caller's one connect finds it. A released lock is the dead-peer signal.
-async fn wait_for_winner(home: &Path) {
+async fn wait_for_winner(home: &Path) -> bool {
     let socket = crate::config::socket_path();
     let lock = home.join("daemon.lock");
-    while !socket.exists() {
+    let deadline = tokio::time::Instant::now() + crate::daemon::START_BUDGET;
+    while !socket.exists() && tokio::time::Instant::now() < deadline {
         // A 1-byte read at offset 0 tests daemon.lock without taking it, so
         // this wait never makes another start's daemon lose the lock. While
         // another handle holds the lock (LockFileEx over the whole range, as
@@ -291,10 +297,11 @@ async fn wait_for_winner(home: &Path) {
             read.is_err_and(|e| e.raw_os_error() == Some(ERROR_LOCK_VIOLATION as i32))
         });
         if !held {
-            return;
+            return false;
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
+    socket.exists()
 }
 
 /// Standard handles and further inherited handles of a detached child.

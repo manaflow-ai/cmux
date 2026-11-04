@@ -1795,8 +1795,9 @@ const LOCK_HELD_LINE: &str = r#"{"ready":false,"lockHeld":true}"#;
 /// spawned. launchd is asked every half second; the lock and job state are the liveness signals.
 #[cfg(target_os = "macos")]
 async fn wait_for_job(path: &std::path::Path, job: String) -> Result<String> {
+    let deadline = tokio::time::Instant::now() + START_BUDGET;
     let mut tries = 0u32;
-    loop {
+    while tokio::time::Instant::now() < deadline {
         if tokio::net::UnixStream::connect(path).await.is_ok() {
             return Ok(String::new());
         }
@@ -1816,6 +1817,11 @@ async fn wait_for_job(path: &std::path::Path, job: String) -> Result<String> {
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+    Err(anyhow!(
+        "daemon did not come up at {} within {START_BUDGET:?}; see {}",
+        path.display(),
+        home().join("daemon.log").display()
+    ))
 }
 
 /// Windows: CreateProcessW with a handle list (`daemon/windows.rs`).
