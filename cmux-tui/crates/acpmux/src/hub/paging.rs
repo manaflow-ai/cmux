@@ -53,6 +53,8 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     // (`silent_turn.rs`).
     "turn_silent",
     "turn_heard",
+    // The harness retries the turn's failed model request (`turn_retry.rs`).
+    "turn_retrying",
     "turn_result",
     // A turn the person did not start, around its rows (`background_turn.rs`).
     "background_turn",
