@@ -14,7 +14,7 @@ import Foundation
 /// copied folder whose first prompt is the person's (a seeded prompt, sent once with the Send's
 /// gesture, as onboarding's first task). This Mac's tab, which never started a chat, then closes.
 ///
-/// The page's card shows progress and failures; nothing moves, so no Move to Cloud toast (Leo, 2026-11-04: "why is this showing up when i create a new chat").
+/// Progress and failures are Move to Cloud's toasts, and the page gets the failure's message.
 /// Not behind Labs: it needs Cloud allowed and a signed-in account (``refusal(_:)``). A chat with no
 /// project (``AgentPaneCloudStart/home``) copies nothing and opens in the machine's own folder.
 @MainActor
@@ -36,13 +36,14 @@ struct CloudStartChat {
         }
     }
 
-    /// The page's reply: success with the machine's name, or a refusal in the person's words. `retried`: Retry's start, no card waits for it.
+    /// The page's reply: success with the machine's name, or a refusal in the person's words.
     /// `report` tells the page's card each step as it begins (``AgentPaneCloudStart/progress(_:folder:machine:size:to:)``).
-    func reply(_ start: AgentPaneCloudStart, tab: TabModel, retried: Bool = false, report: @MainActor (AgentPaneCloudStart.Step) -> Void = { _ in }) async -> [String: Any] {
+    func reply(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (AgentPaneCloudStart.Step) -> Void = { _ in }) async -> [String: Any] {
         if let refusal = Self.refusal(services) {
             return AgentPaneReply.failure(code: refusal, message: Self.refusalMessage(refusal))
         }
         let toastID = "cloud-start-" + tab.id
+        CloudMove.toast(services, toastID, CloudMoveStrings.moving, duration: CloudMove.working)
         do {
             let account = services.cloud.account
             let origin = Origin(tab: tab, chat: start.cwd ?? tab.cwd, workspace: services.workspaceID(ofTab: tab.id), account: account) { [services] in
@@ -54,7 +55,7 @@ struct CloudStartChat {
                 }
             }
             let machine = try await run(start, from: origin, report: report)
-            CmuxToastCenter.shared.close(id: toastID) // an earlier try's Retry toast, in every window
+            CloudMove.toast(services, toastID, CloudMoveStrings.moved(machine), duration: .seconds(6))
             return AgentPaneReply.success(["machine": machine])
         } catch is CloudMachineCap.RunHere { // the cap card's Run on This Mac: the page sends it here (cloudRun.ts)
             CmuxToastCenter.shared.close(id: toastID) // every window: the start may have begun in one no longer in front
@@ -71,12 +72,11 @@ struct CloudStartChat {
                 retry = { [weak services] in
                     // The tab is found again by id: a tab closed since then retries nothing.
                     guard let services, let (tab, _) = services.locateTab(tabID) else { return }
-                    // task-owner: one retried start; it ends with the chat opening or its own failure toast
-                    _ = Task { _ = await CloudStartChat(services: services).reply(start, tab: tab, retried: true) }
+                    // task-owner: one retried start; it ends with its own toast
+                    _ = Task { _ = await CloudStartChat(services: services).reply(start, tab: tab) }
                 }
             }
-            // The card says the failure; a toast only where Retry lives, or for a retry no card waits for.
-            if retry != nil || retried { CloudMove.toast(services, toastID, message, duration: .seconds(retry == nil ? 12 : 30), retry: retry) } else { CmuxToastCenter.shared.close(id: toastID) }
+            CloudMove.toast(services, toastID, message, duration: .seconds(retry == nil ? 12 : 30), retry: retry)
             return AgentPaneReply.failure(code: "cloud_start_failed", message: message)
         }
     }
