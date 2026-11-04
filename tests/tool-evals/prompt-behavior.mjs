@@ -103,8 +103,7 @@ async function sample(task, arm, index) {
       const res = await fetch(`${baseUrl}/v1/messages`, {
         method: "POST", signal: AbortSignal.timeout(300_000),
         headers: { "content-type": "application/json", "anthropic-version": "2023-06-01", authorization: `Bearer ${auth}`,
-          "user-agent": "claude-cli/2.1.311 (external, sdk-cli)", "x-app": "cli",
-          "anthropic-beta": "claude-code-20250219,interleaved-thinking-2025-06-27" },
+          "user-agent": "claude-cli/2.1.311 (external, sdk-cli)", "x-app": "cli" },
         body: JSON.stringify({ model, max_tokens: 4000, system: [...template.system, mcpBlock(arms[arm].mcpInstructions)],
           tools, messages, thinking: { type: "adaptive", display: "omitted" }, output_config: { effort: "medium" } }),
       });
