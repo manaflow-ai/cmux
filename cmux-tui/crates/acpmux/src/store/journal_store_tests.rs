@@ -1234,3 +1234,119 @@ fn a_chat_deleted_after_its_failed_repair_does_not_get_its_old_lines() {
         .collect();
     assert_eq!(kinds, vec!["created-again".to_owned()], "the new chat got the old chat's lines");
 }
+
+// ---------------------------------------------------------------- delta review of #35562 (not to merge)
+
+/// Makes `id`'s first log segment a link to a copy of itself: the store never follows one, so the
+/// chat's repair fails at every open until the link goes.
+fn review_link(home: &Path, id: &str) -> (PathBuf, PathBuf) {
+    let segment = home.join("sessions").join(id).join("events").join("000001.ndjson");
+    let copy = home.join(format!("{id}-review-copy.ndjson"));
+    std::fs::copy(&segment, &copy).unwrap_or_else(|e| panic!("{e}"));
+    std::fs::remove_file(&segment).unwrap_or_else(|e| panic!("{e}"));
+    std::os::unix::fs::symlink(&copy, &segment).unwrap_or_else(|e| panic!("{e}"));
+    (segment, copy)
+}
+
+/// The link goes: the segment is a file again.
+fn review_unlink(segment: &Path, copy: &Path) {
+    std::fs::remove_file(segment).unwrap_or_else(|e| panic!("{e}"));
+    std::fs::copy(copy, segment).unwrap_or_else(|e| panic!("{e}"));
+}
+
+/// The seqs of every line in any file of `journal-unapplied/`.
+fn review_kept_seqs(home: &Path) -> BTreeSet<u64> {
+    let Ok(entries) = std::fs::read_dir(home.join("journal-unapplied")) else {
+        return BTreeSet::new();
+    };
+    let mut seqs = BTreeSet::new();
+    for entry in entries.flatten() {
+        let bytes = std::fs::read(entry.path()).unwrap_or_default();
+        seqs.extend(bytes.split(|b| *b == b'\n').filter_map(record_seq));
+    }
+    seqs
+}
+
+/// chat-b at an OS crash: its log keeps line 1, the journal lines 1 to 3. Then its segment is a
+/// link, so the next open cannot repair it. Returns the journal after the crash and the link.
+fn review_crash_with_a_broken_chat(home: &Path, seed: u64) -> (SimStorage, PathBuf, PathBuf) {
+    let journal = SimStorage::new(seed);
+    let store = open(home, &journal);
+    store.append("chat-b", &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for seq in 2..=3 {
+        store.append("chat-b", &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.join("sessions"));
+    let (segment, copy) = review_link(home, "chat-b");
+    (crashed, segment, copy)
+}
+
+/// Delta review of #35562, question 2: a chat whose repair failed, and whose folder is aside at
+/// the next open (a replacing transfer staged it, `hub/transfer_in.rs`, and the daemon was killed
+/// before the import committed; `Hub::recover_staged_replacements` renames it back after the
+/// store's open). Its kept lines must not be lost: in its log once the folder is back, or still
+/// kept in `journal-unapplied/`.
+#[test]
+fn review_fu_delta_kept_lines_survive_a_folder_that_is_aside_at_the_open() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let (crashed, segment, copy) = review_crash_with_a_broken_chat(home.path(), 90);
+    // This open cannot repair chat-b: its lines 2 and 3 are kept.
+    let store = open(home.path(), &crashed);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    drop(store);
+    // The folder is aside at the next open, and back after it.
+    let sessions = home.path().join("sessions");
+    let aside = sessions.join(".chat-b.replacement-backup");
+    std::fs::rename(sessions.join("chat-b"), &aside).unwrap_or_else(|e| panic!("{e}"));
+    let store = open(home.path(), &crashed);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    drop(store);
+    std::fs::rename(&aside, sessions.join("chat-b")).unwrap_or_else(|e| panic!("{e}"));
+    review_unlink(&segment, &copy);
+    let store = open(home.path(), &crashed);
+    let logged = seqs(store.as_ref(), "chat-b");
+    let kept = review_kept_seqs(home.path());
+    assert!(
+        logged == vec![1, 2, 3] || (kept.contains(&2) && kept.contains(&3)),
+        "chat-b's kept lines are lost: its log holds {logged:?}, journal-unapplied/ holds {kept:?}"
+    );
+}
+
+/// Delta review of #35562, question 1: an OS crash before a kept file's sync can leave its last
+/// line torn (it is written in place, not by a rename). No checkpoint ran after the file, so the
+/// journal still holds the chat's records. The next open must still repair the chat.
+#[test]
+fn review_fu_delta_a_torn_kept_file_does_not_stop_the_chats_repair() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let (crashed, segment, copy) = review_crash_with_a_broken_chat(home.path(), 91);
+    // The state of a crash right after the next open wrote its kept file: the journal and the
+    // checkpoint as before that open, the kept file torn in its last line.
+    let checkpoint_path = home.path().join("journal-projected.json");
+    let checkpoint = std::fs::read(&checkpoint_path).unwrap_or_else(|e| panic!("{e}"));
+    let before = crashed.snapshot(Crash::Process);
+    let store = open(home.path(), &crashed);
+    drop(store);
+    std::fs::write(&checkpoint_path, &checkpoint).unwrap_or_else(|e| panic!("{e}"));
+    let unapplied = home.path().join("journal-unapplied");
+    for entry in std::fs::read_dir(&unapplied).unwrap_or_else(|e| panic!("{e}")).flatten() {
+        let len = entry.metadata().map(|meta| meta.len()).unwrap_or(0);
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(entry.path())
+            .unwrap_or_else(|e| panic!("{e}"));
+        file.set_len(len.saturating_sub(10)).unwrap_or_else(|e| panic!("{e}"));
+    }
+    // The cause goes: the chat can be repaired now.
+    review_unlink(&segment, &copy);
+    let store = open(home.path(), &before);
+    assert_eq!(
+        seqs(store.as_ref(), "chat-b"),
+        vec![1, 2, 3],
+        "a torn kept file stopped the chat's repair"
+    );
+}
