@@ -768,6 +768,7 @@ import { PaneFeatureTips } from "./featureTips";
 import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
 import { chatSwitchMotion } from "./chatSwitch.experiment";
 import { withCloudMachineSummary } from "./cloudSummary";
+import { EMPTY_STATE_LEAVING, captureLeaving, fadeOutLeaving, type LeavingCopy } from "./sendTransition";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -2611,6 +2612,8 @@ const SCROLL_LEAD_STEPS = 2;
 const SCROLL_LEAD_IDLE_MS = 120;
 /// More new rows than this in one update are a load (a session switch, older history), not live rows.
 const LIVE_ROWS_PER_UPDATE = 3;
+/// How long after a send at the latest row the rows it brings in still rise on the follow glide.
+const SEND_RISE_MS = 600;
 
 /// Viewports from the top of the loaded rows within which a page of older history came late: the
 /// reader reached rows that were not loaded yet, so the page fades in. Pages ask well ahead
@@ -2884,6 +2887,7 @@ export function VirtualTranscript({
   inViewNow,
   onLoadOlder,
   sends = 0,
+  entersFirstRows = false,
   onFollowingChange,
   coldOpen,
   onColdOpenShown,
@@ -2949,6 +2953,9 @@ export function VirtualTranscript({
   onLoadOlder?: () => Promise<void>;
   /// How many prompts this pane has sent: each new one puts the view at the latest message.
   sends?: number;
+  /// This transcript replaces a new chat's empty state on the person's first send: the rows it opens
+  /// with arrived live, so they take a live row's entrance instead of drawing as a load.
+  entersFirstRows?: boolean;
   /// Keeps the parent send path in sync with the reader's current follow state.
   onFollowingChange?: (following: boolean) => void;
   githubRepository?: string;
@@ -3459,7 +3466,13 @@ export function VirtualTranscript({
   /// The room above the rows for history not loaded yet, and the row it is held against.
   const olderRoom = useRef<OlderReserve | undefined>(undefined);
   // A switched chat starts over: its row ids are its own, and may repeat the last chat's.
-  if (knownRows.current === null || sessionChanged) knownRows.current = new Set(rows.map((row) => row.id));
+  if (knownRows.current === null || sessionChanged) {
+    knownRows.current = new Set(rows.map((row) => row.id));
+    // The first send of a new chat: its prompt's row (and the reply's line) fade in at their final
+    // size on the clock the empty state fades out on (EmptyState.tsx fadeOutEmptyState).
+    if (knownFor.current === null && entersFirstRows && rows.length <= LIVE_ROWS_PER_UPDATE && entranceAllowed())
+      for (const row of rows) enteringRows.current.add(row.id);
+  }
   // Scroll frames render the same rows: only a new row list can bring new rows.
   else if (knownFor.current !== rows) {
     // Rows before the first one that changed were all there last time.
@@ -3719,6 +3732,9 @@ export function VirtualTranscript({
   const [seekExpired, setSeekExpired] = useState(false);
   /// The sends this chat's view has taken in (`sends`): a new one puts the view at the latest message.
   const seenSends = useRef(sends);
+  /// Until when the rows a send brings in (its prompt's row, then the reply's line) rise on the follow
+  /// glide: they can land a commit or two after the send itself.
+  const sendRiseUntil = useRef(Number.NEGATIVE_INFINITY);
   /// A prompt was sent before the chat opened (while it seeks `openAt`'s row, or while its tail still
   /// fits): it opens at the latest message, not at the reader's old place.
   const sentBeforeOpen = useRef(false);
@@ -4646,14 +4662,21 @@ export function VirtualTranscript({
         // their drawn heights over the next passes at the same size: those are the resize too, not
         // growth, so nothing glides until the view has held its size for a motion step (cx-sqj3h).
         const now = performance.now();
-        if (box.height !== height || box.width !== width || box.dockSpace !== dockSpace) {
+        // The person's send at the latest row (`sends`, the effect below takes it after this pass):
+        // its prompt's row, the reply's space and the composer's cleared draft are one change, and
+        // the rows above rise into place as one stack on the same glide instead of in one frame
+        // (Leo, 2026-11-04: "we move all our affected, possibly affected elements in the cohesive
+        // way"; leo-workspace design/motion.md "Full, at bottom"). The new rows come up from under
+        // the composer, at most a viewport, so only rows already mounted are drawn.
+        const sent = sends !== seenSends.current || now < sendRiseUntil.current;
+        if (box.height !== height || box.width !== width || (box.dockSpace !== dockSpace && !sent)) {
           resizedAt.current = now;
           followGlide.current?.stop();
         }
         const resizing = now - resizedAt.current < MOTION_MS.standard;
         // A glide holding the rows back further than the room now under the last row (the live line
         // came into view to name a call) rests at once, so nothing stays under the bottom stack.
-        followGlide.current?.fit(room);
+        if (!sent) followGlide.current?.fit(room);
         // A disclosure's height fold moves the rows on its own frames: easing them too lagged it.
         if (
           !jumping &&
@@ -4661,10 +4684,9 @@ export function VirtualTranscript({
           !resizing &&
           !heightFoldPlaying() &&
           rose > 0.5 &&
-          rows.length === oldRows.length &&
-          rows.at(-2)?.id === oldRows.at(-2)?.id
+          (sent || (rows.length === oldRows.length && rows.at(-2)?.id === oldRows.at(-2)?.id))
         )
-          followGlide.current?.rise(thread.current, rose, room);
+          followGlide.current?.rise(thread.current, rose, sent ? Math.max(room, height) : room);
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
         // Rows that arrived or left (a new reply segment below, older history above) move indexes,
@@ -5196,7 +5218,29 @@ export function VirtualTranscript({
     stopBottomStackFold();
     foldAnchor.current = undefined;
     dropFoldRoom();
-    stopJump();
+    const parked = !followingRef.current || jumpTarget.current !== undefined;
+    const reduce = isAgentMotionOff() || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (parked && !reduce) {
+      // Scrolled up: the view goes to the send on Jump to latest's one glide, which skips the middle
+      // of a long way and heads for the end as the prompt's row and its reply land, instead of a
+      // jump to the old end and a second step when the row arrives (design/motion.md "Full,
+      // parked"). Its follow takes the reader's hold too.
+      followRequest.current = userScrollIntent(node).request();
+      jumpToLatest(false);
+      if (onAnchor) {
+        clearTimeout(anchorTimer.current);
+        anchorTimer.current = setTimeout(reportAnchor, SCROLL_ANCHOR_SETTLE_MS);
+      }
+      return;
+    }
+    // At the latest row the pass before this one already settled at the new end, and the rows this
+    // send brought in rise on the follow glide (above); those that land in the next commits rise too.
+    if (parked) stopJump();
+    else {
+      wheelGlide.current?.stop();
+      stopScroll(node);
+      sendRiseUntil.current = performance.now() + SEND_RISE_MS;
+    }
     // The room the stack grew while scrolled up is room under the last row again (`room`).
     heldRoom.current = dockRoomRef.current;
     // The placement pass already has the latest estimated total and measured viewport. Reusing
@@ -9959,6 +10003,26 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const transcriptAnchor = useRef<(() => ScrollAnchor | null | undefined) | undefined>(undefined);
   /// Prompts sent from this pane (every `chat.send`): each puts the transcript at its latest message.
   const [sends, setSends] = useState(0);
+  // A new chat's first send (sendTransition.ts): the hero and the lists leave as its first rows come
+  // in, on one clock. Read in this render, while the hero is still in the document; played once the
+  // transcript that replaces it has committed.
+  const freshSends = useRef<number | undefined>(freshView ? sends : undefined);
+  const firstSend = useRef(false);
+  const leavingFresh = useRef<LeavingCopy[]>([]);
+  if (freshView) {
+    freshSends.current ??= sends;
+    firstSend.current = false;
+  } else if (freshSends.current !== undefined) {
+    firstSend.current = sends > freshSends.current;
+    if (firstSend.current) leavingFresh.current = captureLeaving(shell, EMPTY_STATE_LEAVING);
+    freshSends.current = undefined;
+  }
+  useLayoutEffect(() => {
+    const copies = leavingFresh.current;
+    if (copies.length === 0) return;
+    leavingFresh.current = [];
+    fadeOutLeaving(shell, copies);
+  });
   /// VirtualTranscript updates this synchronously on reader scrolls, so a disabled send-to-bottom
   /// preference can preserve the exact visible row while the new prompt arrives below it.
   const followingTranscript = useRef(true);
@@ -13599,6 +13663,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                         inViewNow={quick || childRows ? undefined : transcriptInView}
                                                         // A prompt goes to the chat, not to the subagent shown in its place.
                                                         sends={childRows ? undefined : sends}
+                                                        entersFirstRows={!childRows && firstSend.current}
                                                         onFollowingChange={
                                                           childRows ? undefined : onTranscriptFollowingChange
                                                         }
