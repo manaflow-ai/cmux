@@ -770,6 +770,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(placement["steps"][-1]["env"]["REQUIRE_LIVE_CAPACITY"], "1")
         self.assertEqual(changes["needs"], ["portable-placement"])
         self.assertIn("always()", changes["if"])
+        self.assertIn("!cancelled()", changes["if"])
         changes_route = changes["runs-on"]
         live_linux = changes_route.index("contains(needs.portable-placement.outputs.linux_jobs, ' changes ')")
         hosted = changes_route.index("github.run_attempt == 1 && 'ubuntu-24.04'")
@@ -785,6 +786,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(next_placement["steps"][-1]["env"]["JOBS"], "checks path_route")
         self.assertEqual(path_route["needs"], ["portable-placement"])
         self.assertIn("always()", path_route["if"])
+        self.assertIn("!cancelled()", path_route["if"])
         route = path_route["runs-on"]
         live_linux = route.index("contains(needs.portable-placement.outputs.linux_jobs, ' path_route ')")
         live_mini = route.index("contains(needs.portable-placement.outputs.mini_jobs, ' path_route ')")

@@ -753,7 +753,7 @@ jobs:
   # reason, while trusted branch pushes still report an unavailable tree.
   path_route:
     needs: [portable-placement]
-    if: ${{ always() && inputs.same_tree_sha == '' }}
+    if: ${{ always() && !cancelled() && inputs.same_tree_sha == '' }}
     name: cmux-next path routing
     # The run's router: a declared light job (.github/runners.json hosted_light_jobs), 30-50 s of work
     # (a depth-2 checkout, the path classifier, a read-only tree probe). A fresh placement observation

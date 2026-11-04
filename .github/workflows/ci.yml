@@ -110,7 +110,7 @@ jobs:
     # (tests/test_ci_label_events_skip_full_ci.py). Other bases keep re-running,
     # since main's required ci-status must not be superseded by a skip.
     needs: [portable-placement]
-    if: ${{ always() && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}
+    if: ${{ always() && !cancelled() && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}
     environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     # The run's router: a declared light job (.github/runners.json hosted_light_jobs) that runs
     # before any job could pick a fleet runner for it. Attempt 1 takes GitHub-hosted Ubuntu, which
