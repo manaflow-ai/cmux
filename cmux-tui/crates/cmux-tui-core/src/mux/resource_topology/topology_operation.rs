@@ -1,6 +1,7 @@
 //! Resource topology operation entry: creation resolution, interrupted creation reconcile, empty workspace creation, pane neighbors, the operation dispatcher, receipted creation, the commit path, and legacy event emission.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 impl Mux {
     pub(crate) fn resource_creation_resolution(
@@ -65,13 +66,15 @@ impl Mux {
             Self::validate_workspace_name(name)?;
         }
         // Read before the state lock: `surface_notifications` locks state.
-        let notifications = self.tree_decorations();
+        let mut notifications = self.tree_decorations();
+        let reloads_presentation = mark.shows_in_tree();
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut state = self.lock_state_pinned(&registry).unwrap();
         self.resolve_resource_path_in_state(&state, &registry, ResourceTarget::Session, &selectors)
             .map_err(anyhow::Error::new)?;
         // A retry carries the same fields (the fingerprint), so the same source.
-        let name_source = crate::resource_name::NameSource::for_requested(name.is_some());
+        let name_source =
+            crate::resource_name::NameSource::for_requested_workspace_name(name.as_deref());
         let reserved_name = name.unwrap_or_else(|| self.default_workspace_name(&state));
         let proposed_intent = json!({
             "workspace_public_id":WorkspacePublicId::random()?,
@@ -252,6 +255,11 @@ impl Mux {
                 .then_some(&write_mark as crate::workspace_registry::RegistryTransactionWrite<'_>),
         )?;
         plan.apply(&mut state, &commit, workspace_revision);
+        // The commit wrote the mark's kind row; the entity reads it from presentation.
+        if reloads_presentation {
+            self.reload_presentation(&registry)?;
+            notifications.presentation = self.presentation_snapshot();
+        }
         // Push the same coarse tree event a terminal-bearing create emits
         // (`emit_committed_workspace_delta` in the legacy create path), so
         // `subscribe` clients see the empty workspace now instead of when
@@ -374,7 +382,7 @@ impl Mux {
             "fields": fingerprint_fields,
         });
         if selector_candidates.len() > 1 {
-            fingerprint["selector_fallbacks"] = json!(&selector_candidates[1..]);
+            fingerprint.set("selector_fallbacks", json!(&selector_candidates[1..]));
         }
         let commit = self.resource_correlated_creation_operation(
             operation,
@@ -536,7 +544,21 @@ impl Mux {
         if matches!(operation, ResourceOperation::PaneCreate | ResourceOperation::PaneSplit) {
             return;
         }
-        self.emit(MuxEvent::TreeChanged);
+        // A terminal or browser tab create sends its exact deltas itself (workspace-added, screen-added
+        // or tab-added, with its selection, and a later name as tab-changed): the workspace create path,
+        // `create_terminal_in_workspace_impl` and its hosted binding, `effect_add_terminal_tab`, and the
+        // browser creates of `effect_execution`. A coarse `tree-changed` on top made every delta
+        // client read the whole tree again for each create: O(session) per create (#32408).
+        if !matches!(
+            operation,
+            ResourceOperation::WorkspaceCreate
+                | ResourceOperation::TabCreateTerminal
+                | ResourceOperation::TabCreateBrowser
+                | ResourceOperation::WorkspaceRun
+                | ResourceOperation::PaneRun
+        ) {
+            self.emit(MuxEvent::TreeChanged);
+        }
         if matches!(
             operation,
             ResourceOperation::PaneSwap

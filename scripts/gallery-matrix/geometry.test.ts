@@ -186,6 +186,20 @@ test("revision source must match the config and every artifact", async () => {
   expect((await lintGeometry(inputs, baseline)).passed).toBe(true);
 });
 
+test("a required capture may declare its own gallery source", async () => {
+  const baseline = config();
+  baseline.required.push({ caseId: "status", engine: "chromium", theme: "light", source: "status-fixture" });
+  const status = artifact(); status.capture.caseId = "status"; status.revision.source = "status-fixture";
+  const inputs = [{ file: "rows.geometry.json", artifact: artifact() }, { file: "status.geometry.json", artifact: status }];
+  expect(await lintGeometry(inputs, baseline)).toMatchObject({ passed: true, errors: [] });
+  // The override binds only its own capture: the global source no longer satisfies it, nor does it leak to others.
+  status.revision.source = "fixture";
+  expect((await lintGeometry(inputs, baseline)).errors).toContain('status.geometry.json: capture source "fixture" does not match config source "status-fixture"');
+  status.revision.source = "status-fixture"; inputs[0]!.artifact.revision.source = "status-fixture";
+  expect((await lintGeometry(inputs, baseline)).errors).toContain('rows.geometry.json: capture source "status-fixture" does not match config source "fixture"');
+  expect(() => parseConfig({ ...baseline, required: [{ caseId: "rows", engine: "chromium", theme: "light", source: "" }] })).toThrow("required capture tuples");
+});
+
 test("finding IDs preserve element boundaries", async () => {
   const first = artifact();
   first.elements[0]!.id = "a,b";

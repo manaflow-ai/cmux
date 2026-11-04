@@ -1,0 +1,18 @@
+{
+  "workflowVersion": 1,
+  "id": "gallery-toolbar",
+  "fixture": "synthetic",
+  "steps": [
+    {
+      "id": "activate-back",
+      "driver": "gallery",
+      "from": "toolbar-ready",
+      "to": "back-pressed",
+      "action": "gallery.play",
+      "target": {"entry": "ui.toolbar", "variant": "activate"},
+      "args": {},
+      "expect": {"play": "passed"}
+    }
+  ],
+  "untested": ["Native CUA interaction", "Real provider data", "Hardware frame timing"]
+}

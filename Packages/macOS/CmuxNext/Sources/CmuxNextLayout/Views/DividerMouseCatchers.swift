@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// Divider hit areas over Chromium pages.
 ///
@@ -18,37 +19,71 @@ public import AppKit
 public final class DividerMouseCatchers {
     private unowned let window: NSWindow
     private var panels: [String: DividerMousePanel] = [:]
+    /// Panels whose divider left (a workspace switch releases one plane and adopts another in the same turn):
+    /// still children of the window, parked (no size, no mouse), and reused for the next divider, so a switch moves a
+    /// panel and makes no window. At most ``maxSpares``; more leave the window.
+    private var spares: [DividerMousePanel] = []
+    private static let maxSpares = 8
     /// Called with (divider id, hovered) for the divider's hover line.
     public var onHover: ((String, Bool) -> Void)?
+    /// Whether a layout divider drag runs: only then does a pressed panel keep the resize cursor off the panel.
+    public var isDividerDragging: () -> Bool = { false }
     /// Panel frame changes and panels made since launch (`debug.layers`): each is a window
     /// server move, so a bench counts them over an action.
     public private(set) var panelUpdates = 0
+    /// Panels made since launch: each is a new window in the window server (`debug.layers`, tests).
+    public private(set) var panelsMade = 0
 
     public init(window: NSWindow) {
         self.window = window
     }
 
     /// Window numbers of the panels shown: they pass divider hover through.
-    public var windowNumbers: Set<Int> { Set(panels.values.filter { $0.isVisible }.map(\.windowNumber)) }
+    public var windowNumbers: Set<Int> { Set(panels.values.filter { $0.isVisible && !$0.ignoresMouseEvents }.map(\.windowNumber)) }
 
     /// Frames of the panels shown, in window coordinates (`debug.layers`).
     public var framesInWindow: [String: CGRect] {
         panels.compactMapValues { $0.parent === window ? window.convertFromScreen($0.frame) : nil }
     }
 
-    /// Shows one panel per area (window coordinates), or none when `active`
-    /// is false (no page window is visible).
+    /// The frames (window coordinates) of the page windows over the window's content at the last ``update(_:active:)``.
+    private var pages: [CGRect] = []
+
+    /// The frames, in window coordinates, of the page windows over `window`'s content: only a divider area one of them
+    /// covers needs a panel. The New Tab spare's page waits 100 000 pt outside the window (`PageOffscreenParking`) and
+    /// covers nothing (RESIZE VIDEOS Z1: with only that page, every divider had a panel, and each zoom and unzoom landing
+    /// of 12 panes parked or made 11 of them, 13 of the landing frame's 14 ms of main thread).
+    public static func pageFrames(over window: NSWindow) -> [CGRect] {
+        (window.childWindows ?? []).filter { WindowOverlayHost.isPageWindow($0) && $0.isVisible && $0.frame.intersects(window.frame) }
+            .map { window.convertFromScreen($0.frame) }
+    }
+
+    /// A page window came over the content, left it or moved since the last update (a page shown in a pane, the spare
+    /// adopted, a page tab hidden): the window's overlay layer updates the panels again at rest.
+    public var pagesMoved: Bool { Self.pageFrames(over: window) != pages }
+
+    /// Shows one panel per area (window coordinates) that a page window over the content covers, or none when
+    /// `active` is false (no page window is visible).
     public func update(_ areas: [LayoutMouseArea], active: Bool) {
-        let wanted = active && window.isVisible ? areas : []
+        pages = Self.pageFrames(over: window)
+        let wanted = active && window.isVisible ? areas.filter { area in pages.contains { $0.intersects(area.rect) } } : []
         let ids = Set(wanted.map(\.id))
         for (id, panel) in panels where !ids.contains(id) {
-            if panel.parent === window { window.removeChildWindow(panel) }
-            panel.orderOut(nil)
             panels[id] = nil
+            park(panel)
         }
         for area in wanted {
-            if panels[area.id] == nil { panelUpdates += 1 }
-            let panel = panels[area.id] ?? makePanel(id: area.id)
+            let panel: DividerMousePanel
+            if let shown = panels[area.id] {
+                panel = shown
+            } else if let spare = spares.popLast() {
+                panel = spare
+                panel.areaID = area.id
+                panel.ignoresMouseEvents = false
+            } else {
+                panelUpdates += 1
+                panel = makePanel(id: area.id)
+            }
             panels[area.id] = panel
             panel.catcher.resizesColumns = area.resizesColumns
             let frame = window.convertToScreen(area.rect)
@@ -58,6 +93,25 @@ public final class DividerMouseCatchers {
             }
             if panel.parent !== window { window.addChildWindow(panel, ordered: .above) }
         }
+        // No divider wants the spares now (no page window, or fewer dividers): only the newest stay parked.
+        if wanted.isEmpty, !active || !window.isVisible { for panel in spares { remove(panel) }; spares.removeAll() }
+        while spares.count > Self.maxSpares { remove(spares.removeFirst()) }
+    }
+
+    /// A panel whose divider left: no size and no mouse, still a child of the window, ready for the next divider.
+    private func park(_ panel: DividerMousePanel) {
+        panel.ignoresMouseEvents = true
+        panel.catcher.resetForReuse()
+        if panel.frame.size != .zero {
+            panel.setFrame(CGRect(origin: panel.frame.origin, size: .zero), display: false)
+            panelUpdates += 1
+        }
+        spares.append(panel)
+    }
+
+    private func remove(_ panel: DividerMousePanel) {
+        if panel.parent === window { window.removeChildWindow(panel) }
+        panel.orderOut(nil)
     }
 
     public func teardown() {
@@ -65,8 +119,14 @@ public final class DividerMouseCatchers {
     }
 
     private func makePanel(id: String) -> DividerMousePanel {
+        panelsMade += 1
         let panel = DividerMousePanel()
-        panel.catcher.onHover = { [weak self] hovered in self?.onHover?(id, hovered) }
+        panel.areaID = id
+        panel.catcher.onHover = { [weak self, weak panel] hovered in
+            guard let panel, !panel.ignoresMouseEvents else { return }
+            self?.onHover?(panel.areaID, hovered)
+        }
+        panel.catcher.isDividerDragging = { [weak self] in self?.isDividerDragging() ?? false }
         return panel
     }
 }
@@ -74,6 +134,8 @@ public final class DividerMouseCatchers {
 /// A transparent panel that takes the mouse over a divider's hit area.
 final class DividerMousePanel: NSPanel {
     let catcher = DividerMouseCatcherView()
+    /// The divider this panel takes the mouse for now (a parked panel keeps its last one until reused).
+    var areaID = ""
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
@@ -134,6 +196,21 @@ final class DividerMouseCatcherView: NSView {
     private(set) var pendingCursorSet: Task<Void, Never>?
     /// Between this catcher's enter and its exit.
     private var isEntered = false
+    /// Between a press here and its release: the drag's events come here wherever the pointer goes, and this
+    /// panel stays where the press found it until the release (`WindowOverlayLayer`, `isInLayoutMotion`).
+    private var isPressed = false
+
+    /// Its panel was parked (its divider left): no enter, press or queued cursor carries to the next divider.
+    func resetForReuse() {
+        pendingCursorSet?.cancel()
+        pendingCursorSet = nil
+        isEntered = false
+        isPressed = false
+    }
+    /// A press that started a divider drag keeps the resize cursor; one forwarded elsewhere (a panel frozen over a
+    /// terminal during a spring) or a drag cancelled with Escape does not.
+    var isDividerDragging: () -> Bool = { false }
+    private var keepsResizeCursor: Bool { isPressed && isDividerDragging() }
 
     override func cursorUpdate(with event: NSEvent) { cursor.set() }
     override func mouseEntered(with event: NSEvent) {
@@ -156,12 +233,23 @@ final class DividerMouseCatcherView: NSView {
     }
     override func mouseExited(with event: NSEvent) {
         isEntered = false
+        // A drag that carried the pointer past this panel keeps its resize cursor until the release.
+        if keepsResizeCursor { cursor.set() }
         onHover?(false)
     }
 
-    override func mouseDown(with event: NSEvent) { forward(event) }
-    override func mouseDragged(with event: NSEvent) { forward(event) }
-    override func mouseUp(with event: NSEvent) { forward(event) }
+    override func mouseDown(with event: NSEvent) {
+        isPressed = true
+        forward(event)
+    }
+    override func mouseDragged(with event: NSEvent) {
+        if keepsResizeCursor, !isEntered { cursor.set() }
+        forward(event)
+    }
+    override func mouseUp(with event: NSEvent) {
+        isPressed = false
+        forward(event)
+    }
     override func rightMouseDown(with event: NSEvent) { forward(event) }
     override func rightMouseUp(with event: NSEvent) { forward(event) }
     override func otherMouseDown(with event: NSEvent) { forward(event) }
@@ -173,7 +261,7 @@ final class DividerMouseCatcherView: NSView {
         content.hitTest(point)?.scrollWheel(with: event)
     }
 
-    /// The event's screen point. The panel moves while a divider drags, so
+    /// The event's screen point. The pointer leaves the panel while a divider drags, so
     /// the event's own global location is used, not the panel's frame.
     private func screenPoint(of event: NSEvent) -> NSPoint {
         guard let location = event.cgEvent?.location, let height = NSScreen.screens.first?.frame.height else {
@@ -193,3 +281,10 @@ final class DividerMouseCatcherView: NSView {
         parent.sendEvent(forwarded)
     }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+extension DividerMousePanel: LayoutPassRoleNaming {
+    /// The divider it takes the mouse for (a parked spare keeps its last one).
+    var layoutPassRole: String { "divider catcher \(areaID)" }
+}
+#endif

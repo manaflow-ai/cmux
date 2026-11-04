@@ -11,6 +11,12 @@ nonisolated extension ActionSurfaceCatalog {
 
     static let layoutPlacements: [ActionID: [ContextMenuPlacement]] = [
         "newTab": [p(.sidebarBackground, .create, 0)],
+        // The tab bar's empty area (the strip's or the vertical list's; Edge's and Chrome's vertical-tab
+        // menus): Cmd-T's New Tab, Reopen Closed Tab, Bookmark All Tabs, Move All Tabs to a New
+        // Workspace; the vertical tabs rows (VerticalTabsActionCatalog); Task Manager.
+        "newTab.default": [p(.tabStrip, .create, 0)],
+        "reopenClosedBrowserPanel": [p(.tabStrip, .create, 1, label: VerticalTabsActionCatalog.reopenClosedTabLabel)],
+        "palette.openTaskManager": [p(.tabStrip, .view, 100)],
         "newBrowserWorkspace": [p(.sidebarBackground, .create, 3)],
         "openFolder": [p(.sidebarBackground, .create, 4)],
         "palette.openFolderInVSCodeInline": [p(.workspaceRow, .create, 100, folder: .new)],
@@ -52,6 +58,11 @@ nonisolated extension ActionSurfaceCatalog {
         "reconnectWorkspace": [p(.workspaceRow, .connection, 401, folder: .options)],
         "disconnectWorkspace": [p(.workspaceRow, .connection, 402, folder: .options)],
         "clearWorkspaceNotifications": [p(.workspaceRow, .identity, 114, folder: .options)],
+        // Classic's row menu has Copy Workspace ID(s) and Copy Workspace Link (#27709); in the top-level Copy ▸
+        // (ContextMenuEssentials.copyFolder), the link first, as on the tab and pane menus. Leo 2026-10-29:
+        // "there's no link to workspace, which is, I mean, that seems pretty important, doesn't it?"
+        "palette.copyWorkspaceLink": [p(.workspaceRow, .inspect, 405, folder: .copy)],
+        "palette.copyWorkspaceID": [p(.workspaceRow, .inspect, 406, folder: .copy)],
         "workspaceGroup.newWorkspace": [p(.workspaceGroup, .create, 0)],
         // In Options ▸: the group menu keeps 12 top-level rows (ActionSurfaceParityTests).
         "workspaceGroup.newSubgroup": [p(.workspaceGroup, .identity, 109, folder: .options)],
@@ -94,11 +105,13 @@ nonisolated extension ActionSurfaceCatalog {
         // rows are top-level, Options ▸ holds icon, read state, collapse-all and config, and Move ▸
         // holds the other moves and the group-only sorts (at most 12 top-level rows).
         "workspaceGroup.collapseOthers": [p(.workspaceGroup, .identity, 122, folder: .options, label: ObjectMenuLabels.collapseOtherGroups)],
+        "workspaceGroup.setSort": [p(.workspaceGroup, .move, 319, .choices, folder: .move, label: ObjectMenuLabels.sortOrder)],
         "workspaceGroup.sortByName": [p(.workspaceGroup, .move, 320, folder: .move, label: ObjectMenuLabels.sortByName)],
         "workspaceGroup.sortByLastUsed": [p(.workspaceGroup, .move, 321, folder: .move, label: ObjectMenuLabels.sortByLastUsed)],
         "workspaceGroup.sortByDirectory": [p(.workspaceGroup, .move, 322, folder: .move, label: ObjectMenuLabels.sortByDirectory)],
         "workspace.mergeInto": [p(.workspaceRow, .move, 211, folder: .move)],
-        "pane.moveToNewWorkspace": [p(.pane, .move, 300, folder: .move)],
+        "pane.moveToNewWorkspace": [p(.pane, .move, 300, folder: .move),
+                                    p(.tabStrip, .create, 3, label: VerticalTabsActionCatalog.moveAllTabsToNewWorkspaceLabel)],
         "pane.moveToNewWindow": [p(.pane, .move, 305, folder: .move)],
         "newWorkspaceGroup": [p(.sidebarBackground, .create, 5)],
         "groupSelectedWorkspaces": [p(.workspaceRow, .organize, 205, folder: .group)],
@@ -132,8 +145,10 @@ nonisolated extension ActionSurfaceCatalog {
         // name, theme color, browser profile; New Group; Delete. The rest of
         // the space actions stay in the palette and the CLI (`.minimalMenu`).
         "space.new": [p(.sidebarBackground, .create, 6, folder: .new)],
+        "space.newIncognito": [p(.sidebarBackground, .create, 6, folder: .new)],
         "space.newWorkspace": [p(.profile, .create, 0, label: SpaceMenuLabels.newWorkspace)],
-        "space.newWindow": [p(.profile, .create, 1, label: SpaceMenuLabels.newWindow)],
+        "space.openInNewWindow": [p(.profile, .create, 1, label: SpaceMenuLabels.openInNewWindow)],
+        "space.bringHere": [p(.profile, .create, 2, label: SpaceMenuLabels.bringHere)],
         "space.setIcon": [p(.profile, .identity, 100, label: IconMenuLabels.setIcon)],
         "space.clearIcon": [p(.profile, .identity, 100, label: IconMenuLabels.removeIcon)],
         "space.rename": [p(.profile, .identity, 101)],
@@ -158,20 +173,14 @@ nonisolated extension ActionSurfaceCatalog {
         "space.clearTheme": [p(.profile, .identity, 201, in: "space.setColor")],
         "workspace.setTheme": [p(.agentChat, .identity, 1, .choices, label: AgentChatMenuLabels.theme)],
         "workspace.clearTheme": [p(.workspaceRow, .identity, 109, folder: .appearance)],
-        "terminal.setTheme": [p(.tab, .identity, 205, .choices, folder: .options)],
-        "terminal.clearTheme": [p(.tab, .identity, 206, folder: .options)],
         "splitRight": [p(.pane, .create, 0), p(.terminalSelection, .create, 100, folder: .split)],
         "newColumn": [p(.pane, .create, 0, folder: .new)],
+        "newColumnLeft": [p(.pane, .create, 0, folder: .new)],
         "newRow": [p(.pane, .create, 1, folder: .new)],
         "splitDown": [p(.pane, .create, 1), p(.terminalSelection, .create, 101, folder: .split)],
-        "newPaneAutoLayout": [p(.pane, .create, 8, folder: .new)],
         "toggleSplitZoom": [p(.pane, .layout, 100), p(.terminalSelection, .layout, 104, folder: .layout)],
         "equalizeSplits": [p(.pane, .layout, 101, folder: .layout)],
         "pane.toggleTabBar": [p(.pane, .layout, 103, folder: .layout)],
-        "triggerFlash": [p(.pane, .inspect, 500, folder: .tools)],
-        "palette.swapWithSession": [p(.pane, .connection, 200, folder: .connection)],
-        "toggleCanvasLayout": [p(.pane, .layout, 102, folder: .layout)],
-        "palette.newSimulatorPane": [p(.pane, .create, 100, folder: .new)],
         "tab.restart": [p(.tab, .create, -3)],
         "newTab.toRight": [p(.tab, .create, -2)],
         "newTab.ofKind": [p(.tab, .create, -1, folder: .new)],
@@ -197,22 +206,22 @@ nonisolated extension ActionSurfaceCatalog {
         "moveSurfaceToPaneDown": [p(.tab, .move, 403, folder: .move)],
         "palette.moveTabToNewWorkspace": [p(.tab, .move, 406, folder: .move)],
         "palette.toggleTabPin": [p(.tab, .identity, 202)],
-        "browser.resetPinnedTab": [p(.tab, .identity, 203)],
+        "browser.editSource": [p(.tab, .identity, 210)],
+        "file.openAsPage": [p(.tab, .identity, 211)],
         "tab.setIcon": [p(.tab, .identity, 207, folder: .options, label: IconMenuLabels.setIcon)],
         "tab.clearIcon": [p(.tab, .identity, 208, folder: .options, label: IconMenuLabels.removeIcon)],
-        "palette.toggleTabUnread": [p(.tab, .identity, 203, folder: .options)],
-        "palette.toggleFullWidthTab": [p(.tab, .layout, 408, folder: .options)],
         "duplicateTab": [p(.tab, .create, 3, folder: .new)],
         "reloadTab": [p(.tab, .create, 4, folder: .options)],
         "toggleTabAudioMute": [p(.tab, .identity, 204, folder: .options)],
-        "tab.muteOtherAudio": [p(.tab, .identity, 209, folder: .options)],
-        "agentChat.toggleNotificationMute": [p(.tab, .identity, 205, folder: .options, label: ObjectMenuLabels.toggleChatMute)],
         "disconnectRemoteTab": [p(.tab, .connection, 2, folder: .options)],
-        "palette.copyIdentifiers": [p(.tab, .inspect, 503, folder: .copy)],
-        "palette.copyPaneID": [p(.pane, .inspect, 500, folder: .copy), p(.tab, .inspect, 504, folder: .copy)],
-        "palette.copyPaneLink": [p(.pane, .inspect, 501, folder: .copy), p(.tab, .inspect, 505, folder: .copy)],
+        // The terminal's right-click menu has classic's Copy IDs and Copy Surface Link (#27709), in Tools (13-row cap).
+        // Copy ▸ on a tab and a pane (ContextMenuEssentials.copyFolder): the object's link first, then its ID,
+        // then the pane's (on a tab), then the other identifiers.
+        "palette.copySurfaceLink": [p(.tab, .inspect, 500, folder: .copy), p(.terminalSelection, .inspect, 501, folder: .tools)],
         "palette.copySurfaceID": [p(.tab, .inspect, 501, folder: .copy)],
-        "palette.copySurfaceLink": [p(.tab, .inspect, 502, folder: .copy)],
+        "palette.copyPaneLink": [p(.pane, .inspect, 500, folder: .copy), p(.tab, .inspect, 502, folder: .copy)],
+        "palette.copyPaneID": [p(.pane, .inspect, 501, folder: .copy), p(.tab, .inspect, 503, folder: .copy)],
+        "palette.copyIdentifiers": [p(.tab, .inspect, 504, folder: .copy), p(.terminalSelection, .inspect, 500, folder: .tools)],
         "tab.showResources": [p(.tab, .inspect, 500, folder: .options)],
         "tabGroup.create": [p(.tab, .organize, 300, folder: .group)],
         "tabGroup.addTab": [p(.tab, .organize, 301, folder: .group)],

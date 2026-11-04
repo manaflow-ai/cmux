@@ -1,4 +1,7 @@
+use cmux_json::JsonSet as _;
+
 mod plugin_generation;
+use super::output_cleanup::pruned_gap;
 use super::*;
 use base64::Engine;
 use flate2::bufread::GzDecoder;
@@ -12,8 +15,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub(crate) mod salvage;
 const JOURNAL_RECORD_SCHEMA_VERSION: u32 = 1;
 const MAX_JOURNAL_PAGE_SIZE: usize = 1024;
+/// How many sequences one page of the non-output read spans at most
+/// ([`query_session_journal_without_output_after`]): a page sorts at most this
+/// many matches, and a long run of terminal output costs a few seeks per window.
+const JOURNAL_KIND_SEEK_WINDOW: u64 = 8_192;
 pub(crate) const MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES: usize = 16 * 1024 * 1024;
-const MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES: usize = 32 * 1024 * 1024;
+pub(crate) const MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES: usize = 32 * 1024 * 1024;
 pub(crate) const MAX_JOURNAL_CONTENT_BYTES: usize = 256 * 1024;
 const MIGRATION_EVENT_ID: &str = "event_session_journal_v9_migration";
 const MIGRATION_EVENT_KIND: &str = "session.journal.migrated";
@@ -211,14 +218,19 @@ impl SessionJournalReader {
     }
 
     /// [`WorkspaceRegistry::session_journal_without_output_after`] on this
-    /// reader's own read-only connection (no registry lock).
+    /// reader's own read-only connection (no registry lock). The page reads
+    /// in one read transaction: the archive head and the active rows come
+    /// from one snapshot, so a seal that commits between the two reads
+    /// cannot hide the records it moved (the registry's own read is atomic
+    /// under the connection lock the seal also takes).
     pub(crate) fn without_output_after(
         &self,
         sequence: u64,
         through: u64,
         limit: usize,
     ) -> anyhow::Result<(Vec<SessionJournalRecord>, u64)> {
-        query_session_journal_without_output_after(&self.connection, sequence, through, limit)
+        let snapshot = self.connection.unchecked_transaction()?;
+        query_session_journal_without_output_after(&snapshot, sequence, through, limit)
     }
 
     pub(crate) fn after_subjects(
@@ -291,7 +303,8 @@ impl JournalRestoreCursor {
                 break;
             };
             self.note_segment_decoded();
-            let decoded = decode_journal_segment(self.load_segment(&segment_id)?)?;
+            let row = self.load_segment(&segment_id)?;
+            let decoded = decode_journal_segment(&self.connection, row)?;
             if let Some(previous_end) = self.previous_segment_end {
                 anyhow::ensure!(
                     decoded.start_sequence == previous_end + 1,
@@ -339,7 +352,13 @@ impl JournalRestoreCursor {
             }
         }
         anyhow::ensure!(
-            self.active_sequence == self.target_head || !records.is_empty(),
+            self.active_sequence == self.target_head
+                || !records.is_empty()
+                || pruned_gap(
+                    &self.connection,
+                    self.active_sequence,
+                    self.target_head.saturating_add(1)
+                )?,
             "session journal contains a gap after sequence {}",
             self.active_sequence
         );
@@ -411,13 +430,20 @@ impl JournalRestoreCursor {
     ) -> anyhow::Result<()> {
         let expected = self.active_sequence.saturating_add(1);
         anyhow::ensure!(
-            record.sequence == expected,
+            record.sequence == expected
+                || (record.sequence > expected
+                    && pruned_gap(&self.connection, self.active_sequence, record.sequence)?),
             "session journal contains a gap before sequence {}",
             record.sequence
         );
         self.active_sequence = record.sequence;
         records.push(record);
         Ok(())
+    }
+
+    /// Every sequence after `last` through the head is a pruned range.
+    pub(crate) fn tail_is_pruned(&self, last: u64) -> anyhow::Result<bool> {
+        pruned_gap(&self.connection, last, self.target_head.saturating_add(1))
     }
 
     pub(crate) fn finish(mut self) -> anyhow::Result<()> {
@@ -586,6 +612,7 @@ pub(crate) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
     }
     ensure_session_journal_content_schema(transaction)?;
     ensure_journal_event_index_schema(transaction)?;
+    transaction.execute_batch(output_cleanup::PRUNED_RANGES_SCHEMA)?;
     Ok(())
 }
 
@@ -1379,17 +1406,21 @@ pub(crate) fn query_session_journal_after(
         .map(|row| decode_record(row?))
         .collect::<anyhow::Result<Vec<_>>>()?;
     records.extend(active);
-    let mut expected_sequence = sequence.saturating_add(1);
+    let mut previous = sequence;
     for record in &records {
         anyhow::ensure!(
-            record.sequence == expected_sequence,
+            record.sequence == previous.saturating_add(1)
+                || (record.sequence > previous.saturating_add(1)
+                    && pruned_gap(connection, previous, record.sequence)?),
             "session journal contains a gap before sequence {}",
             record.sequence
         );
-        expected_sequence = expected_sequence.saturating_add(1);
+        previous = record.sequence;
     }
     anyhow::ensure!(
-        sequence == head_sequence || !records.is_empty(),
+        sequence == head_sequence
+            || !records.is_empty()
+            || pruned_gap(connection, sequence, head_sequence.saturating_add(1))?,
         "session journal contains a gap after sequence {sequence}"
     );
     Ok(SessionJournalPage { head_sequence, records })
@@ -1440,33 +1471,45 @@ fn query_session_journal_without_output_after(
             return Ok((records, reached));
         }
     }
-    // Two ranges of the (kind, sequence) index around 'terminal.output'
-    // visit only the other kinds' entries, however much output there is.
+    // One seek per kind into the (kind, sequence) index, skipping
+    // 'terminal.output': the read visits only the records in the window, not
+    // every non-output entry the journal ever kept. A range on `kind` alone
+    // (`kind < 'terminal.output' AND sequence > ?`) cannot seek on sequence,
+    // so each page walked all of them: 5.6M entries on a nightly registry made
+    // each roster catch-up tick take 5-8 s, and the app's requests timed out
+    // behind it ("Move did not apply ... workspace.place (no reply within 2.0
+    // seconds)"). The distinct kinds come from the same index by a skip scan
+    // (a few dozen seeks). The window bounds how many matches one page sorts.
     let remaining = limit - records.len();
+    let window_end = through.min(reached.saturating_add(JOURNAL_KIND_SEEK_WINDOW));
     let mut statement = connection.prepare(
-        "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
-                occurred_at_ms, committed_at_ms, producer_json, authority_json,
-                causation_id, correlation_id, causation_depth, subjects_json,
-                sensitivity, payload_json, content, resource_revision,
-                previous_resource_revision
-         FROM session_journal INDEXED BY session_journal_by_kind_sequence
-         WHERE kind < 'terminal.output' AND sequence > ?1 AND sequence <= ?2
-         UNION ALL
-         SELECT sequence, event_id, schema_version, kind, class, replay_policy,
-                occurred_at_ms, committed_at_ms, producer_json, authority_json,
-                causation_id, correlation_id, causation_depth, subjects_json,
-                sensitivity, payload_json, content, resource_revision,
-                previous_resource_revision
-         FROM session_journal INDEXED BY session_journal_by_kind_sequence
-         WHERE kind > 'terminal.output' AND sequence > ?1 AND sequence <= ?2
-         ORDER BY sequence ASC
+        "WITH RECURSIVE kinds(kind) AS (
+           SELECT (SELECT MIN(kind) FROM session_journal
+                   INDEXED BY session_journal_by_kind_sequence)
+           UNION ALL
+           SELECT (SELECT MIN(kind) FROM session_journal
+                   INDEXED BY session_journal_by_kind_sequence
+                   WHERE kind > kinds.kind)
+           FROM kinds WHERE kinds.kind IS NOT NULL
+         )
+         SELECT s.sequence, s.event_id, s.schema_version, s.kind, s.class,
+                s.replay_policy, s.occurred_at_ms, s.committed_at_ms,
+                s.producer_json, s.authority_json, s.causation_id,
+                s.correlation_id, s.causation_depth, s.subjects_json,
+                s.sensitivity, s.payload_json, s.content, s.resource_revision,
+                s.previous_resource_revision
+         FROM kinds CROSS JOIN session_journal AS s
+              INDEXED BY session_journal_by_kind_sequence
+         WHERE kinds.kind IS NOT NULL AND kinds.kind <> 'terminal.output'
+           AND s.kind = kinds.kind AND s.sequence > ?1 AND s.sequence <= ?2
+         ORDER BY s.sequence ASC
          LIMIT ?3",
     )?;
     let active = statement
         .query_map(
             params![
                 i64::try_from(sequence).context("journal sequence exceeds SQLite range")?,
-                i64::try_from(through).context("journal sequence exceeds SQLite range")?,
+                i64::try_from(window_end).context("journal sequence exceeds SQLite range")?,
                 i64::try_from(remaining).context("journal page limit exceeds SQLite range")?,
             ],
             stored_record_row,
@@ -1474,7 +1517,7 @@ fn query_session_journal_without_output_after(
         .map(|row| decode_record(row?))
         .collect::<anyhow::Result<Vec<_>>>()?;
     reached = if active.len() < remaining {
-        through
+        window_end
     } else {
         active.last().map_or(reached, |record| record.sequence)
     };
@@ -1557,7 +1600,7 @@ fn archived_non_output_after(
             continue;
         }
         let segment = load_journal_segment(connection, segment_id)?;
-        let decoded = decode_journal_segment(segment)?;
+        let decoded = decode_journal_segment(connection, segment)?;
         for record in decoded.records.into_iter().filter(|r| {
             r.sequence > sequence && r.sequence <= through && r.kind != "terminal.output"
         }) {
@@ -1590,24 +1633,19 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
     if complete.as_deref() == Some("1") || connection.is_readonly(rusqlite::MAIN_DB)? {
         return Ok(());
     }
+    // A marker already at `0` is a backfill that was stopped partway: kind
+    // rows are inserted one at a time, so a segment can be left with some of
+    // its kinds (say, without `terminal.output`). That run's segments are all
+    // decoded again; the inserts ignore rows already there.
+    let resumed = complete.as_deref() == Some("0");
     connection.execute(
         "INSERT OR IGNORE INTO meta(key, value) VALUES('journal_segment_kinds_backfill', '0')",
         [],
     )?;
-    let ids = {
-        let mut statement = connection.prepare(
-            "SELECT segment_id FROM journal_segments
-             WHERE NOT EXISTS (
-               SELECT 1 FROM journal_segment_kinds
-               WHERE journal_segment_kinds.segment_id = journal_segments.segment_id
-             )
-             ORDER BY start_sequence ASC",
-        )?;
-        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
-    };
+    let ids = legacy_backfill_segment_ids(connection, resumed)?;
     for segment_id in ids {
         let segment = load_journal_segment(connection, &segment_id)?;
-        let kinds = decode_journal_segment(segment)?
+        let kinds = decode_journal_segment(connection, segment)?
             .records
             .into_iter()
             .map(|record| record.kind)
@@ -1622,6 +1660,25 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
     connection
         .execute("UPDATE meta SET value = '1' WHERE key = 'journal_segment_kinds_backfill'", [])?;
     Ok(())
+}
+
+/// The segments a legacy kind backfill decodes: those with no kind rows, or
+/// every segment when an earlier backfill was stopped partway (`resumed`).
+pub(super) fn legacy_backfill_segment_ids(
+    connection: &Connection,
+    resumed: bool,
+) -> anyhow::Result<Vec<String>> {
+    let mut statement = connection.prepare(
+        "SELECT segment_id FROM journal_segments
+         WHERE ?1 OR NOT EXISTS (
+           SELECT 1 FROM journal_segment_kinds
+           WHERE journal_segment_kinds.segment_id = journal_segments.segment_id
+         )
+         ORDER BY start_sequence ASC",
+    )?;
+    Ok(statement
+        .query_map([resumed], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?)
 }
 
 fn load_journal_segment(
@@ -1643,7 +1700,7 @@ fn load_journal_segment(
         .with_context(|| format!("load journal segment {segment_id}"))
 }
 
-fn query_journal_head(connection: &Connection) -> anyhow::Result<u64> {
+pub(super) fn query_journal_head(connection: &Connection) -> anyhow::Result<u64> {
     let head_sequence = connection.query_row(
         "SELECT MAX(
            COALESCE((SELECT MAX(sequence) FROM session_journal), 0),
@@ -1686,7 +1743,7 @@ pub(crate) fn query_session_journal_sequences(
         .collect::<Result<Vec<_>, _>>()?;
     drop(segment_statement);
     for segment in segments {
-        for record in decode_journal_segment(segment)?.records {
+        for record in decode_journal_segment(connection, segment)?.records {
             if requested_set.contains(&record.sequence) {
                 records.insert(record.sequence, record);
             }
@@ -1785,9 +1842,9 @@ fn query_session_journal_after_subjects(
     Ok(SessionJournalSubjectPage { head_sequence, scanned_through, records })
 }
 
-type JournalSegmentRow = (String, i64, i64, i64, String, Vec<u8>, i64, Vec<u8>);
+pub(super) type JournalSegmentRow = (String, i64, i64, i64, String, Vec<u8>, i64, Vec<u8>);
 
-fn journal_segment_row(row: &Row<'_>) -> rusqlite::Result<JournalSegmentRow> {
+pub(super) fn journal_segment_row(row: &Row<'_>) -> rusqlite::Result<JournalSegmentRow> {
     Ok((
         row.get(0)?,
         row.get(1)?,
@@ -1800,13 +1857,19 @@ fn journal_segment_row(row: &Row<'_>) -> rusqlite::Result<JournalSegmentRow> {
     ))
 }
 
-struct DecodedJournalSegment {
+pub(super) struct DecodedJournalSegment {
     start_sequence: u64,
     end_sequence: u64,
-    records: Vec<SessionJournalRecord>,
+    pub(super) records: Vec<SessionJournalRecord>,
 }
 
-fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJournalSegment> {
+/// A segment that output cleanup re-encoded keeps its sequence range but
+/// holds fewer records: every missing run must be a pruned range of
+/// `connection` (see `output_cleanup::pruned`). Any other gap is an error.
+pub(super) fn decode_journal_segment(
+    connection: &Connection,
+    row: JournalSegmentRow,
+) -> anyhow::Result<DecodedJournalSegment> {
     let (
         segment_id,
         start_sequence,
@@ -1879,15 +1942,23 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
         "journal segment {segment_id} record count is invalid"
     );
     anyhow::ensure!(
-        records.first().map(|record| record.sequence) == Some(start_sequence)
-            && records.last().map(|record| record.sequence) == Some(end_sequence),
+        records.first().is_some_and(|record| record.sequence >= start_sequence)
+            && records.last().is_some_and(|record| record.sequence <= end_sequence),
         "journal segment {segment_id} sequence range is invalid"
     );
-    for pair in records.windows(2) {
+    // A whole segment checks no pruned range; one with fewer records than
+    // its range checks each missing run once.
+    anyhow::ensure!(start_sequence > 0, "journal segment {segment_id} sequence range is invalid");
+    let mut previous = start_sequence - 1;
+    let after_end = end_sequence.saturating_add(1);
+    for sequence in records.iter().map(|record| record.sequence).chain([after_end]) {
         anyhow::ensure!(
-            pair[1].sequence == pair[0].sequence.saturating_add(1),
+            sequence == previous.saturating_add(1)
+                || (sequence > previous.saturating_add(1)
+                    && pruned_gap(connection, previous, sequence)?),
             "journal segment {segment_id} contains a sequence gap"
         );
+        previous = sequence;
     }
     Ok(DecodedJournalSegment { start_sequence, end_sequence, records })
 }
@@ -1918,7 +1989,7 @@ fn archived_records_after(
     let mut records = Vec::new();
     let mut previous_end = None;
     for segment in &mut segments {
-        let decoded = decode_journal_segment(segment?)?;
+        let decoded = decode_journal_segment(connection, segment?)?;
         let start_sequence = decoded.start_sequence;
         let end_sequence = decoded.end_sequence;
         if let Some(previous_end) = previous_end {
@@ -1943,7 +2014,7 @@ fn archived_records_after(
     Ok(records)
 }
 
-type StoredRecordRow = (
+pub(super) type StoredRecordRow = (
     i64,
     String,
     i64,
@@ -1965,7 +2036,7 @@ type StoredRecordRow = (
     Option<i64>,
 );
 
-fn stored_record_row(row: &Row<'_>) -> rusqlite::Result<StoredRecordRow> {
+pub(super) fn stored_record_row(row: &Row<'_>) -> rusqlite::Result<StoredRecordRow> {
     Ok((
         row.get(0)?,
         row.get(1)?,
@@ -1989,7 +2060,7 @@ fn stored_record_row(row: &Row<'_>) -> rusqlite::Result<StoredRecordRow> {
     ))
 }
 
-fn decode_record(row: StoredRecordRow) -> anyhow::Result<SessionJournalRecord> {
+pub(super) fn decode_record(row: StoredRecordRow) -> anyhow::Result<SessionJournalRecord> {
     let (
         sequence,
         event_id,
@@ -2099,7 +2170,7 @@ fn normalize_terminal_output(
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(data)
             .context("decode archived terminal output")?;
-        record.payload["encoding"] = Value::String("raw".into());
+        record.payload.set("encoding", Value::String("raw".into()));
         bytes
     };
     anyhow::ensure!(!bytes.is_empty(), "terminal output record is empty");

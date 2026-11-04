@@ -46,6 +46,9 @@ public enum HomeEvent: Hashable, Sendable {
     case intentsRevoked(Set<IdempotencyKey>)
     /// Ephemeral, never stored.
     case typing(ConversationID, ParticipantID, on: Bool)
+    /// Who has the conversation open now, the whole set (the owner's presence; ephemeral, never
+    /// stored): an empty set is nobody.
+    case presence(ConversationID, viewing: Set<ParticipantID>)
     /// An agent's running reply (ephemeral, never stored): Home grows it in
     /// the agent's bubble until the reply is posted.
     case draft(HomeDraftUpdate)
@@ -118,8 +121,7 @@ public protocol HomeSource: Sendable {
     /// the conversation's blob storage under `file.ref.hash`. Idempotent by
     /// hash: a blob the conversation already holds succeeds without sending
     /// the bytes again. Files over `HomeAttachmentPolicy.streamMaxBytes` use
-    /// the owner's presigned PUT and its commit call before returning; a 412
-    /// on a retried presigned PUT means the first attempt landed, so commit.
+    /// bounded multipart pieces and a final commit before returning.
     /// A video with `ref.poster` declares it in the intent and PUTs the poster
     /// to the answer's `poster_upload` before the video's PUT or commit (the
     /// owner answers 409 `attachment.poster_missing` until then). An image
@@ -148,6 +150,14 @@ public protocol HomeSource: Sendable {
     /// sender sends plain text to an owner that does not (an older daemon).
     func acceptsLinkPreviews(in conversation: ConversationID) async -> Bool
 
+    /// Persisted agent messages, including finished runs; unsupported owners return none.
+    func agentRuns(of conversation: ConversationID, window: HomeAgentRunWindow) async -> [HomeAgentRun]
+
+    /// Where the Chief's agents `peers` of `conversation` run now (``HomeAgentSessionRef``): read at this
+    /// moment from the Chief's spawn records and its acpmux, never cached by the owner. An agent it
+    /// cannot place is left out; unsupported owners return none.
+    func agentSessions(_ peers: [String], of conversation: ConversationID) async -> [HomeAgentSessionRef]
+
     /// Asks the owner of `conversation` for its live run snapshot (`run.live`),
     /// which arrives as a `.live(.snapshot)` event: on open and after a missed frame.
     func requestLive(of conversation: ConversationID) async
@@ -168,6 +178,11 @@ extension HomeSource {
 
     /// Default: an owner without live frames.
     public func requestLive(of conversation: ConversationID) async {}
+
+    public func agentRuns(of conversation: ConversationID, window: HomeAgentRunWindow) async -> [HomeAgentRun] { [] }
+
+    /// Default: an owner that cannot say where its agents run.
+    public func agentSessions(_ peers: [String], of conversation: ConversationID) async -> [HomeAgentSessionRef] { [] }
 
     /// Default: an owner without run reads.
     public func liveRunRows(of conversation: ConversationID, run: String, author: ParticipantID) async -> [HomeLiveRunSnapshot.Step]? {

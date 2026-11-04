@@ -23,16 +23,19 @@ export const streamWords = () =>
 const reducedMotion = () =>
   typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 
-/// Text revealed `count` characters at a time; each step fades in for the host's
-/// `--agent-motion-in` duration from `born`.
+/// Text revealed `count` characters at a time; each step fades in for FRESH_FADE_STEPS of the
+/// host's `--agent-motion-in` from `born`.
 export type Reveal = { id: number; count: number; born: number };
+/// How many of the host's `--agent-motion-in` steps the fade of newly revealed text runs
+/// (conversation.css `.cv-fresh`, which multiplies by the same number).
+export const FRESH_FADE_STEPS = 3;
 /// How long newly revealed text keeps its fade (acp-streaming.md "Reveal animation"). `.cv-fresh`
-/// runs the host's `--agent-motion-in`. The fallback matches the conversation stylesheet's
-/// default. The host can change this token at runtime, so expiry reads it as spans are retired
-/// instead of letting a fixed scale value outlive or cut short the CSS fade.
-export const FADE_MS = MOTION_MS.standard;
+/// runs FRESH_FADE_STEPS of the host's `--agent-motion-in`. The fallback matches the conversation
+/// stylesheet's default. The host can change this token at runtime, so expiry reads it as spans are
+/// retired instead of letting a fixed scale value outlive or cut short the CSS fade.
+export const FADE_MS = MOTION_MS.standard * FRESH_FADE_STEPS;
 
-function motionDurationMs(): number {
+function freshFadeMs(): number {
   if (typeof document === "undefined") return FADE_MS;
   try {
     const token =
@@ -40,8 +43,8 @@ function motionDurationMs(): number {
       "";
     const value = Number.parseFloat(token);
     if (!Number.isFinite(value) || value < 0) return FADE_MS;
-    if (token.endsWith("ms")) return value;
-    if (token.endsWith("s")) return value * 1000;
+    if (token.endsWith("ms")) return value * FRESH_FADE_STEPS;
+    if (token.endsWith("s")) return value * 1000 * FRESH_FADE_STEPS;
   } catch {
     // A document without computed styles (SSR or a minimal test DOM) uses the stylesheet fallback.
   }
@@ -131,7 +134,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
         length = latest.current.text.length;
       }
       // Nothing fades in on return, including the steps that were fading as the page hid.
-      const fadeMs = motionDurationMs();
+      const fadeMs = freshFadeMs();
       const fresh = away ? [] : before.fresh.filter((step) => now - step.born < fadeMs);
       if (length > before.length && !reduce.current && !away)
         fresh.push({ id: (nextId.current += 1), count: length - before.length, born: now });
@@ -159,6 +162,31 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
       state.handle = 0;
     };
   }, []);
+  // Reduce Motion can change while the row is mounted, and the stylesheet follows it at once.
+  // Turned on, the whole reply shows now: the pending frame is cancelled and no step is left
+  // fading; later text shows as it arrives. Turned off, later text is paced again.
+  useLayoutEffect(() => {
+    const query = typeof window === "undefined" ? undefined : window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!query) return;
+    const changed = () => {
+      const on = query.matches;
+      if (reduce.current === on) return;
+      reduce.current = on;
+      reveal.current!.setReduceMotion(on, latest.current.text);
+      if (!on) return;
+      const state = loop.current;
+      revealFrames.cancel(state.handle);
+      state.handle = 0;
+      const { text: target, shown: before } = latest.current;
+      if (before.length === target.length && !before.fresh.length) return;
+      const next = { length: target.length, fresh: [], now: before.now };
+      latest.current.shown = next;
+      setShown(next);
+    };
+    changed();
+    query.addEventListener("change", changed);
+    return () => query.removeEventListener("change", changed);
+  }, []);
   return {
     visible: text.slice(0, Math.min(shown.length, text.length)),
     fresh: shown.fresh,
@@ -173,15 +201,26 @@ export function RevealedMarkdown({
   streaming,
   githubRepository,
   messageAt,
+  artifactIdentity,
+  artifactRevision,
 }: {
   text: string;
   streaming: boolean;
   githubRepository?: string;
   messageAt?: number;
+  artifactIdentity?: string;
+  artifactRevision?: number;
 }) {
   return (
     <MessageBoundary source={text}>
-      <Revealed text={text} streaming={streaming} githubRepository={githubRepository} messageAt={messageAt} />
+      <Revealed
+        text={text}
+        streaming={streaming}
+        githubRepository={githubRepository}
+        messageAt={messageAt}
+        artifactIdentity={artifactIdentity}
+        artifactRevision={artifactRevision}
+      />
     </MessageBoundary>
   );
 }
@@ -191,11 +230,15 @@ function Revealed({
   streaming,
   githubRepository,
   messageAt,
+  artifactIdentity,
+  artifactRevision,
 }: {
   text: string;
   streaming: boolean;
   githubRepository?: string;
   messageAt?: number;
+  artifactIdentity?: string;
+  artifactRevision?: number;
 }) {
   const { visible, fresh, now } = useStreamReveal(text, streaming);
   // Until all of it shows, the reply draws as streaming: the frame after the stream ends still
@@ -207,6 +250,8 @@ function Revealed({
       now={now}
       githubRepository={githubRepository}
       messageAt={messageAt}
+      artifactIdentity={artifactIdentity}
+      artifactRevision={artifactRevision}
     >
       {visible}
     </Markdown>

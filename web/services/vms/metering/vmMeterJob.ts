@@ -55,16 +55,9 @@ export async function runVmMetering(dependencies: VmMeteringDependencies): Promi
     return { enabled: true, synced: synced.length, inserted: 0, insertFailed: true };
   }
 
-  const open = await query<{ interval_id?: unknown; vm_id?: unknown }>(
-    `SELECT interval_id, vm_id FROM {db}.vm_runtime_intervals WHERE ended_at IS NULL LIMIT ${MAX_CLICKHOUSE_OPEN}`,
-    {},
-    dependencies.clickhouse,
-  );
-  if (!open.ok) return { enabled: true, synced: synced.length, inserted: synced.length, insertFailed: false };
-  const clickhouseOpen = open.rows.flatMap((row) =>
-    typeof row.interval_id === "string" && typeof row.vm_id === "string"
-      ? [{ intervalId: row.interval_id, vmId: row.vm_id }]
-      : []);
+  const clickhouseOpenResult = await loadClickHouseOpenIntervals(dependencies.clickhouse);
+  if (!clickhouseOpenResult.ok) return { enabled: true, synced: synced.length, inserted: synced.length, insertFailed: false };
+  const clickhouseOpen = clickhouseOpenResult.rows;
   const postgresOpen = await dependencies.loadOpenIntervals();
   const postgresOpenIds = new Set(postgresOpen.map((row) => row.intervalId));
   const closedIds = clickhouseOpen.map((entry) => entry.intervalId).filter((id) => !postgresOpenIds.has(id));
@@ -85,6 +78,35 @@ export async function runVmMetering(dependencies: VmMeteringDependencies): Promi
     insertFailed: !corrected,
     drift,
   };
+}
+
+async function loadClickHouseOpenIntervals(
+  clickhouse: ClickHouseDependencies,
+): Promise<
+  | { readonly ok: true; readonly rows: readonly { readonly intervalId: string; readonly vmId: string }[] }
+  | { readonly ok: false }
+> {
+  const rows: { intervalId: string; vmId: string }[] = [];
+  let afterIntervalId: string | undefined;
+  for (;;) {
+    const page = await query<{ interval_id?: unknown; vm_id?: unknown }>(
+      afterIntervalId === undefined
+        ? `SELECT interval_id, vm_id FROM {db}.vm_runtime_intervals WHERE ended_at IS NULL ORDER BY interval_id LIMIT ${MAX_CLICKHOUSE_OPEN}`
+        : `SELECT interval_id, vm_id FROM {db}.vm_runtime_intervals WHERE ended_at IS NULL AND interval_id > {after_interval_id:String} ORDER BY interval_id LIMIT ${MAX_CLICKHOUSE_OPEN}`,
+      afterIntervalId === undefined ? {} : { after_interval_id: afterIntervalId },
+      clickhouse,
+    );
+    if (!page.ok) return page;
+    rows.push(...page.rows.flatMap((row) =>
+      typeof row.interval_id === "string" && typeof row.vm_id === "string"
+        ? [{ intervalId: row.interval_id, vmId: row.vm_id }]
+        : []));
+    if (page.rows.length < MAX_CLICKHOUSE_OPEN) break;
+    const last = page.rows.at(-1)?.interval_id;
+    if (typeof last !== "string" || last === afterIntervalId) break;
+    afterIntervalId = last;
+  }
+  return { ok: true, rows };
 }
 
 async function write(events: readonly VmRuntimeEvent[], clickhouse: ClickHouseDependencies): Promise<boolean> {

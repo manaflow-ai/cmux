@@ -2,8 +2,12 @@
 // settled run) open and close in one motion: the body's height and opacity, over the shared fold
 // duration, easing out, while the chevron turns with it (conversation.css `.cv-rotor`). Reduce
 // Motion, the host's animation switches (`data-agent-motion="off"`, a 0 ms token) and a page with no
-// Web Animations open and close at once. The clicked line itself never moves: VirtualTranscript
-// holds it in place while the fold plays (`FoldAnchor`, App.tsx).
+// Web Animations open and close at once. Away from the bottom, VirtualTranscript holds the clicked
+// line. At the very bottom the body's height plays here too, and VirtualTranscript moves the offset
+// with it on each frame of the fold, before paint, so the text above glides up (or down) as one stack
+// while the rows under the line keep their pixels (App.tsx `beginBottomStackFold`). Only a toggle that
+// adds or removes whole rows there ("Worked for") marks its row `data-bottom-fold` and slides the
+// thread instead.
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { isAgentMotionOff } from "../../shared/motion";
 
@@ -58,6 +62,14 @@ export function foldMs(node: HTMLElement | null): number {
 // timer or transcript walk is added, and unmounted row elements are weakly held.
 const heightFolds = new WeakMap<Element, number>();
 const HEIGHT_FOLD_SETTLE_MS = 50; // motion-allow: measurement grace after a fold, not an animation
+/// When the latest height fold anywhere ends (with its settle): an O(1) check for the transcript's
+/// follow step, which must not ease rows the fold itself is moving.
+let heightFoldsUntil = 0;
+
+/// Whether any row's height fold (or resize) is playing now.
+export function heightFoldPlaying(): boolean {
+  return performance.now() <= heightFoldsUntil;
+}
 
 export function heightFoldInFlight(row: Element): boolean {
   const until = heightFolds.get(row);
@@ -67,10 +79,42 @@ export function heightFoldInFlight(row: Element): boolean {
   return false;
 }
 
+/// Marks the transcript row holding `node` as resizing for `ms` (and a short settle after), so the
+/// rows below it are placed before paint while the height animation plays (`heightFoldInFlight`).
+export function markHeightFold(node: Element, ms: number): void {
+  const row = node.closest(".acpmux-row");
+  if (!row) return;
+  const until = performance.now() + ms + HEIGHT_FOLD_SETTLE_MS;
+  heightFolds.set(row, until);
+  heightFoldsUntil = Math.max(heightFoldsUntil, until);
+}
+
 const always = () => true;
+
+/// The folds playing now, each with the step that lands it at once (`settleFoldsIn`). Only folds in
+/// flight are here: each leaves when it ends, so a walk is O(folds playing), never O(rows).
+const settling = new Map<HTMLElement, () => void>();
+
+/// Lands every fold playing inside `root` at once: an open at its full height, a close shut. The
+/// transcript calls it when the reader takes the view during a fold at the very bottom, so the rest
+/// of a closing body's shrink cannot clamp their short scroll up back to the end.
+export function settleFoldsIn(root: Element): void {
+  for (const [node, settle] of settling) if (root.contains(node)) settle();
+}
 
 /// The resize each box is playing (`playResize`), so a resize that ends late lets go of only its own.
 const resizing = new WeakMap<HTMLElement, Animation>();
+
+/// Clips `node` while its fold or resize plays (or while it is pinned shut), and marks it
+/// `data-fold-clip` so a style rule can tell. A rule that read the clip from the inline style
+/// instead (`[style*="overflow"]` inside `:has()`, bottomStack.css) made Chromium restyle the whole
+/// page on every inline style write anywhere in it: each tick a pointer crossed on the session rail
+/// cost about 16 ms of style work (test/latency/rail-sweep.ts).
+export function clipFold(node: HTMLElement, on: boolean): void {
+  node.style.overflow = on ? "hidden" : "";
+  if (on) node.dataset.foldClip = "";
+  else delete node.dataset.foldClip;
+}
 
 /// Slides a box that stays drawn from the height it was drawn at before a change (`from`, read before
 /// it) to the height it lays out at now: a cut card opening whole, or cut again. The fold's duration
@@ -78,13 +122,12 @@ const resizing = new WeakMap<HTMLElement, Animation>();
 /// midway starts from where it was drawn, as `from` is read while it plays.
 export function playResize(node: HTMLElement, from: number): void {
   resizing.get(node)?.cancel();
-  const ms = foldMs(node);
+  const ms = node.closest("[data-bottom-fold]") ? 0 : foldMs(node);
   const to = node.getBoundingClientRect().height;
   if (ms <= 0 || Math.abs(to - from) < 0.5) return;
   // The rows below are placed before paint while it plays, as a fold's are (`heightFoldInFlight`).
-  const row = node.closest(".acpmux-row");
-  if (row) heightFolds.set(row, performance.now() + ms + HEIGHT_FOLD_SETTLE_MS);
-  node.style.overflow = "hidden";
+  markHeightFold(node, ms);
+  clipFold(node, true);
   // `max-height` too: a cut box's own max-height would otherwise hold it short while it opens.
   const animation = node.animate(
     [
@@ -97,7 +140,7 @@ export function playResize(node: HTMLElement, from: number): void {
   const release = () => {
     if (resizing.get(node) !== animation) return;
     resizing.delete(node);
-    node.style.overflow = "";
+    clipFold(node, false);
   };
   animation.onfinish = release;
   animation.oncancel = release;
@@ -109,7 +152,7 @@ export function cancelResize(node: HTMLElement): void {
   if (!animation) return;
   // Let go of the clip now: the cancel event comes after this frame's paint.
   resizing.delete(node);
-  node.style.overflow = "";
+  clipFold(node, false);
   animation.cancel();
 }
 
@@ -118,7 +161,7 @@ export function cancelResize(node: HTMLElement): void {
 function pin(node: HTMLElement, value: 0 | undefined): void {
   node.style.height = value === undefined ? "" : "0px";
   node.style.opacity = value === undefined ? "" : "0";
-  node.style.overflow = value === undefined ? "" : "hidden";
+  clipFold(node, value !== undefined);
 }
 
 export type Fold = {
@@ -167,7 +210,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
       if (running.current && foldMs(node) <= 0) {
         // Cancel removes Web Animation effects immediately, while its cancel event may be queued.
         // Settle the layout synchronously first so a closing body cannot flash back to natural height.
-        if (opening) node.style.overflow = "";
+        if (opening) clipFold(node, false);
         else {
           pin(node, 0);
           setClosing(false);
@@ -184,6 +227,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
   const cancelRunning = () => {
     const animation = running.current;
     running.current = undefined;
+    if (ref.current) settling.delete(ref.current);
     if (!animation) return;
     animation.onfinish = null;
     animation.oncancel = null;
@@ -199,23 +243,27 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
     const node = ref.current;
     // A box a close left pinned shut (below) opens from its own size again.
     if (node) pin(node, undefined);
-    const ms = animates() ? foldMs(node) : 0;
+    // A row a bottom fold slides as whole rows (App.tsx, `data-bottom-fold`: "Worked for") settles at
+    // once. Any other body plays its height, at the bottom too: the transcript keeps the bottom pinned
+    // on each frame of it (`heightFoldInFlight`), so the text above moves with it.
+    const stack = node?.closest("[data-bottom-fold]");
+    const ms = !stack && animates() ? foldMs(node) : 0;
     if (!node || ms <= 0) {
       cancelRunning();
+      if (node && !open) pin(node, 0);
       setClosing(false);
       return;
     }
     // From where the box is drawn now: midway through the other fold, else closed or open. An open
     // ends at the height measured here and then lets go of it (no fill), so the body takes its own
     // height again, content that loaded meanwhile included.
-    const row = node.closest(".acpmux-row");
-    if (row) heightFolds.set(row, performance.now() + ms + HEIGHT_FOLD_SETTLE_MS);
+    markHeightFold(node, ms);
     const turning = running.current !== undefined;
     const fromHeight = turning || !open ? node.getBoundingClientRect().height : 0;
     const fromOpacity = open && !fadeIn ? 1 : turning ? Number(styleOf(node)?.opacity ?? 0) || 0 : open ? 0 : 1;
     cancelRunning();
     const toHeight = open ? node.scrollHeight : 0;
-    node.style.overflow = "hidden";
+    clipFold(node, true);
     const animation = node.animate(
       [
         { height: `${fromHeight}px`, opacity: fromOpacity },
@@ -254,9 +302,10 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
         const settledRest = () => {
           if (running.current !== rest) return;
           running.current = undefined;
+          settling.delete(node);
           stopWatching();
           unwatchMotion();
-          node.style.overflow = "";
+          clipFold(node, false);
         };
         rest.onfinish = settledRest;
         rest.oncancel = settledRest;
@@ -269,8 +318,9 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
       stopWatching();
       unwatchMotion();
       running.current = undefined;
+      settling.delete(node);
       if (open) {
-        node.style.overflow = "";
+        clipFold(node, false);
         return;
       }
       // The animation lets go of the box as it ends, and React removes the body only on its next
@@ -280,6 +330,24 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
     };
     animation.onfinish = settled;
     animation.oncancel = settled;
+    // Lands this fold now, whichever animation (this one or a late size's) is playing: its handlers
+    // go first, so the box is pinned shut or let go in this same task, before any paint.
+    settling.set(node, () => {
+      const playing = running.current;
+      settling.delete(node);
+      if (!playing) return;
+      playing.onfinish = null;
+      playing.oncancel = null;
+      running.current = undefined;
+      stopWatching();
+      unwatchMotion();
+      playing.cancel();
+      if (open) clipFold(node, false);
+      else {
+        pin(node, 0);
+        setClosing(false);
+      }
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a change of `open` plays the fold
   }, [open]);
   useLayoutEffect(

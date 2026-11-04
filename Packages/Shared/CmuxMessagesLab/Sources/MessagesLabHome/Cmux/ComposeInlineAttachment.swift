@@ -175,7 +175,7 @@ final class ComposeInlineAttachment: NSTextAttachment {
         init(_ a: Attachment, width: CGFloat) {
             icon = NSWorkspace.shared.icon(for: UTType(mimeType: a.mimeType) ?? .data)
             name = NSAttributedString(string: ComposeAttachmentStrip.fit(a.fileName, ComposeAttachmentStrip.nameFont, width),
-                                      attributes: [.font: ComposeAttachmentStrip.nameFont, .foregroundColor: Fixture.incomingText])
+                                      attributes: [.font: ComposeAttachmentStrip.nameFont, .foregroundColor: Fixture.composeText])
             kind = NSAttributedString(string: ComposeAttachmentStrip.fit(ComposeAttachmentStrip.kindText(a), ComposeAttachmentStrip.kindFont, width),
                                       attributes: [.font: ComposeAttachmentStrip.kindFont, .foregroundColor: Fixture.secondaryText])
         }

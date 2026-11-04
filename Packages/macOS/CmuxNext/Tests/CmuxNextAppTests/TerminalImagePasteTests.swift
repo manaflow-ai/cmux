@@ -74,11 +74,19 @@ import Testing
         #expect(TerminalPasteboard.pasteText(from: contents) == "/tmp/a\\ b.png")
     }
 
-    @Test func anImageOverTheLimitIsNotSaved() {
+    /// An image of any size is saved and its path pasted; the paste once
+    /// dropped images over 10 MiB with nothing pasted and no message.
+    @Test func anImageOverTenMebibytesIsSavedWhole() throws {
         let directory = scratchDirectory()
-        let big = Data(count: TerminalPasteboard.maxClipboardImageBytes + 1)
-        #expect(TerminalPasteboard.pasteTextSavingImage(from: TerminalPasteboardContents(png: big), directory: directory) == nil)
-        #expect(!FileManager.default.fileExists(atPath: directory.path))
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var big = pngData()
+        big.append(Data(count: 10 * 1024 * 1024 + 1))
+        let contents = TerminalPasteboardContents(png: big)
+
+        let text = try #require(TerminalPasteboard.pasteTextSavingImage(from: contents, directory: directory))
+        let file = try #require(try FileManager.default.contentsOfDirectory(atPath: directory.path).first)
+        #expect(text == TerminalPasteboard.shellEscaped(directory.appendingPathComponent(file).path))
+        #expect(try Data(contentsOf: directory.appendingPathComponent(file)) == big)
     }
 
     @Test func emptyClipboardPastesNothing() {

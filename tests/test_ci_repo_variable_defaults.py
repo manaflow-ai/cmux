@@ -29,6 +29,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
+sys.path.insert(0, str(ROOT / "tests"))
+from runs_on_labels import unwrap_fork_pool_reads  # noqa: E402
 
 # variable -> the literal the repository sets, which an unset read must use.
 # Each is cheap: the compile-only suite over the full macOS suite, and the
@@ -41,6 +43,9 @@ CHEAP_DEFAULTS = {
 
 VARS_REFERENCE = re.compile(r"vars\.([A-Z0-9_]+)")
 RUNS_ON = re.compile(r"^\s*runs-on:\s*(.+?)\s*$")
+POOL_TERMINAL_FALLBACK = re.compile(
+    r"\|\|\s*fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+\s*\}\}"
+)
 
 # The repository-side switch for metered macOS capacity. Unset is the cheap
 # reading, so a fork pull request and a repository with no admin action both
@@ -66,6 +71,16 @@ PAID_CAPABLE_RUNNER_VARS = {
     "MACOS_RUNNER_DISPLAY": "blacksmith-6vcpu-macos-15",
     "MACOS_RUNNER_DUAL_XCODE": "blacksmith-6vcpu-macos-15",
     "MACOS_RUNNER_26_LARGE": "blacksmith-12vcpu-macos-26",
+}
+
+# Pool reads are the declared fallback for the same free Blacksmith sizes.
+# They intentionally have no scalar label to fall back to: the pool
+# reconciler may move the live member without a workflow edit.
+PAID_CAPABLE_POOL_DEFAULTS = {
+    "MACOS_RUNNER_15": "fromJSON(vars.RUNNER_POOLS).macos_15",
+    "MACOS_RUNNER_DISPLAY": "fromJSON(vars.RUNNER_POOLS).macos_15",
+    "MACOS_RUNNER_DUAL_XCODE": "fromJSON(vars.RUNNER_POOLS).macos_15",
+    "MACOS_RUNNER_26_LARGE": "fromJSON(vars.RUNNER_POOLS).macos_26_large",
 }
 
 # The gate as it must appear immediately before the read. The lookbehind keeps
@@ -132,12 +147,15 @@ def is_comparison(text: str, end: int) -> bool:
 
 
 def default_chain_reaches_literal(text: str, end: int) -> bool:
-    """True when a chain of `|| vars.Y || 'literal'` ends in a literal."""
+    """True when a chain ends in a literal or declared runner pool."""
     rest = text[end:]
     while True:
         chained = re.match(r"\s*\|\|\s*vars\.[A-Z0-9_]+", rest)
         if chained is None:
-            return re.match(r"\s*\|\|\s*'[^']+'", rest) is not None
+            return re.match(
+                r"\s*\|\|\s*(?:'[^']+'|fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+)",
+                rest,
+            ) is not None
         rest = rest[chained.end():]
 
 
@@ -197,9 +215,68 @@ def top_level_conjuncts(condition: str) -> list[str]:
     return parts
 
 
-def gated_on_every_read(condition: str, reads: list[re.Match]) -> bool:
+def gated_on_every_read(condition: str, reads: list[re.Match], expression: str = "") -> bool:
     conjuncts = top_level_conjuncts(condition)
-    return all(f"vars.{read.group(1)} != ''" in conjuncts for read in reads)
+    if all(f"vars.{read.group(1)} != ''" in conjuncts for read in reads):
+        return True
+    # `runs-on: ${{ vars.A || vars.B }}` is non-empty when either is set, so a
+    # job gated on `(vars.A != '' || vars.B != '')` never schedules on an empty
+    # runs-on either. Only a pure `||` chain of the same variables qualifies.
+    names = {read.group(1) for read in reads}
+    chain = re.fullmatch(r"\$\{\{\s*(vars\.[A-Z0-9_]+(?:\s*\|\|\s*vars\.[A-Z0-9_]+)*)\s*\}\}", expression.strip())
+    if chain is None:
+        return False
+    for conjunct in conjuncts:
+        inner = conjunct.strip()
+        if inner.startswith("(") and inner.endswith(")"):
+            inner = inner[1:-1]
+        terms = [term.strip() for term in inner.split("||")]
+        gated = set()
+        for term in terms:
+            matched = re.fullmatch(r"vars\.([A-Z0-9_]+) != ''", term)
+            if matched is None:
+                gated = set()
+                break
+            gated.add(matched.group(1))
+        if gated and gated == names:
+            return True
+    return False
+
+
+# The one routing source (scripts/ci/runner_pools.py on main): RUNNER_POOLS has no literal fallback on purpose.
+# Leo, 2026-10-28: "I hate pins." An unset RUNNER_POOLS makes fromJSON() fail the run at once (a red run,
+# not a job queued on a label nobody serves). A fork pull request, which gets no repository variables,
+# never reaches the read: the fork pull request branch in front of it names its own label. Same rule as main's.
+FORK_PULL_REQUEST_BRANCH = re.compile(
+    r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name"
+    r" != github\.repository(?: && !contains\(fromJSON\([\w.]+\), github\.event\.pull_request\.head\.repo\.full_name\))?"
+    r" && '[^']+' \|\| "
+)
+
+
+# The owned-mini member a Blacksmith backlog switches on (2026-11-01): unset, the chain goes on to the
+# RUNNER_POOLS read right after it, so it needs no literal of its own.
+POOL_MEMBER_BEFORE_POOL = re.compile(r"CI_LINUX_GATE_OWNED_RUNNER \|\| fromJSON\(vars\.RUNNER_POOLS\)\.")
+
+
+def pool_read_after_fork_branch(expression: str, read: re.Match) -> bool:
+    """`fromJSON(vars.RUNNER_POOLS).<pool>` with the fork pull request branch before it, or the owned-mini
+    member read directly before that pool read."""
+    if read.group(1) == "CI_LINUX_GATE_OWNED_RUNNER" and POOL_MEMBER_BEFORE_POOL.match(expression, read.start(1)):
+        return FORK_PULL_REQUEST_BRANCH.search(expression[: read.start()]) is not None
+    if read.group(1) != "RUNNER_POOLS" or not expression[: read.start()].endswith("fromJSON("):
+        return False
+    return FORK_PULL_REQUEST_BRANCH.search(expression[: read.start()]) is not None
+
+
+# `(<fork pull request> && '<label>' || fromJSON(vars.RUNNER_POOLS).<pool>)`: the label, for a fork's run.
+FORK_WRAP = re.compile(
+    r"\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name"
+    r" != github\.repository && ('[^']+') \|\| fromJSON\(vars\.RUNNER_POOLS\)\.[a-z0-9_]+\)")
+
+
+def fork_view(text: str) -> str:
+    return FORK_WRAP.sub(r"\1", text)
 
 
 def check_runs_on(path: Path, errors: list[str]) -> None:
@@ -208,13 +285,27 @@ def check_runs_on(path: Path, errors: list[str]) -> None:
         matched = RUNS_ON.match(line)
         if matched is None:
             continue
-        expression = matched.group(1)
-        reads = list(VARS_REFERENCE.finditer(expression))
+        # A fork pull request takes each fork-wrapped pool read's label (runs_on_labels.FORK_WRAPPED_POOL_READ).
+        expression = fork_view(matched.group(1))
+        line = fork_view(line)
+        # A terminal declared-pool read is the route's fallback. It replaces
+        # the old scalar literal even when intermediate selectors (overflow,
+        # retry and admission variables) sit between the first read and the
+        # final pool member.
+        if POOL_TERMINAL_FALLBACK.search(expression):
+            continue
+        # RUNNER_POOLS is the declarative route source. Its member read is a
+        # valid terminal fallback; unlike scalar vars it must not be replaced
+        # with a literal label.
+        reads = [read for read in VARS_REFERENCE.finditer(expression)
+                 if read.group(1) != "RUNNER_POOLS"]
         if not reads:
+            continue
+        if all(pool_read_after_fork_branch(expression, read) for read in reads):
             continue
         if any(default_chain_reaches_literal(expression, read.end()) for read in reads):
             continue
-        if gated_on_every_read(job_if(lines, number - 1), reads):
+        if gated_on_every_read(job_if(lines, number - 1), reads, expression):
             continue
         # A last top-level `|| 'label'` is the fallback of the whole expression
         # (build-nightly-app: trusted tuple || hosted 'macos-26').
@@ -274,6 +365,8 @@ def check_paid_overflow_gate(path: Path, errors: list[str]) -> None:
     for number, line in enumerate(lines, start=1):
         if line.lstrip().startswith("#"):
             continue
+        # The fallback a run that is not a fork's takes: each fork-wrapped pool read is its read.
+        line = unwrap_fork_pool_reads(line)
         for name, free_label in PAID_CAPABLE_RUNNER_VARS.items():
             for read in re.finditer(rf"vars\.{name}\b", line):
                 if not PAID_OVERFLOW_GATE_PREFIX.search(line[: read.start()]):
@@ -287,12 +380,14 @@ def check_paid_overflow_gate(path: Path, errors: list[str]) -> None:
                         f"vars.{name} || '{free_label}'`"
                     )
                     continue
-                fallback = re.match(r"\s*\|\|\s*'([^']+)'", line[read.end():])
-                if fallback is None or fallback.group(1) != free_label:
-                    actual = fallback.group(1) if fallback else "nothing"
+                fallback = re.match(r"\s*\|\|\s*(?:'([^']+)'|(fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+))",
+                                    line[read.end():])
+                expected_pool = PAID_CAPABLE_POOL_DEFAULTS[name]
+                actual = (fallback.group(1) or fallback.group(2)) if fallback else "nothing"
+                if fallback is None or actual not in (free_label, expected_pool):
                     errors.append(
                         f"{path.name}:{number}: gated vars.{name} falls back to "
-                        f"{actual!r}, but its free steady state is {free_label!r}"
+                        f"{actual!r}, but its free steady state is {free_label!r} or {expected_pool}"
                     )
 
 
@@ -335,7 +430,7 @@ def self_test_gate_matcher(errors: list[str]) -> None:
 
 
 def self_test_runs_on_gate(errors: list[str]) -> None:
-    """Only a job-level `vars.X != ''` conjunct for every read excuses a bare runs-on."""
+    """A job-level `vars.X != ''` conjunct for every read (or one disjunction over a pure `||` chain) excuses a bare runs-on."""
     import tempfile
 
     def job(condition: str, runs_on: str = "${{ vars.A_RUNNER }}") -> str:
@@ -350,6 +445,12 @@ def self_test_runs_on_gate(errors: list[str]) -> None:
         (job("(vars.A_RUNNER != '' || vars.B != '') && github.ref == 'x'"), 1, "a gate inside parentheses"),
         (job("vars.B_RUNNER != ''"), 1, "a gate on another variable"),
         (job("vars.A_RUNNER != ''", "${{ vars.A_RUNNER || vars.B_RUNNER }}"), 1, "one of two reads gated"),
+        (job("x == 'y' && (vars.A_RUNNER != '' || vars.B_RUNNER != '')", "${{ vars.A_RUNNER || vars.B_RUNNER }}"), 0,
+         "a `||` chain gated on either of its variables"),
+        (job("x == 'y' && (vars.A_RUNNER != '' || vars.C_RUNNER != '')", "${{ vars.A_RUNNER || vars.B_RUNNER }}"), 1,
+         "a `||` chain gated on another variable"),
+        (job("(vars.A_RUNNER != '' || vars.B_RUNNER != '')", "${{ vars.A_RUNNER && vars.B_RUNNER }}"), 1,
+         "an `&&` read gated on either variable"),
         ("jobs:\n  one:\n    if: vars.A_RUNNER != ''\n    steps: []\n  two:\n    runs-on: ${{ vars.A_RUNNER }}\n",
          1, "another job's gate"),
         ("jobs:\n  one:\n    if: vars.A_RUNNER != ''\n    steps: []\n  two: # note\n    runs-on: ${{ vars.A_RUNNER }}\n",
@@ -369,6 +470,17 @@ def self_test_runs_on_gate(errors: list[str]) -> None:
                 )
 
 
+def self_test_pool_reads(errors: list[str]) -> None:
+    fork = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != "
+            "github.repository && 'blacksmith-4vcpu-ubuntu-2404' || ")
+    good = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + fork + "fromJSON(vars.RUNNER_POOLS).linux }}"
+    bad = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}"
+    for text, expected in ((good, True), (bad, False)):
+        reads = list(VARS_REFERENCE.finditer(text))
+        if all(pool_read_after_fork_branch(text, read) for read in reads) != expected:
+            errors.append(f"self-test: pool read {'accepted' if not expected else 'refused'} wrongly: {text}")
+
+
 def main() -> int:
     errors: list[str] = []
     files = workflow_files()
@@ -377,6 +489,7 @@ def main() -> int:
         return 1
     self_test_gate_matcher(errors)
     self_test_runs_on_gate(errors)
+    self_test_pool_reads(errors)
     for path in files:
         check_runs_on(path, errors)
         check_cheap_defaults(path, errors)

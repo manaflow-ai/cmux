@@ -9,7 +9,6 @@
     {
       "reason": "A classic-app shell or CLI regression on a macOS runner lane (run_python_test_lane.py in ci-macos.yml). ci.yml calls ci-macos.yml only for pull requests into main; cmux-next has its own Mac tiers.",
       "tests": [
-        "tests/test_cmux_cua_build_cache_safety.py",
         "tests/test_cmux_cua_compat_contract.py",
         "tests/test_cmux_cua_mcp_smoke.py",
         "tests/test_issue_10926_watcher_pid_reuse_guard.py",

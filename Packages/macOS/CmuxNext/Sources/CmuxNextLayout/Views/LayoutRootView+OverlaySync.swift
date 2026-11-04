@@ -55,6 +55,13 @@ extension LayoutRootView {
         layoutMotionObservers[nextOverlaySyncObserver] = block
         return LayoutOverlaySyncObservation(root: self, id: nextOverlaySyncObserver, remove: { $0.layoutMotionObservers[$1] = nil })
     }
+
+    /// Holds `work` until `pane`, which left the layout in a close that still springs, goes when the motion lands (or
+    /// comes back), then runs it after that frame's commit. False, holding nothing, when `pane` is not closing.
+    /// What a closing pane showed is torn down then, not in the motion's frames (RESIZE VIDEOS F1).
+    public func afterClosing(_ pane: PaneID, id: String, _ work: @escaping @MainActor () -> Void) -> Bool {
+        context.afterClosing(pane, id: id, work)
+    }
 }
 
 /// The floating panes' cards (`MainPaneChromeShadeView`): every displayed

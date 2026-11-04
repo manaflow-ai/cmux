@@ -67,6 +67,13 @@ public final class ActionRegistry {
     /// leaves the palette, menus and context menus, and a run is refused with this reason (the
     /// person's own choice, not `DisabledFeatures`). The App installs it.
     @ObservationIgnored public var settingOffReason: @MainActor (ActionID) -> String? = { _ in nil }
+    /// The person's arrangement of each right-click menu (cmux.json `contextMenus.layouts`,
+    /// ``ContextMenuLayout``); a menu without one is drawn as generated.
+    public var contextMenuLayouts: [ActionMenuContext: ContextMenuLayout] = [:]
+    /// Whether a whole right-click menu ends with Customize Menu… (cmux.json `contextMenus.showCustomizeItem`).
+    public var showsCustomizeMenuItem = true
+    /// Customize Menu…: opens Settings > Menus on that menu. The App installs it; nil shows no row.
+    @ObservationIgnored public var customizeMenu: (@MainActor (ActionMenuContext) -> Void)?
 
     /// Whether a menu item's key equivalent may run `id` now. The App
     /// installs its `KeyRouter` here so menus follow the same tier rules as
@@ -103,7 +110,7 @@ public final class ActionRegistry {
     /// Called while a choices submenu (`ContextMenuEntry.choices`) is open:
     /// with the hovered value (action, argument name, value, target), and
     /// with a nil value when the menu closes. The App previews themes here.
-    @ObservationIgnored public var choicePreview: (@MainActor (ActionID, String, String?, ActionTargetRef?) -> Void)?
+    @ObservationIgnored public var choicePreview: (@MainActor (ActionID, String, String?, ActionTargetRef?, _ machineID: String?) -> Void)?
     /// Live previews by action (`ActionRegistry+Preview`) and the one on screen.
     @ObservationIgnored var previews: [ActionID: ActionPreview] = [:]
     @ObservationIgnored var activePreview: ActivePreview?
@@ -123,6 +130,9 @@ public final class ActionRegistry {
     /// Old IDs folded into canonical IDs on register and lookup.
     @ObservationIgnored public private(set) var aliases: [ActionID: ActionID] = [:]
 
+    /// Ways past an unavailable reason that a person's own gesture may take (``ActionRecovery``),
+    /// asked in order with the action and its current reason; the first non-nil answer wins.
+    @ObservationIgnored public var unavailableRecoveries: [@MainActor (_ action: ActionID, _ reason: String) -> ActionRecovery?] = []
     /// Sees every `refuse(_:quiet:)` reason and whether it is quiet (the App logs it; a loud one shows the HUD).
     @ObservationIgnored public var refusalObserver: (@MainActor (_ reason: String, _ quiet: Bool) -> Void)?
     /// Sees the remote half of an ``ActionEffect`` fail after its local change was rolled back, with
@@ -143,6 +153,8 @@ public final class ActionRegistry {
     /// Each sees every handler run just before it runs, with the run's effective origin (a run
     /// nested in a CLI run is the CLI's): the sidebar animates only changes its user asked for.
     @ObservationIgnored public var willRunObservers: [@MainActor (ActionID, ActionOrigin) -> Void] = []
+    /// What the App's top pages mean for runs (``install(_:)``); nil: no top pages.
+    @ObservationIgnored public internal(set) var topPageRules: ActionTopPageRules?
     /// Sees every handler run after it ran (the tips card's local usage flags).
     @ObservationIgnored public var runObserver: (@MainActor (ActionID, ActionInvocation) -> Void)?
     /// The key window's claim on a run (``KeyWindowRoute``), asked first by `perform` and menu validation.
@@ -160,7 +172,29 @@ public final class ActionRegistry {
     @ObservationIgnored var capturedResults: [ActionResultWork]?
     @ObservationIgnored private var indexByID: [ActionID: Int] = [:]
     @ObservationIgnored var descriptorIndexByID: [ActionID: Int] = [:]
-    @ObservationIgnored var shortcutIndex: ShortcutIndex?
+    @ObservationIgnored var shortcutIndex: ShortcutIndex? {
+        didSet { if shortcutIndex == nil { askToWarmBindingTable() } }
+    }
+    /// Builds a stale key-binding table before a key needs it (TYPING UNDER LOAD F3: the first key after a
+    /// change paid for `makeTable()`, 27.6 ms on the main thread). The App gives it a budgeted background batch
+    /// on its main-thread scheduler, which yields to a person's input; nil (tests, tools): the first key builds
+    /// the table, as before.
+    @ObservationIgnored public var warmBindingTable: (@MainActor (@escaping @MainActor () -> Void) -> Void)? {
+        // A new hook drops the old one's queued work: ask again through the new one.
+        didSet { bindingTableWarmQueued = false; if shortcutIndex?.bindingTable == nil { askToWarmBindingTable() } }
+    }
+    /// A warm is queued and has not run yet: further changes need no second one.
+    @ObservationIgnored private var bindingTableWarmQueued = false
+
+    private func askToWarmBindingTable() {
+        guard let warm = warmBindingTable, !bindingTableWarmQueued else { return }
+        bindingTableWarmQueued = true
+        warm { [weak self] in
+            guard let self else { return }
+            self.bindingTableWarmQueued = false
+            _ = RegistryKeyBindings(self).table
+        }
+    }
 
     /// An empty registry with no catalog whose runs are not timed.
     public convenience init() {
@@ -342,6 +376,21 @@ public final class ActionRegistry {
         guard invocation.target != nil, let required = descriptor(for: id)?.requires, !base.isSuperset(of: required),
               let facts = targetContext?(invocation) else { return isAvailable(id, in: base) }
         return isAvailable(id, in: base.union(facts))
+    }
+
+    /// `isAvailable(_:for:)` for a run from outside the app (the CLI, MCP): a `pane:` or `tab:`
+    /// target decides the facts it brings (`ActionContext.decidedByPaneOrTabTarget`) itself, so
+    /// another agent chat or canvas that has the keyboard never stands in for the target's. A
+    /// script's Set Agent Chat Model on a terminal pane is refused here, before anything runs,
+    /// whatever the person focuses. The App's own runs on a chat's tab (its header, from a chat
+    /// that may sit in no pane) keep `isAvailable(_:for:)`.
+    public func isAvailable(_ id: ActionID, forScript invocation: ActionInvocation) -> Bool {
+        guard let kind = invocation.target?.kind, kind == .pane || kind == .tab,
+              let required = descriptor(for: id)?.requires, !required.isDisjoint(with: .decidedByPaneOrTabTarget),
+              let targetContext else { return isAvailable(id, for: invocation) }
+        let base = (invocation.keyContext ?? context).union(ActionContext.implied(by: invocation))
+            .subtracting(.decidedByPaneOrTabTarget)
+        return isAvailable(id, in: base.union(targetContext(invocation).intersection(.decidedByPaneOrTabTarget)))
     }
 
     public static func isAvailable(_ descriptor: ActionDescriptor, in context: ActionContext) -> Bool {

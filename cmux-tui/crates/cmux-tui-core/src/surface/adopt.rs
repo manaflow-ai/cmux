@@ -229,6 +229,10 @@ impl Surface {
                     "pty.mouse_encoders",
                     Box::new(mouse_encoders),
                 ),
+                input_route: arc_swap::ArcSwapOption::new(Some(Arc::new(
+                    input_port::InputRoute::Exited,
+                ))),
+                input_port: Default::default(),
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",
@@ -247,6 +251,7 @@ impl Surface {
                 exit_notified: AtomicBool::new(true),
                 dead: AtomicBool::new(true),
                 owner_detaching: AtomicBool::new(false),
+                recover_requested: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Exited as u8),
                 host_fallback: std::sync::OnceLock::new(),
                 dirty: AtomicBool::new(true),
@@ -287,6 +292,7 @@ impl Surface {
                 taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", Vec::new()),
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
+                sizing_fast_path: Default::default(),
                 snapshot_position: Default::default(),
                 last_attach_colors: RankedMutex::new(
                     LockRank::Leaf,

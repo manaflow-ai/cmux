@@ -61,8 +61,12 @@ use scrolling::{
 };
 #[cfg(any(unix, windows))]
 mod hosted_stager;
+/// The terminal's own input port (R-DAEMON-STATE stage S1 step 6).
+#[cfg(any(unix, windows))]
+pub(crate) mod input_port;
 #[cfg(any(unix, windows))]
 use hosted_stager::{HostedFrameStager, HostedTransition};
+pub(crate) use input_port::{InputReply, input_may_be_written};
 #[cfg(test)]
 use options::child_term_for;
 use options::configure_agent_browser_session;
@@ -121,6 +125,8 @@ use hosted_reader::HostedReader;
 mod host_kitty_limits;
 #[cfg(any(unix, windows))]
 mod journal_reconnect;
+#[cfg(unix)]
+mod link_recover;
 #[cfg(any(unix, windows))]
 mod prelaunch;
 #[cfg(any(unix, windows))]
@@ -510,6 +516,11 @@ impl PrelaunchedHost {
         self.terminal_id
     }
 
+    /// Its terminal's public id.
+    pub(crate) fn terminal_public_id(&self) -> Option<&TerminalPublicId> {
+        self.terminal_public_id.as_ref()
+    }
+
     /// Write the workspace key into the host's recovery record now, so the
     /// creation transaction finds it current and skips the synced write
     /// (`Surface::persist_host_workspace`).
@@ -612,6 +623,26 @@ impl Surface {
             terminal: surface.terminal.clone(),
             viewport: Mutex::new(TerminalViewportState::default()),
         })))
+    }
+
+    /// Where this terminal's sizing publishes the view a key may skip its sizing note for (R-DAEMON-STATE stage S1);
+    /// every view of the terminal shares it. `None` for a browser surface.
+    pub(crate) fn sizing_fast_path_slot(
+        &self,
+    ) -> Option<crate::mux::sizing_fast_path::SizingFastPathSlot> {
+        self.as_pty().map(|pty| pty.terminal.sizing_fast_path.clone())
+    }
+
+    /// Whether a key from `client` into this view may skip its sizing note: the terminal's sizing published this
+    /// view as its settled newest. One atomic load, no lock.
+    pub(crate) fn skips_sizing_note(&self, client: u64) -> bool {
+        self.as_pty().is_some_and(|pty| {
+            pty.terminal
+                .sizing_fast_path
+                .load()
+                .as_deref()
+                .is_some_and(|fast| fast.client == client && fast.placement == self.id)
+        })
     }
 
     pub(crate) fn shares_terminal_runtime(&self, other: &Surface) -> bool {
@@ -748,6 +779,9 @@ impl Surface {
         let frame_requests = frame_producer::FrameRequests::new();
         #[cfg(test)]
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
+        // The attachment's other frames go after the keys the port took (S1.6b).
+        let port = input_port::InputPort::default();
+        attachment.set_input_order(port.order());
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta {
                 id,
@@ -781,6 +815,10 @@ impl Surface {
                     "pty.mouse_encoders",
                     Box::new(mouse_encoders),
                 ),
+                input_route: arc_swap::ArcSwapOption::new(Some(Arc::new(
+                    input_port::InputRoute::Hosted(attachment.input_route()),
+                ))),
+                input_port: port,
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",
@@ -801,6 +839,7 @@ impl Surface {
                 exit_notified: AtomicBool::new(false),
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
+                recover_requested: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 host_fallback: host_fallback.map(std::sync::OnceLock::from).unwrap_or_default(),
                 dirty: AtomicBool::new(true),
@@ -841,6 +880,7 @@ impl Surface {
                 taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", Vec::new()),
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
+                sizing_fast_path: Default::default(),
                 snapshot_position: Default::default(),
                 last_attach_colors: RankedMutex::new(
                     LockRank::Leaf,
@@ -893,7 +933,7 @@ impl Surface {
             title_changed,
             pending_bells,
             output_apply_delay: HostedReader::output_apply_delay_from_env(),
-            flap_backoff: TerminalHostReconnectBackoff::default(),
+            flap_backoff: TerminalHostReconnectBackoff::retrying_after_failure(),
             resync_backoff: TerminalHostReconnectBackoff::default(),
             connected_at: None,
         };

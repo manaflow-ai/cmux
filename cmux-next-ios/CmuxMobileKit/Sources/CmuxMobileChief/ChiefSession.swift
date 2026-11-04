@@ -302,6 +302,36 @@ public final class ChiefSession {
         return live
     }
 
+    /// The reply can reach the transcript before the frame-batched live
+    /// callback. Match the reply's idempotency key when that happens so the
+    /// delayed callback cannot briefly resurrect a duplicate bubble.
+    static func liveReplyMatches(_ live: ChiefLive, message: ConversationMessage?) -> Bool {
+        let keyParts = live.key.split(separator: "\u{0}", omittingEmptySubsequences: false)
+        guard keyParts.count == 3, let message, message.senderID == String(keyParts[1]),
+              let clientID = message.clientMessageID,
+              let runID = keyParts.last, !runID.isEmpty else { return false }
+        let author = keyParts[1]
+        if clientID == runID || clientID == "\(author):chief-reply:\(runID)" { return true }
+        // Cloud's durable producers append a numeric retry counter. Require
+        // the complete author/run prefix so similar run IDs cannot collide.
+        for kind in ["chief-reply", "chief-reply-d"] {
+            let prefix = "\(kind):\(author):\(runID):"
+            guard clientID.hasPrefix(prefix) else { continue }
+            let retry = clientID.dropFirst(prefix.count)
+            return !retry.isEmpty && retry.utf8.allSatisfy { (48...57).contains($0) }
+        }
+        return false
+    }
+
+    /// Remember a reply that overtook its batched live callback. A later user
+    /// message changes lastMessage but must not resurrect the answered step.
+    func acceptLive(_ live: ChiefLive?) {
+        if let live, let step = live.step, Self.liveReplyMatches(live, message: lastMessage) {
+            answeredLiveStep = "\(live.key)\u{0}\(step)"
+        }
+        self.live = live
+    }
+
     /// Chief is typing or a run is live: Home's pin shows the typing bubble.
     public var isWorking: Bool { isTyping || live != nil }
 
@@ -314,14 +344,15 @@ public final class ChiefSession {
     /// turn answered again, as a new message: Chief answers it once its
     /// model is back. Does nothing without a failed newest turn.
     public func retryFailedTurn() {
-        guard let id = lastTurnFailureID, id != retriedFailureID,
-              let failed = store.messages.first(where: { $0.id == id }) else { return }
-        let asked = store.messages.last { message in
-            message.senderID != identity.chiefID && !message.isUnsent && (message.seq ?? 0) < (failed.seq ?? .max)
-        }
-        let text = asked?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard isConnected, let id = lastTurnFailureID, id != retriedFailureID,
+              let failed = store.messages.first(where: { $0.id == id }),
+              let asked = store.messages.last(where: { message in
+                  message.senderID == store.meID && !message.isUnsent && !message.isScheduled
+                      && message.seq != nil && (message.seq ?? 0) < (failed.seq ?? .max)
+              }), let retry = ChiefRetryMessage(asked) else { return }
+        // Set this before send: the store notifies observers synchronously.
         retriedFailureID = id
-        send(ConversationComposeMessage(text: text.isEmpty ? String(localized: "Please try that again.") : text))
+        if !retry.send(to: store) { retriedFailureID = nil }
     }
 
     /// The question waiting for an answer from this phone: the newest
@@ -521,7 +552,7 @@ public final class ChiefSession {
             source.liveFeed.observe { [weak self] live in
                 Task { @MainActor [weak self] in
                     guard let self, self.store === store, self.live != live else { return }
-                    self.live = live
+                    self.acceptLive(live)
                 }
             }
         }
@@ -599,6 +630,11 @@ public final class ChiefSession {
     /// `asksForAlerts`: the composer's first send asks for notification
     /// permission (Chief's replies alert); a live call's send doesn't, so no
     /// system prompt lands over the call screen.
+    /// A text message (Send Message… on a workspace or a tab, with its link at the start).
+    public func send(text: String) {
+        send(ConversationComposeMessage(text: text))
+    }
+
     public func send(_ message: ConversationComposeMessage, asksForAlerts: Bool = true) {
         guard !message.isEmpty else { return }
         if asksForAlerts { ChiefAlerts.shared.requestPermissionIfUndetermined() }

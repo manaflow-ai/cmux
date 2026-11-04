@@ -30,28 +30,31 @@ final class ExtensionActionToolbar {
         let button = ChromeIconButton(icon: .browserToolbarExtensions, label: Strings.extensions,
                                       action: #selector(MenuTrampoline.fire), target: trampoline, toolbar: true)
         button.setAccessibilityIdentifier(Identifier.menuButton)
-        // Chrome opens the Extensions menu on the press, not the release.
+        // Chrome opens the Extensions menu on the press, not the release; its bubble is made when the pointer first comes.
         button.sendAction(on: [.leftMouseDown])
+        button.onPointerEnter = { [weak self] in if self?.menuControllerIfMade == nil { self?.schedulePrepare() } }
         return button
     }()
-    /// The Extensions bubble (Chrome's `ExtensionsMenuView`).
-    private(set) lazy var menuController: ExtensionsMenuController = {
+    /// The Extensions bubble (Chrome's `ExtensionsMenuView`), made on first use (pointer, CLI, palette, More), never in a pane's key turn (#32909).
+    private(set) var menuControllerIfMade: ExtensionsMenuController?
+    var menuController: ExtensionsMenuController {
+        if let menuControllerIfMade { return menuControllerIfMade }
         let controller = ExtensionsMenuController()
         controller.onShownChange = { view, shown in (view as? ChromeIconButton)?.isMenuOpen = shown }
         controller.toggleView = { [weak self] in
             guard let self else { return nil }
             return self.puzzle.window == nil ? self.menuAnchor?() : self.puzzle
         }
+        menuControllerIfMade = controller
         return controller
-    }()
+    }
     private let trampoline = MenuTrampoline()
     let crashIndicator = ExtensionCrashIndicator()
     private var lastActions: [CEFExtensionAction] = []
     private var showsPuzzle = false
     /// An extension's menu at its toolbar icon while it is open (`debug.extensions.menu`).
     private(set) weak var presentedMenu: NSMenu?
-    /// Whether the Extensions bubble is open.
-    var isMenuShown: Bool { menuController.isShown }
+    var isMenuShown: Bool { menuControllerIfMade?.isShown ?? false }
 
     /// Pinned buttons the pane has room for (`BrowserToolbarLayout`).
     var visibleLimit = ExtensionActionToolbar.maxVisible {
@@ -76,7 +79,7 @@ final class ExtensionActionToolbar {
 
     /// Binds the toolbar to a tab; a tab without extensions empties it.
     func bind(_ tab: any BrowserTab) {
-        menuController.close()
+        menuControllerIfMade?.close()
         observation?.cancel()
         observation = nil
         host?.hideExtensionPopups()
@@ -100,7 +103,7 @@ final class ExtensionActionToolbar {
             self.render(actions, showsPuzzle: Self.showsPuzzle(host: host))
             self.crashIndicator.update(store: host.showsExtensionToolbar ? host.extensionStore : nil,
                                        in: self.slot, before: self.puzzle)
-            self.schedulePrepare()
+            if self.menuControllerIfMade != nil { self.schedulePrepare() }
         }
     }
 
@@ -115,10 +118,8 @@ final class ExtensionActionToolbar {
         }
     }
 
-    /// Whether a tab bound to `host` shows the Extensions button: every
-    /// tab whose engine has the extension toolbar (Chromium), extensions
-    /// installed or not, so Chrome's puzzle, its menu (Manage Extensions,
-    /// Chrome Web Store) and the pinned icons are always one click away.
+    /// Whether a tab bound to `host` shows the Extensions button: every tab whose engine has the extension toolbar
+    /// (Chromium), extensions installed or not, so Chrome's puzzle, its menu and the pinned icons are one click away.
     static func showsPuzzle(host: (any BrowserExtensionActionHosting)?) -> Bool {
         host?.showsExtensionToolbar ?? false
     }
@@ -273,8 +274,13 @@ final class ExtensionActionToolbar {
     /// Closes any open action popup and the Extensions bubble (the pane resized, the tab
     /// changed or left the window).
     func hidePopups() {
-        menuController.close()
+        menuControllerIfMade?.close()
         host?.hideExtensionPopups()
+    }
+
+    /// The page is closing: the Extensions bubble's panel closes for good.
+    func closeMenuPanel() {
+        menuControllerIfMade?.closePanel()
     }
 
     private var handler: (any ExtensionMenuHandling)? {

@@ -21,6 +21,31 @@ mkdir -p "$TMP/bin"
 cat > "$TMP/bin/swift" <<'EOF'
 #!/usr/bin/env bash
 cat "$STUB_OUTPUT"
+# Daemons a live-daemon test starts, and ones it does not own (STUB_DAEMONS, the daemon test below).
+# Each records its pid under its label. Detached ones are started in a subshell that exits at
+# once, so they are no child of this process, as `server ensure`'s setsid owner is not.
+if [[ -n "${STUB_DAEMONS:-}" ]]; then
+  d="$STUB_DAEMONS"
+  # Like a real owner, no stdio and no inherited descriptor: none may hold the run's log open.
+  detached() { ( "$@" </dev/null >/dev/null 2>&1 3>&- & ); }
+  detached "$d/bin/cmux-tui" exit-with --headless --session s1 --exit-with-pid "$$:1234"
+  detached "$d/bin/acpmux" temp daemon run --state "$RUNNER_TEMP/acpmux-state"
+  "$d/bin/cmux-tui" child --session s2 --json server ensure </dev/null >/dev/null 2>&1 3>&- &
+  detached "$d/bin/cmux-tui" other-job --headless --session s3 --exit-with-pid "999999:1234"
+  detached "$d/bin/cmux-tui" by-name --headless --session s4
+  detached "$d/bin/cmux-tui" terminal-host __terminal-host --state "$RUNNER_TEMP/acpmux-state"
+  detached "$d/bin/sleeper" not-a-daemon --state "$RUNNER_TEMP/acpmux-state"
+  # The watcher samples within a poll; wait until every one is up.
+  for _ in $(seq 1 100); do [[ $(ls "$d/pids" | wc -l) -ge 7 ]] && break; sleep 0.05; done
+fi
+# A helper's crash report, written during the run with this process as its parent:
+# the wrapper counts only reports from its own `swift test` and the helpers it saw.
+if [[ -n "${STUB_CRASH_REPORT:-}" ]]; then
+  sed "s/__PARENT_PID__/$$/" "$STUB_CRASH_REPORT" > "$STUB_CRASH_REPORT_DEST"
+  # The run starts at a whole second, so date the report ahead of it; otherwise a
+  # write at X.9 and a start at X+1 reads it as from before.
+  python3 -c 'import os,sys,time; t=time.time()+60; os.utime(sys.argv[1],(t,t))' "$STUB_CRASH_REPORT_DEST"
+fi
 # A run that keeps finishing tests while the watchdog watches: one line per STUB_DRIP_SECONDS,
 # which is what a healthy width-limited run looks like (thousands open, finishes still arriving).
 if [[ -n "${STUB_DRIP:-}" ]]; then
@@ -33,9 +58,39 @@ if [[ -n "${STUB_DRIP:-}" ]]; then
 fi
 # A test that never returns: the wrapper has to end it.
 [[ -z "${STUB_SLEEP:-}" ]] || sleep "$STUB_SLEEP"
+# A run that keeps the CPU busy and finishes nothing for STUB_BUSY seconds: a spin, or a runner so
+# starved that one test takes minutes. Then STUB_AFTER's lines, the finishes it got to. The CPU it
+# uses comes from the busy `ps` stub ($TMP/busy-ps), not a real spin: on a loaded runner a spin
+# got 0.00 s of CPU in its window and was cut as idle (base run 41522830037).
+[[ -z "${STUB_BUSY:-}" ]] || sleep "$STUB_BUSY"
+[[ -z "${STUB_AFTER:-}" ]] || cat "$STUB_AFTER"
 exit "${STUB_STATUS:-0}"
 EOF
 chmod +x "$TMP/bin/swift"
+# No `sample` on Linux, and a real one would take seconds a process: the stub names what it sampled.
+cat > "$TMP/bin/sample" <<'EOF'
+#!/usr/bin/env bash
+echo "SAMPLED $1"
+EOF
+chmod +x "$TMP/bin/sample"
+
+# The busy cases' `ps`: every CPU reading (`ps -o pid= -o time= -p ...`) says each process used
+# one more second since the last, so the run reads as busy whatever the runner's load. Every other
+# `ps` call is the real one.
+REAL_PS=$(command -v ps)
+mkdir -p "$TMP/busy-ps"
+cat > "$TMP/busy-ps/ps" <<EOF
+#!/usr/bin/env bash
+if [[ "\$*" == "-o pid= -o time= -p "* ]]; then
+  n=\$(( \$(cat "$TMP/busy-ps/calls" 2>/dev/null || echo 0) + 1 ))
+  echo "\$n" > "$TMP/busy-ps/calls"
+  shift 4
+  while (( \$# >= 2 )); do printf '%s %02d:%02d\\n' "\$2" \$(( n / 60 )) \$(( n % 60 )); shift 2; done
+  exit 0
+fi
+exec "$REAL_PS" "\$@"
+EOF
+chmod +x "$TMP/busy-ps/ps"
 
 # run <name> <status>: runs the wrapper on $TMP/<name>.out; sets out, summary, status.
 # STUB_PATH goes ahead of the stub swift on PATH (a slow tee).
@@ -120,6 +175,38 @@ if grep '^::error' <<<"$out" | grep -q 'aPasses'; then fail "the error names a f
 # "Test run started." is the run, not a test.
 grep '^::error' <<<"$out" | grep -q ' 2 tests started and never finished: hangsForever()' || fail "the error counts the run itself as an unfinished test" "$out"
 grep -q 'hangsForever()' <<<"$summary" || fail "the step summary does not name hangsForever()" "$summary"
+# A cut-short run reports itself as incomplete, never as a pass or a plain red.
+grep -q '^::error title=cmux-next swift test incomplete::' <<<"$out" || fail "a cut-short run is not titled incomplete" "$out"
+if grep -q '^::error title=cmux-next swift test ended early' <<<"$out"; then fail "a cut-short run still says ended early, not incomplete" "$out"; fi
+grep -q '^### Incomplete: ' <<<"$summary" || fail "the step summary does not say the run is incomplete" "$summary"
+grep '^::error title=cmux-next swift test cut short::' <<<"$out" \
+  | grep -q 'cut short by the test process ending before its summary (swift test exited 0): 1 tests finished (1 passed, 0 failed, 0 skipped) and 2 started and never finished' \
+  || fail "a run that ended before its summary does not count what it got done" "$out"
+
+# A pass line another stream cut into (run 41665450504 shard 14: the runtime's stderr, then the
+# helper killed with the rest of the line unwritten) is that test's pass, not a test that never
+# finished; foo() stays open beside fooBar()'s pass. The run is still incomplete.
+cat > "$TMP/spliced.out" <<'EOF'
+◇ Test run started.
+◇ Test aFailureNothingRetriesShowsAtOnce() started.
+✔ Test aFailureNothingRetriesShowsAtOnceswift runtime: backtrace-on-crash is not supported for privileged executables.
+◇ Test foo() started.
+◇ Test fooBar() started.
+✔ Test fooBar() passed after 0.001 seconds.
+EOF
+run spliced 143
+cut=$(grep '^::error title=cmux-next swift test cut short::' <<<"$out" || true)
+grep -q '2 tests finished (2 passed, 0 failed, 0 skipped) and 1 started and never finished' <<<"$cut" \
+  || fail "a spliced pass line is counted as never finished" "$out"
+grep -q 'Never finished: foo()$' <<<"$cut" || fail "the spliced pass closed the wrong test" "$cut"
+# A run's own summary does not close a test named run().
+cat > "$TMP/run-named.out" <<'EOF'
+◇ Test run started.
+◇ Test run() started.
+✔ Test run with 1 test in 1 suite passed after 0.001 seconds.
+EOF
+run run-named 0
+[[ "$status" != 0 ]] || fail "a run summary closed a test named run()" "$out"
 
 # A crash exit without a summary keeps its status and names the unfinished test.
 run cut 139
@@ -133,11 +220,8 @@ grep '^::error' <<<"$out" | grep -q 'crashesHere()' || fail "a crashed run does 
 reports="$TMP/DiagnosticReports"; crashes="$TMP/crashes"
 mkdir -p "$reports"
 printf '%s\n' '{"app_name":"swiftpm-testing-helper","bug_type":"309","name":"swiftpm-testing-helper"}' \
-  '{"exception":{"type":"EXC_BREAKPOINT","signal":"SIGTRAP"},"faultingThread":2,"usedImages":[{"name":"libswift_Concurrency.dylib"},{"name":"CmuxNextPackageTests"}],"threads":[{"frames":[{"imageIndex":1,"symbol":"idleThread"}]},{"frames":[]},{"triggered":true,"frames":[{"imageIndex":0,"symbol":"swift_task_checkIsolatedSwift"},{"imageIndex":1,"symbol":"KeyWindowObserver.windowWillClose(_:)"},{"imageIndex":1,"symbol":"closure #1 in BrowserPopupPanelThreadTests.anOpenerCloseNoticePostedOffMainClosesItsPopupsOnMain()"}]}]}' \
-  > "$reports/swiftpm-testing-helper-2026-10-09-021500.ips"
-# The run starts at a whole second after this write, so date the report ahead
-# of it; otherwise a write at X.9 and a start at X+1 reads it as from before.
-python3 -c 'import os,sys,time; t=time.time()+60; os.utime(sys.argv[1],(t,t))' "$reports/swiftpm-testing-helper-2026-10-09-021500.ips"
+  '{"pid":4242,"parentPid":__PARENT_PID__,"exception":{"type":"EXC_BREAKPOINT","signal":"SIGTRAP"},"faultingThread":2,"usedImages":[{"name":"libswift_Concurrency.dylib"},{"name":"CmuxNextPackageTests"}],"threads":[{"frames":[{"imageIndex":1,"symbol":"idleThread"}]},{"frames":[]},{"triggered":true,"frames":[{"imageIndex":0,"symbol":"swift_task_checkIsolatedSwift"},{"imageIndex":1,"symbol":"KeyWindowObserver.windowWillClose(_:)"},{"imageIndex":1,"symbol":"closure #1 in BrowserPopupPanelThreadTests.anOpenerCloseNoticePostedOffMainClosesItsPopupsOnMain()"}]}]}' \
+  > "$TMP/trap.ips"
 printf '%s\n' '{"app_name":"swiftpm-testing-helper"}' '{"threads":[{"triggered":true,"frames":[{"imageIndex":0,"symbol":"anOldCrash"}]}],"usedImages":[{"name":"x"}]}' \
   > "$reports/swiftpm-testing-helper-old.ips"
 touch -t 202001010000 "$reports/swiftpm-testing-helper-old.ips"
@@ -148,7 +232,8 @@ cat > "$TMP/trap.out" <<'OUT'
 error: Process '/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/libexec/swift/pm/swiftpm-testing-helper --test-bundle-path /x/CmuxNextPackageTests.xctest/Contents/MacOS/CmuxNextPackageTests --testing-library swift-testing' exited with unexpected signal code 5
 OUT
 export CMUX_NEXT_CRASH_REPORTS_DIR="$reports" CMUX_NEXT_CRASH_OUT="$crashes"
-CMUX_NEXT_CRASH_WAIT_SECONDS=0 run trap 1
+STUB_CRASH_REPORT="$TMP/trap.ips" STUB_CRASH_REPORT_DEST="$reports/swiftpm-testing-helper-2026-10-09-021500.ips" \
+  CMUX_NEXT_CRASH_WAIT_SECONDS=0 run trap 1
 unset CMUX_NEXT_CRASH_REPORTS_DIR CMUX_NEXT_CRASH_OUT
 [[ "$status" != 0 ]] || fail "a run whose test helper died on a signal exited 0" "$out"
 crash=$(grep '^::error title=cmux-next swift test crash' <<<"$out" || true)
@@ -194,7 +279,7 @@ cat > "$TMP/short.out" <<'EOF'
 EOF
 run short 0
 [[ "$status" != 0 ]] || fail "a truncated run with a summary line exited 0" "$out"
-short_error=$(grep '^::error title=cmux-next swift test reported fewer' <<<"$out" || true)
+short_error=$(grep '^::error title=cmux-next swift test incomplete::reported fewer' <<<"$out" || true)
 [[ -n "$short_error" ]] || fail "no short-run ::error line" "$out"
 grep -q 'summaries count 1 tests in total but 3 started and 2 of those never finished' <<<"$short_error" \
   || fail "the error does not give the three counts" "$short_error"
@@ -326,6 +411,10 @@ cat > "$TMP/stuck.out" <<'EOF2'
 ◇ Test aPasses() started.
 ✔ Test aPasses() passed after 0.001 seconds.
 ◇ Test eachFails(n:) started.
+◇ Test case passing 1 argument n → 1 to eachFails(n:) started.
+✘ Test case passing 1 argument n → 1 to eachFails(n:) failed after 0.001 seconds with 1 issue.
+◇ Test case passing 1 argument n → 2 to eachFails(n:) started.
+✘ Test case passing 1 argument n → 2 to eachFails(n:) failed after 0.001 seconds with 1 issue.
 ✘ Test eachFails(n:) with 2 test cases failed after 0.002 seconds with 2 issues.
 ◇ Test stuckHere() started.
 EOF2
@@ -337,8 +426,47 @@ stuck=$(grep '^::error title=cmux-next swift test stuck' <<<"$out" || true)
 [[ -n "$stuck" ]] || fail "no stuck-test ::error line" "$out"
 grep -q 'stuckHere()' <<<"$stuck" || fail "the stuck error does not name stuckHere()" "$stuck"
 if grep -q 'aPasses\|eachFails' <<<"$stuck"; then fail "the stuck error names a finished test" "$stuck"; fi
-grep -q '1 test open at least that long' <<<"$stuck" || fail "the stuck error miscounts" "$stuck"
+grep -q '1 test open at least 2s' <<<"$stuck" || fail "the stuck error miscounts" "$stuck"
 grep -q 'stuckHere()' <<<"$summary" || fail "the step summary does not name the stuck test" "$summary"
+# Its process sat idle (a sleep): that is what makes it a hang at the stall limit.
+grep -q 'the test processes sat idle' <<<"$stuck" || fail "the stuck error does not say the processes were idle" "$stuck"
+# Cut short, the run still says what it got done: the finished tests by result, the failed one by
+# name, the one never finished. Their result lines stay in the log for test_reds.py to compare.
+cut=$(grep '^::error title=cmux-next swift test cut short::' <<<"$out" || true)
+[[ -n "$cut" ]] || fail "a run the watchdog ended printed no cut-short line" "$out"
+grep -q 'cut short by the stall rule' <<<"$cut" || fail "the cut-short line does not say the stall rule ended it" "$cut"
+grep -q '2 tests finished (1 passed, 1 failed, 0 skipped) and 1 started and never finished' <<<"$cut" \
+  || fail "the cut-short line miscounts the finished and open tests" "$cut"
+grep -q 'Failed: eachFails(n:)\.' <<<"$cut" || fail "the cut-short line does not name the failed test" "$cut"
+grep -q 'Never finished: stuckHere()' <<<"$cut" || fail "the cut-short line does not name the open test" "$cut"
+grep -q 'never a base red' <<<"$cut" || fail "the cut-short line does not say it is never a base red" "$cut"
+grep -q '^### Cut short by the stall rule: 2 tests finished' <<<"$summary" \
+  || fail "the step summary has no cut-short line" "$summary"
+
+# No test finishes for longer than the stall limit while the test process keeps using CPU: a
+# starved runner, where one test takes minutes (cmux#28497 run 41123927916, a 6 vCPU Blacksmith
+# Mac: tests under a second on an idle mini finished after 78-227 s, and the old rule cut the pass
+# at 300 s with 223 tests open). Slow, not hung: no kill before the busy limit.
+printf '%s\n' '◇ Test run started.' '◇ Test slowOnAStarvedRunner() started.' > "$TMP/busy.out"
+printf '%s\n' '✔ Test slowOnAStarvedRunner() passed after 6.000 seconds.' \
+  '✔ Test run with 1 test in 1 suite passed after 6.001 seconds.' > "$TMP/busy.after"
+STUB_PATH="$TMP/busy-ps" STUB_BUSY=6 STUB_AFTER="$TMP/busy.after" CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_BUSY_STUCK_SECONDS=40 \
+  CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run busy 0
+[[ "$out" != *"swift test stuck"* ]] || fail "the watchdog cut a slow run whose test process kept using CPU" "$out"
+[[ "$status" == 0 ]] || fail "a slow run that kept using CPU and then finished exited $status" "$out"
+grep -q 'a slow run, not a hang' <<<"$out" || fail "the watchdog did not say it waits on a busy run" "$out"
+[[ "$out" != *"cut short"* ]] || fail "a whole run printed a cut-short line" "$out"
+
+# Busy and silent past the busy limit (a spin, or a runner too starved to finish anything): ended
+# then, saying the processes were busy, and naming the open test.
+started=$SECONDS
+STUB_PATH="$TMP/busy-ps" STUB_BUSY=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_BUSY_STUCK_SECONDS=6 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run busy 0
+(( SECONDS - started < 40 )) || fail "a busy silent run was ended only after $((SECONDS - started)) s" "$out"
+[[ "$status" != 0 ]] || fail "a busy silent run the watchdog ended exited 0" "$out"
+stuck=$(grep '^::error title=cmux-next swift test stuck' <<<"$out" || true)
+grep -q 'kept using CPU' <<<"$stuck" || fail "the busy stall does not say the processes kept using CPU" "$out"
+grep -q 'CMUX_NEXT_TEST_BUSY_STUCK_SECONDS 6' <<<"$stuck" || fail "the busy stall does not name its limit" "$stuck"
+grep -q 'slowOnAStarvedRunner()' <<<"$stuck" || fail "the busy stall does not name the open test" "$stuck"
 
 # The watchdog reads finishes with the same definition report() does, so the two can never
 # disagree about what "finished" means. They did: report() learned the known-issue marker and the
@@ -363,7 +491,7 @@ EOF2
 STUB_SLEEP=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run stuckshapes 0
 stuck=$(grep '^::error title=cmux-next swift test stuck' <<<"$out" || true)
 [[ -n "$stuck" ]] || fail "no stuck-test ::error line" "$out"
-grep -q '1 test open at least that long' <<<"$stuck" \
+grep -q '1 test open at least 2s' <<<"$stuck" \
   || fail "the watchdog read a finished test as still running" "$stuck"
 grep -q 'stuckHere()' <<<"$stuck" || fail "the stuck error does not name stuckHere()" "$stuck"
 for finished in knownIssuePass knownIssueFail xKnownIssue cancelledHere skippedHere eachPasses; do
@@ -678,5 +806,89 @@ EOF
 STUB_DRIP=6 STUB_DRIP_SECONDS=1 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1   run progress 0
 [[ "$out" != *"swift test stuck"* ]]   || fail "the watchdog killed a run that was still finishing tests" "$out"
 [[ "$out" != *"=== sample"* ]] || fail "the watchdog sampled a run making progress" "$out"
+
+# A test prints bytes that are not UTF-8 (a string cut mid-character: the first two bytes of "→").
+# CI runs in a UTF-8 locale, where macOS awk died on that line on every read ("towc: multibyte
+# conversion failure") and sed with it ("illegal byte sequence"): the report named nothing and the
+# stall watchdog never fired (cmux#25978 job 123476714112). Both still work on such a log.
+bad=$'\xe2\x86'
+utf8=$(locale -a 2>/dev/null | grep -iE '^(en_US|C)\.utf-?8$' | head -n 1 || true)
+utf8=${utf8:-en_US.UTF-8}
+printf '%s\n' \
+  '◇ Test run started.' \
+  '◇ Test printsHalfACharacter() started.' \
+  "cut here: $bad" \
+  '✔ Test printsHalfACharacter() passed after 0.001 seconds.' \
+  '◇ Test hangsAfterTheBadByte() started.' \
+  > "$TMP/badbyte.out"
+LC_ALL=$utf8 run badbyte 143
+[[ "$out" != *"towc"* && "$out" != *"illegal byte"* ]] || fail "a log reader died on a non-UTF-8 byte" "$out"
+grep '^::error title=cmux-next swift test incomplete' <<<"$out" | grep -q 'hangsAfterTheBadByte()' \
+  || fail "the report of a log with a non-UTF-8 byte does not name the unfinished test" "$out"
+if grep '^::error' <<<"$out" | grep -q 'printsHalfACharacter'; then fail "the report names the finished test" "$out"; fi
+[[ "$status" == 143 ]] || fail "the run with a non-UTF-8 byte exited $status, not 143" "$out"
+
+started=$SECONDS
+LC_ALL=$utf8 STUB_SLEEP=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run badbyte 0
+(( SECONDS - started < 30 )) || fail "the watchdog took $((SECONDS - started)) s on a log with a non-UTF-8 byte" "$out"
+[[ "$out" != *"towc"* && "$out" != *"illegal byte"* ]] || fail "the watchdog died on a non-UTF-8 byte" "$out"
+grep '^::error title=cmux-next swift test stuck' <<<"$out" | grep -q 'hangsAfterTheBadByte()' \
+  || fail "the watchdog does not name the stuck test after a non-UTF-8 byte" "$out"
+
+# A live-daemon test waits on its cmux-tui or acpmux daemon, which is not its child (`server ensure`
+# starts the owner in its own session), so a sample of the test process alone showed it idle in a
+# socket read and nothing of the daemon (run 41497919334 job 125458481373). On a stall the watcher
+# also samples the daemons this run started: in its process tree, tied to one of its pids by
+# --exit-with-pid, or naming a path under this job's RUNNER_TEMP. Never another job's daemon, one
+# matched by name only, a terminal host, or a process that is no cmux-tui or acpmux.
+daemons="$TMP/daemons"
+mkdir -p "$daemons/bin" "$daemons/pids" "$TMP/runner-temp"
+for name in cmux-tui acpmux sleeper; do
+  cat > "$daemons/bin/$name" <<'EOF'
+#!/usr/bin/env bash
+# $1 is the label; the rest is the command line the real one would have.
+echo $$ > "$(dirname "$0")/../pids/$1"
+for _ in $(seq 1 30); do sleep 1; done
+EOF
+  chmod +x "$daemons/bin/$name"
+done
+daemon_pid() { cat "$daemons/pids/$1"; }
+end_daemons() {
+  local f
+  for f in "$daemons"/pids/*; do
+    [[ -e "$f" ]] || continue
+    kill "$(cat "$f")" 2>/dev/null || true
+    rm -f "$f"
+  done
+}
+printf '%s\n' '◇ Test run started.' '◇ Test waitsOnItsDaemon() started.' > "$TMP/daemon.out"
+RUNNER_TEMP="$TMP/runner-temp" STUB_DAEMONS="$daemons" STUB_SLEEP=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 \
+  CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run daemon 0
+for label in exit-with temp child; do
+  pid=$(daemon_pid "$label")
+  grep -q "^=== sample daemon $pid: " <<<"$out" || fail "the stall did not sample this run's $label daemon ($pid)" "$out"
+  grep -qx "SAMPLED $pid" <<<"$out" || fail "the $label daemon ($pid) was named but not sampled" "$out"
+done
+for label in other-job by-name terminal-host not-a-daemon; do
+  pid=$(daemon_pid "$label")
+  if grep -qx "SAMPLED $pid" <<<"$out"; then fail "the stall sampled the $label process ($pid), which is not this run's daemon" "$out"; fi
+  # Still running when the watcher looked, or not sampling it proves nothing.
+  kill -0 "$pid" 2>/dev/null || fail "the $label process ($pid) was gone before the stall" "$out"
+done
+end_daemons
+# Bounded: past CMUX_NEXT_TEST_SAMPLE_DAEMONS the rest are counted, not sampled.
+RUNNER_TEMP="$TMP/runner-temp" STUB_DAEMONS="$daemons" STUB_SLEEP=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 \
+  CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 CMUX_NEXT_TEST_SAMPLE_DAEMONS=1 run daemon 0
+grep -q '^=== 3 daemons of this run; sampling the first 1 ' <<<"$out" || fail "the daemon sample is not bounded" "$out"
+[[ $(grep -c '^=== sample daemon ' <<<"$out") == 1 ]] || fail "more daemons sampled than CMUX_NEXT_TEST_SAMPLE_DAEMONS" "$out"
+end_daemons
+
+# The watcher's annotations start their own line even when the test output stops mid-line, or the
+# log viewer reads one as the end of a test line (cmux#24073 job 123468767603). The hang annotation
+# takes the same printf; the stall one is the one a test can reach in seconds.
+printf '%s\n%s' '◇ Test run started.' '◇ Test case passing 1 argument x → 1 to f(x:) start' > "$TMP/midline.out"
+STUB_SLEEP=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run midline 0
+grep -q '^::error title=cmux-next swift test stuck::' <<<"$out" \
+  || fail "the watchdog annotation does not start its own line" "$out"
 
 echo "ok swift-test-summary"

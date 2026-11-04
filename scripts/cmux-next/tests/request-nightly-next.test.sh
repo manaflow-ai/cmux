@@ -16,7 +16,8 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
-git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
+# git_q, and no background git maintenance in the scratch repositories.
+source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"
 fail() { printf '%s\n' "$@" >&2; exit 1; }
 sha() { shasum -a 256 "$1" | awk '{print $1}'; }
 bin=cmux-tui-aarch64-apple-darwin
@@ -313,6 +314,33 @@ CMUX_NIGHTLY_NEXT_MAX_REFUSED=1 request --tree-ready "$head"
 [[ "$status" == 0 ]] && ! dispatched "$fresh" && ! dispatched "$stale" \
   || fail "the search must stop after CMUX_NIGHTLY_NEXT_MAX_REFUSED refusals (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 rm -f "$TMP/bin/node"
+# A runner with no node cannot check the strings, which is no proof they are
+# fresh: the promoting run (NIGHTLY_NEXT_PROMOTE=1) fails red and requests
+# nothing. A run that only reports still reports, with a warning.
+nonode="$TMP/nonode"; mkdir -p "$nonode"
+IFS=: read -r -a path_dirs <<<"$TMP/bin:$PATH"
+for dir in "${path_dirs[@]}"; do
+  for tool in "$dir"/*; do
+    name="${tool##*/}"
+    [[ "$name" != node && -x "$tool" && ! -e "$nonode/$name" ]] || continue
+    ln -s "$tool" "$nonode/$name"
+  done
+done
+git_q -C "$src" checkout -q --detach "$strings"
+status=0; : > "$TMP/gh.log"
+out=$(cd "$src" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT -u CMUX_TUI_TREE_DISPATCH PATH="$nonode" \
+  RUNNER_TEMP="$TMP/runner" GITHUB_RUN_ID=1 NIGHTLY_NEXT_PROMOTE=1 \
+  bash scripts/cmux-next/request-nightly-next.sh --repo o/r --sha "$strings" --release-compile-green 2>&1) || status=$?
+[[ "$status" == 1 ]] && ! dispatched "$strings" \
+  || fail "a promoting run without node must fail and request nothing (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+grep -q "no node" <<<"$out" || fail "the failure must name the missing node:" "$out"
+status=0; : > "$TMP/gh.log"
+out=$(cd "$src" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT -u CMUX_TUI_TREE_DISPATCH PATH="$nonode" \
+  RUNNER_TEMP="$TMP/runner" GITHUB_RUN_ID=1 NIGHTLY_NEXT_PROMOTE= \
+  bash scripts/cmux-next/request-nightly-next.sh --repo o/r --sha "$strings" --release-compile-green 2>&1) || status=$?
+[[ "$status" == 0 ]] && ! grep -q "workflow run nightly.yml" "$TMP/gh.log" \
+  || fail "a reporting run without node must not fail (exit $status):" "$out"
+grep -q "not checked" <<<"$out" || fail "the report must say the strings were not checked:" "$out"
 git_q -C "$src" checkout -q --detach "$head"
 
 # A tree published before its daemon tests ended (source.json daemonTests
@@ -587,6 +615,110 @@ rm -f "$cdn/tree-commits/$other.json"
 rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-marker.sh check "$other" >/dev/null 2>&1) || rc=$?
 [[ "$rc" == 1 ]] || fail "a missing marker is exit 1, got $rc"
 rm -f "$cdn/NOAUTO" "$src/scripts/ci/upload-r2-object.py"
+git_q -C "$src" checkout -q --detach "$head"
+
+# NIGHTLY_NEXT_TREE_AT_INSTALL: the feat-cmux-next tip whose tree is still building
+# is requested at once when its own nightly.yml waits for the tree at install
+# and an artifacts run builds that tree; main's promote guard (G5) accepts it on
+# the same line. Without the line, or with no active run, it waits as before.
+git_q -C "$src" checkout -q -b pending "$app"
+echo four > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui four, no line"
+noline=$(git -C "$src" rev-parse HEAD)
+branch "$noline"
+echo 1 > "$TMP/gh-runs"
+request --tree-ready "$noline"
+[[ "$status" == 0 ]] && ! dispatched "$noline" || fail "a building tree without the nightly.yml line must not be requested:" "$out"
+{ echo "env:"; echo "  NIGHTLY_NEXT_TREE_AT_INSTALL: v1"; cat "$src/.github/workflows/nightly.yml"; } > "$TMP/nightly.yml"
+mv "$TMP/nightly.yml" "$src/.github/workflows/nightly.yml"
+echo five > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui five, with the line"
+pending=$(git -C "$src" rev-parse HEAD)
+branch "$pending"
+echo 0 > "$TMP/gh-runs"
+request --tree-ready "$pending"
+[[ "$status" == 0 ]] && ! dispatched "$pending" || fail "with no active artifacts run the building tip must wait:" "$out"
+grep -q "no active cmux-tui-artifacts run builds tree" <<<"$out" || fail "the wait must say why:" "$out"
+echo 1 > "$TMP/gh-runs"
+request --tree-ready "$pending"
+[[ "$status" == 0 ]] && dispatched "$pending" || fail "the building tip with the line and an active run must be requested:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "its cmux-tui tree is building" <<<"$out" || fail "the request must say the tree is building:" "$out"
+# A commit behind the tip is never requested this way.
+git_q -C "$src" commit --allow-empty -m "app on top"
+branch "$(git -C "$src" rev-parse HEAD)"
+git_q -C "$src" checkout -q --detach "$pending"
+request --tree-ready "$pending"
+! dispatched "$pending" || fail "only the feat-cmux-next tip is requested before its tree:" "$out"
+rm -f "$TMP/gh-runs"
+git_q -C "$src" checkout -q --detach "$head"
+
+# A commit whose app is the one the feed already publishes is not requested: nothing that
+# reaches the app changed since the commit the nightly-next tag names. The classifier
+# (scripts/ci/nightly_build_inputs.py) is stubbed: only App.swift reaches the app, so a
+# cmux-tui change is caught by its tree key alone.
+git_q -C "$src" checkout -q -b app-identical "$head"
+git_q -C "$src" tag -f nightly-next "$head"
+cat > "$src/scripts/ci/nightly_build_inputs.py" <<'PY'
+import json, sys
+paths = [line.strip() for line in sys.stdin if line.strip()]
+hit = [p for p in paths if p == "App.swift"]
+print(json.dumps({"build_inputs_changed": bool(hit),
+                  "reason": f"{hit[0]} reaches the app" if hit else "no changed path reaches the app the Nightly publishes"}))
+PY
+echo notes > "$src/NOTES.md"; git_q -C "$src" add -A; git_q -C "$src" commit -m "notes only"
+same=$(git -C "$src" rev-parse HEAD)
+request --sha "$same" --release-compile-green
+[[ "$status" == 0 ]] && ! dispatched "$same" || fail "an app-identical commit must not be promoted:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "nothing that reaches the app changed since the published ${head:0:12} (no changed path reaches" <<<"$out" \
+  && grep -q "already on nightly-next" <<<"$out" || fail "the skip must name the published commit and stop the tick's walk:" "$out"
+# The next app change is promoted at once: a skip never holds a real update back.
+echo app2 > "$src/App.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "app change"
+changed=$(git -C "$src" rev-parse HEAD)
+request --sha "$changed" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$changed" || fail "an app change since the published commit must be promoted:" "$out" "$(cat "$TMP/gh.log")"
+# A change to the bundled cmux-tui binaries' inputs that the classifier calls neutral is
+# promoted: its tree key differs from the published commit's.
+git_q -C "$src" tag -f nightly-next "$changed"
+echo tui-runtime > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui input the classifier misses"
+tuichange=$(git -C "$src" rev-parse HEAD)
+publish "$tuichange"
+request --sha "$tuichange" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$tuichange" || fail "a cmux-tui tree change must be promoted even when the classifier finds nothing:" "$out" "$(cat "$TMP/gh.log")"
+git_q -C "$src" checkout -q --detach "$changed"
+# A move out of the app (App.swift into docs/) removes an app input: promoted, never read as docs only.
+git_q -C "$src" tag -f nightly-next "$changed"
+mkdir -p "$src/docs"; git_q -C "$src" mv App.swift docs/App.swift; git_q -C "$src" commit -m "move the app file into docs"
+moved=$(git -C "$src" rev-parse HEAD)
+request --sha "$moved" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$moved" || fail "a move out of an app path must be promoted:" "$out" "$(cat "$TMP/gh.log")"
+git_q -C "$src" tag -f nightly-next "$head"
+# A revert of a promotion still building is promoted at once: its app matches the published
+# one but not the one nightly-next is about to publish.
+git_q -C "$src" checkout -q --detach "$same"
+git_q -C "$src" tag -f nightly-next "$same"
+echo pending-app > "$src/App.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "app change still building"
+building=$(git -C "$src" rev-parse HEAD)
+git_q -C "$src" update-ref refs/heads/nightly-next "$building"
+git_q -C "$src" revert --no-edit HEAD
+reverted=$(git -C "$src" rev-parse HEAD)
+request --sha "$reverted" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$reverted" || fail "a revert of an outstanding promotion must be promoted:" "$out" "$(cat "$TMP/gh.log")"
+# A docs-only commit on top of that promotion is still promoted: the published app differs from it.
+git_q -C "$src" checkout -q --detach "$building"
+echo more > "$src/NOTES.md"; git_q -C "$src" add -A; git_q -C "$src" commit -m "notes on the building app"
+notes_on_building=$(git -C "$src" rev-parse HEAD)
+request --sha "$notes_on_building" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$notes_on_building" || fail "a commit whose app differs from the published one must be promoted:" "$out"
+git_q -C "$src" update-ref -d refs/heads/nightly-next
+git_q -C "$src" tag -f nightly-next "$head"
+git_q -C "$src" checkout -q --detach "$same"
+# A classifier that cannot answer, or no published commit, promotes as before.
+git_q -C "$src" checkout -q --detach "$same"
+echo 'raise SystemExit(3)' > "$src/scripts/ci/nightly_build_inputs.py"
+request --sha "$same" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$same" || fail "an unreadable classifier must not hold back a promotion:" "$out" "$(cat "$TMP/gh.log")"
+git -C "$src" checkout -q -- scripts/ci/nightly_build_inputs.py
+git_q -C "$src" tag -d nightly-next
+request --sha "$same" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$same" || fail "with no published commit the promotion is requested:" "$out" "$(cat "$TMP/gh.log")"
 git_q -C "$src" checkout -q --detach "$head"
 
 # The checkout must be the commit it asks for; bad input is a usage error.

@@ -14,6 +14,47 @@ export function keepHandoff(current: AcpmuxSnapshot | undefined, next: AcpmuxSna
   return next;
 }
 
+/// Direct snapshots carry only the subagent progress that changed since the one before
+/// (direct.ts `takeChangedProgress`). Presenting only the latest of a frame's snapshots would lose
+/// the earlier ones' values, so the last one carries every value its session changed in the batch.
+export function withBatchProgress(batch: readonly AcpmuxSnapshot[]): AcpmuxSnapshot[] {
+  let session: string | undefined;
+  let progress: AcpmuxSnapshot["subagentProgress"];
+  let carried = 0;
+  for (const snapshot of batch) {
+    if (snapshot.sessionId !== session) {
+      session = snapshot.sessionId;
+      progress = undefined;
+      carried = 0;
+    }
+    if (snapshot.subagentProgress) {
+      progress = { ...progress, ...snapshot.subagentProgress };
+      carried += 1;
+    }
+  }
+  const last = batch.at(-1);
+  if (!last || !progress || (carried === 1 && last.subagentProgress)) return [...batch];
+  return [...batch.slice(0, -1), { ...last, subagentProgress: progress }];
+}
+
+/// When the presenter shows what it queued: the next display frame on a shown page, or 50 ms,
+/// whichever comes first (a page hidden while it waits draws at the 50 ms mark, as the client's
+/// own hidden draws do). A hidden page presents at once: it paints nothing, but its effects still
+/// act on each snapshot (a subagent's pane, the tab's header), which `nextFrame` would hold
+/// until the page shows.
+export function presentFrame(run: () => void): void {
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") return run();
+  let ran = false;
+  const once = () => {
+    if (ran) return;
+    ran = true;
+    run();
+  };
+  requestAnimationFrame(once);
+  // timeout: rAF does not fire while the page is hidden; 50 ms matches the client's hidden draw.
+  setTimeout(once, 50);
+}
+
 export function snapshotFrames(
   schedule: (run: () => void) => void,
   publish: (update: (current: AcpmuxSnapshot) => AcpmuxSnapshot) => void,
@@ -28,7 +69,7 @@ export function snapshotFrames(
     pending = [];
     // Fold once against React's actual current state. Pre-folding and then falling back to
     // committed state would erase an explicit handoff clear or a session boundary.
-    if (active && batch.length) publish((current) => batch.reduce(keepHandoff, current));
+    if (active && batch.length) publish((current) => withBatchProgress(batch).reduce(keepHandoff, current));
   };
   return {
     guard<Args extends unknown[]>(receive: (...args: Args) => void) {

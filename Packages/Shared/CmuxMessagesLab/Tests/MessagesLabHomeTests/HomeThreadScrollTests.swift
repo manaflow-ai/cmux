@@ -87,6 +87,35 @@ import Testing
         #expect(threadFrames(demo) == before, "a thread that fits does not move")
     }
 
+    /// Lawrence 2026-10-28 (nightly 3b5a2dd, a thread of a root and several Chief replies in a tall
+    /// pane): "unable to scroll down here". The view showed the root under the header and ran under
+    /// the field, and no wheel moved it. A thread that fits between the header and the field was
+    /// centered on a point 518 pt above the pane's bottom (the 1041 pt window's center), not on that
+    /// space: in a pane taller than the window, a thread taller than about 900 pt fit the space, had
+    /// no scroll range, and ended under the field. Every length, in a tall pane: the newest row
+    /// ends above the field, and the wheel reaches the root's top under the header.
+    @Test(arguments: stride(from: 20, through: 80, by: 4).map { $0 })
+    func aThreadInATallPaneShowsItsNewestRowAndScrollsToItsRoot(lines: Int) async throws {
+        let r = try await HomeChatRig(history: 4, height: 1300)
+        defer { r.stop() }
+        let text = (1...lines).map { "\(HomeChatRig.tag) line \($0) of a long report Hgjpqy" }.joined(separator: "\n")
+        await r.send(text)
+        for _ in 0..<4 { r.frame() }
+        try #require(r.view.debugReplyNewest(mine: true) != nil, "Reply… opened no view")
+        for _ in 0..<4 { r.frame() }
+        let demo = try #require(r.view.controller.demo)
+        try #require(demo.threadOpen && !demo.threadViews.isEmpty)
+        let top = Fixture.headerHeight, bottom = demo.fieldTop
+        let last = try #require(threadFrames(demo).last)
+        #expect(last.maxY <= bottom + 0.5, "\(lines) lines: the newest row ends above the field (was \(last.maxY), field top \(bottom))")
+
+        let scroll = r.view.controller.host.scrollView
+        for _ in 0..<200 { _ = scroll.routeThreadWheel(try wheel(40)) }
+        r.frame()
+        let first = try #require(threadFrames(demo).first)
+        #expect(first.minY >= top - 0.5, "\(lines) lines: the root's top shows below the header (was \(first.minY), header bottom \(top))")
+    }
+
     @Test func withNoThreadOpenTheTranscriptTakesTheWheel() async throws {
         let r = try await HomeChatRig(history: 4)
         defer { r.stop() }

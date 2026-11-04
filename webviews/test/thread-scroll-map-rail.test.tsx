@@ -104,12 +104,13 @@ const chat = (count: number) =>
     { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
   ]).flat();
 
-async function mount(prompts: number) {
+async function mount(prompts: number, props: { promptCount?: number; earlier?: AcpmuxRow[] } = {}) {
   const root = createRoot(document.getElementById("root")!);
   await act(async () =>
     root.render(
       <VirtualTranscript
         rows={turnView(chat(prompts), new Set())}
+        {...props}
         sessionId="scroll-map-test"
         onToggleActivity={() => {}}
         expanded={new Set()}
@@ -125,12 +126,16 @@ async function mount(prompts: number) {
   return { root, scroller, scrolled, unmount: () => act(async () => root.unmount()) };
 }
 
+/// One display frame, and what it commits.
+const frame = () => act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
 const ticks = () => [...document.querySelectorAll<HTMLElement>('.acpmux-scrollmap__mark[data-kind="user"]')];
 const tick = (index: number) => ticks()[index]!;
 const card = () => document.querySelector<HTMLElement>(".acpmux-minimap__card");
-/// The place of a mounted row in the thread: its `top` less the thread's 16 px top padding.
-const rowTop = (id: string) =>
-  Number.parseFloat(document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${id}"]`)!.style.top) - 16;
+/// The place of a mounted row in the thread: its CSS offset less the thread's 16 px top padding.
+const rowTop = (id: string) => {
+  const row = document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${id}"]`)!;
+  return Number.parseFloat(row.style.top) + (Number.parseFloat(row.style.marginTop) || 0) - 16;
+};
 /// Where a jump to turn `index` leaves the scroller: the prompt's bubble 35 px below the viewport
 /// top (the thread pads its rows 16 px down).
 const landing = (index: number) => {
@@ -173,11 +178,35 @@ test("focus opens the card at once; the arrows walk the prompts; Escape closes; 
     // Return on a button is its click: the transcript lands on the prompt.
     await act(async () => tick(7).click());
     await view.scrolled();
+    // The scroll's rows commit on the next display frame (scrollPacer.ts): read the landing after it.
+    await frame();
     expect(view.scroller.scrollTop).toBe(landing(7));
   } finally {
     await view.unmount();
   }
 });
+
+// The map draws the loaded turns, numbered from 0; the rail's turns start with the prompts the count or
+// the index names above them (model.ts pendingTurns, `earlier`). A click lands on its own prompt.
+for (const [name, props] of [
+  ["a count of prompts not held yet", { promptCount: 45 }],
+  [
+    "indexed earlier prompts",
+    { earlier: Array.from({ length: 33 }, (_, index) => row(`user-${index + 100}`, "user", `Earlier ${index}`)) },
+  ],
+] as const)
+  test(`a mark's click lands on its prompt with ${name} above the loaded ones`, async () => {
+    const view = await mount(12, props);
+    try {
+      expect(ticks()).toHaveLength(12);
+      await act(async () => tick(7).click());
+      await view.scrolled();
+      await frame();
+      expect(view.scroller.scrollTop).toBe(landing(7));
+    } finally {
+      await view.unmount();
+    }
+  });
 
 test("a focused prompt keeps its card when earlier turns arrive above it", async () => {
   const view = await mount(12);

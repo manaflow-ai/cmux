@@ -1,8 +1,10 @@
 // l10n-allow-file: test fixture prompts, not shipped UI.
-// Older turns fade in as the reader first sees them (cx-2lv1k): a page of older history lands above
-// the view while the reader scrolls up, and each of its rows fades in once, the first time it comes
-// into view at the top edge. The rows the chat opened with, rows already seen, and live rows (which
-// keep their own entrance) never take that fade, and Reduce Motion draws older rows in full ink at once.
+// Older turns draw in place (Leo 2026-10-31: "WE DON'T NEED A FADE IN ANIMATION UNLESS IT'S THE WORST
+// CASE" / "JUST BE MORE OPTIMISTIC"): pages of older history are asked for well ahead of the reader, so
+// scrolling up meets rows already there, with no fade. Only a page that comes late, landing while the
+// reader is already at the top of the loaded rows, fades in, each row once (cx-2lv1k). The rows the chat
+// opened with, rows already seen, and live rows (which keep their own entrance) never take that fade, and
+// Reduce Motion draws older rows in full ink at once.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -93,6 +95,8 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
   }
 
   let inflight = 0;
+  /// How long the daemon takes to answer a page of older history: slow, the reader reaches the top first.
+  let eventsDelay = 40;
   const sockets = new Set<{ send(data: string): void }>();
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -116,10 +120,13 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
           if (message.id === undefined) return;
           const result = answer(message.method, message.params ?? {});
           inflight++;
-          setTimeout(() => {
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
-            inflight--;
-          }, 40);
+          setTimeout(
+            () => {
+              ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+              inflight--;
+            },
+            message.method === "_acpmux/events" ? eventsDelay : 40,
+          );
         },
       },
     });
@@ -177,7 +184,10 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
         () => (window as unknown as { __rowAnimations: { id: string; text: string; name: string }[] }).__rowAnimations,
       )
     )
-      .filter((animation) => animation.name !== "cv-enter" && animation.name !== "cv-enter-fade")
+      .filter(
+        (animation) =>
+          animation.name !== "cv-enter" && animation.name !== "cv-enter-fade" && animation.name !== "cv-message-enter",
+      )
       .map(({ id, text }) => ({ id, text }));
   /// The turn a row belongs to, from its prompt or its answer (a "Worked for" footer has none).
   const turnOf = (text: string) => {
@@ -239,7 +249,7 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
     throw new Error(`never scrolled to a turn before ${turn}`);
   }
 
-  test("rows of an older page fade in once as they come into view; opened and live rows do not", async () => {
+  test("rows of an older page loaded ahead draw in place; opened and live rows do not fade", async () => {
     const page = await open("no-preference");
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
@@ -247,16 +257,12 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
     // Opening draws its rows in full ink: nothing fades.
     expect(await olderFades(page)).toEqual([]);
 
-    // Up through the rows the chat opened with and well into the older pages.
+    // Up through the rows the chat opened with and well into the older pages: each page was asked for
+    // ahead of the reader and landed before the reader got there, so none of its rows fades.
     const target = openedFrom - 20;
     await scrollUpTo(page, target);
     await animationsDone(page);
-    const fades = await olderFades(page);
-    const turns = fades.map((fade) => turnOf(fade.text)).filter((turn) => turn !== undefined);
-    // Rows from older pages faded as they came in, and only those.
-    expect(turns.some((turn) => turn < openedFrom)).toBe(true);
-    expect(turns.filter((turn) => turn >= openedFrom)).toEqual([]);
-    // The fade is opacity only, and settles to full ink.
+    expect(await olderFades(page)).toEqual([]);
     const settled = await page.evaluate(() => {
       const view = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
       return [...document.querySelectorAll<HTMLElement>(".acpmux-row")]
@@ -268,7 +274,7 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
     });
     expect(new Set(settled)).toEqual(new Set(["1"]));
 
-    // Down and back up over the same rows: each older row faded once, and does not again.
+    // Down and back up over the same rows: still nothing fades.
     for (let step = 0; step < 6; step++) {
       await page.mouse.wheel(0, 300);
       await settle(page);
@@ -278,20 +284,15 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
       await settle(page);
     }
     await animationsDone(page);
-    const again = await olderFades(page);
-    const ids = again.map((fade) => fade.id);
-    expect(ids.length - new Set(ids).size).toBe(0);
-    expect(again.length).toBe(new Set([...fades.map((fade) => fade.id), ...ids]).size);
+    expect(await olderFades(page)).toEqual([]);
 
     // Back at the latest message, a live turn arrives: it keeps its own entrance and never the older fade.
-    const before = (await olderFades(page)).length;
     await page.evaluate(() => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       node.scrollTop = node.scrollHeight;
     });
     await settle(page);
     await animationsDone(page);
-    const scrolledDown = (await olderFades(page)).length;
     const send = (dir: string, kind: string, msg: Record<string, unknown>) => {
       const event = record(dir, kind, msg);
       for (const socket of sockets)
@@ -303,9 +304,54 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
     send("mux", "turn_result", { status: "completed" });
     await page.getByText("Question live", { exact: true }).waitFor({ timeout: 10_000 });
     await animationsDone(page);
-    const live = (await olderFades(page)).slice(scrolledDown);
-    expect(live.filter((fade) => fade.text.includes("live") || fade.text.includes("Live"))).toEqual([]);
-    expect(scrolledDown).toBeGreaterThanOrEqual(before);
+    expect(await olderFades(page)).toEqual([]);
+    expect(errors).toEqual([]);
+    await page.close();
+  });
+
+  test("a page that comes late, with the reader at the top, fades in once; opened rows do not", async () => {
+    events.length = lastSeq;
+    const page = await open("no-preference");
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    expect(await olderFades(page)).toEqual([]);
+    // The daemon is slow now: the reader reaches the top of the loaded rows before the next page lands.
+    eventsDelay = 1500;
+    try {
+      await page.evaluate(() => {
+        document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 0;
+      });
+      await page.waitForFunction(
+        () =>
+          (window as unknown as { __rowAnimations: { name: string }[] }).__rowAnimations.some(
+            (animation) => animation.name === "acpmux-older-in",
+          ),
+        undefined,
+        { timeout: 20_000 },
+      );
+      await settle(page);
+      await animationsDone(page);
+    } finally {
+      eventsDelay = 40;
+    }
+    const fades = await olderFades(page);
+    const turns = fades.map((fade) => turnOf(fade.text)).filter((turn) => turn !== undefined);
+    // Rows of the late page faded in, and only rows older than the ones the chat opened with.
+    expect(turns.some((turn) => turn < openedFrom)).toBe(true);
+    expect(turns.filter((turn) => turn >= openedFrom)).toEqual([]);
+    // Each faded once, and settled to full ink.
+    const ids = fades.map((fade) => fade.id);
+    expect(ids.length - new Set(ids).size).toBe(0);
+    const settled = await page.evaluate(() => {
+      const view = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
+      return [...document.querySelectorAll<HTMLElement>(".acpmux-row")]
+        .filter((row) => {
+          const box = row.getBoundingClientRect();
+          return box.bottom > view.top + 40 && box.top < view.bottom;
+        })
+        .map((row) => getComputedStyle(row).opacity);
+    });
+    expect(new Set(settled)).toEqual(new Set(["1"]));
     expect(errors).toEqual([]);
     await page.close();
   });

@@ -83,13 +83,25 @@ function summarize(changes: Change[], language: string, unlisted = 0): UpdateSum
   return { rows, more: changes.length + unlisted - listed };
 }
 
-/** A build's reviewed changes: its What's New entries (not the ones made from summary lines) and
-    the highlights they do not carry. */
+/** The entry a build with nothing reviewed publishes in place of a What's New
+    (scripts/cmux-next/release-notes.py GENERIC_ENTRY): "Fixes and improvements", which says nothing
+    (Leo 2026-11-02, on the card reading "Improved: fixes and improvements"). It is not a change: the
+    card reads that build's own commits instead. */
+export const GENERIC_ENTRY_ID = "fixes-and-improvements";
+
+/** Whether `id`/`title` is the generic entry, by its id and its English title. */
+export function isGenericEntry(id: string, title: string): boolean {
+  return id === GENERIC_ENTRY_ID && tidyTitle(title).toLowerCase() === "fixes and improvements";
+}
+
+/** A build's reviewed changes: its What's New entries (not the ones made from summary lines, nor
+    the generic entry) and the highlights they do not carry. */
 function curatedChanges(notes: ReleaseNotes, language: string): Change[] {
   const changes: Change[] = [];
   const ids = new Set<string>();
   for (const entry of notes.whatsNew?.entries ?? []) {
     if (entry.id.startsWith("summary-")) continue;
+    if (isGenericEntry(entry.id, localized(entry.title, "en"))) continue;
     ids.add(entry.id);
     const title = tidyTitle(localized(entry.title, language));
     changes.push({ title, category: entry.category, area: areaOf(title) });
@@ -130,7 +142,7 @@ export function summarizeUpdate(notes: ReleaseNotes[], language: string): Update
 /** The summary of what the host sent for the installed build alone, when the span's notes did not
     load (an older host, offline): the same rows, from its already readable items. */
 export function summarizeHighlights(data: UpdateHighlights): UpdateSummary {
-  const items = [...data.items, ...(data.rest ?? [])];
+  const items = [...data.items, ...(data.rest ?? [])].filter((item) => !isGenericEntry(item.id, item.title));
   const changes = items.map((item) => ({ title: item.title, category: item.category, area: areaOf(item.title) }));
   return summarize(changes, data.language, Math.max(0, data.moreCount - (data.rest?.length ?? 0)));
 }

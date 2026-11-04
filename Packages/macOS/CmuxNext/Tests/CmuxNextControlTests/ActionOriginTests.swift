@@ -153,12 +153,14 @@ import Testing
         #expect(ran, "an in-app palette, menu, or keyboard run still reaches the handler")
     }
 
-    /// Raw browser page screenshots bypass the browser host's guarded capture,
-    /// which masks secrets in every frame, so automation must use the browser
-    /// REPL instead of the generic action socket. Design mode also snapshots
-    /// selected page regions into a composer, so only a person may enable that
-    /// capture path.
-    @Test func browserScreenshotsAreRefusedOverTheSocket() async {
+    /// Raw page captures give a browser page's own pixels. Automation must use
+    /// the browser host's guarded capture, which masks secrets in every frame,
+    /// instead of bypassing it through the generic action socket. Design mode
+    /// also snapshots selected page regions into a composer, so only a person
+    /// may enable that capture path. Window, pane and tab screenshots run for
+    /// automation with every page masked
+    /// (``windowPaneAndTabScreenshotsRunOverTheSocketAsAutomation()``).
+    @Test func rawPageCapturesAreRefusedOverTheSocket() async {
         let registry = ActionRegistry.standard()
         registry.context = [.browserFocused, .webViewFocused]
         let ids: [ActionID] = [
@@ -184,31 +186,38 @@ import Testing
         for id in ids { #expect(registry.descriptor(for: id)?.isPersonOnly == true) }
     }
 
-    /// An agent sees the app: `cmux window|pane|tab screenshot` run for every
-    /// caller (Leo 2026-10-21: "cmux only lets a person run the window
-    /// screenshot action. doesnt seem right"). An automation run's image has
-    /// every web page the app does not own painted over
-    /// (`ScreenshotPrivacyMask`), so it shows no browser pixels.
-    @Test func appScreenshotsRunForEveryCaller() async throws {
+    /// An agent's or a script's window, pane or tab screenshot runs (Leo 2026-10-21: agents
+    /// need before/after captures of the real app) and reaches the handler marked as a socket
+    /// run, whatever origin it claims, `user` included: the handler then masks every browser
+    /// page and chat (ActionInvocation.isPersonsOwnRun, MaskedScreenshotTests in the app tests).
+    /// Only a run from inside the app is unmarked.
+    @Test func windowPaneAndTabScreenshotsRunOverTheSocketAsAutomation() async throws {
         let registry = ActionRegistry.standard()
+        registry.context = [.browserFocused, .webViewFocused]
         let ids: [ActionID] = ["window.screenshot", "pane.screenshot", "tab.screenshot"]
-        var ran: [(ActionID, ActionOrigin)] = []
-        for id in ids { registry.bind(id, invoke: { ran.append((id, $0.origin)) }) }
+        var runs: [(ActionID, ActionInvocation)] = []
+        for id in ids { registry.bind(id, invoke: { runs.append((id, $0)) }) }
         let router = ControlRouter(identity: testIdentity(), executor: RegistryControlBridge(registry: registry), settings: nil,
                                    configuration: .loadTolerant)
         router.updateCatalog(RegistryControlBridge.catalog(from: registry))
 
+        let origins: [JSONValue] = ["user", "cli", "mcp", "script", .null]
         for id in ids {
             #expect(registry.descriptor(for: id)?.isPersonOnly == false, "\(id)")
-            for origin: JSONValue in ["cli", "mcp", "script", .null] {
+            for origin in origins {
                 let result = await router.handle(ControlRequest(method: "action.run", params: [
                     "action": .string(id.rawValue), "origin": origin,
                 ]))
-                #expect((try? result.get()) != nil, "\(id) from \(origin): \(result)")
+                _ = try result.get()
             }
         }
-        #expect(ran.count == ids.count * 4)
-        #expect(ran.allSatisfy { $0.1 != .user }, "an automation run is never the person's, so its image is masked")
+        #expect(runs.map { $0.0 } == ids.flatMap { Array(repeating: $0, count: origins.count) })
+        #expect(runs.allSatisfy { $0.1.viaControlSocket }, "every socket run is marked, a claimed user origin included")
+        #expect(runs.contains { $0.1.origin == .user }, "the claim itself still reaches the handler")
+
+        runs.removeAll()
+        #expect(registry.perform("window.screenshot", invocation: ActionInvocation()))
+        #expect(runs.first?.1.viaControlSocket == false, "a palette, menu or keyboard run is the person's own")
     }
 
     @Test func toolPermissionActionsRequireAPersonInTheApp() async {

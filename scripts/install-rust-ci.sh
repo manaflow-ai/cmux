@@ -21,14 +21,16 @@ if ! rustup show active-toolchain >/dev/null 2>&1; then
   rustup default stable
 fi
 
-rustup target add aarch64-apple-darwin x86_64-apple-darwin
+# shellcheck source=scripts/lib/rust-targets.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/rust-targets.sh"
+ensure_rust_targets aarch64-apple-darwin x86_64-apple-darwin
 cargo --version
 rustc --version
 
 if [ -f Native/DiffSidecar/rust-toolchain.toml ]; then
   DIFF_RUST_TOOLCHAIN="$(awk -F '"' '/^[[:space:]]*channel[[:space:]]*=/{print $2; exit}' Native/DiffSidecar/rust-toolchain.toml)"
   rustup toolchain install "$DIFF_RUST_TOOLCHAIN" --profile minimal --component clippy,rustfmt
-  rustup target add --toolchain "$DIFF_RUST_TOOLCHAIN" aarch64-apple-darwin x86_64-apple-darwin
+  ensure_rust_targets --toolchain "$DIFF_RUST_TOOLCHAIN" aarch64-apple-darwin x86_64-apple-darwin
   rustup run "$DIFF_RUST_TOOLCHAIN" cargo --version
   rustup run "$DIFF_RUST_TOOLCHAIN" rustc --version
 fi

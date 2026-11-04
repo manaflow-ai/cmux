@@ -1,7 +1,7 @@
 // The code editor page's commands (diff-host S7); the markdown page's are in
 // MarkdownPageActionCatalog. The page reads no chord: the one key dispatcher runs these while the
 // page has the keyboard (`codeEditorFocused`, the trunk's rule: the focused page is `cmux.editor`) and the app sends the page command. The editor also
-// takes the shared find actions and `saveFilePreview` / `toggleFileEditorWordWrap`.
+// takes the shared find actions and `saveFilePreview` / `toggleFileEditorWordWrap` / `toggleFileEditorMinimap`.
 
 nonisolated enum FilePageActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
@@ -60,6 +60,17 @@ nonisolated enum FilePageActionCatalog: ActionCatalogGroup {
                 cliName: "settings import-editor-settings",
                 // App-wide like the other headless settings verbs: nothing to right-click.
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            // R96: the recovered drafts of unsaved files (a quit, crash or power-off) after the
+            // launch notice has shown once; Return opens the chosen one as unsaved changes, as the
+            // notice's Open does.
+            ActionDescriptor(
+                id: "file.openRecoveredDraft",
+                title: String(localized: "action.file.openRecoveredDraft", defaultValue: "Open Recovered Draft…", bundle: .module),
+                keywords: ["file", "editor", "recover", "recovered", "draft", "unsaved", "crash", "restore"],
+                category: .pane, symbol: "doc.badge.clock", surfaces: [.palette], cliName: "file open-recovered-draft",
+                // A palette page of drafts to pick from; scripts read the drafts with debug.filepages.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
         ]
     }

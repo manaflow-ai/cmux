@@ -170,3 +170,168 @@ fn own_servers_run_under_the_daemon_prefix() {
     assert!(names.iter().any(|n| n == crate::subsession_mcp::SERVER_NAME), "{names:?}");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A launch without servers removes the last launch's MCP config, so the background-shell hook
+/// (`bg_hook.rs`) never points the agent at a `bg_start` it no longer has, and every launch drops
+/// the calls the hook turned away under the last one.
+#[test]
+fn a_launch_without_servers_removes_the_last_mcp_config() {
+    let root = std::env::temp_dir().join(format!("acpmux-stale-mcp-{}", uuid::Uuid::now_v7()));
+    let file = root.join("s.json");
+    let mut with = super::AgentTools::default();
+    with.servers.push(super::McpServer {
+        name: crate::acpmux_mcp::SERVER_NAME.to_owned(),
+        command: "acpmux".into(),
+        args: vec![],
+        env: vec![],
+    });
+    assert!(with.claude_args(&file).contains(&"--mcp-config".to_owned()));
+    assert!(file.is_file());
+    // A call the hook turned away under the last launch is no retry under the next.
+    let denied = crate::bg_hook::denied_path(&file);
+    std::fs::write(&denied, "a-hash\n").unwrap();
+    with.claude_args(&file);
+    assert!(!denied.exists(), "a launch kept the last launch's turned-away calls");
+    let args = super::AgentTools::default().claude_args(&file);
+    assert!(!args.contains(&"--mcp-config".to_owned()), "{args:?}");
+    assert!(!file.exists(), "the last launch's config stayed for the hook to read");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn cloud_repo_tools_receive_complete_protected_caller_identity() {
+    let tools = super::AgentTools {
+        servers: vec![super::McpServer {
+            name: crate::cloud_repo_mcp::SERVER_NAME.to_owned(),
+            command: "/bin/acpmux".into(),
+            args: vec!["repo-mcp".into()],
+            env: vec![
+                ("ACPMUX_SESSION_ID".into(), "foreign".into()),
+                ("CMUX_BIN".into(), "/bin/cmux".into()),
+            ],
+        }],
+        ..Default::default()
+    }
+    .for_session("own-chat");
+    let env: std::collections::HashMap<_, _> = tools.servers[0].env.iter().cloned().collect();
+    assert_eq!(env["ACPMUX_SESSION_ID"], "own-chat");
+    assert_eq!(env[crate::cloud_repo_mcp::SESSION_ENV], "own-chat");
+    assert_eq!(
+        env[crate::hub::person::CALLER_TOKEN_ENV],
+        crate::hub::person::caller_token("own-chat")
+    );
+    assert_eq!(env[crate::hub::person::CALLER_SOCKET_ENV], env["ACPMUX_SOCKET"]);
+    assert_eq!(env["CMUX_BIN"], "/bin/cmux");
+}
+
+/// The session's tool allowlist reaches the `acpmux` server as well as `cmux`, so with
+/// no `cmux` to fold into (cmux.json turns MCP off) the standalone server still filters
+/// its own tools, after `for_session` too (#30082 review).
+#[test]
+fn a_tool_allowlist_reaches_a_standalone_acpmux_server() {
+    let server = |name: &str| super::McpServer {
+        name: name.to_owned(),
+        command: "x".into(),
+        args: vec![],
+        env: vec![],
+    };
+    let tools = super::AgentTools {
+        servers: vec![server(crate::acpmux_mcp::SERVER_NAME), server("cmux-cua")],
+        ..Default::default()
+    };
+    let env = std::collections::BTreeMap::from([
+        (super::SERVERS_ENV.to_owned(), "cmux,acpmux".to_owned()),
+        (super::MCP_TOOLS_ENV.to_owned(), super::CHIEF_TURN_TOOLS.to_owned()),
+    ]);
+    // As production builds them: `for_session` resets the server's env to its credentials.
+    let folded = tools.scoped(&env).for_session("s-allowlist").folded();
+    assert_eq!(folded.servers.len(), 1, "{:?}", folded.servers);
+    let acpmux = &folded.servers[0];
+    assert_eq!(acpmux.name, crate::acpmux_mcp::SERVER_NAME);
+    assert!(
+        acpmux.env.iter().any(|(k, v)| k == super::MCP_TOOLS_ENV && v == super::CHIEF_TURN_TOOLS),
+        "{:?}",
+        acpmux.env
+    );
+}
+
+/// A hook binary that does not know `__bg-hook` never blocks the chat's Bash calls: as the cmux
+/// CLI does (gcp-codex-swarm-09, 2026-11-02), the bare command refuses with exit 2, which Claude
+/// Code takes as "block this call", and the plugin's command runs the call instead. A deny the
+/// hook prints still reaches Claude Code.
+#[test]
+fn a_hook_binary_that_does_not_know_the_hook_lets_the_call_run() {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-hook-skew-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let script = |name: &str, body: &str| {
+        let path = root.join(name);
+        std::fs::write(&path, format!("#!/bin/sh\ncat >/dev/null\n{body}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path.to_string_lossy().into_owned()
+    };
+    let run = |command: &str| {
+        let mut child = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(command)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        // A binary that is gone never reads its input: the write may fail with a broken pipe.
+        let _ = child.stdin.take().unwrap().write_all(br#"{"tool_name":"Bash"}"#);
+        child.wait_with_output().unwrap()
+    };
+    let words = |exe: String| vec![exe, crate::bg_hook::HOOK_ARG.to_owned(), "/h".to_owned()];
+    let old =
+        words(script("cmux", r#"echo 'cmux: unknown resource scope "__bg-hook".' >&2; exit 2"#));
+    let bare: Vec<String> = old.iter().map(|w| format!("'{w}'")).collect();
+    assert_eq!(run(&bare.join(" ")).status.code(), Some(2), "the skew this guards against");
+    let out = run(&super::hook_command(&old));
+    assert!(out.status.success(), "a refusing hook binary blocked the call: {out:?}");
+    // A binary that is gone does not block either.
+    let gone = words(root.join("gone").to_string_lossy().into_owned());
+    assert!(run(&super::hook_command(&gone)).status.success());
+    // The hook's own answer still gets through.
+    let deny = words(script("acpmux", r#"echo '{"deny":true}'"#));
+    let out = run(&super::hook_command(&deny));
+    assert!(out.status.success());
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), r#"{"deny":true}"#);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// `github_status` lives in the `acpmux` server, which every harness gets the same way: Claude
+/// Code in its `--mcp-config`, every ACP harness (Codex, OpenCode, Gemini, pi) in `mcpServers`,
+/// and, folded behind `cmux`, in its upstreams.
+#[test]
+fn the_github_status_server_reaches_every_harness_kind() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-gh-status-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let inputs = super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new(
+            std::path::PathBuf::from("/usr/local/bin/acpmux"),
+            vec![],
+        )),
+        ..memory_inputs(&root, None)
+    };
+    let tools = super::resolve(&inputs).for_session("s1");
+    let acpmux = crate::acpmux_mcp::SERVER_NAME;
+    let acp = tools.acp_servers();
+    let entry = acp.as_array().unwrap().iter().find(|s| s["name"] == acpmux).unwrap();
+    assert_eq!(entry["args"], serde_json::json!(["acpmux-mcp"]));
+    let claude = tools.mcp_config().unwrap();
+    assert_eq!(claude["mcpServers"][acpmux]["args"], serde_json::json!(["acpmux-mcp"]));
+    // With the cmux server, the acpmux server is one of its upstreams.
+    let cmux = root.join("cmux");
+    std::fs::write(&cmux, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let folded = super::resolve(&inputs).for_session("s1").folded();
+    let upstreams =
+        &folded.servers[0].env.iter().find(|(k, _)| k == super::UPSTREAMS_ENV).unwrap().1;
+    let upstreams: serde_json::Value = serde_json::from_str(upstreams).unwrap();
+    assert!(upstreams.as_array().unwrap().iter().any(|s| s["name"] == acpmux), "{upstreams}");
+    let _ = std::fs::remove_dir_all(&root);
+}

@@ -29,6 +29,7 @@ fn launch_env_keeps_only_named_keys() {
     let env = [
         ("CMUX_SOCKET_PATH", "/tmp/app.sock"),
         ("COLORTERM", "truecolor"),
+        ("TERM_PROGRAM_VERSION", "1.3.2"),
         ("CMUX_API_TOKEN", "secret"),
         ("CMUX_SURFACE_ID", "surface"),
         ("PATH", "/usr/bin"),
@@ -86,7 +87,7 @@ fn replay_drops_a_gone_directory_and_a_term_without_its_terminfo() {
         "cwd": "/nonexistent/relaunch-replay",
         "relaunch": {"env": {
             "TERM": "xterm-ghostty", "TERMINFO": "/nonexistent/terminfo",
-            "COLORTERM": "truecolor", "CMUX_API_TOKEN": "secret",
+            "COLORTERM": "truecolor", "TERM_PROGRAM_VERSION": "1.3.2", "CMUX_API_TOKEN": "secret",
         }},
     });
     let (cwd, env) = replay(&tab);

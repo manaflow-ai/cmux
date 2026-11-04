@@ -14,6 +14,40 @@ public nonisolated struct AgentPaneUploadBatchEntry: Sendable, Equatable {
     }
 }
 
+/// A gesture authorizes an ordered batch. A live stage retains that authorization through both
+/// local staging and remote transfer; only an ownerless batch has an abandonment deadline.
+package nonisolated struct AgentPaneUploadBatch: Sendable {
+    private var remaining: [AgentPaneUploadBatchEntry]
+    private var owners: Set<String> = []
+    private var expires: Date
+    package static let lifetime: TimeInterval = 10 * 60
+
+    package init(_ manifest: [AgentPaneUploadBatchEntry], now: Date = Date()) {
+        remaining = manifest
+        expires = now.addingTimeInterval(Self.lifetime)
+    }
+
+    package var abandonmentDeadline: Date? { owners.isEmpty ? expires : nil }
+    package var isComplete: Bool { remaining.isEmpty && owners.isEmpty }
+    package func isAlive(at now: Date = Date()) -> Bool { !owners.isEmpty || expires > now }
+    package func accepts(name: String, size: Int, at now: Date = Date()) -> Bool {
+        isAlive(at: now) && remaining.first == AgentPaneUploadBatchEntry(name: name, size: size)
+    }
+
+    @discardableResult
+    package mutating func begin(name: String, size: Int, stage: String, at now: Date = Date()) -> Bool {
+        guard accepts(name: name, size: size, at: now), !owners.contains(stage) else { return false }
+        remaining.removeFirst()
+        owners.insert(stage)
+        return true
+    }
+
+    package mutating func release(stage: String, at now: Date = Date()) {
+        guard owners.remove(stage) != nil, owners.isEmpty else { return }
+        expires = now.addingTimeInterval(Self.lifetime)
+    }
+}
+
 public nonisolated enum AgentPaneUploadStageRequest: Sendable, Equatable {
     case begin(name: String, size: Int, batchToken: String?, batch: [AgentPaneUploadBatchEntry]?)
     case chunk(token: String, offset: Int, data: Data)
@@ -42,27 +76,17 @@ public nonisolated struct AgentPaneUpload: Sendable, Equatable, CustomStringConv
     public var debugDescription: String { description }
     public var customMirror: Mirror { Mirror(self, children: [:]) }
 
-    /// Local and peer transports stream the bytes in bounded chunks. One GiB is also the native
-    /// daemon's abuse guard; Cloud uploads keep their smaller policy in ``CloudUploads``.
-    public static let maximumFileBytes = 1 * 1024 * 1024 * 1024
-    public static let maximumTotalBytes = 1 * 1024 * 1024 * 1024
-    public static let maximumPeerFileBytes = maximumFileBytes
-
     /// The files of `chat.upload`'s params, nil when they break the contract: one or more files,
-    /// each with a name a folder holds as one file and base64 bytes, at most
-    /// ``maximumFileBytes`` each and ``maximumTotalBytes`` in all.
+    /// each with a name a folder holds as one file and base64 bytes, of any size. This one-frame
+    /// upload is the older page's; the page streams a file of any size through the staged upload
+    /// (``AgentPaneUploadStageRequest``) instead.
     static func files(_ params: [String: Any]?) -> [AgentPaneUpload]? {
         guard let params, Set(params.keys) == ["files"], let list = params["files"] as? [[String: Any]],
               !list.isEmpty else { return nil }
         var files: [AgentPaneUpload] = []
-        var total = 0
         for item in list {
             guard Set(item.keys) == ["name", "data"], let name = item["name"] as? String, isFileName(name),
-                  let text = item["data"] as? String, text.utf8.count <= (maximumFileBytes / 3 + 1) * 4,
-                  let data = Data(base64Encoded: text), data.count <= maximumFileBytes else { return nil }
-            let (sum, overflow) = total.addingReportingOverflow(data.count)
-            total = overflow ? Int.max : sum
-            guard total <= maximumTotalBytes else { return nil }
+                  let text = item["data"] as? String, let data = Data(base64Encoded: text) else { return nil }
             files.append(AgentPaneUpload(name: name, data: data))
         }
         return files

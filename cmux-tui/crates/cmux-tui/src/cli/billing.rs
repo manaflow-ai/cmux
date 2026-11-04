@@ -34,9 +34,11 @@ pub(super) enum Verb {
     Portal { team: Option<String>, open: OpenMode },
 }
 
-/// The plans cmux-next sells. Go stays a classic plan.
+/// The plans cmux-next sells, the same Stripe products classic sells.
+/// Plus keeps web billing's historical plan id `go`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Plan {
+    Plus,
     Pro,
     Max,
     Team,
@@ -45,6 +47,7 @@ pub(super) enum Plan {
 impl Plan {
     fn id(self) -> &'static str {
         match self {
+            Plan::Plus => "go",
             Plan::Pro => "pro",
             Plan::Max => "max",
             Plan::Team => "team",
@@ -107,6 +110,7 @@ pub(super) fn parse(rest: &[String]) -> Result<Invocation, UsageError> {
             let options = Options::parse(tail)?;
             options.no_positionals("billing checkout")?;
             let plan = match options.plan.as_deref().unwrap_or("pro") {
+                "plus" | "go" => Plan::Plus,
                 "pro" => Plan::Pro,
                 "max" => Plan::Max,
                 "team" => Plan::Team,
@@ -206,7 +210,7 @@ fn plan_name(id: &str) -> String {
         "pro" => "Pro".into(),
         "max" => "Max".into(),
         "team" => "Team".into(),
-        "go" => "Go".into(),
+        "go" | "plus" => "Plus".into(),
         other => other.to_owned(),
     }
 }

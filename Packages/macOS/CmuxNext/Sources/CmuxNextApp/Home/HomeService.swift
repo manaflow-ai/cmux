@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHome
@@ -32,11 +33,13 @@ final class HomeService {
     /// While a Chief turn waits for the compactor (ChiefSettleWatch).
     var settleNotice: String?
     @ObservationIgnored var settleWatch: ChiefSettleWatch?
-    /// While the person's last message to this Mac's Chief has had no reply for two minutes
-    /// (ChiefReplyWatchdog).
+    /// While the person's last message to this Mac's Chief has waited two minutes with the
+    /// Chief's brain not running (ChiefReplyWatchdog).
     var replyNotice: String?
     @ObservationIgnored private var replyWatch: Task<Void, Never>?
     @ObservationIgnored private let replyTimer = DemandTimer(owner: "HomeService.replyWatchdog")
+    /// Chief's first-launch welcome (ChiefWelcome), played once for the app's life.
+    @ObservationIgnored let chiefWelcome = ChiefWelcomePlayer()
     /// The Chief home's conversation owner serves `local-conversations-v1`.
     var isAvailable: Bool { chief.supports(DaemonCapability.localConversations.rawValue) }
     /// The owner answered and its build is too old: Home shows why only then.
@@ -95,8 +98,13 @@ final class HomeService {
     @ObservationIgnored let debugHostViews = NSHashTable<HomeHostView>.weakObjects()
     #endif
     /// The cloud Chief whose main conversation is the Chief tab, or nil (the local Chief, also
-    /// whenever it is the default Chief: ``prefersLocalChief``).
-    var cloudChief: CloudChief? { prefersLocalChief ? nil : tabChiefs.shown(choice: hostedChief.choice) }
+    /// whenever it is the default Chief: ``prefersLocalChief``). After a teleport to cmux Cloud, the
+    /// Chief it moved into when the tab's two cloud Chiefs include it (HomeService+ChiefRoster).
+    var cloudChief: CloudChief? {
+        guard !prefersLocalChief else { return nil }
+        if let followed = chiefFollow.conversation, let chief = tabChiefs.chief(for: followed) { return chief }
+        return tabChiefs.shown(choice: hostedChief.choice)
+    }
     /// This Mac's optchat-chief held the Chief home's lock at the last Chief tab check (HomeService+ChiefDefault).
     var localChiefRunning = false
     /// How many reads of that lock have started, and the newest one that published its answer, so
@@ -109,8 +117,15 @@ final class HomeService {
     /// The one-time copy of this Mac's Chief into the Hosted Chief and its brain check (HomeService+HostedChief).
     @ObservationIgnored let hostedChief = HostedChiefMigration()
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
+    /// Re-runs the Chief tab check when this Mac's Chief teleports or comes back (HomeService+ChiefRoster).
+    @ObservationIgnored var chiefTeleportObservation: Task<Void, Never>?
+    /// The Chief conversations Home followed a teleported Chief to this launch, whose tabs give way
+    /// to the Chief's next place (HomeService+ChiefRoster).
+    @ObservationIgnored var followedChiefConversations: Set<String> = []
     /// Re-runs the Chief tab check when Settings > Chief's Engine changes (HomeService+ChiefDefault).
     @ObservationIgnored var chiefEngineObservation: Task<Void, Never>?
+    /// Shows the Feed's notices in the default Chief's transcript (HomeService+ChiefRoster).
+    @ObservationIgnored var feedRowsObservation: Task<Void, Never>?
     /// The latest brain start or death's tab check (HomeService+ChiefRoster); a newer one wins.
     @ObservationIgnored var chiefHostChange: Task<Void, Never>?
     /// The shared Home core over the local owner (home-mac.md): the native
@@ -166,16 +181,27 @@ final class HomeService {
             guard let feed = self?.services.feed else { throw FeedServiceError.signedOut }
             return try await feed.call(path, body, team: team)
         },
+        activeTeam: { [weak self] in self?.activeWorkerTeam },
         me: { [weak self] in
             guard let auth = self?.services.cloud.auth, let id = auth.user?.id else { return nil }
             return CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: id)
         })
+    /// The active team (`ActiveTeam`, Switch Active Team) as the Worker names it: Home lists its people only.
+    var activeWorkerTeam: String? {
+        let auth = services.cloud.auth
+        guard auth.isSignedIn, let team = auth.activeTeam.id else { return nil }
+        return CloudIdentity.workerTeamID(stackProjectID: auth.configuration.stackProjectID, stackTeamID: team)
+    }
     /// Hide Alerts for the group actions (`groupActions`): a sidebar source over the same owners
     /// as every Home list, so a mute from the palette or the CLI reaches the row's owner.
     @ObservationIgnored private(set) lazy var groupMuting = makeSidebarSource()
     /// A conversation the Home page selects once the inbox lists it (a new
     /// Chief's main conversation, a DM opened from the CLI).
     var pendingSelection: ConversationID?
+    /// Each chat's own bubble colours (Chat Colors…, `home.chatColors`), kept on this Mac.
+    @ObservationIgnored let chatColors = HomeChatColorStore(defaults: .standard)
+    /// The Chat Colors… panel (one for the app).
+    @ObservationIgnored private(set) lazy var chatColorsPanel = HomeChatColorsPanel(store: chatColors, design: .shared)
     @ObservationIgnored var cloudLinker: HomeCloudLink?
     /// Each conversation tab's view, by tab id; released with the tab.
     @ObservationIgnored var tabViews: [String: HomeHostView] = [:]
@@ -227,6 +253,15 @@ final class HomeService {
             }
         }
         observeChiefEngine()
+        observeChiefTeleport()
+        observeFeedRows()
+        // The active team behind the list's teammate rows and New Message's To:, read again once
+        // the launch restore signs in, on another account, on another active team, and when the
+        // account's teams change.
+        directory.follow { [weak auth] in
+            guard let auth, auth.isSignedIn, let user = auth.user?.id else { return nil }
+            return user + "|" + (auth.activeTeam.id ?? "") + "|" + auth.activeTeam.teams.map(\.id).sorted().joined(separator: ",")
+        }
         startCloud()
         // task-owner: lives as long as the service; event-driven (Observation)
         homeStore.start()
@@ -234,7 +269,7 @@ final class HomeService {
         availability = Task { [weak self] in
             for await connection in ObservationStream({ chief.supports(DaemonCapability.localConversations.rawValue) ? chief.connection : nil }) {
                 guard let self else { continue }
-                homeSource.connectionChanged(connection)
+                homeSource.connectionChanged(connection, chiefHome: chief.home)
                 homeInbox.connectionChanged(connection)
                 guard let connection else { continue }
                 reloadList(connection)
@@ -433,8 +468,8 @@ final class HomeService {
 
 extension HomeService {
     /// Follows the local Chief conversation's head: when the person's last message has had no
-    /// reply for `ChiefReplyWatchdog.limit`, the notice row says so, and it counts the minutes
-    /// until a reply lands. One timer at a time, armed for the next change; no polling.
+    /// reply for `ChiefReplyWatchdog.limit` and the Chief's brain is not running, the notice row
+    /// says so until a reply lands. One timer at a time, armed for the next change; no polling.
     fileprivate func watchReplies() {
         // task-owner: lives as long as the service; event-driven (Observation)
         replyWatch = Task { [weak self] in
@@ -448,7 +483,7 @@ extension HomeService {
     private func armReplyTimer(_ head: CmuxNextDaemon.ConversationSummary?) {
         replyTimer.cancel()
         let now = Date()
-        let notice = head.flatMap { ChiefReplyWatchdog.notice($0, now: now) }
+        let notice = head.flatMap { ChiefReplyWatchdog.notice($0, now: now, brainRunning: brain.isRunning) }
         if replyNotice != notice { replyNotice = notice }
         guard let head, let next = ChiefReplyWatchdog.nextCheck(head, now: now) else { return }
         // One deadline: when the notice appears or its minute count changes; the next head resets it.

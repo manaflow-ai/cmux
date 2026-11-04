@@ -36,10 +36,11 @@ class DynamicResource : public CefResourceHandler {
   void GetResponseHeaders(CefRefPtr<CefResponse> response, int64_t& response_length, CefString&) override {
     std::lock_guard<std::mutex> lock(mutex_);
     response->SetStatus(status_);
-    response->SetStatusText(status_ == 200 ? "OK" : "Not Found");
+    response->SetStatusText(PageStatusText(status_));
     response->SetMimeType(mime_);
     CefResponse::HeaderMap headers;
     for (auto& [name, value] : PageResponseHeaders(csp_)) headers.emplace(name, value);
+    for (auto& [name, value] : range_headers_) headers.emplace(name, value);
     headers.emplace("Cache-Control", "no-store");
     response->SetHeaderMap(headers);
     response_length = static_cast<int64_t>(body_.size());
@@ -61,7 +62,7 @@ class DynamicResource : public CefResourceHandler {
 
   // The page host's answer (main thread). False when the request already
   // ended (cancelled) or was answered.
-  bool Respond(int status, std::string mime, std::string body) {
+  bool Respond(int status, std::string mime, std::string body, std::string range_headers = "") {
     CefRefPtr<CefCallback> callback;
     {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -70,6 +71,7 @@ class DynamicResource : public CefResourceHandler {
       status_ = status;
       mime_ = mime.empty() ? "application/octet-stream" : std::move(mime);
       body_ = std::move(body);
+      range_headers_ = PageRangeHeaders(range_headers);
       callback = callback_;
       callback_ = nullptr;
     }
@@ -91,6 +93,7 @@ class DynamicResource : public CefResourceHandler {
   int status_ = 404;
   std::string mime_ = "text/plain";
   std::string body_;
+  std::vector<std::pair<std::string, std::string>> range_headers_;
   size_t offset_ = 0;
   IMPLEMENT_REFCOUNTING(DynamicResource);
 };
@@ -116,19 +119,22 @@ int NextToken() {
 
 class EmitResourceTask : public CefTask {
  public:
-  EmitResourceTask(int token, int browser_id, std::string url)
-      : token_(token), browser_id_(browser_id), url_(std::move(url)) {}
-  void Execute() override { Emit(CMUX_SHIM_PAGE_RESOURCE, browser_id_, token_, 0, 0, url_); }
+  EmitResourceTask(int token, int browser_id, std::string url, std::string range)
+      : token_(token), browser_id_(browser_id), url_(std::move(url)), range_(std::move(range)) {}
+  void Execute() override { Emit(CMUX_SHIM_PAGE_RESOURCE, browser_id_, token_, 0, 0, url_, range_); }
 
  private:
   const int token_;
   const int browser_id_;
   const std::string url_;
+  const std::string range_;
   IMPLEMENT_REFCOUNTING(EmitResourceTask);
 };
 
-bool DynamicResource::Open(CefRefPtr<CefRequest>, bool& handle_request, CefRefPtr<CefCallback> callback) {
+bool DynamicResource::Open(CefRefPtr<CefRequest> request, bool& handle_request, CefRefPtr<CefCallback> callback) {
   handle_request = false;
+  // A <video> asks for one byte range at a time; the page host answers it (206).
+  const std::string range = request ? request->GetHeaderByName("Range").ToString() : std::string();
   {
     std::lock_guard<std::mutex> lock(mutex_);
     callback_ = callback;
@@ -137,7 +143,7 @@ bool DynamicResource::Open(CefRefPtr<CefRequest>, bool& handle_request, CefRefPt
     std::lock_guard<std::mutex> lock(pending_mutex());
     pending()[token_] = this;
   }
-  CefPostTask(TID_UI, new EmitResourceTask(token_, browser_id_, url_));
+  CefPostTask(TID_UI, new EmitResourceTask(token_, browser_id_, url_, range));
   return true;
 }
 
@@ -166,6 +172,21 @@ class PageFactory : public CefSchemeHandlerFactory {
     if (frame) {
       frame_url = frame->GetURL().ToString();
       if (CefRefPtr<CefFrame> parent = frame->GetParent()) parent_url = parent->GetURL().ToString();
+    }
+    const std::string url = request->GetURL().ToString();
+    if (IsArtifactFrameURL(url)) {
+      if (domain_ != "cmux.agent" || request->GetMethod().ToString() != "GET" ||
+          request->GetResourceType() != RT_SUB_FRAME ||
+          ArtifactNavigationRefused(main_frame, frame_url, parent_url, url)) {
+        static char kBody[] = "Forbidden";
+        return Respond(403, "Forbidden", "text/plain", Headers(), kBody, sizeof(kBody) - 1);
+      }
+      CefResponse::HeaderMap headers;
+      headers.emplace("Content-Security-Policy", kArtifactCSP);
+      headers.emplace("Cache-Control", "no-store");
+      headers.emplace("X-Content-Type-Options", "nosniff");
+      headers.emplace("Referrer-Policy", "no-referrer");
+      return Respond(200, "OK", "text/html", headers, kArtifactDocument, sizeof(kArtifactDocument) - 1);
     }
     if (!PageRequestAllowed(main_frame, frame_url, parent_url, domain_)) {
       static char kBody[] = "Forbidden";
@@ -323,6 +344,21 @@ int cmux_shim_page_resource_respond(int token, int status, const char* mime, con
   std::string bytes;
   if (body && length > 0) bytes.assign(static_cast<const char*>(body), length);
   return resource->Respond(status, mime ? mime : "", std::move(bytes)) ? 1 : 0;
+}
+
+int cmux_shim_page_resource_respond_ranged(int token, int status, const char* mime, const char* range_headers,
+                                           const void* body, size_t length) {
+  CefRefPtr<DynamicResource> resource;
+  {
+    std::lock_guard<std::mutex> lock(pending_mutex());
+    auto found = pending().find(token);
+    if (found == pending().end()) return 0;
+    resource = found->second;
+    pending().erase(found);
+  }
+  std::string bytes;
+  if (body && length > 0) bytes.assign(static_cast<const char*>(body), length);
+  return resource->Respond(status, mime ? mime : "", std::move(bytes), range_headers ? range_headers : "") ? 1 : 0;
 }
 
 }  // extern "C"

@@ -4,10 +4,9 @@ import UniformTypeIdentifiers
 /// A clipboard image pasted into a terminal, as in the shipping cmux: when the
 /// clipboard holds an image and no text, the image is written to a temporary
 /// file and its shell-escaped path is pasted, so an agent (Claude Code, Codex)
-/// or a shell receives the picture as a file.
+/// or a shell receives the picture as a file. Images of any size are saved:
+/// attachments have no size cap.
 extension TerminalPasteboard {
-    /// Largest image written for a paste (matches the shipping cmux).
-    static let maxClipboardImageBytes = 10 * 1024 * 1024
     static let imageFilenamePrefix = "clipboard-"
 
     /// Directory for pasted images; one per user, under the temp directory.
@@ -43,10 +42,10 @@ extension TerminalPasteboard {
         return saveImage(from: contents, directory: directory).map { shellEscaped($0.path) }
     }
 
-    /// Writes the pasteboard's image to `directory`. Nil without an image,
-    /// over the size limit, or when the write fails.
+    /// Writes the pasteboard's image, whatever its size, to `directory`. Nil
+    /// without an image or when the write fails.
     static func saveImage(from contents: TerminalPasteboardContents, directory: URL = imageDirectory) -> URL? {
-        guard let image = imageData(from: contents), image.data.count <= maxClipboardImageBytes else { return nil }
+        guard let image = imageData(from: contents) else { return nil }
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd-HHmmss"
         formatter.locale = Locale(identifier: "en_US_POSIX")

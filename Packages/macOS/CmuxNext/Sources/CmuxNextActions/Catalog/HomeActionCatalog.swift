@@ -9,13 +9,16 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         // Owner round trips a caller that waits (`action.run` with `wait`) gets the
         // 40 s result deadline for: a group with invites takes several requests.
-        let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.newChief", "home.archiveChief", "home.deleteChief",
+        let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.inviteToTeam", "home.newChief", "home.archiveChief", "home.deleteChief", "home.setPrimaryChief",
                                     "home.renameConversation", "home.addMembers", "home.removeMember", "home.leaveConversation",
                                     "home.muteConversation", "home.unmuteConversation", "home.sendMessage",
                                     "home.createGroup", "home.setChiefReplies"]
-        return all.map { descriptor in
+        return (all + debugOnly).map { descriptor in
             var descriptor = descriptor
             descriptor.waitsForResult = waits.contains(descriptor.id)
+            // Invite to Team sends only from its dialog, where the person sees the seat cost and
+            // presses Send: a CLI or agent run waits for that answer.
+            descriptor.waitsForPerson = descriptor.id == "home.inviteToTeam"
             // `home.chiefPetEnabled` is a user-only setting: only a person turns the pet on.
             descriptor.isPersonOnly = ["home.toggleChiefPet", "home.messageChiefPet", "home.messageChiefFromAnyApp"].contains(descriptor.id)
             return descriptor
@@ -179,6 +182,16 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
+            // The New Message draft's x (shown on its list row while the pointer is over it, as in
+            // Messages), Escape in an empty To: field, the palette, `cmux home close-new-message`
+            // and MCP: one path that discards the draft, its page and its row.
+            ActionDescriptor(
+                id: "home.closeNewMessage", title: t("action.home.closeNewMessage", "Close New Message"),
+                keywords: ["home", "message", "new message", "draft", "close", "discard", "cancel", "compose"],
+                category: .window, symbol: "xmark.circle", surfaces: [.palette, .keyboard],
+                cliName: "home close-new-message",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
             ActionDescriptor(
                 id: "home.invite", title: t("action.home.invite", "Invite to cmux-next…"),
                 keywords: ["home", "invite", "email", "people", "team", "message", "join"],
@@ -187,6 +200,19 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                                            isRequired: false)],
                 cliName: "home invite", mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject, mcpExemption: .credentials)
+            ),
+            // The active team's email invite (POST /api/teams/:id/invitations), always through its
+            // dialog: the Home compose menu and team menu, New Message's To: row for a typed
+            // address, the palette and the File menu open it; a CLI or agent run opens it prefilled
+            // and waits for the person's Send (a join can bill a seat).
+            ActionDescriptor(
+                id: "home.inviteToTeam", title: t("action.home.inviteToTeam", "Invite to Team…"),
+                keywords: ["home", "team", "invite", "member", "seat", "people", "email", "join", "add"],
+                category: .window, symbol: "person.2.badge.plus", surfaces: [.palette, .menu],
+                arguments: [ActionArgument(name: "email", title: t("argument.home.invite.email", "Email Address"), kind: .string,
+                                           isRequired: false)],
+                cliName: "home invite-to-team", mainMenu: .file,
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "home.newChief", title: t("action.home.newChief", "New Chief…"),
@@ -207,6 +233,15 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 category: .window, symbol: "archivebox", surfaces: [.keyboard],
                 arguments: [ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string)],
                 cliName: "home archive-chief",
+                surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
+            // The primary Chief: texts to the cmux line go to it (`chief.update {is_default}`); `cmux chief primary` runs it.
+            ActionDescriptor(
+                id: "home.setPrimaryChief", title: t("action.home.setPrimaryChief", "Make Primary Chief"),
+                keywords: ["home", "chief", "primary", "default", "text", "imessage", "sms"],
+                category: .window, symbol: "star", surfaces: [.keyboard],
+                arguments: [ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string)],
+                cliName: "home primary-chief",
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
             // Deleting cannot be undone (Archive Chief can): it asks first.
@@ -276,7 +311,9 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 keywords: ["home", "group", "add", "people", "members", "invite", "person", "conversation"],
                 category: .window, symbol: "person.badge.plus", surfaces: [.palette, .keyboard],
                 arguments: [Self.conversation,
-                            ActionArgument(name: "people", title: t("argument.home.people", "People (comma-separated)"), kind: .string)],
+                            ActionArgument(name: "people", title: t("argument.home.groupMembers", "Members"), kind: .string,
+                                           suggestions: ActionSuggestions(source: ActionSuggestions.homeMembers, pinned: [],
+                                                                          allowsMultiple: true))],
                 cliName: "home add-members",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
@@ -321,7 +358,9 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 id: "home.createGroup", title: t("action.home.createGroup", "New Group Chat…"),
                 keywords: ["home", "group", "chat", "chief", "chiefs", "agents", "people", "new", "create", "imessage", "conversation"],
                 category: .window, symbol: "person.3", surfaces: [.palette, .keyboard],
-                arguments: [ActionArgument(name: "members", title: t("argument.home.members", "Members (comma-separated)"), kind: .string),
+                arguments: [ActionArgument(name: "members", title: t("argument.home.groupMembers", "Members"), kind: .string,
+                                           suggestions: ActionSuggestions(source: ActionSuggestions.homeMembers, pinned: [],
+                                                                          allowsMultiple: true)),
                             ActionArgument(name: "title", title: t("argument.home.message.title", "Group Name"), kind: .string,
                                            isRequired: false),
                             Self.replies(isRequired: false)],
@@ -346,6 +385,42 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 arguments: [Self.conversation,
                             ActionArgument(name: "pinned", title: t("argument.home.pinned", "Pinned"), kind: .bool, isRequired: false)],
                 cliName: "home pin-unpin",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
+            // Delete a conversation from the Home list, as Messages' Delete Conversation (user 2026-10-29):
+            // the row's Delete Conversation…, its left swipe, the palette, `cmux home hide` and MCP. It
+            // only leaves this account's list (the conversation stays with its owner); a newer message
+            // lists it again, and Show Hidden Conversations lists every one again.
+            ActionDescriptor(
+                id: "home.hideConversation", title: t("action.home.hideConversation", "Delete Conversation from List"),
+                keywords: ["home", "delete", "hide", "remove", "clear", "archive", "conversation", "chat", "dm", "group", "chief"],
+                category: .window, symbol: "trash", surfaces: [.palette, .keyboard],
+                arguments: [Self.conversation],
+                cliName: "home hide",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
+            ActionDescriptor(
+                id: "home.showHiddenConversations", title: t("action.home.showHiddenConversations", "Show Hidden Conversations"),
+                keywords: ["home", "unhide", "restore", "deleted", "hidden", "recently deleted", "conversation", "chat"],
+                category: .window, symbol: "eye", surfaces: [.palette, .keyboard],
+                cliName: "home show-hidden",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            // A chat's own bubble and text colours (user 2026-10-28): the row's Chat Colors… and the
+            // palette open the picker; `cmux chat colors --conversation <id> --sent "#34C759"` sets one
+            // (`default` clears a role, `--reset` clears them all). Looks only, kept on this Mac.
+            ActionDescriptor(
+                id: "home.chatColors", title: t("action.home.chatColors", "Chat Colors…"),
+                keywords: ["home", "chat", "colors", "colours", "bubble", "text", "background", "theme", "imessage", "conversation"],
+                category: .window, symbol: "paintpalette", surfaces: [.palette, .keyboard],
+                arguments: [Self.conversation,
+                            Self.color("sent", t("argument.home.chatColors.sent", "My Bubble Color")),
+                            Self.color("sentText", t("argument.home.chatColors.sentText", "My Text Color")),
+                            Self.color("received", t("argument.home.chatColors.received", "Their Bubble Color")),
+                            Self.color("receivedText", t("argument.home.chatColors.receivedText", "Their Text Color")),
+                            ActionArgument(name: "reset", title: t("argument.home.chatColors.reset", "Reset to Default"), kind: .bool,
+                                           isRequired: false)],
+                cliName: "chat colors",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
             // `cmux home send --conversation <id> --text "…"`: a message as me, in a DM or group.
@@ -380,6 +455,60 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
         ]
     }
 
+    /// DEV builds only: Debug > Agent Messages Playground (the agent-message header variants live in the
+    /// real Home transcript, user 2026-11-02). `style` picks a variant (0: the shipped look), `expanded`
+    /// opens the folds, `team` shows a chat with a teammate, `open` picks what a click on an agent's pill does,
+    /// `peer` opens that agent as a click on its pill does, `dark` picks the dark look.
+    private static var debugOnly: [ActionDescriptor] {
+        #if DEBUG
+        [
+            ActionDescriptor(
+                id: "home.agentMessagePlayground", title: t("action.home.agentMessagePlayground", "Agent Messages Playground"),
+                keywords: ["home", "chief", "agent", "messages", "playground", "variants", "header", "fold", "debug"],
+                category: .window, symbol: "square.stack.3d.up", surfaces: [.palette, .menu],
+                arguments: [
+                    ActionArgument(name: "style", title: t("argument.home.playgroundStyle", "Header Style"), kind: .int(0...32), isRequired: false),
+                    ActionArgument(name: "expanded", title: t("argument.home.playgroundExpanded", "Expanded"), kind: .bool, isRequired: false),
+                    ActionArgument(name: "team", title: t("argument.home.playgroundTeam", "Team Chat"), kind: .bool, isRequired: false),
+                    ActionArgument(name: "open", title: t("argument.home.playgroundOpen", "Pill Click"), kind: .int(0...6), isRequired: false),
+                    ActionArgument(name: "peer", title: t("argument.home.playgroundPeer", "Agent"), kind: .string, isRequired: false),
+                    ActionArgument(name: "dark", title: t("argument.home.playgroundDark", "Dark Look"), kind: .bool, isRequired: false),
+                ],
+                mainMenu: .debug, isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // Debug > MCP Connect Card Playground (plans/cmux-next/mcp-connect-DESIGN.md section 8): the card's
+            // styles for each kind of server, in each phase, light and dark.
+            ActionDescriptor(
+                id: "home.mcpConnectPlayground", title: t("action.home.mcpConnectPlayground", "MCP Connect Card Playground"),
+                keywords: ["home", "chief", "mcp", "connect", "server", "card", "playground", "variants", "debug"],
+                category: .window, symbol: "square.stack.3d.up", surfaces: [.palette, .menu],
+                arguments: [
+                    ActionArgument(name: "style", title: t("argument.home.mcpPlaygroundStyle", "Card Style"), kind: .int(1...6), isRequired: false),
+                    ActionArgument(name: "fixture", title: t("argument.home.mcpPlaygroundServer", "Server"), kind: .int(0...5), isRequired: false),
+                    ActionArgument(name: "phase", title: t("argument.home.mcpPlaygroundPhase", "Phase"), kind: .int(0...6), isRequired: false),
+                ],
+                mainMenu: .debug, isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // Debug > Chief Teleport Playground: the Chief's location chip variants in every state
+            // (This Mac, cmux Cloud, a Mac mini, moving, failed, rolled back), light and dark.
+            ActionDescriptor(
+                id: "home.chiefTeleportPlayground", title: t("action.home.chiefTeleportPlayground", "Chief Teleport Playground"),
+                keywords: ["home", "chief", "teleport", "move", "location", "cloud", "mac mini", "playground", "variants", "debug"],
+                category: .window, symbol: "location.circle", surfaces: [.palette, .menu],
+                arguments: [
+                    ActionArgument(name: "state", title: t("argument.home.teleportPlaygroundState", "Menu State"), kind: .int(0...7), isRequired: false),
+                ],
+                mainMenu: .debug, isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+        ]
+        #else
+        []
+        #endif
+    }
+
     /// When a group's Chiefs answer: `auto` (the default), `mentions` or `all`.
     private static func replies(isRequired: Bool) -> ActionArgument {
         ActionArgument(name: "replies", title: t("argument.home.replies", "Chiefs Reply"),
@@ -387,6 +516,11 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                                            ActionEnumCase(value: "mentions", title: t("argument.home.replies.mentions", "Only When @Mentioned")),
                                            ActionEnumCase(value: "all", title: t("argument.home.replies.all", "To Every Message"))]),
                        isRequired: isRequired)
+    }
+
+    /// One bubble colour of `home.chatColors`: `#RRGGBB`, or `default` for the default for every chat.
+    private static func color(_ name: String, _ title: String) -> ActionArgument {
+        ActionArgument(name: name, title: title, kind: .string, isRequired: false)
     }
 
     /// The conversation a group action acts on (an id); without it, the one Home shows.

@@ -1,8 +1,9 @@
 # cmux Cloud CLI reference
 
 The Rust `cmux` reaches Cloud machines through the app's cloud actions. The Swift
-`cmux vm …` family and its `cmux cloud` alias were removed; there is no `vm` scope,
-no `vm.*` socket method on the CLI, and no `cmux rpc`.
+`cmux vm …` family and its `cmux cloud` alias were removed: there is no `vm.*` socket
+method on the CLI and no `cmux rpc`. Today's `cmux vm` calls the cmux VM API with an
+API key and no app; see [headless.md](headless.md).
 
 ## Conventions
 
@@ -19,7 +20,7 @@ no `vm.*` socket method on the CLI, and no `cmux rpc`.
   are menu-only: the CLI never writes the clipboard.
 - **Results** come back in the action result's `result` object (`--json` prints it);
   nothing opens on the person's screen. `cloud exec` returns `exit_code`, `stdout` and
-  `stderr`; `new-machine` returns `machine_id` and `target` (or `pending: true` while
+  `stderr`; `cmux machine new` (the `new-machine` action) returns `machine_id` and `target` (or `pending: true` while
   the server still provisions); `ssh` and `new-terminal-on-machine` return `machine_id`,
   `workspace_id` and, when known, the new terminal's `surface_id` (see [Terminals](#terminals));
   `machine-status`, `machine-ports`, `machine-tools`, `hand-off-machine`,
@@ -39,7 +40,7 @@ no `vm.*` socket method on the CLI, and no `cmux rpc`.
 
 `cmux cloud list-machines` is read only: it answers the app's own Cloud machine list,
 the one the sidebar's Cloud machines show, so an agent can check whether its machine
-already exists before it runs `new-machine`. It takes no target. Run by a person from
+already exists before it runs `cmux machine new`. It takes no target. Run by a person from
 the palette, it shows the Cloud sidebar instead.
 
 ```bash
@@ -77,8 +78,9 @@ cmux cloud list-machines --json
 
 ```bash
 cmux cloud list-machines                                    # the app's Cloud machines
-cmux cloud new-machine                                      # answers machine_id (or pending)
-cmux cloud new-workspace                                    # New Cloud Workspace
+cmux machine new                                            # prints its target and next steps (--json: machine_id, or pending)
+cmux cloud new-workspace                                    # New Cloud Workspace: a new small machine of its own, never a listed one
+cmux cloud new-workspace --target machine:vm-…              # a new workspace on that machine
 cmux cloud open-machine --target machine:vm-…
 cmux cloud open-desktop --target machine:vm-…                # its desktop in a cmux browser tab, over the app's Cloud tunnel
 cmux cloud open-desktop --target machine:vm-… --viewer native # the same desktop in the native remote view pane (development builds)
@@ -86,6 +88,7 @@ cmux cloud new-terminal-on-machine --target machine:vm-…      # a new workspac
 cmux cloud new-terminal-on-machine --target machine:vm-… --workspace <workspace-id>   # a terminal tab in that workspace
 cmux cloud rename-machine --target machine:vm-… --name <label>
 cmux cloud resize-machine --target machine:vm-… --size small|medium|large|xlarge
+cmux cloud resize-machine --target machine:vm-… --disk 100   # disk in whole GiB: 4 GiB steps, up to 256, grow-only; --size and --disk may go together
 cmux cloud machine-status --target machine:vm-…              # stats, plus hourly_rate_usd, running_since, estimated_cost_usd
 cmux cloud machine-ports --target machine:vm-…
 cmux cloud snapshot-machine --target machine:vm-…
@@ -97,6 +100,7 @@ cmux cloud kill-machine --target machine:vm-…
 cmux cloud pause-machine --target machine:vm-…
 cmux cloud resume-machine --target machine:vm-…
 cmux cloud set-idle-pause --target machine:vm-… --minutes off|15|30|60|120   # answers idle_pause_minutes
+cmux cloud set-network-access --target machine:vm-… --access full|trusted|none   # answers network_access, applied
 cmux cloud delete-snapshot --target machine:vm-… --snapshot <snapshot-id>
 cmux workspace new-on-machine --machine machine:vm-…
 ```
@@ -112,6 +116,11 @@ cmux Cloud pauses a machine after 30 idle minutes by default (no attached termin
 no running agent turn, no command still running in a terminal, no forwarded port). The
 machine's record says `pauseReason: "idle"`; opening a workspace or terminal on it, or ssh,
 resumes it. `set-idle-pause` changes the timeout per machine.
+
+A machine reaches the whole internet by default. `set-network-access` narrows it, live and with no
+restart: `trusted` allows only GitHub, the package registries and the model providers the server
+lists as presets, and `none` only the hosts cmux itself needs. The machine's own allowed ranges
+and domains (set in the dashboard) are kept. An agent may only choose `none` (turn access off).
 
 ## Shell, commands and files
 
@@ -190,12 +199,23 @@ cmux cloud firewall-list | firewall-get | firewall-create | firewall-delete   # 
 cmux cloud tunnel-attach | tunnel-detach | tunnel-rotate-key                 # attach/detach: --path <network-id>; rotate-key: a public key (see cmux action describe); this Mac
 cmux cloud domain-list
 cmux cloud publication-list
+cmux cloud provision-api --target machine:vm-… --port 3000 [--name ci]   # URL + API key, one call
+cmux cloud api-key-list --path <publication id or hostname>
+cmux cloud api-key-revoke --path <publication> --key <key-id> --confirm
 cmux cloud move          # Move to Cloud: an agent chat tab, optional --machine
 cmux cloud bring-back    # Bring Back Local: the reverse
 ```
 
-Domain and publication actions only list. Publishing, verifying or removing a
-public domain has no CLI path. Check each action's arguments with
+`provision-api` publishes a machine port behind cmux sign-in under a generated
+HTTPS hostname and mints an API key for it. It answers `url`, `key`, `cookie`,
+`publication_id` and `api_key_id`; the key is shown once. API clients send it as
+the `__Host-cmux-api-key` cookie (`curl -H 'Cookie: __Host-cmux-api-key=<key>' <url>`), which
+the machine never receives. Running it again for the same port reuses the URL
+and mints another key. `api-key-revoke` cuts a key off from the next request.
+A browser still reaches the URL by signing in to cmux.
+
+Other domain and publication actions only list. Publishing a public domain,
+verifying or removing one has no CLI path. Check each action's arguments with
 `cmux action describe` before running it.
 
 Creating, forking, restoring, resizing and killing machines need the user's
@@ -204,17 +224,26 @@ authorization for the target and effect.
 ## Agent sessions on a machine
 
 ```bash
+cmux cloud start-chat --prompt 'Summarize README.md' --wait --json         # new machine, chat, prompt, reply: one command
+cmux cloud start-chat --name dev --cwd /home/cmux/work --prompt '…' --json  # on machine "dev" (created when missing); answers once sent
 cmux cloud start-session --target machine:<id> --agent claude              # start a session in that machine's acpmux
 cmux cloud start-session --name dev --agent codex --cwd /home/cmux/work     # take machine "dev", or create it
 ```
 
+`start-chat` is `start-session` plus the prompt and, with `--wait`, the reply: it
+answers `reply` (with `--wait`), `machine_id`, `session_id`, `workspace_id`, `tab_id`
+and `follow_up`, the `cloud exec` commands that send, wait and read on
+that chat in the machine's own acpmux (`cmux-tui acp send|wait|last SESSION_ID`).
+
 `start-session` answers `machine_id`, `session_id` and `host` (the machine's
 `registry:` host), plus the chat's `workspace_id` and `surface_id`. The chat's
 tab opens in the machine's first workspace. Without `--cwd` the session starts
-in that workspace's folder. An agent's run asks the person first with a card in
-its own chat (Start, Not now), like an agent's `cloud move`. It waits up to 2
-minutes for an answer and then refuses. Each refusal names the machine and gives
-the command to run again.
+in that workspace's folder. An agent's run starts at once, as the person's own
+would; only the Cloud plan's limits refuse it. When the person turned off
+`cloud.agentsStartWithoutAsking`, an agent's run asks them first with a card in
+its own chat (Start, Not now), like an agent's `cloud move`, and waits up to 2
+minutes for an answer. Each refusal names the machine and gives the command to
+run again.
 
 ## Account and diagnostics
 
@@ -258,7 +287,8 @@ and `vm ls`. See [guest operations](guest.md).
 | `vm wait`, `vm restart`, `vm stats`, `vm base open\|reset`, `vm prompt` | none |
 | `vm snapshot\|fork\|restore\|promote-template\|rename\|rm\|handoff\|status\|resize` | the matching `cmux cloud …-machine` action |
 | `cloud domains list` | `cmux cloud domain-list`, `cmux cloud publication-list` |
-| `cloud domains publish\|verify\|access\|rm\|zones` | none |
+| `cloud domains publish` (protected, for an API) | `cmux cloud provision-api --target machine:vm-… --port <port>` |
+| `cloud domains publish\|verify\|access\|rm\|zones` (public or custom domains) | none |
 | `vpn up\|down` | `cmux cloud tunnel-attach\|tunnel-detach --path <network-id>` (no machine target) |
 | `vpn status`, `ai-accounts`, `auth login\|logout` | none on the CLI; use the app |
 | `capabilities`, `rpc <method>` | `cmux app capabilities`, `cmux action list` |

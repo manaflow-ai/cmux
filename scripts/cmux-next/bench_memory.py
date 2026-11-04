@@ -44,6 +44,7 @@ import json
 import os
 import plistlib
 import re
+import shlex
 import shutil
 import signal
 import socket
@@ -219,13 +220,14 @@ class App:
         except ValueError:
             return {"error": (out.stdout + out.stderr).strip()[:300]}
 
-    def action(self, action: str, *, focus: bool = False, **args) -> dict:
+    def action(self, action: str, *, focus: bool = False, wait: bool = True, **args) -> dict:
         """`action.run` over the socket itself: the CLI reads `--session`
         as its own option, so an action argument of that name never reaches
         the app through it. `focus` moves the app's focus to what the action
         opens or selects, as the user's shortcut would; without it a new tab
-        opens in the background and does not load until it is shown."""
-        params = {"action": action, "args": args, "wait": True, "origin": "script",
+        opens in the background and does not load until it is shown. `wait`
+        False answers once the handler ran, before the work it started ends."""
+        params = {"action": action, "args": args, "wait": wait, "origin": "script",
                   "idempotency_key": f"mutation_{uuid.uuid4().hex}"}
         if focus:
             params["focus"] = True
@@ -277,8 +279,10 @@ class FakeChats:
 
     def __init__(self, app: App, bundle: str, script: str):
         self.app = app
+        # The app splits `args` into words like a shell: a fleet step's checkout is under
+        # "/Library/Application Support/...", so the path is quoted or the agent never starts.
         added = app.run("agent.harness.add", id=FAKE_AGENT_ID, name="Memory bench", command=sys.executable,
-                        args=os.path.abspath(script), protocol="acp", replace="true")
+                        args=shlex.quote(os.path.abspath(script)), protocol="acp", replace="true")
         if added.get("error") or added.get("code"):
             raise SystemExit(f"bench-memory: agent.harness.add: {added.get('message') or added.get('error')}")
         self.env = dict(os.environ, ACPMUX_SOCKET=self.acpmux_socket(bundle))
@@ -387,17 +391,19 @@ def is_binary(cmd: str, binary: str) -> bool:
     return cmd == binary or cmd.startswith(binary + " ")
 
 
-def end_processes(pids: set[int]):
-    """SIGTERM, then SIGKILL what is still there after a grace period."""
-    for sig in (signal.SIGTERM, signal.SIGKILL):
-        alive = set()
+def end_processes(pids: set[int], grace: float = 10.0, kill_grace: float = 5.0):
+    """SIGTERM every pid, then SIGKILL what is still there once `grace` s have passed for the whole set (one
+    deadline, not one per pid), waiting at most `kill_grace` s more. A child of this script that exited is
+    reaped (`gone`), so an unreaped zombie never holds the teardown."""
+    for sig, seconds in ((signal.SIGTERM, grace), (signal.SIGKILL, kill_grace)):
+        sent = set()
         for pid in pids:
             try:
                 os.kill(pid, sig)
-                alive.add(pid)
+                sent.add(pid)
             except ProcessLookupError:
                 pass
-        pids = {pid for pid in alive if not wait_gone(pid, 10)}
+        pids = still_running(sent, seconds)
         if not pids:
             return
 
@@ -416,26 +422,63 @@ def control_socket(bundle: str, pid: int, dirs: list[str]) -> str | None:
     return None
 
 
+# Chromium's code-sign clone cleanup helper. CEF clones the app at each launch to
+# $TMPDIR/../X/<bundle id>.code_sign_clone/ (about 1 GB); after the app quits, this
+# helper (`<app>/Contents/MacOS/<exe> --type=code-sign-clone-cleanup`) removes the
+# clone about 1 s later. Ended with the app, it leaves the clone until reboot: 29 GB
+# on cmux18 (2026-11-02). A teardown lets it finish, up to CLONE_CLEANUP_WAIT_S.
+CLONE_CLEANUP = "--type=code-sign-clone-cleanup"
+CLONE_CLEANUP_WAIT_S = 15
+
+
+def is_clone_cleanup(cmd: str) -> bool:
+    return CLONE_CLEANUP in cmd
+
+
 def end_bundle(bundle: str):
     """Ends every process of the bundle, the app first: a live app (it can
     ignore SIGTERM) respawns daemons ended before it. No process of this
-    bundle ran before the launch (`launch`), so every one is this run's."""
+    bundle ran before the launch (`launch`), so every one is this run's.
+    Chromium's clone cleanup helper is ended last, and only when it is still
+    there after CLONE_CLEANUP_WAIT_S."""
     binary_dir = os.path.join(bundle, "Contents/MacOS")
-    apps = {pid for pid, _, cmd in process_table() if cmd.startswith(binary_dir + "/")}
+    apps = {pid for pid, _, cmd in process_table() if cmd.startswith(binary_dir + "/") and not is_clone_cleanup(cmd)}
     bundle_pids(bundle)  # notes the daemons before they go, for their terminal hosts
     end_processes(apps)
-    end_processes(bundle_pids(bundle))
+    cleanups = {pid for pid, _, cmd in process_table() if in_bundle(cmd, bundle) is not None and is_clone_cleanup(cmd)}
+    end_processes(bundle_pids(bundle) - cleanups)
+    deadline = time.monotonic() + CLONE_CLEANUP_WAIT_S
+    end_processes(still_running(cleanups, max(0.0, deadline - time.monotonic())))
+
+
+def gone(pid: int) -> bool:
+    """Whether `pid` has exited. A child of this script is reaped (waitpid): kill(pid, 0) succeeds on an
+    unreaped zombie, which would read as alive until a timeout. Any other pid is probed with kill(pid, 0)."""
+    try:
+        reaped, _status = os.waitpid(pid, os.WNOHANG)
+        return reaped == pid
+    except ChildProcessError:
+        pass  # not this script's child
+    try:
+        os.kill(pid, 0)
+        return False
+    except ProcessLookupError:
+        return True
+
+
+def still_running(pids: set[int], seconds: float) -> set[int]:
+    """The pids not gone within `seconds`, one deadline for all; each is checked at least once."""
+    deadline = time.monotonic() + seconds
+    while True:
+        pids = {pid for pid in pids if not gone(pid)}
+        if not pids or time.monotonic() >= deadline:
+            return pids
+        time.sleep(0.05)  # test script: waiting for processes to exit
 
 
 def wait_gone(pid: int, seconds: float) -> bool:
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return True
-        time.sleep(0.5)  # test script: waiting for the app to quit
-    return False
+    """True once `pid` is gone; it is checked at least once, also with no time left."""
+    return not still_running({pid}, seconds)
 
 
 def merged(base: dict, extra: dict) -> dict:
@@ -455,8 +498,35 @@ def tail(path: str, lines: int = 20) -> str:
     return ("\napp output:\n" + "\n".join(text)) if text else ""
 
 
-def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: bool | None = None):
+def exception_records(bundle: str, since: float) -> str:
+    """The app's own record of the exception it died on (AppRunMarker's `run.exception`), written
+    since `since`. The app reads the account's real home (`homeDirectoryForCurrentUser`), not the
+    scratch HOME, so it is under ~/Library/Application Support/cmux-next/<bundle id>/."""
+    import pwd
+    try:
+        with open(os.path.join(bundle, "Contents", "Info.plist"), "rb") as handle:
+            bundle_id = plistlib.load(handle).get("CFBundleIdentifier", "")
+    except OSError:
+        return ""
+    real_home = pwd.getpwuid(os.getuid()).pw_dir
+    path = os.path.join(real_home, "Library", "Application Support", "cmux-next", bundle_id, "run.exception")
+    if not bundle_id or not os.path.exists(path) or os.path.getmtime(path) < since:
+        return ""
+    with open(path, errors="replace") as handle:
+        return f"\n--- {path}\n{handle.read()[:4000]}"
+
+
+def downloads_dir(scratch: str) -> str:
+    """The folder `launch` gives the app for its downloads (CMUX_NEXT_DOWNLOADS_DIR), in its scratch."""
+    return os.path.join(scratch, "downloads")
+
+
+def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: bool | None = None,
+           scratch: str | None = None):
     """Starts the app with a scratch HOME, TMPDIR and config; returns (pid, socket, scratch).
+
+    `scratch` relaunches into an earlier launch's scratch (its HOME and state), as a relaunch after
+    an update does (bench_relaunch_reconnect.py): that launch's daemons may still run then.
 
     Through LaunchServices (`open`), as a user's launch: the app is then the
     responsible process of its WebKit processes. A child of this script
@@ -475,27 +545,35 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
     # Every process from this bundle at the end is this run's (cleanup ends
     # them all), so none may exist before: an earlier app's detached daemons
     # and terminal hosts would otherwise be ended too.
+    relaunch = scratch is not None
     running = bundle_pids(bundle)
-    if running:
+    if running and not relaunch:
         raise SystemExit(f"bench-memory: processes from {bundle} are running ({sorted(running)}); end them first")
-    scratch = tempfile.mkdtemp(prefix="bench-memory-")
+    scratch = scratch or tempfile.mkdtemp(prefix="bench-memory-")
     home = os.path.join(scratch, "home")
     os.makedirs(os.path.join(home, "Library"), exist_ok=True)
     env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.path.join(scratch, "tmp") + "/",
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
-           "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json")}
+           "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
+           # Downloads go to the scratch, never the account's real ~/Downloads (the app ignores HOME there, and
+           # macOS asks for Downloads access in a prompt that covers a fleet Mac's screen). Debug and bench
+           # builds only; a Release app ignores it (DownloadsFolder.swift).
+           "CMUX_NEXT_DOWNLOADS_DIR": downloads_dir(scratch)}
     env.update(extra_env or {})
     os.makedirs(env["TMPDIR"], exist_ok=True)
+    os.makedirs(env["CMUX_NEXT_DOWNLOADS_DIR"], exist_ok=True)
     # Sparkle would otherwise download a newer nightly into the bundle under
     # test mid-run (and its installer counts as the bundle's process).
     with open(env["CMUX_NEXT_CONFIG_FILE"], "w") as handle:
         json.dump(merged({"updates": {"checkAutomatically": False, "downloadAutomatically": False}}, config), handle)
     log_path = os.path.join(scratch, "app.log")
+    launched_at = time.time()
     if direct:
         env.setdefault("CMUX_NEXT_TEST_WINDOW_FRAME", "40,40,1400,900")
         with open(log_path, "a") as log:
-            subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
+            child = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
     else:
+        child = None
         argv = ["open", "-n", "-g"] + [arg for name, value in env.items() for arg in ("--env", f"{name}={value}")]
         subprocess.run(argv + ["-a", bundle], check=True, timeout=60)
     try:
@@ -512,12 +590,20 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
             time.sleep(1)  # test script: waiting for the launched app's socket
         state = os.path.join(home, ".local", "state", "cmux")
         seen = sorted(os.listdir(state)) if os.path.isdir(state) else []
+        # A direct child that ended says how (its exit status, or the signal that ended it).
+        ended = ""
+        if child is not None and child.poll() is not None:
+            code = child.returncode
+            ended = f"; the app process {child.pid} ended with {'signal ' + str(-code) if code < 0 else 'exit status ' + str(code)}"
+        elif child is not None:
+            ended = f"; the app process {child.pid} still runs, as {next((cmd for p, _, cmd in process_table() if p == child.pid), '?')[:200]!r}"
         raise SystemExit(f"bench-memory: the launched app opened no socket within 90 s "
-                         f"(app pid {pid or 'none: it did not start'}; {state}: {seen}; "
-                         f"launch {'direct' if direct else 'open'})" + tail(log_path))
+                         f"(app pid {pid or 'none: it did not start'}{ended}; {state}: {seen}; "
+                         f"launch {'direct' if direct else 'open'})" + tail(log_path) + exception_records(bundle, launched_at))
     except BaseException:
         end_bundle(bundle)
-        shutil.rmtree(scratch, ignore_errors=True)
+        if not relaunch:
+            shutil.rmtree(scratch, ignore_errors=True)
         raise
 
 

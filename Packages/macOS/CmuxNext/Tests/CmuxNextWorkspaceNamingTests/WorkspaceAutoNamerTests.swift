@@ -113,6 +113,21 @@ struct WorkspaceAutoNamerTests {
         #expect(fixture.namer.pending().isEmpty)
     }
 
+    /// Cmd-N sends the default name it showed (`workspace-151`) with its create, and the daemon records
+    /// a requested name as the user's (#26680): that workspace is still unnamed and takes its chat's title.
+    @Test func aCreatedDefaultNameRecordedAsTheUsersStillTakesTheChatTitle() {
+        let fixture = Fixture(name: "workspace-151", source: .user, revision: 0)
+        fixture.title("Checkmark next to agent status")
+        fixture.namer.apply(fixture.namer.pending())
+        #expect(fixture.sent == ["Checkmark next to agent status"])
+    }
+
+    @Test func aPersonsRenameToADefaultLookingNameIsKept() {
+        let fixture = Fixture(name: "workspace-151", source: .user, revision: 1)
+        fixture.title("Checkmark next to agent status")
+        #expect(fixture.namer.pending().isEmpty)
+    }
+
     @Test func anAutomaticWorkspaceFollowsLaterGeneratedTitles() {
         let fixture = Fixture(name: "First title", revision: 1)
         fixture.title("Second title")

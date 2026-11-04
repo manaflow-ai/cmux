@@ -11,22 +11,22 @@ enum PaneTabBarHandlers {
 
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         registry.bind(toggle, invoke: { invocation in
-            guard let controller = ctx.paneController(invocation) else { return }
+            guard let controller = ctx.paneController(invocation), !controller.isAppPane else { return }
             if let reason = noToggleReason(controller) { return ctx.refuse(reason) }
-            controller.showTabBar(controller.view.hidesStrip)
+            controller.showTabBar(controller.hidesTabBar)
         })
         // The row reads as the change it makes (cx-5425v): Hide Tab Bar while the pane shows it,
         // else the catalog's Show Tab Bar. The CLI keeps `pane toggle-tab-bar`.
         ActionTargetTitles.set(toggle, in: registry) { invocation in
-            ctx.paneController(invocation).flatMap { $0.view.hidesStrip ? nil : PaneTabBarStrings.hide }
+            ctx.paneController(invocation).flatMap { $0.hidesTabBar ? nil : PaneTabBarStrings.hide }
         }
         ActionTargetTitles.setPaletteTitle(toggle, in: registry) {
-            ctx.services.windows.active?.focusedPane.flatMap { $0.view.hidesStrip ? nil : PaneTabBarStrings.hide }
+            ctx.services.windows.active?.focusedPane.flatMap { $0.hidesTabBar ? nil : PaneTabBarStrings.hide }
         }
         registry.bind(newTab, invoke: { invocation in
-            guard let controller = ctx.paneController(invocation) else { return }
+            guard let controller = ctx.paneController(invocation), !controller.isAppPane else { return }
             if let reason = noTabBarReason(controller) { return ctx.refuse(reason) }
-            if controller.view.hidesStrip { controller.showTabBar(true) }
+            if controller.hidesTabBar { controller.showTabBar(true) }
             TabLifecycle.newTabOfPaneKind(ctx, invocation, inStrip: true)
         })
         // An app workspace's one pane shows its app without a tab bar (`app-screens-v1`).
@@ -79,7 +79,7 @@ extension PaneController {
     var isOpenPinnedDockPane: Bool { pinnedDock?.allowsTabs == true }
 
     /// The pinned dock this pane is in, if any.
-    private var pinnedDock: DockColumn? { HomeDockOpens.pinnedDock(holding: pane, in: daemon.store) }
+    private var pinnedDock: DockColumn? { daemon.store.pinnedDock(holding: pane.handle) }
 
     /// Shows or hides this pane's tab bar now. Shown is the default, so it is no choice.
     func showTabBar(_ shown: Bool) {

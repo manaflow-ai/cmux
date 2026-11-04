@@ -621,6 +621,9 @@ mod unix {
                 command.env(key, value);
             }
         }
+        for key in crate::shell_integration::keys_to_unset_in_child(&launch.extra_env) {
+            command.env_remove(key);
+        }
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);
         }
@@ -640,6 +643,7 @@ mod unix {
 
 #[cfg(any(unix, windows))]
 pub use shared::attachment::HostAttachment;
+pub(crate) use shared::attachment::HostInputRoute;
 #[cfg(any(unix, windows))]
 pub(crate) use shared::attachment::launch::adopt_terminal_host_with_kitty_limits;
 #[cfg(any(unix, windows))]

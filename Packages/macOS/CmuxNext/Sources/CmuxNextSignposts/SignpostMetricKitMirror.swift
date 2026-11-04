@@ -39,11 +39,12 @@ public final class SignpostMetricKitMirror: Sendable {
     }
 
     /// Whether `name` is mirrored. Per-frame, per-pump-pass and per-scroll-event intervals are not
-    /// (Apple advises against high-frequency custom MetricKit signposts), nor is the `stall`
+    /// (Apple advises against high-frequency custom MetricKit signposts), nor the palette query intervals (one
+    /// per typed key, and one typed past is never ended), nor is the `stall`
     /// category, which a report leaves out (the watchdog reports stalls itself).
     public static func mirrors(_ name: SignpostName) -> Bool {
         switch name {
-        case .motionFrame, .cefPump, .scrollToFrame, .stallMainTask: false
+        case .motionFrame, .cefPump, .scrollToFrame, .stallMainTask, .paletteQueryRows, .paletteQueryAnswer: false
         default: name.category.map { $0 != .stall } ?? false
         }
     }

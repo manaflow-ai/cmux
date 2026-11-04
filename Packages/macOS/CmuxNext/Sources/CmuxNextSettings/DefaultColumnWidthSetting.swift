@@ -1,11 +1,12 @@
 /// `layout.defaultColumnWidth` in cmux.json: the width of a new column as a
-/// proportion of the viewport, 0.1 to 1.0; 0.5 when unset (plans/cmux-next/column-scroll.md).
+/// proportion of the viewport, 0.1 to 1.0; two thirds when unset, so a new column leaves part of
+/// its neighbor in view (Lawrence 2026-10-28; plans/cmux-next/column-scroll.md).
 /// Fixed pixel widths are not supported, because the daemon stores
 /// column widths as viewport fractions, so a fixed width would change on
 /// every window resize.
 public nonisolated enum DefaultColumnWidthSetting {
     public static let configPath = ["layout", "defaultColumnWidth"]
-    public static let fallback = 0.5
+    public static let fallback = 2.0 / 3.0
     /// The daemon's column width range (`set-viewport-pane-width`).
     public static let range: ClosedRange<Double> = 0.1...1.0
 

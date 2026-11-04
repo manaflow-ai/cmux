@@ -62,7 +62,7 @@ caller's. A script or step that starts an app on its own can run under the same 
     python3 scripts/cmux-next/bench_launch.py finder-exec -- python3 scripts/cmux-next/my-bench.py ...
     python3 scripts/cmux-next/bench_launch.py limits     # launchd's soft limits and this shell's, one JSON line
 """
-import argparse, atexit, contextlib, glob, json, os, platform, pwd, re, resource, select, shutil, signal, socket, subprocess, sys, tempfile, time
+import argparse, atexit, contextlib, glob, json, os, platform, plistlib, pwd, re, resource, select, shutil, signal, socket, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -189,6 +189,62 @@ def account_home():
         return pwd.getpwuid(os.getuid()).pw_dir
     except KeyError:
         return os.path.expanduser("~")
+
+
+# Tags whose `tags/<tag>` folder holds a shipped channel's own state (BuildIdentity+AppNames.swift): never moved.
+SHIPPED_STATE_TAGS = frozenset({"nightly", "rc", "staging", "cmux-next"})
+
+
+def is_shipped_state_tag(tag):
+    """Whether `tag` names a shipped channel's own state folder, in any case (``SHIPPED_STATE_TAGS``)."""
+    return (tag or "").lower() in SHIPPED_STATE_TAGS
+
+
+def tag_state_root(tag):
+    """The tag's saved state: `~/Library/Application Support/cmux/tags/<tag>` (BuildIdentity
+    daemonStateDirectory's parent; its `tui` holds the daemon's saved sessions and their workspaces).
+    BENCH_LAUNCH_STATE_BASE replaces `~/Library/Application Support/cmux` (tests)."""
+    base = os.environ.get("BENCH_LAUNCH_STATE_BASE") or os.path.join(account_home(), "Library/Application Support/cmux")
+    return os.path.join(base, "tags", tag)
+
+
+def start_fresh_state(tag):
+    """An empty saved session for `tag`'s next launch (2026-10-24: STRESS refused "the app already has 60 workspaces",
+    restored from an earlier run on that host; again on cmux22 2026-11-04 through bench-terminal-resize.py). The tag's
+    state moves aside to `<root>.bench-prev` (one kept, the older one removed); no other tag's state is touched. Call it
+    only while no process of the tag runs: its state must not be in use. A shipped channel's tag (``SHIPPED_STATE_TAGS``:
+    NIGHTLY and the others keep their daemon's state under `tags/<channel>`) is never moved: a bench of such a bundle
+    would move the person's own sessions."""
+    # Case-blind: on the default disk `tags/NIGHTLY` is `tags/nightly`.
+    if is_shipped_state_tag(tag):
+        note(f"bench-launch: {tag} is a shipped channel's state: it stays (no empty session for this run)")
+        return
+    root = tag_state_root(tag)
+    if not os.path.lexists(root):
+        return
+    prev = root + ".bench-prev"
+    if os.path.lexists(prev):
+        shutil.rmtree(prev, ignore_errors=True)
+    os.rename(root, prev)
+    # The build's Debug Settings file lives beside the saved session (DebugSettingsService.fileURL): keep it, so an
+    # override a harness set for this run (cef-layer-ab.py's layerHosting) still applies.
+    tunables = os.path.join(prev, "debug-tunables.json")
+    if os.path.isfile(tunables):
+        os.makedirs(root, exist_ok=True)
+        shutil.copy2(tunables, os.path.join(root, "debug-tunables.json"))
+    note(f"bench-launch: {tag} starts from an empty saved session (earlier state moved to {prev})")
+
+
+def bundle_pids(app, inside="Contents/"):
+    """PIDs of processes running an executable inside the bundle `app` (under `inside`), other than this one."""
+    out = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
+    prefix = app.rstrip("/") + "/" + inside
+    pids = []
+    for line in out.splitlines():
+        pid, _, command = line.strip().partition(" ")
+        if command.lstrip().startswith(prefix) and pid.isdigit() and int(pid) != os.getpid():
+            pids.append(int(pid))
+    return pids
 
 
 def tag_of(app):
@@ -710,6 +766,20 @@ class BenchApp:
 
     @property
     def binary(self):
+        """The bundle's main executable: Info.plist's CFBundleExecutable. A bench (Release) build's is not `cmux DEV`
+        (close-flash job 12728f0a2b37 started a `cmux DEV` that was not there), and the first file in Contents/MacOS
+        can be another executable; only a bundle with no Info.plist falls back to those guesses."""
+        try:
+            with open(os.path.join(self.app, "Contents/Info.plist"), "rb") as f:
+                info = plistlib.load(f)
+        except Exception:  # noqa: BLE001  any unreadable plist (OSError, a truncated XML's ExpatError, ...): no name
+            info = None
+        named = info.get("CFBundleExecutable") if isinstance(info, dict) else None
+        if named:
+            main = os.path.join(self.app, "Contents/MacOS", named)
+            if not os.path.exists(main):
+                raise SystemExit(f"bench-launch: {self.app} names CFBundleExecutable {named!r}, which is not in Contents/MacOS")
+            return main
         main = os.path.join(self.app, "Contents/MacOS/cmux DEV")
         if os.path.exists(main):
             return main
@@ -720,14 +790,7 @@ class BenchApp:
 
     def running_pids(self):
         """PIDs of processes running an executable of this bundle (another run of the same app)."""
-        out = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
-        prefix = self.app + "/Contents/MacOS/"
-        pids = []
-        for line in out.splitlines():
-            pid, _, command = line.strip().partition(" ")
-            if command.lstrip().startswith(prefix) and pid.isdigit() and int(pid) != os.getpid():
-                pids.append(int(pid))
-        return pids
+        return bundle_pids(self.app, "Contents/MacOS/")
 
     def session(self):
         """This account's GUI session now (the injected read, else ``gui_session``)."""
@@ -760,24 +823,13 @@ class BenchApp:
         return rpc_at(self.socket, method, params, timeout)
 
     def state_root(self):
-        """The tag's saved state: `~/Library/Application Support/cmux/tags/<tag>` (BuildIdentity
-        daemonStateDirectory's parent; its `tui` holds the daemon's saved sessions and their workspaces)."""
-        base = os.environ.get("BENCH_LAUNCH_STATE_BASE") or os.path.join(account_home(), "Library/Application Support/cmux")
-        return os.path.join(base, "tags", self.tag)
+        """The tag's saved state (``tag_state_root``)."""
+        return tag_state_root(self.tag)
 
     def start_fresh(self):
-        """Every bench launch starts from an empty saved session for its tag (2026-10-24: STRESS refused "the app
-        already has 60 workspaces", restored from an earlier run on that host). The tag's state moves aside to
-        `<root>.bench-prev` (one kept, the older one removed). BENCH_LAUNCH_KEEP_STATE=1, or
-        BenchApp(fresh_state=False), keeps it."""
-        root = self.state_root()
-        if not os.path.lexists(root):
-            return
-        prev = root + ".bench-prev"
-        if os.path.lexists(prev):
-            shutil.rmtree(prev, ignore_errors=True)
-        os.rename(root, prev)
-        note(f"bench-launch: {self.tag} starts from an empty saved session (earlier state moved to {prev})")
+        """Every bench launch starts from an empty saved session for its tag (``start_fresh_state``).
+        BENCH_LAUNCH_KEEP_STATE=1, or BenchApp(fresh_state=False), keeps it."""
+        start_fresh_state(self.tag)
 
     def launch(self, timeout=180, ready="debug.windows", on_start=None):
         """Starts the app and returns once `ready` answers (debug.windows: with a window).

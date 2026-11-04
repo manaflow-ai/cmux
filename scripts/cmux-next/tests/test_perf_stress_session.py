@@ -142,6 +142,11 @@ class FakeApp:
                 rings.append({"pane": pane, "frame_in_window": [x, y, width, share * AREA[1]]})
                 y += share * AREA[1]
             x += width
+        # A chat dock (the app's left dock column with the agent chat role) is a pane frame too.
+        shown = next((w for w in self.workspaces if w["id"] == self.shown), None)
+        for dock in [p for p in self.panes_of(shown) if p.get("dock")] if shown else []:
+            rings.append({"pane": dock["id"], "frame_in_window": [-320.0, 0.0, 320.0, AREA[1]]})
+            dividers.append([-2, 0, 4, AREA[1]])
         window = {"id": "win_1", "frame": list(self.window_frame), "divider_areas_in_window": dividers,
                   "planes": [{"rings": rings}], "browsers": []}
         if not self.legacy:
@@ -239,6 +244,16 @@ class FakeApp:
             self.browsers.append((pane["id"], not hidden))
             self.add(pane, self.tab("browser"))
         elif action == "palette.newAgentChat":
+            if params.get("focus") and target.startswith("pane:"):
+                # The app: a run that asks for focus on a shown pane takes the person's New Agent Chat
+                # path (openTargetedChat applies only without a view change), and NewChatPlacement puts
+                # the chat in the workspace's left chat dock, made by the first one: never in the pane.
+                dock = next((p for p in self.panes_of(workspace) if p.get("dock")), None)
+                if dock is None:
+                    dock = {"id": self.ident("pane"), "tabs": [], "dock": {"edge": "left", "role": "agentChat"}}
+                    self.panes_of(workspace).append(dock)
+                self.add(dock, self.tab("conversation"))
+                return {}
             if self.chat == "refused":
                 return {"error": {"code": "unavailable", "data": {"reason": "agent launch denied"}}}
             if self.chat == "transport":
@@ -502,6 +517,19 @@ class ChatTests(Case):
         self.assertEqual(summary["chat_fallbacks"], 0, "a slow chat was replaced by the New Tab page")
         self.assertEqual(summary["pane_problems"], [])
         self.assertFalse(any(action == "newTab.page" for action, _, _ in app.log))
+
+    def test_each_chat_opens_in_its_measured_pane_not_in_a_chat_dock(self):
+        # Fleet holder-dogfood STRESS, macOS 27 (e13f253fa4c): "chat tab None is None" in every pane, "15 pane
+        # frames in debug.layers, not 14; 6 columns side by side, not 4; 70 tabs in the measured workspace, not
+        # 84". newAgentChat asked for focus, so the app took the person's path and docked every chat.
+        app = FakeApp()
+        session = builder(app)
+        session.build_measured()
+        summary = session.summary()
+        self.assertEqual(summary["pane_problems"], [], "a chat went somewhere other than its pane")
+        self.assertEqual(summary["grid_problems"], [], "a chat dock made an extra pane frame")
+        self.assertEqual(sum(summary["measured_tabs"].values()), 84)
+        self.assertFalse(any(p.get("dock") for w in app.workspaces for p in app.panes_of(w)), "a chat dock was made")
 
     def test_only_a_typed_refusal_falls_back(self):
         app = FakeApp(chat="transport")

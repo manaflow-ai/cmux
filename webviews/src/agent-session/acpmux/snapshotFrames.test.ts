@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxSnapshot } from "./model";
 import { noChat as emptySnapshot } from "../../gallery/fixtures/acpmux";
-import { snapshotFrames } from "./snapshotFrames";
+import { presentFrame, snapshotFrames } from "./snapshotFrames";
 
 function rig() {
   const frames: (() => void)[] = [];
@@ -316,4 +316,59 @@ test("a frame folds against the state current when React applies its updater", (
   } as unknown as AcpmuxSnapshot;
   const shown = updates[0]!(committedAfterScheduling);
   expect(shown.handoff?.record).toBe(committedAfterScheduling.handoff!.record);
+});
+
+test("a frame's snapshots keep every subagent progress value its chat changed", () => {
+  const { presenter, shown, paint } = rig();
+  const base = { ...emptySnapshot(), sessionId: "chat", subagentStructureVersion: 1 };
+  presenter.push({ ...base, subagentProgress: { a: { tokens: 10 }, b: { tokens: 1 } } });
+  presenter.push({ ...base, subagentProgress: { a: { tokens: 20 } } });
+  presenter.push({ ...base, connection: "connected" });
+  paint();
+  expect(shown).toHaveLength(1);
+  expect(shown[0]!.subagentProgress).toEqual({ a: { tokens: 20 }, b: { tokens: 1 } });
+  expect(shown[0]!.connection).toBe("connected");
+});
+
+test("subagent progress never crosses a session change in the same frame", () => {
+  const { presenter, shown, paint } = rig();
+  presenter.push({ ...emptySnapshot(), sessionId: "a", subagentProgress: { x: { tokens: 5 } } });
+  presenter.push({ ...emptySnapshot(), sessionId: "b" });
+  paint();
+  expect(shown[0]!.sessionId).toBe("b");
+  expect(shown[0]!.subagentProgress).toBeUndefined();
+});
+
+test("a hidden page presents at once; a shown page waits for its frame or 50 ms", () => {
+  const scope = globalThis as Record<string, unknown>;
+  const originals = {
+    document: scope.document,
+    requestAnimationFrame: scope.requestAnimationFrame,
+    setTimeout: scope.setTimeout,
+  };
+  let visibilityState = "hidden";
+  const frames: (() => void)[] = [];
+  const timers: { delay: number; run: () => void }[] = [];
+  scope.document = { get visibilityState() { return visibilityState; } };
+  scope.requestAnimationFrame = (run: () => void) => frames.push(run);
+  scope.setTimeout = (run: () => void, delay: number) => timers.push({ delay, run });
+  try {
+    let runs = 0;
+    presentFrame(() => (runs += 1));
+    expect(runs).toBe(1);
+    expect(frames).toHaveLength(0);
+    visibilityState = "visible";
+    presentFrame(() => (runs += 1));
+    expect(runs).toBe(1);
+    expect(timers.map(({ delay }) => delay)).toEqual([50]);
+    timers.shift()!.run();
+    expect(runs).toBe(2);
+    frames.shift()!();
+    expect(runs).toBe(2);
+  } finally {
+    for (const [key, value] of Object.entries(originals)) {
+      if (value === undefined) delete scope[key];
+      else scope[key] = value;
+    }
+  }
 });
