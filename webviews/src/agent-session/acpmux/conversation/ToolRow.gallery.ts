@@ -38,7 +38,7 @@ export default agentPaneEntry({
   id: "agent-pane.tool-row-visual-preview",
   title: "Visual tool previews",
   area: "Agent pane",
-  height: 360,
+  height: 720,
   covers: ["agent-session/acpmux/conversation/ToolRow.tsx", "agent-session/acpmux/conversation/ToolVisualPreview.tsx"],
   variants: {
     capture: {
