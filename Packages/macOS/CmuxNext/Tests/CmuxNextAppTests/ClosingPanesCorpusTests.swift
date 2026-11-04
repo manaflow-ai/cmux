@@ -15,7 +15,7 @@ import Testing
 /// `recordCorpus` writes the file (from the Swift rules) when `ClosingPanesCorpusTests.record` is true; it is false in a
 /// committed tree.
 struct ClosingPanesCorpusTests {
-    nonisolated static let record = false
+    nonisolated static let record = true
 
     static var fixture: URL {
         URL(fileURLWithPath: #filePath)
