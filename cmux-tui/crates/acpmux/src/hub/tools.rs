@@ -31,6 +31,8 @@ impl Hub {
     /// roots (`launch_roots.rs`) and cmux's tools as this spawn gives them,
     /// with the chat's choices. What Claude Code reported for the last
     /// process stays until its next system/init.
+    /// `reach_or_start` supplies the resolved `Spawn` profile: preset argv,
+    /// including `--system-prompt-file`, is already appended by `spawn_profile`.
     pub(super) async fn record_spawn_inputs(&self, session: &Session, profile: &HarnessProfile) {
         self.record_launch_roots(session, profile).await;
         let claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;

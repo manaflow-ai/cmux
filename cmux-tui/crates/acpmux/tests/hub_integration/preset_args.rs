@@ -160,6 +160,57 @@ async fn allowlisted_args_and_the_system_prompt_file_reach_the_claude_command() 
 }
 
 #[tokio::test]
+async fn context_inventory_follows_the_resolved_preset_at_each_real_start() {
+    let state = StateDir::new();
+    let (hub, mut c) = args_setup(&state, Origin::Local).await;
+    c.request(
+        method::MUX_PRESETS,
+        json!({"name": "context", "set": {"harness": "fakeclaude", "systemPrompt": PROMPT_A}}),
+    )
+    .await
+    .unwrap();
+    let created = c.request(method::SESSION_NEW, new_params("context")).await.unwrap();
+    let id = created["sessionId"].as_str().unwrap();
+    let session = hub.resolve(id).unwrap();
+    let text = || {
+        session
+            .meta()
+            .cmux_context
+            .as_deref()
+            .into_iter()
+            .flatten()
+            .find(|part| part.source == "cmux-preset")
+            .and_then(|part| part.text.clone())
+    };
+    assert_eq!(text().as_deref(), Some(PROMPT_A));
+    c.request(
+        method::MUX_PRESETS,
+        json!({"name": "context", "set": {"systemPrompt": PROMPT_B}}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(text().as_deref(), Some(PROMPT_A), "an edit cannot rewrite the running launch");
+    hub.kill(&session, false).await.unwrap();
+    let got = argv_of(&hub, &mut c, id).await;
+    assert_eq!(got[0], "--system-prompt-file", "{got:?}");
+    assert_eq!(text().as_deref(), Some(PROMPT_B));
+    c.request(
+        method::MUX_PRESETS,
+        json!({"name": "context", "set": {"systemPrompt": null}}),
+    )
+    .await
+    .unwrap();
+    hub.kill(&session, false).await.unwrap();
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "argv"}]}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(text(), None);
+}
+
+#[tokio::test]
 async fn the_system_prompt_file_is_checked_against_its_hash_at_every_session_start() {
     let state = StateDir::new();
     let (hub, mut c) = args_setup(&state, Origin::Local).await;
