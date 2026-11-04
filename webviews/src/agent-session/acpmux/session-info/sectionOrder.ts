@@ -21,7 +21,7 @@ export type SessionInfoGroupId = "about" | "made" | "running";
 export const GROUP_SECTIONS: Readonly<Record<SessionInfoGroupId, readonly SessionInfoSectionId[]>> = {
   about: ["environment", "context", "usage", "connectors"],
   made: ["changes", "sources", "outputs"],
-  running: ["subagents", "tasks"],
+  running: ["progress", "subagents", "tasks"],
 };
 
 const GROUPS = Object.keys(GROUP_SECTIONS) as SessionInfoGroupId[];
@@ -30,11 +30,13 @@ const GROUPS = Object.keys(GROUP_SECTIONS) as SessionInfoGroupId[];
 /// running subagents and background tasks, then Sources (Leo, 2026-11-03: "1. Machines showing up so
 /// I know if it's cloud or not 2. context 3. Subagents/background tasks running 4. Sources"). Usage, a
 /// folded row valued at Context's spend, stays right after Context; the sections he did not name
-/// follow Sources. A person's saved order (a drag) still wins over this one.
+/// follow Sources. Progress, the agent's live plan, heads what it runs (Leo, 2026-11-04: "A live
+/// Progress section in Session Info"). A person's saved order (a drag) still wins over this one.
 export const DEFAULT_ORDER: readonly SessionInfoSectionId[] = [
   "environment",
   "context",
   "usage",
+  "progress",
   "subagents",
   "tasks",
   "sources",
@@ -43,10 +45,12 @@ export const DEFAULT_ORDER: readonly SessionInfoSectionId[] = [
   "connectors",
 ];
 
-/// Leo's four, always in view: the machine, Context, what it runs, Sources (DEFAULT_ORDER above).
+/// Leo's four, always in view: the machine, Context, what it runs (its plan's Progress first), Sources
+/// (DEFAULT_ORDER above).
 export const PRIORITY_SECTIONS: readonly SessionInfoSectionId[] = [
   "environment",
   "context",
+  "progress",
   "subagents",
   "tasks",
   "sources",
