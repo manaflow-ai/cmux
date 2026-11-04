@@ -10721,7 +10721,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         snapshot: () => automationView.current!.snapshot,
         raceClient: () => directClient.current ?? undefined,
         openRace: (race) => {
-          if (!raceWake.current) raceWake.current = composerHandle.current?.wakeState();
+          if (!raceWake.current) raceWake.current = composerHandle.current?.wakeState({ includeShell: true });
           setRaceInitial(race);
           setRaceParent(race.parent);
         },
@@ -12846,7 +12846,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         },
         snapshot.sessionId && directClient.current
           ? () => {
-              if (!raceVisible) raceWake.current = composerHandle.current?.wakeState();
+              if (!raceVisible) raceWake.current = composerHandle.current?.wakeState({ includeShell: true });
               setRaceParent(snapshot.sessionId);
             }
           : undefined,
