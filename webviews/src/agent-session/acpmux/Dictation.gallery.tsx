@@ -154,6 +154,21 @@ export default componentEntry<Props>({
       props: { initialState: "listening", initialNotice: null },
       note: "Listening: a waveform of thin bars that fades to dots at both ends, the finish key (⏎), and the lit mic.",
     },
+    "idle-menu": {
+      props: { initialState: "idle", initialNotice: null },
+      play: async (ctx) => ctx.contextMenu({ role: "button", name: "Dictate" }),
+      note: "The idle mic keeps its quiet hover wash while its Hide menu is open.",
+    },
+    "listening-menu": {
+      props: { initialState: "listening", initialNotice: null },
+      play: async (ctx) => ctx.contextMenu({ role: "button", name: "Stop dictation" }),
+      note: "The listening mic retains its accent hover tone while its Hide menu is open.",
+    },
+    "finish-menu": {
+      props: { initialState: "listening", initialNotice: null },
+      play: async (ctx) => ctx.contextMenu({ role: "button", name: "Finish dictation" }),
+      note: "Only the Finish control retains its hover wash; the neighboring mic stays at rest.",
+    },
     starting: {
       props: { initialState: "starting", initialNotice: null },
       note: "Starting: the wave rests as dots until the first level arrives; the mic is already lit.",
