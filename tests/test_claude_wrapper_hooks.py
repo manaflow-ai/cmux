@@ -1572,6 +1572,53 @@ def test_restore_record_keeps_user_settings_after_merge(failures: list[str]) -> 
         )
 
 
+def test_restore_record_settings_survive_a_different_restore_directory(failures: list[str]) -> None:
+    """Recorded --settings must not depend on how they were spelled at launch.
+
+    A relative path is read from the launch directory, so it is recorded
+    absolute. A BOM before inline JSON still counts as inline (Node's trim()
+    drops it), so it goes to a durable file like any other inline value.
+    """
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-restore-spelling-") as td:
+        root = Path(td)
+        home = root / "home"
+        home.mkdir()
+        launch_dir = root / "project"
+        (launch_dir / ".claude").mkdir(parents=True)
+        user_file = launch_dir / ".claude" / "mine.json"
+        user_file.write_text('{"spinnerTipsEnabled": false}', encoding="utf-8")
+        bom_inline = '\ufeff{"viewMode": "default"}'
+
+        def setup(_tmp: Path, env: dict[str, str]) -> None:
+            env["HOME"] = str(home)
+            env["FAKE_WRAPPER_CWD"] = str(launch_dir)
+
+        code, _real_argv, _, stderr, _, _, _, _, _, launch_argv_b64 = run_wrapper(
+            socket_state="live",
+            argv=["--settings", ".claude/mine.json", "--settings", bom_inline, "hello"],
+            setup_sandbox=setup,
+        )
+        expect(code == 0, f"restore spelling: wrapper exited {code}: {stderr}", failures)
+        captured = decode_nul_argv(launch_argv_b64)
+        recorded = [captured[index + 1] for index, arg in enumerate(captured[:-1]) if arg == "--settings"]
+        expect(len(recorded) == 2, f"restore spelling: expected two recorded --settings, got {captured}", failures)
+        if len(recorded) != 2:
+            return
+        expect(
+            os.path.isabs(recorded[0]) and os.path.realpath(recorded[0]) == os.path.realpath(user_file),
+            f"restore spelling: a relative path should be recorded absolute, got {recorded[0]}",
+            failures,
+        )
+        bom_path = Path(recorded[1])
+        expect(
+            bom_inline not in captured
+            and bom_path.parent == home / ".cmuxterm" / "claude-settings"
+            and bom_path.is_file(),
+            f"restore spelling: BOM-led inline JSON should be a durable file, got {recorded[1]!r}",
+            failures,
+        )
+
+
 def test_live_socket_empty_settings_warns_instead_of_silent_drop(failures: list[str]) -> None:
     # An explicit empty --settings= must not be swallowed in silence: the wrapper
     # surfaces the merge-failure warning instead of dropping the flag with no
@@ -3987,6 +4034,7 @@ def main() -> int:
     test_live_socket_invalid_settings_warns_and_falls_back(failures)
     test_live_socket_merges_settings_file_form(failures)
     test_restore_record_keeps_user_settings_after_merge(failures)
+    test_restore_record_settings_survive_a_different_restore_directory(failures)
     test_live_socket_empty_settings_warns_instead_of_silent_drop(failures)
     test_large_settings_argument_is_rejected_without_hanging(failures)
     test_multibyte_settings_argument_uses_byte_limit(failures)
