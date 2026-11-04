@@ -58,7 +58,7 @@ import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
+import { transcriptColumn, transcriptColumnSpan, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { compactingUsage, type UsageCacheLayout } from "../usageStats";
 import { registerPicker } from "../pickerOpeners";
 import { opensProcessTerminal } from "../processTerminal";
@@ -273,7 +273,12 @@ export const findBarCramped = (chatWidth: number, clear: number) =>
 export const pushKeepsColumn = (paneWidth: number, room: number, column?: ChatColumn) =>
   paneWidth <= 0 ||
   room <= 0 ||
-  (room < paneWidth && transcriptColumn(paneWidth - room, column).width === transcriptColumn(paneWidth, column).width);
+  (room < paneWidth &&
+    transcriptColumn(paneWidth - room, column).width === transcriptColumn(paneWidth, column).width &&
+    // The column itself too, not only its drawn width: the 4 grid's 0-7 px leftover can make up a
+    // column the narrower chat shrank, and that push is one a narrower column would need (Leo,
+    // 2026-11-03: "if it would need to be then session info should be an overlay").
+    transcriptColumnSpan(paneWidth - room, column) === transcriptColumnSpan(paneWidth, column));
 
 /// Whether Session Info pushes the chat aside (sessionInfoStage `push`).
 export const sessionInfoPushes = (
@@ -289,9 +294,10 @@ export const sessionInfoPushes = (
 /// moves right as the chat widens.
 const columnEnd = (chatWidth: number, column?: ChatColumn) => chatWidth - transcriptColumn(chatWidth, column).inset;
 
-/// A room of an even number of pixels: the column centered in the chat beside it then starts on a
-/// whole pixel and keeps the width it has in the whole pane (pushKeepsColumn), never a pixel less.
-const even = (room: number) => Math.ceil(room / 2) * 2;
+/// A room of a multiple of 8 pixels: the column's inset is on the 4 grid (model.ts transcriptColumn,
+/// design/grid.md 5.5), so the column centered in the chat beside it then starts on it and keeps the
+/// width it has in the whole pane (pushKeepsColumn), never a pixel less.
+const even = (room: number) => Math.ceil(room / 8) * 8;
 
 /// The room a pushed panel `panel` wide (pushedWidth) takes from the chat's right end: by default only
 /// what the gutter lacks, so the chat narrows gradually from the pane width where the gutter stops
@@ -304,19 +310,16 @@ export const pushedRoom = (paneWidth: number, panel: number, column?: ChatColumn
   if (full) return even(all);
   const end = paneWidth - panel - 2 * FLOAT_MARGIN - Math.max(0, overflow);
   if (columnEnd(paneWidth, column) <= end) return 0;
-  let fits = paneWidth - all;
-  if (fits <= 0 || columnEnd(fits, column) > end) return even(all);
-  // The widest chat whose column still ends by `end`: columnEnd only grows with the chat's width.
-  let over = paneWidth;
-  while (over - fits > 1) {
-    const mid = Math.floor((fits + over) / 2);
-    if (columnEnd(mid, column) <= end) fits = mid;
-    else over = mid;
-  }
+  if (paneWidth - all <= 0 || columnEnd(paneWidth - all, column) > end) return even(all);
+  // The least room, in steps of 8 (the column's inset is on the 4 grid, so each step moves the column's
+  // end in by about 4), whose column still ends by `end`. Rounding a pixel search up to 8 instead could
+  // land 1-3 px past it: columnEnd does not grow steadily with the chat's width. At most about 70 steps,
+  // run once per layout of the panel.
+  let room = 8;
+  while (room < all && columnEnd(paneWidth - room, column) > end) room += 8;
   // Once the chat would end under the panel itself (its page edge under the card), the whole room: the
   // chat's right edge, its scrollbar with it, is then the panel's left margin, as Push always draws it.
-  const room = paneWidth - fits;
-  return even(room >= panel ? all : room);
+  return room >= panel ? even(all) : room;
 };
 /// The chat's content Session Info must never float over: the transcript's rows and the composer.
 const CHAT_CONTENT = ".acpmux-main :is(.acpmux-row, .acpmux-composer-box)";
@@ -1164,6 +1167,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           top={nativeTop(shell, tabRowHeight)}
           side={side}
           foot={stopsAboveComposer ? dockHeight : undefined}
+          overChat={overChat}
           label={t("sessionInfo.title")}
           title={scope ? `${t("sessionInfo.subagent")} · ${scope.agent.name}` : undefined}
           onBack={scope?.onBack}

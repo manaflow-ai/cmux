@@ -316,16 +316,21 @@ const GROUPS: &[Group] = &[
             verb(
                 "tunnel on",
                 "",
-                "Let every app on this Mac reach your Cloud machines (installs a network extension)",
-                "この Mac のすべてのアプリから Cloud マシンに接続（ネットワーク拡張をインストール）",
+                "Turn on this Mac's Cloud tunnel",
+                "この Mac の Cloud トンネルをオンにする",
             ),
             verb(
                 "tunnel off",
                 "",
-                "Stop the Cloud Tunnel for other apps",
-                "他のアプリ向けの Cloud Tunnel を停止",
+                "Turn off this Mac's Cloud tunnel",
+                "この Mac の Cloud トンネルをオフにする",
             ),
-            verb("tunnel status", "", "Show the Cloud Tunnel's state", "Cloud Tunnel の状態を表示"),
+            verb(
+                "tunnel status",
+                "",
+                "Show this Mac's Cloud tunnel state",
+                "この Mac の Cloud トンネルの状態を表示",
+            ),
             verb("firewall-list", "", "List firewall rules", "ファイアウォールルールを一覧表示"),
             verb(
                 "firewall-get",

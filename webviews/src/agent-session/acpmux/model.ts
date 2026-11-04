@@ -124,6 +124,11 @@ export type AcpmuxCompaction = {
 /// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record).
 export type AcpmuxFailover = { from: string; to: string };
 
+/// A session recap (acpmux `recap` record, `hub/away_recap.rs`): where the chat stands, shown when
+/// the person comes back after 5+ minutes away. Never a prompt; the daemon decides when.
+/// `key`: the chat and the record's seq, which the dismissal remembers (conversation/recapDismissed.ts).
+export type AcpmuxRecap = { key: string; text: string; awayMs?: number };
+
 /// A turn the agent ran on its own, which nobody prompted (acpmux `background_turn` records): a
 /// background task or subagent finished (`task_notification`), a scheduled wakeup or /loop tick
 /// (`scheduled`), or a hook (`system`). `running` until its ended record; then `quiet` is acpmux's
@@ -348,6 +353,19 @@ export type QueuedPromptImage = PromptImage & { src?: string; local?: boolean };
 /// model call's (direct.ts `turnTokenSplit`); a finished turn's comes from its `turn_result`.
 export type TurnTokenSplit = { output: number; input: number; cacheRead: number; cacheWrite: number };
 
+/// One retry of a turn's failed model request, as acpmux logs it (`turn_retrying`): Claude Code's
+/// `system/api_retry` (attempt of maxRetries, error, errorStatus) or Codex's stream error.
+export type AcpmuxTurnRetry = {
+  attempt?: number;
+  maxRetries?: number;
+  error?: string;
+  errorStatus?: number;
+};
+
+/// The client's row that carries the running turn's retries (direct.ts): kind "typing", so no
+/// view draws it; the live line reads it (conversation/turns.ts `withRetry`).
+export const TURN_RETRY = "turn-retry";
+
 export type AcpmuxRow = {
   id: string;
   version: number;
@@ -373,6 +391,8 @@ export type AcpmuxRow = {
   compaction?: AcpmuxCompaction;
   /// A failover row's harnesses.
   failover?: AcpmuxFailover;
+  /// A recap row's recap.
+  recap?: AcpmuxRecap;
   /// A background turn's line (conversation/backgroundTurns.ts): the turn it stands for.
   background?: AcpmuxBackgroundTurn;
   /// A row a background turn made: that turn's id, so its line can fold it (backgroundTurns.ts).
@@ -503,6 +523,13 @@ export type AcpmuxRow = {
   /// A running turn's status line before the turn's first output: it reads "Thinking" beside the
   /// turn's time (WorkingFor.tsx).
   thinkingNow?: boolean;
+  /// The running turn's harness retries a model request that failed (acpmux `turn_retrying`,
+  /// hub/turn_retry.rs): on the client's `TURN_RETRY` row while it retries, and on the live line,
+  /// which then says the model cannot be reached instead of "Thinking" (conversation/Thinking.tsx).
+  retry?: AcpmuxTurnRetry;
+  /// On the `TURN_RETRY` row: how long the turn's finished retries took, which the live line's
+  /// "Thinking" time leaves out (conversation/turns.ts `withRetry`).
+  retriedMs?: number;
   /// A running turn's status line drawn as the turn's last row (Debug Settings
   /// `agentPane.debug.liveLineBelow`, conversation/turns.ts): no rule under it, and its clock
   /// never stops while the turn runs.
@@ -1254,17 +1281,17 @@ const TOOL_RUN_TOP = 0;
 /// MARK_STEP).
 const isStepRow = (row: AcpmuxRow) =>
   row.kind === "activity" || (row.kind === ACTIVITY_LINE && !row.below) || isLineRow(row);
+/// The running turn's live line, drawn as its last row (`below`, conversation/turns.ts).
+export const isLiveLine = (row: AcpmuxRow) =>
+  row.below === true && (row.kind === WORKING || row.kind === THINKING || row.kind === ACTIVITY_LINE);
 /// The running turn's line as its last row (`below`) right under a step row or a status row ("Subagent
 /// finished", "Scheduled check", a compaction): one more line of the run, 22 under it and 22 tall
-/// (`.acpmux-row--below.acpmux-row--after-step`), not the footer's 32 slot, so a step row after it
-/// (the waiting messages' head) is 22 under it too (#29965). Under a status row it took the footer's
+/// (`.acpmux-row--below.acpmux-row--after-step`), not the footer's 32 slot (#29965); the waiting
+/// messages' head draws over it (pendingMessages.ts `withWaitingRows`). Under a status row it took the footer's
 /// slot a block gap away, 55 and 70 from its neighbours (Leo, 2026-11-03: "this is pretty bad
 /// spacing and formatting"; design/transcript-spacing.md rule 3).
 export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
-  row.below === true &&
-  (row.kind === WORKING || row.kind === THINKING || row.kind === ACTIVITY_LINE) &&
-  prev !== undefined &&
-  (isStepRow(prev) || isStatusRow(prev));
+  isLiveLine(row) && prev !== undefined && (isStepRow(prev) || isStatusRow(prev));
 const LIVE_STEP_EDGE = "+step";
 /// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
 /// #29965), `--cv-tool-row-height`.
@@ -1277,8 +1304,9 @@ const TOOL_RUN_BOTTOM = 0;
 const LINE_FRAME = TOOL_RUN_TOP + TOOL_RUN_BOTTOM;
 const lineRow = () => LINE_FRAME + toolRowHeight();
 /// A message row (a send, SentMessageLine.tsx and AgentMessageRow.tsx; another agent's received line;
-/// a folded group's head): one tool row, and in the stacked look (conversation/messageLineLook.ts,
-/// the default) its first line's own line under it while it is shut and has one.
+/// a folded group's head): one tool row (the single look, conversation/messageLineLook.ts, the
+/// default), and in the stacked gallery look its first line's own line under it while it is shut and
+/// has one.
 const messagePreviewLine = (shown: boolean) =>
   shown && messageLineLook() === "stacked" ? MESSAGE_PREVIEW_LINE_PT * chromeScale : 0;
 const messageRowHeight = (preview: boolean) => toolRowHeight() + messagePreviewLine(preview);
@@ -1443,9 +1471,13 @@ const FALLBACK_CHAR_WIDTH = 8;
 /// column's right (the computer use live preview, `--cv-inset-end`): the column's end moves in to
 /// leave it, its start stays.
 const PAGE_EDGE = gridLength("icon-box");
-export function transcriptColumn(paneWidth: number, { min, max, share }: ChatColumn = chatColumn(), endReserve = 0) {
-  const column = Math.min(max, Math.max(min, paneWidth * share));
-  const inset = Math.max(PAGE_EDGE * gridScale(), Math.round((paneWidth - column) / 2));
+/// The column's own width (`--cv-column`), before the 4 grid's 0-7 px leftover joins it.
+export const transcriptColumnSpan = (paneWidth: number, { min, max, share }: ChatColumn = chatColumn()) =>
+  Math.min(max, Math.max(min, paneWidth * share));
+export function transcriptColumn(paneWidth: number, chat: ChatColumn = chatColumn(), endReserve = 0) {
+  const column = transcriptColumnSpan(paneWidth, chat);
+  // On the 4 grid (design/grid.md 5.5), as `round(down, ..., 4px)` in conversation.css.
+  const inset = Math.max(PAGE_EDGE * gridScale(), 4 * Math.floor((paneWidth - column) / 8));
   const insetEnd = Math.max(inset, endReserve);
   return { inset, insetEnd, width: paneWidth - inset - insetEnd };
 }
@@ -1808,8 +1840,8 @@ function fallbackRowHeight(
         : 16 + 2 + (lines(ask.question) + lines(answer)) * 20 + 4,
     );
   }
-  // The render card: its 36px head over the frame before it reports a height, and 6px below.
-  if (row.kind === RENDER) return finish(36 + RENDER_FRAME_MIN_HEIGHT + 6);
+  // The render card: its 36px head over the frame before it reports a height, and 8px below.
+  if (row.kind === RENDER) return finish(36 + RENDER_FRAME_MIN_HEIGHT + 8);
   // Card padding and border, title, button row.
   if (row.kind === "permission") return finish(87);
   // A suggested tasks card (offer/SuggestedTasks.tsx): its 28px heading, about 84px per open task
@@ -1829,6 +1861,13 @@ function fallbackRowHeight(
   if (row.kind === TASK_LINE && row.tasks) return finish(row.tasks.length * toolRowHeight());
   // A paused agent pair: its sentence over the held count and Resume; resumed, one line.
   if (row.kind === "agentPair") return finish(row.agentPair?.resumed ? 37 : 37 + 24);
+  // A session recap (conversation/RecapNote.tsx): its card, a line per 70 characters of recap.
+  if (row.kind === "recap")
+    return finish(
+      24 +
+        Math.max(1, Math.ceil((row.recap?.text.length ?? 0) / Math.max(24, Math.floor(width / 8) - 6))) *
+          metrics().lineHeight,
+    );
   // A session start: its facts line (conversation/SessionStartNote.tsx); the full facts open
   // below when asked.
   if (row.kind === "sessionStart") return finish(toolRowHeight());

@@ -133,11 +133,6 @@ function leadingIcon(row: Element): Element | null {
   return null;
 }
 
-/** The element of `row` that holds an empty icon slot before its words (`data-lead-slot`), if any. */
-function slot(row: Element): Element | null {
-  return row.matches("[data-lead-slot]") ? row : row.querySelector("[data-lead-slot]");
-}
-
 function pxTokens(element: Element): number[] {
   const style = getComputedStyle(element);
   const tokens: number[] = [];
@@ -189,10 +184,6 @@ function transcriptViolations(doc: Document): Violation[] {
               detail: `${key}: its icon centres ${fmt(delta)} px off its first line`,
             });
         }
-      } else if (slot(row)) {
-        // A row that keeps the icon slot empty by design (the running turn's live line, Thinking.tsx
-        // `data-lead-slot`): its words start on the text column, its lead edge is its box's start.
-        leads.push({ key, edge: slot(row)!.getBoundingClientRect().left });
       } else if (text) leads.push({ key, edge: text.left });
     }
     violations.push(...offColumn(leads, "icon-column", "the lead edge"));

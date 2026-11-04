@@ -210,8 +210,6 @@ let packageProducts: [Product] = [
     .library(name: "CmuxNextApp", targets: ["CmuxNextApp"]),
     .library(name: "CmuxNextFavicons", targets: ["CmuxNextFavicons"]),
     .library(name: "CmuxNextAppCore", targets: ["CmuxNextAppCore"]),
-    // The Cloud Tunnel system extension (CloudTunnelExtension/) links this leaf alone.
-    .library(name: "CmuxNextCloudTunnel", targets: ["CmuxNextCloudTunnel"]),
 ] + uiLayerPreviewProducts
 
 let packageTargets: [Target] = uiLayerPreviewTargets + [
@@ -230,7 +228,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextApp",
             dependencies: [
                 "CmuxNextAppCore",
-                "CmuxNextCloudTunnel",
                 "CmuxNextCloudCredentials",
                 "CmuxNextChiefMemory",
                 "CmuxNextCompat",
@@ -1251,20 +1248,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: daemonSwiftSettings
         ),
-        // The opt-in Cloud Tunnel (plans/cmux-next/cloud-tunnel-DESIGN.md): a leaf shared by the
-        // app and its system extension, so it depends on nothing in this package.
-        .target(
-            name: "CmuxNextCloudTunnel",
-            // FileManager.checked for the bundle probe.
-            dependencies: ["CmuxNextCompat"],
-            resources: [.process("Resources")],
-            swiftSettings: daemonSwiftSettings
-        ),
-        .testTarget(
-            name: "CmuxNextCloudTunnelTests",
-            dependencies: ["CmuxNextCloudTunnel"],
-            swiftSettings: daemonSwiftSettings
-        ),
         .testTarget(
             name: "CmuxNextCloudTests",
             dependencies: ["CmuxNextCloud", "CmuxNextDaemon"],
@@ -1572,7 +1555,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextSidebarTests",
-            dependencies: ["CmuxNextSidebar"],
+            dependencies: ["CmuxNextSidebar", "CmuxNextWakeups"],
             exclude: ["Fixtures"],
             swiftSettings: uiSwiftSettings
         ),
@@ -1604,7 +1587,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // (plans/cmux-next/tab-lifecycle.md). Pure values; no engine, no I/O.
         .target(
             name: "CmuxNextHibernation",
-            dependencies: ["CmuxNextCompat", "CmuxNextSettings"],
+            dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         // The browser's engine-neutral half: tab and engine values, intents, capability protocols, omnibox

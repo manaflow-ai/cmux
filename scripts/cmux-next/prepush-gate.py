@@ -472,13 +472,19 @@ def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path
                 files[p] = base if p in base_data else head  # each side's own baselines
         for p in CONTEXT:
             files[p] = rev
-        for p in CHECK_CODE:
-            files[p] = head
+        for p in CHECK_CODE if trusted_scripts is None else ():
+            files[p] = head  # a hook run reads the installed copy's, beside the checks (below)
         for p in changed:
             files[p] = rev
         dest = work / side
         write_tree(repo, dest, files, index)
         if trusted_scripts:
+            # The hook never takes check code from the push: an install without the masker the push's head has
+            # refuses, never falls back to the pushed scripts/swift_source_mask.py.
+            missing = [p for p in CHECK_CODE if not (trusted_scripts / Path(p).name).is_file()
+                       and blob_at(repo, head, p) is not None]
+            if missing:
+                raise SystemExit(f"prepush-gate: {STALE_INSTALL} (it has no {', '.join(Path(p).name for p in missing)}).")
             shutil.copytree(trusted_scripts, dest / SCRIPTS, dirs_exist_ok=True)
             lowered = lower_ratchet_baselines(repo, rev, dest / SCRIPTS)
             if lowered and side == "head":
@@ -882,15 +888,38 @@ def crash_allow_unreviewed(repo: Path, base: str, head: str) -> list[str]:
             for sha, subject, trailer, allow, _ in crash_raises(repo, base, head) if allow and trailer is None]
 
 
+STALE_INSTALL = "the installed hook is older than the checks this push needs: rerun scripts/install-git-hooks.sh"
+
+
+def blob_at(repo: Path, rev: str, path: str) -> bytes | None:
+    """PATH's content in commit REV, or None when REV has no such file."""
+    result = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{path}"], capture_output=True)
+    return result.stdout if result.returncode == 0 else None
+
+
+def check_script(repo: Path, head: str, path: str, trusted_scripts: Path | None) -> bytes | None:
+    """The check script at PATH to run for a push to HEAD: the installed reviewed copy on a hook run (TRUSTED_SCRIPTS),
+    HEAD's own on a manual run; None when HEAD is older than the check. A hook run never falls back to the pushed head's
+    copy (the hook never runs code a push controls): an install that lacks a check HEAD has refuses the push."""
+    at_head = blob_at(repo, head, path)
+    if trusted_scripts is None:
+        return at_head
+    if at_head is None:
+        return None  # a commit older than this check
+    installed = trusted_scripts / Path(path).name
+    if not installed.is_file():
+        raise SystemExit(f"prepush-gate: {STALE_INSTALL} (it has no {Path(path).name}).")
+    return installed.read_bytes()
+
+
 def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
     """What head adds to the Ghostty-default keys check (RESERVED_CHECK) over base."""
     def blob(rev: str, path: str) -> bytes | None:
         result = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{path}"], capture_output=True)
         return result.stdout if result.returncode == 0 else None
 
-    # The hook runs the installed reviewed checker (as for the scanners), else the head's.
-    trusted = trusted_scripts / Path(RESERVED_SCRIPT).name if trusted_scripts else None
-    script = trusted.read_bytes() if trusted and trusted.is_file() else blob(head, RESERVED_SCRIPT)
+    # The hook runs the installed reviewed checker (as for the scanners); a manual run, the checkout's.
+    script = check_script(repo, head, RESERVED_SCRIPT, trusted_scripts)
     if script is None:
         return []  # a commit older than this check
     with tempfile.TemporaryDirectory(prefix="cmux-reserved-") as tmp:
@@ -923,14 +952,9 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
 def leo_bans(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
     """What head adds to Leo's bans (LEO_BANS_CHECK) over base: findings base does not have, and a
     pin change in base..head with no `Leo-order:` trailer."""
-    trusted = trusted_scripts / Path(LEO_BANS_SCRIPT).name if trusted_scripts else None
-    if trusted and trusted.is_file():
-        script = trusted.read_bytes()
-    else:
-        result = subprocess.run(["git", "-C", str(repo), "show", f"{head}:{LEO_BANS_SCRIPT}"], capture_output=True)
-        if result.returncode != 0:
-            return []  # a commit older than this check
-        script = result.stdout
+    script = check_script(repo, head, LEO_BANS_SCRIPT, trusted_scripts)
+    if script is None:
+        return []  # a commit older than this check
     with tempfile.TemporaryDirectory(prefix="cmux-leo-bans-") as tmp:
         check = Path(tmp) / "check.py"
         check.write_bytes(script)
@@ -1214,7 +1238,12 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     found: list[tuple[str, list[str]]] = list(reserved)
     with tempfile.TemporaryDirectory(prefix="cmux-prepush-") as tmp:
         base_tree, head_tree = build_trees(repo, base, head, changed + deleted, Path(tmp), trusted_scripts)
-        # The tool rules and pins come from the head; a commit older than the gate uses the checkout's.
+        # The tool rules and pins: on a hook run, only the installed reviewed copy's (head_tree/SCRIPTS is that copy);
+        # a pin names a binary the gate downloads and runs, and its sha256 proves nothing when the same file names it.
+        # An install without them refuses. A manual run reads the head's, else (a commit older than the gate) the
+        # checkout's.
+        if trusted_scripts is not None and not (trusted_scripts / "lint-tools.lock").is_file():
+            raise SystemExit(f"prepush-gate: {STALE_INSTALL} (it has no lint-tools.lock).")
         config_root = head_tree if (head_tree / SCRIPTS / "lint-tools.lock").is_file() else repo
         lint = config_root / SCRIPTS / "lint"
         lock = config_root / SCRIPTS / "lint-tools.lock"
@@ -1459,51 +1488,35 @@ def guardrails(repo: Path, ranges: list, started) -> bool:
 
 
 # The perf cron's unit tests (scripts/cmux-next/perf-cron.py) never run on CI (Lawrence 2026-10-23: no new CI tests;
-# the owner runs them), so the push runs the fast file itself when it changes the cron or its tests. Local only,
-# like the guardrails. The two slower files (test_perf_cron_io.py, 22 s; test_perf_cron_arch_report.py, 82 s:
-# real git clones and subprocesses) are run by hand.
+# the owner runs them), and the hook never runs them either: they are the push's own code. When a push changes the
+# cron or its tests, the gate names them and the command to run them (perf_cron_tests).
 PERF_CRON_PATHS = ("scripts/cmux-next/perf-cron", "scripts/cmux-next/tests/test_perf_cron")
-PERF_CRON_FILES = ("scripts/cmux-next/perf-cron.py", "scripts/cmux-next/perf-budgets.py", "scripts/cmux-next/perf-budgets.json",
-                   "scripts/cmux-next/perf-profile-split.py", "scripts/cmux-next/tests/test_perf_cron.py",
-                   "scripts/cmux-next/tests/fixtures", "scripts/perf-bench")
-PERF_CRON_TIMEOUT = 60
 
 
-def perf_cron_tests(repo: Path, ranges: list) -> bool:
-    """Run test_perf_cron.py on each pushed head whose own changes touch the perf cron; True when a test fails.
+def perf_cron_tests(repo: Path, ranges: list) -> None:
+    """Name the perf cron's unit tests when a pushed head's own changes touch the perf cron; never run them.
 
-    RANGES are push_range.OwnRange values: a path counts when it changes over the base and since the head of
-    every range the push does not own (a merge of origin/feat-cmux-next that only brings in a cron change runs
-    nothing). It runs the head's own files (git
-    archive), not the checkout's. It fails open: a git error, a missing file at an older head, a broken Python or
-    a run past PERF_CRON_TIMEOUT prints a warning and lets the push through."""
-    refused = False
+    They are that head's own code, and the hook never runs code the push controls (docs/contributor-verification.md,
+    trust boundary: a pushed branch may be a contributor's). Running the reviewed copy of the tests would still import
+    the pushed perf-cron.py. CI does not run them either (no new CI tests), so the person runs them on code they
+    trust, with the command printed here. RANGES are push_range.OwnRange values: a path counts when it changes over
+    the base and since the head of every range the push does not own. Never refuses the push."""
     for own in ranges:
         head = own.head
         try:
             # changed_files keeps only the app's source scopes; the cron is under scripts/.
             changed = [{p for p in git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode().split("\0") if p}
                        for base in [own.base, *(a for _, a in own.before)]]
-            if not any(p.startswith(PERF_CRON_PATHS) for p in set.intersection(*changed)):
-                continue
-            with tempfile.TemporaryDirectory(prefix="cmux-prepush-perf-cron-") as tmp:
-                present = [p for p in PERF_CRON_FILES if git(repo, "ls-tree", "--name-only", head, "--", p, check=False).strip()]
-                if "scripts/cmux-next/tests/test_perf_cron.py" not in present:
-                    continue
-                archive = git(repo, "archive", head, "--", *present)
-                subprocess.run(["tar", "-x", "-C", tmp], input=archive, check=True, capture_output=True, timeout=60)
-                done = subprocess.run([sys.executable, "-I", "-m", "unittest", "discover", "-s", "scripts/cmux-next/tests",
-                                       "-p", "test_perf_cron.py"], cwd=tmp, capture_output=True, text=True,
-                                      timeout=PERF_CRON_TIMEOUT)
         except (Exception, SystemExit) as error:  # SystemExit: git() exits on a failed git call
-            log(f"prepush-gate: WARNING: the perf cron tests did not run ({type(error).__name__}: {error}); not applied "
-                "to this push. Run python3 -I -m unittest discover -s scripts/cmux-next/tests -p 'test_perf_cron*.py'.")
+            log(f"prepush-gate: WARNING: could not tell whether {head[:12]} changes the perf cron "
+                f"({type(error).__name__}: {error}).")
             continue
-        if done.returncode != 0:
-            tail = "\n".join((done.stderr or done.stdout).splitlines()[-25:])
-            log(f"prepush-gate: the perf cron tests fail at {head[:12]} (scripts/cmux-next/tests/test_perf_cron.py):\n{tail}")
-            refused = True
-    return refused
+        touched = sorted(p for p in set.intersection(*changed) if p.startswith(PERF_CRON_PATHS))
+        if touched:
+            log(f"prepush-gate: {head[:12]} changes the perf cron ({', '.join(touched[:3])}"
+                f"{' ...' if len(touched) > 3 else ''}). The hook does not run its unit tests: they are this push's own "
+                "code. Run them yourself on code you trust: python3 -I -m unittest discover -s scripts/cmux-next/tests "
+                "-p 'test_perf_cron*.py'.")
 
 
 # guardrails.py loads count-swift-code-lines.py (CI's lexer) from the installed copy: an old one counts
@@ -1717,9 +1730,9 @@ def main(argv: list[str] | None = None) -> int:
                 "ran next to the scanners)"
                 + (f"; of it {waited:.2f}s waiting for the arch ratchet" if isinstance(waited, float) else ""))
         t0 = time.monotonic()
-        guarded = perf_cron_tests(repo, ranges) or guarded
+        perf_cron_tests(repo, ranges)  # names the perf cron tests a push changes; never refuses
         if args.timings:
-            log(f"  {time.monotonic() - t0:5.2f}s  perf cron tests")
+            log(f"  {time.monotonic() - t0:5.2f}s  perf cron (named, not run)")
         t0 = time.monotonic()
         guarded = compile_trailer(repo, compile_ranges(repo, pushed_lines, push_range, args.remote), trusted_scripts) or guarded
         if args.timings:
@@ -1727,7 +1740,7 @@ def main(argv: list[str] | None = None) -> int:
     elapsed = time.monotonic() - started
     if not found_any:
         if guarded:
-            print(f"prepush-gate: push refused by the guardrails, the perf cron tests or the compile trailer ({elapsed:.1f}s)")
+            print(f"prepush-gate: push refused by the guardrails or the compile trailer ({elapsed:.1f}s)")
             return 1
         print(f"prepush-gate: no new violations ({elapsed:.1f}s)")
         return 0

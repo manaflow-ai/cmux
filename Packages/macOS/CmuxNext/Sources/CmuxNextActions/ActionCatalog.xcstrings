@@ -274,57 +274,6 @@
     "argument.revoke": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Revoke"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "إلغاء"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Opozovi"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Tilbagekald"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Widerrufen"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Revocar"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Révoquer"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Revoca"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "取り消す"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ដកហូត"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "취소"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Tilbakekall"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Cofnij"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Revogar"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Отозвать"}}, "th": {"stringUnit": {"state": "needs_review", "value": "เพิกถอน"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "İptal et"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Відкликати"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Thu hồi"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "撤销"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "撤銷"}}}},
     "action.agent.share": {
     "extractionState": "manual",
-    "action.cloudSystemTunnelOff": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Turn Off Cloud Tunnel"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud Tunnel をオフにする"
-          }
-        }
-      }
-    },
-    "action.cloudSystemTunnelOn": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Turn On Cloud Tunnel"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud Tunnel をオンにする"
-          }
-        }
-      }
-    },
-    "action.cloudSystemTunnelStatus": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud Tunnel Status"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud Tunnel の状態"
-          }
-        }
-      }
-    },
     "localizations": {
       "en": {
         "stringUnit": {
@@ -1760,6 +1709,137 @@
         "stringUnit": {
           "state": "translated",
           "value": "Có thể xem"
+        }
+      }
+    }
+  },
+    "action.agent.share.invite.menu": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Invite People…"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Personen einladen…"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Inviter des personnes…"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "دعوة أشخاص…"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Invitar a personas…"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "邀請成員…"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "邀请成员…"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "사람 초대…"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ユーザーを招待…"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Pozovi osobe…"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Inviter personer…"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Invita persone…"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "អញ្ជើញមនុស្ស…"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Inviter personer…"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Zaproś osoby…"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Convidar pessoas…"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Пригласить людей…"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "เชิญผู้คน…"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Kişi davet et…"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Запросити людей…"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Mời mọi người…"
         }
       }
     }
