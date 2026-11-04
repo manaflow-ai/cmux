@@ -283,15 +283,15 @@ final class SidebarBridge {
         services.launchReveal.markReady(.sidebar)
     }
 
-    /// A window's rows (`observe`'s structural pass, `feed`'s, and the snapshot-first seed).
+    /// A window's rows (`observe`'s structural pass, `feed`'s, and the snapshot-first seed). No New Tab page set is an
+    /// input: each row names its own (`rowNewTabPages`), so a page made in one workspace maps its row only (ask-bdd706af47).
     static func passSections(_ services: AppServices, window: WindowState, feed: SidebarRowFeed? = nil, rows: SidebarMapping.RowSource? = nil,
                              pageFace: PageFace? = nil) -> ([SidebarRowSection], Bool, Set<MachineID>) {
         let machines = services.machines, layout = services.sidebarLayout, muted = services.notifications.preferences.mutedWorkspaces
-        let pages = newTabPages(services.agentTabs, in: machines.local.store)
-        feed?.beginPass(inputs: [pages, muted, DesignSettings.shared.attention.showsOnSidebar] as [AnyHashable])
+        feed?.beginPass(inputs: [muted, DesignSettings.shared.attention.showsOnSidebar] as [AnyHashable])
         return liveSections(
             machines, doc: services.sidebarDoc, registry: services.windows.registry, window: window, creations: services.cloud.creations,
-            hidesHome: hidesHome(layout.document), newTabPages: pages, muted: muted,
+            hidesHome: hidesHome(layout.document), rowNewTabPages: services.agentTabs, muted: muted,
             top: .make(layout, machines: machines, room: window.profileID.rawValue), pageFace: pageFace ?? services.sidebarPageFace,
             tabTitle: tabTitle(services), rows: rows,
             groupConfig: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(),
