@@ -71,7 +71,8 @@ await requireBrowserLane("checkmark-alignment.test.ts", async () => {
             const rtl = getComputedStyle(menu).direction === "rtl";
             // Distance from the menu's leading edge: its left, or its right in a right-to-left menu.
             const lead = (box: DOMRect) => (rtl ? edge.right - box.right : box.left - edge.left);
-            const mid = (box: DOMRect) => (rtl ? edge.right - (box.left + box.width / 2) : box.left + box.width / 2 - edge.left);
+            const mid = (box: DOMRect) =>
+              rtl ? edge.right - (box.left + box.width / 2) : box.left + box.width / 2 - edge.left;
             const state = Boolean(menu.querySelector(".ui-menu-check, .acpmux-project-check"));
             // An icon column only when a row carries an icon (schemas/menu-metrics iconX).
             const icon = Boolean(
@@ -109,21 +110,23 @@ await requireBrowserLane("checkmark-alignment.test.ts", async () => {
                 textX: textStart(heading),
                 expectedTextX,
               }));
-            return headings.concat(rows.map((row) => {
-              const box = row.getBoundingClientRect();
-              const check = row.querySelector<HTMLElement>(".ui-menu-check, .acpmux-project-check");
-              const checkBox = check?.getBoundingClientRect();
-              const label = row.querySelector(".acpmux-menu-label, .ui-menu-label, .acpmux-chat-menu-label") ?? row;
-              return {
-                name: row.textContent?.trim(),
-                inset: lead(box),
-                radius: Number.parseFloat(getComputedStyle(row).borderRadius),
-                height: box.height,
-                stateX: checkBox && checkBox.width > 0 ? mid(checkBox) : null,
-                textX: textStart(label),
-                expectedTextX,
-              };
-            }));
+            return headings.concat(
+              rows.map((row) => {
+                const box = row.getBoundingClientRect();
+                const check = row.querySelector<HTMLElement>(".ui-menu-check, .acpmux-project-check");
+                const checkBox = check?.getBoundingClientRect();
+                const label = row.querySelector(".acpmux-menu-label, .ui-menu-label, .acpmux-chat-menu-label") ?? row;
+                return {
+                  name: row.textContent?.trim(),
+                  inset: lead(box),
+                  radius: Number.parseFloat(getComputedStyle(row).borderRadius),
+                  height: box.height,
+                  stateX: checkBox && checkBox.width > 0 ? mid(checkBox) : null,
+                  textX: textStart(label),
+                  expectedTextX,
+                };
+              }),
+            );
           });
           console.log(`menu-grid ${item.name} ${theme} ${dir} ${JSON.stringify(measurements)}`);
           expect(measurements.length).toBeGreaterThan(0);
