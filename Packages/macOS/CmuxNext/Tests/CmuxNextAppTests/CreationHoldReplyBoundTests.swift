@@ -248,15 +248,14 @@ struct CreationHoldReplyBoundTests {
         #expect(fresh.holds(letter, limit: .seconds(2), expiring: true, closes: false, replyLimit: .seconds(10)))
     }
 
-    /// Cmd-N over terminal T and a typed command: at the reply bound the keys go to T only while T is still the focus core's
-    /// typing target (the one fact the bound reads, lead order on #35275). Any other target (a click hid T, a script moved
-    /// the focus, no terminal) keeps them out of T: counted, never typed. Base of the review: a left workspace's keys still
-    /// went to T at the bound.
-    @Test(arguments: [("press_tab", true), ("other_tab", false), (nil, false)] as [(String?, Bool)])
-    func aNewWorkspacesKeysGoToThePressTerminalOnlyWhileItIsTheTypingTarget(_ typingTab: String?, _ typesIntoPress: Bool) throws {
+    /// Cmd-N over terminal T and a typed command: at the reply bound the keys go to T only while the person's intent target is
+    /// still the one of the press and the window still shows T (lead on #35275: a script's move changes no person target, so
+    /// it costs the person no key). The person moving on, or T no longer shown, keeps them out of T: counted, never typed.
+    @Test(arguments: [("press_tab", true, true), ("other_tab", true, false), ("press_tab", false, false)] as [(String?, Bool, Bool)])
+    func aNewWorkspacesKeysGoToThePressTerminalOnlyWhileThePersonDidNotMove(_ personTarget: String?, _ shown: Bool, _ typesIntoPress: Bool) throws {
         let buffer = CreationInputBuffer(began: .now)
         let press = CreationInputBuffer.HeldLane(tab: "press_tab", machine: nil)
-        _ = buffer.open(generation: 1, newWorkspace: true, pressTerminal: press)
+        _ = buffer.open(generation: 1, newWorkspace: true, pressTerminal: press, personTarget: "press_tab")
         var typed = 0
         for character in "rm -rf build\r" {
             let text = String(character)
@@ -266,10 +265,11 @@ struct CreationHoldReplyBoundTests {
             buffer.capture(event, focusedTab: press.tab, forNewWorkspace: true)
             typed += 1
         }
-        buffer.endReplyWait(typingTab: typingTab)
+        buffer.endReplyWait(personTarget: personTarget, shows: { _ in shown })
         let keys = buffer.take(focused: nil, isShortcut: { _, _ in false })
         let intoPress = keys.flatMap(\.keys).filter { $0.lane == press }.count
-        #expect(intoPress == (typesIntoPress ? typed : 0), "\(intoPress) of \(typed) key(s) went to the press terminal, typing target \(typingTab ?? "none")")
+        #expect(intoPress == (typesIntoPress ? typed : 0),
+                "\(intoPress) of \(typed) key(s) went to the press terminal, person target \(personTarget ?? "none"), shown \(shown)")
         #expect(keys.flatMap(\.keys).count == intoPress, "keys went somewhere else: \(keys.flatMap(\.keys).map { $0.event.characters ?? "" })")
         #expect(buffer.untypedTerminalKeys == (typesIntoPress ? 0 : typed))
     }

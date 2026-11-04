@@ -54,7 +54,7 @@ final class CreationInputCoordinator {
         guard let controller, let window = controller.window, ActionRunScope.viewChangeAllowed() else { return nil }
         defer { router?.newTabInputCoordinator.creationTookKeys(in: window) } // the newer intent: a New Tab hold's keys come here, in order
         let generation = controller.focus.beginIntent()
-        let ticket = buffer(in: window).open(generation: generation, newWorkspace: true, pressTerminal: Self.keyboardTerminal(controller, window).map { .init(tab: $0, machine: controller.content?.daemon.machineID) })
+        let ticket = buffer(in: window).open(generation: generation, newWorkspace: true, pressTerminal: Self.keyboardTerminal(controller, window).map { .init(tab: $0, machine: controller.content?.daemon.machineID) }, personTarget: controller.focus.state.personTarget)
         claims.claim(window, ticket: ticket, input: router?.registry.dispatchingInputEvent()?.timestamp, intents: controller.focus.personIntents.count)
         return ticket
     }
@@ -138,7 +138,7 @@ final class CreationInputCoordinator {
         buffer.onBound = { [weak self, weak window] buffer, bound in // a bound ends the hold; the reply bound's keys go on in order (m12)
             guard let self, buffers[number] === buffer else { return }
             guard let window else { return endClosed(buffer, window: number) } // the window is gone
-            if bound == .reply { buffer.endReplyWait(typingTab: router?.focus(for: window).0?.focus.currentState().typingTab); claims.end(inWindow: number) }
+            if bound == .reply, case let state = router?.focus(for: window).0?.focus.currentState() { buffer.endReplyWait(personTarget: state?.personTarget, shows: { tab in state?.topology.panes.contains { $0.tabs.contains { $0.id == tab } } == true }); claims.end(inWindow: number) }
             flush(in: window, force: true, end: bound == .reply ? .replyBoundReached : .limitReached)
         }
         buffer.expire(after: holdLimit)
