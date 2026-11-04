@@ -170,6 +170,16 @@ def frame(k, variant):
     """The picture shown at refresh k (sample k - 1 committed; the clock films shift it by CLOCK_SHIFT)."""
     if variant == "strip-repeat" and k == 20:
         return frame(19, variant)  # a dropped refresh: frame 20 repeats frame 19
+    if variant in ("strip-repeat-clean", "strip-repeat-blink") and k == 20:
+        img = frame(19, "strip")  # frame 20 repeats frame 19 (the strips' film: every layer on time otherwise)
+        if variant == "strip-repeat-blink":
+            img[ROWS[0], PAD + 5 * CW:PAD + 5 * CW + 6] = GLYPH  # a cursor blink: 6 px of one row inside A's fill
+        return img
+    if variant == "strip-nudge" and k == 20:
+        img = frame(19, "strip")  # frame 20 shows frame 19 with A's right edge 1 px further: not a repeat
+        aw = int(round(a_width(18, "strip")))
+        img[ROWS[1], aw] = CYAN  # one pixel, at A's pane edge
+        return img
     shift = CLOCK_SHIFT.get(variant, 0) + (1 if variant == "strip-whole-late" and 15 <= k <= 18 else 0)
     s = min(max(k - 1 - shift, 0), N - 1)
     aw = a_width(s, variant)
@@ -249,6 +259,87 @@ def frame(k, variant):
         # over the divider band too: A's ground strip and B's area are one cyan run to the window's edge.
         img[:, int(round(aw)):] = CYAN
     return img
+
+
+# The stacked films (3e.5): pane T (terminal, yellow) over pane U (terminal, green), each with a tab strip at its top; a
+# Reduce Motion row press moves the row divider ST_JUMP px up at sample MOVE[0] (one layout change, no spring).
+SH = 800                   # the stacked films' height (device px)
+ST_REST, ST_JUMP = 480, 80  # T's height at rest; the press moves the divider this far up
+ST_ROWS = [12, 236, 496, 620]  # T's strip row, T's content (a fill row), U's strip row at rest, U's content (a fill row)
+
+
+def stack_top_h(k):
+    return ST_REST - (ST_JUMP if k >= MOVE[0] else 0)
+
+
+def draw_tui_box(img, x0, x1, y0, y1, fill):
+    """tui_border.py's picture with FILL in [x0, x1) x [y0, y1)."""
+    img[y0:y1, x0:x1] = CYAN
+    cols, rows = (x1 - x0 - 2 * PAD) // CW, (y1 - y0 - 2 * PAD) // CH
+    for r in range(rows):
+        for c in range(cols):
+            k = min(r, c, rows - 1 - r, cols - 1 - c)
+            img[y0 + PAD + r * CH:y0 + PAD + (r + 1) * CH, x0 + PAD + c * CW:x0 + PAD + (c + 1) * CW] = \
+                [RED, WHITE, BLACK][k] if k < 3 else fill
+
+
+def draw_strip_at(img, x0, x1, y0):
+    """A tab strip over [x0, x1) x [y0, y0 + STRIP_PX): black ground, the selected pill in gray 22."""
+    img[y0:y0 + STRIP_PX, x0:x1] = BLACK
+    img[y0 + 4:y0 + STRIP_PX - 4, x0 + 16:x0 + 216] = PILL
+
+
+def stack_frame(k, variant):
+    """The stacked film's picture at refresh k (sample k - 1). stack-repeat: the first frame due to show the new layout
+    (refresh MOVE[0] + 1) repeats the frame before (the window server presented the previous picture)."""
+    if variant == "stack-repeat" and k == MOVE[0] + 1:
+        return stack_frame(k - 1, variant)
+    s = min(max(k - 1, 0), N - 1)
+    ht = stack_top_h(s)
+    img = np.zeros((SH, W, 3), np.uint8)
+    img[:] = MAGENTA
+    draw_strip_at(img, 0, W, 0)
+    draw_tui_box(img, 0, W, STRIP_PX, ht, YELLOW)
+    draw_strip_at(img, 0, W, ht + DIV_PX)
+    draw_tui_box(img, 0, W, ht + DIV_PX + STRIP_PX, SH, GREEN)
+    return img
+
+
+def build_stack(root, name, variant):
+    base = Path(root) / name
+    header = {"width": W, "height": SH, "rows": ST_ROWS, "columns": COLS, "format": "BGRA", "time": "float64-le host seconds"}
+    with open(f"{base}.mov.scan", "wb") as out:
+        out.write(json.dumps(header).encode() + b"\n")
+        for k in range(N):
+            px = bgra(stack_frame(k, variant))
+            out.write(struct.pack("<d", T0 + k * P))
+            for y in ST_ROWS:
+                out.write(px[y].tobytes())
+            for x in COLS:
+                out.write(px[:, x].tobytes())
+    cy, ww = STRIP_PX / SCALE, W / SCALE
+    samples = []
+    for k in range(N):
+        ht = stack_top_h(k) / SCALE
+        yu, hu = ht + DIV_PX / SCALE, (SH - stack_top_h(k) - DIV_PX) / SCALE
+        t = ["pt", 0, 0, ww, ht, 1, 0, 0, 0, ww, ht, ww, ht - cy, 0, 0, cy, ww, ht - cy]
+        u = ["pu", 0, yu, ww, hu, 1, 1, 0, yu, ww, hu, ww, hu - cy, 0, 0, yu + cy, ww, hu - cy]
+        samples.append({"t": k * P * 1000, "window": [ww, SH / SCALE], "panes": [t, u],
+                        "dividers": [["d0", 0, ht, ww, DIV_PX / SCALE, 1, 2]], "page": []})
+    Path(f"{base}.trace.json").write_text(json.dumps({"t0_s": T0 - 0.001, "refresh_ms": P * 1000, "samples": samples}))
+    rest_u = (ST_REST + DIV_PX) / SCALE
+    note = {"scale": SCALE, "panes": {"pt": {"kind": "tui", "fill": "#FFFF00", "label": "p0"},
+                                      "pu": {"kind": "tui", "fill": "#00FF00", "label": "p1"}},
+            "speed": 1.0, "reduce": True, "input": "keys", "window_frame": [WINDOW_X, 50, ww, SH / SCALE],
+            "page_backdrop": False, "lines": {"strip_rows": {"pt": ST_ROWS[0], "pu": ST_ROWS[2]}},
+            "chrome": [{"pane": "pt", "cell": [0, 0, ww, ST_REST / SCALE], "strip": [0, 0, ww, cy]},
+                       {"pane": "pu", "cell": [0, rest_u, ww, SH / SCALE - rest_u], "strip": [0, rest_u, ww, cy]}]}
+    journal = [{"seq": 1, "uptimeNanos": int((T0 + (MOVE[0] - 0.5) * P) * 1e9),
+                "kind": {"key": {"_0": {"phase": "down", "keyCode": 38, "isRepeat": False}}}}]
+    Path(f"{base}.events.json").write_text(json.dumps({"hid": [], "journal": journal}))
+    meta = {"start": {"width": W, "height": SH, "scale": SCALE, "rows": ST_ROWS, "columns": COLS}, "notes": {"pixel": note}}
+    Path(f"{base}.meta.json").write_text(json.dumps(meta))
+    return base
 
 
 def bgra(img):
@@ -1217,6 +1308,86 @@ class TuiBorderFrameTest(unittest.TestCase):
         for gray in re.findall(r'(?:ink|other) = luma\(bg\) > 110 \? "(#[0-9A-F]{6})" : "(#[0-9A-F]{6})"', page)[0]:
             v = [int(gray[i:i + 2], 16) for i in (1, 3, 5)]
             self.assertEqual(jp.classify(np.array([[v[::-1] + [255]]], np.uint8))[0, 0], jp.OTHER, gray)
+
+
+class RepeatedFrameTests(unittest.TestCase):
+    """3e.5 (pixel-perfect, 2026-11-04: px-keys-rk-3t-sw-terminals-on-reduce frames 258, 312, 463 and 522 repeat the frame
+    before while the committed layout moved; 3e.1 gave them terminal E2): a frame whose scan lines equal the frame before
+    shows what that frame showed, for every reader and judgment, and when the layout moved it is late as a whole. A frame
+    that differs from the one before only by a few pixels inside one small rectangle away from every strip row and pane
+    edge (a cursor blink) is a repeat too; any change at an edge (a 1 px move) is judged as it is."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="judge-pixel-repeat-")
+        cls.reports = {v: jp.judge(build(cls.tmp, v, v), all_frames=True)
+                       for v in ("strip", "strip-repeat", "strip-repeat-clean", "strip-repeat-blink", "strip-nudge")}
+        cls.reports.update({v: jp.judge(build_stack(cls.tmp, v, v), all_frames=True) for v in ("stack", "stack-repeat")})
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def kind(self, variant, kind):
+        return self.reports[variant]["m6"]["kinds"][kind]
+
+    def test_a_repeated_frame_is_late_as_a_whole_never_a_content_edge(self):
+        # stack-repeat: the row press's first frame (11) repeats frame 10. Read against the new layout, the lower pane's
+        # strip top is searched near its new place, where the old picture has the upper terminal's ring 3 (black, as the
+        # strip): 3e.1 took it for the strip and gave the terminal E2 (px-keys-rk-3t-sw-terminals-on-reduce frames 258,
+        # 312, 463, 522). The frame is one frame late as a whole, and no terminal frame fails.
+        r = self.reports["stack-repeat"]
+        self.assertEqual(self.kind("stack-repeat", "terminal")["fail"], 0)
+        self.assertIn(MOVE[0] + 1, jp_frames(r["m6"]["late_as_a_whole_ranges"]))
+        self.assertEqual(r["repeats"]["late"], [MOVE[0] + 1])
+        # the same press shown on time: nothing late, nothing fails
+        self.assertEqual((self.reports["stack"]["m6"]["late_as_a_whole"], self.kind("stack", "terminal")["fail"]), (0, 0))
+        self.assertEqual(self.reports["stack"]["repeats"]["late"], [])
+
+    def test_a_clean_repeat_is_late_as_a_whole_with_no_layer_fail(self):
+        # Frame 20 repeats frame 19 while the layout moved (sample 18 to 19): one frame late, the whole window.
+        r = self.reports["strip-repeat-clean"]
+        self.assertIn(20, jp_frames(r["m6"]["late_as_a_whole_ranges"]))
+        self.assertNotIn(20, jp_frames(self.kind("strip-repeat-clean", "terminal")["fail_ranges"]))
+        self.assertNotIn(20, jp_frames(self.kind("strip-repeat-clean", "page")["fail_ranges"]))
+
+    def test_a_repeated_frame_gives_no_layer_finding(self):
+        # Every layer reader reads frame 20 as frame 19's sample: no strip, side or page-window problem comes from it.
+        r = self.reports["strip-repeat-clean"]
+        frame20 = [e for ff in r["frame_findings"] if ff["f"] == 20 for e in ff["entries"] if e.get("problems")]
+        self.assertEqual(frame20, [])
+        self.assertEqual(r["repeats"]["late"], [20])
+
+    def test_a_cursor_blink_does_not_stop_a_repeat(self):
+        r = self.reports["strip-repeat-blink"]
+        self.assertEqual(r["repeats"]["late"], [20])
+        self.assertEqual(r["repeats"]["near_px"], {"20": 6})
+        self.assertIn(20, jp_frames(r["m6"]["late_as_a_whole_ranges"]))
+
+    def test_a_1_px_move_of_an_edge_is_no_repeat(self):
+        r = self.reports["strip-nudge"]
+        self.assertEqual(r["repeats"]["late"], [])
+
+    def test_a_film_that_moves_every_frame_has_no_repeat(self):
+        self.assertEqual(self.reports["strip"]["repeats"]["late"], [])
+        self.assertEqual(self.reports["strip"]["m6"]["late_as_a_whole"], 0)
+
+    def test_the_dropped_refresh_film_keeps_its_answers(self):
+        # strip-repeat (3e.1's own dropped refresh): frame 20 late as a whole, as before.
+        r = self.reports["strip-repeat"]
+        self.assertEqual(r["repeats"]["late"], [20])
+        self.assertEqual((r["m6"]["late_as_a_whole"], r["m6"]["late_as_a_whole_ranges"]), (1, "20"))
+
+
+def jp_frames(ranges):
+    """The frames of a ranges string ("11-20,25")."""
+    out = set()
+    for part in str(ranges or "").split(","):
+        part = part.strip()
+        if part:
+            a, _, b = part.partition("-")
+            out |= set(range(int(a), int(b or a) + 1))
+    return out
 
 
 if __name__ == "__main__":
