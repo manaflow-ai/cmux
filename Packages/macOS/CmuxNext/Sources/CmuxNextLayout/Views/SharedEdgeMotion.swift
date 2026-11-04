@@ -22,7 +22,8 @@ import CoreGraphics
 ///   measures the pointer from the drawn line, so the pointer alone moves it, 1:1, and a still pointer holds it, also
 ///   while its column slides. Where the anchor's rest place leaves the pane less than its minimum, the layout clamps
 ///   the line at the anchor's rest place plus that minimum, and the line springs there from where it is drawn, no
-///   further; the pointer takes it again once it passes that place.
+///   further; it never shows behind the pointer (the pointer takes over the part of that spring it passes:
+///   `SharedEdgeClamp`).
 /// - On every move after it, an edge whose target the drag changes moves by as much as its target and keeps its
 ///   velocity; an edge whose target the drag does not change keeps its spring. A component at rest lands on its new
 ///   target exactly, so a drag with no spring running places frames as before S2B.
@@ -30,8 +31,8 @@ import CoreGraphics
 /// S2B (every frame it retargets snaps to its rest place): no frame for the line, a value the probes cannot move, a row
 /// edge, a view offset that places the line and still moves (the strip's camera, a scroll area or a scrolling row: the
 /// line's own spring cannot hold it where it is drawn), or a pane whose size spring could take it further under its
-/// rest size than a pane's minimum (a drag that
-/// shrinks it to its minimum would then show it with a negative size). A release's fling seeds only the edges it moved.
+/// rest size than a pane's minimum, also with any part of a clamp's spring taken off (a drag that shrinks it to its
+/// minimum would then show it with a negative size). A release's fling seeds only the edges it moved.
 enum SharedEdgeMotion {
     /// One axis of a frame as its two edges: where each shows, how fast it moves, and where it goes.
     struct Edges {
@@ -339,17 +340,24 @@ extension SharedEdgeMotion {
     /// drag): along either axis, its size's leftover from its rest size (`targets`: the caught layout's; nil: its own
     /// target) and its size's speed (plus `influence`'s share of `speedChange`), followed on `spring` for as long as it
     /// moves, must stay above minus `minimum` there: a drag (any mode) can shrink its rest size to that minimum, never
-    /// under. Any pane, not only the ones this drag resizes: a modifier can resize others. True: the press takes the drag
-    /// from before S2B, whose frames snap to rest and never show a negative size.
+    /// under. Any pane, not only the ones this drag resizes: a modifier can resize others. With `clampLeftover` (the
+    /// line's leftover from where the layout clamps it, after the press; it does not move then), also the size along the
+    /// axis without the pane's share of it: the pointer can take any part of the clamp's spring off at any time
+    /// (`SharedEdgeClamp.follow`), and springs are linear, so the size stays between the two paths. True: the press takes
+    /// the drag from before S2B, whose frames snap to rest and never show a negative size.
     static func mayShowNegativeSize(_ frames: [PaneID: AnimatedFrame], targets: [PaneID: CGRect]?, influence: Influence?,
-                                    speedChange: CGFloat, minimum: CGSize, spring: SpringParameters) -> Bool {
+                                    speedChange: CGFloat, clampLeftover: CGFloat = 0, minimum: CGSize, spring: SpringParameters) -> Bool {
+        let horizontal = influence?.axis != .vertical
         for (pane, frame) in frames {
             let target = targets?[pane] ?? frame.targetRect
             let share = influence?.sizeShare(pane) ?? 0
-            let horizontal = influence?.axis != .vertical
             let width = (leftover: frame.width.value - target.width, speed: frame.width.velocity + (horizontal ? speedChange * share : 0))
             let height = (leftover: frame.height.value - target.height, speed: frame.height.velocity + (horizontal ? 0 : speedChange * share))
             if lowest(width, spring: spring) < 1 - minimum.width || lowest(height, spring: spring) < 1 - minimum.height { return true }
+            guard clampLeftover != 0 else { continue }
+            let along = horizontal ? width : height
+            let released: (leftover: CGFloat, speed: CGFloat) = (along.leftover - share * clampLeftover, along.speed)
+            if lowest(released, spring: spring) < 1 - (horizontal ? minimum.width : minimum.height) { return true }
         }
         return false
     }

@@ -12,7 +12,8 @@ extension DividerDrag {
     /// again the unconfirmed release the catch replaced (`DividerDragState.replaced`), in a new transaction, so it
     /// settles or is refused as any release. A line at rest, a canvas or a zoomed screen: the drag as before. A press
     /// that cannot hold while the screen moves, or whose drag could shrink a pane that its spring takes far under its
-    /// rest size past zero, turns the rule off for its drag (whole frames snap, as before S2B).
+    /// rest size past zero (also with any part of a clamp's spring taken off), turns the rule off for its drag (whole
+    /// frames snap, as before S2B).
     func catchShown(_ kind: DividerHandleView.Kind, at windowPoint: NSPoint) {
         guard let drag = screen.activeDrag, drag.sharedEdges else { return }
         guard !screen.context.reduceMotion, screen.canvasGeometry == nil, !screen.zoomed else { return }
@@ -35,10 +36,12 @@ extension DividerDrag {
         }).first
         if caught.catches, influence == nil { return turnSharedEdgesOff() }
         // No pane may show a negative size later in this drag (rule D keeps each edge's spring leftover): checked on
-        // every pane, after the catch this press makes, along its spring's whole path.
+        // every pane, after the catch this press makes, along its spring's whole path, also without its share of a
+        // clamp's spring (the line's leftover from where the layout rests it: the pointer can take it off).
         let spring = Motion.panes.policy.spring(screen.motionState.frameSpring)
         if SharedEdgeMotion.mayShowNegativeSize(screen.paneFrames, targets: caught.catches ? caughtGeometry.panes : nil,
                                                 influence: caught.catches ? influence : nil, speedChange: caught.speedChange,
+                                                clampLeftover: caught.catches ? caught.held - rested : 0,
                                                 minimum: style.minimumPaneSize, spring: spring) {
             return turnSharedEdgesOff()
         }
