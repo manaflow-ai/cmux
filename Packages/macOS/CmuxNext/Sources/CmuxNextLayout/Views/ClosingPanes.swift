@@ -3,19 +3,23 @@ import CmuxNextDesign
 
 /// FRAME OWNER REFACTOR S3c (`motion.frameOwner.contentPolicy`, read at the close): the panes a springing close took out
 /// of one screen, each still shown with only its own ground (`PaneHostView.showClosingGround`) on the space its
-/// neighbours have not covered yet.
+/// neighbours, or the camera of the space it shows in, have not covered yet.
 ///
-/// A closing pane has no motion of its own: in each frame its rect is a function of its neighbours' frames, so the one
-/// owner of the motion is the neighbours' springs. Each side a neighbour closes over sits on the slowest neighbour's
-/// facing edge on that side (the leading edge on the smallest trailing edge beside it, the trailing edge on the largest
-/// leading edge): nothing between the closing pane and any of its neighbours shows the shell, and where a faster
-/// neighbour has passed over it, that live pane draws above it (closing hosts stack under every live host,
-/// `ScreenContentView.ensureStacking`). With neighbours on both sides of an axis, the leading side keeps the gap it had to
-/// them (the divider that stays), so the pane rests at zero width where they meet. A side whose neighbour closed too rides
-/// that closing pane's facing edge. A side with no neighbour (the screen's edge, a docked column's side), opposite one on a
-/// moving neighbour, travels to where that side rests by the same share of the travel, so the pane rests at zero size
-/// (nothing for the landing to take away in one frame); else it stays where it showed. Chrome's tab close does the same:
-/// the closing tab shrinks to zero width on the strip's own animation.
+/// A closing pane has no motion of its own: in each frame its rect is a function of its neighbours' frames and of where
+/// its space's camera is, so the owners of the motion are the neighbours' springs and that camera's. Each side a
+/// neighbour closes over sits on the slowest neighbour's facing edge on that side (the leading edge on the smallest
+/// trailing edge beside it, the trailing edge on the largest leading edge): nothing between the closing pane and any of
+/// its neighbours shows the shell, and where a faster neighbour has passed over it, that live pane draws above it (closing
+/// hosts stack under every live host, `ScreenContentView.ensureStacking`). A side keeps the gap it had to its neighbours
+/// where the resize handle in that gap stays in the new layout, and covers the gap where that handle goes (the one between
+/// the pane and the panes that take its place; FRAME OWNER S3d): the gap a person sees during the close is the kept
+/// handle's, with the handle in its middle in every frame, and the pane rests at zero size where its neighbours meet. A
+/// side whose neighbour closed too rides that closing pane's facing edge. A side with no neighbour (the screen's edge, a
+/// docked column's side), opposite one on a neighbour, travels to where that side rests by the share of the motion that
+/// covers the pane's place: its neighbour's travel, else the travel of its space's camera (the strip camera that moves back
+/// when the strip's last column closes, a row column's scroll when its last row does). So the pane rests at zero size
+/// (nothing for the landing to take away in one frame); with neither, it stays where it showed. Chrome's tab close does
+/// the same: the closing tab shrinks to zero width on the strip's own animation.
 /// The host goes when the motion lands (`ScreenContentView.releaseClosing`); a close taken back starts the pane's live
 /// frame from where it shows, with its neighbours' velocities.
 struct ClosingPanes {
@@ -39,21 +43,43 @@ struct ClosingPanes {
         let rank: Int
         /// Where its fixed x sides showed (view x) before the change's camera moved (`settleCarried`); nil once placed.
         var carriedShown: (minX: CGFloat, maxX: CGFloat)?
+        /// The travel of the camera of the space it shows in, from where that camera was when its close began
+        /// (``settle(frames:strip:row:)``): the strip's offset for x, its row column's scroll for y; nil when that camera
+        /// does not move or no side of that axis collapses on it (one side with neighbours, the other with none).
+        var spaceX: (start: CGFloat, target: CGFloat)?, spaceY: (start: CGFloat, target: CGFloat)?
     }
+
+    /// Where a camera is and where it rests: the strip's offset, or a row column's scroll.
+    typealias Travel = (now: CGFloat, target: CGFloat)
 
     private(set) var entries: [PaneID: Entry] = [:]
     /// The order the panes closed in, the order they are placed in each frame: a side on a pane that closed earlier reads
     /// where it shows in this frame; one on a pane that closed later keeps where it last was (that pane's side there stays
     /// put, since the earlier one is not live for it).
     private var order: [PaneID] = []
+    /// The panes this change began closing: they wait for the camera the change sets (``settle(frames:strip:row:)``).
+    private var awaiting: Set<PaneID> = []
 
     var isEmpty: Bool { entries.isEmpty }
+    /// Whether panes this change began closing wait for its camera (`ScreenContentView.settleClosing`).
+    var hasAwaiting: Bool { !awaiting.isEmpty }
+
+    /// The resize handles of `geometry`: its split dividers, column edges and row edges.
+    static func handles(of geometry: ScreenGeometry) -> Set<DividerHandleView.Kind> {
+        var kinds = Set<DividerHandleView.Kind>()
+        for divider in geometry.dividers { kinds.insert(.split(divider.id)) }
+        for edge in geometry.columnEdges { kinds.insert(.columnEdge(edge.column)) }
+        for edge in geometry.rowEdges { kinds.insert(.rowEdge(edge.column, edge.upper)) }
+        return kinds
+    }
 
     /// Starts `pane` closing. `shown`: where it shows, in the new layout's coordinates; `before`: the layout it left (its
-    /// neighbours and the gaps beside them); `maxGap`: the widest gap between two neighbours (a column gap); `rank`: its
-    /// stacking rank at the close; `viewShift`: the strip's view shift in the new layout before the camera moves (what
-    /// ``settleCarried(stripShift:)`` measures from), nil when nothing was carried.
-    mutating func begin(_ pane: PaneID, shown: CGRect, before: ScreenGeometry, maxGap: CGFloat, rank: Int, viewShift: CGFloat?) {
+    /// neighbours, the gaps beside them and the handles in those gaps); `kept`: the new layout's handles (``handles(of:)``);
+    /// `maxGap`: the widest gap between two neighbours (a column gap); `rank`: its stacking rank at the close; `viewShift`:
+    /// the strip's view shift in the new layout before the camera moves (what ``settleCarried(stripShift:)`` measures from),
+    /// nil when nothing was carried. It waits for the change's camera (``settle(frames:strip:row:)``).
+    mutating func begin(_ pane: PaneID, shown: CGRect, before: ScreenGeometry, kept: Set<DividerHandleView.Kind>, maxGap: CGFloat, rank: Int,
+                        viewShift: CGFloat?) {
         guard let rest = before.panes[pane] else { return }
         var lead: [(PaneID, CGFloat)] = [], trail: [(PaneID, CGFloat)] = [], top: [(PaneID, CGFloat)] = [], bottom: [(PaneID, CGFloat)] = []
         let scrolls = before.scrolls(pane: pane), area = before.scrollAreaOfPane[pane], rowColumn = before.rowColumnOfPane[pane]
@@ -70,21 +96,74 @@ struct ClosingPanes {
                 if gapBelow >= -0.5, gapBelow <= maxGap { bottom.append((other, max(0, gapBelow))) }
             }
         }
-        /// The leading side keeps its gap only when the trailing side has neighbours too (they meet where it rests).
+        /// Whether the handle in the gap beside the pane from `lo` to `hi` along `axis` stays in the new layout; nil when no
+        /// handle of the pane's space (the strip or a dock, its scroll area, its row column) is there.
+        func handleStays(from lo: CGFloat, to hi: CGFloat, axis: SplitAxis) -> Bool? {
+            var stays: Bool?
+            let across = axis == .horizontal ? (rest.minY, rest.maxY) : (rest.minX, rest.maxX)
+            func consider(_ kind: DividerHandleView.Kind, _ handleAxis: SplitAxis, _ hit: CGRect) {
+                let along = handleAxis == .horizontal ? hit.midX : hit.midY
+                let cross = handleAxis == .horizontal ? (hit.minY, hit.maxY) : (hit.minX, hit.maxX)
+                guard handleAxis == axis, along >= lo - 0.5, along <= hi + 0.5, min(cross.1, across.1) - max(cross.0, across.0) > 1 else { return }
+                stays = stays == true || kept.contains(kind)
+            }
+            for divider in before.dividers where before.fixedSplits.contains(divider.id) != scrolls
+                && (before.scrollAreaOfSplit[divider.id] ?? area) == area {
+                consider(.split(divider.id), divider.axis, divider.hitFrame)
+            }
+            for edge in before.columnEdges where (edge.dockEdge == nil) == scrolls {
+                consider(.columnEdge(edge.column), edge.axis, edge.hitFrame)
+            }
+            for edge in before.rowEdges where edge.column == rowColumn {
+                consider(.rowEdge(edge.column, edge.upper), .vertical, edge.hitFrame)
+            }
+            return stays
+        }
+        func widest(_ found: [(PaneID, CGFloat)]) -> CGFloat { found.map(\.1).max() ?? 0 }
+        // A side keeps its gap where the handle in it stays. With no handle there, the leading side keeps it when the
+        // trailing side has neighbours too (they meet where it rests).
+        let keepsMinX = !lead.isEmpty && (handleStays(from: rest.minX - widest(lead), to: rest.minX, axis: .horizontal) ?? !trail.isEmpty)
+        let keepsMaxX = !trail.isEmpty && (handleStays(from: rest.maxX, to: rest.maxX + widest(trail), axis: .horizontal) ?? false)
+        let keepsMinY = !top.isEmpty && (handleStays(from: rest.minY - widest(top), to: rest.minY, axis: .vertical) ?? !bottom.isEmpty)
+        let keepsMaxY = !bottom.isEmpty && (handleStays(from: rest.maxY, to: rest.maxY + widest(bottom), axis: .vertical) ?? false)
         func side(_ found: [(PaneID, CGFloat)], keepsGap: Bool, at value: CGFloat) -> Side {
             Side(neighbours: found.map(\.0).sorted { $0.rawValue < $1.rawValue }, gap: keepsGap ? found.map(\.1).min() ?? 0 : 0, fixed: value)
         }
-        entries[pane] = Entry(minX: side(lead, keepsGap: !trail.isEmpty, at: shown.minX), maxX: side(trail, keepsGap: false, at: shown.maxX),
-                              minY: side(top, keepsGap: !bottom.isEmpty, at: shown.minY), maxY: side(bottom, keepsGap: false, at: shown.maxY),
+        entries[pane] = Entry(minX: side(lead, keepsGap: keepsMinX, at: shown.minX), maxX: side(trail, keepsGap: keepsMaxX, at: shown.maxX),
+                              minY: side(top, keepsGap: keepsMinY, at: shown.minY), maxY: side(bottom, keepsGap: keepsMaxY, at: shown.maxY),
                               scrolls: scrolls, rowColumn: rowColumn, area: area, rank: rank,
                               carriedShown: viewShift.map { scrolls ? (shown.minX + $0, shown.maxX + $0) : (shown.minX, shown.maxX) })
         order.removeAll { $0 == pane }
         order.append(pane)
+        awaiting.insert(pane)
     }
 
-    /// Where every closing pane shows this frame, from the live panes' presented frames (`frames`, the screen's springs).
+    /// The change's camera is set (`ScreenContentView.syncScroll`): each pane it began closing takes the travel of the
+    /// camera of the space it shows in (`strip`: the strip's, for a pane that scrolls with it; `row`: its row column's
+    /// scroll), for an axis where one side has neighbours and the other none (a side with neighbours on both closes over
+    /// it). Returns the ones nothing moves over: no live neighbour on a spring, no camera travel, and no neighbour that
+    /// closes beside them and has one. They go at once, as before S3c (their place shows what the layout rests at from the
+    /// first frame).
+    mutating func settle(frames: [PaneID: AnimatedFrame], strip: Travel?, row: (ColumnID) -> Travel?) -> Set<PaneID> {
+        defer { awaiting = [] }
+        func moving(_ travel: Travel?) -> (start: CGFloat, target: CGFloat)? {
+            guard let travel, abs(travel.target - travel.now) >= 0.5 else { return nil }
+            return (start: travel.now, target: travel.target)
+        }
+        func collapses(_ a: Side, _ b: Side) -> Bool { a.neighbours.isEmpty != b.neighbours.isEmpty }
+        for pane in awaiting {
+            guard var entry = entries[pane] else { continue }
+            if entry.scrolls, collapses(entry.minX, entry.maxX) { entry.spaceX = moving(strip) }
+            if let column = entry.rowColumn, collapses(entry.minY, entry.maxY) { entry.spaceY = moving(row(column)) }
+            entries[pane] = entry
+        }
+        return still(awaiting, frames: frames)
+    }
+
+    /// Where every closing pane shows this frame, from the live panes' presented frames (`frames`, the screen's springs)
+    /// and where the cameras of their spaces are (`strip`: the strip's offset; `row`: a row column's scroll).
     /// A side whose neighbours are all gone (closed and landed, or taken out) keeps where they last were.
-    mutating func rects(frames: [PaneID: AnimatedFrame]) -> [PaneID: CGRect] { // perf-hot: 4ms motion-frame
+    mutating func rects(frames: [PaneID: AnimatedFrame], strip: CGFloat, row: (ColumnID) -> CGFloat?) -> [PaneID: CGRect] { // perf-hot: 4ms motion-frame
         var shown: [PaneID: CGRect] = [:]
         for pane in order {
             guard var entry = entries[pane] else { continue }
@@ -98,22 +177,33 @@ struct ClosingPanes {
                 if side.start == nil { side.start = side.fixed }
                 return slowest(side.neighbours.compactMap { frames[$0].map { edge($0.targetRect) } }).map { $0 + sign * side.gap }
             }
-            /// A side with no neighbour, opposite one that rides a moving neighbour: it travels from where it stood to where
-            /// that side rests, by the same share of the travel, so the pane rests at zero size there (no ground left for
-            /// the landing to take away in one frame).
-            func collapse(_ free: inout Side, toward rider: Side, rest: CGFloat?) {
-                guard free.neighbours.isEmpty, !rider.neighbours.isEmpty, let rest, let riderStart = rider.start, let freeStart = free.start,
-                      abs(rest - riderStart) >= 0.5 else { return }
-                free.fixed = freeStart + (rest - freeStart) * min(1, max(0, (rider.fixed - riderStart) / (rest - riderStart)))
+            /// The share of `travel` done with its camera at `now`, in 0...1; nil without a travel.
+            func share(_ travel: (start: CGFloat, target: CGFloat)?, now: CGFloat?) -> CGFloat? {
+                guard let travel, let now, abs(travel.target - travel.start) >= 0.5 else { return nil }
+                return min(1, max(0, (now - travel.start) / (travel.target - travel.start)))
+            }
+            /// A side with no neighbour, opposite one that rides a neighbour: it travels from where it stood to where that
+            /// side rests, by the share of the motion that covers the pane's place (that neighbour's travel, else `space`,
+            /// the share of its space's camera travel), so the pane rests at zero size there (no ground left for the landing
+            /// to take away in one frame).
+            func collapse(_ free: inout Side, toward rider: Side, rest: CGFloat?, space: CGFloat?) {
+                guard free.neighbours.isEmpty, !rider.neighbours.isEmpty, let freeStart = free.start else { return }
+                var done = space
+                if let rest, let riderStart = rider.start, abs(rest - riderStart) >= 0.5 {
+                    done = min(1, max(0, (rider.fixed - riderStart) / (rest - riderStart)))
+                }
+                guard let done else { return }
+                free.fixed = freeStart + ((rest ?? rider.fixed) - freeStart) * done
             }
             let restMinX = place(&entry.minX, slowest: { $0.min() }, edge: \.maxX, sign: 1)
             let restMaxX = place(&entry.maxX, slowest: { $0.max() }, edge: \.minX, sign: -1)
             let restMinY = place(&entry.minY, slowest: { $0.min() }, edge: \.maxY, sign: 1)
             let restMaxY = place(&entry.maxY, slowest: { $0.max() }, edge: \.minY, sign: -1)
-            collapse(&entry.maxX, toward: entry.minX, rest: restMinX)
-            collapse(&entry.minX, toward: entry.maxX, rest: restMaxX)
-            collapse(&entry.maxY, toward: entry.minY, rest: restMinY)
-            collapse(&entry.minY, toward: entry.maxY, rest: restMaxY)
+            let spaceX = share(entry.spaceX, now: strip), spaceY = share(entry.spaceY, now: entry.rowColumn.flatMap(row))
+            collapse(&entry.maxX, toward: entry.minX, rest: restMinX, space: spaceX)
+            collapse(&entry.minX, toward: entry.maxX, rest: restMaxX, space: spaceX)
+            collapse(&entry.maxY, toward: entry.minY, rest: restMinY, space: spaceY)
+            collapse(&entry.minY, toward: entry.maxY, rest: restMaxY, space: spaceY)
             entries[pane] = entry
             shown[pane] = CGRect(x: entry.minX.fixed, y: entry.minY.fixed, width: max(0, entry.maxX.fixed - entry.minX.fixed),
                                  height: max(0, entry.maxY.fixed - entry.minY.fixed))
@@ -160,16 +250,17 @@ struct ClosingPanes {
         }
     }
 
-    /// The panes of `closing` whose sides ride nothing that moves: no live neighbour on a spring, and no neighbour that
-    /// closes beside them and rides one. Nothing closes over them, so they go at once, as before S3c (their place shows
-    /// what the layout rests at from the first frame, never a ground that pops at the landing).
-    func still(_ closing: Set<PaneID>, frames: [PaneID: AnimatedFrame]) -> Set<PaneID> {
+    /// The panes of `closing` that nothing moves over: no live neighbour on a spring, no camera travel a side of theirs
+    /// collapses on (``Entry/spaceX``, ``Entry/spaceY``), and no neighbour that closes beside them and has one (the panes
+    /// already closing show, so their neighbours do too). Nothing closes over them, so they go at once (``settle(frames:strip:row:)``).
+    private func still(_ closing: Set<PaneID>, frames: [PaneID: AnimatedFrame]) -> Set<PaneID> {
         func moves(_ frame: AnimatedFrame) -> Bool {
             frame.rect != frame.targetRect || [frame.x, frame.y, frame.width, frame.height].contains { $0.velocity != 0 }
         }
         func neighbours(_ entry: Entry) -> [PaneID] { entry.minX.neighbours + entry.maxX.neighbours + entry.minY.neighbours + entry.maxY.neighbours }
         var covered = Set(entries.compactMap { pane, entry in
-            !closing.contains(pane) || neighbours(entry).contains { frames[$0].map(moves) ?? false } ? pane : nil
+            !closing.contains(pane) || entry.spaceX != nil || entry.spaceY != nil || neighbours(entry).contains { frames[$0].map(moves) ?? false }
+                ? pane : nil
         })
         var grew = true
         while grew {
@@ -199,6 +290,7 @@ struct ClosingPanes {
     mutating func remove(_ pane: PaneID, frames: [PaneID: AnimatedFrame]) -> AnimatedFrame? {
         guard let entry = entries.removeValue(forKey: pane) else { return nil }
         order.removeAll { $0 == pane }
+        awaiting.remove(pane)
         let rect = CGRect(x: entry.minX.fixed, y: entry.minY.fixed, width: max(0, entry.maxX.fixed - entry.minX.fixed),
                           height: max(0, entry.maxY.fixed - entry.minY.fixed))
         /// The velocity of the live neighbour whose facing edge places this side now (the slowest one).
@@ -222,5 +314,6 @@ struct ClosingPanes {
     mutating func drop(_ pane: PaneID) {
         entries[pane] = nil
         order.removeAll { $0 == pane }
+        awaiting.remove(pane)
     }
 }
