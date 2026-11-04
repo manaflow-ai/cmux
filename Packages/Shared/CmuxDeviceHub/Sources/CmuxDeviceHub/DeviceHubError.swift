@@ -11,7 +11,7 @@ public enum DeviceHubError: Error, Sendable, Equatable, CustomStringConvertible 
         case notSelf
         /// Computer Use approvals (PROTOCOL.md, "Computer Use approvals").
         case digestMismatch, approvalExists, selfApproval, notApprover, notAsker, approvalNotPending, approvalExpired
-        case alwaysNotAllowed, badDecisionSignature
+        case alwaysNotAllowed, badDecisionSignature, approvalKeyRequired, approvalKeyMismatch
         case other(String)
 
         static let table: [(Code, String)] = [
@@ -25,7 +25,8 @@ public enum DeviceHubError: Error, Sendable, Equatable, CustomStringConvertible 
             (.digestMismatch, "digest_mismatch"), (.approvalExists, "approval_exists"), (.selfApproval, "self_approval"),
             (.notApprover, "not_approver"), (.notAsker, "not_asker"), (.approvalNotPending, "approval_not_pending"),
             (.approvalExpired, "approval_expired"), (.alwaysNotAllowed, "always_not_allowed"),
-            (.badDecisionSignature, "bad_decision_signature"),
+            (.badDecisionSignature, "bad_decision_signature"), (.approvalKeyRequired, "approval_key_required"),
+            (.approvalKeyMismatch, "approval_key_mismatch"),
         ]
 
         public init(_ raw: String) {

@@ -48,6 +48,8 @@ interface DeviceRow {
   push_env: ApnsEnvironment | null;
   signing_key: string;
   agreement_key: string;
+  /** An approver's Computer Use approval key (base64 X9.63 P-256): it alone signs an Allow. Set once. */
+  approval_key: string | null;
   created_at: number;
   last_seen_at: number;
   removed_at: number | null;
@@ -169,6 +171,7 @@ const ADDED_COLUMNS: [string, string, string][] = [
   ["devices", "push_token", "TEXT"],
   ["devices", "push_topic", "TEXT"],
   ["devices", "push_env", "TEXT"],
+  ["devices", "approval_key", "TEXT"],
   ["permissions", "owner_kind", "TEXT NOT NULL DEFAULT 'user'"],
   ["permissions", "owner_id", "TEXT NOT NULL DEFAULT ''"],
   ["sessions", "owner_kind", "TEXT NOT NULL DEFAULT 'user'"],
@@ -190,6 +193,7 @@ function publicDevice(d: DeviceRow, online: boolean) {
     platform: d.platform,
     signingKey: d.signing_key,
     agreementKey: d.agreement_key,
+    approvalKey: d.approval_key ?? null,
     createdAt: d.created_at,
     lastSeenAt: d.last_seen_at,
     macScreenShared: d.mac_screen_shared === 1,
@@ -415,10 +419,23 @@ export class UserDO extends DurableObject<Env> {
     if (!(await isValidDeviceKey(body.agreementKey))) throw badRequest("agreementKey must be a base64 X9.63 P-256 key");
     const signingKey = body.signingKey as string;
     const agreementKey = body.agreementKey as string;
+    // An approver's approval key signs its Computer Use Allows; on the device its use needs the person
+    // (Secure Enclave, user presence). Only a Mac or an iPhone has one, and never the signing key itself.
+    let approvalKey: string | null = null;
+    if (body.approvalKey !== undefined && body.approvalKey !== null) {
+      if (!APPROVER_PLATFORMS.includes(platform)) throw badRequest("only a Mac or an iPhone registers an approvalKey");
+      if (!(await isValidDeviceKey(body.approvalKey))) throw badRequest("approvalKey must be a base64 X9.63 P-256 key");
+      approvalKey = body.approvalKey as string;
+      if (approvalKey === signingKey) throw badRequest("approvalKey must not be the signing key");
+    }
     await checkDeviceSignature(signingKey, request.method, url, raw, h);
     const existing = this.device(h.id);
     if (existing?.removed_at != null) throw new ApiError(403, "device_removed", "this device was removed; register a new device id");
     if (existing && existing.signing_key !== signingKey) throw new ApiError(409, "device_key_mismatch", "device id is registered with another signing key");
+    // A device keeps its first approval key: a box pins it, so another one is another device.
+    if (existing?.approval_key && approvalKey && existing.approval_key !== approvalKey) {
+      throw new ApiError(409, "approval_key_mismatch", "device id is registered with another approval key");
+    }
     // What a device is decides whether it answers Computer Use questions: it never changes, and its key
     // assurance only goes down (a box that lost its keyring), never up.
     if (existing && existing.platform !== platform) throw new ApiError(409, "device_platform_mismatch", "device id is registered as another platform");
@@ -428,23 +445,25 @@ export class UserDO extends DurableObject<Env> {
     this.burnSignature(h.id, h.ts, h.sig, now);
     if (existing) {
       this.sql.exec(
-        "UPDATE devices SET name = CASE WHEN name_pinned = 1 THEN name ELSE ? END, platform = ?, assurance = ?, agreement_key = ?, last_seen_at = ? WHERE id = ?",
+        "UPDATE devices SET name = CASE WHEN name_pinned = 1 THEN name ELSE ? END, platform = ?, assurance = ?, agreement_key = ?, approval_key = COALESCE(approval_key, ?), last_seen_at = ? WHERE id = ?",
         name,
         platform,
         assurance,
         agreementKey,
+        approvalKey,
         now,
         h.id,
       );
     } else {
       this.sql.exec(
-        "INSERT INTO devices(id, name, platform, assurance, signing_key, agreement_key, created_at, last_seen_at, removed_at, mac_screen_shared, owner_kind, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, 'user', ?)",
+        "INSERT INTO devices(id, name, platform, assurance, signing_key, agreement_key, approval_key, created_at, last_seen_at, removed_at, mac_screen_shared, owner_kind, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, 'user', ?)",
         h.id,
         name,
         platform,
         assurance,
         signingKey,
         agreementKey,
+        approvalKey,
         now,
         now,
         this.ownerId,
@@ -1054,10 +1073,15 @@ export class UserDO extends DurableObject<Env> {
     }
     if (body.digest !== a.digest) throw new ApiError(400, "digest_mismatch", "the answer is for another question");
     if (decision === "always" && a.allow_always !== 1) throw new ApiError(403, "always_not_allowed", "the asking machine does not take Always Allow from another device");
+    // An Allow is signed by the approval key (its every use needs Face ID or the passcode on the device);
+    // a Deny, which only refuses, by the device's signing key.
+    const allow = decision !== "deny";
+    if (allow && !me.approval_key) throw new ApiError(403, "approval_key_required", "an Allow needs this device's approval key; register one");
+    const key = allow ? me.approval_key! : me.signing_key;
     const sig = body.sig;
     return (async () => {
-      if (!(await verifyDeviceSignature(me.signing_key, sig, decisionMessage(a.digest, decision)))) {
-        throw new ApiError(400, "bad_decision_signature", "sig does not verify with this device's key");
+      if (!(await verifyDeviceSignature(key, sig, decisionMessage(a.digest, decision)))) {
+        throw new ApiError(400, "bad_decision_signature", allow ? "sig does not verify with this device's approval key" : "sig does not verify with this device's key");
       }
       // Another answer may have landed while the signature was checked.
       const current = this.approval(id)!;

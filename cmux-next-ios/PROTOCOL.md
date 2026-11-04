@@ -1126,8 +1126,11 @@ the phone fetches from the hub it is built with (a push naming another hub is
 ignored), then checks the digest, the deadline, the state and that it did not
 ask it. A Mac answer is signed with the approval key over
 `cmux-cu-phone-approval-v1 \0 phone \0 digest \0 decision \0 expiresAt`
-(now + 120 s, hex r||s); a hub answer with the device hub key over
-`cmux-cu-approval-v1\n<digest>\n<decision>` after Face ID.
+(now + 120 s, hex r||s). A hub Allow is signed over
+`cmux-cu-approval-v1\n<digest>\n<decision>` with the device's hub **approval
+key** (Secure Enclave, `.privateKeyUsage` + `.userPresence`, registered as
+`approvalKey`), so the OS asks for Face ID before the signature; a hub Deny is
+signed with the device hub signing key, without Face ID.
 
 The content extension replaces the buttons with the payload's own options
 (`extensionContext.notificationActions`). Its option rows, Submit and its

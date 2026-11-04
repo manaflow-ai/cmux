@@ -86,7 +86,8 @@ public enum ComputerUseDecision: String, Codable, Sendable, Equatable, CaseItera
     /// Refuses this call.
     case deny
 
-    /// The UTF-8 string the deciding device signs: `"cmux-cu-approval-v1\n<digest>\n<decision>"`.
+    /// The UTF-8 string the deciding device signs: `"cmux-cu-approval-v1\n<digest>\n<decision>"`,
+    /// an Allow with its approval key, a Deny with its signing key.
     public func signatureMessage(digest: String) -> String {
         "cmux-cu-approval-v1\n\(digest)\n\(rawValue)"
     }
@@ -204,6 +205,15 @@ public struct ComputerUseApprovalDecided: Codable, Sendable, Equatable {
     /// Whether `sig` is `signingKey`'s signature of this decision over `digest`.
     public func verifies(signingKey: String) -> Bool {
         DeviceIdentity.verifyApproval(signature: sig, digest: digest, decision: decision, signingKey: signingKey)
+    }
+
+    /// Whether `sig` verifies with the key `decider` answers this decision with: its
+    /// `approvalKey` for an Allow (none: never), its `signingKey` for a Deny
+    /// (docs/computer-use-approvals.md, "Device hub approvals"). A machine that pins
+    /// approvers also checks the approval key's fingerprint against its pins.
+    public func verifies(decider: HubDevice) -> Bool {
+        guard let key = decision == .deny ? decider.signingKey : decider.approvalKey else { return false }
+        return verifies(signingKey: key)
     }
 }
 

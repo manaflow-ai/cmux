@@ -163,13 +163,45 @@ or a 0600 key file on a headless box, reported as lower assurance).
   other devices (User DO socket and phone push).
 - `POST /v1/approvals/:id/decision` `{decision, digest, sig}` from another
   device of the user (403 `self_approval` from the asking device). `sig` is
-  the deciding device's ECDSA-P256-SHA256 over
-  `"cmux-cu-approval-v1\n<digest>\n<decision>"`. The hub pushes
-  `{type:'approval.decided', id, decision, digest, deciderId, sig}` to the
-  asking device.
-- The asking device verifies `sig` with the decider's registered signing key
-  (`GET /v1/devices`) and that the decider is not itself before it applies the
-  decision; the hub's word alone never grants.
+  the deciding device's ECDSA-P256-SHA256 (base64 raw r||s) over
+  `"cmux-cu-approval-v1\n<digest>\n<decision>"`, with the key below. The hub
+  pushes `{type:'approval.decided', id, decision, digest, deciderId, sig}` to
+  the asking device.
+- **Which key signs.** An Allow (`once`, `session`, `always`) is signed only
+  by the decider's **approval key**; a `deny` is signed by its device
+  `signingKey`. The approval key is a P-256 key separate from the device keys
+  whose every use needs the person at the OS level: on iPhone (and any Mac
+  that answers) a Secure Enclave key made with access control
+  `.privateKeyUsage` + `.userPresence`, `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`
+  (Face ID or the passcode before each signature, the same protection as the
+  phone's Mac approval key in `verify/phone-approvals.md`). Code running in the
+  app cannot sign an Allow without the person; Deny stays cheap because it only
+  refuses. The canonical message is the same for both keys.
+- **The device record.** An approver registers it in `POST /v1/devices` as
+  `approvalKey` (base64 of the 65-byte X9.63 uncompressed point, like
+  `signingKey`); `GET /v1/devices` and every device JSON return it
+  (`approvalKey`, `null` when the device has none). The hub keeps a device's
+  first approval key: another one for the same id is 409
+  `approval_key_mismatch` (the iPhone app then makes a new device id), a
+  registration without one keeps the stored one, and a device registered before
+  approval keys adds one later under the same id. Only `macos`/`ios` may send
+  one, and never equal to its `signingKey` (400). The hub verifies an Allow
+  with `approvalKey` (403 `approval_key_required` when the device has none)
+  and a Deny with `signingKey` (400 `bad_decision_signature` otherwise).
+- **The fingerprint a box pins**: the lowercase hex SHA-256 of the approval
+  key's 65 X9.63 bytes (the bytes `approvalKey` base64-decodes to), the same
+  rule as `viewerKeyFingerprint` applied to the approval key. People compare
+  its first 32 hex digits, uppercase, in eight groups of four (`1A2B 3C4D …`,
+  Swift `DeviceIdentity.displayFingerprint`).
+- The asking device verifies before it applies a decision; the hub's word
+  alone never grants. For an Allow: the decider is not itself, it is a
+  `macos`/`ios` device in `GET /v1/devices`, the SHA-256 of its `approvalKey`
+  bytes is one of the approver fingerprints the owner pinned on this machine,
+  and `sig` verifies with that `approvalKey`. A device without `approvalKey`,
+  or whose key is not pinned, never grants. A `deny` may be applied after
+  checking `sig` against the decider's `signingKey` (it only refuses).
+  Swift: `ComputerUseApprovalDecided.verifies(decider:)` picks the key by
+  decision; the pin check is the box's.
 - `GET /v1/approvals/:id` returns the state after a reconnect.
 - Only the user's Macs and iPhones answer (403 `not_approver` for a Windows
   or Linux machine). `POST /v1/approvals` carries `allowAlways`, the asking

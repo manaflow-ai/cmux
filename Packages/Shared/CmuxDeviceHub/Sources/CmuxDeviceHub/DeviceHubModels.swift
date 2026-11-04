@@ -28,15 +28,18 @@ public struct HubDevice: Codable, Sendable, Equatable, Identifiable {
     public var signingKey: String?
     /// base64 X9.63 key agreement key (relay secrets are sealed to it).
     public var agreementKey: String?
+    /// base64 X9.63 Computer Use approval key (an approver's; nil for others): it alone signs an Allow.
+    public var approvalKey: String?
     public var createdAt: Date?
     public var lastSeenAt: Date?
     public var macScreenShared: Bool
     public var online: Bool
 
     public init(id: String, name: String, platform: DevicePlatform? = nil, signingKey: String? = nil, agreementKey: String? = nil,
-                createdAt: Date? = nil, lastSeenAt: Date? = nil, macScreenShared: Bool = false, online: Bool = false) {
+                approvalKey: String? = nil, createdAt: Date? = nil, lastSeenAt: Date? = nil, macScreenShared: Bool = false,
+                online: Bool = false) {
         self.id = id; self.name = name; self.platform = platform; self.signingKey = signingKey
-        self.agreementKey = agreementKey; self.createdAt = createdAt; self.lastSeenAt = lastSeenAt
+        self.agreementKey = agreementKey; self.approvalKey = approvalKey; self.createdAt = createdAt; self.lastSeenAt = lastSeenAt
         self.macScreenShared = macScreenShared; self.online = online
     }
 
@@ -44,7 +47,7 @@ public struct HubDevice: Codable, Sendable, Equatable, Identifiable {
     public var fingerprint: String? { signingKey.flatMap(DeviceIdentity.fingerprint(signingKey:)) }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, platform, signingKey, agreementKey, createdAt, lastSeenAt, macScreenShared, online
+        case id, name, platform, signingKey, agreementKey, approvalKey, createdAt, lastSeenAt, macScreenShared, online
     }
 
     public init(from decoder: any Decoder) throws {
@@ -54,6 +57,7 @@ public struct HubDevice: Codable, Sendable, Equatable, Identifiable {
         platform = c.lenient(DevicePlatform.self, .platform)
         signingKey = c.lenient(String.self, .signingKey)
         agreementKey = c.lenient(String.self, .agreementKey)
+        approvalKey = c.lenient(String.self, .approvalKey)
         createdAt = c.date(.createdAt)
         lastSeenAt = c.date(.lastSeenAt)
         macScreenShared = c.flag(.macScreenShared)

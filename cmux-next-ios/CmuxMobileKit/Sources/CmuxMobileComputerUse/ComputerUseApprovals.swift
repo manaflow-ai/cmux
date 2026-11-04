@@ -1,7 +1,6 @@
 public import CmuxDeviceHub
 public import CmuxMobileNotifications
 public import Foundation
-import LocalAuthentication
 public import Observation
 import OSLog
 
@@ -47,8 +46,10 @@ public struct ComputerUseMacAnswer: Sendable, Equatable {
 /// one, or one this phone asked. From a Mac's app (`CMUX_MOBILE_COMPUTER_USE`) the push
 /// carries the request itself; its digest is recomputed the same way. Only then does
 /// the sheet show it or the phone sign an answer:
-/// - Allow Once / Allow for This Session / Always Allow sign after Face ID (or the passcode);
-/// - Deny signs (hub) or goes unsigned (Mac) without it.
+/// - Allow Once / Allow for This Session / Always Allow sign after Face ID (or the passcode),
+///   with a key whose access control asks for it (hub: the device's approval key; Mac: the
+///   phone's approval key), so no code in the app signs an Allow without the person;
+/// - Deny signs with the device key (hub) or goes unsigned (Mac) without it.
 @MainActor @Observable
 public final class ComputerUseApprovals {
     public static let shared = ComputerUseApprovals()
@@ -84,8 +85,9 @@ public final class ComputerUseApprovals {
         public var client: @MainActor () async -> DeviceHubClient?
         /// Sends an answer to a Mac's question (link, else mailbox); throws ``ComputerUseMacAnswer/Failure``.
         public var answerMac: @MainActor (ComputerUseMacAnswer) async throws -> Void
-        /// Face ID or the passcode for a hub answer; throws when the person cancels or fails.
-        public var userPresence: @MainActor (String) async throws -> Void
+        /// Face ID or the passcode for a hub Allow, unlocking this phone's approval key
+        /// (Secure Enclave, `.userPresence`) for one signature; throws when the person cancels or fails.
+        public var authorizeApproval: @MainActor (ComputerUseApprovalKey, String) async throws -> ComputerUseApprovalAuthorization
         /// Whether Face ID can show now: the app is active and its own lock is open.
         public var isInteractive: @MainActor () -> Bool
         /// Removes a question's delivered notification by its request identifier.
@@ -97,7 +99,9 @@ public final class ComputerUseApprovals {
 
         public init(hubURL: URL, client: @escaping @MainActor () async -> DeviceHubClient?,
                     answerMac: @escaping @MainActor (ComputerUseMacAnswer) async throws -> Void = { _ in throw ComputerUseMacAnswer.Failure.unreachable },
-                    userPresence: @escaping @MainActor (String) async throws -> Void = ComputerUseApprovals.deviceOwnerAuthentication,
+                    authorizeApproval: @escaping @MainActor (ComputerUseApprovalKey, String) async throws -> ComputerUseApprovalAuthorization = {
+                        try await $0.authorize(reason: $1)
+                    },
                     isInteractive: @escaping @MainActor () -> Bool = { true },
                     removeNotification: @escaping @MainActor (String) -> Void = { _ in },
                     pushTopic: String? = Bundle.main.bundleIdentifier, pushEnvironment: DeviceHubPushEnvironment = .production,
@@ -105,7 +109,7 @@ public final class ComputerUseApprovals {
             self.hubURL = hubURL
             self.client = client
             self.answerMac = answerMac
-            self.userPresence = userPresence
+            self.authorizeApproval = authorizeApproval
             self.isInteractive = isInteractive
             self.removeNotification = removeNotification
             self.pushTopic = pushTopic
@@ -340,18 +344,21 @@ public final class ComputerUseApprovals {
 
     private func decideOnHub(_ review: ComputerUseApprovalReview, choice: ComputerUseChoice, environment: Environment) async throws {
         let id = review.id
+        guard let client = await environment.client() else { throw ComputerUseMacAnswer.Failure.unreachable }
+        var authorization: ComputerUseApprovalAuthorization?
         if choice.needsUserPresence {
+            // An Allow is signed only by the approval key, whose access control itself asks for Face ID.
+            guard let key = client.identity.approvalKey else { throw DeviceHubError.server(status: 403, code: .approvalKeyRequired, message: "") }
             do {
-                try await environment.userPresence(review.userPresenceReason(for: choice))
+                authorization = try await environment.authorizeApproval(key, review.userPresenceReason(for: choice))
             } catch {
                 throw ComputerUseMacAnswer.Failure.cancelled
             }
         }
-        guard let client = await environment.client() else { throw ComputerUseMacAnswer.Failure.unreachable }
         // Fetched and checked again right before signing: it may have closed meanwhile.
         let fresh = try await fetchReview(id, client: client, environment: environment)
         guard fresh.offers(choice) else { throw ComputerUseApproval.Refusal.notPending }
-        _ = try await client.decide(id: id, decision: choice.decision, digest: fresh.digest)
+        _ = try await client.decide(id: id, decision: choice.decision, digest: fresh.digest, authorization: authorization)
         hub?.forgetApproval(id)
         environment.removeNotification(ComputerUseApprovalNotice.notificationIdentifier(approvalID: id))
     }
@@ -420,6 +427,8 @@ public final class ComputerUseApprovals {
         case .digestMismatch?: return ComputerUseApproval.Refusal.digestMismatch.message
         case .notFound?: return String(localized: "This request is no longer available.")
         case .alwaysNotAllowed?: return String(localized: "That device doesn't allow Always Allow from this iPhone.")
+        case .approvalKeyRequired?, .approvalKeyMismatch?:
+            return String(localized: "This iPhone can't approve yet. Open cmux and sign in again, then try again.")
         default: return String(localized: "cmux couldn't reach your devices. Try again.")
         }
     }
@@ -459,12 +468,5 @@ public final class ComputerUseApprovals {
         } catch {
             log.error("device hub push unregister failed: \(String(describing: error), privacy: .public)")
         }
-    }
-
-    /// Face ID, or the passcode when Face ID fails or is not set up.
-    public nonisolated static func deviceOwnerAuthentication(_ reason: String) async throws {
-        let context = LAContext()
-        context.localizedFallbackTitle = nil
-        _ = try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
     }
 }

@@ -84,12 +84,20 @@ public final class DeviceHub {
     /// The app's hub: its Secure Enclave identity under `<bundleIdentifier>.device-hub`
     /// (loaded off the main thread, renewed when the hub refuses it), relay secrets
     /// in the same Keychain service, and `tokens` for the account (CloudAuth's access token).
+    /// `approvalKeys`: an approver (the iPhone app) also holds and registers a Computer Use approval key.
     public static func forApp(baseURL: URL, bundleIdentifier: String, deviceName: String, platform: DevicePlatform = .macos,
+                              approvalKeys: ComputerUseApprovalKeyFactory? = nil,
                               tokens: any DeviceHubAccountTokenProvider) async throws -> DeviceHub {
-        let identity = try await loadIdentity { try DeviceIdentity.forApp(bundleIdentifier: bundleIdentifier) }
+        let identity = try await loadIdentity { try DeviceIdentity.forApp(bundleIdentifier: bundleIdentifier, approvalKeys: approvalKeys) }
         return DeviceHub(client: DeviceHubClient(baseURL: baseURL, identity: identity, tokens: tokens),
                          secrets: KeychainRelaySecretStore(bundleIdentifier: bundleIdentifier), deviceName: deviceName,
-                         platform: platform, renewIdentity: { try DeviceIdentity.renew(bundleIdentifier: bundleIdentifier) })
+                         platform: platform,
+                         renewIdentity: { try DeviceIdentity.renew(bundleIdentifier: bundleIdentifier, approvalKeys: approvalKeys) })
+    }
+
+    /// The hub refused this id for good: removed, another signing key, or another approval key.
+    nonisolated static func renewsIdentity(_ code: DeviceHubError.Code) -> Bool {
+        code == .deviceRemoved || code == .deviceKeyMismatch || code == .approvalKeyMismatch
     }
 
     /// Runs `load` off the main thread: the file Keychain and Secure Enclave
@@ -120,7 +128,7 @@ public final class DeviceHub {
         do {
             do {
                 _ = try await client.registerDevice(name: deviceName, platform: platform)
-            } catch let error as DeviceHubError where (error.code == .deviceRemoved || error.code == .deviceKeyMismatch) && renewIdentity != nil {
+            } catch let error as DeviceHubError where Self.renewsIdentity(error.code) && renewIdentity != nil {
                 // This id was removed (or holds another key): register as a new device, once.
                 guard run == generation, let renewIdentity else { return }
                 let fresh: DeviceIdentity

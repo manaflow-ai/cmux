@@ -41,6 +41,14 @@ host-signed allow lists are later work.
   `assurance`: `hardware` (Secure Enclave, a TPM-backed CNG key), `keystore`
   (the Linux Secret Service, a Windows software CNG key) or `file` (a 0600 key
   file on a headless box: the lowest).
+- **Approval key** (approvers only: `macos`, `ios`): a third P-256 key that
+  signs Computer Use Allows and nothing else. Its use needs the person at the
+  OS level (Secure Enclave, `.privateKeyUsage` + `.userPresence`). Sent as
+  `approvalKey`, base64 X9.63 like the others; the hub keeps a device's first
+  one (another is 409 `approval_key_mismatch`), a registration without it keeps
+  the stored one, and it is never the signing key. Its fingerprint is the
+  lowercase hex SHA-256 of its 65 bytes: what an asking machine pins
+  (docs/computer-use-approvals.md, "Device hub approvals").
 - **Device-signed requests**: every device-scoped call (all calls below except
   `/v1/auth/stack`) carries
   - `X-Device-Id: <uuid>` (lowercase),
@@ -66,7 +74,7 @@ host-signed allow lists are later work.
 
 ```
 devices(id TEXT PK, name, platform 'macos'|'ios'|'windows'|'linux', signing_key,
-        agreement_key, created_at, last_seen_at, removed_at NULL,
+        agreement_key, approval_key NULL, created_at, last_seen_at, removed_at NULL,
         mac_screen_shared INT 0/1, name_pinned INT 0/1, owner_kind, owner_id,
         assurance 'hardware'|'keystore'|'file', push_token NULL, push_topic NULL,
         push_env NULL 'production'|'development')
@@ -106,7 +114,7 @@ digest, expires_at)` table (digest = ts and low-S signature) for the 120 s
 replay cache.
 
 JSON shapes: a device is `{id, name, platform, signingKey, agreementKey,
-createdAt, lastSeenAt, macScreenShared, online, assurance}`; an ICE server is
+approvalKey (null when none), createdAt, lastSeenAt, macScreenShared, online, assurance}`; an ICE server is
 `{urls:[…], username?, credential?}`; an audit entry is `{id, ts, event,
 viewerId, hostId, deviceId, viewerName, hostName, deviceName, scope, sessionId,
 detail, durationS}` (`detail` carries the
@@ -119,7 +127,7 @@ end reason, the decision, or `old->new` for a permission change).
 | `GET /v1/health` | | `{ok, service, protocol, time}` | No auth. |
 | `POST /v1/auth/stack` | `{token}` | `{session, userId, expiresAt}` | Verifies the Stack Auth token (JWKS). The session carries the Stack token sealed (AES-GCM, key derived from the session key) for the cmux relay check, and ends no later than that token (at most 1 h). A session from before this (no sealed token) still works but never gets the cmux relay; one whose token does not open is refused with 401 `unauthorized`. |
 | `GET /v1/me` | | `{userId, plan: 'free'\|'paid', device}` | `plan` is `paid` when cmux billing says the cmux relay is included (see Plans); `free` otherwise, including when the lookup fails. Needs a registered device. |
-| `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey, assurance?}` | `{device}` | Registers or updates this device. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. `platform` is `macos`, `ios`, `windows` or `linux`; `assurance` defaults to `hardware` for `macos`/`ios` and `file` for `windows`/`linux`. A registered id keeps its platform, and its assurance only goes down (`hardware` > `keystore` > `file`): otherwise 409 `device_platform_mismatch`, since the platform decides who answers Computer Use questions. |
+| `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey, assurance?, approvalKey?}` | `{device}` | Registers or updates this device. Signed by `signingKey`. `approvalKey` (`macos`/`ios` only, else 400; not the signing key, else 400) is set once: another one for a registered id is 409 `approval_key_mismatch`, none keeps the stored one. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. `platform` is `macos`, `ios`, `windows` or `linux`; `assurance` defaults to `hardware` for `macos`/`ios` and `file` for `windows`/`linux`. A registered id keeps its platform, and its assurance only goes down (`hardware` > `keystore` > `file`): otherwise 409 `device_platform_mismatch`, since the platform decides who answers Computer Use questions. |
 | `PUT /v1/devices/:id/push` | `{token, topic, environment}` | `{push:{registered, configured}}` | Only device `:id` itself (403 `not_self`), only an `ios` device (400). `token` the APNs device token in hex (64-200 digits), `topic` its app's bundle id (one of `APNS_TOPICS`), `environment` `production` or `development`. `{token: null}` forgets it. `configured` is false when this hub has no APNs key: Computer Use questions then reach the phone only over its socket. |
 | `GET /v1/devices` | | `{devices:[…]}` | Not removed devices, with `online` from open sockets. |
 | `PATCH /v1/devices/:id` | `{name}` | `{device}` | Any of the user's devices. |
@@ -147,7 +155,8 @@ scope above `view` with it; apps still read it as View Only), `host_offline`, `n
 v1 does not rate-limit yet), `host_scope`, `not_anchored`, `not_self`, `device_platform_mismatch`, and for
 approvals `digest_mismatch`, `approval_exists`, `self_approval`,
 `not_approver`, `not_asker`, `approval_not_pending`, `approval_expired`,
-`always_not_allowed`, `bad_decision_signature`; `internal` (500).
+`always_not_allowed`, `bad_decision_signature`, `approval_key_required`,
+`approval_key_mismatch`; `internal` (500).
 
 ## WebSocket: User DO
 
@@ -329,7 +338,9 @@ against: request signing, low-S, canonical JSON and decision signatures.
 **The decision signature** (`sig`): the deciding device's ECDSA-P256-SHA256,
 base64 raw r||s (64 bytes, high-S accepted), over the UTF-8 string
 `"cmux-cu-approval-v1\n<digest>\n<decision>"` with `decision` one of `once`,
-`session`, `always`, `deny`.
+`session`, `always`, `deny`. An Allow (`once`, `session`, `always`) is signed
+with the decider's `approvalKey` (Face ID or the passcode before each
+signature); a `deny` with its `signingKey`.
 
 An approval is `{id, deviceId, deviceName, request, allowAlways, state,
 decision, deciderId, sig, createdAt, answerableUntil, decidedAt}`; `state` is
@@ -340,7 +351,7 @@ decision, deciderId, sig, createdAt, answerableUntil, decidedAt}`; `state` is
 | `POST /v1/approvals` | `{request, allowAlways?}` | `{approval}` | From the asking machine. The hub checks the shape (`v` 1, `nonce` 32 lowercase hex, the strings 1-200 characters, `bundle_id`/`executable` a string or null with at least one set, `target.name` 1-200, the times integers with `created_ms` <= `wait_until_ms` <= `answerable_until_ms`, `answerable_until_ms` in the future and at most 15 min away, the canonical request at most 4 KiB) and recomputes `digest` (400 `digest_mismatch`). `allowAlways` (default false) is the asking machine's `computerUse.phoneAlwaysAllow`: approvers offer Always Allow only when it is true, and the hub refuses an `always` otherwise. The same `nonce` again from the same device with the same digest returns the stored approval (a retry); with another digest, 409 `approval_exists`, as for a copy of another device's open question (same digest). At most 32 open questions per machine (429 `rate_limited`). Pushes `approval.request` to every approver's socket and an APNs alert to every `ios` approver with a push token. Audit `cu_requested`. |
 | `GET /v1/approvals` | | `{approvals:[…]}` | The pending approvals this device may answer (not its own), oldest first: what a phone or Mac shows after it reconnects. |
 | `GET /v1/approvals/:id` | | `{approval}` | Any device of the user. The asking machine reads the outcome after a reconnect. |
-| `POST /v1/approvals/:id/decision` | `{decision, digest, sig}` | `{approval}` | From an approver. Checks, in order: 403 `self_approval` (the asking device), 403 `not_approver` (not `macos`/`ios`), 409 `approval_not_pending` (already decided or cancelled: a second answer or a replay), 409 `approval_expired` (past `answerable_until_ms`), 400 `digest_mismatch` (`digest` is not the stored one), 403 `always_not_allowed` (`always` without `allowAlways`), 400 `bad_decision_signature` (`sig` does not verify with the decider's registered key). Then the approval is `decided`; the hub pushes `approval.decided` to the asking device and `approval.closed` to the others. Audit `cu_decided`. |
+| `POST /v1/approvals/:id/decision` | `{decision, digest, sig}` | `{approval}` | From an approver. Checks, in order: 403 `self_approval` (the asking device), 403 `not_approver` (not `macos`/`ios`), 409 `approval_not_pending` (already decided or cancelled: a second answer or a replay), 409 `approval_expired` (past `answerable_until_ms`), 400 `digest_mismatch` (`digest` is not the stored one), 403 `always_not_allowed` (`always` without `allowAlways`), 403 `approval_key_required` (an Allow from a device with no `approvalKey`), 400 `bad_decision_signature` (`sig` does not verify with the decider's `approvalKey` for an Allow, its `signingKey` for a `deny`). Then the approval is `decided`; the hub pushes `approval.decided` to the asking device and `approval.closed` to the others. Audit `cu_decided`. |
 | `DELETE /v1/approvals/:id` | | `{approval}` | Only the asking device (403 `not_asker`): its agent session ended (`app_approval_cancel`). A pending approval becomes `cancelled` (audit `cu_cancelled`, push `approval.closed`); any other state is returned as it is. |
 
 - At `answerable_until_ms` a pending approval becomes `expired` (audit
@@ -349,7 +360,8 @@ decision, deciderId, sig, createdAt, answerableUntil, decidedAt}`; `state` is
 - The asking machine applies `approval.decided` (or a `decided` approval it
   read) only when `deciderId` is not itself, the decider is a `macos` or `ios`
   device in `GET /v1/devices`, `digest` is its own request's, and `sig`
-  verifies with that device's `signingKey`. `always` also needs its own
+  verifies with that device's `approvalKey` for an Allow (whose fingerprint the
+  owner pinned on the asking machine) or its `signingKey` for a `deny`. `always` also needs its own
   `computerUse.phoneAlwaysAllow`, whichever device answered. Anything else
   is ignored and the question stays open until its deadline.
 - A host-scoped session (Device renewal) may ask, read and cancel its own

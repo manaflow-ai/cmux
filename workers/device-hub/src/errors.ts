@@ -30,6 +30,8 @@ export type ErrorCode =
   | "approval_expired"
   | "always_not_allowed"
   | "bad_decision_signature"
+  | "approval_key_required"
+  | "approval_key_mismatch"
   | "internal";
 
 export class ApiError extends Error {
