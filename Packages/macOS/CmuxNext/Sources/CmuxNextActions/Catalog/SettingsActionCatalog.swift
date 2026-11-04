@@ -532,6 +532,18 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
+            // Leo 2026-11-04: "shouldn't the nightly itself or whatever stable app be able to simply do this? Like the
+            // view if you wanna separate it out". The app's UI from your checkout's gallery dev server in a window of
+            // the running app (`ViewWindow`), no DEV or shell build; `url`, `width`, `height` and any mock app key
+            // (`fixture`, `density`, `script`, ...) as arguments (Debug menu, DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "debug.viewWindow",
+                title: String(localized: "action.debug.viewWindow", defaultValue: "Open View Window", bundle: .module),
+                keywords: ["view", "window", "preview", "shell", "live", "hot reload", "dev server", "gallery", "mock app", "checkout", "debug"],
+                category: .settings, symbol: "macwindow.on.rectangle", surfaces: [.palette, .menu], mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
             // The per-action budget's HUD (zero-latency.md, the budget contract): the newest action runs
             // and their perform-to-commit times, over-budget ones in red (Debug menu, DEV and NIGHTLY).
             ActionDescriptor(
