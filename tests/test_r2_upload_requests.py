@@ -199,6 +199,44 @@ class R2UploadRequestsTests(unittest.TestCase):
                     self.assertEqual([r[0] for r in requests].count("PUT"), len(failures) + 1)
                     self.assertIn(f"attempt 1 of 4 failed", result.stderr)
 
+    def test_a_slow_large_put_is_bounded_by_idle_gaps_not_total_time(self):
+        # Run 41814490749: the nightly DMG's PUT failed four times with "The
+        # write operation timed out" because one sendall() of the whole body
+        # had 30 s in all. A transfer that keeps moving must finish however
+        # long it takes; here it takes several idle timeouts in all.
+        self.env["CMUX_R2_UPLOAD_IDLE_SECONDS"] = "2"
+        self.env["CMUX_R2_UPLOAD_ATTEMPTS"] = "1"
+        received = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_PUT(self):
+                remaining = int(self.headers["Content-Length"])
+                received.append(self.headers.get("Transfer-Encoding"))
+                body = bytearray()
+                while remaining:
+                    piece = self.rfile.read(min(remaining, 256 << 10))
+                    body += piece
+                    remaining -= len(piece)
+                    time.sleep(0.1)
+                received.append(bytes(body))
+                self.send_response(200)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, *_args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        server.socket = self.tls_context.wrap_socket(server.socket, server_side=True)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (server.shutdown(), thread.join(), server.server_close()))
+
+        body = os.urandom(12 << 20)  # 48 reads of 256 KiB, 0.1 s apart: about 5 s in all
+        result = self.upload("cmux.dmg", endpoint=f"https://127.0.0.1:{server.server_port}", body=body)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(received, [None, body])
+
     def test_a_write_once_put_that_landed_unanswered_reads_as_present(self):
         self.env["CMUX_R2_UPLOAD_RETRY_DELAY"] = "0"
         endpoint, requests, stored = self.start_flaky_endpoint(["lost"])

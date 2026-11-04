@@ -436,6 +436,11 @@ fn apply_layout_size_value(
     match value {
         LayoutSizeValue::SplitRatio { split, ratio } => {
             let refused = |error| LayoutSizesError::Ratio { index, error };
+            // The clamp keeps a NaN (in-process callers; JSON cannot carry one), and the store cannot persist one.
+            // An infinite ratio (JSON `1e39` as f32) clamps below, as `set-split-ratio` clamps it.
+            if ratio.is_nan() {
+                return Err(LayoutSizesError::NanRatio { index });
+            }
             let ratio = clamp_split_ratio(ratio);
             let Some((split_workspace, split_screen, owner)) =
                 state.split_screens.get(&split).copied()
