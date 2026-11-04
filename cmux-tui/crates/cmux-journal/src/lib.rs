@@ -154,3 +154,5 @@ impl Default for Config {
 mod cmux_journal_tests;
 #[cfg(test)]
 mod crash_sim_tests;
+#[cfg(all(test, target_os = "macos"))]
+mod iopol_bench_tests;
