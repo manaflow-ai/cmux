@@ -3878,11 +3878,12 @@
       "type": "object"
     },
     "RetryReason": {
-      "description": "Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no\ncapacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, or the\nagent process died mid-turn.",
+      "description": "Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no\ncapacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, the\nagent process died mid-turn, or the chat outgrew its model's context window (`context`: it\nis compacted, then continued at once).",
       "enum": [
         "capacity",
         "transport",
-        "agent_exited"
+        "agent_exited",
+        "context"
       ],
       "type": "string"
     },

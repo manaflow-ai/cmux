@@ -292,6 +292,7 @@ fn failure_lines(r: &Value, now: u64) -> Vec<String> {
             "capacity" => "capacity: the provider or the gateway is full",
             "transport" => "a dropped connection",
             "agent_exited" => "the agent process's exit",
+            "context" => "a chat past its context window (it compacts first)",
             other => other,
         };
         lines.push(format!(
