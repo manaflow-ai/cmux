@@ -342,7 +342,10 @@ pub fn unpack(
                     continue;
                 }
             }
-            if !entry.unpack_in(dest)? {
+            // tar 0.4.46: `Entry::unpack_in(&mut self, dst) -> io::Result<bool>`,
+            // false when the entry's path would leave `dest`.
+            let inside: bool = entry.unpack_in(dest)?;
+            if !inside {
                 return Err(io::Error::other("archive entry outside its folder"));
             }
             out.entries += 1;
