@@ -36,7 +36,7 @@ jobs:
     # Never on a fork's pull request: it gets no secrets, and the job would only note a skip.
     if: github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ${{ contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_2 }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     outputs:
       outcome: ${{ steps.journey.outputs.outcome }}
     steps:
@@ -78,7 +78,8 @@ jobs:
   # comment per hour), closed by the next green. Scheduled and dispatched runs only, never a pull request's.
   issue:
     needs: [journey]
-    if: always() && github.event_name != 'pull_request' && (needs.journey.outputs.outcome == 'pass' || needs.journey.outputs.outcome == 'fail')
+    # A timed-out or cancelled journey writes no outcome: that is a red too. Only main's own runs touch the issue.
+    if: always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')) && needs.journey.result != 'skipped'
     runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux_2 }}
     permissions:
       issues: write
@@ -88,7 +89,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          OUTCOME: ${{ needs.journey.outputs.outcome }}
+          OUTCOME: ${{ needs.journey.outputs.outcome || 'fail' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail

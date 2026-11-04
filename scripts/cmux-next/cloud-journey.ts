@@ -469,7 +469,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const cmux = argValue("--cmux", argv);
   const keep = argv.includes("--keep");
   const only = new Set((argValue("--skip", argv) ?? "").split(",").filter(Boolean));
-  const claudeLogin = process.env.CLAUDE_CODE_OAUTH_TOKEN || creds.CLAUDE_CODE_OAUTH_TOKEN || "";
+  const claudeLogin = (process.env.CLAUDE_CODE_OAUTH_TOKEN || creds.CLAUDE_CODE_OAUTH_TOKEN || "").trim();
   const probeOut = argValue("--probe-out", argv);
   const probeName = argValue("--probe", argv) ?? `cloud-chat-replies-${backend.name === "prod" ? "production" : backend.name}`;
   const tag = `jr-${Date.now().toString(36)}`;
@@ -593,12 +593,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
     if (agent !== "claude" || only.has("chat") || only.has("login")) {
       J.skip("pass Claude login", agent !== "claude" ? `agent ${agent}` : "--skip");
+    } else if (team) {
+      // The app copies a login only to an owner machine (CloudCredentialInstaller.preflight); a team guest is shared.
+      J.skip("pass Claude login", "a team machine: the app copies a person's login only to their own machine");
     } else if (!claudeLogin) {
       J.skip("pass Claude login", "no CLAUDE_CODE_OAUTH_TOKEN: the reply needs the person's Claude login on the machine");
     } else {
       // CloudCredentialTransfer.perform on a Worker machines client: preflight, stage (exec as the work user makes
       // the folder, fs/write as root puts the file in 0644), install, each through the routes the app uses.
       await J.step("pass Claude login", async () => {
+        // CloudCredentialTransfer.validate: a setup-token login, printable ASCII, at most 12,000 bytes.
+        if (!/^sk-ant-oat01-[\x21-\x7e]{19,11987}$/.test(claudeLogin)) throw new Error("CLAUDE_CODE_OAUTH_TOKEN is not a `claude setup-token` login");
         const programs = claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"));
         const pre = await exec(programs.preflight);
         if (pre.code !== 0) throw new Error(`preflight exit ${pre.code}: not an owner machine with the image's launchers`);
@@ -606,12 +611,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const made = await exec(`umask 077 && mkdir -p -- ${shq(folder)} && chmod 700 -- ${shq(folder)} && test -O ${shq(folder)} && test ! -L ${shq(folder)}`);
         if (made.code !== 0) throw new Error(`staging folder: exit ${made.code}`);
         const file = `${folder}/${randomUUID().toUpperCase()}.json`;
-        const w = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path: file, dataBase64: Buffer.from(claudeLogin).toString("base64"), mode: 0o644 });
-        if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write: HTTP ${w.status} ${short(w.body?.error?.code ?? "")}`);
-        const done = await exec(programs.install(file));
-        if (done.code !== 0) {
+        try {
+          const w = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path: file, dataBase64: Buffer.from(claudeLogin).toString("base64"), mode: 0o644 });
+          if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write: HTTP ${w.status} ${short(w.body?.error?.code ?? "")}`);
+          const done = await exec(programs.install(file));
+          if (done.code !== 0) throw new Error(`installer exit ${done.code}`); // its output is never shown: it may name the token
+        } catch (error) {
+          // As the transfer does: a failed delivery leaves no second readable copy on the machine.
           await exec(`rm -f -- ${shq(file)}`).catch(() => null);
-          throw new Error(`installer exit ${done.code}`); // the installer's output is never shown: it may name the token
+          throw error;
         }
         const own = await exec(". /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login claude && echo own-login");
         if (!own.stdout.includes("own-login")) throw new Error("installed, but the image's launcher does not see an own Claude login");
