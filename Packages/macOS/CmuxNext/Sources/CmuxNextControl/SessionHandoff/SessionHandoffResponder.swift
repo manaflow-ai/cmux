@@ -11,7 +11,8 @@ import Foundation
 /// and no answer, error or log carries a token except the success line written to the admitted client.
 ///
 /// ```swift
-/// server.setSessionHandoff(SessionHandoffResponder(policy: SessionHandoffPolicy(), session: { await auth.storedSession() }))
+/// let service = try ControlService.start(registry: registry, settings: settings, launch: launch,
+///     sessionHandoff: .forNightly(launch: launch, productionAuth: true, session: auth.storedSession))
 /// ```
 public struct SessionHandoffResponder: Sendable {
     /// NIGHTLY's current session, or nil when it is signed out.
@@ -26,6 +27,17 @@ public struct SessionHandoffResponder: Sendable {
     public init(policy: SessionHandoffPolicy, session: @escaping Session) {
         self.policy = policy
         self.session = session
+    }
+
+    /// The responder a cmux NIGHTLY on the production account sets on its control socket, handing out
+    /// `session` (its stored pair); nil for every other build, whose socket then does not know the method.
+    public static func forNightly(launch: LaunchIdentity, productionAuth: Bool,
+                                  session: @escaping @Sendable () async -> (accessToken: String?, refreshToken: String)?)
+        -> SessionHandoffResponder? {
+        guard launch.bundleID == SessionHandoffPolicy.serverBundleID, productionAuth else { return nil }
+        return SessionHandoffResponder(policy: SessionHandoffPolicy()) {
+            await session().flatMap { SessionHandoffPair(accessToken: $0.accessToken, refreshToken: $0.refreshToken) }
+        }
     }
 
     /// The handoff request in `line`, or nil when the line is any other request.

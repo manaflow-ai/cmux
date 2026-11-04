@@ -168,19 +168,8 @@ final class CloudService {
         self.machines = machines
         self.mainWork = mainWork
         self.work = work
-        let nightlyID = SessionHandoffPolicy.serverBundleID
-        // a capture build's bench hooks: CloudConfiguration.benchHooksCompiled
-        configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild, nightlyIsRunning: {
-            !NSRunningApplication.runningApplications(withBundleIdentifier: nightlyID).isEmpty
-        })
-        // Signed NEXT DEV on the NIGHTLY account asks the running NIGHTLY for its session over NIGHTLY's
-        // control socket; both ends check the other's user and code signature (SessionHandoffPolicy).
-        let nightly = SessionHandoffClient(
-            socketPath: SessionHandoffClient.nightlySocketPath(), policy: SessionHandoffPolicy())
-        let nightlySession: CloudAuth.NightlySession? = configuration.adoptsNightlySession
-            ? { await nightly.fetch().map { (accessToken: $0.accessToken, refreshToken: $0.refreshToken) } }
-            : nil
-        auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture, nightlySession: nightlySession)
+        configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild, nightlyIsRunning: { SessionHandoffClient.nightly().isListening() }) // bench hooks: benchHooksCompiled
+        auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture, nightlySession: { await SessionHandoffClient.nightly().fetchTokens() })
         paths = CloudPaths.standard(bundleID: configuration.bundleID)
         deviceID = CloudDeviceID(paths: paths, work: work)
         let auth = auth
