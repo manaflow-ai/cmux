@@ -121,19 +121,19 @@ extension TabContentCache {
         guard let services = pageRequests.services else { return }
         let installedBefore = !services.history.installedPageKeys.insert(key).inserted
         if let tab = tabModel(key), installedBefore || services.machines.daemon(forTab: tab).store.restoredTabIDs.contains(key) {
-            entry.chrome.markRestored(tab.url.flatMap(URL.init(string:)))
+            entry.state.markRestored(tab.url.flatMap(URL.init(string:)))
         }
-        entry.chrome.loadOverride = { [weak self, weak chrome = entry.chrome] typed in
+        entry.state.loadOverride = { [weak self, weak state = entry.state] typed in
             // chrome://history shows cmux's page; chrome://settings opens Settings and nothing loads here.
             // cmux://mac-screen opens the Mac Screen tab beside this one (nil: nothing loads here).
             guard let url = ChromiumPageRouter.routed(typed, services: services, in: services.paneController(listing: key)) else {
-                chrome?.addressBar.showPageURL()
+                state?.chrome?.addressBar.showPageURL()
                 return true
             }
             // A Mac Screen pairing link typed or pasted in the address bar: link pairing is
             // gone, so it is refused with a word; it never loads or searches (it carried a secret).
             if let refusal = MacScreenPages.pairingLinkRefusal(for: url.absoluteString) {
-                chrome?.addressBar.showPageURL()
+                state?.chrome?.addressBar.showPageURL()
                 services.registry.refuse(refusal)
                 return true
             }

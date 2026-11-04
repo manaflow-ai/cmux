@@ -262,7 +262,7 @@ import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
 import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
-import { readUntilMoved, refreshCloudMachines, useCloudMachines } from "./cloudMachines";
+import { cloudMachineAsleep, readUntilMoved, refreshCloudMachines, useCloudMachines } from "./cloudMachines";
 import { usePeerCloudMachine } from "./peerCloudMachine";
 import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
 import { movedOn, sentIn as sentInHeld, useTrustHeldPrompts, whereHeldGoes, type TrustHeldPrompt } from "./trustHeld";
@@ -12159,7 +12159,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           setHostFailure(error);
           failingSince ??= Date.now();
           const recovering = hostIsReconnecting(error);
-          setHostErrorShown(hostErrorShows(error, Date.now() - failingSince));
+          // A sleeping Cloud machine is never "Can't reach"; an SSH peer of the same name still is.
+          const asleep = (peer: string | undefined) =>
+            peer !== undefined && snapshotRef.current?.peerKinds?.[peer] !== "ssh" && cloudMachineAsleep(peer);
+          setHostErrorShown(hostErrorShows(error, Date.now() - failingSince, asleep));
           // A refused chat of another machine still names that machine on its chip (cx-k21v).
           setMachineName((current) => refusedMachine(error) ?? current);
           // Another binary's daemon on this app's socket: the card offers Restart acpmux.
@@ -14008,6 +14011,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             draft={draft}
             onUnsentDraft={quick ? undefined : onNewChatDraft}
             onTyping={quick ? undefined : postTyping}
+            onSuggestionTaken={() => directClient.current?.takeSuggestion()}
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={handleCmuxCommand}
             onSend={(text, chips, steer) => {

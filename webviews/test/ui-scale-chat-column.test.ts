@@ -91,7 +91,7 @@ await requireBrowserLane("ui-scale-chat-column.test.ts", async () => {
     return { left: inset * effectiveScale, width: (pane - 2 * inset) * effectiveScale };
   };
 
-  test("the chat column and New Tab composer keep their 720px measure across scale combinations", async () => {
+  test("the chat column and New Tab composer share the 4-grid column across scale combinations", async () => {
     for (const { interfaceScale, chatZoom } of CASES) {
       const effectiveScale = interfaceScale * chatZoom;
       const chat = await open("agent-pane.chat-width", "standard", interfaceScale, chatZoom);
@@ -104,8 +104,10 @@ await requireBrowserLane("ui-scale-chat-column.test.ts", async () => {
       const newTab = await open("agent-pane.new-tab", "chats-unavailable", interfaceScale, chatZoom);
       const newTabBox = await measure(newTab, ".nt-box", effectiveScale);
       await newTab.close();
-      expect(newTabBox.width, `New Tab width at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(720, -0.5);
-      expect(newTabBox.left, `New Tab inset at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(61.5, -0.5);
+      // The New Tab composer takes the transcript's column, so Home's composer and the chat line up
+      // (#34103): its inset rounds down to the 4 grid the same way.
+      expect(newTabBox.width, `New Tab width at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(drawn.width, -0.5);
+      expect(newTabBox.left, `New Tab inset at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(drawn.left, -0.5);
     }
   });
 
