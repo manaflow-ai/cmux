@@ -849,6 +849,16 @@ final class CloudService {
     }
 
     func resumeMachine(_ machineID: String, origin: AppsRunRequest.Origin = .user) async throws {
+        // A typing hint must not publish an optimistic `.starting` overlay. That overlay blocks
+        // an explicit Enter/connect while the passive request is in flight; a rejected hint must
+        // also leave the paused session immediately retryable by the person.
+        if origin == .script {
+            try await configuration.linkSource == .appServer ? CloudMachinePower.run("cloud.machine.start", machine: machineID, origin: origin, ops: appOps) : api.resumeMachine(machineID)
+            changes.began { [weak self] in _ = await self?.refresh() }
+            await refresh()
+            logger.info("passively resumed machine \(machineID, privacy: .public)")
+            return
+        }
         try await changes.run(.starting, machineID: machineID, of: { machines.session(machineID) },
                               onRollback: { [weak self] id in self?.machines.session(machineID)?.mutationFailed(id) }) {
             try await configuration.linkSource == .appServer ? CloudMachinePower.run("cloud.machine.start", machine: machineID, origin: origin, ops: appOps) : api.resumeMachine(machineID)
