@@ -521,13 +521,17 @@ async fn a_slow_but_alive_pooled_start_eventually_becomes_ready() {
     let mut rpc = daemon.rpc().await;
     // `wait: true` makes the old 90-second start cutoff a terminal test
     // failure instead of leaving a warming entry for the status poller.
-    let ready = rpc
-        .call(
+    let response = tokio::time::timeout(
+        Duration::from_secs(110),
+        rpc.raw(
             "_acpmux/prewarm",
             json!({"harness": "fakeb", "cwd": home, "wait": true}),
-        )
-        .await;
-    assert_eq!(ready["accepted"], true, "{ready}");
+        ),
+    )
+    .await
+    .expect("pooled prewarm must settle before the old cutoff can strand it");
+    assert!(response.get("error").is_none(), "{response}");
+    assert_eq!(response["result"]["accepted"], true, "{response}");
     rpc.call("_acpmux/shutdown", json!({})).await;
     daemon.wait_exit();
 }
