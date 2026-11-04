@@ -76,11 +76,47 @@ impl Surface {
         records.shown(!self.is_dead())
     }
 
+    /// The output reader's side of this terminal's publications: whether its
+    /// output left a directory, progress, activity or program status change
+    /// to publish, checked in memory under the terminal's own locks. When one
+    /// is due, the mux's terminal publisher commits it. A reader never waits
+    /// for the workspace registry or the session state (#35413: under load
+    /// the next output frame, a key's echo, waited up to 501 ms behind such a
+    /// commit). The reader calls this after each output chunk, outside the
+    /// parser lock.
+    pub(crate) fn queue_pending_publications(self: &Arc<Self>) {
+        if !self.publication_due() {
+            return;
+        }
+        if let Some(mux) = self.as_pty().and_then(|pty| pty.mux.upgrade()) {
+            mux.queue_terminal_publication(self);
+        }
+    }
+
+    /// Whether `publish_pending_directory` or `publish_pending_progress`
+    /// would publish or emit something now. Marks nothing.
+    fn publication_due(&self) -> bool {
+        let Some(pty) = self.as_pty() else { return false };
+        if pty.directory_pending.load(Ordering::Acquire) {
+            return true;
+        }
+        let records = {
+            let metadata = pty.terminal_metadata.lock().unwrap();
+            if metadata.has_publication_change() {
+                return true;
+            }
+            metadata.program_status()
+        };
+        let records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        records.has_publication_change(!self.is_dead())
+    }
+
     /// Publish a changed OSC 9;4 progress, shell busy state, or OSC 7501
     /// program status as a terminal upsert, then post the notifications the records asked for
     /// (after the upsert, so a client that opens the notification finds the
-    /// record). The reader calls this after each output chunk, outside the
-    /// parser lock.
+    /// record). The terminal publisher calls this for an output reader
+    /// (`queue_pending_publications`); adoption and the first view call it
+    /// directly.
     pub(crate) fn publish_pending_progress(&self) {
         let Some(pty) = self.as_pty() else { return };
         let (progress_changed, records) = {
