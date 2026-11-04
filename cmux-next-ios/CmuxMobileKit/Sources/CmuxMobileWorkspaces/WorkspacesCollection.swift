@@ -15,6 +15,8 @@ enum WorkspacesListItem: Equatable {
     case asleep
     /// A Mac workspace group's header.
     case group(WorkspaceGroupHeaderModel)
+    /// Group by Folder: a folder's header over its loose rows.
+    case folder(WorkspaceFolderHeaderModel)
     /// One Mac's folded line (offline, not linked, or failed).
     case fold(WorkspaceFoldLineModel)
     case row(WorkspaceRowModel)
@@ -32,6 +34,11 @@ struct WorkspaceGroupHeaderModel: Equatable {
     var macID: String
     var count: Int
     var canEdit: Bool
+}
+
+struct WorkspaceFolderHeaderModel: Equatable {
+    var folder: String
+    var count: Int
 }
 
 struct WorkspaceFoldLineModel: Equatable {
@@ -357,6 +364,7 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         case .row: EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 20)
         case .title: EdgeInsets(top: 14, leading: 0, bottom: 2, trailing: 20)
         case .group: EdgeInsets(top: 4, leading: 0, bottom: 0, trailing: 20)
+        case .folder: EdgeInsets(top: 10, leading: 0, bottom: 2, trailing: 20)
         case .fold: EdgeInsets(top: 10, leading: 0, bottom: 4, trailing: 20)
         case .asleep: EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20)
         case .loading: EdgeInsets()
