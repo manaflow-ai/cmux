@@ -32,7 +32,7 @@ fn mono_now() -> std::time::Duration {
 }
 
 /// The hub's watch, and the signal a check of a parked watch gives the parked task.
-pub(super) struct ResumeState {
+pub(crate) struct ResumeState {
     watch: StdMutex<ResumeWatch>,
     unparked: Notify,
 }
@@ -58,12 +58,19 @@ impl Hub {
     /// Reads the clocks now; a gap since the last check is handled before this returns.
     /// A check of a parked watch (a turn's timer while the tick waits) starts the tick again.
     pub(super) fn check_resume(&self) -> Option<Resume> {
+        self.observe_resume(true)
+    }
+
+    /// `check_resume`; `wake_tick`: a check of a parked watch starts the parked tick. The tick's
+    /// own check never does: it would leave a permit that ends its next park at once, and the
+    /// tick would spin (cmux-ad m9: 35,000 switches per 10 s on macOS, job c1c0f4a2).
+    fn observe_resume(&self, wake_tick: bool) -> Option<Resume> {
         let (was_parked, resume) = {
             let mut watch = self.resume_watch.watch.lock().unwrap_or_else(|e| e.into_inner());
             let was_parked = watch.parked();
             (was_parked, watch.observe(crate::store::now_ms(), mono_now()))
         };
-        if was_parked {
+        if was_parked && wake_tick {
             self.resume_watch.unparked.notify_one();
         }
         let resume = resume?;
@@ -135,7 +142,7 @@ impl Hub {
                 let events = hub.subscribe();
                 // Appends write the chat logs: off the runtime's threads.
                 let checked = hub.clone();
-                let _ = tokio::task::spawn_blocking(move || checked.check_resume()).await;
+                let _ = tokio::task::spawn_blocking(move || checked.observe_resume(false)).await;
                 if !hub.resume_needed() {
                     hub.resume_watch.watch.lock().unwrap_or_else(|e| e.into_inner()).park();
                     break (events, Arc::clone(&hub.resume_watch));
