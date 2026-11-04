@@ -6,12 +6,13 @@ import CmuxNextWakeups
 import CmuxNextDaemon
 @testable import CmuxNextDaemonService
 @testable import CmuxNextNotifications
+import CmuxNextTestSupport
 import Testing
 
 /// Share Chat with Guest (design chat-multiplayer.md 6): one `agent.share` op behind the palette,
 /// the chat tab's menu, `cmux share chat` and its MCP tool, which names a started agent chat and
 /// answers the link; list, revoke and kick are its CLI and MCP family.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct AgentShareTests {
     static let session = "0199e2c4-7f3a-7b21-9d4e-5a1b2c3d4e5f"
 
@@ -325,6 +326,7 @@ struct AgentShareTests {
             }))
         let card = AgentShareInviteCard(model: model, closeImage: NSImage())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         card.removeFromSuperview()
         window.contentView?.addSubview(card)
         defer { card.removeFromSuperview() }

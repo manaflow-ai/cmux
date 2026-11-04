@@ -94,6 +94,8 @@ final class ShellModel {
     let mockMode: Bool
     /// Send Message… on a workspace or a tab: the message to the Chief being written.
     var messagingChief: ChiefMessageAbout?
+    /// Message Chief (an App Intent, the Mac's Message the Chief from Any App): its draft.
+    var messagingChiefText: ChiefTextDraft?
     /// That message is on its way (the sheet's Send waits, disabled).
     var sendingToChief = false
     /// The team an email invite is being written for (live mode).
@@ -170,6 +172,11 @@ final class ShellModel {
             self?.workspaceCreationFailed(placeholder, message: message)
         }
         creator.onManageFailure = { [weak self] _, what, message in
+            self?.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: what)
+            theme.haptics.error()
+            shellLog.error("\(what, privacy: .public): \(message, privacy: .public)")
+        }
+        creator.onGroupFailure = { [weak self] _, what, message in
             self?.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: what)
             theme.haptics.error()
             shellLog.error("\(what, privacy: .public): \(message, privacy: .public)")
@@ -598,26 +605,48 @@ final class ShellModel {
     /// Sends Send Message…'s message to the Chief of the workspace's Mac (Chief follows the
     /// focused Mac, as a Chief notification moves it), then shows that conversation on Home.
     func sendToChief(_ text: String, about subject: ChiefMessageAbout) {
+        sendToChief(text, macID: subject.macID)
+    }
+
+    /// Message Chief's Send: to the Chief of the Mac this phone shows (Chief follows it).
+    func sendToChief(_ text: String) {
+        guard live != nil else {
+            ChiefSources.shared.mac.send(text: text)
+            messagingChiefText = nil
+            return
+        }
+        // No Mac shown yet: the sheet stays with the text, and says why.
+        guard let mac = live?.focusedMacID else {
+            toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Choose a Mac first. Nothing was sent.")
+            theme.haptics.error()
+            return
+        }
+        sendToChief(text, macID: mac)
+    }
+
+    private func sendToChief(_ text: String, macID: String) {
         // One send at a time: Send waits while the phone switches to the subject's Mac.
         guard !sendingToChief else { return }
         guard let live else {
             ChiefSources.shared.mac.send(text: text)
             messagingChief = nil
+            messagingChiefText = nil
             return
         }
         // task-owner: one send to the subject Mac's Chief, then Home shows it (or the toast says why not)
         sendingToChief = true
         Task { @MainActor [weak self] in
-            let sent = await live.sendToChief(text, on: subject.macID)
+            let sent = await live.sendToChief(text, on: macID)
             guard let self else { return }
             self.sendingToChief = false
             guard sent else {
-                let mac = self.macName(subject.macID) ?? "the Mac"
+                let mac = self.macName(macID) ?? "the Mac"
                 self.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Couldn't reach Chief on \(mac). Nothing was sent.")
                 theme.haptics.error()
                 return
             }
             self.messagingChief = nil
+            self.messagingChiefText = nil
             self.tab = .home
             self.homePath = NavigationPath(chiefConversation: nil)
         }

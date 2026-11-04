@@ -151,7 +151,8 @@
   aspect-ratio: 1;
   border-radius: 50%;
   background: var(--agent-status-success);
-  color: white;
+  /* The opaque page colour, never a fixed white: a dark theme's success green is light. */
+  color: var(--acpmux-base, var(--agent-accent-text, Canvas));
   box-shadow: 0 0 0 2px var(--agent-page-bg);
 }
 .acpmux-cu-preview__mark[data-icon] > .acpmux-cu-preview__check {
