@@ -1615,6 +1615,7 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
     group.type === "item" ||
     group.type === "message" ||
     group.type === "send" ||
+    group.type === "sendGroup" ||
     group.type === "subsession" ||
     group.type === "subsessionGroup" ||
     group.type === "dispatch" ||

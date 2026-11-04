@@ -29,6 +29,11 @@ export type ToolGroup =
   /// shape (acpmuxMcpSends.ts) sent: the sent-message row (SentMessageLine.tsx). A call that sent
   /// several (a batch) is one entry per message, all with the same `item`.
   | { type: "send"; item: AcpmuxActivity; send: AcpmuxSendCallPart }
+  /// Two or more of those in a row, from one call (a shell loop of sends) or adjacent calls: one
+  /// closed line, "Sent 8 messages", that opens to each message's row (SentMessageLine.tsx
+  /// `SentMessageGroup`; Leo, 2026-11-04: "why arent these collapsed/collapsible"). `items` are the
+  /// calls, each once; `sends` every message with its call, in order.
+  | { type: "sendGroup"; items: AcpmuxActivity[]; sends: { item: AcpmuxActivity; send: AcpmuxSendCallPart }[] }
   /// A sub-session started, sent a message or waited on (subsessionCalls.ts), each its own card.
   | { type: "subsession"; item: AcpmuxActivity; call: SubsessionCall }
   /// Adjacent start_session calls become one disclosure row with one expandable child per session.
@@ -293,7 +298,43 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
   }
   close();
   flushLead();
-  return groups;
+  return withSendGroups(groups);
+}
+
+/// Every sent message among `groups`, a group's each as its own entry, in order.
+export function sendEntries(groups: readonly ToolGroup[]): Extract<ToolGroup, { type: "send" }>[] {
+  return groups.flatMap((group) =>
+    group.type === "send"
+      ? [group]
+      : group.type === "sendGroup"
+        ? group.sends.map(({ item, send }) => ({ type: "send" as const, item, send }))
+        : [],
+  );
+}
+
+/// `groups` with each run of two or more consecutive sent messages as one `sendGroup`. A lone send
+/// keeps its own row.
+function withSendGroups(groups: ToolGroup[]): ToolGroup[] {
+  let sends = 0;
+  for (let at = 0; at < groups.length && sends < 2; at += 1)
+    sends = groups[at]!.type === "send" ? sends + 1 : 0;
+  if (sends < 2) return groups;
+  const out: ToolGroup[] = [];
+  for (let at = 0; at < groups.length; ) {
+    let end = at;
+    while (end < groups.length && groups[end]!.type === "send") end += 1;
+    if (end - at < 2) {
+      out.push(groups[at]!);
+      at += 1;
+      continue;
+    }
+    const run = groups.slice(at, end) as Extract<ToolGroup, { type: "send" }>[];
+    const items: AcpmuxActivity[] = [];
+    for (const entry of run) if (items.at(-1) !== entry.item) items.push(entry.item);
+    out.push({ type: "sendGroup", items, sends: run.map(({ item, send }) => ({ item, send })) });
+    at = end;
+  }
+  return out;
 }
 
 /// The one whole file a completed file tool wrote, by its absolute path: a single diff with no old
@@ -472,6 +513,7 @@ export function staysInSight(group: ToolGroup): boolean {
   if (
     group.type === "message" ||
     group.type === "send" ||
+    group.type === "sendGroup" ||
     group.type === "subsession" ||
     group.type === "subsessionGroup" ||
     group.type === "dispatch"

@@ -9,7 +9,7 @@ import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
-import { AcpmuxSendLine, sendKey } from "./SentMessageLine";
+import { AcpmuxSendLine, SentMessageGroup, sendKey } from "./SentMessageLine";
 import { mcpNames, McpNamesContext } from "./mcpCalls";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
@@ -157,6 +157,14 @@ function groupNode(
           key={sendKey(group.item.tool!.id, group.send.index) || index}
           tool={group.item.tool!}
           send={group.send}
+        />
+      );
+    case "sendGroup":
+      return (
+        <SentMessageGroup
+          key={`sends:${sendKey(group.items[0]!.tool!.id, group.sends[0]!.send.index)}`}
+          sends={group.sends}
+          disclosureKey={`sends:${sendKey(group.items[0]!.tool!.id, group.sends[0]!.send.index)}`}
         />
       );
     case "subsession":

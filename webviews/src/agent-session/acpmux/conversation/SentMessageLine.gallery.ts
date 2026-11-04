@@ -176,9 +176,14 @@ const writtenFile = () =>
 const openTurn: Play = async (ctx) => {
   await ctx.click({ selector: ".cv-worked.is-toggle" });
   const run = () => ctx.document.querySelector("button[data-message-run]");
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent") ?? run());
+  // Adjacent sends are one closed group ("Sent 6 messages", SentMessageLine.tsx `SentMessageGroup`).
+  const groupHead = ".cv-sent-group .cv-message-group__head";
+  const group = () => ctx.document.querySelector(groupHead);
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent") ?? run() ?? group());
   if (!ctx.document.querySelector(".cv-sent") && run()?.getAttribute("aria-expanded") === "false")
     await ctx.click({ selector: "button[data-message-run]" });
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent") ?? group());
+  if (group()?.getAttribute("aria-expanded") === "false") await ctx.click({ selector: groupHead });
   await ctx.waitFor(() => ctx.document.querySelector(".cv-sent"));
 };
 
