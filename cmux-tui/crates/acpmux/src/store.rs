@@ -919,6 +919,11 @@ pub trait Store: Send + Sync {
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
     }
+    /// The chat's folder path only, for a caller that needs the path or its parent and reads or
+    /// moves none of the chat's own files. (Red stub: the same as `session_dir` for now.)
+    fn session_path(&self, id: &str) -> Option<PathBuf> {
+        self.session_dir(id)
+    }
     /// Where handoff records live: `handoffs/` beside `sessions/`, or none
     /// (in memory) for the memory store.
     fn handoff_dir(&self) -> Option<PathBuf> {
@@ -1824,6 +1829,8 @@ fn sync_directory(path: &Path) -> Result<()> {
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
         .open(path)?;
     dir.sync_all().map_err(SyncFailed)?;
+    #[cfg(test)]
+    sync_model::folder_synced(path);
     Ok(())
 }
 

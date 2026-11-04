@@ -532,3 +532,70 @@ fn a_chat_made_after_the_checkpoint_and_deleted_is_not_made_again() {
         "a deleted chat is listed"
     );
 }
+
+/// F4 and F1 at the root (review of #35483): the replay never makes a chat's folder again, so a
+/// chat removed by any path (a purge, a run without the journal, the transfer recovery) stays
+/// removed. That holds only if an OS crash can never take back the folder of a chat a client was
+/// told about: a new chat's first record is acknowledged (the durability the outbound gate waits
+/// for) only once its folder's entry in `sessions/` is synced too. The model keeps what each
+/// folder's last sync held (`sync_model::os_crash_folders`).
+#[test]
+fn a_new_chat_is_acknowledged_only_once_its_folder_is_durable() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(65);
+    let store = open(home.path(), &journal);
+    store.save(&meta("chat-old", "old", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.save(&meta(CHAT, "new", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    store.save(&meta(CHAT, "new", 1)).unwrap_or_else(|e| panic!("{e:#}"));
+    let durability = store.durability().unwrap_or_else(|| panic!("no durability"));
+    let acked = durability.acked.load(std::sync::atomic::Ordering::SeqCst);
+    let deadline = std::time::Instant::now() + WAIT;
+    while *durability.durable.borrow() < acked {
+        assert!(std::time::Instant::now() < deadline, "the chat's records never became durable");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let sessions = home.path().join("sessions");
+    assert!(
+        sync_model::folder_keeps(&sessions, CHAT),
+        "the new chat was acknowledged while an OS crash could still take back its folder"
+    );
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&sessions);
+    sync_model::os_crash_folders(&sessions);
+    let store = open(home.path(), &crashed);
+    let loaded = store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
+    assert_eq!(
+        loaded.map(|meta| (meta.name, meta.last_seq)),
+        Some(("new".to_owned(), 1)),
+        "an acknowledged chat was lost in an OS crash"
+    );
+    assert_eq!(seqs(store.as_ref(), CHAT), vec![1]);
+}
+
+/// Review of #35483, P3 1: a caller that needs only a chat's folder path (an agent's start, a
+/// fixed id's check under the hub's sessions lock) never waits for the journal or the disk; only
+/// `session_dir`, for code that reads or moves the chat's files, writes its metadata first.
+#[test]
+fn session_path_never_waits_for_the_journal() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(66);
+    let store = open(home.path(), &journal);
+    store.save(&meta(CHAT, "one", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    journal.set_sync_delay(Duration::from_secs(2));
+    // The writer takes "two" into a 2 s sync.
+    store.save(&meta(CHAT, "two", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    let started = std::time::Instant::now();
+    let path = store.session_path(CHAT);
+    let took = started.elapsed();
+    assert_eq!(path, Some(home.path().join("sessions").join(CHAT)));
+    assert!(
+        took < Duration::from_millis(500),
+        "session_path waited {took:?} for the journal and the disk"
+    );
+    journal.set_sync_delay(Duration::ZERO);
+}
