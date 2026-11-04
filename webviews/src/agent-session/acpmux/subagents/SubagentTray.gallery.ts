@@ -645,6 +645,25 @@ export default agentPaneEntry({
       },
       snapshot: planChat(),
     },
+    "plan-short-dock": {
+      note: "The opened hat in a dock with room for the header and about three rows: the checklist and the command lines share that height, each scrolling in place, so a command's Stop stays reachable.",
+      play: async (ctx) => {
+        await openTray(ctx);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length === 3);
+        const dock = ctx.document.querySelector<HTMLElement>(".acpmux-dock")!;
+        const composer = dock.querySelector<HTMLElement>(".acpmux-composer")!;
+        const header = dock.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
+        const rows = 3 * header.getBoundingClientRect().height;
+        dock.style.maxHeight = `${composer.getBoundingClientRect().height + header.getBoundingClientRect().height + rows}px`;
+        const shown = (selector: string) => {
+          const tray = ctx.document.querySelector(".acpmux-running-tray")!.getBoundingClientRect();
+          const box = ctx.document.querySelector(selector)!.getBoundingClientRect();
+          return Math.min(box.bottom, tray.bottom) - Math.max(box.top, tray.top);
+        };
+        await ctx.waitFor(() => shown(".acpmux-running-tray__plan") > 0 && shown(".acpmux-running-tray__list") > 0);
+      },
+      snapshot: planChat(),
+    },
     "several-running": {
       note: "Two subagents and a background command: a header with the counts and the time since the first started, a line each once its header is opened (it starts folded to the header). The ended task remains a compact status card.",
       play: trayLines(3),

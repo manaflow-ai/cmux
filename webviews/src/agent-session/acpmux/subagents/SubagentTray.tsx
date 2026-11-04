@@ -218,7 +218,10 @@ export const SubagentTray = memo(function SubagentTray({
   // How the header reaches the Background tasks panel, where the chat has one (Leo, 2026-11-03: "a
   // thing like this that can either expand OR open up to this sort of thing"): a panel button beside
   // its chevron (the default), or the whole header, Claude's chip.
-  const opensPanel = onOpenPanel && opensArm !== "none" ? opensArm : undefined;
+  // A header that opens the panel can't open the plan, which lives only here: with a plan it falls
+  // back to the panel button, so the checklist and the panel both stay a click away.
+  const panelArm = opensArm === "header" && plan !== undefined && plan.length > 0 ? "button" : opensArm;
+  const opensPanel = onOpenPanel && panelArm !== "none" ? panelArm : undefined;
   // Only the bottom stack's tray leaves on a snapshot: one placed in the transcript moves with it.
   const motionRef = useTrayMotion(shown, enters, placement === "tray");
   const setTrayRef = useCallback(
