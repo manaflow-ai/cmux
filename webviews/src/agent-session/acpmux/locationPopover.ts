@@ -7,11 +7,7 @@ import { registerPicker } from "./pickerOpeners";
 const COMPOSER = "form.acpmux-composer, .nt-composer";
 
 /** Close a location menu before the columns model chip opens on the same pointer press. */
-export function useComposerPopoverSwitch(
-  open: boolean,
-  trigger: RefObject<HTMLElement | null>,
-  close: () => void,
-) {
+export function useComposerPopoverSwitch(open: boolean, trigger: RefObject<HTMLElement | null>, close: () => void) {
   const latestClose = useRef(close);
   latestClose.current = close;
   useEffect(() => {
