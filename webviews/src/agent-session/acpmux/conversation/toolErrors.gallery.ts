@@ -220,34 +220,42 @@ const longLabels = calls("Read the retry notes and the old reference", [
   ],
 ]);
 
-/// A run where a Read and a command failed, opened: both steps say "Failed", capitalised alike
-/// (conversation.css; cmux#33759 capitalised only the command's).
+/// Two runs, a Read's and a command's, each with one failure, opened: the failed Read step and the
+/// failed command step both say "Failed", capitalised alike (conversation.css; cmux#33759
+/// capitalised only the command's).
+const read = (title: string, at: number) =>
+  tool(title, "read", "completed", { output: "# Retry notes\n", ...times(at) });
 const mixedFailedStep = chat(
   [
     user("Check the retry notes and run the checks", 6),
     activity(
       [
-        ok("acpmux ls --json > /tmp/ls.json", "Check states of my routed lanes", 5.8),
+        read("Read docs/retry.md", 5.9),
         tool("Read docs/retry-notes.md", "read", "failed", {
           output: "<tool_use_error>File does not exist.</tool_use_error>",
-          ...times(5.6),
+          ...times(5.8),
         }),
+      ],
+      5.9,
+    ),
+    assistant("One of the notes files is missing.\n\nRunning the checks next.", 5.7),
+    activity(
+      [
         shell("bun test src/net", "Run the network tests", "Exit code 1\n1 fail", 5.4),
         ok("git status --short", "Check the branch is clean", 5.2),
       ],
-      5.8,
+      5.4,
     ),
     assistant("The notes file is missing and one network test fails.", 5),
   ],
   { harness: "claude", model: "claude-opus-5-5" },
 );
 
-/// Opens a run's line, whatever it counts, to show its steps.
+/// Opens every run's line, whatever it counts, to show their steps.
 const openAnyRun = async (ctx: PlayContext) => {
-  const run = () => ctx.document.querySelector<HTMLElement>("button.cv-tool.is-run[aria-expanded]");
-  await ctx.waitFor(run);
-  if (run()!.getAttribute("aria-expanded") !== "true")
-    await ctx.click({ selector: "button.cv-tool.is-run[aria-expanded]" });
+  const closed = '.acpmux-row button.cv-tool.is-run[aria-expanded="false"]';
+  await ctx.waitFor(() => ctx.document.querySelector("button.cv-tool.is-run[aria-expanded]"));
+  while (ctx.document.querySelector(closed)) await ctx.click({ selector: closed });
   await ctx.waitFor(
     () => ctx.document.querySelectorAll(".cv-steps .cv-tool__failed, .cv-steps .cv-command__failed").length >= 2,
   );
