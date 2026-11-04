@@ -941,8 +941,8 @@
   color: var(--cv-text);
   background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
 }
-/* A queued prompt's Retry (PendingSteer.tsx). A sent prompt draws none: the last turn's Retry is its
-   reply footer's (TurnRows.tsx TurnFooter, .cv-turn-retry). */
+/* A prompt's Retry, in the Messages view only (UserBubble.tsx): in the transcript the last turn's
+   Retry is its reply footer's (TurnRows.tsx TurnFooter, .cv-turn-retry). */
 .cv-message-retry {
   display: none;
 }

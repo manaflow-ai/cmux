@@ -182,13 +182,16 @@ export function UserBubble({
       />
     );
   }
-  // A waiting steer's queue row shows Retry and Fork (PendingSteer.tsx); Retry not while it is still
-  // on its way: a second send would duplicate it. The sent row keeps Fork alone (but in the Messages
-  // view, below): the last turn's
-  // Retry is its reply footer's (TurnRows.tsx TurnFooter; Leo, 2026-11-04: "Today Retry is on your
-  // prompt bubble ... Put it, with the model switch, in the last turn's footer.").
+  // Retry is the last turn's reply footer's (TurnRows.tsx TurnFooter; Leo, 2026-11-04: "Today Retry
+  // is on your prompt bubble ... Put it, with the model switch, in the last turn's footer."), so neither
+  // the sent row nor a waiting steer's queue row (PendingSteer.tsx) draws one, and the row keeps its
+  // buttons when the steer is delivered. The Messages view draws no footer for a turn that ended well
+  // (messagesRows.ts), so its prompts keep their Retry; not while one is on its way, as a second send
+  // would duplicate it.
   const retry =
-    !row.pending && row.delivery?.state !== "sending" ? <PromptRetry rowId={row.id} prompt={resend} /> : null;
+    messagesView && !row.pending && row.delivery?.state !== "sending" ? (
+      <PromptRetry rowId={row.id} prompt={resend} />
+    ) : null;
   const forkButton =
     forkThrough !== undefined ? (
       <ForkButton throughSeq={forkThrough} onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
@@ -295,7 +298,7 @@ export function UserBubble({
                   <Pencil size={ROW_ICON} />
                 </button>
               )}
-              {messagesView && retry}
+              {retry}
               {forkButton}
               <PinButton rowId={row.id} bookmark />
             </MessageFooterRow>

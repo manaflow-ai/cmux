@@ -283,8 +283,8 @@ export function ReadReceipt({ row }: { row: AcpmuxRow }) {
 }
 
 /// Retry, and Retry with another model when the harness has several: sends prompt row `rowId`
-/// (`prompt`, as the agent got it) again. Only a queued prompt's row draws it (PendingSteer.tsx); a
-/// sent prompt's Retry is its turn's reply footer's (TurnRows.tsx TurnFooter).
+/// (`prompt`, as the agent got it) again. Only the Messages view's prompts draw it, sent or queued;
+/// in the transcript the last turn's Retry is its reply footer's (TurnRows.tsx TurnFooter).
 export function PromptRetry({ rowId, prompt }: { rowId: string; prompt: string }) {
   const t = useT();
   const { retry, retryWith } = useContext(TurnActionsContext);
@@ -319,18 +319,18 @@ export function PromptActions({
   text: string;
   pending?: (actions: ReactNode, queued: QueuedActions) => ReactNode;
 }) {
-  const retry = <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />;
-  // The Messages view draws no reply footer for a turn that ended well, so the prompt keeps Retry there.
+  // Retry is the last turn's reply footer's (TurnFooter), but the Messages view draws no footer for a
+  // turn that ended well, so its prompts, sent or queued, keep Retry there.
   const messagesView = useContext(PresentationContext) === "messages";
+  const retry = messagesView ? <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} /> : null;
   const actions = (
     <MessageFooterRow>
       <MessageTime at={row.at} className="cv-user__time" />
       <MessageCopy text={text} />
-      {messagesView && retry}
+      {retry}
       <PinButton rowId={row.id} bookmark />
     </MessageFooterRow>
   );
-  // Its queue row keeps Retry; once sent, the last turn's Retry is the reply footer's (TurnFooter).
   return <div className="cv-user__actions">{pending ? pending(actions, { retry }) : actions}</div>;
 }
 
