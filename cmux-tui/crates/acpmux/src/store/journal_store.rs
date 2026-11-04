@@ -240,6 +240,12 @@ fn encode_log(id: &str, line: &[u8]) -> Vec<u8> {
     payload
 }
 
+/// [`decode_log`], for the tests that read the journal itself.
+#[cfg(test)]
+pub(super) fn decode_log_for_test(payload: &[u8]) -> Option<(String, &[u8])> {
+    decode_log(payload)
+}
+
 fn decode_log(payload: &[u8]) -> Option<(String, &[u8])> {
     let len = usize::try_from(u32::from_le_bytes(payload.get(..4)?.try_into().ok()?)).ok()?;
     let end = 4usize.checked_add(len)?;

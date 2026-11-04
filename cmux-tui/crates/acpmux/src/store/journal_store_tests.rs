@@ -665,3 +665,64 @@ fn switching_off_after_a_crash_keeps_every_acknowledged_line() {
     let off = open_off(home.path());
     assert_eq!(seqs(off.as_ref(), CHAT), (1..=5).collect::<Vec<_>>());
 }
+
+/// An agent's streamed output is a `Stream` record, synced with the next acknowledged batch or a
+/// second later (DESIGN.md 3.3b, C4); every other line is `Ack`. The hub's tap logs an ACP
+/// `session/update` under its `sessionUpdate` kind (`agent_message_chunk`, `tool_call`, ...), so
+/// the record's kind is never `session/update`: its message's method is. Found by the S2c I/O A/B
+/// (STATUS 11723): every chunk was `Ack`, and its event waited for its sync.
+#[test]
+fn an_agent_chunk_is_a_stream_record() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(37);
+    let store = open(home.path(), &journal);
+    let chunk = EventRecord {
+        seq: 1,
+        at: 1_001,
+        dir: "in".into(),
+        kind: "agent_message_chunk".into(),
+        msg: json!({"jsonrpc": "2.0", "method": "session/update", "params": {
+            "sessionId": CHAT,
+            "update": {"sessionUpdate": "agent_message_chunk",
+                       "content": {"type": "text", "text": "hi"}}
+        }}),
+        host_seq: None,
+    };
+    let raw = EventRecord { seq: 2, kind: "claude.assistant".into(), ..chunk.clone() };
+    store.append(CHAT, &chunk).unwrap_or_else(|e| panic!("{e:#}"));
+    store.append(CHAT, &raw).unwrap_or_else(|e| panic!("{e:#}"));
+    store.append(CHAT, &record(3, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let restarted = journal.restart(Crash::Process);
+    drop(store);
+    // Each record's class, as the journal holds it.
+    let mut classes = Vec::new();
+    let (reopened, _) = cmux_journal::Journal::open(
+        Arc::new(restarted),
+        &home.path().join("journal"),
+        journal_config(),
+        0,
+        &mut |record| {
+            if let Some((_, line)) = super::journal_store::decode_log_for_test(record.payload) {
+                classes.push((line_seq(line), record.class));
+            }
+            Ok(())
+        },
+    )
+    .unwrap_or_else(|e| panic!("reopen the journal: {e}"));
+    drop(reopened);
+    assert_eq!(
+        classes,
+        vec![
+            (Some(1), cmux_journal::Class::Stream),
+            (Some(2), cmux_journal::Class::Stream),
+            (Some(3), cmux_journal::Class::Ack),
+        ],
+        "an agent chunk and a raw harness line are Stream, a queue line Ack"
+    );
+}
+
+/// The `seq` of one journaled line (the test reads the journal itself).
+fn line_seq(line: &[u8]) -> Option<u64> {
+    record_seq(line)
+}
