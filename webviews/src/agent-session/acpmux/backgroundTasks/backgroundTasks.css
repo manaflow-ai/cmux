@@ -98,8 +98,8 @@
   /* No rule under the header. It drew `inset 0 -1px 0 var(--cmux-hairline)`, and --cmux-hairline is
      a length (desktop.css), not a colour: a 1px spread in currentColor, the white line Leo saw. */
 }
-/* The agent pane deliberately loads no generic ui.css/controls.css. Keep these Button
-   adapters scoped here so the real pane and the gallery share the same compact chrome. */
+/* The agent pane may load the shared controls sheet through Session Info. Keep these Button
+   adapters scoped here so the background panel and the gallery share the same compact chrome. */
 .acpmux-bg__icon.ui-btn {
   appearance: none;
   border: none;
@@ -213,10 +213,10 @@
 /* A hover lights only the control it belongs to (rulebook). */
 .acpmux-bg__name.ui-btn:hover:not(:disabled),
 .acpmux-bg__task-open.ui-btn:hover:not(:disabled),
-.acpmux-bg__fold.ui-btn:hover,
-.acpmux-bg__counts.ui-btn:hover,
-.acpmux-bg__more.ui-btn:hover,
-.acpmux-bg__line--fold.ui-btn:hover {
+.acpmux-bg__fold.ui-btn:hover:not(:disabled),
+.acpmux-bg__counts.ui-btn:hover:not(:disabled),
+.acpmux-bg__more.ui-btn:hover:not(:disabled),
+.acpmux-bg__line--fold.ui-btn:hover:not(:disabled) {
   background: var(--ds-color-hover);
 }
 .acpmux-bg__icon.ui-btn:focus-visible,
@@ -289,6 +289,7 @@
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
+  height: auto;
   min-height: var(--ds-control-row);
   padding: 0 var(--ds-space-2);
   border-radius: var(--ds-radius-popup);
@@ -321,6 +322,7 @@
   padding-left: var(--ds-space-4);
 }
 .acpmux-bg__more.ui-btn {
+  height: auto;
   min-height: var(--ds-control-row);
   padding: 0 var(--ds-space-2);
   border-radius: var(--ds-radius-popup);
@@ -387,6 +389,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--ds-space-2);
+  height: auto;
   max-width: 100%;
   min-height: var(--ds-control-compact);
   padding: 0 var(--ds-space-1);
