@@ -1208,7 +1208,7 @@ class PixelCasesTests(unittest.TestCase):
             self.assertEqual(next(st for st in film_steps if st["do"] == "px_record_start")["input"], "window resize (window_drag)")
             self.assertFalse([s["id"] for s in specs if "-sw-" in s["id"]], "switch variants only with --switch")
             s1r = {s["id"]: s for s in specs if s["id"].endswith("-s1r")}
-            self.assertEqual(len(s1r), 12)  # one per case (px-keys-held-2-tabclose the 12th)
+            self.assertEqual(len(s1r), 13)  # one per case (px-keys-held-2-tabclose the 12th, px-keys-rk-3t the 13th)
             self.assertTrue(all([n.rsplit("-", 1)[1] for n in s["recordings"]] == ["s1", "reduce"] for s in s1r.values()))
             for trio in (("px-keys-single-3k-s1r", "px-col-drag-2-s1r", "px-close-pane-3-s1r"),
                          ("px-window-resize-4-s1r", "px-row-drag-3r-s1r", "px-close-column-c3-s1r")):
