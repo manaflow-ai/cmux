@@ -152,6 +152,29 @@ describe("foldToggleAt", () => {
       expect(folding).toBe(false);
     });
   }
+  // A stacked message row's first line sits under the row and toggles it (messageLineLook.ts); it
+  // goes as the row opens, so the click holds the row's line, never the first line itself.
+  for (const [kind, html] of [
+    [
+      "a sent message",
+      '<div class="cv-tool is-toggle cv-sent" role="button" aria-expanded="false"><b>to</b></div><div class="cv-msgline__preview cv-sent__below" aria-hidden><i>first</i></div>',
+    ],
+    [
+      "an agent message",
+      '<div class="cv-agentmsg"><div class="cv-tool cv-agentmsg__line" data-header-toggle=""><b>to</b></div><div class="cv-msgline__preview cv-agentmsg__below" aria-hidden><i>first</i></div></div>',
+    ],
+    [
+      "a folded group's head",
+      '<button class="cv-tool cv-message-group__head" aria-expanded="false"><b>3 messages</b></button><div class="cv-msgline__preview cv-message-group__below" aria-hidden><i>a, b</i></div>',
+    ],
+  ] as const) {
+    test(`holds ${kind}'s line for a click on its first line`, () => {
+      const { document, at } = row(html);
+      const line = document.querySelector("b")!.parentElement;
+      expect(at("i")).toBe(line as HTMLElement);
+      expect(at(".cv-msgline__preview")).toBe(line as HTMLElement);
+    });
+  }
   test("leaves a menu's trigger alone", () => {
     expect(row('<button aria-expanded="false" aria-haspopup="menu">…</button>').at("button")).toBeUndefined();
   });
