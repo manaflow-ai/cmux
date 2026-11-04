@@ -194,6 +194,37 @@ class ConditionalApiReads(unittest.TestCase):
         self.assertEqual(self.api.json(path), {"jobs": [{"status": "completed"}]})
         self.assertEqual([r[2] for r in self.requests], [200, 304, 200, 304])
 
+    def test_lookup_takes_a_new_pack_after_unchanged_304_reads(self):
+        sha, tree = oid(1), oid(101)
+        run = push_run(7, sha, status="in_progress")
+        runs_path = f"actions/workflows/{px.WORKFLOW_FILE}/runs?branch={px.BRANCH}&per_page=50"
+        jobs_path = "actions/runs/7/jobs?filter=latest&per_page=100"
+        packs_path = f"actions/artifacts?name={px.pack_name(tree)}&per_page=10"
+        self.reply(runs_path, {"workflow_runs": [run]})
+        self.reply(jobs_path, {"jobs": [{"name": px.GENERATED_JOB, "status": "in_progress"}]})
+        self.reply(packs_path, {"artifacts": []})
+        self.reply("actions/runs/7", run)
+        sleeps = []
+
+        def publish_after_one_unchanged_poll(seconds):
+            sleeps.append(seconds)
+            if len(sleeps) == 2:
+                self.reply(jobs_path, {"jobs": [{"name": px.GENERATED_JOB, "status": "in_progress",
+                                                "steps": [{"name": px.UPLOAD_STEP, "status": "completed"}]}]}, etag='"v2"')
+                self.reply(packs_path, {"artifacts": [artifact(tree, 7, 70)]}, etag='"v2"')
+
+        with tempfile.TemporaryDirectory() as scratch, \
+                mock.patch.object(self.api, "sleep", side_effect=publish_after_one_unchanged_poll), \
+                mock.patch.object(self.api, "download", side_effect=lambda _url, dest: dest.write_bytes(pack_zip(tree, 7, sha))):
+            into = Path(scratch) / "into"
+            hit = px.lookup(self.api, lambda: [(sha, tree)], sha, tree, ENV, NAMES, into, poll=1, first_run_grace=0)
+            self.assertEqual(hit["hit"], "true")
+            self.assertEqual(hit["source_run_id"], "7")
+            for rel in NAMES:
+                self.assertEqual((into / rel).read_bytes(), f"fresh {rel}\n".encode())
+        self.assertEqual(sleeps, [1, 1])
+        self.assertIn(304, [r[2] for r in self.requests])
+
     def test_an_etag_removed_by_the_server_is_not_sent_again(self):
         path = "actions/runs/7"
         self.reply(path, {"status": "in_progress"})
