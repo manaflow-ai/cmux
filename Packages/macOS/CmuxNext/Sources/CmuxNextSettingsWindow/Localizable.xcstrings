@@ -48685,6 +48685,270 @@
         }
       }
     },
+    "settingsPage.theme.wholeApp": {
+      "comment": "Title of the switch in Settings > Theme that makes terminal theme previews and picks apply to the whole app (shown while the app has its own App Theme).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview on the Whole App"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المعاينة على التطبيق بالكامل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pregled na cijeloj aplikaciji"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis på hele appen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vorschau für die ganze App"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vista previa en toda la app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aperçu sur toute l’app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anteprima su tutta l’app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アプリ全体でプレビュー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មើលជាមុនលើកម្មវិធីទាំងមូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "앱 전체에 미리 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forhåndsvis på hele appen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podgląd w całej aplikacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pré-visualizar no app inteiro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Предпросмотр во всём приложении"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงตัวอย่างทั้งแอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tüm uygulamada önizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Попередній перегляд у всій програмі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xem trước trên toàn ứng dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在整个应用中预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在整個 App 中預覽"
+          }
+        }
+      }
+    },
+    "settingsPage.theme.wholeAppHelp": {
+      "comment": "Help under the Preview on the Whole App switch in Settings > Theme.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal theme previews and picks also set the App Theme to match the terminal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "معاينات سمة الطرفية واختياراتها تجعل سمة التطبيق تطابق الطرفية أيضًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pregledi i izbori teme terminala postavljaju i temu aplikacije da prati terminal"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forhåndsvisninger og valg af terminaltema sætter også apptemaet til at matche terminalen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vorschauen und Auswahl des Terminal-Designs stellen auch das App-Design passend zum Terminal ein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las vistas previas y elecciones del tema del terminal también hacen que el tema de la app coincida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les aperçus et choix du thème du terminal règlent aussi le thème de l’app sur celui du terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anteprime e scelte del tema del terminale impostano anche il tema dell’app uguale al terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ターミナルテーマのプレビューと選択で、アプリのテーマもターミナルに合わせます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការមើលជាមុន និងការជ្រើសរើសរូបរាងស្ថានីយ ក៏កំណត់រូបរាងកម្មវិធីឱ្យដូចស្ថានីយដែរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "터미널 테마 미리 보기와 선택이 앱 테마도 터미널에 맞춥니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forhåndsvisning og valg av terminaltema setter også apptemaet til å følge terminalen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podglądy i wybory motywu terminala ustawiają też motyw aplikacji zgodnie z terminalem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pré-visualizações e escolhas do tema do terminal também ajustam o tema do app ao terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Предпросмотр и выбор темы терминала также ставят тему приложения как у терминала"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การแสดงตัวอย่างและการเลือกธีมเทอร์มินัลจะตั้งธีมแอปให้ตรงกับเทอร์มินัลด้วย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal teması önizlemeleri ve seçimleri uygulama temasını da terminale uydurur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перегляд і вибір теми термінала також ставлять тему програми як у термінала"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xem trước và chọn chủ đề terminal cũng đặt chủ đề ứng dụng khớp với terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "终端主题的预览和选择也会让应用主题与终端一致"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "終端機主題的預覽與選擇也會讓 App 主題與終端機一致"
+          }
+        }
+      }
+    },
     "settingsPage.inheritsWindow": {
       "extractionState": "manual",
       "localizations": {

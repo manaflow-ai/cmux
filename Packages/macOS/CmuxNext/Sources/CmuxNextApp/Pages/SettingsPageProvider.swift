@@ -299,19 +299,22 @@ final class SettingsPageProvider: PageProvider {
             return .object([:])
         case "cmux.settings.preview":
             // Live preview (R82 commit 5): the value applies to every window without a write;
-            // the gesture's end writes it with cmux.settings.set, or preview.end restores.
-            let descriptor = try descriptor(params)
-            let value = params["value"].flatMap { $0 == .null ? nil : $0 }
-            if let source = settings.managedSource(for: descriptor) {
-                throw PageError(code: "cmux.settings.managed", message: "\(descriptor.id) is managed", details: Self.managedInfo(source))
+            // the gesture's end writes it with cmux.settings.set, or preview.end restores. `also`
+            // ([{key, value}]) previews more keys with it as one preview (the whole-app theme preview).
+            let edits = try ([params] + (params["also"]?.arrayValue ?? [])).map { edit -> (SettingDescriptor, JSONValue?) in
+                let descriptor = try descriptor(edit)
+                if let source = settings.managedSource(for: descriptor) {
+                    throw PageError(code: "cmux.settings.managed", message: "\(descriptor.id) is managed", details: Self.managedInfo(source))
+                }
+                guard Self.writer(context).mayWrite(descriptor) else {
+                    throw Self.userOnlyError(SettingUserOnly(key: descriptor.id, writer: Self.writer(context)))
+                }
+                return (descriptor, edit["value"].flatMap { $0 == .null ? nil : $0 })
             }
-            guard Self.writer(context).mayWrite(descriptor) else {
-                throw Self.userOnlyError(SettingUserOnly(key: descriptor.id, writer: Self.writer(context)))
+            guard settings.preview(edits) else {
+                throw PageError(code: "cmux.settings.invalid", message: "\(edits.map(\.0.id).joined(separator: ", ")) does not accept this value")
             }
-            guard settings.preview(descriptor, value) else {
-                throw PageError(code: "cmux.settings.invalid", message: "\(descriptor.id) does not accept this value")
-            }
-            return ["previewing": .string(descriptor.id)]
+            return ["previewing": .string(edits[0].0.id)]
         case "cmux.settings.preview.end":
             settings.endPreview()
             return .object([:])

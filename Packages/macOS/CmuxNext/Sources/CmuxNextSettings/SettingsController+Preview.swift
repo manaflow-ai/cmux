@@ -10,18 +10,32 @@ extension SettingsController {
     /// managed key or a value the schema refuses, returning false.
     @discardableResult
     public func preview(_ descriptor: SettingDescriptor, _ value: JSONValue?) -> Bool {
-        guard managedKeys[descriptor.id] == nil else { return false }
-        if let value, !descriptor.accepts(value) { return false }
-        var root = Self.replacing(descriptor.path, with: value, in: snapshot.root)
-        // The write's linked keys preview with it (Opacity leaves Material "Ghostty").
-        for edit in windowBackgroundLinkedEdits(writing: descriptor.path, value: value, in: snapshot.root) {
-            root = Self.replacing(edit.path, with: edit.value, in: root)
+        preview([(descriptor, value)])
+    }
+
+    /// Shows several values at once as one preview (the whole-app theme preview: the terminal theme
+    /// with the App Theme following it). Refuses all of them, showing nothing, when any key is
+    /// managed or any value refused. `previewingKey` is the first key's.
+    @discardableResult
+    public func preview(_ edits: [(SettingDescriptor, JSONValue?)]) -> Bool {
+        guard let first = edits.first else { return false }
+        for (descriptor, value) in edits {
+            guard managedKeys[descriptor.id] == nil else { return false }
+            if let value, !descriptor.accepts(value) { return false }
+        }
+        var root = snapshot.root
+        for (descriptor, value) in edits {
+            root = Self.replacing(descriptor.path, with: value, in: root)
+            // The write's linked keys preview with it (Opacity leaves Material "Ghostty").
+            for edit in windowBackgroundLinkedEdits(writing: descriptor.path, value: value, in: snapshot.root) {
+                root = Self.replacing(edit.path, with: edit.value, in: root)
+            }
         }
         let previewed = CmuxConfigSnapshot.parse(root, validDensities: SettingsApplier.validDensities,
                                                  validMetrics: SettingsApplier.validMetrics,
                                                  configDirectory: file.url.deletingLastPathComponent())
         applier.apply(previewed)
-        previewingKey = descriptor.id
+        previewingKey = first.0.id
         previewSnapshot = previewed
         return true
     }
