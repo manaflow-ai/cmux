@@ -396,3 +396,56 @@ fn an_open_that_replays_many_chats_flushes_the_drive_a_bounded_number_of_times()
         "the open flushed the drive {flushes} times for {chats} replayed chats (one or two per open, not per chat)"
     );
 }
+
+/// The open after a kill syncs nothing per replayed chat before it returns (the daemon binds its
+/// socket after it): the log already holds the dead daemon's lines, only the checkpoint needs them
+/// durable, and the checkpoint runs on its own thread after the start. At about 8 ordered syncs
+/// per chat, an open with 300 chats took 6.1 s on an owned Mac (fleet 59175d6b, 2 ms a sync
+/// under load). Every acknowledged line still survives an OS crash after the checkpoint.
+#[test]
+fn an_open_after_a_kill_syncs_nothing_per_chat_and_the_checkpoint_makes_it_durable() {
+    use super::log_sync::ALL_SYNCS;
+    use std::sync::atomic::Ordering;
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(71);
+    let store = open(home.path(), &journal);
+    let chats = 40;
+    for chat in 0..chats {
+        let id = format!("chat-{chat}");
+        store.save(&meta(&id, "chat", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+        store.append(&id, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for chat in 0..chats {
+        let id = format!("chat-{chat}");
+        store.append(&id, &record(2, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+        store.save(&meta(&id, "renamed", 2)).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    let before = ALL_SYNCS.load(Ordering::SeqCst);
+    let store = open(home.path(), &killed);
+    let syncs = ALL_SYNCS.load(Ordering::SeqCst).saturating_sub(before);
+    for chat in 0..chats {
+        let id = format!("chat-{chat}");
+        assert_eq!(seqs(store.as_ref(), &id), vec![1, 2], "{id} lost a line");
+        let name = store.load(&id).unwrap_or_else(|e| panic!("{e:#}")).map(|meta| meta.name);
+        assert_eq!(name.as_deref(), Some("renamed"), "{id} lost its metadata");
+    }
+    assert!(
+        syncs <= 4,
+        "the open synced {syncs} times for {chats} replayed chats before it returned"
+    );
+    // The checkpoint (a timer on its own thread; here at once) makes it all durable.
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let crashed = killed.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    for chat in 0..chats {
+        let id = format!("chat-{chat}");
+        assert_eq!(seqs(store.as_ref(), &id), vec![1, 2], "{id} lost a line in the OS crash");
+    }
+}
