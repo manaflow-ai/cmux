@@ -29,6 +29,10 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
     { entry: "agent-pane.transcript-spacing-table", variant: "shipped" },
     { entry: "agent-pane.transcript-spacing-table", variant: "peer-lines" },
     { entry: "agent-pane.transcript-chevron-after-label", variant: "chatgpt" },
+    // Message rows on one line (Leo, 2026-11-03: "the weird chevron spacing thing"): a send with a
+    // count, SendMessage rows to long names, a bot's received line and a received pair.
+    { entry: "agent-pane.message-line-look", variant: "leo-capture" },
+    { entry: "agent-pane.message-line-look", variant: "single" },
     // An opened lead thought: "Thought for 6s" and its chevron right after it (cmux#27896 parked it
     // at the row's far edge).
     { entry: "agent-pane.claude-desktop-organization", variant: "shared" },

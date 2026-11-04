@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { escapeSurfaceOpen } from "../paneSurface";
 
 const EDITABLE = "input, textarea, select, [contenteditable]:not([contenteditable=false])";
+const SESSION_INFO_OWNS = "aside.acpmux-session-info, button.acpmux-session-info-toggle";
 
 /// Whether an Escape keydown may close the subagent's view. Not one with a modifier or inside an IME
 /// composition, not one a control already took, not one typed in a text field (the composer's first
@@ -16,6 +17,10 @@ export function escapeClosesSubagent(event: KeyboardEvent, document: Document): 
   const target = event.target;
   const element = target && (target as Node).nodeType === 1 ? (target as Element) : undefined;
   if (element?.closest(EDITABLE)) return false;
+  // Session Info owns Escape while the keyboard is in it or on its toggle (SessionInfo.tsx), whichever
+  // listener was added first.
+  const focus = document.activeElement;
+  if (focus?.closest(SESSION_INFO_OWNS)) return false;
   return !escapeSurfaceOpen(document);
 }
 
