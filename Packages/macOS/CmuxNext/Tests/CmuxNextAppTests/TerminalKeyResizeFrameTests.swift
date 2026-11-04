@@ -43,25 +43,25 @@ struct TerminalKeyResizeFrameTests {
         await Self.settle(screen)
         let resizesBefore = screen.ios.map { $0.resizes.count }
 
+        // Every commit for 1.5 s of wall-clock time (a run-loop turn is not a refresh: idle turns commit nothing new). A
+        // committed state is kept when it differs from the last one kept: each kept state is one frame the spring showed.
+        let before = screen.sessions.map(Sample.init)
         _ = PaneResize.press("p2", .right, model: screen.model, view: screen.root)
-        var frames: [[Sample]] = []
+        var frames: [[Sample]] = [before]
         var intervals: [Double] = []
-        var last = ContinuousClock.now
-        var still = 0
-        while frames.count < 240, still < 12 {
+        var lastChange = ContinuousClock.now
+        let until = ContinuousClock.now.advanced(by: .milliseconds(1500))
+        while ContinuousClock.now < until {
             await Self.commit()
-            let now = ContinuousClock.now
-            intervals.append(Self.ms(last.duration(to: now)))
-            last = now
             let sample = screen.sessions.map(Sample.init)
-            if let previous = frames.last, previous.map(\.area) == sample.map(\.area), previous.map(\.layer) == sample.map(\.layer) {
-                still += 1
-            } else {
-                still = 0
-            }
+            guard let previous = frames.last, previous.map(\.area) != sample.map(\.area) || previous.map(\.layer) != sample.map(\.layer)
+            else { continue }
+            let now = ContinuousClock.now
+            intervals.append(Self.ms(lastChange.duration(to: now)))
+            lastChange = now
             frames.append(sample)
         }
-        let moving = frames.count - still
+        let moving = frames.count - 1
         try #require(moving >= 4, "the press moved its panes in \(moving) frames: no spring ran")
         var wrong: [String] = []
         for index in 1..<frames.count {
@@ -109,16 +109,15 @@ struct TerminalKeyResizeFrameTests {
         return (ms * 100).rounded() / 100
     }
 
-    /// Commits until no terminal waits for its frame and the panes rest (at most 3 s).
+    /// Commits until the panes and their terminals have not changed for 300 ms of wall-clock time (at most 3 s).
     static func settle(_ screen: KeyScreen) async {
         let deadline = ContinuousClock.now.advanced(by: .seconds(3))
-        var still = 0
         var last: [CGSize] = []
-        while ContinuousClock.now < deadline, still < 12 {
+        var changed = ContinuousClock.now
+        while ContinuousClock.now < deadline, changed.duration(to: .now) < .milliseconds(300) {
             await commit()
-            let now = screen.sessions.map { $0.view.bounds.size }
-            still = now == last ? still + 1 : 0
-            last = now
+            let now = screen.sessions.flatMap { [$0.view.bounds.size, $0.surfaceView.layer?.bounds.size ?? .zero] }
+            if now != last { (last, changed) = (now, .now) }
         }
     }
 
