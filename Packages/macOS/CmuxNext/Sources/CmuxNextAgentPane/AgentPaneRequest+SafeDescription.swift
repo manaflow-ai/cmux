@@ -104,6 +104,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .clientReady(let ready): ready ? "clientReady" : "clientNotReady"
         case .painted(let fromKeptTail): fromKeptTail ? "painted(keptTail)" : "painted"
         case .dictation: "dictation"
+        case .externalAccessOpenSettings: "externalAccessOpenSettings"
         case .openFile: "openFile"
         case .openPreview: "openPreview"
         case .quickDismiss: "quickDismiss"

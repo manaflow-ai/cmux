@@ -782,7 +782,16 @@ export type AcpmuxOfferResult = { offerId: string; childSessionId: string; title
 /** The concrete app, resource, or working directory an approval covers. */
 export type AcpmuxPermissionScope = { kind: "app" | "resource" | "directory"; value: string };
 
+/** A daemon-owned OS access block. Approving retries one retained operation, never grants OS rights. */
+export type ExternalAccess = {
+  kind: "files_and_folders" | "full_disk_access";
+  target: string;
+  operation: "read_text_file";
+  platform: "macos";
+};
+
 export type AcpmuxPermission = {
+  externalAccess?: ExternalAccess;
   permissionId: string;
   groupId?: string;
   turnId?: string;

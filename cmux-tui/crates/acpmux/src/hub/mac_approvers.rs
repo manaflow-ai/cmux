@@ -328,7 +328,10 @@ pub fn may_allow(request: &Value, option: &str, answers: Option<&Value>) -> bool
     let answers = answers.filter(|a| !a.is_null());
     !widens
         && match answers {
-            None => super::permission_groups::plain_tool_ask(request),
+            None => {
+                super::permission_groups::plain_tool_ask(request)
+                    || super::permissions::external::is_external(request)
+            }
             Some(_) => super::questions::needs_person(request),
         }
 }

@@ -1,3 +1,4 @@
+import { externalAccessFromRequest } from "./permissions/externalAccess";
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
 import { sameJson } from "./sameJson";
@@ -644,6 +645,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
     kind: toolCall?.kind ?? (subjectCommand ? "execute" : undefined),
     ...(typeof toolCall?.toolCallId === "string" ? { toolCallId: toolCall.toolCallId } : {}),
     scope: permissionScopeFromMessage(raw, toolCall),
+    externalAccess: externalAccessFromRequest(raw),
     diffs: permissionDiffs(toolCall),
     pending: true,
     options: (raw.options ?? []).map((option: any) => ({

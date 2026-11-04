@@ -630,6 +630,8 @@ public final class AgentPaneModel {
             onAppAction(id)
             return AgentPaneReply.success()
         case .editShortcut(let kind): guard let onEditShortcut else { return Self.unsupported("shortcut.edit") }; onEditShortcut(kind); return AgentPaneReply.success()
+        case .externalAccessOpenSettings(let kind):
+            return AgentPaneExternalAccess().open(kind, remoteChat: remoteChat, gestures: transport.gestures)
         case .dictation(let command):
             guard let onDictation else { return AgentPaneReply.failure(code: "unsupported", message: "Dictation is unavailable") }
             onDictation(command)

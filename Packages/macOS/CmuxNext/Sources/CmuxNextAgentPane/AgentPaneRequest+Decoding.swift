@@ -590,6 +590,13 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "externalAccess.openSettings":
+            if let raw = params?["kind"] as? String, let kind = AgentPaneExternalAccessKind(rawValue: raw),
+               Set(params?.keys ?? []) == ["kind"] {
+                self = .externalAccessOpenSettings(kind)
+            } else {
+                self = .unsupported(method)
+            }
         case "dictation.toggle": self = .dictation(.toggle)
         case "dictation.start": self = .dictation(.start)
         case "dictation.stop": self = .dictation(.stop)

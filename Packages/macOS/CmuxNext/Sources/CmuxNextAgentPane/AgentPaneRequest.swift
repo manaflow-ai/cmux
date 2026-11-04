@@ -279,6 +279,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
     /// `dictation.openSettings` with `{permission}`, or `dictation.audio` with `{enabled}`.
     case dictation(AgentPaneDictationCommand)
+    /// `externalAccess.openSettings {kind}`: open the local Privacy & Security destination after a real click.
+    case externalAccessOpenSettings(AgentPaneExternalAccessKind)
     /// `dictation.recording.upload {path}`: send a long recording the host gave the page to the
     /// machine the chat runs on (``AgentPaneDictationUpload``).
     case dictationRecordingUpload(path: String)

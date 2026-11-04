@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "re
 import { toolIcon } from "./conversation/ToolRow";
 import { useT } from "./i18n";
 import type { AcpmuxPermission } from "./model";
+import { postNative } from "./native";
 import { ProposedEdits } from "./permissions/ProposedEdits";
 import {
   alwaysAllowScope,
@@ -128,8 +129,10 @@ export function PermissionCard({
   const t = useT();
   const command = permissionCommand(permission);
   const preview = useMemo(() => commandPreview(command), [command]);
-  const title = permissionTitle(permission, t);
-  const detail = permissionDetail(permission);
+  const external = permission.externalAccess;
+  const [settingsError, setSettingsError] = useState<{ id: string; message: string }>();
+  const title = external ? t("permission.external.title", { target: external.target }) : permissionTitle(permission, t);
+  const detail = external ? t("permission.external.detail") : permissionDetail(permission);
   const {
     allowOnce,
     allowAlways,
@@ -137,7 +140,7 @@ export function PermissionCard({
     others,
   } = useMemo(() => permissionAnswers(permission.options), [permission.options]);
   const alwaysScope = allowAlways && alwaysAllowScope(permission, allowAlways);
-  const scopeText = permissionScopeText(permission, t);
+  const scopeText = external ? undefined : permissionScopeText(permission, t);
   /// The one scope line: the target the ask covers, then the Always allow rule.
   const scopeLine = [scopeText, alwaysScope].filter(Boolean).join(" · ") || undefined;
   const targetId = React.useId();
@@ -155,7 +158,7 @@ export function PermissionCard({
       return label;
     });
   }, [others, t, allowAlwaysLabel]);
-  const feedback = Boolean(onDenyWithFeedback && permission.pending && denyOption);
+  const feedback = Boolean(!external && onDenyWithFeedback && permission.pending && denyOption);
   const claude = harness === "claude" || harness?.startsWith("claude-");
   /// The ask whose full command is open: a new ask opens collapsed.
   const [expanded, setExpanded] = useState<string>();
@@ -407,6 +410,22 @@ export function PermissionCard({
               onClick={() => answer(allowOnce)}
             />
           )}
+          {external && (
+            <PermissionActionButton
+              label={t("permission.external.openSettings")}
+              onClick={() => {
+                const id = permission.permissionId;
+                setSettingsError(undefined);
+                void postNative("externalAccess.openSettings", { kind: external.kind }).catch((error: unknown) => {
+                  if (shown.current === id)
+                    setSettingsError({
+                      id,
+                      message: error instanceof Error ? error.message : t("error.nativeUnavailable"),
+                    });
+                });
+              }}
+            />
+          )}
           {allowAlways && allowAlwaysLabel && (
             <PermissionActionButton
               label={allowAlwaysLabel}
@@ -418,7 +437,7 @@ export function PermissionCard({
           )}
           {denyOption && (
             <PermissionActionButton
-              label={t("permission.deny")}
+              label={t(external ? "permission.external.skip" : "permission.deny")}
               shortcut={shortcuts ? denyShortcut : undefined}
               aria-describedby={scopeText ? targetId : undefined}
               className="acpmux-permission-deny"
@@ -449,6 +468,11 @@ export function PermissionCard({
             );
           })}
         </div>
+      )}
+      {settingsError?.id === permission.permissionId && (
+        <p className="acpmux-permission-refused" role="alert">
+          {settingsError.message}
+        </p>
       )}
       {!writing && refused === permission.permissionId && (
         <p className="acpmux-permission-refused" role="alert">
