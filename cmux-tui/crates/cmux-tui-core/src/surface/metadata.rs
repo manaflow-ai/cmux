@@ -70,10 +70,14 @@ impl Surface {
         })
     }
 
-    /// Sets the title the terminal shows, as its reader does when the program sets one.
+    /// Sets the title the terminal shows, as its reader does when the program sets one. A surface with no terminal
+    /// has no title to set; the caller checks the title it reads back.
     #[cfg(test)]
     pub(crate) fn set_test_title(&self, title: &str) {
-        *self.as_pty().expect("test PTY surface").title.lock().unwrap() = title.to_string();
+        if let Some(pty) = self.as_pty() {
+            *pty.title.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                title.to_string();
+        }
     }
 
     #[cfg(test)]
