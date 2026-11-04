@@ -189,6 +189,9 @@ extension ConversationViewController {
         enterReplyMode(for: message)
         if let prefix, !prefix.isEmpty {
             let field = composer.textView
+            // The quote is plain text, whatever style the caret was in.
+            field.selectedRange = NSRange(location: 0, length: 0)
+            field.typingAttributes = field.baseTypingAttributes
             if let start = field.textRange(from: field.beginningOfDocument, to: field.beginningOfDocument) {
                 field.replace(start, withText: prefix)
             }
