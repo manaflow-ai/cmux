@@ -8282,13 +8282,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             return Promise.reject(new Error(translate("error.notOpen")));
           // A steer only into a running turn (subagentRelaySteers), else a prompt of its own. A refusal
           // the chat keeps as a row of its own (Retry, Edit) stays there, never also back in this composer.
-          return callNative("chat.send", {
-            text: subagentRelayPrompt(target, message, translate),
-            expectedSessionId: owner,
-            steer: relaySteers,
-          }).catch((error: unknown) => {
-            if (keptInChat(error)) return;
-            throw error;
+          // It settles once the chat took the message (`accepted`), not when the turn ends: from then the
+          // chat holds it, and the composer no longer keeps it as in flight (subagentDrafts.ts).
+          return new Promise<void>((resolve, reject) => {
+            callNative("chat.send", {
+              text: subagentRelayPrompt(target, message, translate),
+              expectedSessionId: owner,
+              steer: relaySteers,
+              accepted: () => resolve(),
+            }).then(
+              () => resolve(),
+              (error: unknown) => (keptInChat(error) ? resolve() : reject(error)),
+            );
           });
         })(subagentRelayChat, shownSubagentTarget)
       : undefined;
