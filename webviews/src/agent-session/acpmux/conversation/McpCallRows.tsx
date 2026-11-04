@@ -245,10 +245,12 @@ export const McpCallRow = memo(function McpCallRow({
         )}
       </Row>
       <ToolFailureCause failure={failure} />
+      {/* Captures and screenshots are part of the closed call's result, so keep the strip visible
+          without requiring a disclosure click. */}
+      {images.length > 0 && <ToolImages sources={images} />}
       {video && <VideoFramesCard video={video} />}
       {hasDetails && fold.present && (
         <div {...fold.bodyProps}>
-          {images.length > 0 && <ToolImages sources={images} />}
           {exec && failure?.kind !== "hook" ? (
             <CmuxExecDetails id={detailsId} tool={tool} call={call} raw={raw} reveal={reveal} />
           ) : (

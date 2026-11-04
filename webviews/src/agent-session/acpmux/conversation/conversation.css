@@ -3124,11 +3124,11 @@ button.cv-video-frames__frame:focus-visible {
   /* Where a step's under-line (a thought's text, a cause) starts. */
   --cv-step-text: var(--cv-tool-text-inset);
 }
-/* An opened run's steps use the compact iOS-style sheet Leo requested on 2026-11-04: each step
-   keeps its kind glyph, a readable title and a disclosure chevron. The detail stays one click
-   away, while ShellBlock, EditDiff and ToolImages keep the useful command, output tail, diff or
-   capture they already know how to present. The icons are visible in the shipped/default arm;
-   the older icon-free desktop comparison remains available as a gallery arm. */
+/* An opened run's steps use the compact iOS-style sheet Leo requested on 2026-11-04. Each step
+   keeps its readable title and one-click detail; ShellBlock, EditDiff and ToolImages keep the
+   useful command, output tail, diff or capture they already know how to present. Inner rows retain
+   the transcript's quiet icon and chevron treatment, while the gallery arms can compare other
+   step looks. */
 .cv-steps {
   margin: 0;
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-card-ring);
