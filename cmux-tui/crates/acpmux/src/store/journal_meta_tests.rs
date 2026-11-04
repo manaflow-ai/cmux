@@ -570,3 +570,101 @@ fn session_path_never_waits_for_the_journal() {
     );
     journal.set_sync_delay(Duration::ZERO);
 }
+
+// ---------------------------------------------------------------- review of #35483 at 8301994b135 (N1)
+
+/// N1 (the reviewer's test): a chat folder moved in from another acpmux home
+/// (`build_adopt::acpmux::merge_sessions` moves a post-update home's chat folders into the
+/// adopted home) keeps the other journal's `journalLsn`, which can be above every LSN this home's
+/// journal has given. A change saved here must still reach `session.json`: the checkpoint must not
+/// take that number for "this image or a newer one is on disk" and drop the change.
+#[test]
+fn a_change_to_a_chat_moved_in_from_another_home_reaches_session_json() {
+    let source = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let source_journal = SimStorage::new(70);
+    let store = open(source.path(), &source_journal);
+    for n in 1..=10 {
+        store.save(&meta(CHAT, &format!("a{n}"), 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    drop(store);
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(71);
+    let store = open(home.path(), &journal);
+    store.save(&meta("chat-here", "here", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    // The move, as `merge_sessions` makes it: one rename into this home's sessions folder.
+    std::fs::rename(
+        source.path().join("sessions").join(CHAT),
+        home.path().join("sessions").join(CHAT),
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    let moved = store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).map(|meta| meta.name);
+    assert_eq!(moved.as_deref(), Some("a10"));
+    store.save(&meta(CHAT, "b1", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let name = store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).map(|meta| meta.name);
+    assert_eq!(name.as_deref(), Some("b1"), "the checkpoint dropped a change it never wrote");
+    let on_disk = session_json(home.path(), CHAT).map(|value| value["name"].clone());
+    assert_eq!(on_disk, Some(json!("b1")), "session.json kept the moved-in image");
+}
+
+/// N1, the replay: the same moved-in chat, a change saved here, a kill before any checkpoint. The
+/// replay must write the change over the other journal's image.
+#[test]
+fn a_replayed_change_to_a_chat_moved_in_from_another_home_reaches_session_json() {
+    let source = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let source_journal = SimStorage::new(72);
+    let store = open(source.path(), &source_journal);
+    for n in 1..=10 {
+        store.save(&meta(CHAT, &format!("a{n}"), 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    drop(store);
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(73);
+    let store = open(home.path(), &journal);
+    store.save(&meta("chat-here", "here", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    std::fs::rename(
+        source.path().join("sessions").join(CHAT),
+        home.path().join("sessions").join(CHAT),
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    store.save(&meta(CHAT, "b1", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    let store = open(home.path(), &killed);
+    let name = store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).map(|meta| meta.name);
+    assert_eq!(name.as_deref(), Some("b1"), "the replay dropped a change to a moved-in chat");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let on_disk = session_json(home.path(), CHAT).map(|value| value["name"].clone());
+    assert_eq!(on_disk, Some(json!("b1")), "session.json kept the moved-in image");
+}
+
+/// N1, a journal made again: the journal folder and its checkpoint removed (a reset), so the new
+/// journal gives out LSNs the old one gave. A change saved after the reset must reach
+/// `session.json`, whose `journalLsn` is the old journal's.
+#[test]
+fn a_change_after_the_journal_is_made_again_reaches_session_json() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(74);
+    let store = open(home.path(), &journal);
+    for n in 1..=10 {
+        store.save(&meta(CHAT, &format!("a{n}"), 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    drop(store);
+    // The reset: a new journal (another simulated disk) and no checkpoint file.
+    std::fs::remove_file(home.path().join("journal-projected.json"))
+        .unwrap_or_else(|e| panic!("{e}"));
+    let fresh = SimStorage::new(75);
+    let store = open(home.path(), &fresh);
+    store.save(&meta(CHAT, "b1", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let name = store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).map(|meta| meta.name);
+    assert_eq!(name.as_deref(), Some("b1"), "a change after a journal reset was dropped");
+    let on_disk = session_json(home.path(), CHAT).map(|value| value["name"].clone());
+    assert_eq!(on_disk, Some(json!("b1")), "session.json kept the old journal's image");
+}
