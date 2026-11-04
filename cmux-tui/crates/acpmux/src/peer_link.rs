@@ -419,13 +419,13 @@ pub fn describe(name: &str, link: &Link, error: Option<&str>, now: u64) -> Strin
 /// request was not sent, so retrying it never runs it twice.
 pub fn unreachable_error(name: &str, link: &Link, error: Option<&str>, now: u64) -> RpcError {
     RpcError::internal(format!(
-        "peer_unreachable: {}; the request was not sent; run `acpmux host ls` and retry after the peer reconnects",
+        "peer_unreachable: {}; the request was not sent; run `acpmux machine ls` and retry after the peer reconnects",
         describe(name, link, error, now)
     )).with_data(
         json!({
             "reason": "peer_unreachable",
             "retryable": true,
-            "try": "acpmux host ls",
+            "try": "acpmux machine ls",
             "detail": "the request was not sent",
             "peer": name,
             "peerState": link.state().as_str(),
@@ -639,11 +639,11 @@ mod tests {
         assert!(
             e.message.contains("huge-blue (reconnecting, last seen 40s ago: connect timed out)")
         );
-        assert!(e.message.contains("acpmux host ls"));
+        assert!(e.message.contains("acpmux machine ls"));
         let data = e.data.unwrap();
         assert_eq!(data["reason"], "peer_unreachable");
         assert_eq!(data["retryable"], true);
-        assert_eq!(data["try"], "acpmux host ls");
+        assert_eq!(data["try"], "acpmux machine ls");
         assert_eq!(data["peerState"], "reconnecting");
         assert_eq!(data["lastSeen"], 0);
         let never = describe("gone", &Link::default(), None, 5);

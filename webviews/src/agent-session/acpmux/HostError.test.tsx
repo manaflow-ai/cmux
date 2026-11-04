@@ -154,7 +154,7 @@ test("a folder harness keeps its card with its own hint and action", async () =>
 // Rendered as App.tsx renders the host line: its Notice shows only when hostErrorShows says so,
 // worded by hostLineText.
 const LEOS =
-  "peer_unreachable: <host> (reconnecting, last seen 10s ago: WebSocket protocol error: Handshake not finished); the request was not sent; run `acpmux host ls` and retry after the peer reconnects";
+  "peer_unreachable: <host> (reconnecting, last seen 10s ago: WebSocket protocol error: Handshake not finished); the request was not sent; run `acpmux machine ls` and retry after the peer reconnects";
 
 function PaneHostLine({ error, failingForMs }: { error: unknown; failingForMs: number }) {
   const message = error instanceof Error ? error.message : String(error);
@@ -191,7 +191,7 @@ test("a machine gone for minutes is one plain line with Retry, and acpmux's word
   expect(line.textContent).toBe("Can't reach <host>.");
   expect(buttons(container)).toEqual(["Retry", "Details"]);
   expect(container.textContent).not.toContain("peer_unreachable");
-  expect(container.textContent).not.toContain("acpmux host ls");
+  expect(container.textContent).not.toContain("acpmux machine ls");
   expect(container.querySelector(".acpmux-host-line-detail")).toBeNull();
   const details = [...container.querySelectorAll("button")].find((b) => b.textContent === "Details")!;
   expect(details.getAttribute("aria-expanded")).toBe("false");

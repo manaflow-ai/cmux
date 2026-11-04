@@ -19,7 +19,9 @@ the same answer. Past the last step the last step repeats. A step is one of:
                                      for "input").
 Text and commands are templates: {{nonce}} is --nonce, {{result.N}} is the text of the conversation's Nth tool
 result (from 0, trimmed), and {{result.N~REGEX}} is the first group of REGEX (case-insensitive, dot matches
-newline) in that text, or "" when it does not match (a REGEX cannot end in "}"). In a tool step's input every
+newline) in that text, or "" when it does not match (a REGEX cannot end in "}"). {{prompt}} and {{prompt~REGEX}}
+are the same for the text of the conversation's last user message (not its tool results), so a test can ask for an
+exact reply ("Reply with exactly PONG-7") and get it back: {{prompt~exactly (PONG-\\S+)}}. In a tool step's input every
 string is filled in on its own. Without --script the stub replies "Stub reply {{nonce}}.". A request that offers no
 tools (Claude Code's title and topic side requests) always gets a short text reply and is logged with "side": true,
 so it never takes a script step.
@@ -49,13 +51,21 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 # Bump on any change a script or a test could notice (wire shapes, template grammar, log fields).
-STUB_VERSION = 1
+STUB_VERSION = 2  # 2: {{prompt}} templates
 
 DEFAULT_SCRIPT: dict[str, Any] = {"version": 1, "steps": [{"text": "Stub reply {{nonce}}."}]}
 # Codex's exec_command result starts with a header (Chunk ID, Wall time, exit code, token count) before "Output:";
 # {{result.N}} is the command's own output, as it is for Claude Code's Bash.
 _CODEX_EXEC_HEADER = re.compile(r"\A(?:(?:Chunk ID|Wall time|Process exited|Process running|Original token count)[^\n]*\n)+Output:\n")
-_TEMPLATE = re.compile(r"\{\{\s*(nonce|result\.(\d+)(?:~(.*?))?)\s*\}\}", re.S)
+_TEMPLATE = re.compile(r"\{\{\s*(nonce|(?:prompt|result\.(\d+))(?:~(.*?))?)\s*\}\}", re.S)
+
+
+class Results(list):
+    """A conversation's tool result texts, in order, with the text of its last user message as .prompt."""
+
+    def __init__(self, items: list[str] = (), prompt: str = "") -> None:
+        super().__init__(items)
+        self.prompt = prompt
 
 
 def load_script(path: str | None) -> dict[str, Any]:
@@ -85,8 +95,11 @@ def render(template: str, nonce: str, results: list[str]) -> str:
     def sub(m: re.Match[str]) -> str:
         if m.group(1) == "nonce":
             return nonce
-        n = int(m.group(2))
-        text = results[n].strip() if n < len(results) else ""
+        if m.group(2) is None:
+            text = getattr(results, "prompt", "").strip()
+        else:
+            n = int(m.group(2))
+            text = results[n].strip() if n < len(results) else ""
         if m.group(3) is None:
             return text
         found = re.search(m.group(3), text, re.I | re.S)
@@ -117,20 +130,36 @@ def _text_of(content: Any) -> str:
     return "" if content is None else str(content)
 
 
-def anthropic_results(body: dict[str, Any]) -> list[str]:
-    out = []
+def anthropic_results(body: dict[str, Any]) -> Results:
+    out, prompt = [], ""
     for m in body.get("messages") or []:
-        if isinstance(m, dict) and isinstance(m.get("content"), list):
-            out += [_text_of(c.get("content")) for c in m["content"] if isinstance(c, dict) and c.get("type") == "tool_result"]
-    return out
+        if not isinstance(m, dict):
+            continue
+        content = m.get("content")
+        if isinstance(content, list):
+            out += [_text_of(c.get("content")) for c in content if isinstance(c, dict) and c.get("type") == "tool_result"]
+        if m.get("role") == "user":
+            text = content if isinstance(content, str) else "\n".join(
+                c.get("text", "") for c in content or [] if isinstance(c, dict) and c.get("type") == "text")
+            if text.strip():
+                prompt = text
+    return Results(out, prompt)
 
 
-def openai_results(body: dict[str, Any]) -> list[str]:
+def openai_results(body: dict[str, Any]) -> Results:
     items = body.get("input")
+    if isinstance(items, str):
+        return Results([], items)
     if not isinstance(items, list):
-        return []
-    out = []
+        return Results()
+    out, prompt = [], ""
     for it in items:
+        if isinstance(it, dict) and it.get("role") == "user":
+            content = it.get("content")
+            text = content if isinstance(content, str) else "\n".join(
+                c.get("text", "") for c in content or [] if isinstance(c, dict) and c.get("type") in ("input_text", "text"))
+            if text.strip():
+                prompt = text
         if isinstance(it, dict) and it.get("type") in ("function_call_output", "local_shell_call_output", "custom_tool_call_output"):
             raw = it.get("output")
             # Codex sends some outputs as a JSON string {"output": "...", "metadata": {...}}.
@@ -143,7 +172,7 @@ def openai_results(body: dict[str, Any]) -> list[str]:
                 if isinstance(parsed, dict) and isinstance(parsed.get("output"), str):
                     raw = parsed["output"]
             out.append(_CODEX_EXEC_HEADER.sub("", _text_of(raw), count=1))
-    return out
+    return Results(out, prompt)
 
 
 def tool_names(body: dict[str, Any]) -> list[str]:
