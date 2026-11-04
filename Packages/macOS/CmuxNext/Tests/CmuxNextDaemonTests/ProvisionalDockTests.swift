@@ -136,6 +136,41 @@ struct ProvisionalDockTests {
         #expect(store.mirrorViolations.isEmpty, "\(store.mirrorViolations)")
     }
 
+    /// Review of #34367 (P1): the daemon's dock pane and the layout that places it can come, and the move settle, before
+    /// its fresh tab. The closed stand-in's intent waits for that tab, so a fresh tab that lands later is still hidden
+    /// and closed, never shown.
+    @Test func aFreshTabThatLandsAfterTheDockSettledStaysClosed() throws {
+        let store = Self.store()
+        var closed: [SurfaceID] = []
+        store.creations.onClose { _, surface in closed.append(surface) }
+        let provisional = ProvisionalPane(columnWidth: 0.5, left: true)
+        let terminal = TerminalID.generate()
+        let standIn = ProvisionalTab().terminal(terminal, cwd: nil)
+        let transaction = ClientTransactionID.generate()
+        store.intend(.dockTab(surface: Self.chat, pane: Self.pane, provisional: provisional, dock: Self.dock, standIn: standIn),
+                     transaction: transaction)
+        #expect(store.creations.cancel(tab: try #require(standIn.tabResourceID?.rawValue)))
+        let docked = PaneID(rawValue: 9), fresh = SurfaceID(rawValue: 8)
+        let column = ColumnSnapshot(id: ColumnID(rawValue: 10), width: 0.5, layout: .leaf(docked), dock: Self.dock)
+        let rest = ColumnSnapshot(id: ColumnID(rawValue: 11), width: 1, layout: .leaf(Self.pane))
+        _ = store.apply(batch: [
+            DaemonEventEnvelope(sequence: 1, event: .paneAdded(PaneDelta(
+                workspace: WorkspaceHandle(rawValue: 1), screen: ScreenID(rawValue: 2), pane: docked, index: 0,
+                entity: PaneSnapshot(id: docked, resourceID: ResourceID(rawValue: provisional.paneID), tabs: []),
+                clientTransactionID: nil))),
+            DaemonEventEnvelope(sequence: 2, event: .layoutChanged(screen: ScreenID(rawValue: 2), layout: ScreenLayoutDelta(
+                activePane: Self.pane, layout: .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(docked), b: .leaf(Self.pane)),
+                columns: [column, rest]), transaction: nil)),
+        ])
+        store.noteSettled(transaction, at: 2)
+        #expect(store.pendingIntents.count == 1, "the closed stand-in's dock left before its fresh tab came")
+        _ = store.apply(batch: [DaemonEventEnvelope(sequence: 3, event: .tabAdded(TabDelta(
+            workspace: WorkspaceHandle(rawValue: 1), screen: ScreenID(rawValue: 2), pane: Self.pane, surface: fresh, index: nil,
+            entity: TabSnapshot(surface: fresh, terminalID: terminal, kind: .pty))))])
+        #expect(store.tabsBySurface[fresh] == nil, "the fresh tab that landed after the dock settled showed")
+        #expect(closed == [fresh], "the late fresh tab was not closed: \(closed)")
+    }
+
     /// The same close when the daemon refuses the move: the dock goes, the chat is back in its pane, and no stand-in
     /// or fresh tab shows.
     @Test func aRefusedDockAfterItsStandInClosedShowsTheChatOnly() throws {
