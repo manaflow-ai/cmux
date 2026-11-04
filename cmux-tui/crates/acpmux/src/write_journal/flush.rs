@@ -13,6 +13,11 @@
 //! [`MachineFs::remove`] take the expected version), so a process that resumes and saves the
 //! file between the flush's read and its write is a conflict, not an overwrite.
 //!
+//! The flush is not a lock on the machine's files. The swap that applies an entry is the
+//! moment the agent's write happens: a save the machine makes before it is a conflict, and a
+//! save made after it is a later write that replaces the agent's, as it would if the agent
+//! had written the file directly on a running machine. Only an earlier save is protected.
+//!
 //! An I/O error stops the flush at that entry; it and everything after it stay in the journal
 //! for the next try. Everything before it is cleared.
 

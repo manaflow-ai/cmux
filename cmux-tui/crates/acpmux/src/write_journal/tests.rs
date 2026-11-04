@@ -590,6 +590,26 @@ fn a_second_save_during_the_swap_back_is_kept_not_deleted() {
 
 #[cfg(unix)]
 #[test]
+fn a_save_after_the_swap_is_a_later_write_that_wins() {
+    // The contract: the swap is when the agent's write happens. A machine save after it
+    // replaces the agent's bytes, exactly as a later write would on a running machine.
+    let f = fixture(&[("a.txt", "one")]);
+    let mut j = open(&f);
+    journaled(write_text(&mut j, &f.replica, "a.txt", Some("agent"), 1).unwrap());
+    let root = f.machine_root.clone();
+    let fs = DirMachineFs::new(&f.machine_root).with_hook(move |stage| {
+        if stage == "swapped" {
+            std::fs::write(root.join("a.txt"), "later").unwrap();
+        }
+    });
+    let report = flush(&mut j, &fs).unwrap();
+    assert_eq!(report.applied, vec![1], "{report:?}");
+    assert_eq!(machine_text(&f, "a.txt").as_deref(), Some("later"));
+    assert_eq!(names(&f.machine_root), vec!["a.txt".to_owned()]);
+}
+
+#[cfg(unix)]
+#[test]
 fn a_flush_that_died_after_its_swap_puts_the_machine_copy_back_and_reports_it() {
     let f = fixture(&[("a.txt", "one")]);
     let mut j = open(&f);
