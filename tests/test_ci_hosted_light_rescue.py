@@ -51,9 +51,11 @@ class Fake:
         self.fresh: dict[int, dict] = {}
         self.pull_error: Exception | None = None
 
-    def runs(self, workflow, status, start, end):
-        self.calls.append(("runs", workflow, status))
-        return [r for r in self.runs_by_workflow.get(workflow, []) if r["status"] == status]
+    def runs(self, workflow, status, start, end, *, page=1):
+        self.calls.append(("runs", workflow, status, page))
+        rows = [r for r in self.runs_by_workflow.get(workflow, []) if r["status"] == status]
+        rows.sort(key=lambda item: (item["created_at"], item["id"]), reverse=True)
+        return rows[(page - 1) * 100:page * 100]
 
     def jobs(self, run_id):
         self.job_reads[run_id] = self.job_reads.get(run_id, 0) + 1
@@ -229,9 +231,31 @@ class WorkflowToken(unittest.TestCase):
 
 
 class Sweep(unittest.TestCase):
+    def test_an_overflow_listing_page_finds_a_candidate_past_the_first_100_runs(self):
+        gated = [run(100 + index) for index in range(101)]
+        overflow = run(999)
+        overflow["created_at"] = ago(800)
+        fixture_runs = {"pr-checks.yml": gated + [overflow]}
+        fixture_jobs = {
+            item["id"]: [
+                job("PR size"),
+                job("build", status="in_progress", labels=("blacksmith-4vcpu-ubuntu-2404",), runner_id=7),
+            ]
+            for item in gated
+        }
+        fixture_jobs[overflow["id"]] = [job("PR size")]
+        fake = Fake(fixture_runs, fixture_jobs)
+
+        cursor = [None]
+        sweep(fake, cursor=cursor)
+
+        self.assertIn(("runs", "pr-checks.yml", "in_progress", 2), fake.calls)
+        self.assertEqual(mutations(fake), [("cancel", overflow["id"]), ("rerun", overflow["id"])])
+        self.assertIsNotNone(cursor[0])
+
     def test_a_fair_cursor_reaches_a_newer_eligible_run_behind_40_gated_runs(self):
         """Persistent gated runs must not consume every bounded minute-pass forever."""
-        gated = [run(100 + index) for index in range(rescue.MAX_RUNS)]
+        gated = [run(100 + index) for index in range(101)]
         eligible = run(999)
         fixture_runs = {"pr-checks.yml": gated + [eligible]}
         fixture_jobs = {
@@ -254,7 +278,7 @@ class Sweep(unittest.TestCase):
         cursor = [None]
         after = passes_until_rescue(Fake(fixture_runs, fixture_jobs), cursor=cursor, limit=3)
         self.assertIsNone(before)
-        self.assertEqual(after, 2)
+        self.assertEqual(after, 3)
 
     def test_a_stalled_report_job_is_cancelled_and_its_failed_jobs_re_run(self):
         jobs = [job("Changes", status="completed", runner_id=1, waited=900), job("PR size"), job("UI review advisory")]
