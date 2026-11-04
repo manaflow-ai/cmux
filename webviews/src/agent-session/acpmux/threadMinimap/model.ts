@@ -320,7 +320,9 @@ export function railHeight(
   const room = railRoom(viewportHeight, foot);
   // A fixed rail does not grow for the band: its list scrolls to keep the band in view (railScrollTop).
   if (config.fixed)
-    return viewportHeight > 0 ? Math.max(0, Math.min(config.initial, Math.floor(room.bottom - room.top))) : config.initial;
+    return viewportHeight > 0
+      ? Math.max(0, Math.min(config.initial, Math.floor(room.bottom - room.top)))
+      : config.initial;
   const height = Math.min(
     Math.max(count * ROW_PITCH, config.initial),
     config.maxRows * ROW_PITCH,
