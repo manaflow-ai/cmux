@@ -81,6 +81,13 @@ final class MessageCell: UICollectionViewCell {
     var replyDrag: CGFloat = 0 { didSet { applyShifts() } }
     /// Select mode leading shift for incoming rows.
     var selectionShift: CGFloat = 0 { didSet { applyShifts() } }
+    /// Where the reply line starts above the row (negative: in the gap over
+    /// it), for a reply that joins the thread block above; the transcript
+    /// sets it from the row spacing before `configure`.
+    var threadLeadIn: CGFloat = 0
+    /// Clips the line at a row edge it runs on across, so it does not
+    /// overlap the neighbor's (the color is translucent).
+    private let threadClip = CALayer()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -210,8 +217,7 @@ final class MessageCell: UICollectionViewCell {
             quoteRepliesLabel.frame = frame
             quoteRepliesLabel.textAlignment = model.replyQuote?.isOutgoing == true ? .right : .left
         }
-        threadLine.path = layout.threadPath
-        threadLine.isHidden = layout.threadPath == nil
+        applyThreadLine(layout)
         threadLine.strokeColor = ConversationTheme.replyThread.resolvedColor(with: traitCollection).cgColor
 
         configureImages(model: model, layout: layout)
@@ -647,6 +653,36 @@ final class MessageCell: UICollectionViewCell {
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
         threadLine.strokeColor = ConversationTheme.replyThread.resolvedColor(with: traitCollection).cgColor
+    }
+
+    /// The reply line of one row of a thread block: a reply joining the
+    /// block above starts at `threadLeadIn`, one with the block running on
+    /// below ends at its bottom edge, and each such edge clips the round cap
+    /// so the rows' lines meet without overlapping.
+    private func applyThreadLine(_ layout: MessageCellLayout) {
+        guard var thread = layout.thread else {
+            threadLine.path = nil
+            threadLine.isHidden = true
+            threadLine.mask = nil
+            return
+        }
+        if layout.threadArrival != nil { thread.top = .cap(y: min(threadLeadIn, thread.bottom.y)) }
+        threadLine.path = thread.path
+        threadLine.isHidden = false
+        let clipsTop = layout.threadArrival == .line
+        guard clipsTop || layout.threadRunsBelow else {
+            threadLine.mask = nil
+            return
+        }
+        // Generous sideways: only the clipped edges matter.
+        let top = clipsTop ? thread.top.y : -10_000
+        let bottom = layout.threadRunsBelow ? layout.height : layout.height + 10_000
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        threadClip.backgroundColor = UIColor.black.cgColor
+        threadClip.frame = CGRect(x: -10_000, y: top, width: 20_000, height: bottom - top)
+        threadLine.mask = threadClip
+        CATransaction.commit()
     }
 }
 

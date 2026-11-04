@@ -40,7 +40,13 @@ struct MessageCellLayout {
     var quoteTextFrame: CGRect?
     /// "N Replies" under the quote (the quoted message's thread).
     var quoteRepliesFrame: CGRect? = nil
-    var threadPath: CGPath?
+    /// The reply line (`ConversationReplyThread`). On a reply that joins
+    /// the block above (`threadArrival`), the cell joins its top to that row.
+    var thread: ConversationReplyThread? = nil
+    var threadArrival: ConversationRunPlan.ReplyThread.Arrival? = nil
+    /// The line runs on to the row's bottom, toward the next reply of its block.
+    var threadRunsBelow = false
+    var threadPath: CGPath? { thread?.path }
     var imageFrames: [CGRect]
     /// Bubble outline including the tail area.
     var bubbleFrame: CGRect?
@@ -444,9 +450,10 @@ extension MessageCellLayout {
             quoteTextFrame = CGRect(x: bodyMinX + inset, y: y + (h - textHeight) / 2, width: bodyWidth - 2 * inset, height: textHeight)
             y += h
             // "N Replies" belongs to the quoted message: Messages shows it under
-            // the quote once that message has two or more replies.
+            // the quote once that message has a reply ("1 Reply"; ChatKit's
+            // reply count item, iOS 27.0 simulator; macOS Messages alike).
             let sameSide = quote.isOutgoing == model.isOutgoing
-            if quote.replyCount >= 2 {
+            if quote.replyCount >= 1 {
                 let h = t.footerHeight
                 quoteRepliesFrame = quote.isOutgoing
                     ? CGRect(x: frame.maxX - Self.quoteRepliesInset - maxBubbleWidth, y: y + Self.quoteRepliesGap, width: maxBubbleWidth, height: h)
@@ -649,27 +656,41 @@ extension MessageCellLayout {
             y += t.footerGap + footerHeight
         }
 
-        var threadPath: CGPath?
+        var thread: ConversationReplyThread?
+        let pieces = imageFrames + fileFrames + [bubbleFrame, emojiFrame, audioFrame, linkCardFrame].compactMap { $0 }
+        let replyTop = pieces.min { $0.minY < $1.minY } ?? primary
+        // The line runs in its own column at the transcript's leading
+        // edge (a group's avatar column), whichever side the bubbles are on.
+        let column = model.isGroup ? margin + t.avatarSize / 2 : margin + ConversationReplyThread.columnInset
+        let replyAvatarTop = !model.isOutgoing && model.reservesAvatarColumn ? (avatarFrame?.minY ?? primary.maxY) : nil
         if let quoteFrame, let quote = model.replyQuote {
-            let pieces = imageFrames + fileFrames + [bubbleFrame, emojiFrame, audioFrame, linkCardFrame].compactMap { $0 }
-            let replyTop = pieces.min { $0.minY < $1.minY } ?? primary
-            // The line runs in its own column at the transcript's leading
-            // edge (a group's avatar column), whichever side the bubbles are on.
-            let column = model.isGroup ? margin + t.avatarSize / 2 : margin + ConversationReplyThread.columnInset
             var quoteBody = quoteFrame
             quoteBody.size.width -= t.tailWidth
             if !quote.isOutgoing { quoteBody.origin.x += t.tailWidth }
             // Under a quote of theirs the line drops from the leading edge,
             // where "N Replies" sits: it starts under the label instead.
             if !quote.isOutgoing, let labels = quoteRepliesFrame { quoteBody.size.height = labels.maxY - quoteBody.minY }
-            threadPath = ConversationReplyThread.row(
+            thread = ConversationReplyThread.row(
                 quote: quoteBody,
                 quoteSide: quote.isOutgoing ? .trailing : .leading,
                 reply: replyTop,
                 replySide: model.isOutgoing ? .trailing : .leading,
                 columnX: column,
-                replyAvatarTop: !model.isOutgoing && model.reservesAvatarColumn ? (avatarFrame?.minY ?? primary.maxY) : nil
-            ).path
+                replyAvatarTop: replyAvatarTop
+            )
+        } else if model.replyThread?.arrival != nil {
+            // A reply joining the block above: no quote; the line comes from
+            // that row (the cell joins it) and ends at this reply as usual.
+            var joined = ConversationReplyThread.row(
+                quote: .zero,
+                quoteSide: .leading,
+                reply: replyTop,
+                replySide: model.isOutgoing ? .trailing : .leading,
+                columnX: column,
+                replyAvatarTop: replyAvatarTop
+            )
+            joined.top = .cap(y: 0)
+            thread = joined
         }
 
         var content = imageFrames.reduce(bubbleFrame ?? emojiFrame ?? .null) { $0.union($1) }
@@ -686,6 +707,13 @@ extension MessageCellLayout {
             y = max(y, tailBottom)
             content.size.height += t.tailDrop
         }
+        // A reply on the trailing side with more of its block below: the line
+        // passes beside it to the next reply instead of turning in (Messages).
+        var threadRunsBelow = false
+        if model.replyThread?.continuesBelow == true, model.isOutgoing, thread != nil {
+            thread?.bottom = .cap(y: y)
+            threadRunsBelow = true
+        }
 
         return MessageCellLayout(
             height: y,
@@ -693,7 +721,9 @@ extension MessageCellLayout {
             quoteFrame: quoteFrame,
             quoteTextFrame: quoteTextFrame,
             quoteRepliesFrame: quoteRepliesFrame,
-            threadPath: threadPath,
+            thread: thread,
+            threadArrival: thread == nil ? nil : model.replyThread?.arrival,
+            threadRunsBelow: threadRunsBelow,
             imageFrames: imageFrames,
             bubbleFrame: bubbleFrame,
             textFrame: textFrame,

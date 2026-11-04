@@ -18,6 +18,57 @@ public struct ConversationRunPlan: Sendable, Equatable {
         public var isFirstInRun: Bool
         public var isLastInRun: Bool
         public var status: Status
+        /// Where an inline reply sits in its thread's block; nil for a
+        /// message that is not drawn as a thread reply (not a reply, or a
+        /// reply right under the message it answers).
+        public var replyThread: ReplyThread? = nil
+    }
+
+    /// An inline reply's place in a thread block, as Messages lays it out
+    /// (iOS 27.0, ChatKit's `_shouldAppendReplyContextForItem:previousItem:`
+    /// on a simulator Messages with its thread links restored):
+    /// - a reply right under the message it answers gets no quote and no
+    ///   line (it reads as the next bubble);
+    /// - otherwise the first reply of a block draws the quote of the thread's
+    ///   root, and each reply of the same thread right under it joins that
+    ///   block: no quote of its own, the line running on from the quote down
+    ///   to the block's last reply.
+    public struct ReplyThread: Sendable, Hashable {
+        /// How the line reaches a reply that continues a block.
+        public enum Arrival: Sendable, Hashable {
+            /// It runs on from the row above (a reply on the trailing side,
+            /// which the line passes beside).
+            case line
+            /// It starts again under the row above: that reply is on the
+            /// leading side, where the line stops above it.
+            case belowLeading
+        }
+
+        /// The block's first reply: the quote of the thread's root above it.
+        public var showsQuote: Bool
+        /// Set when the reply continues a block (no quote of its own).
+        public var arrival: Arrival?
+        /// The next row continues this block, so the line runs on below.
+        public var continuesBelow: Bool
+
+        public init(showsQuote: Bool, arrival: Arrival?, continuesBelow: Bool) {
+            self.showsQuote = showsQuote
+            self.arrival = arrival
+            self.continuesBelow = continuesBelow
+        }
+    }
+
+    /// A message's link to the thread of the message above it.
+    enum ThreadLink: Equatable {
+        /// Not drawn as a thread reply.
+        case none
+        /// A reply right under the message it answers (or a reply joining
+        /// such a reply): drawn as a plain bubble.
+        case adjacent
+        /// The first reply of a block: it shows the quote.
+        case quoted
+        /// A reply that joins the block above it.
+        case continued
     }
 
     public var entries: [Entry]
@@ -33,22 +84,25 @@ public struct ConversationRunPlan: Sendable, Equatable {
     /// `limit` plans only the first `limit` messages (the entries the whole
     /// plan gives them): an older page needs entries for itself and the
     /// message under it, not for the whole transcript.
-    public init(messages: [ConversationMessage], meID: String?, typingParticipantIDs: [String] = [], limit: Int? = nil) {
+    ///
+    /// `threadBlocks` lays inline replies out in thread blocks (`ReplyThread`);
+    /// without it every reply is a run of its own and carries no block.
+    public init(messages: [ConversationMessage], meID: String?, typingParticipantIDs: [String] = [], limit: Int? = nil, threadBlocks: Bool = false) {
         let firstScheduled = messages.firstIndex(where: \.isScheduled) ?? messages.count
-        self.init(messages: messages, meID: meID, typingParticipantIDs: typingParticipantIDs, range: 0..<min(limit ?? messages.count, messages.count), firstScheduled: firstScheduled)
+        self.init(messages: messages, meID: meID, typingParticipantIDs: typingParticipantIDs, range: 0..<min(limit ?? messages.count, messages.count), firstScheduled: firstScheduled, threadBlocks: threadBlocks)
     }
 
     /// Plans only `range` (`entries[k]` is message `range.lowerBound + k`),
     /// reading the transcript from its end: a live change rebuilds the rows
     /// at the bottom of a long transcript without walking all of it. Send
     /// Later messages must trail the others, as the store keeps them.
-    public init(messages: [ConversationMessage], meID: String?, typingParticipantIDs: [String] = [], range: Range<Int>) {
+    public init(messages: [ConversationMessage], meID: String?, typingParticipantIDs: [String] = [], range: Range<Int>, threadBlocks: Bool = false) {
         var firstScheduled = messages.count
         while firstScheduled > 0, messages[firstScheduled - 1].isScheduled { firstScheduled -= 1 }
-        self.init(messages: messages, meID: meID, typingParticipantIDs: typingParticipantIDs, range: range.clamped(to: 0..<messages.count), firstScheduled: firstScheduled)
+        self.init(messages: messages, meID: meID, typingParticipantIDs: typingParticipantIDs, range: range.clamped(to: 0..<messages.count), firstScheduled: firstScheduled, threadBlocks: threadBlocks)
     }
 
-    private init(messages: [ConversationMessage], meID: String?, typingParticipantIDs: [String], range: Range<Int>, firstScheduled: Int) {
+    private init(messages: [ConversationMessage], meID: String?, typingParticipantIDs: [String], range: Range<Int>, firstScheduled: Int, threadBlocks: Bool) {
         // Status sits under the newest delivered/read message of mine; it moves
         // only once a newer one is delivered, never while that one is in flight.
         var lastAckedOutgoing = messages.lastIndex { message in
@@ -71,8 +125,12 @@ public struct ConversationRunPlan: Sendable, Equatable {
         // groups as if they were not there.
         // Neighbors are read in place: copying whole messages into optionals
         // dominated this pass, which runs over every loaded message per update.
+        var link = range.isEmpty || !threadBlocks ? ThreadLink.none : Self.threadLink(messages: messages, at: range.lowerBound, firstScheduled: firstScheduled)
         for index in range {
             let message = messages[index]
+            if threadBlocks, index > range.lowerBound {
+                link = index >= firstScheduled ? .none : Self.threadLink(of: message, previous: messages[index - 1], previousLink: link)
+            }
             if index >= firstScheduled {
                 let failed = message.delivery?.isFailed == true
                 entries.append(Entry(showsTimestamp: false, isFirstInRun: true, isLastInRun: true, status: failed ? .notDelivered : .none))
@@ -81,14 +139,14 @@ public struct ConversationRunPlan: Sendable, Equatable {
             let hasPrevious = index > 0
             let hasNext = index + 1 < firstScheduled
             let showsTimestamp = hasPrevious ? message.sentAt.timeIntervalSince(messages[index - 1].sentAt) >= Self.timestampGap : true
-            let firstInRun = showsTimestamp || !(hasPrevious && Self.sameRun(messages[index - 1], message))
+            let firstInRun = showsTimestamp || !(hasPrevious && Self.sameRun(messages[index - 1], message, threadBlocks: threadBlocks))
             let lastInRun: Bool
             if !hasNext {
                 lastInRun = !typingParticipantIDs.contains(message.senderID)
             } else if messages[index + 1].sentAt.timeIntervalSince(message.sentAt) >= Self.timestampGap {
                 lastInRun = true
             } else {
-                lastInRun = !Self.sameRun(message, messages[index + 1])
+                lastInRun = !Self.sameRun(message, messages[index + 1], threadBlocks: threadBlocks)
             }
             let status: Status
             if message.delivery?.isFailed == true {
@@ -102,14 +160,20 @@ public struct ConversationRunPlan: Sendable, Equatable {
             } else {
                 status = .none
             }
+            var replyThread: ReplyThread?
+            if link == .quoted || link == .continued {
+                let nextLink = hasNext ? Self.threadLink(of: messages[index + 1], previous: message, previousLink: link) : .none
+                let arrival: ReplyThread.Arrival? = link == .quoted ? nil : (messages[index - 1].senderID == meID ? .line : .belowLeading)
+                replyThread = ReplyThread(showsQuote: link == .quoted, arrival: arrival, continuesBelow: nextLink == .continued)
+            }
             // A status row under a bubble ends its visual run (Messages keeps
             // the tail there until the status moves to a newer message).
-            entries.append(Entry(showsTimestamp: showsTimestamp, isFirstInRun: firstInRun, isLastInRun: lastInRun || status != .none, status: status))
+            entries.append(Entry(showsTimestamp: showsTimestamp, isFirstInRun: firstInRun, isLastInRun: lastInRun || status != .none, status: status, replyThread: replyThread))
         }
         self.entries = entries
     }
 
-    static func sameRun(_ a: ConversationMessage, _ b: ConversationMessage) -> Bool {
+    static func sameRun(_ a: ConversationMessage, _ b: ConversationMessage, threadBlocks: Bool) -> Bool {
         // An unsent message or a group status row renders as a centered
         // notice, which ends the run above it (that bubble regains its tail)
         // and starts a new one below (sender name and all).
@@ -118,9 +182,48 @@ public struct ConversationRunPlan: Sendable, Equatable {
         // keeps one, and the next starts a new run 10 pt down.
         // An inline reply is a run of its own too: Messages separates the
         // quote, line and reply from both neighbors (the next bubble from the
-        // same sender starts a new run under it).
+        // same sender starts a new run under it), and a reply right under the
+        // message it answers from that message. With thread blocks, replies
+        // of one thread in a row share a block and run together (the first
+        // loses its tail).
         !a.isUnsent && !b.isUnsent && !a.isSystemEvent && !b.isSystemEvent && a.senderID == b.senderID && b.sentAt.timeIntervalSince(a.sentAt) < runGap
-            && a.replyToID == nil && b.replyToID == nil
+            && (threadBlocks ? a.replyToID == b.replyToID : a.replyToID == nil && b.replyToID == nil)
             && a.reactions.isEmpty && b.reactions.isEmpty
+    }
+
+    /// The thread link of `message` under `previous`, given the link of
+    /// `previous` itself. A timestamp section between them starts a new block.
+    static func threadLink(of message: ConversationMessage, previous: ConversationMessage, previousLink: ThreadLink) -> ThreadLink {
+        guard let root = message.replyToID, !message.isUnsent, !message.isSystemEvent else { return .none }
+        guard !previous.isUnsent, !previous.isSystemEvent, message.sentAt.timeIntervalSince(previous.sentAt) < timestampGap else { return .quoted }
+        if previous.id == root, previous.replyToID == nil { return .adjacent }
+        // Under a reply of the same thread (or under the reply it answers),
+        // it joins that reply's block, or reads as a bubble under one.
+        guard previous.id == root || previous.replyToID == root else { return .quoted }
+        switch previousLink {
+        case .adjacent: return .adjacent
+        case .quoted, .continued: return .continued
+        case .none: return .quoted
+        }
+    }
+
+    /// The thread link of the message at `index`, read back only as far as
+    /// the chain of replies above it reaches.
+    static func threadLink(messages: [ConversationMessage], at index: Int, firstScheduled: Int) -> ThreadLink {
+        guard index < firstScheduled else { return .none }
+        var start = index
+        // The reply chain above a message rarely runs past a few rows; the
+        // bound keeps a pathological transcript from walking all of it.
+        while start > 0, index - start < 64, dependsOnPrevious(messages[start], messages[start - 1]) { start -= 1 }
+        var link: ThreadLink = messages[start].replyToID != nil && !messages[start].isUnsent && !messages[start].isSystemEvent ? .quoted : .none
+        if start < index {
+            for i in (start + 1)...index { link = threadLink(of: messages[i], previous: messages[i - 1], previousLink: link) }
+        }
+        return link
+    }
+
+    private static func dependsOnPrevious(_ message: ConversationMessage, _ previous: ConversationMessage) -> Bool {
+        guard let root = message.replyToID else { return false }
+        return previous.id == root || previous.replyToID == root
     }
 }
