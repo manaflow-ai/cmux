@@ -53,9 +53,7 @@ impl Call {
                 }
                 platform.post("/v1/machines/reservations", body)
             }
-            Action::Bind => {
-                platform.post(&format!("{path}/bind"), self.bind_payload())
-            }
+            Action::Bind => platform.post(&format!("{path}/bind"), self.bind_payload()),
             Action::Release => platform.delete(&path),
         }
     }

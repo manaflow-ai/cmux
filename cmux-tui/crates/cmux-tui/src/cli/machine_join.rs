@@ -541,7 +541,7 @@ impl Platform {
             request = request.json(&body);
         }
         if let Some(team) = &self.team {
-            request = request.header("x-cmux-team", team.as_str());
+            request = request.header("x-cmux-team-id", team.as_str());
         }
         let response = request
             .send()
