@@ -37,7 +37,7 @@ import { threadMinimapHeight, railHeightConfig } from "./height.experiment";
 import { LIT_OPACITY, threadMinimapLit } from "./lit.experiment";
 import { MARK_OPACITY, threadMinimapMark } from "./mark.experiment";
 import { threadMinimapWave } from "./wave.experiment";
-import { HoverWave } from "./hoverWave";
+import { HoverWave, ZipperWave } from "./hoverWave";
 import { INCOMING_LOOK, threadMinimapIncoming } from "./incoming.experiment";
 import { experimentArm } from "../../../experiments/experiment";
 import { tickRanges } from "./tickWindow";
@@ -479,18 +479,25 @@ export function ThreadMinimap({
     };
   });
 
-  /// The hover wave (hoverWave.ts, wave.experiment.ts), read once per pane: the ticks around the
-  /// pointer grow as a smooth bump of its y. The `stepped` arm keeps the row-by-row fisheye below.
+  /// The hover wave (hoverWave.ts, wave.experiment.ts), read once per pane: the zipper (each tick
+  /// easing to its own length by row) or a smooth bump of the pointer's y. The `stepped` arm keeps the
+  /// row-by-row fisheye below.
   const [wave] = useState(() => {
     const waveArm = experimentArm(threadMinimapWave);
     return waveArm === "stepped"
       ? undefined
-      : new HoverWave(
-          WAVE_SHAPES[waveArm],
-          () => rail.current,
-          () => list.current,
-          () => live.current.turns.length,
-        );
+      : waveArm === "zipper"
+        ? new ZipperWave(
+            () => rail.current,
+            () => list.current,
+            () => live.current.turns.length,
+          )
+        : new HoverWave(
+            WAVE_SHAPES[waveArm],
+            () => rail.current,
+            () => list.current,
+            () => live.current.turns.length,
+          );
   });
   useEffect(() => () => wave?.leave(), [wave]);
 
@@ -1260,7 +1267,7 @@ export function ThreadMinimap({
           onPointerLeave={(event) => {
             if (scrub.current?.moved) return;
             pointerY.current = undefined;
-            wave?.leave();
+            wave?.release();
             setHovered(undefined);
             // Into the card keeps it; anywhere else it goes on this frame.
             if (!within(card.current, event.relatedTarget)) {
@@ -1358,7 +1365,7 @@ export function ThreadMinimap({
               const state = scrub.current;
               if (!inTickContent(event, event.currentTarget)) {
                 if (!state?.moved) {
-                  wave?.leave();
+                  wave?.release();
                   setHovered(undefined);
                   setCardRow(undefined);
                   if (!within(card.current, event.relatedTarget)) intend(null);
