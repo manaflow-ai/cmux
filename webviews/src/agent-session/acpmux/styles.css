@@ -139,7 +139,7 @@
    composer's action rows pressable at every edge (composer-chip-press.test.ts probes all four
    row edges) by retaining an opaque edge mask on this action surface. */
 .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade:is([data-fade-top],[data-fade-bottom]){
-  -webkit-mask-image:linear-gradient(#000,#000)!important;
+  -webkit-mask-image:none!important;
   mask-image:linear-gradient(#000,#000)!important;
 }
 /* It opens over the project and machine pills above New Tab's box: a denser tint than a plain popup's
