@@ -68,9 +68,9 @@ fn a_roster_fold_reads_the_journal_tail_with_the_registry_and_roster_locks_free(
 }
 
 /// cmux-ad m11 item 2: a journal maintenance tick's roster catch-up held the roster FOLD lock for
-/// its whole tail read and snapshot write (agent_roster_fold.rs `advance_agent_roster`), and request
-/// paths take that lock: a terminal close (`purge_terminal_side_tables`), a direct agent report (its
-/// journal echo folds) and every agent hook. Requests on one connection run in order on one
+/// its whole tail read and snapshot write (agent_roster_fold.rs, before this test), and request
+/// paths take that lock: a terminal close (`purge_terminal_side_tables`), a direct agent report
+/// (its journal echo folds) and every agent hook. Requests on one connection run in order on one
 /// dispatch thread, so one of them waiting there held every later request of the app (#34628's
 /// 5-8 s step timed out `workspace.place`, `new-conversation-tab` and others together; #35075
 /// raised the app's deadline to 30 s for it). While a catch-up is mid-tail, those requests must
