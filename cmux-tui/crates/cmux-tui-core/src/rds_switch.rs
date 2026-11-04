@@ -23,7 +23,7 @@ impl InputLaneSwitch {
             let state = if switch.on() { "on" } else { "off (the old path)" };
             match &value {
                 Some(value) => {
-                    eprintln!("cmux-tui: input lane {state}, CMUX_TUI_RDS_INPUT={value:?}")
+                    eprintln!("cmux-tui: input lane {state}, CMUX_TUI_RDS_INPUT={value:?}");
                 }
                 None => eprintln!("cmux-tui: input lane {state}, CMUX_TUI_RDS_INPUT unset"),
             }
