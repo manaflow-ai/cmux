@@ -226,7 +226,7 @@ impl Recorder {
 
 /// Validate one connection's recorded frames: requests and notifications by method, a response by the
 /// method of the request it answers (its error as ACP's `Error`).
-fn conformance_failures(frames: &[(Side, Value)]) -> Vec<String> {
+fn conformance_failures(frames: &[(Side, Value)], answered: &mut Vec<String>) -> Vec<String> {
     let mut acp = Acp::load();
     let mut asked: HashMap<(bool, String), String> = HashMap::new();
     let mut failures = Vec::new();
@@ -248,6 +248,7 @@ fn conformance_failures(frames: &[(Side, Value)]) -> Vec<String> {
         let Some((_, _, Some(result))) = METHODS.iter().find(|(name, ..)| *name == m) else {
             continue;
         };
+        answered.push(m.clone());
         let (def, value, part) = match frame.get("error") {
             Some(error) => ("Error", error, "error"),
             None => (*result, &frame["result"], "result"),
@@ -259,8 +260,8 @@ fn conformance_failures(frames: &[(Side, Value)]) -> Vec<String> {
     failures
 }
 
-/// A conversation through the standard ACP surface: handshake, new, prompt (with a
-/// permission ask), cancel, set_mode, list, load on a second connection, resume on a
+/// A conversation through the standard ACP surface: handshake, new, prompt (one answered
+/// through acpmux's `_acpmux/permission_pending`, which is not checked), cancel, set_mode, list, load on a second connection, resume on a
 /// third, close. Every standard frame either side sent validates against ACP v1.
 #[tokio::test]
 async fn a_recorded_acp_conversation_conforms_to_acp() {
@@ -302,6 +303,11 @@ async fn a_recorded_acp_conversation_conforms_to_acp() {
     for m in ["initialize", "session/new", "session/prompt", "session/update", "session/load"] {
         assert!(checked.contains(&m), "the recording has no {m} frame: {checked:?}");
     }
-    let failures: Vec<String> = connections.iter().flat_map(|f| conformance_failures(f)).collect();
+    let mut answered = Vec::new();
+    let failures: Vec<String> =
+        connections.iter().flat_map(|f| conformance_failures(f, &mut answered)).collect();
+    for m in ["initialize", "session/new", "session/prompt", "session/list", "session/load"] {
+        assert!(answered.iter().any(|a| a == m), "no {m} response was checked: {answered:?}");
+    }
     assert!(failures.is_empty(), "ACP schema mismatches:\n{}", failures.join("\n"));
 }

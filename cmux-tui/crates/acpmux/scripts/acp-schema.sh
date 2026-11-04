@@ -6,6 +6,7 @@
 set -euo pipefail
 repo=agentclientprotocol/agent-client-protocol
 dir="$(cd "$(dirname "$0")/.." && pwd)/schema/acp/v1"
+sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1; }
 pinned="$(sed -n 's/^tag=//p' "$dir/PIN")"
 
 case "${1:-latest}" in
@@ -26,8 +27,8 @@ pin)
   done
   mv "$tmp/schema.json" "$tmp/meta.json" "$dir/"
   sed -i.bak -e "s/^tag=.*/tag=$tag/" \
-    -e "s/^schema.json sha256=.*/schema.json sha256=$(shasum -a 256 "$dir/schema.json" | cut -d' ' -f1)/" \
-    -e "s/^meta.json sha256=.*/meta.json sha256=$(shasum -a 256 "$dir/meta.json" | cut -d' ' -f1)/" \
+    -e "s/^schema.json sha256=.*/schema.json sha256=$(sha256 "$dir/schema.json")/" \
+    -e "s/^meta.json sha256=.*/meta.json sha256=$(sha256 "$dir/meta.json")/" \
     "$dir/PIN"
   rm -f "$dir/PIN.bak"
   echo "pinned $tag; run the acp_schema tests"
