@@ -34,7 +34,9 @@ const LINKED: Readonly<Record<string, readonly string[]>> = {
 
 /** The linked keys writing `target` would also change, by the host's rule
  * (`WindowBackgroundSetting.linkedEdits`): setting Opacity while Material is unset names a
- * Material; resetting Opacity may remove a set Material; resetting Material removes a set Opacity. */
+ * Material; resetting Opacity may remove a set Material; resetting Material removes a set Opacity.
+ * The host removes a Material on an Opacity reset only when it is Ghostty's own, which the page
+ * cannot see, so this names any set Material: broader than the host, never narrower. */
 export function linkedWriteKeys(state: SettingsState, target: KeyState): string[] {
   const partners = LINKED[target.key] ?? [];
   return partners.filter((partner) => {

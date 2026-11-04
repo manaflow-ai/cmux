@@ -864,9 +864,9 @@ export class SettingsStore {
   appearanceUndoStep(): HistoryEntry | null {
     const entry = this.appearance.nextUndo;
     return entry &&
-      showsStates(
-        this.getSnapshot(),
+      this.stepApplies(
         entry.changes.map((change) => change.after),
+        entry.changes.map((change) => change.before),
       )
       ? entry
       : null;
@@ -876,12 +876,29 @@ export class SettingsStore {
   appearanceRedoStep(): HistoryEntry | null {
     const entry = this.appearance.nextRedo;
     return entry &&
-      showsStates(
-        this.getSnapshot(),
+      this.stepApplies(
         entry.changes.map((change) => change.before),
+        entry.changes.map((change) => change.after),
       )
       ? entry
       : null;
+  }
+
+  /** Whether a step may write `apply`: its targets show `expected`, and no linked key the host's
+   * edit would change with a write (resetting Material removes Opacity) was changed elsewhere
+   * since the page last left or found it (#29881). */
+  private stepApplies(expected: readonly TargetState[], apply: readonly TargetState[]): boolean {
+    const state = this.getSnapshot();
+    if (!showsStates(state, expected)) return false;
+    const own = new Set(apply.map(targetId));
+    return apply.every(
+      (target) =>
+        target.kind !== "setting" ||
+        linkedWriteKeys(state, target).every((key) => {
+          const seen = this.appearanceSeen.get(`setting:${key}`);
+          return own.has(`setting:${key}`) || seen === undefined || showsStates(state, [seen]);
+        }),
+    );
   }
 
   /** Undo: puts the last appearance step's earlier states back. False when there was none, when

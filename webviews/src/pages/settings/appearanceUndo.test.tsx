@@ -213,6 +213,16 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
     expect(rows.get("appearance.backgroundBlur")?.value).toBe("glass");
   });
 
+  test("Undo of a Material step leaves an Opacity another writer set since (the host's linked reset)", async () => {
+    page = await renderPage({ path: "/settings/appearance" });
+    await run(() => page!.store.set("appearance.backgroundBlur", "frosted"));
+    await run(() => page!.provider.externalSet("appearance.backgroundOpacity", 0.4));
+    // Resetting Material would make the host remove Opacity too, the other writer's 0.4.
+    expect(page.store.appearanceUndoStep()).toBeNull();
+    expect(await run(() => page!.store.undoAppearance())).toBe(false);
+    expect(ops(page.provider, "cmux.settings.reset")).toEqual([]);
+  });
+
   test("a slider moved while another step runs is the page's own: Restore puts it back", async () => {
     page = await renderPage({
       path: "/settings/appearance",
