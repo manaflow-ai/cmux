@@ -45,7 +45,13 @@ export const useSubagentTray = (): boolean => useSyncExternalStore(subscribe, sn
 /// background command, or a chat the agent started.
 export type TrayItem =
   | { kind: "agent"; id: string; agent: Subagent; depth: number }
-  | { kind: "command"; id: string; command: BackgroundCommand }
+  | {
+      kind: "command";
+      id: string;
+      command: BackgroundCommand;
+      /// The subagent whose call started it, when one did and the chat knows it: its line names it.
+      owner?: Subagent;
+    }
   | { kind: "session"; id: string; session: StartedSession };
 
 /// What the tray lists and its header counts: what runs or waits on the person, never what ended
@@ -84,9 +90,12 @@ export function trayItems(
     })
     .sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id));
   const items: TrayItem[] = nestAgents(live).map(({ agent, depth }) => ({ kind: "agent", id: agent.id, agent, depth }));
+  const byId = new Map(agents.map((agent) => [agent.id, agent]));
   for (const command of commands)
-    if (command.state === "running" && (working || command.processId !== undefined))
-      items.push({ kind: "command", id: command.id, command });
+    if (command.state === "running" && (working || command.processId !== undefined)) {
+      const owner = command.subagent === undefined ? undefined : byId.get(command.subagent);
+      items.push({ kind: "command", id: command.id, command, ...(owner ? { owner } : {}) });
+    }
   for (const session of sessions)
     if (session.subsession && liveSession(session)) items.push({ kind: "session", id: session.sessionId, session });
   return newestFirst(items);
