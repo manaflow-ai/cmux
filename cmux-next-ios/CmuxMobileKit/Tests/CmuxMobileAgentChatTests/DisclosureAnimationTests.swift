@@ -130,7 +130,9 @@ import UIKit
         var start: CGFloat = 0
         var end: CGFloat = 0
 
-        /// Frames drawn strictly between the start and end heights (more than 2 pt from both).
+        /// Frames drawn strictly between the start and end heights (more than 2 pt from both). A snap
+        /// draws none; the tests ask for two, since one sampled frame on a loaded host can span most
+        /// of the 0.35 s spring (a fleet run drew 32, 308, 344, 350).
         var between: Int {
             let low = min(start, end) + 2, high = max(start, end) - 2
             return heights.filter { $0 > low && $0 < high }.count
@@ -238,7 +240,7 @@ import UIKit
 
         let opening = try await fold(chat, id) { native.perform(.toggle(key)) }
         #expect(opening.end > opening.start + 40, "\(kind) opened: \(opening.start) -> \(opening.end)")
-        #expect(opening.between >= 3, "\(kind) opened over several frames, not in one: \(opening.heights.map { Int($0) })")
+        #expect(opening.between >= 2, "\(kind) opened over several frames, not in one: \(opening.heights.map { Int($0) })")
         #expect(opening.worstOverlap <= 1, "the row below \(kind) started \(opening.worstOverlap) pt above its bottom while it opened: \(opening.trace)")
         #expect(!chat.controller.isHoldingFold, "the hold lets go")
 
@@ -248,7 +250,7 @@ import UIKit
             toggleDisclosure(chat.list.context.foldHold, key: key, in: disclosures) { disclosures.set(key, false) }
         }
         #expect(closing.end < closing.start - 40, "\(kind) closed: \(closing.start) -> \(closing.end)")
-        #expect(closing.between >= 3, "\(kind) closed over several frames, not in one: \(closing.heights.map { Int($0) })")
+        #expect(closing.between >= 2, "\(kind) closed over several frames, not in one: \(closing.heights.map { Int($0) })")
         #expect(closing.worstOverlap <= 1, "the row below \(kind) started \(closing.worstOverlap) pt above its bottom while it closed: \(closing.trace)")
         await chat.frames(10)
 
@@ -260,7 +262,7 @@ import UIKit
             }
             let moved = open ? again.end > again.start + 40 : again.end < again.start - 40
             #expect(moved, "\(kind) \(open ? "reopened" : "closed again"): \(again.start) -> \(again.end)")
-            #expect(again.between >= 3, "\(kind) \(open ? "reopened" : "closed again") over several frames, not in one: \(again.heights.map { Int($0) })")
+            #expect(again.between >= 2, "\(kind) \(open ? "reopened" : "closed again") over several frames, not in one: \(again.heights.map { Int($0) })")
             #expect(again.worstOverlap <= 1, "the row below \(kind) started \(again.worstOverlap) pt above its bottom on the second \(open ? "open" : "close"): \(again.trace)")
             await chat.frames(10)
         }
