@@ -4702,6 +4702,8 @@ jobs:
       tip_sha: ${{ steps.fetch.outputs.tip_sha }}
       behind: ${{ steps.fetch.outputs.behind }}
       behind_hours: ${{ steps.fetch.outputs.behind_hours }}
+      cef: ${{ steps.fetch.outputs.cef }}
+      source_archive: ${{ steps.fetch.outputs.source_archive }}
     steps:
       - *checkout-default
 
@@ -4730,7 +4732,8 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-      # publish-nightly reads the pack by this run's name when CMUX_NEXT_CEF_ON_DEMAND is 1.
+      # publish-nightly reads the pack by this run's name when the source build has one (its cef
+      # output), whatever CMUX_NEXT_CEF_ON_DEMAND says now: the app's pin names that pack.
       - name: Upload the republished build's Chromium runtime pack
         if: steps.fetch.outputs.cef == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -5046,6 +5049,7 @@ jobs:
       # feed_written is false when a newer build was already on the feed.
       variant_pattern: ${{ steps.source.outputs.variant_pattern }}
       tested_pattern: ${{ steps.source.outputs.tested_pattern }}
+      source_archive: ${{ steps.source.outputs.source_archive }}
       tip_sha: ${{ steps.source.outputs.tip_sha }}
       behind: ${{ steps.source.outputs.behind }}
       behind_hours: ${{ steps.source.outputs.behind_hours }}
@@ -5109,9 +5113,19 @@ jobs:
           REPUBLISHED_TIP_SHA: ${{ needs.republish-nightly-next.outputs.tip_sha }}
           REPUBLISHED_BEHIND: ${{ needs.republish-nightly-next.outputs.behind }}
           REPUBLISHED_BEHIND_HOURS: ${{ needs.republish-nightly-next.outputs.behind_hours }}
+          # Chromium on demand and the source offer: the switches as they are now, except that a
+          # republished build publishes the pack its source signed with (the app's pin names it), and
+          # no source archive when its source made none.
+          CEF_ON_DEMAND: ${{ vars.CMUX_NEXT_CEF_ON_DEMAND }}
+          PUBLISH_SOURCE_ARCHIVE: ${{ vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE }}
+          REPUBLISHED_CEF: ${{ needs.republish-nightly-next.outputs.cef }}
+          REPUBLISHED_SOURCE_ARCHIVE: ${{ needs.republish-nightly-next.outputs.source_archive }}
         run: |
           set -euo pipefail
           run_id=
+          cef=false source_archive=false
+          [ "${CEF_ON_DEMAND:-}" = 1 ] && cef=true
+          [ "${PUBLISH_SOURCE_ARCHIVE:-}" = 1 ] && source_archive=true
           if [ "$OWN_RESULT" = success ] && [ "$OWN_PENDING" != true ] && [ "$OWN_VERIFIED" = success ] && [ "$OWN_DMG_VERIFIED" = success ] && [ "$OWN_TREE" = ok ]; then
             source=own build="$OWN_BUILD" build_sha="$OWN_BUILD_SHA" tip_sha="$OWN_TIP_SHA"
             behind="$OWN_BEHIND" behind_hours="$OWN_BEHIND_HOURS" pattern="cmux-nightly-variant-*"
@@ -5126,6 +5140,8 @@ jobs:
             source=recovered build="$REPUBLISHED_BUILD" build_sha="$REPUBLISHED_BUILD_SHA" tip_sha="$REPUBLISHED_TIP_SHA"
             behind="$REPUBLISHED_BEHIND" behind_hours="$REPUBLISHED_BEHIND_HOURS" pattern="cmux-nightly-republished-variant-*"
             tested_pattern="cmux-nightly-republished-tested-*" run_id="$REPUBLISHED_RUN_ID"
+            [ "${REPUBLISHED_CEF:-}" = true ] && cef=true || cef=false
+            [ "${REPUBLISHED_SOURCE_ARCHIVE:-}" = true ] || source_archive=false
             echo "::notice title=Republishing a verified nightly-next build::build $build from run $REPUBLISHED_RUN_ID, with this run's publication tooling"
           else
             echo "nothing accepted to publish" >&2
@@ -5143,6 +5159,8 @@ jobs:
             echo "variant_pattern=$pattern"
             echo "tested_pattern=$tested_pattern"
             echo "run_id=$run_id"
+            echo "cef=$cef"
+            echo "source_archive=$source_archive"
           } >> "$GITHUB_OUTPUT"
           echo "NIGHTLY_BUILD=$build" >> "$GITHUB_ENV"
 
@@ -5430,16 +5448,17 @@ jobs:
       # appcast enclosure and object key. It never receives CF_R2_* .
       # Chromium on demand: the pack the app's pin names goes up before the
       # appcast that offers the app. A recovered build from another run has no
-      # pack artifact here, so this fails and nothing is offered.
+      # pack artifact here, so this fails and nothing is offered. A republished
+      # build follows its source (steps.source.outputs.cef), not the switch.
       - name: Download the Chromium runtime pack
-        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_CEF_ON_DEMAND == '1' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.source.outputs.cef == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: cef-runtime-pack
           path: cef-runtime
 
       - name: Publish the Chromium runtime pack
-        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_CEF_ON_DEMAND == '1' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.source.outputs.cef == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
@@ -5633,24 +5652,26 @@ jobs:
         run: bash .publish-tooling/scripts/ci/nightly-steps/github-publish-release-assets.sh
 
       - name: Download the cmux-next source archive
-        if: vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && needs.publish-nightly.outputs.source == 'own'
+        if: needs.publish-nightly.outputs.source_archive == 'true' && needs.publish-nightly.outputs.source == 'own'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-next-source-archive
           path: source-archive
 
-      # Gated by vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE (the coordinator sets it).
+      # Gated by vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE (the coordinator sets it), through
+      # publish-nightly's source_archive, which is also false for a republished build whose
+      # source made no archive (republish-verified-nightly.py).
       # Tags the build commit cmux-next-src-<11 characters> and attaches
       # cmux-next-source-<build>.tar.gz to the nightly-next release. The prune
       # step removes it only together with the app assets of <build>, whose
       # source offer names it (prune_nightly_release_assets.py), never by age.
       # A recovered build carries its source archive in the recovered variant.
       - name: Take the recovered build's source archive
-        if: vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && needs.publish-nightly.outputs.source == 'recovered'
+        if: needs.publish-nightly.outputs.source_archive == 'true' && needs.publish-nightly.outputs.source == 'recovered'
         run: mv nightly-out/source-archive source-archive
 
       - name: Publish the cmux-next source archive
-        if: vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1'
+        if: needs.publish-nightly.outputs.source_archive == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # App first, GH_TOKEN as fallback
@@ -7073,7 +7094,7 @@ jobs:
   # published build whose notes jobs did not both succeed is reported too
   # (run 37526646874 published with its notes job cancelled and no alarm).
   report-nightly-failure:
-    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-nightly-remote-daemon, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, verify-final-dmg-nightly, verify-recovered-nightly-next, publish-nightly, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
+    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-nightly-remote-daemon, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, verify-final-dmg-nightly, verify-recovered-nightly-next, republish-nightly-next, publish-nightly, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
     if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.notary_test != 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.feed_check == 'failure' || needs.publish-nightly.outputs.tag_status == 'stale' || needs.publish-nightly.outputs.refusal_reason != '' || (needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
     # The declared nightly-only mini is enabled after live admission is verified.
     # Keep the existing fallback; never reuse the stale builder-only placement.
