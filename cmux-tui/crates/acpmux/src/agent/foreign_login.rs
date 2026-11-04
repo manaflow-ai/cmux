@@ -18,6 +18,10 @@
 //! A profile that runs acpmux or cmux itself and starts harnesses under it
 //! (the Chief brain, `chief acp`) passes every login on to them on purpose
 //! (`cli/chief/launch.rs` `brain_env_allowed`), so it keeps them.
+//!
+//! Every path that starts a harness's own program goes through here: an
+//! agent (`agent/command.rs`), a fork of a terminal's chat (`chat_fork.rs`),
+//! a model list (`live_models`) and a sign-in check (`harness_health/probe.rs`).
 
 use crate::config::{HarnessKind, HarnessProfile};
 use tokio::process::Command;
@@ -80,7 +84,41 @@ pub(crate) fn leaf_family(name: &str, profile: &HarnessProfile) -> Option<String
     }
     let unnamed = HarnessProfile { family: None, ..profile.clone() };
     let family = crate::config::derive_family(name, &unnamed);
-    LEAF_FAMILIES.contains(&family.as_str()).then_some(family)
+    if LEAF_FAMILIES.contains(&family.as_str()) {
+        return Some(family);
+    }
+    // Launchers `derive_family` does not name from the command line: a profile
+    // `{"argv": ["/opt/bin/cursor-agent", "acp"], "family": "custom"}` is Cursor.
+    let words = profile.argv.iter().filter_map(|a| {
+        std::path::Path::new(a).file_name().map(|f| f.to_string_lossy().to_lowercase())
+    });
+    for word in words {
+        for (needle, family) in LAUNCHER_FAMILIES {
+            if word.contains(needle) {
+                return Some(family.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Command-line words of leaf agents that `derive_family` names only from the
+/// profile's name or label.
+const LAUNCHER_FAMILIES: [(&str, &str); 5] = [
+    ("cursor-agent", "cursor"),
+    ("hermes", "hermes"),
+    ("grok", "grok"),
+    ("muse", "muse"),
+    ("deepseek", "deepseek"),
+];
+
+/// Every other family's login removed through `remove`, for an agent of
+/// `family` started outside [`scrub`]'s profile path (a sign-in probe, a
+/// model list). Nothing for a family that is not one agent.
+pub(crate) fn remove_foreign_for(family: &str, mut remove: impl FnMut(&str)) {
+    if LEAF_FAMILIES.contains(&family) {
+        foreign_login_keys(family).for_each(&mut remove);
+    }
 }
 
 /// Remove every other family's login from `cmd`, whatever set it so far
@@ -88,9 +126,9 @@ pub(crate) fn leaf_family(name: &str, profile: &HarnessProfile) -> Option<String
 /// `profile` runs. Call before the profile's own env is applied.
 pub(crate) fn scrub(cmd: &mut Command, name: &str, profile: &HarnessProfile) {
     let Some(family) = leaf_family(name, profile) else { return };
-    for key in foreign_login_keys(&family) {
+    remove_foreign_for(&family, |key| {
         cmd.env_remove(key);
-    }
+    });
 }
 
 #[cfg(test)]
@@ -120,6 +158,18 @@ mod tests {
     }
 
     #[test]
+    fn a_probe_or_model_list_of_one_agent_loses_the_other_logins_and_a_host_keeps_them() {
+        let removed = |family: &str| {
+            let mut keys = Vec::new();
+            remove_foreign_for(family, |key| keys.push(key.to_owned()));
+            keys
+        };
+        assert!(removed("codex").contains(&"CLAUDE_CODE_OAUTH_TOKEN".to_owned()));
+        assert!(removed("claude").contains(&"CODEX_HOME".to_owned()));
+        assert!(removed("chief").is_empty());
+    }
+
+    #[test]
     fn the_family_comes_from_what_runs_and_a_host_is_left_alone() {
         let profile = |argv: &str, family: Option<&str>| {
             let mut p: HarnessProfile =
@@ -140,6 +190,10 @@ mod tests {
             leaf_family("muse", &profile("/opt/bin/muse-acp", Some("muse"))).as_deref(),
             Some("muse")
         );
+        // A launcher `derive_family` does not know, under a made-up label.
+        let mut cursor = profile("/opt/bin/cursor-agent", Some("custom"));
+        cursor.argv.push("acp".into());
+        assert_eq!(leaf_family("custom", &cursor).as_deref(), Some("cursor"));
         let mut chief = profile("cmux-tui", Some("chief"));
         chief.argv = vec!["cmux-tui".into(), "chief".into(), "acp".into()];
         assert_eq!(leaf_family("chief", &chief), None);

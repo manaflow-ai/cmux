@@ -78,6 +78,8 @@ async fn run(
     }
     crate::login_env::apply_tokio_for(&mut cmd, Some(family), Some(env));
     crate::config::scrub_nested_claude_env_tokio_for(&mut cmd, Some(family));
+    // Never another harness's login (`agent/foreign_login.rs`); the profile's env still wins.
+    crate::agent::foreign_login::scrub(&mut cmd, harness, profile);
     cmd.args(rest)
         .envs(env)
         .current_dir(cwd)

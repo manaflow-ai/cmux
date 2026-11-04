@@ -116,6 +116,10 @@ impl Probe {
         }
         crate::login_env::apply_tokio_for(&mut cmd, Some(family), Some(env));
         crate::config::scrub_nested_claude_env_tokio_for(&mut cmd, Some(family));
+        // Never another harness's login (`agent/foreign_login.rs`).
+        crate::agent::foreign_login::remove_foreign_for(family, |key| {
+            cmd.env_remove(key);
+        });
         cmd.args(rest)
             .args(match cli {
                 Cli::Claude => claude::args(),
