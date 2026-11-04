@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
+import { JSDOM } from "jsdom";
 import { BackgroundTasksPanel } from "../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel";
 import { AgentCard } from "../src/agent-session/acpmux/subagents/AgentCard";
 import { AgentIdentity } from "../src/agent-session/acpmux/subagents/AgentIdentity";
@@ -9,7 +12,7 @@ import { Avatar } from "../src/agent-session/acpmux/subagents/SubagentGroup";
 import { AgentMark } from "../src/agent-session/shared/AgentMark";
 import { rememberHarnessIcons, type HarnessIconSpec } from "../src/agent-session/shared/harnessIcons";
 
-test("a known harness keeps its shape and the same agent hue across transcript, tray and card", () => {
+test("a known harness keeps its shape and the same agent hue across transcript, tray and card", async () => {
   const id = "reviewer";
   const tone = agentTone(id);
   const views = [
@@ -20,12 +23,36 @@ test("a known harness keeps its shape and the same agent hue across transcript, 
     <AgentLine key="line" name="Reviewer" status="done" state="Done" mark="claude" tone={tone} iconSize={14} />,
     <AgentCard key="card" name="Reviewer" identity={id} harness="claude" state="done" />,
   ];
-  for (const view of views) {
-    const html = renderToStaticMarkup(view);
-    expect(html).toContain(`data-agent-tone="${tone}" data-identity-look="tint"`);
-    // The identity wrapper owns the hue; the SVG's generated attributes can differ by caller
-    // (card/avatar size and React's serialization), so assert the shared harness mark itself.
-    expect(html).toContain('data-agent="claude"');
+  // AgentCard's avatar store is client-only. Mount the real components as the pane does rather
+  // than asking their unrelated stores for server snapshots.
+  const dom = new JSDOM("<!doctype html><html><body><main></main></body></html>", { url: "http://localhost/" });
+  const scope = globalThis as Record<string, unknown>;
+  const replacements: Record<string, unknown> = {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    HTMLElement: dom.window.HTMLElement,
+    MutationObserver: dom.window.MutationObserver,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  };
+  const saved = new Map(Object.keys(replacements).map((key) => [key, scope[key]]));
+  Object.assign(scope, replacements);
+  const container = dom.window.document.querySelector("main")!;
+  const root = createRoot(container);
+  try {
+    for (const view of views) {
+      await act(async () => root.render(view));
+      const mark = container.querySelector("[data-identity-look=tint]");
+      expect(mark?.getAttribute("data-agent-tone")).toBe(String(tone));
+      expect(mark?.querySelector('[data-agent="claude"]')).not.toBeNull();
+    }
+  } finally {
+    await act(async () => root.unmount());
+    dom.window.close();
+    for (const [key, value] of saved) {
+      if (value === undefined) delete scope[key];
+      else scope[key] = value;
+    }
   }
 });
 
