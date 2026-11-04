@@ -61,7 +61,7 @@ public struct SidebarMapping {
     /// a workspace's front tab (any kind) lends its row, given the work tab a
     /// browser front tab yields its name to (`workTab`), and the favicon of
     /// each browser tab in the tab list (no work tab). `tabTitle` names each tab in the tab
-    /// list as its strip does (the App's `TabTitleResolver`); without it a
+    /// list as its strip does (the App's `TabTitleResolver`, given the row's workspace); without it a
     /// tab shows its record's title. `iconAsset` draws a stored image or SVG
     /// icon (`image:` / `svg:sha256-<hex>`); nil while it loads.
     /// `rowSource`, when given, supplies each row instead of mapping it here:
@@ -78,7 +78,7 @@ public struct SidebarMapping {
                                 selectedTab: @escaping (PaneModel) -> String? = { _ in nil },
                                 newTabPages: Set<String> = [], newTabTitle: String = "",
                                 pageFace: @escaping (WorkspaceModel, TabModel, TabModel?) -> PageFace? = { _, _, _ in nil },
-                                tabTitle: ((TabModel) -> String)? = nil, notificationText: @escaping (TabModel) -> String? = { _ in nil },
+                                tabTitle: ((WorkspaceModel, TabModel) -> String)? = nil, notificationText: @escaping (TabModel) -> String? = { _ in nil },
                                 iconAsset: @escaping (String) -> SidebarFavicon? = { _ in nil },
                                 groupIconAsset: ((String) -> SidebarFavicon?)? = nil,
                                 rowSource: RowSource? = nil,
@@ -103,10 +103,11 @@ public struct SidebarMapping {
                 var made = SidebarGroup(
                     id: GroupID(group.id.rawValue),
                     name: group.name,
-                    // No stored color (a group an agent or the CLI made): a stable palette color, not grey.
-                    color: group.color == GroupTint.noneWire ? .grey : color(group.color) ?? .unset(id: group.id.rawValue),
-                    // A custom `#RRGGBB` (cx-25az) or no color (`none`) draws instead of the token.
-                    custom: group.color.flatMap { $0.hasPrefix("#") || $0 == GroupTint.noneWire ? GroupTint(wire: $0)?.wire : nil },
+                    color: color(group.color) ?? .grey,
+                    // A custom `#RRGGBB` (cx-25az) or no color (`none`) draws instead of the token. No stored color, or one
+                    // this Mac cannot read, is no color: a group shows a color only when a person picked one
+                    // (Leo 2026-10-31: "WHERE IS ORANGE COMING FROM").
+                    custom: color(group.color) != nil ? nil : (group.color.flatMap { GroupTint(wire: $0)?.wire } ?? GroupTint.noneWire),
                     isCollapsed: group.collapsed || collapsedGroups.contains(group.id.rawValue),
                     isPinned: group.pinned,
                     icon: group.icon.flatMap { groupImage($0).map(WorkspaceIcon.favicon) ?? WorkspaceIcon.parse($0) },
@@ -132,7 +133,7 @@ public struct SidebarMapping {
     public func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true,
                     muted: Bool = false, selectedTab: (PaneModel) -> String? = { _ in nil }, newTabPages: Set<String> = [],
                     newTabTitle: String = "", pageFace: (WorkspaceModel, TabModel, TabModel?) -> PageFace? = { _, _, _ in nil },
-                    tabTitle: ((TabModel) -> String)? = nil, notificationText: (TabModel) -> String? = { _ in nil },
+                    tabTitle: ((WorkspaceModel, TabModel) -> String)? = nil, notificationText: (TabModel) -> String? = { _ in nil },
                     iconAsset: (String) -> SidebarFavicon? = { _ in nil },
                     harnessIcons: HarnessIconLookup = .none) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
@@ -177,8 +178,11 @@ public struct SidebarMapping {
             agentWorking: statuses.working,
             // A page in a split beside a chat or terminal leaves the row's icon to that work, as it
             // leaves its name (#22250; Leo 2026-10-21: "why did this turn into the githb favicon?").
+            // A site with no favicon (none, or not loaded yet) keeps the slot with a globe the favicon replaces
+            // (Lawrence default: "a site with no favicon gets a placeholder").
             icon: Self.icon(color: workspace.color, icon: workspace.icon, asset: iconAsset)
-                ?? page?.favicon.map(WorkspaceIcon.favicon),
+                ?? page?.favicon.map(WorkspaceIcon.favicon)
+                ?? (Self.isSite(face, newTabPages: newTabPages) ? .pagePlaceholder : nil),
             color: color(workspace.color), kind: kind(face),
             kindBrand: face?.agentBrand,
             // A tab marked unread by hand (Mark Tab Unread) or by an agent that needs the person
@@ -193,7 +197,7 @@ public struct SidebarMapping {
             progress: progress(workspace, tabs: tabs),
             tabs: zip(tabs, statuses.tabs).map { tab, state in
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
-                let title = Self.shortenedPath(tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle), of: tab, shorten: shorten)
+                let title = Self.shortenedPath(tabTitle?(workspace, tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle), of: tab, shorten: shorten)
                 // The hover card's tab rows show each tab's own folder and status; a New Tab page shows neither.
                 var listed = SidebarTab(id: TabID(tab.id), title: title,
                                   kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
@@ -205,6 +209,9 @@ public struct SidebarMapping {
                                   lastActivity: lastActivity([tab]))
                 // Its chat's running subagents and commands, which the tab row counts.
                 (listed.subagentsRunning, listed.commandsRunning) = Self.running(tab)
+                // What the tab row's line says beyond its folder (Leo 2026-11-01: "not much metadata"):
+                // a page's path, a chat's model, a terminal's running program, a remote terminal's machine.
+                if !isNewTabPage { Self.listedFacts(&listed, of: tab, process: process(tab)) }
                 return listed
             },
             muted: muted,
@@ -470,6 +477,54 @@ public struct SidebarMapping {
         guard !title.isEmpty else { return nil }
         if let cwd = tab.cwd, title == cwd || title == abbreviate(cwd) { return nil }
         return title
+    }
+
+    /// The hover card tab row's facts beyond its folder and state, from the tab's own records.
+    static func listedFacts(_ listed: inout SidebarTab, of tab: TabModel, process: String?, turns: AgentTurnStateStore = .shared) {
+        if tab.kind == .browser { listed.path = pagePath(tab.url) }
+        listed.model = tab.agentSession.flatMap(turns.detail(for:))?.model.flatMap { $0.isEmpty ? nil : $0 }
+        if commandStart(tab) != nil { listed.command = process }
+        if let remote = tab.remote, !remote.sessionName.isEmpty { listed.machine = remote.sessionName }
+    }
+
+    /// A page's path for the hover card's tab rows ("/manaflow-ai/cmux/pull/12"), without its query or
+    /// fragment; nil for a root or blank page.
+    static func pagePath(_ url: String?) -> String? {
+        guard let url, let components = URLComponents(string: url), components.host?.isEmpty == false else { return nil }
+        var path = components.path
+        while path.count > 1, path.hasSuffix("/") { path.removeLast() }
+        return path.isEmpty || path == "/" ? nil : path
+    }
+
+    /// The site's own icon address ("https://github.com/favicon.ico") for a page whose record names no
+    /// favicon (a restored tab never loaded); nil for a page that is not http(s), and for a loopback page,
+    /// whose icon may belong to another machine's forwarded port (never guessed onto this Mac's).
+    public static func siteFavicon(_ url: String?) -> String? {
+        guard let url, let components = URLComponents(string: url), let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https", let host = components.host?.lowercased(), !host.isEmpty,
+              !isLoopback(host) else { return nil }
+        var site = URLComponents()
+        site.scheme = scheme
+        site.host = host
+        site.port = components.port
+        site.path = "/favicon.ico"
+        return site.string
+    }
+
+    /// A page's favicon address: the one its record names, else the site's own (`siteFavicon`), so a restored
+    /// page that never loaded shows its site and not a bare globe (Leo 2026-11-01: "there's no symbols").
+    public static func favicon(_ recorded: String?, page url: String?) -> String? {
+        recorded.flatMap { $0.isEmpty ? nil : $0 } ?? siteFavicon(url)
+    }
+
+    private static func isLoopback(_ host: String) -> Bool {
+        host == "localhost" || host.hasSuffix(".localhost") || host.hasPrefix("127.") || host == "[::1]" || host == "::1" || host == "0.0.0.0"
+    }
+
+    /// Whether `tab` is a site page (a browser tab on a host, not a New Tab page): the tabs that show a favicon.
+    static func isSite(_ tab: TabModel?, newTabPages: Set<String>) -> Bool {
+        guard let tab, tab.kind == .browser, !newTabPages.contains(tab.id) else { return false }
+        return pageHost(tab.url) != nil
     }
 
     /// A page's host for the hover card's tab rows ("github.com"); nil for a blank or local page.

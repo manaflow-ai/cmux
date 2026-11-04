@@ -401,10 +401,58 @@ pub struct Link {
 /// in this session's log).
 pub async fn connect(record: HostRecord, resume_after: u64) -> Result<Connect> {
     // A wedged host must not hold up the daemon: the handshake is bounded.
-    const HELLO_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
-    tokio::time::timeout(HELLO_BUDGET, connect_inner(record, resume_after))
+    let budget = hello_budget();
+    // No time at all: missed before any byte is sent. A zero `tokio::time::timeout` is not a sure
+    // miss (its timer fires on the next millisecond tick, after a fast local hello).
+    if budget.is_zero() {
+        return Err(anyhow::Error::new(HelloUnanswered(budget)));
+    }
+    tokio::time::timeout(budget, connect_inner(record, resume_after))
         .await
-        .map_err(|_| anyhow!("agent host did not answer hello within {HELLO_BUDGET:?}"))?
+        .map_err(|_| anyhow::Error::new(HelloUnanswered(budget)))?
+}
+
+/// How long a host has to answer `Hello` ([`connect`]) outside a [`with_hello_budget`] scope.
+pub const HELLO_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The bound of a hello to a host that runs and was adopted before: its adoption at the daemon's
+/// start missed [`HELLO_BUDGET`], or a prompt reaches it again. On a loaded Mac (load 118 on 15
+/// cores, 85 hosts adopted at once, 2026-10-31) a live host answered later than 5 s; ending it
+/// then, or leaving it unowned with its whole agent and MCP servers, is worse than waiting.
+pub const ADOPT_HELLO_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+
+tokio::task_local! {
+    static HELLO_BUDGET_SCOPE: std::time::Duration;
+}
+
+/// Runs `work` with every [`connect`] in it bounded by `budget` instead of [`HELLO_BUDGET`].
+pub async fn with_hello_budget<F: std::future::Future>(
+    budget: std::time::Duration,
+    work: F,
+) -> F::Output {
+    HELLO_BUDGET_SCOPE.scope(budget, work).await
+}
+
+fn hello_budget() -> std::time::Duration {
+    HELLO_BUDGET_SCOPE.try_with(|b| *b).unwrap_or(HELLO_BUDGET)
+}
+
+/// A host that did not answer `Hello` within the connect's budget: it may be wedged, or only
+/// slow on a loaded machine.
+#[derive(Debug, Clone, Copy)]
+pub struct HelloUnanswered(pub std::time::Duration);
+
+impl std::fmt::Display for HelloUnanswered {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "agent host did not answer hello within {:?}", self.0)
+    }
+}
+
+impl std::error::Error for HelloUnanswered {}
+
+/// Whether `error` is (or wraps) a [`HelloUnanswered`].
+pub fn missed_hello(error: &anyhow::Error) -> bool {
+    error.chain().any(|c| c.downcast_ref::<HelloUnanswered>().is_some())
 }
 
 /// [`connect`], speaking at most protocol `max`, as a daemon of an older build does. For tests.

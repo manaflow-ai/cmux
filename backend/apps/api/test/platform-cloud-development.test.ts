@@ -6,7 +6,7 @@ import wranglerText from "../wrangler.jsonc?raw"
  * The development Worker (wrangler.jsonc env.development) hands NEXT Cloud to cmux-platform-development,
  * which owns CloudDO there (cmux-platform docs/port-cloud-worker.md 3.3): the forwarder sends the `cloud`
  * surface over PLATFORM, and CLOUD_DO is the platform's class, so this Worker's own callers reach the same
- * objects. Staging and production keep their own CloudDO.
+ * objects. Staging and production do the same with cmux-platform-staging and cmux-platform-production.
  */
 
 /** JSONC to JSON: drops comments outside strings (wrangler.jsonc has no trailing commas). */
@@ -50,11 +50,26 @@ describe("development routes NEXT Cloud to cmux-platform-development", () => {
     expect(JSON.stringify(dev.migrations)).not.toContain("deleted_classes")
   })
 
-  it("leaves staging's and production's CloudDO their own", () => {
-    for (const name of ["staging", "production"]) {
-      const e = envs()[name]!
-      expect(cloudDo(e), name).toEqual({ name: "CLOUD_DO", class_name: "CloudDO" })
-      expect(JSON.stringify(e.services ?? []), name).not.toContain("cmux-platform-development")
-    }
+  it("forwards staging's cloud surface to cmux-platform-staging and binds its CloudDO", () => {
+    const staging = envs().staging!
+    expect(staging.name).toBe("cmux-api-staging")
+    expect(staging.vars.PLATFORM_SURFACES).toBe("cloud")
+    expect(staging.services).toContainEqual({ binding: "PLATFORM", service: "cmux-platform-staging" })
+    expect(cloudDo(staging)).toEqual({ name: "CLOUD_DO", class_name: "CloudDO", script_name: "cmux-platform-staging" })
+    expect(JSON.stringify(staging.migrations)).toContain('"CloudDO"')
+    expect(JSON.stringify(staging.migrations)).not.toContain("deleted_classes")
+  })
+
+  it("forwards production's cloud surface to cmux-platform-production and binds its CloudDO", () => {
+    const production = envs().production!
+    expect(production.name).toBe("cmux-api")
+    expect(production.vars.PLATFORM_SURFACES).toBe("cloud")
+    expect(production.services).toContainEqual({ binding: "PLATFORM", service: "cmux-platform-production" })
+    expect(cloudDo(production)).toEqual({ name: "CLOUD_DO", class_name: "CloudDO", script_name: "cmux-platform-production" })
+    expect(JSON.stringify(production.migrations)).toContain('"CloudDO"')
+    expect(JSON.stringify(production.migrations)).not.toContain("deleted_classes")
+    // Machine-inert, as before the cutover: production lists no stub-plan teams and no paid entitlements.
+    expect(production.vars.CLOUD_ALLOWED_TEAMS).toBeUndefined()
+    expect(production.vars.CLOUD_PLAN_ENTITLEMENTS).toBeUndefined()
   })
 })

@@ -332,7 +332,10 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
     }
   });
 
-  test("the chat's last row, opened and closed with the view at its end, stays on its pixel", async () => {
+  // At the view's end, opening pushes the text above up and the end stays put (Leo, 2026-11-02:
+  // "YOU EXPAND UP WHILE YOUR SCCROLL IS AT THE VERY BOTTOM ... JUST THAT CASE"); closing keeps the
+  // line where it was clicked.
+  test("the chat's last row, opened with the view at its end, pushes the text up; closed, stays on its pixel", async () => {
     const page = await openChat(
       [...Array.from({ length: 6 }, (_, index) => turn(index)).flat(), fromAgent(LONG, "Grid fix", "child-3", "m-end")],
       "Paragraph 1 of the landing report",
@@ -349,14 +352,19 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       await rest(page);
       const opened = await topOf(toggle);
       console.log(`pinned end: line top ${before} -> ${opened} opened`);
-      expect(Math.abs(opened - before)).toBeLessThan(1);
+      expect(opened).toBeLessThan(before - 1);
+      expect(await atLatest(page)).toBe(true);
 
+      // The opened message may have pushed its line above the view: back in view, closing keeps it.
+      await toggle.scrollIntoViewIfNeeded();
+      await rest(page);
+      const shown = await topOf(toggle);
       await toggle.click();
       expect(await toggle.getAttribute("aria-expanded")).toBe("false");
       await rest(page);
       const closed = await topOf(toggle);
-      console.log(`pinned end: line top ${before} -> ${closed} closed`);
-      expect(Math.abs(closed - before)).toBeLessThan(1);
+      console.log(`pinned end: line top ${shown} -> ${closed} closed`);
+      expect(Math.abs(closed - shown)).toBeLessThan(1);
     } finally {
       await page.close();
     }
@@ -417,8 +425,10 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
   });
 
   // Leo, 2026-10-29: "this ui is all quite inconsistent". A delivered message and one that waits
-  // are one row: their chevrons end on one x, one plate under the line, actions only on hover.
-  test("a delivered message and a waiting one draw the same line: one chevron column, actions on hover", async () => {
+  // are one row: each chevron right after its words (Leo, 2026-11-03: "this how chatgpt does their
+  // chevrons"; this test pinned one chevron x at the line's end before), one plate under the line,
+  // actions only on hover.
+  test("a delivered message and a waiting one draw the same line: chevron after the words, actions on hover", async () => {
     const page = await openChat(
       [
         ...turn(1),
@@ -437,16 +447,24 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       [{ promptId: "q-2", prompt: "Docs are rebuilt for the 2.3 release notes." }],
     );
     try {
-      await page.locator(".cv-pending__toggle").click();
+      // One waiting message is its own line; more wait in one collapsed group (PendingMessagesCard.tsx).
+      await page.locator(".cv-pending__toggle, .cv-pending--one").first().waitFor({ timeout: 10_000 });
+      if (await page.locator(".cv-pending__toggle").count()) await page.locator(".cv-pending__toggle").click();
       const rows = page.locator(".cv-received");
       await rows.nth(1).waitFor({ timeout: 10_000 });
       const lines = await rows.evaluateAll((all) =>
         all.map((row) => {
           const line = row.querySelector<HTMLElement>(":scope > .cv-disclosure__line")!;
           const chevron = line.querySelector<HTMLElement>(".cv-rotor")!.getBoundingClientRect();
+          // The line's last words: its first line's, or the sender's (its text, not its padded box) in
+          // the stacked gallery look.
+          const range = document.createRange();
+          range.selectNodeContents(line.querySelector(".cv-received__preview, .cv-received__from")!);
+          const words = range.getBoundingClientRect();
           const hover = line.querySelector<HTMLElement>(".cv-received__hover");
           return {
             right: Math.round(chevron.right),
+            after: chevron.left - words.right,
             open: Boolean(line.querySelector(".cv-disclosure__open")),
             groups: line.querySelectorAll(".cv-received-actions").length,
             hidden: hover ? getComputedStyle(hover).opacity : "missing",
@@ -454,8 +472,9 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
         }),
       );
       expect(lines).toHaveLength(2);
-      expect(lines[0]!.right).toBe(lines[1]!.right);
       for (const line of lines) {
+        expect(line.after).toBeGreaterThanOrEqual(-0.5);
+        expect(line.after).toBeLessThanOrEqual(8.5);
         expect(line.open).toBe(false);
         expect(line.groups).toBe(1);
         expect(line.hidden).toBe("0");

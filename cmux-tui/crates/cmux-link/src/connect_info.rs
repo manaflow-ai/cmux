@@ -62,6 +62,11 @@ pub struct LinkTokenGrant {
     pub host: String,
     pub epoch: u64,
     pub services: Vec<Service>,
+    /// The caller's fresh Cloud VM role (`owner` or `team`), when the
+    /// backend supplies it. Keep it attached to this one-use grant; never
+    /// infer a role from cached connect_info.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vm_kind: Option<String>,
 }
 
 impl std::fmt::Debug for LinkTokenGrant {
@@ -119,6 +124,9 @@ pub struct ConnectInfo {
     #[serde(default)]
     pub gateway: Option<Gateway>,
     pub services: Vec<Service>,
+    /// The caller's role on this machine, when returned by the Worker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vm_kind: Option<String>,
     #[serde(deserialize_with = "revision")]
     pub revision: u64,
 }

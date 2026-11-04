@@ -80,6 +80,33 @@ class RoutingTableTests(unittest.TestCase):
             with self.subTest(old=old, new=new):
                 self.assertFalse(table.nightly_reservation(term.replace(old, new)))
 
+    def test_portable_bootstrap_exception_requires_read_only_secretless_route(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workflows = root / "workflows"
+            workflows.mkdir()
+            policy = root / "runners.json"
+            key = "controls.yml#portable-placement"
+            policy.write_text(json.dumps({
+                "job_classes": {"portable-checks": {"needs": "any"}},
+                "portable_light_jobs": {key: {"class": "portable-checks", "reason": "placement"}}}))
+            route = ("${{ github.run_attempt == 1 && 'ubuntu-24.04' || "
+                     "fromJSON(vars.RUNNER_POOLS).linux_2 }}")
+            job = {"runs-on": route, "permissions": {"contents": "read"},
+                   "steps": [{"run": "python3 scripts/ci/portable_job_placement.py"}]}
+            for changed, accepted in (({}, True), ({"permissions": {"contents": "write"}}, False),
+                                      ({"environment": "release"}, False),
+                                      ({"runs-on": route.replace("github.run_attempt == 1", "vars.CI_LIGHT_LANE_RUNNER || github.run_attempt == 1")}, False),
+                                      ({"runs-on": route.replace("github.run_attempt == 1", "vars.CI_SIDE_LANE_RUNNER || github.run_attempt == 1")}, False),
+                                      ({"runs-on": route.replace("github.run_attempt == 1 && 'ubuntu-24.04' || ", "")}, False),
+                                      ({"runs-on": route.replace(" || fromJSON(vars.RUNNER_POOLS).linux_2", "")}, False)):
+                with self.subTest(changed=changed):
+                    (workflows / "controls.yml").write_text(table.yaml.safe_dump({
+                        "jobs": {"portable-placement": {**job, **changed}}}, width=10000))
+                    problems, allowed = table.hosted_light_policy(policy, workflows)
+                    self.assertEqual(not problems, accepted, problems)
+                    self.assertEqual(bool(allowed), accepted)
+
     def test_reserved_bootstrap_keeps_declared_hosted_overflow_and_retries(self):
         term = ("github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && "
                 "github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && "
@@ -109,14 +136,40 @@ class RoutingTableTests(unittest.TestCase):
         gate = "needs.decide.outputs.track == 'nightly-next'"
         attempt = "needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)"
         picked = "needs.decide.outputs.early_resolve_nightly_tui_client_runner"
-        expression = "${{ " + gate + " && (" + attempt + " && " + picked + ") || 'blacksmith-16vcpu-ubuntu-2404' }}"
+        expression = "${{ " + gate + " && (" + attempt + " && " + picked + ") || 'ubuntu-24.04' }}"
         self.assertEqual(table.portable_order(expression, nightly=True), "")
-        for changed in (expression.replace(picked, picked + " || 'cmux-fleet-linux-x64'"),
-                        expression.replace("${{ ", "${{ 'blacksmith-16vcpu-ubuntu-2404' || "),
+        # Nightlies never run on Blacksmith: a Blacksmith overflow is refused.
+        for changed in (expression.replace("'ubuntu-24.04' }}", "'blacksmith-16vcpu-ubuntu-2404' }}"),
+                        expression.replace(picked, picked + " || 'cmux-fleet-linux-x64'"),
+                        expression.replace("${{ ", "${{ 'ubuntu-24.04' || "),
                         expression.replace(attempt, "github.run_attempt == 1"),
                         expression.replace(gate, "needs.decide.outputs.track != 'nightly-next'")):
             with self.subTest(expression=changed):
                 self.assertTrue(table.portable_order(changed, nightly=True))
+
+    def test_nightly_light_jobs_take_the_mini_then_the_nightly_only_pool_never_fleet_linux(self) -> None:
+        attempt = "needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt)"
+        linux = attempt + " && needs.build-nightly-app.outputs.light_linux_runner"
+        mini = (attempt + " && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' prepare-nightly-variant-primary ')"
+                " && needs.build-nightly-app.outputs.light_mini_runner")
+        tail = "vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro'"
+        self.assertEqual(table.portable_order("${{ " + " || ".join((mini, tail)) + " }}", nightly=True), "")
+        # The plain nightly-only pool alone is in order: its minis take only nightly work.
+        self.assertEqual(table.portable_order("${{ " + tail + " }}", nightly=True), "")
+        # Nightlies never run on Blacksmith: a Blacksmith pool tail is refused.
+        self.assertTrue(table.portable_order(
+            "${{ " + " || ".join((mini, "fromJSON(vars.RUNNER_POOLS).linux_32")) + " }}", nightly=True))
+        # Nor on fleet Linux, wherever it sits: nightlies run only on our own Mac minis.
+        for route in ((linux, mini, tail), (mini, linux, tail), (linux, tail)):
+            with self.subTest(route=route):
+                self.assertIn("fleet Linux", table.portable_order("${{ " + " || ".join(route) + " }}", nightly=True))
+
+    def test_portable_order_resolves_declared_pool_members(self) -> None:
+        expression = ("${{ needs.portable-placement.outputs.linux_runner || "
+                      "needs.portable-placement.outputs.mini_runner || "
+                      "fromJSON(vars.RUNNER_POOLS).linux_16 }}")
+        self.assertIn("blacksmith-16vcpu-ubuntu-2404", table.pool_members()["linux_16"])
+        self.assertEqual(table.portable_order(expression), "")
 
     def test_hosted_light_policy_is_central_and_rejects_release_and_hosted_mac(self):
         route = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}"
@@ -131,6 +184,22 @@ class RoutingTableTests(unittest.TestCase):
             baseline = {"runs-on": route, "environment": "ci-routing-agent", "steps": [{"run": "python3 decide.py"}]}
             for change, error in (({}, False), ({"environment": "release"}, True),
                                   ({"environment": {"name": "ci-routing-agent"}}, True),
+                                  # ci.yml's router: the routing environment off pull requests, none on them.
+                                  ({"environment": "${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}"}, False),
+                                  ({"environment": "${{ github.event_name != 'pull_request' && 'release' || '' }}"}, True),
+                                  ({"environment": "${{ vars.ROUTING_ENVIRONMENT }}"}, True),
+                                  ({"runs-on": route.replace("16vcpu", "8vcpu")}, False),
+                                  ({"runs-on": route.replace("16vcpu", "4vcpu")}, True),
+                                  ({"runs-on": route.replace(" || 'blacksmith-16vcpu", " || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-8vcpu")}, False),
+                                  ({"runs-on": route.replace(" || 'blacksmith-16vcpu", " || vars.OTHER && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-8vcpu")}, True),
+                                  # ci.yml's router: the fork pull request branch, then hosted, then the ephemeral mirror.
+                                  ({"runs-on": route.replace("'ubuntu-24.04' || github.run_attempt", "'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.run_attempt").replace(" || 'blacksmith-16vcpu", " || contains(fromJSON('[\"blacksmith-8vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-16vcpu")}, False),
+                                  ({"runs-on": route.replace(" || 'blacksmith-16vcpu", " || contains(fromJSON('[\"glaeda-std\"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-16vcpu")}, True),
+                                  ({"runs-on": route.replace(" || 'blacksmith-16vcpu", " || vars.LINUX_RUNNER || 'blacksmith-16vcpu")}, True),
+                                  # A secretless job may retry on the reconciled pool.
+                                  ({"runs-on": route.replace("'blacksmith-16vcpu-ubuntu-2404'", "fromJSON(vars.RUNNER_POOLS).linux")}, False),
+                                  ({"runs-on": route.replace("'blacksmith-16vcpu-ubuntu-2404'", "fromJSON(vars.RUNNER_POOLS).linux"),
+                                    "env": {"KEY": "${{ secrets.GLAEDA_ROUTE_APP_KEY }}"}}, True),
                                   ({"env": {"KEY": "${{ secrets.CMUX_RELEASE_APP_KEY }}"}}, True),
                                   ({"steps": [{"run": "codesign app"}]}, True),
                                   ({"runs-on": route.replace("github.run_attempt == 1 && 'ubuntu-24.04'", "'macos-26'")}, True),
@@ -146,7 +215,7 @@ class RoutingTableTests(unittest.TestCase):
                     self.assertEqual(len(allowed), 0 if error else 1)
                     if not error:
                         number = int(allowed[0].rsplit(":", 1)[1])
-                        self.assertEqual(path.read_text().splitlines()[number - 1].strip(), "runs-on: " + route)
+                        self.assertEqual(path.read_text().splitlines()[number - 1].strip(), "runs-on: " + {**baseline, **change}["runs-on"])
             policy.write_text(json.dumps({"job_classes": {}, "hosted_light_jobs": {}}))
             self.assertEqual(table.hosted_light_policy(policy, workflows), ([], []))
 
@@ -163,6 +232,28 @@ class RoutingTableTests(unittest.TestCase):
             problems, allowed = table.hosted_light_policy(policy, workflows)
             self.assertEqual(problems, [])
             self.assertEqual(len(allowed), 1)
+
+    def test_hosted_light_policy_takes_the_trusted_selector_retry_only_without_secrets(self):
+        # A reusable workflow cannot fromJSON a variable, so its secretless light job may retry on
+        # the reviewed CI_TRUSTED_RUNNER selector (resolve-runners.yml#resolve).
+        import yaml
+        route = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'ubuntu-24.04' || "
+                 "contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
+                 "vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
+        widened = route.replace('\"ubuntu-24.04\",', '\"ubuntu-24.04\",\"self-hosted\",')
+        for runs_on, env, accepted in ((route, {}, True), (route, {"T": "${{ secrets.T }}"}, False), (widened, {}, False)):
+            with self.subTest(runs_on=runs_on, env=env), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory); workflows = root / "workflows"; workflows.mkdir()
+                policy = root / "runners.json"
+                policy.write_text(json.dumps({"job_classes": {"portable-checks": {"needs": "any"}},
+                    "hosted_light_jobs": {"resolve-runners.yml#resolve": {
+                        "class": "portable-checks", "reason": "resolver", "allowed_secrets": ["T"]}}}))
+                (workflows / "resolve-runners.yml").write_text(yaml.safe_dump({"jobs": {"resolve": {
+                    "runs-on": runs_on, "steps": [{"run": "python3 resolve.py", "env": env}]}}},
+                    sort_keys=False, width=10000))
+                problems, allowed = table.hosted_light_policy(policy, workflows)
+                self.assertEqual(not problems, accepted, problems)
+                self.assertEqual(len(allowed), int(accepted))
 
     def test_hosted_light_policy_checks_inherited_workflow_environment(self):
         import yaml

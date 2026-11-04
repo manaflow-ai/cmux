@@ -28,6 +28,8 @@ import { SoftBroken, softBreaks } from "./softBreaks";
 import { isPromptMarkdown } from "./promptMarkdown";
 import { githubRefLabel, UrlChip } from "../chips/LinkChips";
 import { textLinks } from "../chips/paths";
+import { SkillWordsContext } from "./skillWords";
+import { withSkillWords } from "./SkillWord";
 
 export function PromptText({
   rowId,
@@ -86,7 +88,9 @@ export function PromptText({
       // No layout (a test DOM) keeps the guess.
       if (!height || !Number.isFinite(lineHeight)) return;
       const next = height > COLLAPSED_PROMPT_LINES * lineHeight + 1;
-      setMeasured((last) => (last?.parts === parts && last.long === next ? last : { parts, long: next }));
+      // Confirming the guess changes no UI. Keep that mount to one commit; a width or content
+      // change that disagrees still updates the fold synchronously before paint.
+      setMeasured((last) => ((last?.parts === parts ? last.long : guess) === next ? last : { parts, long: next }));
     };
     measure();
     if (typeof ResizeObserver !== "function") return;
@@ -94,7 +98,7 @@ export function PromptText({
     // The bubble: a text drawn whole has no box to observe.
     observer.observe(node.parentElement ?? node);
     return () => observer.disconnect();
-  }, [parts, long, open, children]);
+  }, [parts, guess, long, open, children]);
   const collapsed = long && !open;
   // A huge prompt draws literally, and collapsed only its head: the clamp hides the rest anyway,
   // and laying out megabytes of hidden text froze the chat (promptCollapse.ts HUGE_PROMPT_CHARS).
@@ -236,14 +240,22 @@ export function PromptTyped({
   plain?: boolean;
 }) {
   const shown = show(text);
+  // A skill's `/name` draws as the composer's command words do, its description on hover.
+  const skills = useContext(SkillWordsContext).words;
   if (plain || isHugePrompt(text)) return <span className="cv-user__typed">{shown}</span>;
+  // Drawn as Markdown, the renderer reads its code as send does (`commonmark`) and lights skills
+  // only in its own plain text.
   return isPromptMarkdown(text) ? (
-    <Markdown className="cv-user__markdown" thumbnails={false}>
+    <Markdown className="cv-user__markdown" thumbnails={false} skills={skills} commonmark>
       {shown}
     </Markdown>
   ) : (
     <span className="cv-user__typed">
-      <LiteralText text={shown} />
+      {skills.size && shown.includes("/") ? (
+        withSkillWords(shown, skills, (piece, key) => <LiteralText key={key} text={piece} />)
+      ) : (
+        <LiteralText text={shown} />
+      )}
     </span>
   );
 }

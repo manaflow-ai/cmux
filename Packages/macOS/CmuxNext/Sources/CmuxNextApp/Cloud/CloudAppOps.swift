@@ -2,31 +2,6 @@ import CmuxNextCloud
 import CmuxNextDaemon
 import Foundation
 
-/// Cloud ops through the Cloud app server (`cmux/cloud`, contract 2.1):
-/// `apps-run` on the local daemon; the server checks the args and origin,
-/// keeps the machine projection, and reaches the cmux-next API Worker
-/// through the host credential relay (install token, `CloudCredentialProvider`).
-/// Never `/api/vm`.
-nonisolated struct CloudAppOpFailure: Error, Equatable, Sendable, CustomStringConvertible {
-    /// The server's code (`cmux.cloud.<reason>`).
-    var code: String
-    var message: String
-    var details: JSONValue?
-
-    static let approvalPending = "cmux.cloud.approval_pending"
-    /// The op needs a paid plan (`cloud.plan.required`).
-    static let planRequired = "cmux.cloud.plan_required"
-
-    /// The approval request id (`apr_…`) of an approval code.
-    var approvalRequest: String? { details?["request"]?.stringValue }
-
-    var description: String { message.isEmpty ? code : message }
-}
-
-/// One Cloud app op: `op`, JSON `args`, an idempotency key for a mutation
-/// (nil for a read), and the wire origin.
-typealias CloudAppOp = @Sendable (_ op: String, _ args: JSONValue, _ key: String?, _ origin: AppsRunRequest.Origin) async throws -> JSONValue
-
 extension CloudAppLinks {
     /// Runs Cloud app ops on `local`'s current connection. A refusal is a
     /// ``CloudAppOpFailure``; origin `user` is sent only where the daemon

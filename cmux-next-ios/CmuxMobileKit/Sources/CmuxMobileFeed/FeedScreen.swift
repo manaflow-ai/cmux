@@ -21,6 +21,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     @State private var markFailure: String?
     @State private var rowContext = FeedRowContext(store: FeedStore.shared)
     @Environment(AppStore.self) private var appStore
+    @Environment(\.openURL) private var openURL
     #if DEBUG
     private let director = DemoDirector.shared
     #endif
@@ -101,6 +102,11 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
 
     private func open(_ item: FeedItem) {
         store.markRead(item.id)
+        // A Mac Feed request (a PR held for trial) opens its page.
+        if let link = item.link {
+            openURL(link)
+            return
+        }
         // A terminal agent's event opens its terminal tab (Workspaces), not a chat.
         if item.opensTerminal, let openTerminal = FeedRouting.shared.openTerminal {
             openTerminal(item)
@@ -263,16 +269,9 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             store.clearUnseen()
         case .feedOpen(let id):
             if let item = store.items.first(where: { $0.id == id }) { open(item) }
-        case .feedSwipe(let id, _):
-            swipe.demoReveal = id
-            swipe.demoPerform = nil
-            swipe.demoSerial += 1
         case .feedSwipeAction(let id, let action):
-            swipe.demoReveal = nil
             swipe.demoPerform = (id, action)
             swipe.demoSerial += 1
-        case .feedSwipeClose:
-            swipe.openID = nil
         case .feedExpand, .feedReply, .answerQuestion:
             list.demo(command)
         default:

@@ -5,9 +5,9 @@
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  margin: 4px 0;
+  margin: var(--ds-space-1) 0;
   padding: 2px 0 4px;
-  border-radius: 10px;
+  border-radius: var(--grid-cards-radius);
   background: var(--acpmux-composer-tray);
   color: var(--agent-text);
   font-size: var(--text-control);
@@ -21,9 +21,9 @@
 .acpmux-tasks-head {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--ds-space-2);
   height: 28px;
-  padding: 0 6px 0 12px;
+  padding: 0 var(--ds-space-2) 0 var(--ds-space-3);
 }
 .acpmux-tasks-count {
   flex: 1;
@@ -45,7 +45,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  margin: 2px 4px 0;
+  margin: var(--grid-half-step) var(--ds-space-1) 0;
   padding: 4px 2px 0 8px;
   border-top: 1px solid color-mix(in srgb, var(--agent-text) 8%, transparent);
 }
@@ -56,7 +56,7 @@
 .acpmux-task-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
   min-height: 24px;
 }
 .acpmux-task-title {
@@ -69,7 +69,7 @@
 .acpmux-task-prompt {
   display: -webkit-box;
   margin: 0;
-  padding-right: 24px;
+  padding-right: var(--ds-space-5);
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -100,7 +100,7 @@
 .acpmux-task-actions .acpmux-task-note {
   flex: 0 1 auto;
   min-width: 0;
-  padding: 0 6px;
+  padding: 0 var(--ds-space-2);
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -116,13 +116,13 @@
 .acpmux-task-action {
   flex: none;
   height: 24px;
-  padding: 0 8px;
-  border-radius: 6px;
-  font-weight: 500;
+  padding: 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
+  font-weight: var(--weight-regular);
 }
 .acpmux-task-action[data-primary] {
   background: var(--agent-text);
-  color: var(--agent-page-bg, var(--acpmux-base));
+  color: var(--acpmux-base);
 }
 .acpmux-task-action:not([data-primary]):not(:disabled):hover,
 .acpmux-task-action[data-popup-open] {
@@ -137,7 +137,7 @@
 }
 .acpmux-task-action[data-primary]:disabled {
   background: color-mix(in srgb, var(--agent-text) 40%, transparent);
-  color: var(--agent-page-bg, var(--acpmux-base));
+  color: var(--acpmux-base);
 }
 .acpmux-task-dismiss {
   display: inline-flex;
@@ -146,7 +146,7 @@
   justify-content: center;
   width: 22px;
   height: 22px;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   color: var(--acpmux-composer-dim);
 }
 .acpmux-task-dismiss:not(:disabled):hover {
@@ -160,6 +160,11 @@
   outline: 1.5px solid var(--agent-text);
   outline-offset: 1px;
 }
+/* The Options menu shares the environment picker's neutral hover/keyboard wash (#33137). */
+.ui-context-menu.acpmux-task-menu .ui-menu-item[data-highlighted] {
+  background: var(--acpmux-menu-hover);
+  box-shadow: none;
+}
 /* Its check sits on the menu's state column (ui/popupSurface.css, "EVERY MENU ON ONE GRID"). */
 .acpmux-task-menu .ui-menu-check {
   display: inline-flex;
@@ -170,7 +175,7 @@
 /* A started task: `⎿ title  subtitle  •  ›`, one 28px line. */
 .acpmux-task-started {
   min-width: 0;
-  padding: 0 4px;
+  padding: 0 var(--ds-space-1);
 }
 .acpmux-tasks-head + .acpmux-task-started,
 .acpmux-task + .acpmux-task-started {
@@ -180,13 +185,13 @@
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
   width: 100%;
   min-width: 0;
   height: 28px;
   overflow: hidden;
-  padding: 0 6px 0 8px;
-  border-radius: 6px;
+  padding: 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
   text-align: start;
 }
 .acpmux-task-row:hover {
@@ -255,19 +260,19 @@
   align-items: center;
   justify-content: center;
   width: 16px;
-  margin-right: 4px;
+  margin-right: var(--ds-space-1);
   color: var(--acpmux-composer-dim);
 }
 .acpmux-task-received-line {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-1);
   max-width: 100%;
   height: 26px;
   padding: 0 6px;
   margin-left: -6px;
   overflow: hidden;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   color: var(--acpmux-composer-dim);
   font-size: var(--text-control);
   white-space: pre;
@@ -284,8 +289,8 @@
   text-overflow: ellipsis;
   box-sizing: border-box;
   height: 20px;
-  padding: 0 7px;
-  border-radius: 6px;
+  padding: 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
   line-height: 20px;
   color: var(--agent-text);
   background: color-mix(in srgb, var(--agent-text) 10%, transparent);

@@ -133,7 +133,7 @@ mod identify;
 mod recovery_tests;
 use identify::{IdentifyError, identify};
 pub(crate) use install_key::{OWNER_INSTALL_KEY_FD_ARG, install_key_from_launcher};
-pub(crate) use replace::{ReplaceError, replace_if_unresponsive};
+pub(crate) use replace::{ReplaceError, is_wedged, replace_if_unresponsive, replace_if_wedged};
 
 /// Takes an inherited descriptor (`option` names it) from argv and keeps it
 /// out of every process the owner starts (terminal hosts): only this owner
@@ -795,6 +795,11 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     }
     if let Some(brains) = &spec.chief_brains {
         command.env(cmux_tui_core::chief_brains::ENV, brains);
+    }
+    // R-LIFECYCLE stage 1's switch, when off, reaches only the owner this
+    // call spawns (headless.rs `take_owner_keepers_switch`); on is the default.
+    if !crate::headless::owner_keepers_switch() {
+        command.env(crate::headless::OWNER_KEEPERS_ENV, "0");
     }
     // The app directory settings this client took at start go to the owner
     // daemon it spawns only (cx-e0cs): the owner takes them out of its own

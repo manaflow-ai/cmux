@@ -50,6 +50,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     var sidePins: [SidebarSide: [NSLayoutConstraint]] = [:]
     private var placementObservation: Task<Void, Never>?
     private var titleHeight: NSLayoutConstraint?
+    private var titleLeadingReserve: NSLayoutConstraint?
     private var tokenObservation: Task<Void, Never>?
     private var displayOptionsObserver: MainActorObservation?
     private(set) weak var content: NSView?
@@ -126,7 +127,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     ///   radius (the backdrop's ``WindowBackdrop/windowBlurRadius``).
     /// - Parameter revealClock: Times the collapsed band's close delay.
     init(sidebar: SidebarContainerView, activeLook: ActiveLookScope? = nil,
-         reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
+         reduceTransparency: @escaping @MainActor () -> Bool = { ReduceTransparency.shared.isEnabled },
          applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) },
          revealClock: any Clock<Duration> = ContinuousClock()) {
         (self.sidebar, backdropView) = (sidebar, WindowMaterialView(frame: .zero, images: .shared, activeLook: activeLook))
@@ -151,6 +152,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         addSubview(toolbarBand)
         addSubview(titlebarRevealRegion)
         let titleHeight = titlebar.heightAnchor.constraint(equalToConstant: 0)
+        let titleLeadingReserve = titlebar.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: Metrics.trafficLightInset)
         mainPaneEdges = [contentHost.topAnchor.constraint(equalTo: titlebar.bottomAnchor),
                          contentHost.bottomAnchor.constraint(equalTo: bottomAnchor)]
         NSLayoutConstraint.activate([
@@ -160,7 +162,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             titleHeight,
             // When the sidebar hides, the title stops clear of the traffic
             // lights while the content below reaches the window edge.
-            titlebar.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: Metrics.trafficLightInset),
+            titleLeadingReserve,
         ] + mainPaneEdges)
         // The first window opens on the configured side (no move after).
         sidebarSide = DesignSettings.shared.sidebarSide
@@ -170,11 +172,14 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         sidePins = SidebarSide.pins(sidebar: sidebar, content: contentHost, title: titlebar, in: self)
         NSLayoutConstraint.activate(sidePins[sidebarSide] ?? [])
         self.titleHeight = titleHeight
+        self.titleLeadingReserve = titleLeadingReserve
         applyTokens()
         setUpTitlebarReveal()
         setUpCollapsedBandReveal()
         tokenObservation = Task { [weak self] in
-            for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0,
+            for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, Metrics.trafficLightInset,
+                                           TitlebarBandButton.side, TitlebarToolbarBand.width, Metrics.space2, Metrics.space3,
+                                           DesignSettings.shared.titlebar == .minimal ? 1 : 0,
                                            DesignSettings.shared.titlebarButtons == .hover ? 1 : 0,
                                            DesignSettings.shared.sidebarSections.controlsOnHover ? 1 : 0,
                                            DesignSettings.shared.tabBarPosition == .bottom ? 1 : 0] }) {
@@ -218,6 +223,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     func applyTokens() {
         let minimal = titlebarStyle == .minimal
         titleHeight?.constant = minimal ? 0 : Metrics.titlebarHeight
+        titleLeadingReserve?.constant = Metrics.trafficLightInset
         titlebar.isHidden = minimal || presentsPage
         sidebar.sidebarView.titlebarHeightOverride = minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight
         needsLayout = true
@@ -262,8 +268,11 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         (window as? ShellWindow)?.overlayLayer.setSidebarResizeBand(sidebar.resizeBandInWindow)
         guard let window, let host = WindowOverlayHost.existingHost(for: window) else { return }
         host.repairAgentCursorOrder()
-        let shows = sidebar.frame.width > 0.5 && !sidebar.isHidden
-        host.setOccluder(id: "sidebar", rect: shows ? sidebar.convert(sidebar.bounds, to: nil) : nil)
+        host.setOccluder(id: "sidebar", rect: sidebar.occluderRectInWindow)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        sidebar.routePaneReach(super.hitTest(point), at: convert(point, from: superview), in: self)
     }
 
     override func layout() {
@@ -281,6 +290,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         // Every frame is final here: the shade follows the card even when the
         // shade's own autoresizing landed after the card's frame change.
         updateMainPaneShade()
+        sidebar.updateResizeLine(cardMaxY: contentHost.frame.maxY)
         // The band starts after the traffic lights (which never move) and is
         // as wide as the sidebar's on-screen share: 0 wide, with no gap
         // after the lights, while the sidebar is hidden (cx-uxdr).
@@ -295,15 +305,17 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         }
         let presence = toolbarBandPresence
         let bandHeight = TitlebarBandButton.side
-        let bandWidth = (TitlebarToolbarBand.width * presence * 2).rounded() / 2
+        let fullBand = CGRect(x: lightsMaxX + Metrics.space3, y: midY - bandHeight / 2,
+                              width: TitlebarToolbarBand.width, height: bandHeight)
         let presenceChanged = toolbarBand.presence != presence
         toolbarBand.presence = presence
-        toolbarBand.frame = CGRect(x: lightsMaxX + Metrics.space3 * presence, y: (midY - bandHeight / 2).rounded(),
-                                   width: bandWidth, height: bandHeight)
+        toolbarBand.frame = WindowTitlebar.alignedFrame(CGRect(x: lightsMaxX + Metrics.space3 * presence, y: fullBand.minY,
+                                                              width: fullBand.width * presence, height: bandHeight),
+                                                       scale: window?.backingScaleFactor ?? 1)
         // A right sidebar's header is clear of the traffic lights and the band.
         // The reserve is the full band, so the header does not reflow while
         // the sidebar slides out.
-        let fullBandMaxX = lightsMaxX + Metrics.space3 + TitlebarToolbarBand.width
+        let fullBandMaxX = WindowTitlebar.alignedFrame(fullBand, scale: window?.backingScaleFactor ?? 1).maxX
         sidebar.sidebarView.headerHasWindowControls = sidebarSide == .left
         sidebar.sidebarView.titlebarLeadingReserve = sidebarSide == .left ? fullBandMaxX + Metrics.space2 : Metrics.space3
         if presenceChanged { onToolbarBandPresenceChange?() }
@@ -376,8 +388,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// leaves the window). Other content leaves the window.
     private func withdraw(_ view: NSView) {
         guard view is WorkspaceContentView, view.superview === contentHost else { return view.removeFromSuperview() }
-        if let window, let responder = window.firstResponder as? NSView, responder.isDescendant(of: view),
-           !window.makeFirstResponder(nil) {
+        if !view.handKeyboardToWindow(), let window {
             // A field editor that refuses to resign while it validates: end the edit, then resign.
             window.endEditing(for: nil)
             window.makeFirstResponder(nil)

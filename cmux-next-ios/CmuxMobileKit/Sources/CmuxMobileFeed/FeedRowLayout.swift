@@ -411,6 +411,8 @@ private struct FeedRowBuilder {
             return .question(card, openTerminal: button)
         case .needsInput:
             if let resolution = item.resolution { return secondaryLine("checkmark.circle", resolution) }
+            // A Mac Feed request opens its page from the row (its link is in the text), not a terminal.
+            if item.link != nil { return .none }
             let font = styles.font(.headline)
             let title = symbolText("terminal", "Answer in Terminal", font: font, color: capsuleColor(.primary))
             let top = place(44)

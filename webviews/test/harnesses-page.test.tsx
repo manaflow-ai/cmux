@@ -174,6 +174,12 @@ test("the page shows each harness's state on this Mac", async () => {
     OpenCode: "notInstalled",
     Pi: "notInstalled",
     "Vercel AI Gateway": "notInstalled",
+    // Every harness acpmux runs is in the catalog, listed before it is installed (#31499).
+    "Prime Intellect": "notInstalled",
+    "oh-my-pi": "notInstalled",
+    Cursor: "notInstalled",
+    "Hermes Agent": "notInstalled",
+    DeepSeek: "notInstalled",
   });
 });
 

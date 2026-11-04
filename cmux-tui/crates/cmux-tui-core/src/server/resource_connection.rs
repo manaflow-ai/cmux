@@ -315,7 +315,7 @@ pub(super) fn handle_resource_connection_message(
             let handled = crate::resource_router::handle_parsed_resource_request(mux, request);
             crate::debug_spans::mark("router.answered");
             match handled {
-                Ok(response) => {
+                Ok(mut response) => {
                     if let Some(claim) = claim
                         && super::incognito_orphans::answered_ok(&response)
                     {
@@ -325,6 +325,8 @@ pub(super) fn handle_resource_connection_message(
                         mux, client, operation, ephemeral, &response,
                     );
                     activity::note_resource_input(mux, client, operation, &response);
+                    // A remote device's reply leaves out incognito rows (#31210).
+                    super::incognito_remote::prune_reply(mux, client, &mut response);
                     writer.send_control(&response).is_ok()
                 }
                 // Only a response that cannot be encoded fails here.

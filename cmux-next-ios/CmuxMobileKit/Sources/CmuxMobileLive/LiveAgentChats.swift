@@ -127,6 +127,19 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
         return now
     }
 
+    /// Stop: `session/cancel` as a request, so acpmux's refusal (a chat the Mac started,
+    /// `remote.session_cancel_ownership`) comes back instead of being dropped.
+    public func stopAgentChat(_ chat: AgentChatListing, on macID: String) async throws {
+        let acpmux = try readyAcpmux(macID)
+        do {
+            _ = try await acpmux.request("session/cancel", .object(["sessionId": .string(chat.id)]), timeout: .seconds(20))
+        } catch let error as AcpmuxConnection.RPCError where error.reason == "remote.session_cancel_ownership" {
+            throw AgentChatOwnedByMac(error.message)
+        } catch let error as AcpmuxConnection.RPCError {
+            throw WorkspaceCreationError(error.message, isForPerson: true)
+        }
+    }
+
     public func openChatFolderInTerminal(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
         guard canManage(on: workspace.macID), let client = sync.daemon, let tree = sync.tree else {
             throw WorkspaceCreationError("Not connected")
@@ -141,6 +154,29 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
         guard let line = Self.changeDirectoryLine(folder) else {
             throw WorkspaceCreationError(Self.untypableFolder, isForPerson: true)
         }
+        do {
+            let reply = try await client.request("new-tab", params: ["pane": place.pane])
+            guard let surface = (try WorkspaceSync.check(reply)["data"] as? [String: Any])?["surface"] as? Int else {
+                throw WorkspaceCreationError("The Mac didn't say which tab it opened")
+            }
+            try WorkspaceSync.check(await client.request("send", params: ["surface": surface, "text": line]))
+            return try await listedTab(DaemonTree.tabID(surface: surface), workspace: workspace.id)
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
+    }
+
+    public func launchAgentTeams(_ teams: AgentTeamsLaunch, beside tab: WorkspaceTab?, folder: String?,
+                                 in workspace: Workspace) async throws -> WorkspaceTab {
+        guard canManage(on: workspace.macID), let client = sync.daemon, let tree = sync.tree else {
+            throw WorkspaceCreationError("Not connected")
+        }
+        guard let place = tab.flatMap({ tree.tabPlaces[$0.id] }) ?? tree.panes[workspace.id].map({ DaemonTree.TabPlace(pane: $0, index: 0) }) else {
+            throw WorkspaceCreationError("The Mac doesn't list this workspace's panes")
+        }
+        // The Mac opens the tab in the focused tab's folder; a new tab here starts in the
+        // pane's, so it changes to that folder first when it can be typed safely.
+        let line = (folder.flatMap(Self.changeDirectoryLine) ?? "") + teams.line
         do {
             let reply = try await client.request("new-tab", params: ["pane": place.pane])
             guard let surface = (try WorkspaceSync.check(reply)["data"] as? [String: Any])?["surface"] as? Int else {

@@ -11,6 +11,7 @@ import {
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
+import { useComposerLook } from "./composerLook";
 import { useRowFit } from "./composerRowFit";
 import { MarkdownField, type MarkdownFieldHandle, type MarkdownFieldProps } from "./MarkdownField";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
@@ -78,8 +79,8 @@ export type ComposerBoxProps = {
   onCardPress?(): void;
   /// The button row's leading control (+) and anything before it.
   leading?: React.ReactNode;
-  /// The agent's mode, model and effort chips, in the quiet row under the box (ComposerFoot), in
-  /// both looks. The model picker owns any inline Fast toggle.
+  /// The agent's mode, model and effort chips, in the quiet row (ComposerFoot): under the box in
+  /// Claude's look, inside it under the prompt in Codex's. The model picker owns any inline Fast toggle.
   chips?: React.ReactNode;
   /// What ends the quiet row (the context ring).
   ring?: React.ReactNode;
@@ -140,13 +141,19 @@ export function ComposerBox({
   inert = false,
 }: ComposerBoxProps) {
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css). Both
-  // looks lay the buttons out as Claude's (composerLook.ts): +, the prompt, the mic and Send in the
-  // box's grid, the mode, model, effort and ring in the quiet row under it.
+  // looks use the same controls and prompt. Codex's gives the prompt its own full-width line,
+  // with + and the trailing actions on the lower row (composerLook.css).
+  // The mode, model, effort and ring are the quiet row: under the box in Claude's look, inside it
+  // under the prompt in Codex's (Leo 2026-10-30: "the bypass/context/model picker stuff should
+  // literally be inside the composer box"; 2026-11-02: "switching to the codex view in the middle of
+  // an agent chat doesn't do anything right now"). The row moves on a look switch while the prompt
+  // stays mounted, so the draft and caret stay.
   const { plainFooter, attachmentView } = useComposerSettings();
-  // The footer look can change from Settings while this component stays mounted: the fit key has it,
-  // so the live row is measured again before the new form paints.
+  const rowInBox = useComposerLook() === "codex";
+  // The footer look and the row's place can change while this component stays mounted: the fit key
+  // has both, so the live row is measured again before the new form paints.
   const bar = useRef<HTMLDivElement>(null);
-  useRowFit(bar, `${plainFooter}`);
+  useRowFit(bar, `${plainFooter}:${rowInBox}`);
   const prompt = useRef<MarkdownFieldHandle>(null);
   const setPrompt = useCallback(
     (next: MarkdownFieldHandle | null) => {
@@ -229,6 +236,14 @@ export function ComposerBox({
     else prompt.current?.focus();
   };
   const shownChips = chips;
+  const quietRow = (
+    <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
+      <ComposerFoot ref={bar} plain={plainFooter}>
+        {shownChips}
+        {ring}
+      </ComposerFoot>
+    </ChromeArea>
+  );
   // The box the `/` and `@` lists in `top` float above, drawn outside its glass (backdropLayer.tsx).
   const [boxElement, setBoxElement] = useState<HTMLDivElement | null>(null);
   const attachBox = useCallback(
@@ -362,8 +377,8 @@ export function ComposerBox({
         </ContextMenu>
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
-          {/* The compact box grid for +, the prompt, the mic and Send, with the model group in
-              ComposerFoot, in both looks. The granted-permission status gets no slot of its own
+          {/* The box grid for +, the prompt, the mic and Send, with the model group in
+              ComposerFoot. The granted-permission status gets no slot of its own
               (hq#1957 item 15 compact row): grants are revoked from the chat menu (header/grantsMenu.ts). */}
           <div
             className="acpmux-composer-bar acpmux-composer-inner"
@@ -382,13 +397,9 @@ export function ComposerBox({
             </span>
           </div>
         </ChromeArea>
+        {rowInBox && quietRow}
       </div>
-      <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
-        <ComposerFoot ref={bar} plain={plainFooter}>
-          {shownChips}
-          {ring}
-        </ComposerFoot>
-      </ChromeArea>
+      {!rowInBox && quietRow}
       {/* One stable host for both looks, so a look switched from the dots by keys keeps the same
           radios and focus: they draw over the quiet row's empty middle (composerLook.css). */}
       {bottom && <div className="acpmux-composer-under">{bottom}</div>}

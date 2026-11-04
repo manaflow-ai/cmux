@@ -20,7 +20,7 @@ struct IncognitoFeedHandoffTests {
         let services = AppServices(environment: AppEnvironment.current([:]))
         services.windows.ordersWindowsIn = false
         let window = services.windows.newIncognitoWindow()
-        let secret = WorkspaceKey(rawValue: try #require(services.windows.pendingClaims.first { $0.value == window }?.key))
+        let secret = WorkspaceKey(rawValue: try #require(services.windows.claims.pending.first { $0.value == window }?.key))
         let normalTab = TabSnapshot(surface: 1, terminalResourceID: "term_normal", name: "normal")
         let secretTab = TabSnapshot(surface: 2, terminalResourceID: "term_secret", name: "deploy keys")
         let normalScreen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [normalTab])])
@@ -33,7 +33,7 @@ struct IncognitoFeedHandoffTests {
         service.services = services
         let open = service.feedHandoffPolicy()
         guard closed else { return open }
-        services.windows.pendingClaims[secret.rawValue] = nil
+        services.windows.claims.pending[secret.rawValue] = nil
         services.daemon.store.apply(snapshot: DaemonTree(workspaces: [
             WorkspaceSnapshot(id: 1, key: .generate(), resourceID: "ws_normal", name: "normal", screens: [normalScreen]),
         ]))

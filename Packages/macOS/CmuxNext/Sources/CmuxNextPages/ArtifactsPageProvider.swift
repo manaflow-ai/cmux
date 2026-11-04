@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextSettings
 public import Foundation
 
@@ -5,9 +6,10 @@ public extension PageDescriptor {
     /// The Artifacts page (webviews/src/pages/artifacts): the account's synced artifacts and
     /// memories as a tree, a preview and their history, read only. Its three ops are relayed to
     /// cmux-platform's `/v1/artifacts` reads with the app's own bearer; the page never sees a token.
-    /// Saved HTML previews in passive srcdoc frames, which never navigate.
-    static let artifacts = PageDescriptor(id: "cmux.artifacts", resource: "artifacts", namespaces: ["cmux.artifacts."],
-                                          passiveFrames: true)
+    /// Saved HTML previews in passive srcdoc frames, which never navigate. Signed out, its one action
+    /// is the app's Sign In (the page's Sign In button).
+    static let artifacts = PageDescriptor(id: "cmux.artifacts", resource: "artifacts", namespaces: ["cmux.artifacts.", "cmux.cloud."],
+                                          nativeOps: [PageNativeOp.actionRun], actions: ["palette.auth.signIn"], passiveFrames: true)
 }
 
 /// One authenticated GET the provider asks the app to make: `path` under the platform's base URL
@@ -40,28 +42,63 @@ public nonisolated struct ArtifactsReply: Sendable {
 
 /// `cmux.artifacts.tree {ref?, path?}`, `cmux.artifacts.history {ref?, path?, limit?}` and
 /// `cmux.artifacts.file {path, ref?}`: one platform read each. Every param is checked before
-/// anything is sent, so a page can only name a ref, a path and a count. `allowed` is asked on every
-/// call, so a tab restored or left open after `labs.previewFeatures` turned off reads nothing.
+/// anything is sent, so a page can only name a ref, a path and a count. On for everyone: Leo asked for
+/// the feature, so it has no Labs gate; signed out, every read answers sign in.
 @MainActor
 public final class ArtifactsPageProvider: PageProvider {
+    /// The host's account-change stream. The page uses it to invalidate private content before
+    /// the next tree read, including when sign-out happens while the page stays open.
+    public typealias AuthChanges = @MainActor (@escaping @MainActor (JSONValue) -> Void) -> PageSubscription
+
     /// The history page size the platform takes.
     public static let limitRange: ClosedRange<Int> = 1...100
     /// A file larger than this comes back without its content; the page says it is too large to preview.
     public static let previewLimit = 4 * 1024 * 1024
 
-    private let allowed: @MainActor () -> Bool
     private let fetch: @Sendable (ArtifactsRead) async throws -> ArtifactsReply
+    private let authChanges: AuthChanges?
 
     /// - Parameter fetch: Makes the authenticated GET and returns the platform's answer; throws
     ///   when the platform cannot be reached or the person is signed out.
-    public init(allowed: @escaping @MainActor () -> Bool, fetch: @escaping @Sendable (ArtifactsRead) async throws -> ArtifactsReply) {
-        self.allowed = allowed
+    public init(fetch: @escaping @Sendable (ArtifactsRead) async throws -> ArtifactsReply,
+                authChanges: AuthChanges? = nil) {
         self.fetch = fetch
+        self.authChanges = authChanges
+    }
+
+    /// The Artifacts tab's page: this provider on the app-selected platform API, each read made
+    /// with `token`'s access token (nil when signed out). The host supplies the base so release
+    /// builds use their production Cloud configuration and debug builds can use a preview.
+    public static func page(baseURL: URL?, authChanges: AuthChanges? = nil,
+                            token: @escaping @Sendable () async throws -> String?) -> PageWebView? {
+        let provider = ArtifactsPageProvider(fetch: platformFetch(base: baseURL, token: token), authChanges: authChanges)
+        return PageWebView(descriptor: .artifacts, routes: [PageRoute(prefix: "cmux.artifacts.", provider: provider),
+                                                            PageRoute(prefix: "cmux.cloud.", provider: provider)])
+    }
+
+    /// Bridges the app's observed account identity to the page's invalidation stream.
+    public static func authChanges(accountID: @escaping @MainActor @Sendable () -> String?) -> AuthChanges {
+        { onEvent in
+            let task = Task { @MainActor in
+                var previous = accountID()
+                for await next in ObservationStream(accountID) {
+                    guard next != previous else { continue }
+                    previous = next
+                    onEvent(.object([:]))
+                }
+            }
+            return PageSubscription { task.cancel() }
+        }
+    }
+
+    public func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
+                          onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
+        guard stream == "cmux.cloud.auth.watch", let authChanges else { throw PageError.unknownOp(stream) }
+        return authChanges(onEvent)
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         let read = try Self.read(op, params)
-        guard allowed() else { throw PageError(code: "cmux.artifacts.unavailable", message: Self.previewRefusal, retryable: true) }
         let reply: ArtifactsReply
         do {
             reply = try await fetch(read)
@@ -126,17 +163,30 @@ public final class ArtifactsPageProvider: PageProvider {
     /// answer when `token` gives nil (signed out).
     public nonisolated static func platformFetch(base: URL?, token: @escaping @Sendable () async throws -> String?)
         -> @Sendable (ArtifactsRead) async throws -> ArtifactsReply {
-        { read in
+        let session = noStoreSession()
+        return { read in
             guard let base else { throw URLError(.badURL) }
             guard let access = try await token() else { return ArtifactsReply(status: 401, body: Data()) }
             guard let url = url(read, base: base) else { throw URLError(.badURL) }
             var request = URLRequest(url: url)
+            request.timeoutInterval = 60
             request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
-            let (body, response) = try await URLSession.shared.data(for: request)
+            let (body, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
             return ArtifactsReply(status: http.statusCode, body: body, contentType: http.value(forHTTPHeaderField: "Content-Type"),
                                   commit: http.value(forHTTPHeaderField: "X-Artifacts-Commit"))
         }
+    }
+
+    /// Artifact replies carry account data. Keep them out of shared URLSession caches and cookies,
+    /// and never follow a redirect that could move the bearer to another origin.
+    private nonisolated static func noStoreSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieAcceptPolicy = .never
+        return URLSession(configuration: configuration, delegate: RefuseRedirects(), delegateQueue: nil)
     }
 
     /// `read`'s URL under `base`, whose own path (a deployment under a prefix) is kept. Each query
@@ -190,10 +240,6 @@ public final class ArtifactsPageProvider: PageProvider {
 
     /// The tab's title.
     public static var title: String { t("artifacts.tab.title", "Artifacts") }
-    /// Why `artifacts.show` is unavailable while `labs.previewFeatures` is off.
-    public static var previewRefusal: String {
-        t("artifacts.refusal.preview", "Artifacts is a preview feature: turn on Show Preview Features in Settings.")
-    }
 
     static var unreachable: String {
         t("artifacts.unreachable", "Artifacts could not be reached. Check that you are signed in and online, then try again.")
@@ -213,5 +259,12 @@ public final class ArtifactsPageProvider: PageProvider {
 
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, bundle: .module)
+    }
+}
+
+private final class RefuseRedirects: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }

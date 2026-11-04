@@ -9,7 +9,8 @@
 // Then the call's locations, a path field in a cut-off input, and a path in the title. A row never
 // shows the raw input: no path found is an empty list (the card says "Unknown file").
 import { cmuxTitle } from "./conversation/cmuxExec";
-import { mcpCall, mcpPlainName } from "./conversation/mcpCalls";
+import { mcpCall, mcpDescription, mcpUsing } from "./conversation/mcpCalls";
+import { harnessToolLabel } from "./harnessToolLabels";
 import { currentLanguage, translatorFor } from "./i18n";
 import { ROW_WIDTH, shortCommand } from "./conversation/shortCommand";
 import type { AcpmuxActivity } from "./model";
@@ -66,10 +67,18 @@ export function toolLabel(
   // Never cut by length: the line it draws on ends in a CSS ellipsis at its right edge.
   if (tool.kind === "execute" && command) return commandLabel(shortCommand(command, ROW_WIDTH));
   if (unnamedCommand && isBareShellName(tool, title || fallbackName)) return unnamedCommand;
-  // An MCP call reads as its server and action, never as `mcp__<server>__<tool>`.
+  // An MCP call reads as Claude Code words it, "Using repo: repo grep" (mcpUsing), never as
+  // `mcp__<server>__<tool>`.
   const call = mcpCall(tool);
   // The cmux server's own calls say what they do ("Listing workspaces", cmuxExec.ts).
-  if (call) return cmuxTitle(translatorFor(currentLanguage()), [call], [tool]) ?? mcpPlainName(call);
+  if (call) {
+    const t = translatorFor(currentLanguage());
+    return (
+      mcpDescription(call) ??
+      cmuxTitle(t, [call], [tool]) ??
+      mcpUsing(t, call, tool.status === "pending" || tool.status === "in_progress")
+    );
+  }
   // An edit of several files keeps a title that says more than its verb ("Edit 2 files"): naming
   // the first file alone would read as an edit of that one file.
   if (paths.length > 1 && /\s/.test(title)) return title;
@@ -77,7 +86,8 @@ export function toolLabel(
     const action = firstWord(title || fallbackName);
     return title.includes(paths[0]!) ? title : `${action} ${fromFolder(paths[0]!, cwd)}`;
   }
-  return title || fallbackName;
+  // A harness's own tool reads as what it does ("Scheduled a wakeup"), never as "ScheduleWakeup".
+  return harnessToolLabel(translatorFor(currentLanguage()), tool, title || fallbackName) ?? (title || fallbackName);
 }
 
 /// A shell tool's own name standing in for a label: "Bash", "Shell", "Terminal", `exec_command`.

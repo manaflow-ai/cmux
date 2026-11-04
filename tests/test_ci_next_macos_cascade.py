@@ -2268,5 +2268,55 @@ class GuiOverflow(unittest.TestCase):
                 self.assertEqual(cascade.gui_overflow_label(live, waiting, seen, jobs=3), SMALL)
 
 
+class SharedRunnerStateCascadeTests(unittest.TestCase):
+    def document(self, **updates):
+        return {"schema": "runner-state/v1", "repository": "manaflow-ai/cmux", "complete": True,
+                "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(), "repository_runners": [],
+                "runner_groups": {"glaeda-minis": []},
+                "scale_sets": {LARGE: 2, SMALL: 5, MACOS_15: 1}, **updates}
+
+    @staticmethod
+    def encoded(doc):
+        import base64
+        import gzip
+        return base64.b64encode(gzip.compress(json.dumps(doc).encode())).decode()
+
+    def test_complete_document_supplies_scale_set_counts_without_api_requests(self):
+        import os
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"CI_RUNNER_STATE": self.encoded(self.document())}), \
+                mock.patch.object(cascade.Api, "_get", side_effect=AssertionError("live read")):
+            counts = cascade.Api("synthetic-token", "manaflow-ai/cmux").in_flight()
+        self.assertEqual(counts, {LARGE: 2, SMALL: 5, MACOS_15: 1})
+
+    def test_partial_scale_sets_retain_live_group_fallback(self):
+        import os
+        from unittest import mock
+        def get(path):
+            if "visible_to_repository" in path:
+                return {"runner_groups": [{"name": f"Blacksmith scale sets - {LARGE}", "id": 20},
+                                          {"name": f"Blacksmith scale sets - {SMALL}", "id": 21}]}
+            return {"runners": [{"status": "online"}]}
+        with mock.patch.dict(os.environ, {"CI_RUNNER_STATE": self.encoded(self.document(scale_sets={LARGE: 0}))}), \
+                mock.patch.object(cascade.Api, "_get", side_effect=get) as live:
+            counts = cascade.Api("synthetic-token", "manaflow-ai/cmux").in_flight()
+        self.assertEqual(counts, {LARGE: 1, SMALL: 1})
+        self.assertEqual(live.call_count, 3)
+
+    def test_missing_optional_pool_count_rechecks_its_visible_group_live(self):
+        import os
+        from unittest import mock
+        def get(path):
+            if "visible_to_repository" in path:
+                return {"runner_groups": [{"name": f"Blacksmith scale sets - {label}", "id": 20 + index}
+                                          for index, label in enumerate(cascade.POOL_LABELS)]}
+            return {"runners": [{"status": "online"}] * 3}
+        document = self.document(scale_sets={LARGE: 2, SMALL: 5})
+        with mock.patch.dict(os.environ, {"CI_RUNNER_STATE": self.encoded(document)}), \
+                mock.patch.object(cascade.Api, "_get", side_effect=get) as live:
+            counts = cascade.Api("synthetic-token", "manaflow-ai/cmux").in_flight()
+        self.assertEqual(counts, {LARGE: 3, SMALL: 3, MACOS_15: 3})
+        self.assertEqual(live.call_count, 4)
+
 if __name__ == "__main__":
     unittest.main()

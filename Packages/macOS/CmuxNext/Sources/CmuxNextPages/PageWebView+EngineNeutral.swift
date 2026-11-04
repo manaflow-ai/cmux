@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextBrowserCore
 import Foundation
 import WebKit
 
@@ -56,6 +57,36 @@ extension PageWebView {
             guard self.chromiumSession == nil else { return body() }
             Self.afterPresentationUpdate(of: self.webView, body)
         }
+    }
+
+    /// Runs `body` once the page drew a frame laid out at `size` (points): its viewport reached that
+    /// size, then the next frame. A Chromium page learns a new size from its window a frame or more
+    /// after the view's, so a plain next frame can still be one at the old size. A frame not drawn
+    /// within 50 ms (a throttled page) counts as one; gives up after 60 and runs `body` all the same.
+    public func afterFrame(at size: CGSize, _ body: @escaping () -> Void) {
+        let wait = """
+        const fits = () => Math.abs(innerWidth - width) <= 1 && Math.abs(innerHeight - height) <= 1;
+        const frame = () => new Promise((done) => { requestAnimationFrame(done); setTimeout(done, 50); });
+        for (let count = 0; count < 60 && !fits(); count++) await frame();
+        await frame();
+        await new Promise((done) => setTimeout(done, 0));
+        """
+        let zoom = max(pageZoom, 0.01)
+        // task-owner: bounded frame wait (at most 61 frames of 50 ms); ends with the page's answer (or at once when the page is gone)
+        Task { @MainActor [weak self] in
+            guard let self else { return body() }
+            _ = await self.callPageFunction(wait, arguments: ["width": Double(size.width) / zoom, "height": Double(size.height) / zoom])
+            guard self.chromiumSession == nil else { return body() }
+            Self.afterPresentationUpdate(of: self.webView, body)
+        }
+    }
+
+    /// Tells the Chromium page's window to follow this view now (it moved or was laid out again
+    /// elsewhere): the window follows its view only when told (`CEFHostView.pagesNeedUpdate`).
+    public func chromiumWindowMoved() {
+        guard chromiumSession != nil, let window else { return }
+        NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window,
+                                        userInfo: [browserPagesForceUpdateKey: true])
     }
 
     /// WebKit's next presentation update (the layer tree the window shows), then `body`.

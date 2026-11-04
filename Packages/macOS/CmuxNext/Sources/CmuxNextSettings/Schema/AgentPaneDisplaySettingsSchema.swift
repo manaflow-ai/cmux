@@ -24,6 +24,11 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
     /// Every row's key (agents may set them: looks only).
     static var keys: Set<String> { Set(descriptors.map(\.id)) }
 
+    /// `agentPane.display.sessionInfo.placement`, the Session Info row (Push or Overlay).
+    static let sessionInfoPlacementPath = section + ["sessionInfo", "placement"]
+    /// The key the Session Info row had before (``RenamedSettingKeys``); a file that still holds it applies.
+    static let legacySessionInfoPlacementPath = section + ["inspector", "placement"]
+
     /// `agentPane.display.minimap`, the Chat Minimap row.
     static let minimapKey = (section + ["minimap"]).joined(separator: ".")
 
@@ -63,6 +68,12 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 help: SettingsText.keyed("settings.agentPane.display.vscodeMinimap.help",
                                          "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll."),
                 .toggle, .bool(false), ["minimap", "vscode", "vs code", "code", "map", "overview", "scroll", "scrollbar", "right", "toggle"]),
+            // The running turn's task list pinned under its latest message (webviews conversation/turns.ts).
+            // Off by default: the composer's hat shows it (subagents/SubagentTray.tsx `plan`; Leo, 2026-11-03).
+            row(["pinnedPlan"], SettingsText.keyed("settings.agentPane.display.pinnedPlan", "Pin Task List in Chat"),
+                help: SettingsText.keyed("settings.agentPane.display.pinnedPlan.help",
+                                         "While the agent works, its task list stays under the latest message instead of in the bar over the composer."),
+                .toggle, .bool(false), ["plan", "task", "tasks", "todo", "checklist", "pin", "pinned", "list", "progress"]),
             row(["font", "preset"], SettingsText.keyed("settings.agentPane.display.font", "Chat Font"),
                 .choice([
                     SettingChoice("markdown", SettingsText.keyed("settings.choice.agentChatFontMarkdown", "Same as Markdown Viewer")),
@@ -86,7 +97,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                                          "Code as a share of the chat's text size. Empty uses the Markdown viewer's."),
                 .number(SettingNumber(0.6...1.25, step: 0.025, unit: .fraction, placeholder: codeScaleFallback)), nil,
                 ["code", "font", "size", "monospace", "scale"]),
-            row(["inspector", "placement"], SettingsText.keyed("settings.agentPane.display.inspector", "Session Info"),
+            row(["sessionInfo", "placement"], SettingsText.keyed("settings.agentPane.display.inspector", "Session Info"),
                 help: SettingsText.keyed("settings.agentPane.display.inspector.help",
                                          "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."),
                 .choice([
@@ -139,6 +150,14 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                     SettingChoice("messages", SettingsText.keyed("settings.choice.agentChatPresentationMessages", "Messages")),
                 ]),
                 .string("transcript"), ["presentation", "messages", "bubbles", "chat", "tools"]),
+            row(["harnessPlacement"], SettingsText.keyed("settings.agentPane.display.harnessPlacement", "Model Picker Harness Placement"),
+                .choice([
+                    SettingChoice("symbols", SettingsText.keyed("settings.choice.harnessSymbols", "Top Row of Symbols")),
+                    SettingChoice("left", SettingsText.keyed("settings.choice.harnessLeft", "Left Rail with Names")),
+                    SettingChoice("top", SettingsText.keyed("settings.choice.harnessTop", "Top Strip with Names")),
+                    SettingChoice("compact", SettingsText.keyed("settings.choice.harnessCompact", "Compact Left Rail")),
+                ]),
+                .string("symbols"), ["model", "picker", "harness", "placement", "left", "top", "symbols"]),
             row(["rail", "side"], SettingsText.keyed("settings.agentPane.display.rail.side", "Prompt Rail Side"),
                 help: SettingsText.keyed("settings.agentPane.display.rail.side.help",
                                          "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it."),
@@ -147,6 +166,14 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                     SettingChoice("right", SettingsText.keyed("settings.choice.right", "Right")),
                 ]),
                 .string("left"), ["rail", "minimap", "prompts", "ticks", "scroll", "side", "left", "right"]),
+            // How the chat's running tray names background commands no built-in rule knows
+            // (``CommandLabelsSetting``; webviews session-info/commandLabelSettings.ts): preset names
+            // and rules of one's own, edited as JSON.
+            row(["commandLabels"], SettingsText.keyed("settings.agentPane.display.commandLabels", "Command Labels"),
+                help: SettingsText.keyed("settings.agentPane.display.commandLabels.help",
+                                         "How the chat names background commands: preset names such as cmux-fleet, and rules with a program or pattern and a label."),
+                .text, .array([]), ["command", "label", "rule", "preset", "background", "tray", "shell"])
+                .hiddenFromSettingsPage("a list of preset names and rule objects, edited in cmux-next.json"),
         ]
     }
 }

@@ -78,6 +78,7 @@ impl Hub {
         let mut has_retry_marker = false;
         let mut turn_stopped = false;
         let (mut control, mut trust_gate) = (Control::Web, true);
+        let mut cloud_mobile = false;
         let (mut ended, mut floor_cancelled) = (false, false);
         let kinds = [
             "turn_started",
@@ -112,6 +113,8 @@ impl Hub {
                     has_retry_marker = false;
                     control = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
                     trust_gate = e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(true);
+                    cloud_mobile =
+                        e.msg.get("cloudMobile").and_then(Value::as_bool).unwrap_or(false);
                     ended = false;
                     floor_cancelled = false;
                 }
@@ -170,6 +173,7 @@ impl Hub {
         if scanned.is_err() {
             return;
         }
+        session.floor.cloud_mobile_turn.store(cloud_mobile, std::sync::atomic::Ordering::SeqCst);
         if manual_recorded {
             manual = None;
         }
@@ -191,11 +195,35 @@ impl Hub {
         session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_turn =
             Some(Value::Object(summary));
 
+        // A copied machine's first start (`clone_boot.rs`): the wait belongs to the machine it
+        // was copied from. Settle it here for good, so no later start of the copy restores it.
+        if let Some(from) = self.clone_of()
+            && (retry.is_some() || manual.is_some() || !has_retry_marker)
+        {
+            let prompt_id = retry
+                .as_ref()
+                .map(|r| json!(r.prompt_id))
+                .unwrap_or_else(|| last.msg.get("promptId").cloned().unwrap_or(Value::Null));
+            self.append(
+                session,
+                "mux",
+                "auto_resume_skipped",
+                json!({
+                    "turnId": turn_id, "promptId": prompt_id,
+                    "attempt": retry.as_ref().map(|r| r.attempt),
+                    "skipped": "clone_boot", "cloneOf": from,
+                }),
+            );
+            return;
+        }
+
         // Never substitute default retries for a config currently being changed. Wait for
         // the writer off this synchronous path, then reclaim restoration for this instance.
         let delays = match self.config.try_read() {
             Ok(config) => {
-                config.auto_resume_delays_ms.clone().unwrap_or_else(|| DEFAULT_DELAYS_MS.to_vec())
+                let configured = config.auto_resume_delays_ms.clone();
+                drop(config);
+                super::effective_delays(configured)
             }
             Err(_) => {
                 let (hub, session) = (self.clone(), session.clone());

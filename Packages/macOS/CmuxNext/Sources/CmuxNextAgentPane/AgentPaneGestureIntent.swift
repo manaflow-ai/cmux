@@ -102,12 +102,15 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
     }
 
     /// What a newer reserve on the same connection revokes: one ticket for set_mode, one per
-    /// config option, and one per prompt id. A rapid later Enter must not revoke an earlier
-    /// prompt's proof before its frame reaches the relay.
+    /// config option, one per prompt id and one per permission ask. A rapid later Enter must not
+    /// revoke an earlier prompt's proof before its frame reaches the relay, nor an answer to a
+    /// second ask the first ask's answer (that one went out unproved and a remote acpmux refused
+    /// it, 2026-10-21).
     public var slot: String {
-        switch (method, params["configId"], params["promptId"]) {
-        case ("session/set_config_option", .string(let config)?, _): return method + "#" + config
-        case ("session/prompt", _, .string(let promptId)?): return method + "#" + promptId
+        switch (method, params["configId"], params["promptId"], params["permissionId"]) {
+        case ("session/set_config_option", .string(let config)?, _, _): return method + "#" + config
+        case ("session/prompt", _, .string(let promptId)?, _): return method + "#" + promptId
+        case ("_acpmux/permission_respond", _, _, .string(let permissionId)?): return method + "#" + permissionId
         default: return method
         }
     }

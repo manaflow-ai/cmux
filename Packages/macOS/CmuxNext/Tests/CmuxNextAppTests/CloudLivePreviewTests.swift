@@ -57,9 +57,10 @@ struct CloudLivePreviewTests {
         #expect(request.value(forHTTPHeaderField: "X-Cmux-Team-Id") == nil)
     }
 
-    @Test func stagingPreviewsUsePlatformWhileOtherOwnersKeepTheirExistingBrowserRoute() {
+    @Test func stagingAndDevelopmentPreviewsUseTheirPlatformWhileOtherOwnersKeepTheirExistingBrowserRoute() {
         var configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_NEXT_CLOUD_LINK": "app"], process: [:], isDebugBuild: true)
-        #expect(configuration.platformPreviewAPIBaseURL(environment: [:])?.absoluteString == "https://cmux-platform-staging.debussy.workers.dev")
+        #expect(configuration.platformPreviewAPIBaseURL(environment: [:])?.absoluteString == "https://cmux-platform-development.debussy.workers.dev")
+        #expect(configuration.platformPreviewAPIBaseURL(environment: ["CMUX_NEXT_FEED_API_URL": "https://cloud-api-staging.cmux.dev"])?.absoluteString == "https://cmux-platform-staging.debussy.workers.dev")
         #expect(configuration.platformPreviewAPIBaseURL(environment: ["CMUX_NEXT_FEED_API_URL": "https://other-owner.standin.invalid"]) == nil)
         #expect(configuration.platformPreviewAPIBaseURL(environment: ["CMUX_NEXT_PLATFORM_PREVIEW_API_URL": "https://platform.standin.invalid"])?.host == "platform.standin.invalid")
         for invalid in ["http://platform.standin.invalid", "https://user:secret@platform.standin.invalid", "https://platform.standin.invalid/path"] {
@@ -74,6 +75,16 @@ struct CloudLivePreviewTests {
         configuration.isDebugBuild = true
         configuration.linkSource = .legacy
         #expect(configuration.platformPreviewAPIBaseURL(environment: [:]) == nil)
+    }
+
+    @Test func artifactsOriginFollowsCloudEnvironmentAndDebugOverrides() {
+        let production = CloudConfiguration.resolve(bundleID: nil, bundled: [:], process: [:], isDebugBuild: false)
+        #expect(production.artifactsAPIBaseURL(environment: [:])?.absoluteString == "https://cmux-platform.debussy.workers.dev")
+        #expect(production.artifactsAPIBaseURL(environment: ["CMUX_NEXT_ARTIFACTS_API_URL": "https://evil.invalid"])?.absoluteString == "https://cmux-platform.debussy.workers.dev")
+
+        let development = CloudConfiguration.resolve(bundleID: nil, bundled: [:], process: [:], isDebugBuild: true)
+        #expect(development.artifactsAPIBaseURL(environment: [:])?.absoluteString == "https://cmux-platform-development.debussy.workers.dev")
+        #expect(development.artifactsAPIBaseURL(environment: ["CMUX_NEXT_ARTIFACTS_API_URL": "https://cmux-platform-staging.debussy.workers.dev"])?.absoluteString == "https://cmux-platform-staging.debussy.workers.dev")
     }
 
     @Test func refreshNeverAddsAPreviewToTheClassicAPI() async {

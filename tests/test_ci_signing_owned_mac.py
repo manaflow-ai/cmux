@@ -200,7 +200,9 @@ def owned_only(runs_on: str) -> bool:
     # the three trusted Blacksmith Linux labels before exposing its output. It
     # is an ephemeral route even though it is not one of the scalar signing
     # variables below.
-    if "fromJSON(vars.RUNNER_POOLS).linux" in text and "blacksmith-" in text:
+    # A declared pool member is ephemeral just like its former literal label;
+    # it is not an owned-Mac route that needs a signing twin.
+    if "fromJSON(vars.RUNNER_POOLS)." in text:
         return False
     if any(keychain_guard.EPHEMERAL_LABEL.match(label) or label.startswith("macos-")
            for label in LABEL_LITERAL.findall(text)):
@@ -373,9 +375,6 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                     failures.append(f"{label}: reads {read} other than as `{route_shape}`, so a re-run could stay on the fleet")
             steps = [step for step in keychain_guard.inline_step_scripts(job).get("steps") or []
                      if isinstance(step, dict)]
-            publication = workflow == "nightly.yml" and name in {
-                "publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names"
-            }
             gate_index = next((index for index, step in enumerate(steps)
                                if str(step.get("id", "")) == CLAIM_GATE_ID), None)
             gate = steps[gate_index] if gate_index is not None else {}
@@ -384,19 +383,10 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                        and str(gate.get("shell", "bash")) == "bash"
                        and gate.get("id") == CLAIM_GATE_ID)
             if not gate_ok:
-                if publication:
-                    failures.append(f"{label}: the claim gate ({CLAIM_GATE_NAME}) must copy CLAIM_GATE word for word, "
-                                    f"id {CLAIM_GATE_ID}, with no if, uses, env or continue-on-error")
-                else:
-                    failures.append(f"{label}: the first step must be the claim gate ({CLAIM_GATE_NAME}); CLAIM_GATE "
-                                    f"word for word, id {CLAIM_GATE_ID}, with no if, uses, env or continue-on-error")
-            elif not publication and gate_index != 0:
+                failures.append(f"{label}: the first step must be the claim gate ({CLAIM_GATE_NAME}); CLAIM_GATE "
+                                f"word for word, id {CLAIM_GATE_ID}, with no if, uses, env or continue-on-error")
+            elif gate_index != 0:
                 failures.append(f"{label}: the first step must be the claim gate ({CLAIM_GATE_NAME}) before the checkout's token")
-            elif publication:
-                checkout_index = next((index for index, step in enumerate(steps)
-                                       if "actions/checkout@" in str(step.get("uses", ""))), None)
-                if checkout_index is None or gate_index <= checkout_index:
-                    failures.append(f"{label}: publication claim gate must run after checkout and before release credentials")
             failures.extend(f"{label}: {why}" for why in twin_failures(jobs, name, owned_reads, workflow))
             claim = next((index for index, step in enumerate(steps) if CLAIM in str(step.get("run", ""))), None)
             first_secret = next((index for index, step in enumerate(steps) if "secrets." in json.dumps(step)), None)
@@ -500,8 +490,12 @@ class LegacySignReRunTakesAnOwnedMacFirst(unittest.TestCase):
         self.assertTrue(self.value(self.PICK, "if", {"needs.prepare-nightly-variant.result": "success"}))
         outputs = self.jobs[self.PICK]["outputs"]
         self.assertEqual(str(outputs["attempt"]).strip(), "${{ github.run_attempt }}")
-        # Any attempt's pick stands (attempt 1 of a push, or once the sweeper's marker is up), as `owned` does.
-        self.assertEqual(str(outputs["sign_owned"]).replace("sign-owned", "owned"), str(outputs["owned"]))
+        # The secret-free verify pick may opt into the all-nightly reservation,
+        # while credentialed legacy signing keeps the separate claim-capable
+        # `sign_owned` output. Both outputs still stand on their marker rules.
+        self.assertIn("steps.sign-owned.outputs.owned", str(outputs["sign_owned"]))
+        self.assertNotIn("CI_NIGHTLY_ONLY_RUNNER", str(outputs["sign_owned"]))
+        self.assertIn("CI_NIGHTLY_ONLY_RUNNER", str(outputs["owned"]))
         self.assertIn("steps.sign-owned.outputs.owned_pool", str(outputs["sign_owned_pool"]))
 
 

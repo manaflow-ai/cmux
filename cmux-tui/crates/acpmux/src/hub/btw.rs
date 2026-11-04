@@ -365,6 +365,8 @@ impl Hub {
                     lineage: None,
                     disallowed_tools: Vec::new(),
                     checked_cwd: None,
+                    // It sees what its chat sees.
+                    additional_directories: meta.additional_directories.clone(),
                     // The person's side chat, as its chat is.
                     person: session.person.load(Ordering::SeqCst),
                 };
@@ -636,7 +638,7 @@ impl Hub {
     /// Claude Code's callback currently returns `{response, synthetic}`. Keep the
     /// extraction tolerant of the SDK's documented response object and of a
     /// future plain string/text payload, but never manufacture an answer.
-    fn side_question_text(value: &Value) -> Option<String> {
+    pub(super) fn side_question_text(value: &Value) -> Option<String> {
         let value = value.get("response").unwrap_or(value);
         value
             .as_str()
@@ -863,7 +865,7 @@ fn offers_mode(meta: &SessionMeta, mode: &str) -> bool {
 
 /// Whether the session's `mode` config option offers `mode`.
 fn offers_mode_option(meta: &SessionMeta, mode: &str) -> bool {
-    meta.config_options.as_ref().and_then(Value::as_array).is_some_and(|a| {
+    meta.config_options.as_deref().and_then(Value::as_array).is_some_and(|a| {
         a.iter().filter(|o| o.get("id").and_then(Value::as_str) == Some("mode")).any(|o| {
             o.get("options").and_then(Value::as_array).is_some_and(|opts| {
                 opts.iter().any(|v| v.get("value").and_then(Value::as_str) == Some(mode))
@@ -886,7 +888,7 @@ fn smallest_model(meta: &SessionMeta) -> Option<String> {
             }
         }
     }
-    if let Some(opts) = meta.config_options.as_ref().and_then(Value::as_array) {
+    if let Some(opts) = meta.config_options.as_deref().and_then(Value::as_array) {
         for o in opts.iter().filter(|o| o.get("id").and_then(Value::as_str) == Some("model")) {
             for v in o.get("options").and_then(Value::as_array).into_iter().flatten() {
                 if let Some(id) = v.get("value").and_then(Value::as_str) {

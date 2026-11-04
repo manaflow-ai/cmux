@@ -11,7 +11,8 @@ use std::time::Duration;
 /// Deadlines of one link. `ACPMUX_PEER_TIMEOUT_SECS` sets the connect
 /// deadline (the handshake gets three times it), `ACPMUX_PEER_PING_SECS`
 /// the keepalive interval, for a host that is slow even when well, and
-/// `ACPMUX_PEER_REQUEST_SECS` how long one request waits for its answer.
+/// `ACPMUX_PEER_REQUEST_SECS` how long one request waits for its answer, and
+/// `ACPMUX_PEER_START_SECS` how long a forwarded `session/new` waits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LinkTimings {
     /// ssh, the tunnel and the WebSocket upgrade; also the remote config read.
@@ -27,7 +28,14 @@ pub struct LinkTimings {
     pub stable_after: Duration,
     /// How long one request waits for the peer's answer.
     pub request: Duration,
+    /// How long a forwarded `session/new` waits for the peer's answer: past the peer's own
+    /// start budget, so the peer answers a slow start (or its own failure) before this ends.
+    pub start: Duration,
 }
+
+/// The peer's whole `session/new` budget (`hub::SESSION_NEW_BUDGET`), plus room for the link.
+pub const START_DEFAULT: Duration =
+    Duration::from_secs(crate::hub::SESSION_NEW_BUDGET.as_secs() + 15);
 
 impl Default for LinkTimings {
     fn default() -> Self {
@@ -38,6 +46,7 @@ impl Default for LinkTimings {
             ping_misses: 4,
             stable_after: Duration::from_secs(60),
             request: Duration::from_secs(600),
+            start: START_DEFAULT,
         }
     }
 }
@@ -57,6 +66,9 @@ impl LinkTimings {
         }
         if let Some(n) = secs("ACPMUX_PEER_REQUEST_SECS") {
             t.request = Duration::from_secs(n);
+        }
+        if let Some(n) = secs("ACPMUX_PEER_START_SECS") {
+            t.start = Duration::from_secs(n);
         }
         t
     }
@@ -407,13 +419,13 @@ pub fn describe(name: &str, link: &Link, error: Option<&str>, now: u64) -> Strin
 /// request was not sent, so retrying it never runs it twice.
 pub fn unreachable_error(name: &str, link: &Link, error: Option<&str>, now: u64) -> RpcError {
     RpcError::internal(format!(
-        "peer_unreachable: {}; the request was not sent; run `acpmux host ls` and retry after the peer reconnects",
+        "peer_unreachable: {}; the request was not sent; run `acpmux machine ls` and retry after the peer reconnects",
         describe(name, link, error, now)
     )).with_data(
         json!({
             "reason": "peer_unreachable",
             "retryable": true,
-            "try": "acpmux host ls",
+            "try": "acpmux machine ls",
             "detail": "the request was not sent",
             "peer": name,
             "peerState": link.state().as_str(),
@@ -627,11 +639,11 @@ mod tests {
         assert!(
             e.message.contains("huge-blue (reconnecting, last seen 40s ago: connect timed out)")
         );
-        assert!(e.message.contains("acpmux host ls"));
+        assert!(e.message.contains("acpmux machine ls"));
         let data = e.data.unwrap();
         assert_eq!(data["reason"], "peer_unreachable");
         assert_eq!(data["retryable"], true);
-        assert_eq!(data["try"], "acpmux host ls");
+        assert_eq!(data["try"], "acpmux machine ls");
         assert_eq!(data["peerState"], "reconnecting");
         assert_eq!(data["lastSeen"], 0);
         let never = describe("gone", &Link::default(), None, 5);

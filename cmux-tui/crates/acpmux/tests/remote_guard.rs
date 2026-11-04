@@ -286,10 +286,15 @@ async fn folder_fields_from_a_websocket_connection_are_existing_directories_made
         let info = c.call("_acpmux/info", json!({"sessionId": id})).await;
         assert_eq!(info["result"]["cwd"], json!(real), "{origin:?}: {info}");
     }
-    // The unix socket: unchanged (additionalDirectories is not checked there).
+    // The unix socket: no web roots, but the chat now gives its harness these folders
+    // (`hub/additional_dirs.rs`), so they are absolute, existing folders there too.
     let mut local = Client::new(&hub, Origin::Local);
     let r = local
         .call("session/new", new_session(&real, json!({"additionalDirectories": ["relative"]})))
+        .await;
+    assert_eq!(r["error"]["code"], json!(-32602), "{r}");
+    let r = local
+        .call("session/new", new_session(&real, json!({"additionalDirectories": [d.link]})))
         .await;
     assert!(r.get("error").is_none(), "{r}");
     let _ = std::fs::remove_dir_all(&d.base);

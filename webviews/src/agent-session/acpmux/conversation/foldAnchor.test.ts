@@ -12,6 +12,8 @@ import {
   foldToggleAt,
   holdFold,
   keepFold,
+  opensBody,
+  pushUpCut,
   trimmedFoldRoom,
   verticalWheel,
 } from "./foldAnchor";
@@ -150,6 +152,29 @@ describe("foldToggleAt", () => {
       expect(folding).toBe(false);
     });
   }
+  // A stacked message row's first line sits under the row and toggles it (messageLineLook.ts); it
+  // goes as the row opens, so the click holds the row's line, never the first line itself.
+  for (const [kind, html] of [
+    [
+      "a sent message",
+      '<div class="cv-tool is-toggle cv-sent" role="button" aria-expanded="false"><b>to</b></div><div class="cv-msgline__preview cv-sent__below" aria-hidden><i>first</i></div>',
+    ],
+    [
+      "an agent message",
+      '<div class="cv-agentmsg"><div class="cv-tool cv-agentmsg__line" data-header-toggle=""><b>to</b></div><div class="cv-msgline__preview cv-agentmsg__below" aria-hidden><i>first</i></div></div>',
+    ],
+    [
+      "a folded group's head",
+      '<button class="cv-tool cv-message-group__head" aria-expanded="false"><b>3 messages</b></button><div class="cv-msgline__preview cv-message-group__below" aria-hidden><i>a, b</i></div>',
+    ],
+  ] as const) {
+    test(`holds ${kind}'s line for a click on its first line`, () => {
+      const { document, at } = row(html);
+      const line = document.querySelector("b")!.parentElement;
+      expect(at("i")).toBe(line as HTMLElement);
+      expect(at(".cv-msgline__preview")).toBe(line as HTMLElement);
+    });
+  }
   test("leaves a menu's trigger alone", () => {
     expect(row('<button aria-expanded="false" aria-haspopup="menu">…</button>').at("button")).toBeUndefined();
   });
@@ -254,5 +279,55 @@ describe("hold timing", () => {
   test("only a vertical wheel lets go", () => {
     expect(verticalWheel({ deltaX: 0, deltaY: 40 })).toBe(true);
     expect(verticalWheel({ deltaX: 60, deltaY: 4 })).toBe(false);
+  });
+});
+
+describe("opensBody", () => {
+  // Leo, 2026-11-02: "YOU EXPAND UP WHILE YOUR SCCROLL IS AT THE VERY BOTTOM ... JUST THAT CASE".
+  const dom = (html: string) => {
+    const { document } = new JSDOM(`<body>${html}</body>`).window;
+    return document.querySelector<HTMLElement>("[data-t]")!;
+  };
+  test("a closed disclosure opens; an open one closes", () => {
+    expect(opensBody(dom('<button data-t aria-expanded="false"></button>'))).toBe(true);
+    expect(opensBody(dom('<button data-t aria-expanded="true"></button>'))).toBe(false);
+  });
+  test("a header toggle reads its own button, not a menu's", () => {
+    expect(
+      opensBody(
+        dom(
+          '<div data-t data-header-toggle><button aria-haspopup="menu" aria-expanded="false"></button><button aria-expanded="false"></button></div>',
+        ),
+      ),
+    ).toBe(true);
+    expect(opensBody(dom('<div data-t data-header-toggle><button aria-expanded="true"></button></div>'))).toBe(false);
+  });
+  test("a summary opens its closed details", () => {
+    expect(opensBody(dom("<details><summary data-t>More</summary>Body</details>"))).toBe(true);
+    expect(opensBody(dom("<details open><summary data-t>More</summary>Body</details>"))).toBe(false);
+  });
+  test("a control that says nothing of its state opens nothing", () => {
+    expect(opensBody(dom("<button data-t>Raw</button>"))).toBe(false);
+  });
+});
+
+describe("pushUpCut", () => {
+  const inset = (frame: Keyframe) => Number(/inset\(0 0 ([\d.]+)px 0\)/.exec(String(frame.clipPath))![1]);
+  test("the opened row is cut at the held line all the way, as the stack carries its foot up to it", () => {
+    const frames = pushUpCut(0, 120);
+    expect(frames.map((frame) => frame.offset)).toEqual([0, 1, 1]);
+    expect(inset(frames[0]!)).toBe(120);
+    expect(inset(frames[1]!)).toBe(0);
+  });
+  test("a row ending above the line is cut only until its foot rises past it", () => {
+    const frames = pushUpCut(-30, 120);
+    expect(inset(frames[0]!)).toBe(90);
+    // Its foot is 30 px above the line once the stack has a quarter of its way left.
+    expect(frames[1]!.offset).toBeCloseTo(0.75);
+    expect(inset(frames[1]!)).toBe(0);
+  });
+  test("a row that never reaches the line, or no slide at all, is not cut", () => {
+    expect(pushUpCut(-200, 120)).toEqual([]);
+    expect(pushUpCut(0, 0)).toEqual([]);
   });
 });
