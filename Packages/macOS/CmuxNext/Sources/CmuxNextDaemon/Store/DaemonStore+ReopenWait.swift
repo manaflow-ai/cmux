@@ -21,7 +21,9 @@ extension DaemonStore {
     }
 
     private func appearance(of id: ResourceID) async -> String? {
-        for await workspace in ObservationStream({ self.workspace(resourceID: id)?.id }) {
+        // A miss also reads each workspace's resource id: one set on a workspace already listed changes no list
+        // this would otherwise observe. Only this wait pays that walk, and only while it waits.
+        for await workspace in ObservationStream({ self.workspace(resourceID: id)?.id ?? self.workspaces.first { $0.resourceID == id }?.id }) {
             if let workspace { return workspace }
         }
         return nil
