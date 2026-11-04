@@ -502,6 +502,30 @@ class RecoverCancelled(unittest.TestCase):
         sweep(fake)
         self.assertEqual(mutations(fake), [])
 
+    def test_unreadable_owned_cancellations_do_not_starve_newer_recovery_or_fresh_work(self):
+        fake = Fake({"pr-checks.yml": [run(12)]}, {12: [job("PR size")]})
+        previous = fake.run
+        def current(run_id):
+            if run_id <= 10:
+                raise RuntimeError(f"GET /actions/runs/{run_id}: HTTP 403")
+            if run_id == 11:
+                return {**run(11), "status": "completed", "conclusion": "cancelled"}
+            return previous(run_id)
+        fake.run = current
+        pending, cursor = set(range(1, 12)), rescue.ScanState()
+        serviced = {}
+        for count in range(1, 4):
+            before = len(mutations(fake))
+            rescue.sweep(fake, ["pr-checks.yml"], now=NOW, dry_run=False, pending=pending,
+                         scan_state=cursor, log=lambda _: None, sleep=lambda _: None, clock=lambda: 0)
+            for run_id in (11, 12):
+                if ("rerun", run_id) in mutations(fake):
+                    serviced.setdefault(run_id, count)
+            self.assertLessEqual(len(mutations(fake)) - before, rescue.MAX_RESCUES * 2)
+
+        self.assertEqual(serviced, {12: 1, 11: 3})
+        self.assertEqual(pending, set(range(1, 11)))
+
     def test_closed_or_advanced_pending_runs_are_not_retried(self):
         for closed in (False, True):
             fake = self.fake(failures=0)
