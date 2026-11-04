@@ -10,9 +10,24 @@
 //!
 //! The reaper is event-driven. It sleeps until the next deadline or until a
 //! topology, terminal-registry, or keep change wakes it; it never polls.
-//! Deadlines are measured by this owner process only, so an owner restart
-//! starts every pending grace period again: a restart can delay a reap but
-//! never make it early.
+//!
+//! The grace holds at most [`MAX_TERMINALS_IN_REAP_GRACE`] closed terminals: each keeps its
+//! shell and so its PTY (a shell cannot outlive its PTY), and a script that closes several tabs a
+//! second held the machine's PTYs until every new tab was refused (STATUS 7998). Past the cap the
+//! longest-closed ends at once.
+//!
+//! The grace runs across owner restarts. The registry keeps the wall-clock
+//! time the owner first saw each terminal unplaced
+//! (`workspace_registry/terminal_unplaced_store.rs`), and a restarted owner
+//! counts the grace from it. Counted from each start instead, restarts
+//! faster than the grace (a crash loop; the restore fuzz's kill every ~14 s
+//! against the app's 30 s) reaped nothing, and the closed terminals' hosts
+//! held the machine's PTYs until every new terminal failed (P0
+//! TERMINAL-HOST LEAK, 2026-10-31). A terminal a restarted owner is still
+//! adopting keeps its time. A wall clock set back only delays a reap; one
+//! set forward (or a machine asleep across a restart) can end a closed
+//! terminal sooner after the restart, never one with a placement or `keep`:
+//! the close re-checks both atomically.
 
 use std::sync::mpsc::RecvTimeoutError;
 use std::thread::JoinHandle;
@@ -23,6 +38,9 @@ use crate::state::kept_tab_store::{KeptTab, kept_title};
 /// Default reap grace period for a terminal with no placement.
 pub const DEFAULT_TERMINAL_REAP_GRACE: Duration = Duration::from_secs(30);
 
+/// The most closed terminals that wait out the reap grace with their PTY at once (STATUS 7998).
+/// Past it, the reaper ends the longest-closed at once (its screen archived as at any reap).
+pub(crate) const MAX_TERMINALS_IN_REAP_GRACE: usize = 16;
 /// Largest accepted reap grace period: one week.
 pub const MAX_TERMINAL_REAP_GRACE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
@@ -44,8 +62,15 @@ pub(crate) enum ReapOutcome {
 #[derive(Debug, Default)]
 pub(crate) struct ReapSchedule {
     deadlines: HashMap<String, Instant>,
+    /// Terminals an attempt left running (`Retained`) or still listed
+    /// (`Reaped`): the earliest the next attempt may come, kept while each
+    /// stays reapable.
+    retry_floors: HashMap<String, Instant>,
     /// Consecutive failed reapable-set scans (retry spacing).
     scan_failures: u32,
+    /// The registry holds no unplaced time (the last pass removed or found
+    /// none): a pass that sees no unplaced terminal skips the registry.
+    unplaced_rows_empty: bool,
 }
 
 impl ReapSchedule {
@@ -66,16 +91,34 @@ impl ReapSchedule {
         }
     }
 
-    /// Reconcile with the current set of reapable terminals. A terminal that
-    /// becomes reapable gets `now + grace`; a terminal that is no longer
-    /// reapable (placed again, kept, or closed) loses its deadline.
-    pub(crate) fn observe(&mut self, now: Instant, grace: Duration, reapable: &HashSet<String>) {
+    /// Reconcile with the current set of reapable terminals, each with how
+    /// long it has already been unplaced (across owner restarts). A terminal
+    /// that becomes reapable gets `now + grace - unplaced_for`; a terminal
+    /// that is no longer reapable (placed again, kept, or closed) loses its
+    /// deadline.
+    pub(crate) fn observe_unplaced(
+        &mut self,
+        now: Instant,
+        grace: Duration,
+        reapable: &HashMap<String, Duration>,
+    ) {
         self.scan_failures = 0;
-        self.deadlines.retain(|terminal_id, _| reapable.contains(terminal_id));
-        let deadline = deadline_after(now, grace);
-        for terminal_id in reapable {
-            self.deadlines.entry(terminal_id.clone()).or_insert(deadline);
+        self.deadlines.retain(|terminal_id, _| reapable.contains_key(terminal_id));
+        self.retry_floors.retain(|terminal_id, _| reapable.contains_key(terminal_id));
+        for (terminal_id, unplaced_for) in reapable {
+            let floor = self.retry_floors.get(terminal_id).copied();
+            self.deadlines.entry(terminal_id.clone()).or_insert_with(|| {
+                let deadline = deadline_after(now, grace.saturating_sub(*unplaced_for));
+                floor.map_or(deadline, |floor| deadline.max(floor))
+            });
         }
+    }
+
+    /// [`ReapSchedule::observe_unplaced`] for terminals unplaced just now.
+    #[cfg(test)]
+    pub(crate) fn observe(&mut self, now: Instant, grace: Duration, reapable: &HashSet<String>) {
+        let reapable = reapable.iter().map(|id| (id.clone(), Duration::ZERO)).collect();
+        self.observe_unplaced(now, grace, &reapable);
     }
 
     /// Terminals whose deadline is at or before `now`, in a stable order.
@@ -100,6 +143,33 @@ impl ReapSchedule {
         self.deadlines.remove(terminal_id);
     }
 
+    /// A reap of a due terminal was attempted at `now`; `outcome` is `None`
+    /// when the attempt failed.
+    pub(crate) fn tried(
+        &mut self,
+        terminal_id: &str,
+        outcome: Option<ReapOutcome>,
+        now: Instant,
+        grace: Duration,
+    ) {
+        let retry = deadline_after(now, grace.max(MIN_RETRY));
+        match outcome {
+            // The deadline goes, so a terminal placed again and closed
+            // again gets a fresh grace from its new unplaced time. The floor
+            // stays: a terminal the attempt left reapable is otherwise
+            // re-added at its durable unplaced time, already past the grace,
+            // due at once, and the reaper thread waited zero and ran pass
+            // after pass (the app's headless owner at 150% CPU).
+            Some(ReapOutcome::Reaped | ReapOutcome::Retained) => {
+                self.forget(terminal_id);
+                self.retry_floors.insert(terminal_id.to_string(), retry);
+            }
+            // An attached client keeps the terminal for another full grace
+            // period; its detach does not emit a topology event.
+            Some(ReapOutcome::Attached) | None => self.postpone(terminal_id, retry),
+        }
+    }
+
     pub(crate) fn next_deadline(&self) -> Option<Instant> {
         self.deadlines.values().min().copied()
     }
@@ -108,6 +178,20 @@ impl ReapSchedule {
     pub(crate) fn deadline(&self, terminal_id: &str) -> Option<Instant> {
         self.deadlines.get(terminal_id).copied()
     }
+}
+
+/// The closed terminals past [`MAX_TERMINALS_IN_REAP_GRACE`], longest closed first: each holds a PTY
+/// for its grace, and a burst of closes must not hold the machine's PTYs (STATUS 7998).
+fn over_grace_cap(reapable: &HashMap<String, Duration>) -> Vec<String> {
+    let Some(over) =
+        reapable.len().checked_sub(MAX_TERMINALS_IN_REAP_GRACE).filter(|over| *over > 0)
+    else {
+        return Vec::new();
+    };
+    let mut oldest: Vec<(&Duration, &String)> =
+        reapable.iter().map(|(terminal_id, unplaced_for)| (unplaced_for, terminal_id)).collect();
+    oldest.sort_by(|a, b| b.0.cmp(a.0).then_with(|| a.1.cmp(b.1)));
+    oldest.into_iter().take(over).map(|(_, terminal_id)| terminal_id.clone()).collect()
 }
 
 fn deadline_after(now: Instant, grace: Duration) -> Instant {
@@ -156,36 +240,41 @@ impl Mux {
         self.workspace_registry.lock().unwrap().terminal_keep(terminal_id)
     }
 
-    fn wake_terminal_reaper(&self) {
+    pub(super) fn wake_terminal_reaper(&self) {
         if let Some(events) = self.terminal_reaper_events.lock().unwrap().as_ref() {
             events.wake();
         }
     }
 
     /// Host ids of every live hosted terminal that has no tab placement and
-    /// is not marked `keep`.
-    pub(crate) fn reapable_terminals(&self) -> anyhow::Result<HashSet<String>> {
-        let mut unplaced = {
+    /// is not marked `keep` (reapable), and of the other hosted terminals
+    /// this owner serves (placed or kept), whose unplaced times are cleared.
+    pub(crate) fn reapable_and_retained_terminals(
+        &self,
+    ) -> anyhow::Result<(HashSet<String>, HashSet<String>)> {
+        let (mut unplaced, mut retained) = {
             let state = self.state.lock().unwrap();
             let placed_runtimes: HashSet<SurfaceId> =
                 state.surfaces.values().filter_map(|view| view.terminal_runtime_id()).collect();
             let mut unplaced = HashSet::new();
+            let mut placed = HashSet::new();
             for (public_id, runtime) in &state.terminal_catalog {
-                if runtime.terminal_runtime_id().is_some_and(|id| placed_runtimes.contains(&id)) {
+                let Some(identity) = self.resource_terminal_host_identity(runtime) else {
                     continue;
-                }
+                };
                 let content_id = ContentPublicId::Terminal(public_id.clone());
-                if !state.placements_of_content(&content_id).is_empty() {
-                    continue;
-                }
-                if let Some(identity) = self.resource_terminal_host_identity(runtime) {
+                if runtime.terminal_runtime_id().is_some_and(|id| placed_runtimes.contains(&id))
+                    || !state.placements_of_content(&content_id).is_empty()
+                {
+                    placed.insert(identity.terminal_id);
+                } else {
                     unplaced.insert(identity.terminal_id);
                 }
             }
-            unplaced
+            (unplaced, placed)
         };
         if unplaced.is_empty() {
-            return Ok(unplaced);
+            return Ok((unplaced, retained));
         }
         let kept = {
             let mut registry = self.workspace_registry.lock().unwrap();
@@ -197,8 +286,43 @@ impl Mux {
             }
             registry.kept_terminals()?
         };
-        unplaced.retain(|terminal_id| !kept.contains(terminal_id));
-        Ok(unplaced)
+        unplaced.retain(|terminal_id| {
+            let keep = kept.contains(terminal_id);
+            if keep {
+                retained.insert(terminal_id.clone());
+            }
+            !keep
+        });
+        Ok((unplaced, retained))
+    }
+
+    /// The reapable terminals, each with how long it has been unplaced,
+    /// counted from the durable time the owner (this one or an earlier one)
+    /// first saw it so (`terminal_unplaced_store.rs`).
+    /// A pass that sees no unplaced terminal while the registry holds no
+    /// unplaced time (`unplaced_rows_empty`) does not touch the registry.
+    pub(super) fn reapable_terminals_unplaced_for(
+        &self,
+        unplaced_rows_empty: &mut bool,
+    ) -> anyhow::Result<HashMap<String, Duration>> {
+        let (unplaced, retained) = self.reapable_and_retained_terminals()?;
+        if unplaced.is_empty() && *unplaced_rows_empty {
+            return Ok(HashMap::new());
+        }
+        let wall_ms = now_ms();
+        let synced = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .sync_terminal_unplaced(&unplaced, &retained, wall_ms)?;
+        *unplaced_rows_empty = !synced.rows_left;
+        Ok(synced
+            .since_ms
+            .into_iter()
+            .map(|(terminal_id, since_ms)| {
+                (terminal_id, Duration::from_millis(wall_ms.saturating_sub(since_ms)))
+            })
+            .collect())
     }
 
     /// End one unplaced terminal. The placement and `keep` checks are
@@ -267,15 +391,24 @@ impl Mux {
         now: Instant,
     ) -> Vec<String> {
         let grace = self.terminal_reap_grace();
-        match self.reapable_terminals() {
-            Ok(reapable) => schedule.observe(now, grace, &reapable),
+        let over_cap = match self.reapable_terminals_unplaced_for(&mut schedule.unplaced_rows_empty)
+        {
+            Ok(reapable) => {
+                schedule.observe_unplaced(now, grace, &reapable);
+                over_grace_cap(&reapable)
+            }
             Err(error) => {
                 self.report_internal_diagnostic(format!("terminal reap scan failed: {error}"));
                 schedule.defer_due_after_failed_scan(now);
                 return Vec::new();
             }
+        };
+        let mut due = schedule.due(now);
+        for terminal_id in over_cap {
+            if !due.contains(&terminal_id) {
+                due.push(terminal_id);
+            }
         }
-        let due = schedule.due(now);
         let outcomes: Vec<anyhow::Result<ReapOutcome>> = if due.len() <= 1 {
             due.iter().map(|terminal_id| self.reap_unplaced_terminal(terminal_id)).collect()
         } else {
@@ -298,23 +431,16 @@ impl Mux {
         };
         let mut reaped = Vec::new();
         for (terminal_id, outcome) in due.into_iter().zip(outcomes) {
-            match outcome {
-                Ok(ReapOutcome::Reaped) => {
-                    schedule.forget(&terminal_id);
-                    reaped.push(terminal_id);
-                }
-                Ok(ReapOutcome::Retained) => schedule.forget(&terminal_id),
-                // An attached client keeps the terminal for another full
-                // grace period; its detach does not emit a topology event.
-                Ok(ReapOutcome::Attached) => {
-                    schedule.postpone(&terminal_id, deadline_after(now, grace.max(MIN_RETRY)));
-                }
-                Err(error) => {
+            let outcome = outcome
+                .inspect_err(|error| {
                     self.report_internal_diagnostic(format!(
                         "reap of unplaced terminal {terminal_id} failed: {error}"
                     ));
-                    schedule.postpone(&terminal_id, deadline_after(now, grace.max(MIN_RETRY)));
-                }
+                })
+                .ok();
+            schedule.tried(&terminal_id, outcome, now, grace);
+            if outcome == Some(ReapOutcome::Reaped) {
+                reaped.push(terminal_id);
             }
         }
         reaped
@@ -335,7 +461,9 @@ impl Mux {
     /// ends, so neither the host's exit nor the next owner's reconciliation
     /// detaches it: the next owner shows the same screens, splits and tabs,
     /// each dead with `relaunch: {cwd}`, and a frontend starts a new shell
-    /// there. Terminals without a tab end as in [`Self::end_all_terminals`].
+    /// there: on the workspace's first show (`on_show`), or at connect for a
+    /// terminal that ran an agent session, so the agent resumes. Terminals
+    /// without a tab end as in [`Self::end_all_terminals`].
     pub fn end_all_terminals_keeping_layout(&self) -> anyhow::Result<Vec<String>> {
         self.end_terminals(true)
     }
@@ -348,8 +476,15 @@ impl Mux {
         // The workspace store records every kept tab before any terminal
         // ends, so no exit can remove one (invariant 3 of
         // plans/cmux-next/OWNERSHIP-PRINCIPLES.md).
-        let kept =
-            if keep_layout { self.record_kept_tabs(&terminals, false)? } else { HashSet::new() };
+        // A kept plain shell or command starts on its workspace's first show:
+        // restarting all at the next connect took a PTY for every workspace
+        // nobody opens (a913). A kept agent still restarts at connect, so it
+        // resumes.
+        let kept = if keep_layout {
+            self.record_kept_tabs(&terminals, KeptStart::OnShowUnlessAgent)?
+        } else {
+            HashSet::new()
+        };
         let mut ended = Vec::new();
         let mut failures = Vec::new();
         let mut to_close = Vec::new();
@@ -439,11 +574,11 @@ impl Mux {
     /// host's fact: the foreground process's directory, else the OSC 7 or
     /// launch directory) and the terminal's title. Returns the host ids of
     /// those terminals.
-    /// `on_show`: parked (`park-tabs`), started when first shown.
+    /// `start`: when a frontend starts each kept tab again.
     fn record_kept_tabs(
         &self,
         terminals: &[RegistryTerminal],
-        on_show: bool,
+        start: KeptStart,
     ) -> anyhow::Result<HashSet<String>> {
         // Tab ids and process ids under the locks; directories after.
         let mut placed = Vec::new();
@@ -462,12 +597,19 @@ impl Mux {
                     continue;
                 }
                 let runtime = state.terminal_catalog.get(&public_id).cloned();
-                placed.push((terminal.terminal_id.clone(), tab_ids, runtime));
+                let on_show = match start {
+                    KeptStart::OnShow => true,
+                    // A failed read keeps the old start at connect: an agent is never left unresumed.
+                    KeptStart::OnShowUnlessAgent => registry
+                        .terminal_relaunch_record(&terminal.terminal_id)
+                        .is_ok_and(|record| record.is_none_or(|record| record.agent.is_none())),
+                };
+                placed.push((terminal.terminal_id.clone(), tab_ids, runtime, on_show));
             }
         }
         let mut rows = Vec::new();
         let mut kept = HashSet::new();
-        for (terminal_id, tab_ids, runtime) in placed {
+        for (terminal_id, tab_ids, runtime, on_show) in placed {
             let cwd = runtime.as_ref().and_then(|surface| {
                 surface
                     .process_id()
@@ -540,7 +682,7 @@ impl Mux {
             }
         }
         // Every tab is recorded before any shell is asked to exit, so no exit removes one.
-        let kept = self.record_kept_tabs(&chosen, true)?;
+        let kept = self.record_kept_tabs(&chosen, KeptStart::OnShow)?;
         let mut failures = Vec::new();
         for terminal in chosen.iter().filter(|terminal| kept.contains(&terminal.terminal_id)) {
             if let Err(error) = self.end_terminal_keeping_tabs(terminal) {
@@ -614,6 +756,17 @@ impl Mux {
         }
         registry.any_kept_tab(&tab_ids)
     }
+}
+
+/// When a frontend starts a kept tab (`kept_tabs`) again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KeptStart {
+    /// When its workspace is first shown (`relaunch.on_show`): `park-tabs`.
+    OnShow,
+    /// On first show, except a terminal whose relaunch record names an agent
+    /// session: that one restarts when a frontend connects, so the agent
+    /// resumes (End Sessions, Keep Layout).
+    OnShowUnlessAgent,
 }
 
 /// Longest `end_all_terminals` waits for a progressing host-close pool
@@ -726,12 +879,14 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
     let mut thread_events = events.lock().unwrap().clone();
     let thread = std::thread::Builder::new().name("mux-terminal-reap".into()).spawn(move || {
         let mut schedule = ReapSchedule::default();
+        let mut reclaim = pty_reclaim::ReclaimClock::default();
         loop {
             if thread_stop.load(Ordering::Acquire) {
                 break;
             }
             let Some(mux) = weak.upgrade() else { break };
             mux.reap_unplaced_terminals(&mut schedule, Instant::now());
+            mux.reclaim_ptys_if_low(&mut reclaim);
             // Never hold the mux across the wait: the thread must not keep
             // the mux alive after its other owners are gone.
             drop(mux);

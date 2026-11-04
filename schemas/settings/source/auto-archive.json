@@ -13,7 +13,7 @@
         {
           "key": "workspaces.autoArchive.style",
           "name": "style",
-          "note": "suggest by default (Lawrence 12659 asked for variations; Chief picked suggest-first so nothing leaves the sidebar without a click). quiet archives on its own with an Undo toast; groups only archives in groups that set their own rule; manual only archives on Archive Idle Workspaces; off never.",
+          "note": "manual by default (Lawrence 18515/18517: the Tidy Up card popping up on its own was annoying): nothing runs in the background and nothing pops up; Archive Idle Workspaces (palette, sidebar menu) archives on request. suggest shows the Tidy Up card; quiet archives on its own with an Undo toast (the card's Always Archive picks it); groups only archives in groups that set their own rule; off never.",
           "title": {
             "key": "settings.autoArchive.style",
             "text": "Idle Workspaces"
@@ -65,7 +65,7 @@
               "note": "No card, no automatic archive; group rules are ignored. Archive Idle Workspaces still works."
             }
           ],
-          "default": "suggest",
+          "default": "manual",
           "keywords": [
             "archive",
             "auto archive",

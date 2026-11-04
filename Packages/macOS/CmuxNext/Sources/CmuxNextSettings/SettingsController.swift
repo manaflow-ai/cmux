@@ -113,7 +113,9 @@ public final class SettingsController {
 
     /// Loads the file now and starts watching it. `announcingDiagnostics`: the app also tells the
     /// person about a value it ignores (`SettingsDiagnosticToasts`); tests leave it off.
-    public func start(announcingDiagnostics: Bool = false) {
+    /// `rotatingFavoriteThemes`: the app's launch turns to the next starred theme when Rotate Starred
+    /// Themes says so (`rotateFavoriteThemeAtLaunch`); tests leave it off.
+    public func start(announcingDiagnostics: Bool = false, rotatingFavoriteThemes: Bool = false) {
         guard watcher == nil else { return }
         if announcingDiagnostics, diagnosticToasts == nil {
             let toasts = SettingsDiagnosticToasts(registry: applier.registry)
@@ -127,6 +129,7 @@ public final class SettingsController {
         watcher.start()
         startManagedWatchers()
         if loadCount == 0 { loadNow() } else { requestReload() }
+        if rotatingFavoriteThemes { rotateFavoriteThemeAtLaunch(root: snapshot.root) }
     }
 
     public func stop() {
@@ -256,7 +259,7 @@ public final class SettingsController {
     }
 
     /// Writes `window.titlebar` through `setSetting`; the default
-    /// ("minimal") removes the key, and the `window` object when it empties.
+    /// ("standard") removes the key, and the `window` object when it empties.
     public func setTitlebar(_ style: TitlebarStyle) async throws {
         try await setSetting(at: WindowTitlebarSetting.configPath, to: style == WindowTitlebarSetting.fallback ? nil : .string(style.rawValue), by: .currentRun())
     }

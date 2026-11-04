@@ -1,0 +1,16 @@
+.row-grammar-gallery {
+  min-height: 100%;
+  padding: 16px;
+  color: var(--cv-text);
+  background: var(--cv-page);
+}
+.row-grammar-gallery__row {
+  position: relative !important;
+  left: auto;
+  right: auto;
+  margin: 0 0 4px;
+  contain: layout paint;
+}
+.row-grammar-gallery__row .cv-tools {
+  margin: 0;
+}

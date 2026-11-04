@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextOnboarding
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -7,7 +8,7 @@ import Testing
 /// unless it names a host this Mac already knows: an acpmux peer, a saved SSH machine, or a host
 /// the person chose "Always allow this host" for. Each case drives `ExternalLinkGate` with the
 /// route `ExternalOpenRouter` makes of the link and records what the gate asked and ran.
-@MainActor @Suite struct ExternalLinkGateTests {
+@MainActor @Suite(.closesItsWindows) struct ExternalLinkGateTests {
     /// What the gate did, in order: `ask <display>`, `run`, `remember <key>`.
     final class Probe {
         var events: [String] = []
@@ -126,6 +127,7 @@ import Testing
 
     @Test func aWindowThatClosedBeforeTheQuestionAnswersCancel() async {
         let closed = NSWindow(contentRect: .zero, styleMask: [], backing: .buffered, defer: true)
+        defer { closed.closeAfterTest() }
         #expect(!closed.isVisible)
         #expect(await ExternalLinkGate.ask(SSHLinkTarget(user: nil, host: "build.example.com", port: nil), in: closed) == .cancel)
     }

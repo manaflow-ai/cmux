@@ -318,14 +318,14 @@ fn registry_active_workspace_changes_emit_resync_barriers() {
         events.recv().unwrap(),
         MuxEvent::TreeDelta(TreeDelta { kind: TreeDeltaKind::WorkspaceAdded, .. })
     ));
-    assert!(matches!(events.recv().unwrap(), MuxEvent::TreeSelectionChanged));
+    assert!(matches!(events.recv().unwrap(), MuxEvent::TreeSelectionChanged(_)));
 
     mux.close_workspace_at_revision(second.workspace, Some(2)).unwrap();
     assert!(matches!(
         events.recv().unwrap(),
         MuxEvent::TreeDelta(TreeDelta { kind: TreeDeltaKind::WorkspaceClosed, .. })
     ));
-    assert!(matches!(events.recv().unwrap(), MuxEvent::TreeSelectionChanged));
+    assert!(matches!(events.recv().unwrap(), MuxEvent::TreeSelectionChanged(_)));
     mux.with_state(|state| {
         assert_eq!(state.workspaces[state.active_workspace].id, first.workspace);
     });
@@ -506,4 +506,20 @@ fn persistent_provider_managed_mux_keeps_registry_durable_and_lifecycle_guarded(
     recovered.shutdown();
     drop(recovered);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+/// The registry's identity never waits on its lock (#27698 audit): durable
+/// commits hold it for seconds on a loaded Mac, and every mutation's reply,
+/// `list-workspaces` and `identify` read the identity.
+#[test]
+fn registry_identity_does_not_wait_on_the_registry_lock() {
+    let mux = test_mux();
+    let expected = mux.registry_identity();
+    let held = mux.workspace_registry.lock().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let reader = mux.clone();
+    std::thread::spawn(move || tx.send(reader.registry_identity()).unwrap());
+    let read = rx.recv_timeout(Duration::from_secs(5));
+    drop(held);
+    assert_eq!(read.ok(), Some(expected), "the identity waited on the held registry lock");
 }

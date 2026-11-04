@@ -101,11 +101,11 @@ final class HomeFirstRunSwitchCard: NSView {
     }
 
     private func applyFonts() {
-        header.font = .systemFont(ofSize: TypeScale.detail * scale, weight: TypeScale.emphasis)
-        note.font = .systemFont(ofSize: TypeScale.caption * scale)
+        header.font = .systemFont(ofSize: TypeScale.Base.detail * scale, weight: TypeScale.emphasis)
+        note.font = .systemFont(ofSize: TypeScale.Base.caption * scale)
         for line in lineViews {
-            line.label.font = .systemFont(ofSize: TypeScale.detail * scale)
-            line.keys.font = .systemFont(ofSize: TypeScale.detail * scale)
+            line.label.font = .systemFont(ofSize: TypeScale.Base.detail * scale)
+            line.keys.font = .systemFont(ofSize: TypeScale.Base.detail * scale)
         }
     }
 
@@ -118,7 +118,7 @@ final class HomeFirstRunSwitchCard: NSView {
         }
         for button in [hide, openSettings] {
             button.attributedTitle = NSAttributedString(string: button.title, attributes: [
-                .foregroundColor: button === hide ? tertiary : primary, .font: NSFont.systemFont(ofSize: TypeScale.caption * scale),
+                .foregroundColor: button === hide ? tertiary : primary, .font: NSFont.systemFont(ofSize: TypeScale.Base.caption * scale),
             ])
         }
     }

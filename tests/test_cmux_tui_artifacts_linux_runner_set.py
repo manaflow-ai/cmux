@@ -10,16 +10,15 @@ stalled behind them. They read `vars.LINUX_RUNNER || 'blacksmith-4vcpu-...'`
 (and 2 vCPU for two others), a size outside the declared set.
 
 Leo's rule (2026-10-28): no job names one runner size; every job resolves its
-runner from one declared set (Blacksmith 32 vCPU, Blacksmith 16 vCPU, the GCP
-pool), with stall-aware failover. In this workflow that is the expression the
+runner from one declared set (the GCP pool, then the Blacksmith size and failover
+.github/runners.json linux_sizes measured for the job), with stall-aware failover. In this workflow that is the expression the
 publish jobs already use:
 
     !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER
-    || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404'
-    || 'blacksmith-32vcpu-ubuntu-2404'
+    || vars.CI_CLOUD_OVERFLOW_SAVED && '<failover>' || '<size>'
 
-A non-Blacksmith pool named by LINUX_RUNNER wins; otherwise 32 vCPU, and 16 vCPU
-while the overflow switch (scripts/ci/cloud_overflow_switch.py) has failed
+A non-Blacksmith pool named by LINUX_RUNNER wins; otherwise the job's size, and its
+failover while the overflow switch (scripts/ci/cloud_overflow_switch.py) has failed
 over. A Blacksmith size the switch or anyone writes into LINUX_RUNNER (it has
 named blacksmith-4vcpu-ubuntu-2404) is ignored, so it can never pin these jobs.
 
@@ -30,6 +29,7 @@ checks the answer is a member of that set. A fork keeps GitHub-hosted Ubuntu.
 from __future__ import annotations
 
 import itertools
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -39,12 +39,39 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 
-from test_ci_tui_routes_avoid_nightly_label import route  # noqa: E402
+from blacksmith_linux_sizes import failover_label, size_label  # noqa: E402
+from runs_on_labels import pool_members, resolve_labels  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
 BIG = "blacksmith-32vcpu-ubuntu-2404"
 SMALL = "blacksmith-16vcpu-ubuntu-2404"
-BLACKSMITH_SET = {BIG, SMALL}
+
+
+def blacksmith_set(job: str) -> set[str]:
+    """Members of the pools selected for this job's size and failover."""
+    labels = (size_label(WORKFLOW.name, job), failover_label(WORKFLOW.name, job))
+    return {member for label in labels for member in pool_members(pool_for_label(label))}
+
+
+def pool_for_label(label: str) -> str:
+    """The declared pool corresponding to a measured Blacksmith label."""
+    return f"linux_{re.search(r'[0-9]+', label).group()}"
+
+
+def resolved(runs_on: str, owner: str, linux_runner: str, overflow: str, trusted: str,
+             darwin_cross: str = "") -> set[str]:
+    """Resolve the route through RUNNER_POOLS, keeping picker contexts silent."""
+    return resolve_labels(
+        runs_on,
+        owner=owner,
+        variables={
+            "LINUX_RUNNER": [linux_runner],
+            "CI_CLOUD_OVERFLOW_SAVED": [overflow],
+            "CI_TRUSTED_RUNNER": [trusted],
+            "LINUX_RUNNER_DARWIN_CROSS": [darwin_cross],
+        },
+        silent=("needs",),
+    )
 # A non-Blacksmith Linux pool LINUX_RUNNER may name (the GCP pool, say).
 POOL = "gcp-linux-pool"
 # The overflow switch writes GitHub-hosted Ubuntu into LINUX_RUNNER when it fails over.
@@ -114,34 +141,42 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         for (name, runs_on), linux_runner, overflow, trusted in itertools.product(
             routes.items(), LINUX_RUNNER_VALUES, ("", OVERFLOW_RECORD), TRUSTED_RUNNER_VALUES
         ):
-            label = route(runs_on, context("manaflow-ai", linux_runner, overflow, trusted))
+            labels = resolved(runs_on, "manaflow-ai", linux_runner, overflow, trusted)
             # A non-Blacksmith LINUX_RUNNER wins; a job that does not read it (the daemon
             # tests) stays on Blacksmith.
-            allowed = BLACKSMITH_SET | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
+            allowed = blacksmith_set(name) | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
             with self.subTest(job=name, linux_runner=linux_runner, overflow=bool(overflow), trusted=trusted):
-                self.assertIn(label, allowed)
+                self.assertTrue(labels <= allowed, labels - allowed)
 
     def test_the_overflow_switch_moves_every_linux_job_to_the_other_size(self) -> None:
         for name, runs_on in linux_routes().items():
             for linux_runner in ("", "blacksmith-4vcpu-ubuntu-2404", SMALL):
                 with self.subTest(job=name, linux_runner=linux_runner):
-                    self.assertEqual(route(runs_on, context("manaflow-ai", linux_runner, "", "")), BIG)
-                    self.assertEqual(route(runs_on, context("manaflow-ai", linux_runner, OVERFLOW_RECORD, "")), SMALL)
+                    size = size_label(WORKFLOW.name, name)
+                    failover = failover_label(WORKFLOW.name, name)
+                    size_pool = pool_for_label(size)
+                    failover_pool = pool_for_label(failover)
+                    self.assertIn(f"fromJSON(vars.RUNNER_POOLS).{size_pool}", runs_on)
+                    self.assertIn(f"fromJSON(vars.RUNNER_POOLS).{failover_pool}", runs_on)
+                    self.assertIn(size, resolved(runs_on, "manaflow-ai", linux_runner, "", ""))
+                    self.assertIn(failover, resolved(runs_on, "manaflow-ai", linux_runner, OVERFLOW_RECORD, ""))
+                    self.assertEqual(pool_members(size_pool)[0], size)
+                    self.assertEqual(pool_members(failover_pool)[0], failover)
 
     def test_only_the_darwin_cross_shadow_reads_its_override(self) -> None:
         for name, runs_on in linux_routes().items():
             for linux_runner in ("", POOL):
                 with self.subTest(job=name, linux_runner=linux_runner):
-                    label = route(runs_on, context("manaflow-ai", linux_runner, "", "", DARWIN_CROSS))
+                    labels = resolved(runs_on, "manaflow-ai", linux_runner, "", "", DARWIN_CROSS)
                     if name == DARWIN_CROSS_JOB:
-                        self.assertEqual(label, DARWIN_CROSS)
+                        self.assertIn(DARWIN_CROSS, labels)
                     else:
-                        self.assertNotEqual(label, DARWIN_CROSS)
+                        self.assertNotIn(DARWIN_CROSS, labels)
 
     def test_a_fork_keeps_github_hosted_ubuntu(self) -> None:
         for name, runs_on in linux_routes().items():
             with self.subTest(job=name):
-                self.assertEqual(route(runs_on, context("someone-else", "", "", "")), "ubuntu-24.04")
+                self.assertEqual(resolved(runs_on, "someone-else", "", "", ""), {"ubuntu-24.04"})
 
 
 if __name__ == "__main__":

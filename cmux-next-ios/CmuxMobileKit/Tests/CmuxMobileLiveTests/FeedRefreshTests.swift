@@ -60,6 +60,37 @@ final class WatchReply: @unchecked Sendable {
         #expect(store.items.count == 2)
     }
 
+    /// A list past acpmux's reply budget comes in pages: the watch's first rows and a
+    /// `nextCursor`, the rest from `_acpmux/sessions {cursor}` (no `enabled`). The hub's
+    /// bind and a refresh both see every session.
+    @Test func bindAndRefreshFollowTheWatchCursor() async throws {
+        let mac = MockMacLink { _, data in
+            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let method = object["method"] as? String else { return [] }
+            let id = object["id"].map { "\($0)" } ?? "null"
+            let params = object["params"] as? [String: Any] ?? [:]
+            func reply(_ result: String) -> Data { Data(#"{"jsonrpc":"2.0","id":\#(id),"result":\#(result)}"#.utf8) }
+            switch method {
+            case "initialize": return [reply(#"{"protocolVersion":1}"#)]
+            case "_acpmux/watch":
+                return [reply(#"{"sessions":[{"sessionId":"s1","name":"Fix","harness":"fake","cwd":"/tmp/w","status":"idle","pendingPermissions":0,"lastSeq":4,"preview":"Done","lastTurn":{"status":"completed","turnId":"t9","endedAt":1000}}],"nextCursor":"c1"}"#)]
+            case "_acpmux/sessions" where params["cursor"] as? String == "c1" && params["enabled"] == nil:
+                return [reply(#"{"sessions":[{"sessionId":"s2","name":"Ship","harness":"fake","cwd":"/tmp/w","status":"idle","pendingPermissions":0,"lastSeq":2,"preview":"Shipped","lastTurn":{"status":"completed","turnId":"t8","endedAt":1000}}]}"#)]
+            default: return [reply(#"{"sessions":[]}"#)]
+            }
+        }
+        let hub = AcpmuxHub()
+        await hub.bind(try await mac.openChannel(service: "acpmux", args: [:]))
+        #expect(Set(hub.sessions.keys) == ["s1", "s2"])
+
+        let store = FeedStore(items: [])
+        let feed = LiveFeed(store: store, hub: hub, place: { _ in nil })
+        store.actions = feed
+        await store.refresh()
+        #expect(store.refreshError == nil)
+        #expect(Set(store.items.map(\.id)) == ["turn-s1-t9", "turn-s2-t8"])
+    }
+
     @Test func retryAfterFailureCallsTheFeedLoader() async throws {
         let store = FeedStore(items: [])
         await store.refresh()

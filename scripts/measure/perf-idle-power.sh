@@ -12,9 +12,20 @@
 #     browser.keepNeighborTabsAwake without JSON, which the fleet's argument check refuses)
 # Each idle scenario settles 120 s first (Chromium's post-load work), so a
 # full run takes about 25 minutes.
+# The idle-CPU stop condition (40 open chats, 60 s settle, 120 s measured, every
+# process held to 5% CPU; about 10 minutes after the build):
+#   cmux-ci run --class exclusive --measurement --label measure \
+#     --script scripts/measure/perf-idle-power.sh --ref SHA --arg=scenarios=idle-chats \
+#     --arg=config=bench --artifact artifacts/perf-idle-power.json \
+#     [--arg=chats=40] [--arg=settle=60] [--arg=measure=120] [--arg=budget=5]
+#   The log prints the per-process table between PERF-IDLE-CHATS-TABLE-BEGIN and -END;
+#   the JSON keeps it as results[0].markdown.
 # Output: PERF-POWER lines; JSON at artifacts/perf-idle-power.json.
 set -euo pipefail
-measure=60
+measure=""
+settle=""
+chats=""
+budget=""
 config=Release
 scenarios=""
 settings="{}"
@@ -22,7 +33,10 @@ freeze=""
 neighbors=""
 for arg in "$@"; do
   case "$arg" in
-    measure=*) measure="${arg#measure=}" ;;
+    measure=*) measure="${arg#measure=}"; [[ "$measure" =~ ^[0-9]+$ ]] || { echo "perf-idle-power.sh: measure=SECONDS" >&2; exit 2; } ;;
+    settle=*) settle="${arg#settle=}"; [[ "$settle" =~ ^[0-9]+$ ]] || { echo "perf-idle-power.sh: settle=SECONDS" >&2; exit 2; } ;;
+    chats=*) chats="${arg#chats=}"; [[ "$chats" =~ ^[0-9]+$ ]] || { echo "perf-idle-power.sh: chats=N" >&2; exit 2; } ;;
+    budget=*) budget="${arg#budget=}"; [[ "$budget" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "perf-idle-power.sh: budget=PERCENT" >&2; exit 2; } ;;
     config=*) config="${arg#config=}" ;;
     scenarios=*) scenarios="${arg#scenarios=}" ;;
     settings=*) settings="${arg#settings=}" ;;
@@ -60,6 +74,10 @@ CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag perfpower "${release[@]}" 
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$work/reload.log" | tail -n 1)"
 [[ -n "$app" && -d "$app" ]] || { echo "perf-idle-power: reload printed no app path" >&2; tail -n 40 "$work/reload.log"; exit 1; }
 extra=()
-[ -n "$scenarios" ] && extra=(--scenarios "$scenarios")
-python3 scripts/cmux-next/bench_power.py --app "$app" --measure "$measure" --config "$settings" \
-  --out artifacts/perf-idle-power.json "${extra[@]}"
+[ -n "$scenarios" ] && extra+=(--scenarios "$scenarios")
+[ -n "$measure" ] && extra+=(--measure "$measure")
+[ -n "$settle" ] && extra+=(--settle "$settle")
+[ -n "$chats" ] && extra+=(--load-local "$chats")
+[ -n "$budget" ] && extra+=(--process-budget "$budget")
+python3 scripts/cmux-next/bench_power.py --app "$app" --config "$settings" \
+  --out artifacts/perf-idle-power.json --md artifacts/perf-idle-power.md ${extra[@]+"${extra[@]}"}

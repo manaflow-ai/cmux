@@ -345,10 +345,6 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
     var characterFrame: CGRect { character.frame }
     /// What the character's own box draws (the still or an upload frame; nil under an animated character's frames).
     var characterContents: Any? { character.layer?.contents }
-
-    override func resetCursorRects() {
-        addCursorRect(character.frame, cursor: .pointingHand)
-    }
 }
 
 /// The character's view: a VoiceOver press on it is a click on the character.

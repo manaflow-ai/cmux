@@ -17,11 +17,9 @@ private final class SplitPageKey {
 /// and then moves it to a new split on `edge`, the way a new chat reaches its dock (NewChatPlacement.dock).
 extension NewTabPage {
     /// Whether a person's split of `pane` opens the New Tab page: its selected tab is a browser
-    /// tab, the New Tab page or an agent chat. Terminal splits keep the terminal, and so does every
-    /// split with `tabs.terminalFirst` on (#23021).
+    /// tab, the New Tab page or an agent chat. Terminal splits keep the terminal.
     static func splitsToPage(_ pane: PaneController?, direction: PaneDirection, byPerson: Bool) -> Bool {
-        guard byPerson, direction == .right || direction == .down, let pane, let key = pane.currentTabKey,
-              !NewTabKind.terminalFirst(pane.services) else { return false }
+        guard byPerson, direction == .right || direction == .down, let pane, let key = pane.currentTabKey else { return false }
         return NewTabKind.of(key, tab: pane.selectedTab, services: pane.services) != .terminal
     }
 
@@ -36,6 +34,7 @@ extension NewTabPage {
         var page = Self.page(services, selected: source.selectedTab, pane: source, paletteActions: false)
         let cwd = page.cwd
         page.openTabs = openTabs(services, in: source.pane)
+        page.draft = services.windowController(showing: source).flatMap { services.agentTabs.unsentDrafts.leftover(inWindow: $0.state.id) }
         let opened = SplitPageKey()
         // Keys typed after the split wait for the new page's field, in order (cx-kql5h): the page
         // is made, moved to the new pane and shown before it can take them.

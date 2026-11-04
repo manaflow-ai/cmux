@@ -31,6 +31,10 @@ await requireBrowserLane("picker-row-geometry.test.ts", async () => {
   const CASES: PickerRowCase[] = [
     { ...project, name: "project picker", variant: "open-current" },
     { ...project, name: "project picker, a folder titled by its path", variant: "open-path-titled" },
+    // The agent chat's (new chat hero's) picker, Leo: "why is this all misaligned in the agent chat
+    // project selectin". Do not work in a project (checked), New project and app-icon projects.
+    { ...project, name: "agent chat project picker, app icons", variant: "open-app-icons" },
+    { ...project, name: "agent chat project picker, lane worktrees", variant: "lane-worktrees" },
     {
       name: "environment picker",
       entry: "agent-pane.composer-context",
@@ -40,18 +44,20 @@ await requireBrowserLane("picker-row-geometry.test.ts", async () => {
       icon: ".acpmux-env-icon, .acpmux-project-badge",
       title: ".acpmux-menu-label",
       section: ".ui-combobox-pinned, .ui-combobox-scroll",
-      // Local, SSH and Cloud: a section's name is drawn above its first row.
-      sectionStart: ":has(> .acpmux-env-row[data-section])",
+      // This Mac and Cloud, one line each: no sections and no hairline.
       level: "fail",
     },
     {
       name: "model picker",
       entry: "agent-pane.model-picker",
       variant: "quick-menu",
-      menu: ".acpmux-quick-menu",
-      row: ".acpmux-quick-item:not(.acpmux-quick-effort-segment)",
-      icon: ".acpmux-quick-icon, .acpmux-harness-icon, svg",
-      title: ".acpmux-menu-label, .acpmux-quick-label",
+      menu: ".acpmux-cols [role=listbox]",
+      row: ".acpmux-cols-row[role=option]",
+      // Model rows have a trailing check column; harness symbols live in the rail.
+      icon: ".acpmux-cols-check",
+      title: ".acpmux-cols-name",
+      // Legacy models are separated by a caption rather than a hairline.
+      sectionStart: ".acpmux-cols-caption + .acpmux-cols-row",
       level: "fail",
     },
     {

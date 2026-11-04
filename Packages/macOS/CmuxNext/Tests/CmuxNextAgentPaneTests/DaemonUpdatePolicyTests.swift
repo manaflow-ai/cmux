@@ -499,6 +499,92 @@ import Testing
         #expect(fixture.calls == ["first", "second"])
     }
 
+    /// A chat start the machine's older daemon refused: ``DaemonUpdatePolicy/updateNow(_:)``
+    /// updates it and returns once that turn ended, so the start can go again on the new daemon.
+    @Test(.timeLimit(.minutes(1))) func updateNowUpdatesTheTargetAndReturnsAfterItsTurn() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let target = fixture.target("vm", build: Self.older, outcomes: [.updated(build: Self.bundled)])
+        await fixture.policy([]).updateNow(target)
+
+        #expect(fixture.calls == ["vm"])
+        #expect(await target.currentBuild() == Self.bundled)
+        #expect(fixture.ledger.targets == ["vm": "updated"])
+    }
+
+    /// As the person's Update click: an earlier failure on this build does not hold it back.
+    @Test(.timeLimit(.minutes(1))) func updateNowIsNotHeldBackByAnEarlierFailure() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let target = fixture.target("vm", build: Self.older, outcomes: [.failed(reason: "network"), .updated(build: Self.bundled)])
+        let policy = fixture.policy([])
+        await policy.offer(target)
+        await policy.drained()
+        #expect(fixture.ledger.targets == ["vm": "failed"])
+
+        await policy.updateNow(target)
+        #expect(fixture.calls == ["vm", "vm"])
+        #expect(await target.currentBuild() == Self.bundled)
+    }
+
+    /// The background offer's update of that machine already runs: the start waits for it, and
+    /// no second update runs.
+    @Test(.timeLimit(.minutes(1))) func updateNowJoinsAnUpdateThatAlreadyRuns() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let started = UpdateSignal()
+        let release = UpdateSignal()
+        let returned = UpdateSignal()
+        let target = fixture.target("vm", build: Self.older, outcomes: [.updated(build: Self.bundled)], started: started, release: release)
+        let policy = fixture.policy([])
+        await policy.offer(target)
+        await started.wait()
+        // task-owner: this test; awaited through `returned` below
+        let waiter = Task {
+            await policy.updateNow(target)
+            returned.fire()
+        }
+        release.fire()
+        await returned.wait()
+        await waiter.value
+        await policy.drained()
+
+        #expect(fixture.calls == ["vm"])
+        #expect(await target.currentBuild() == Self.bundled)
+    }
+
+    /// A refusal that arrives while the machine's update already runs waits for that update and
+    /// never queues a second one, also when it fails (review of #29497).
+    @Test(.timeLimit(.minutes(1))) func updateNowJoiningARunningUpdateNeverRunsItTwice() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let started = UpdateSignal()
+        let release = UpdateSignal()
+        let target = fixture.target("vm", build: Self.older,
+                                    outcomes: [.failed(reason: "disk full"), .updated(build: Self.bundled)],
+                                    started: started, release: release)
+        let policy = fixture.policy([])
+        await policy.offer(target)
+        await started.wait()
+        // task-owner: this test; awaited below
+        let waiter = Task { await policy.updateNow(target) }
+        while !(await policy.awaitsTurn("vm")) { await Task.yield() }
+        release.fire()
+        await waiter.value
+        await policy.drained()
+
+        #expect(fixture.calls == ["vm"])
+        #expect(await target.currentBuild() == Self.older)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func updateNowWithTheToggleOffReturnsAtOnce() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let target = fixture.target("vm", build: Self.older, outcomes: [.updated(build: nil)])
+        await fixture.policy([], enabled: false).updateNow(target)
+        #expect(fixture.calls.isEmpty)
+    }
+
     @Test func toggleOffRunsNothing() async throws {
         let fixture = try PolicyFixture()
         defer { fixture.remove() }

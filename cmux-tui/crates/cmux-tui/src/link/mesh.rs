@@ -38,6 +38,8 @@ pub(super) struct MeshOverlay {
     cloud_ops: tokio::sync::Mutex<()>,
     /// The link's WireGuard key, for its own tunnels.
     private_key: Zeroizing<[u8; 32]>,
+    /// Native links accept only the enrolled mesh route returned by the app.
+    native_route: Option<super::native_route::NativeRoute>,
 }
 
 /// What the mesh was given for one Cloud peer.
@@ -52,7 +54,16 @@ impl MeshOverlay {
             gateways: Mutex::new(HashMap::new()),
             cloud_ops: tokio::sync::Mutex::new(()),
             private_key,
+            native_route: None,
         }
+    }
+
+    pub(super) fn with_native_route(
+        mut self,
+        route: Option<super::native_route::NativeRoute>,
+    ) -> Self {
+        self.native_route = route;
+        self
     }
 
     pub(super) async fn listen(&self, port: u16) -> io::Result<WgMeshListener> {
@@ -127,7 +138,11 @@ impl Overlay for MeshOverlay {
                 "a Cloud host names the key of a paired peer",
             ));
         }
-        let route = match choose_route(info) {
+        let selected = match &self.native_route {
+            Some(route) => route.for_vm(info)?,
+            None => choose_route(info),
+        };
+        let route = match selected {
             CloudRoute::Tunnel { gateway, vpc } => {
                 Some(PeerRoute::Gateway { gateway: self.gateway(&gateway).await?, address: vpc })
             }

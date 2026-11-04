@@ -925,7 +925,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 // A newer reflow is still moving the slot: its completion fades the row in.
                 if reflow == self.dockReflow {
                     // motion: allow the same gate as the reflow above (Reduce Motion skips it).
-                    UIView.animate(withDuration: 0.15) { self.keyBarClip.alpha = 1 }
+                    // Interruptible: the key row takes taps while it fades in.
+                    UIView.animate(withDuration: 0.15, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+                        self.keyBarClip.alpha = 1
+                    }
                 }
                 self.keyboardDidChange()
             }
@@ -2394,6 +2397,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     @objc private func terminalTapped() {
+        #if DEBUG
+        if CommandLine.arguments.contains("-CmuxMobileTermLog") { NSLog("mobileterm kbd tap t=%.3f first=%d", CACurrentMediaTime(), surface.isFirstResponder ? 1 : 0) }
+        #endif
         model.session.noteInteraction()
         // A tap outside the menu ends a selection, like iOS text.
         if selection.selection != nil || tuiSelection.selection != nil {
@@ -2574,15 +2580,24 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     func focusTerminal() {
+        #if DEBUG
+        if CommandLine.arguments.contains("-CmuxMobileTermLog") { NSLog("mobileterm kbd focus t=%.3f first=%d", CACurrentMediaTime(), surface.isFirstResponder ? 1 : 0) }
+        #endif
         model.directTyping = true
         surface.becomeFirstResponder()
     }
 
     func hideKeyboard() {
+        #if DEBUG
+        if CommandLine.arguments.contains("-CmuxMobileTermLog") { NSLog("mobileterm kbd hide t=%.3f first=%d", CACurrentMediaTime(), surface.isFirstResponder ? 1 : 0) }
+        #endif
         view.window?.endEditing(true)
     }
 
     @objc private func keyboardWillShow(_ note: Notification) {
+        #if DEBUG
+        if CommandLine.arguments.contains("-CmuxMobileTermLog") { NSLog("mobileterm kbd willShow t=%.3f first=%d", CACurrentMediaTime(), surface.isFirstResponder ? 1 : 0) }
+        #endif
         let notified = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect) ?? .zero
         // In this app's points (an iPhone app on an iPad gets the iPad's keyboard in iPad points).
         let frame = keyboardDock.keyboardFrame(notified: notified, showing: true)
@@ -2592,11 +2607,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     @objc private func keyboardWillHide(_ note: Notification) {
+        #if DEBUG
+        if CommandLine.arguments.contains("-CmuxMobileTermLog") { NSLog("mobileterm kbd willHide t=%.3f first=%d", CACurrentMediaTime(), surface.isFirstResponder ? 1 : 0) }
+        #endif
         dock.keyboardWillHide()
         setKeyBar(visible: false, note: note)
     }
 
     @objc private func keyboardDidHide() {
+        #if DEBUG
+        if CommandLine.arguments.contains("-CmuxMobileTermLog") { NSLog("mobileterm kbd didHide t=%.3f first=%d", CACurrentMediaTime(), surface.isFirstResponder ? 1 : 0) }
+        #endif
         dock.keyboardDidHide()
         keyboardDidChange()
     }

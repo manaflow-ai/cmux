@@ -53,6 +53,10 @@ pub const UNSET_KEY: &str = "ACPMUX_ROUTE_UNSET";
 /// it replaces a family or global binding. Internal: never reaches the harness.
 pub const PROFILE_ROUTE_KEY: &str = "ACPMUX_PROFILE_ROUTE";
 
+/// The profile-env key that carries the bound route's name to the spawn, for the `/status`
+/// card (`session_status.rs`). Internal: never reaches the harness.
+pub const NAME_KEY: &str = "ACPMUX_ROUTE_NAME";
+
 /// The built-in route to the hosted cmux model router through the local relay.
 /// A route file named `cmux` replaces it; `find` resolves it, `load` does not list it.
 pub const CMUX_ROUTE_ID: &str = "cmux";
@@ -973,8 +977,7 @@ pub fn apply(env: &mut BTreeMap<String, String>, route_env: &RouteEnv) {
 
 pub(crate) fn resolve_reference(value: &str) -> Result<String, String> {
     if let Some(var) = value.strip_prefix("env:") {
-        return crate::login_env::allowed_var(var)
-            .or_else(|| std::env::var(var).ok())
+        return crate::login_env::reference_var(var)
             .ok_or_else(|| format!("{var} is not set in the login environment"));
     }
     if let Some(path) = value.strip_prefix("file:") {

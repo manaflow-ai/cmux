@@ -189,7 +189,9 @@ mod remote_cli_docs {
             // Cloud verbs are app actions whose existence is checked by the
             // socket. Require a catalog match rather than generic parsing.
             // Resource commands still resolve through the CLI parser.
+            // `cmux agents` routes before the core parser; its own grammar decides.
             let parser = builtin_command(&parser_words)
+                || (parser_words[0] == "agents" && agents::command(&parser_words[1..]).is_ok())
                 || (parser_words[0] != "cloud" && parse(&parser_words, Surface::Cmux).is_ok());
             if action.is_none() && !parser {
                 missing.push(words.join(" "));
@@ -222,6 +224,10 @@ mod remote_cli_docs {
                 | ["harness", "doctor", ..]
                 | ["link", "machine", "update", ..]
                 | ["docs", "search", ..]
+                // vm.rs owns `machine new` (the app's Cloud create, or the VM API).
+                | ["machine", "new" | "create", ..]
+                // cloud_start_chat.rs: the CLI's own Cloud verb, not an app action.
+                | ["cloud", "start-chat", ..]
         )
     }
 
@@ -240,6 +246,19 @@ mod remote_cli_docs {
     }
 
     #[test]
+    fn documented_agents_commands_resolve_through_the_agents_grammar() {
+        // `cmux agents` routes before the core parser, so its own grammar
+        // decides which documented lines are real; a stale one still fails.
+        let names = action_names();
+        let missing = missing_commands(
+            "`cmux agents chat new`, `cmux agents chat new --harness codex -- \"hi\"`, \
+             `cmux agents chat deliberately-stale-verb`",
+            &names,
+        );
+        assert_eq!(missing, vec!["cmux agents chat deliberately-stale-verb"]);
+    }
+
+    #[test]
     fn a_deliberately_stale_cmux_line_is_rejected() {
         let names = action_names();
         let missing = missing_commands("`cmux cloud deliberately-stale-action`", &names);
@@ -251,6 +270,7 @@ mod remote_cli_docs {
         let missing = action_names()
             .into_iter()
             .filter_map(|name| name.strip_prefix("cloud ").map(str::to_owned))
+            .filter(|name| cloud_help::renamed(name).is_none())
             .filter(|name| !cloud_help::overview(false).contains(name))
             .collect::<Vec<_>>();
         assert!(missing.is_empty(), "cloud help omitted catalog actions: {missing:?}");
@@ -265,7 +285,7 @@ mod remote_cli_docs {
         assert!(app::parse(&args).is_ok());
         assert!(cloud_help::overview(false).contains("cloud <action>"));
         assert!(AGENT_HELP.contains("agent open-tab"));
-        assert!(AGENT_HELP.contains("agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--focus]"));
+        assert!(AGENT_HELP.contains("agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--placement top] [--focus]"));
     }
 
     #[test]
@@ -505,6 +525,17 @@ fn server_stats_help_routes_to_the_stats_topic() {
     };
     assert_eq!(topic, "server stats");
     assert!(scope_help_for(&topic, crate::localization::catalog()).contains("--json"));
+}
+
+#[test]
+fn help_workflow_shows_the_workflow_usage_not_the_root_help() {
+    for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
+        let help = scope_help_for("workflow", crate::localization::catalog_for_locale(locale));
+        assert!(help.contains("USAGE"), "{locale}: {help}");
+        assert!(help.contains("cmux workflow start <file>"), "{locale}: {help}");
+        assert!(help.contains("cmux workflow pause|resume <run-id>"), "{locale}: {help}");
+        assert!(!help.contains("GLOBAL OPTIONS"), "{locale}: root help shown instead: {help}");
+    }
 }
 
 #[test]
@@ -1113,4 +1144,39 @@ fn root_help_lists_every_scope_and_help_word_reaches_own_help_scopes() {
     assert_eq!(acp_scope_args(&strings(&["acp", "ls", "--json"])), os(&["ls", "--json"]));
     assert_eq!(acp_scope_args(&rewritten(&["help", "harness"])), os(&["harness", "--help"]));
     assert_eq!(acp_scope_args(&rewritten(&["help", "chats"])), os(&["chats", "--help"]));
+}
+
+#[test]
+fn space_list_supports_json_and_has_dedicated_help() {
+    let ParsedCommand::Command { global, plan: CommandPlan::Protocol(request) } =
+        parse(&strings(&["space", "list", "--json"]), Surface::Cmux).unwrap()
+    else {
+        panic!("expected the space list request")
+    };
+    assert!(matches!(global.output, OutputMode::Json));
+    assert_eq!(request.operation.name().unwrap(), "room.list");
+    let help = scope_help_for("space", crate::localization::catalog());
+    for verb in ["list", "new", "switch", "rename", "move workspace", "move tab", "close"] {
+        assert!(help.contains(&format!("cmux space {verb}")), "{verb}: {help}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn space_mutations_accept_global_json_without_changing_the_action() {
+    for words in [
+        vec!["space", "new", "Work"],
+        vec!["space", "switch", "Work"],
+        vec!["space", "rename", "Work", "Office"],
+        vec!["space", "close", "Office"],
+        vec!["space", "move", "workspace", "ws_1", "Work"],
+        vec!["space", "move", "tab", "tab_1", "Work"],
+    ] {
+        let mut raw = strings(&words);
+        raw.push("--json".into());
+        let (global, remaining) = parse_globals(&raw).unwrap();
+        assert!(matches!(global.output, OutputMode::Json));
+        assert_eq!(remaining, strings(&words));
+        assert!(app::parse(&remaining).unwrap().is_some());
+    }
 }

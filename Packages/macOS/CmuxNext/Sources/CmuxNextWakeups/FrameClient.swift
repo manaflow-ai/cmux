@@ -5,12 +5,17 @@ import QuartzCore
 public struct FrameTick: Sendable {
     /// Display-link time of this frame (CACurrentMediaTime base).
     public var timestamp: CFTimeInterval
-    /// Seconds since the previous frame, clamped to 1/240...1/30.
+    /// Seconds since the previous frame's vsync, clamped to 1/240...1/30: for benches and probes that pace by the
+    /// refresh. Motion steps by ``frameElapsed`` (FRAME OWNER S2), never by this.
     public var elapsed: Double
-    /// Seconds since the previous frame, unclamped (frame-pacing probes).
-    public var rawElapsed: Double
     /// The display's refresh period; nil for a synthesized (stalled) frame.
     public var refreshInterval: Double?
+    /// The time this frame shows: the display link's `targetTimestamp`; for a synthesized frame, when it was made.
+    public var targetTimestamp: CFTimeInterval
+    /// Seconds from the time the previous frame showed to the time this one shows, at most
+    /// ``FrameScheduler/catchUpLimit``: after a late frame, motion stepped by it lands where its curve is at
+    /// ``targetTimestamp``. The first frame from rest shows one refresh period (1/60 s for a synthesized one).
+    public var frameElapsed: Double
 }
 
 /// A reason to receive frames: an animation, a drag autoscroll, a settle
@@ -26,16 +31,22 @@ public final class FrameClient {
     /// client was made with ``init(owner:budgeted:on:onFrame:)``.
     public let workClass: MainWorkClass
     private let onFrame: @MainActor (FrameTick) -> Bool
+    /// Ends the client's work at its final state in one go (``FrameScheduler`` calls it for an
+    /// animation in a window out of sight). Nil: the client is dropped with no more ticks.
+    let settleNow: (@MainActor () -> Void)?
     private let resolve: @MainActor () -> FrameScheduler
     private weak var scheduler: FrameScheduler?
     public private(set) var isActive = false
 
     /// `onFrame` returns true to keep ticking. The client ticks on the
     /// scheduler `resolve` returns when it activates.
+    /// `settle` ends the work at its final state in one go when its window goes out of sight (nil:
+    /// the client just stops; its owner activates it again when needed).
     public init(owner: String, isAnimation: Bool = true, scheduler resolve: @escaping @MainActor () -> FrameScheduler,
-                onFrame: @escaping @MainActor (FrameTick) -> Bool) {
+                settle: (@MainActor () -> Void)? = nil, onFrame: @escaping @MainActor (FrameTick) -> Bool) {
         self.owner = owner
         self.isAnimation = isAnimation
+        self.settleNow = settle
         self.workClass = .frame
         self.resolve = resolve
         self.onFrame = onFrame
@@ -51,6 +62,7 @@ public final class FrameClient {
                 onFrame: @escaping @MainActor (FrameTick, MainFrameBudget) -> Bool) {
         self.owner = owner
         self.isAnimation = false
+        self.settleNow = nil
         self.workClass = workClass.workClass
         let frames = work.frames, budget = work.budget
         self.resolve = { frames }

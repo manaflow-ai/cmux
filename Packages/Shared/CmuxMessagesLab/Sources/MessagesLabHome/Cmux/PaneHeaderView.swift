@@ -39,6 +39,17 @@ final class PaneHeaderView: NSView {
             needsLayout = true
         }
     }
+    /// cmux: a small control right after the name pill, on its line (Home's Chief location chip). It
+    /// takes its own clicks; sized by its `intrinsicContentSize`; hidden with the pill and in a pane
+    /// too narrow to keep it clear of the trailing accessory. Nil: none.
+    var pillAccessory: NSView? {
+        didSet {
+            guard pillAccessory !== oldValue else { return }
+            oldValue?.removeFromSuperview()
+            if let pillAccessory { addSubview(pillAccessory) }
+            needsLayout = true
+        }
+    }
     /// cmux: who else has the conversation open (chat multiplayer), beside the name pill; empty
     /// shows none. `facesLabel` is what VoiceOver reads for them (the host's localized words).
     let facesView = PaneHeaderFacesView()
@@ -105,6 +116,9 @@ final class PaneHeaderView: NSView {
         guard !isHidden else { return nil }
         let p = convert(point, from: superview)
         if pill.frame.contains(p) && !pill.isHidden { return pill }
+        if let accessory = pillAccessory, !accessory.isHidden, accessory.frame.contains(p) {
+            return accessory.hitTest(p) ?? accessory
+        }
         if let accessory = trailingAccessory, !accessory.isHidden, accessory.frame.contains(p),
            let hit = accessory.hitTest(p), hit !== accessory { return hit }
         return bounds.contains(p) && !bare ? self : nil
@@ -140,7 +154,23 @@ final class PaneHeaderView: NSView {
         pillGlass?.frame = pillBacking.bounds
         pillGlass?.cornerRadius = h / 2
         layoutTrailingAccessory()
+        layoutPillAccessory()
         layoutFaces()
+    }
+
+    /// The trailing edge the pill's line may reach: the trailing accessory's start, else the inset.
+    private var pillLineLimit: CGFloat {
+        trailingAccessory.flatMap { $0.isHidden ? nil : $0.frame.minX - 8 } ?? bounds.width - PaneHeaderView.trailingInset
+    }
+
+    /// The pill accessory right after the name pill, centered on its line.
+    private func layoutPillAccessory() {
+        guard let accessory = pillAccessory else { return }
+        let size = accessory.intrinsicContentSize
+        let frame = CGRect(x: pill.frame.maxX + PaneHeaderView.facesGap, y: (PaneHeaderView.pillCenterY - size.height / 2).rounded(),
+                           width: size.width, height: size.height)
+        if accessory.frame != frame { accessory.frame = frame }
+        accessory.isHidden = pill.isHidden || frame.maxX > pillLineLimit
     }
 
     /// The accessory at its intrinsic size (else its own frame size), centered on the avatar's line at the trailing edge;
@@ -164,11 +194,11 @@ final class PaneHeaderView: NSView {
     /// here, or in a pane too narrow to keep them clear of the trailing accessory.
     private func layoutFaces() {
         let size = facesView.intrinsicContentSize
-        let frame = CGRect(x: pill.frame.maxX + PaneHeaderView.facesGap, y: PaneHeaderView.pillCenterY - size.height / 2,
+        let start = pillAccessory.flatMap { $0.isHidden ? nil : $0.frame.maxX } ?? pill.frame.maxX
+        let frame = CGRect(x: start + PaneHeaderView.facesGap, y: PaneHeaderView.pillCenterY - size.height / 2,
                            width: size.width, height: size.height)
         if facesView.frame != frame { facesView.frame = frame }
-        let limit = trailingAccessory.flatMap { $0.isHidden ? nil : $0.frame.minX - 8 } ?? bounds.width - PaneHeaderView.trailingInset
-        facesView.isHidden = pill.isHidden || faces.isEmpty || frame.maxX > limit
+        facesView.isHidden = pill.isHidden || faces.isEmpty || frame.maxX > pillLineLimit
     }
 
     private func applyTitle() {
@@ -200,10 +230,14 @@ final class PaneHeaderView: NSView {
         needsLayout = true
     }
 
-    /// A monogram on the header's avatar disc (white 253, as HeaderView
-    /// draws it). HeaderBar draws the fixture contact's measured "I"; a Home
-    /// conversation shows its participant's initials.
+    /// The header's avatar for `initials`: letters and digits as Messages' grey
+    /// gradient monogram (``MonogramAvatar``, Lawrence 2026-10-30: "CH for chief?
+    /// like in imessage"); anything else (an emoji) on the plain disc (white 253,
+    /// as HeaderView draws it; the theme's secondary grey in a light theme).
     static func avatarImage(_ initials: String, light: Bool = false) -> NSImage {
+        if MonogramAvatar.isMonogram(initials) {
+            return MonogramAvatar(initials: initials).image(side: avatarSize, light: light)
+        }
         let disc = light ? Fixture.secondaryText : NSColor(white: 253 / 255, alpha: 1)
         let ink: NSColor = light ? .white : .black
         return NSImage(size: NSSize(width: avatarSize, height: avatarSize), flipped: true) { r in

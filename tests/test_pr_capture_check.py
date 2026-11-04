@@ -1,6 +1,8 @@
 """The PR capture check: native UI changes show a real capture in the description.
 
-Native UI is what scripts/cmux-next/media/path_map.py maps to a Mac tour.
+Native UI is what scripts/cmux-next/media/path_map.py maps to a Mac tour. The check never blocks a land
+(Leo, 2026-10-31: "WE DONT NEED FUCKIGN SCREENSHOTS JUST LET ME TRY THE SHIT OUT"): it always exits 0, and
+what it flags is a `::warning title=...` annotation. run_check returns 1 for a flagged body, 0 otherwise.
 """
 import importlib.util
 import subprocess
@@ -21,6 +23,7 @@ CAPTURE = (f"<!-- cmux-capture sha={SHA} state=tour:hover-card job=j1 -->\n"
            "| Light | Dark |\n| --- | --- |\n"
            "| ![light](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/42/cap-aaaaaaaa-tour-hover-card-light.png) "
            "| ![dark](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/42/cap-aaaaaaaa-tour-hover-card-dark.png) |\n")
+FLAGGED = "::warning title="
 REVIEW = ("Viewed after image: yes\n"
           "Visual verdict: This looks right next to ChatGPT and Claude.\n")
 
@@ -33,7 +36,8 @@ class CaptureCheckTests(unittest.TestCase):
             done = subprocess.run([sys.executable, str(SCRIPT), "--body-file", f"{tmp}/body.md", "--paths-file",
                                    f"{tmp}/paths.txt", "--labels", labels, "--head-sha", head, "--pr", "42"],
                                   capture_output=True, text=True)
-        return done.returncode, done.stdout
+        self.assertEqual(done.returncode, 0, done.stdout)  # never a red check: the landing tools count it as the PR's own
+        return (1 if FLAGGED in done.stdout else 0), done.stdout
 
     def test_native_ui_paths_need_a_capture(self):
         self.assertEqual(module.ui_tours([SWIFT]), ["hover-card"])
@@ -45,10 +49,12 @@ class CaptureCheckTests(unittest.TestCase):
             with self.subTest(paths=paths):
                 self.assertEqual(module.ui_tours(paths), [])
 
-    def test_missing_capture_fails_with_the_command_to_run(self):
+    def test_missing_capture_warns_with_the_command_to_run(self):
         code, out = self.run_check("## Summary\nMoved the hover card.\n", [SWIFT])
         self.assertEqual(code, 1)
-        self.assertIn("::error title=No real capture::", out)
+        self.assertIn("::warning title=No real capture::", out)
+        self.assertNotIn("::error", out)
+        self.assertIn("does not block the land", out)
         self.assertIn(f"cmux-ci capture {SHA} --state tour:hover-card --pr 42", out)
         self.assertIn(SWIFT, out)
 

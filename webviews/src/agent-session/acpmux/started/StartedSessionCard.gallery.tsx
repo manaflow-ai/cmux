@@ -18,7 +18,13 @@ const freeze: StartedSession = {
   title: "Switch gh-merge-green to merge-freeze issues",
   named: true,
   state: "running",
-  pullRequests: { count: 2, tone: "failing", number: 22092, repo: "cmux" },
+  pullRequests: {
+    count: 2,
+    tone: "failing",
+    number: 22092,
+    repo: "cmux",
+    others: [{ number: 22093, repo: "cmux" }],
+  },
   harness: "codex",
 };
 

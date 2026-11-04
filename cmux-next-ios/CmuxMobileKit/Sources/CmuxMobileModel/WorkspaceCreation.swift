@@ -286,6 +286,10 @@ public protocol WorkspaceCreationBackend: AnyObject {
     /// Opens a copy of a tab next to it on the Mac (a terminal in its pane's folder,
     /// the same page in a browser tab) and returns it once the Mac lists it.
     func duplicateTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab
+    /// A page's link that opens a new tab or window (`rb.open_tab`: `target=_blank`,
+    /// `window.open`, the page menu's Open Link in New Tab): a browser tab at `url` in the
+    /// pane of `tab`, the page that asked, returned once the Mac lists it.
+    func openBrowserTab(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab
     /// A web link tapped in a terminal: a cmux browser tab at `url` beside the terminal, in its
     /// pane, as the Mac's Cmd-click opens it (`new-browser-tab {url, pane}`). Returns the tab
     /// once the Mac lists it. Only `http` and `https` links reach the Mac.
@@ -304,6 +308,10 @@ public protocol WorkspaceCreationBackend: AnyObject {
     func editTabGroup(_ edit: TabGroupEdit, tab: WorkspaceTab, in workspace: Workspace) async throws
     /// The chat menu's Fork: a copy of the chat in a new tab beside it, returned once the Mac lists it.
     func forkAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab
+    /// Edit and Resend of an earlier prompt: a copy of the chat through the turn whose
+    /// `turn_result` is record `seq` (acpmux `acp.session.fork {throughSeq}`), in a new tab
+    /// beside it, returned once the Mac lists it.
+    func forkAgentChat(_ tab: WorkspaceTab, through seq: Int, in workspace: Workspace) async throws -> WorkspaceTab
     /// The chat menu's Archive: the chat is archived on the Mac and its tab closes.
     func archiveAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws
     /// The tab groups saved on `macID` (`list-saved-tab-groups`), each marked open when a live
@@ -333,6 +341,10 @@ public protocol WorkspaceCreationBackend: AnyObject {
 }
 
 extension WorkspaceCreationBackend {
+    public func forkAgentChat(_ tab: WorkspaceTab, through seq: Int, in workspace: Workspace) async throws -> WorkspaceTab {
+        throw WorkspaceCreationError("This Mac can't copy a chat up to an earlier message.", isForPerson: true)
+    }
+
     public func restartShell(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
@@ -363,6 +375,9 @@ extension WorkspaceCreationBackend {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
     public func duplicateTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func openBrowserTab(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
     public func openLink(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
@@ -465,6 +480,25 @@ public final class WorkspaceCreator {
     @ObservationIgnored public var onManageFailure: (@MainActor (Workspace, String, String) -> Void)?
     @ObservationIgnored let store: AppStore
     @ObservationIgnored private let recents: RecentDirectories
+    /// A Mac's workspace folders by activity, kept until the workspaces change
+    /// (the New Workspace menu reads them on every list update).
+    @ObservationIgnored private var seenCache: (macID: String, revision: Int, pending: Set<String>, directories: [String])?
+
+    /// The Mac's distinct workspace folders, most recent activity first (at
+    /// most `limit`): one pass over the workspaces, then a sort of the folders.
+    private func seenDirectories(on macID: String, limit: Int) -> [String] {
+        let workspaces = store.workspaces
+        let (revision, pending) = (store.workspacesRevision, store.pendingWorkspaceIDs)
+        if let cache = seenCache, cache.macID == macID, cache.revision == revision, cache.pending == pending { return cache.directories }
+        var newest: [String: Date] = [:]
+        for ws in workspaces where ws.macID == macID && !ws.directory.isEmpty && !pending.contains(ws.id) {
+            if let known = newest[ws.directory], known >= ws.lastActivityAt { continue }
+            newest[ws.directory] = ws.lastActivityAt
+        }
+        let directories = Array(newest.sorted { $0.value > $1.value }.prefix(limit).map(\.key))
+        seenCache = (macID, revision, pending, directories)
+        return directories
+    }
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
     /// The last group request of each Mac: group requests go to a Mac one
@@ -508,10 +542,7 @@ public final class WorkspaceCreator {
     public func recentDirectories(on macID: String) -> [String] {
         guard options(on: macID).directories else { return [] }
         let used = recents.load(macID: macID)
-        let seen = store.workspaces
-            .filter { $0.macID == macID && !store.pendingWorkspaceIDs.contains($0.id) && !$0.directory.isEmpty }
-            .sorted { $0.lastActivityAt > $1.lastActivityAt }
-            .map(\.directory)
+        let seen = seenDirectories(on: macID, limit: RecentDirectories.limit + used.count)
         var result: [String] = []
         for directory in used + seen where !result.contains(directory) {
             result.append(directory)
@@ -606,6 +637,26 @@ public final class WorkspaceCreator {
     }
 
     public func canDuplicate(_ workspace: Workspace) -> Bool { canManage(workspace) && !workspace.isHome }
+
+    /// What this phone may do with a Mac's workspaces now, worked out once
+    /// per Mac: a list asks it for every row (`canManage` looked the Mac up
+    /// in the team for each one). A pending workspace is never managed.
+    public struct MacRights: Equatable, Sendable {
+        public var manage: Bool
+        public var arrange: Bool
+        public var group: Bool
+
+        /// Nothing: an offline Mac, or one this backend cannot manage.
+        public static let none = MacRights(manage: false, arrange: false, group: false)
+    }
+
+    public func rights(onMac macID: String) -> MacRights {
+        guard let mac = store.activeTeam?.macs.first(where: { $0.id == macID }), mac.isOnline, backend.canManage(on: macID) else {
+            return .none
+        }
+        let arrange = arranger?.canArrange(on: macID) ?? false
+        return MacRights(manage: true, arrange: arrange, group: arrange && grouper != nil)
+    }
 
     @discardableResult
     func track(_ id: String, _ work: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
@@ -715,6 +766,8 @@ public final class UnavailableWorkspaceCreationBackend: WorkspaceCreationBackend
 @MainActor
 public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
     public var failNext: String?
+    /// What Jump to Latest Unread and Jump to Last Prompt find (`TabAttentionBackend`).
+    public var attention: (unread: TabAttentionPlace?, prompt: TabAttentionPlace?) = (nil, nil)
     private let clock: any Clock<Duration>
     private let latency: Duration
 
@@ -789,6 +842,11 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
         try await settle()
         return WorkspaceTab(id: "t-\(UUID().uuidString.prefix(8).lowercased())", kind: tab.kind, title: tab.title,
                      subtitle: tab.subtitle, harness: tab.harness, url: tab.url)
+    }
+
+    public func openBrowserTab(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await settle()
+        return WorkspaceTab(id: "t-\(UUID().uuidString.prefix(8).lowercased())", kind: .browser, title: url.host() ?? "New Tab", url: url)
     }
 
     /// Links a terminal opened in a browser tab, in order (tests).

@@ -11,7 +11,13 @@ const NON_TRANSCRIPT_UPDATES: &[&str] = &[
     "config_option_update",
     // A compaction's summary is context a handoff carries, not a chat row.
     "compaction_summary",
+    // A suggested next prompt is composer state, not a chat row (`claude_stdio/prompt_suggestions.rs`).
+    "prompt_suggestion",
 ];
+
+/// Updates a `transcript` stream hears live but a page leaves out (`matches_live`): a
+/// suggested next prompt is valid only until the next turn (`claude_stdio/prompt_suggestions.rs`).
+const LIVE_TRANSCRIPT_UPDATES: &[&str] = &["prompt_suggestion"];
 
 /// Mux records a chat client renders. `turn_end` and `turn_error` are left
 /// out because every turn also records `turn_result`.
@@ -24,12 +30,21 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "prompt_retracted",
     // A steer taken back before the agent read it (`queue_edit.rs` `withdraw`).
     "steer_withdrawn",
+    // Another agent's steer a Stop ended the turn of before its agent read it: it starts the
+    // next turn (`steer_end.rs`).
+    "steer_returned",
+    // A Stop began ending the turn (`cancel.rs`): a message logged after it draws after the
+    // stop line, not above it (#33754).
+    "stopping",
     // Edit queued prompt, Move up / Move down, and a queue a failed turn holds:
     // the queue a chat client shows changes with them.
     "queue_updated",
     "queue_order",
     "queue_paused",
     "queue_resumed",
+    // The owner approved or declined a prompt that waited for them (`queue_approve.rs`).
+    "queue_approved",
+    "queue_declined",
     "turn_started",
     // Where a chat seeded from a Claude Code transcript's newest page has older turns
     // (`hub/native_history.rs`): the pane that pages back to it reads on from the transcript.
@@ -38,7 +53,11 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     // (`silent_turn.rs`).
     "turn_silent",
     "turn_heard",
+    // The harness retries the turn's failed model request (`turn_retry.rs`).
+    "turn_retrying",
     "turn_result",
+    // A turn the person did not start, around its rows (`background_turn.rs`).
+    "background_turn",
     "permission_request",
     "permission_auto",
     "permission_decision",
@@ -49,6 +68,9 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     // A policy narrower than approve-all that the chat's harness cannot keep
     // (`policy_mode.rs`): the chat says so where it happened.
     "policy_unenforced",
+    // A line from outside any chat, such as cmux Cloud's after it resized the machine
+    // (`server/host_notice.rs`).
+    "host_notice",
     "forked",
     "imported",
     "session_offer",
@@ -130,6 +152,16 @@ impl EventFilter {
         })
     }
 
+    /// `matches` for a record as it happens, sent to a client's event stream: a `transcript`
+    /// subscription also hears a live suggested next prompt (`LIVE_TRANSCRIPT_UPDATES`), which
+    /// a page never holds, so a local, remote or peer chat's composer gets it with no extra kind.
+    pub fn matches_live(&self, rec: &EventRecord) -> bool {
+        self.matches(rec)
+            || (is_agent_update(rec)
+                && LIVE_TRANSCRIPT_UPDATES.contains(&rec.kind.as_str())
+                && self.kinds.as_ref().is_some_and(|k| k.iter().any(|k| k == "transcript")))
+    }
+
     pub fn matches(&self, rec: &EventRecord) -> bool {
         let Some(kinds) = &self.kinds else { return true };
         kinds.iter().any(|k| match k.as_str() {
@@ -179,10 +211,12 @@ fn is_wire(rec: &EventRecord) -> bool {
     (rec.dir == "in" || rec.dir == "out") && !live_update
 }
 
-/// About what a record adds to a page's JSON: its message plus the envelope
-/// (`sessionId`, `seq`, `at`, `dir`, `kind`).
+/// About what a record adds to a page's JSON: the record as written, escapes and all, plus the
+/// `sessionId` the page adds. An agent names its own kinds, and a kind of 169 NULs is 1 KiB
+/// of JSON: 14,000 such records counted by the kind's length passed as a 4 MiB page and were
+/// more than one message.
 fn record_bytes(rec: &EventRecord) -> usize {
-    serde_json::to_string(&rec.msg).map_or(0, |msg| msg.len()) + rec.kind.len() + 120
+    serde_json::to_string(rec).map_or(0, |json| json.len()) + 120
 }
 
 /// The most JSON one page holds when the caller names no `maxBytes`, and the most it may
@@ -220,9 +254,168 @@ fn fit_sized(mut rec: EventRecord, bytes: usize, bounded: bool) -> (EventRecord,
     if !bounded || bytes <= MAX_RECORD_BYTES {
         return (rec, bytes);
     }
-    rec.msg = json!({"_meta": {"acpmux": {"omitted": {"bytes": bytes, "reason": "too_large"}}}});
+    rec.msg = omitted(bytes);
+    // A kind is an agent's own name for its update, and can be the large part.
+    if rec.kind.len() > ENVELOPE_FIELD_BYTES {
+        rec.kind.clear();
+    }
     let stub = record_bytes(&rec);
     (rec, stub)
+}
+
+/// What a record's `msg` becomes when no message can carry it: what it left out, and how much.
+pub fn omitted(bytes: usize) -> Value {
+    json!({"_meta": {"acpmux": {"omitted": {"bytes": bytes, "reason": "too_large"}}}})
+}
+
+/// The most a reply carrying records holds before its JSON-RPC envelope: the same one MiB room
+/// as a record's ([`MAX_RECORD_BYTES`]) for the id, the wrapper and a relaying peer's name.
+pub const MAX_REPLY_BYTES: usize = MAX_RECORD_BYTES;
+
+/// The fields of `_acpmux/attach`'s `session` that only its detail carries
+/// (`Hub::session_detail`), each copied whole from what the agent said: the first a reply that
+/// must fit gives up, largest first, each to its empty value.
+const DETAIL_FIELDS: &[(&str, fn() -> Value)] = &[
+    ("modes", || Value::Null),
+    ("configOptions", || Value::Null),
+    ("models", || Value::Null),
+    ("agentInfo", || Value::Null),
+    ("agentCapabilities", || Value::Null),
+    ("usage", || Value::Null),
+    ("goal", || Value::Null),
+    ("contextBreakdown", || Value::Null),
+    ("usageLimits", || Value::Null),
+    ("availableCommands", || Value::Null),
+    ("rulesJson", || Value::Null),
+    ("pending", || Value::Array(Vec::new())),
+];
+
+/// The `session` fields that name the chat and where it runs, besides its `sessionId`: they go
+/// last, only when nothing else is left to give up, so no value an agent sets (a title, a tag,
+/// its own session id in `sessionReceipt`) can keep a chat from opening.
+const IDENTITY_FIELDS: &[&str] =
+    &["id", "qualifiedSessionId", "sessionReceipt", "status", "harness", "cwd", "peer"];
+
+/// A record envelope field (`kind`, `dir`) past this is given up with the record's `msg`.
+const ENVELOPE_FIELD_BYTES: usize = 1 << 10;
+
+/// `value`'s empty value of its own type: what a field given up becomes after the detail's.
+fn empty_like(value: &Value) -> Value {
+    match value {
+        Value::String(_) => Value::String(String::new()),
+        Value::Array(_) => Value::Array(Vec::new()),
+        Value::Object(_) => Value::Object(serde_json::Map::new()),
+        _ => Value::Null,
+    }
+}
+
+/// Makes a reply of records fit one message when each part fits but together they do not:
+/// `_acpmux/attach`'s page and its `turnOpener` each keep a record of up to
+/// [`MAX_RECORD_BYTES`], so a large prompt and its large answer were an 18.9 MB reply refused
+/// as `message.too_large` at every open, and the chat never opened again (Leo, 2026-10-31:
+/// "this is completely hardlocked bc of message size").
+///
+/// First the largest records' `msg` become [`omitted`] stubs, largest first, until the reply
+/// fits; every record keeps its seq and time, and its kind unless that is past
+/// [`ENVELOPE_FIELD_BYTES`]. The records are `events` (an array of
+/// `_acpmux/event` values) and `turnOpener` (one). If it still does not fit, the `session`
+/// detail's own fields ([`DETAIL_FIELDS`]) go, largest first, and then any other field but
+/// the chat's identity ([`IDENTITY_FIELDS`]), each to its empty value and named in
+/// `session._meta.acpmux.omitted`; the pane then reads as for an older acpmux that sent none.
+/// Last, since an agent's own ids (`sessionReceipt.agentSessionId`) reach them too, the
+/// identity fields go the same way. Only `sessionId`, acpmux's own id, always stays, so what
+/// is left is at most that id and the records' envelopes, a few hundred bytes each.
+pub fn fit_reply(reply: &mut Value) {
+    let size = |value: &Value| serde_json::to_string(value).map_or(usize::MAX, |text| text.len());
+    let mut bytes = size(reply);
+    if bytes <= MAX_REPLY_BYTES {
+        return;
+    }
+    let mut records: Vec<(String, usize)> = reply
+        .get("events")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .map(|(index, record)| (format!("/events/{index}"), size(record)))
+        .collect();
+    if let Some(opener) = reply.get("turnOpener").filter(|opener| opener.is_object()) {
+        records.push(("/turnOpener".to_owned(), size(opener)));
+    }
+    records.sort_by_key(|(_, bytes)| std::cmp::Reverse(*bytes));
+    for (at, record_size) in records {
+        if bytes <= MAX_REPLY_BYTES {
+            return;
+        }
+        let Some(record) = reply.pointer_mut(&at).and_then(Value::as_object_mut) else {
+            continue;
+        };
+        // Each change only shrinks the record: a stub smaller than its msg, an empty value.
+        if let Some(msg) = record.get_mut("msg") {
+            let msg_size = size(&*msg);
+            let stub = omitted(msg_size);
+            if size(&stub) < msg_size {
+                *msg = stub;
+            }
+        }
+        // The envelope too: an agent's own `sessionUpdate` name is its `kind`.
+        for (name, value) in record.iter_mut() {
+            if name != "seq" && name != "msg" && size(&*value) > ENVELOPE_FIELD_BYTES {
+                *value = empty_like(&*value);
+            }
+        }
+        let Some(record) = reply.pointer(&at) else { continue };
+        bytes = bytes - record_size + size(record);
+    }
+    let Some(session) = reply.get_mut("session").and_then(Value::as_object_mut) else { return };
+    let mut left_out = Vec::new();
+    // The detail's fields first, then the rest but the chat's identity, then that identity but
+    // its sessionId; each pass largest first.
+    let detail: Vec<(String, Value)> = DETAIL_FIELDS
+        .iter()
+        .filter_map(|&(name, empty)| session.get(name).map(|_| (name.to_owned(), empty())))
+        .collect();
+    let rest: Vec<(String, Value)> = session
+        .iter()
+        .filter(|(name, _)| {
+            *name != "sessionId"
+                && !IDENTITY_FIELDS.contains(&name.as_str())
+                && !DETAIL_FIELDS.iter().any(|(detail, _)| detail == name)
+        })
+        .map(|(name, value)| (name.clone(), empty_like(value)))
+        .collect();
+    let identity: Vec<(String, Value)> = IDENTITY_FIELDS
+        .iter()
+        .filter_map(|&name| session.get(name).map(|value| (name.to_owned(), empty_like(value))))
+        .collect();
+    for pass in [detail, rest, identity] {
+        let mut fields: Vec<(String, Value, usize)> = pass
+            .into_iter()
+            .filter_map(|(name, empty)| {
+                let field_size = session.get(&name).map(size)?;
+                Some((name, empty, field_size))
+            })
+            .collect();
+        fields.sort_by_key(|(_, _, bytes)| std::cmp::Reverse(*bytes));
+        for (name, empty, field_size) in fields {
+            if bytes <= MAX_REPLY_BYTES {
+                break;
+            }
+            let empty_size = size(&empty);
+            if empty_size >= field_size {
+                break;
+            }
+            bytes = bytes - field_size + empty_size;
+            session.insert(name.clone(), empty);
+            left_out.push(Value::String(name));
+        }
+    }
+    if !left_out.is_empty() {
+        session.insert(
+            "_meta".to_owned(),
+            json!({"acpmux": {"omitted": {"fields": left_out, "reason": "too_large"}}}),
+        );
+    }
 }
 
 /// One page of a session's log, oldest first.
@@ -345,6 +538,51 @@ impl Hub {
     }
 }
 
+/// How much of a prompt's text an entry of the prompt index keeps: the rail's hover card title
+/// clamps to three lines, so a pasted log never travels whole.
+pub const PROMPT_INDEX_TEXT_CHARS: usize = 240;
+
+/// A prompt's record as the prompt index carries it: its id, whether it was a steer or went on
+/// with a turn, and the start of its text. Nothing else (images, pastes, `_meta`).
+pub fn prompt_index_msg(msg: &Value) -> Value {
+    let mut out = serde_json::Map::new();
+    for key in ["promptId", "steer", "turnId", "continues"] {
+        if let Some(value) = msg.get(key) {
+            out.insert(key.to_owned(), value.clone());
+        }
+    }
+    if let Some(text) = msg.get("text").and_then(Value::as_str) {
+        let cut: String = text.chars().take(PROMPT_INDEX_TEXT_CHARS).collect();
+        out.insert("text".to_owned(), Value::String(cut));
+    }
+    Value::Object(out)
+}
+
+impl Hub {
+    /// Every prompt (`user_message`) of a session's log before `before`, oldest first, each cut to
+    /// [`prompt_index_msg`]: the thread rail lays out a long chat's every turn from its first frame
+    /// instead of growing as history pages in (Leo, 2026-10-31). It reads the log's copies of its
+    /// prompts (`store/kind_index.rs`, which the log load already made), and the log only past
+    /// them: a scan of the whole log for its prompts took 10 s on a 566 MB chat and held the
+    /// rail's pending ticks blank (Leo, 2026-11-03: "the hover previews ... aren't loading past
+    /// the first bits").
+    pub fn prompt_index(&self, id: &str, before: Option<u64>) -> Result<Vec<EventRecord>> {
+        let before = before.unwrap_or(u64::MAX);
+        let mut out = Vec::new();
+        self.store.scan_kinds(id, &["user_message"], &mut |mut rec| {
+            if rec.seq >= before {
+                return false;
+            }
+            if rec.dir == "mux" {
+                rec.msg = prompt_index_msg(&rec.msg);
+                out.push(rec);
+            }
+            true
+        })?;
+        Ok(out)
+    }
+}
+
 #[cfg(test)]
 #[path = "paging_tests.rs"]
 mod paging_tests;
@@ -377,6 +615,8 @@ mod transcript_kind_tests {
             "queue_order",
             "queue_paused",
             "queue_resumed",
+            "queue_approved",
+            "queue_declined",
         ] {
             assert!(is_transcript(&mux(kind)), "{kind} is not a transcript record");
         }
@@ -398,5 +638,29 @@ mod transcript_kind_tests {
         assert!(is_transcript(&mux("policy_unenforced")));
         let transcript = EventFilter::parse(Some(&json!(["transcript"]))).unwrap();
         assert!(!transcript.surely_skips(b"mux", b"policy_unenforced"));
+    }
+
+    /// A suggested next prompt reaches a `transcript` stream live, but no page holds it: pages
+    /// read with `matches` and `surely_skips`, the live stream with `matches_live`.
+    #[test]
+    fn a_prompt_suggestion_is_heard_live_but_never_paged() {
+        let rec = EventRecord {
+            seq: 1,
+            at: 0,
+            dir: "in".into(),
+            kind: "prompt_suggestion".into(),
+            msg: json!({"method": method::SESSION_UPDATE, "params": {"sessionId": "s", "update": {"sessionUpdate": "prompt_suggestion", "suggestion": "go on"}}}),
+            host_seq: None,
+        };
+        let transcript = EventFilter::parse(Some(&json!(["transcript"]))).unwrap();
+        assert!(!transcript.matches(&rec), "a page must leave it out");
+        assert!(transcript.surely_skips(b"in", b"prompt_suggestion"));
+        assert!(transcript.matches_live(&rec), "the live stream must send it");
+        let usage = EventFilter::parse(Some(&json!(["usage_update"]))).unwrap();
+        assert!(!usage.matches_live(&rec), "only a transcript stream hears it");
+        // A raw harness line of that name is not an agent update.
+        let mut raw = rec.clone();
+        raw.msg = json!({});
+        assert!(!transcript.matches_live(&raw));
     }
 }

@@ -38,7 +38,8 @@ const json = async (response: Response): Promise<Record<string, unknown>> => {
   return typeof body === "object" && body !== null ? Object.fromEntries(Object.entries(body)) : {};
 };
 const str = (value: unknown): string => (typeof value === "string" ? value : "");
-const call = (path: string, key: string, method = "GET", body?: unknown) => h.request(path, bearer(key), { method, body });
+const call = (path: string, key: string, method = "GET", body?: unknown) => h.request(path,
+  { ...bearer(key), ...(path === "/v1/mesh-creations" ? { "idempotency-key": crypto.randomUUID() } : {}) }, { method, body });
 
 const createMesh = async (key: string) => {
   const response = await call("/v1/meshes", key, "POST", { displayName: "test mesh" });
@@ -336,6 +337,17 @@ describe("ACL", () => {
     expect(allowList).toContain('"port":8080');
     const none = await json(await call(`/v1/devices/${other.deviceId}/peers`, key));
     expect(none["peers"]).toEqual([]);
+  });
+
+  it("deleting a VM takes it out of the mesh, so a later attach still applies the ACL", async () => {
+    const { key, meshId, vm } = await meshWithPeers();
+    await putAcl(key, meshId, 0, [{ src: ["device:*"], dst: ["vm:*"], allow: ["icmp"] }]);
+    expect((await call(`/v1/vms/${vm.vmId}`, key, "DELETE")).status).toBe(204);
+    const next = h.addVm(A);
+    await attach(key, meshId, next.vmId);
+    const destinations = [...h.mesh.rules.values()].map((rule) => rule.destination["vmId"]);
+    expect(destinations).toContain(next.upstreamId);
+    expect(destinations).not.toContain(vm.upstreamId);
   });
 
   it("detaching a VM deletes its rules first", async () => {

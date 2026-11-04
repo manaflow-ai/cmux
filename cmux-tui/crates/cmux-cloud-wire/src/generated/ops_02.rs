@@ -5,6 +5,229 @@
 use super::*;
 
 wire_op! {
+    /// Delete a chief (not the default; active or archived) for good: it stops waking, its tokens end, its sandboxes are deleted, and only a tombstone keeps its id; its conversation history stays read-only with its members. No restore.
+    ChiefDeleteOp {
+        name: "chief.delete",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "destructive",
+        principals: [Session],
+        params: ChiefDeleteParams,
+        result: HomeChief,
+        error: ChiefDeleteError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ChiefDeleteParams {
+    pub chief: ChiefId,
+    pub expected_rev: WireNumber,
+}
+
+wire_errors! {
+    /// The error codes chief.delete declares.
+    ChiefDeleteError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ChiefIsDefault = "chief_is_default",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// The user's chiefs (active first, the default marked), archived ones on request, and tombstones.
+    ChiefListOp {
+        name: "chief.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UserDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: ChiefListParams,
+        result: ChiefListResult,
+        error: ChiefListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ChiefListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include_archived: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ChiefListResultTombstonesItem {
+    pub id: ChiefId,
+    pub owner_user: String,
+    pub archived_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ChiefListResult {
+    pub chiefs: Vec<HomeChief>,
+    pub tombstones: Vec<ChiefListResultTombstonesItem>,
+}
+
+wire_errors! {
+    /// The error codes chief.list declares.
+    ChiefListError {
+        AuthForbidden = "auth.forbidden",
+    }
+}
+
+wire_op! {
+    /// Rename a chief, make it the default (clears the old default in the same commit), set its harness, place its brain on a paired server or clear that (brain_place, session only), or restore it within 30 days of archiving (archived: false).
+    ChiefUpdateOp {
+        name: "chief.update",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: ChiefUpdateParams,
+        result: HomeChief,
+        error: ChiefUpdateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ChiefUpdateParams {
+    pub chief: ChiefId,
+    pub expected_rev: WireNumber,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_default: Option<BoolLit<true>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub harness: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived: Option<BoolLit<false>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub brain_place: Option<Option<ChiefBrainPlace>>,
+}
+
+wire_errors! {
+    /// The error codes chief.update declares.
+    ChiefUpdateError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ChiefArchived = "chief_archived",
+        ChiefExpired = "chief_expired",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Start a plan checkout: an https URL the client opens in the browser. No card data enters cmux. Agent principals are refused; the client asks a person first.
+    CloudBillingCheckoutOp {
+        name: "cloud.billing.checkout",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "money",
+        principals: [Session, Install],
+        params: CloudBillingCheckoutParams,
+        result: CloudBillingCheckoutResult,
+        error: CloudBillingCheckoutError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudBillingCheckoutParams {
+    pub plan: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudBillingCheckoutResult {
+    pub url: String,
+}
+
+wire_errors! {
+    /// The error codes cloud.billing.checkout declares.
+    CloudBillingCheckoutError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Create a machine in the environment (the plan checks of cloud.machine.create). boot snapshot: it boots the environment's ready snapshot and runs nothing. boot cold (no build yet, or a stale one): it boots the deployment's image and starts the setup on the machine in the background (~/.cmux/environment-build.log; ~/.cmux/environment.json when it finished). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
+    CloudEnvironmentBootOp {
+        name: "cloud.environment.boot",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "money",
+        principals: [Session, Install],
+        params: CloudEnvironmentBootParams,
+        result: CloudEnvironmentBootResult,
+        error: CloudEnvironmentBootError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudEnvironmentBootParams {
+    pub environment: EnvironmentId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub size: CloudMachineSize,
+}
+
+wire_enum! {
+    CloudEnvironmentBootResultBoot {
+        Snapshot = "snapshot",
+        Cold = "cold",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudEnvironmentBootResult {
+    pub machine: CloudMachine,
+    pub boot: CloudEnvironmentBootResultBoot,
+}
+
+wire_errors! {
+    /// The error codes cloud.environment.boot declares.
+    CloudEnvironmentBootError {
+        ApprovalDenied = "approval.denied",
+        ApprovalExpired = "approval.expired",
+        ApprovalPending = "approval.pending",
+        ApprovalTooManyPending = "approval.too_many_pending",
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudEnvironmentNotFound = "cloud.environment.not_found",
+        CloudEnvironmentSecretsUnavailable = "cloud.environment.secrets_unavailable",
+        CloudNoSnapshotConfigured = "cloud.no_snapshot_configured",
+        CloudPlanRequired = "cloud.plan.required",
+        CloudProviderUnavailable = "cloud.provider.unavailable",
+        CloudQuotaExceeded = "cloud.quota.exceeded",
+        CloudRateLimited = "cloud.rate_limited",
+        CloudSizeLocked = "cloud.size.locked",
+        CloudSnapshotNotFound = "cloud.snapshot.not_found",
+        IdempotencyConflict = "idempotency.conflict",
+        MutationIndeterminate = "mutation.indeterminate",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Build the environment's snapshot: a builder machine from the deployment's image clones the repo, runs the setup script, and is snapshotted and deleted. Answers at once with status building (built: true); the build takes minutes, and cloud.environment.list shows ready or failed with the log tail. A snapshot that still matches answers built: false and changes nothing. The new snapshot counts against max_saved (cloud.quota.exceeded {resource: saved}); it replaces the previous one when it is ready. One build per environment at a time (cloud.environment.busy). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
     CloudEnvironmentBuildOp {
         name: "cloud.environment.build",
@@ -432,6 +655,8 @@ wire_enum! {
 pub struct CloudMachineLinkTokenParams {
     pub host: HostId,
     pub services: Vec<CloudMachineLinkTokenParamsServicesItem>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_proof: Option<ServerNetworkProof>,
 }
 
 wire_enum! {
@@ -674,225 +899,4 @@ wire_op! {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudMachineStartParams {
     pub machine: MachineId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudMachineStartResult {
-    pub machine: CloudMachine,
-}
-
-wire_errors! {
-    /// The error codes cloud.machine.start declares.
-    CloudMachineStartError {
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        CloudMachineNotBound = "cloud.machine.not_bound",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        CloudMachineNotPaused = "cloud.machine.not_paused",
-        CloudPlanRequired = "cloud.plan.required",
-        CloudProviderUnavailable = "cloud.provider.unavailable",
-        CloudQuotaExceeded = "cloud.quota.exceeded",
-        CloudRateLimited = "cloud.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        MutationIndeterminate = "mutation.indeterminate",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Move one classic machine onto cmux-next: install the daemon and bind it to the overlay. A failed upgrade leaves a working classic machine (cloud.upgrade.failed). After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.
-    CloudMachineUpgradeOp {
-        name: "cloud.machine.upgrade",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:CloudDO",
-        risk: "execute",
-        principals: [Session, Install],
-        params: CloudMachineUpgradeParams,
-        result: CloudMachineUpgradeResult,
-        error: CloudMachineUpgradeError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudMachineUpgradeParams {
-    pub machine: MachineId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudMachineUpgradeResult {
-    pub machine: CloudMachine,
-}
-
-wire_errors! {
-    /// The error codes cloud.machine.upgrade declares.
-    CloudMachineUpgradeError {
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        CloudMachineNotClassic = "cloud.machine.not_classic",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        CloudProviderUnavailable = "cloud.provider.unavailable",
-        CloudUpgradeFailed = "cloud.upgrade.failed",
-        IdempotencyConflict = "idempotency.conflict",
-        MutationIndeterminate = "mutation.indeterminate",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Move this account's classic machines to cmux-next, one way. Agent principals are refused; the client asks a person first.
-    CloudMigrationStartOp {
-        name: "cloud.migration.start",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:CloudDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: CloudMigrationStartParams,
-        result: CloudMigrationStartResult,
-        error: CloudMigrationStartError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudMigrationStartParams {}
-
-wire_enum! {
-    CloudMigrationStartResultState {
-        Moving = "moving",
-        Moved = "moved",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudMigrationStartResult {
-    pub state: CloudMigrationStartResultState,
-}
-
-wire_errors! {
-    /// The error codes cloud.migration.start declares.
-    CloudMigrationStartError {
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        CloudMigrationUnavailable = "cloud.migration.unavailable",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Whether this account has machines from cmux Cloud classic to move, and which were imported.
-    CloudMigrationStatusOp {
-        name: "cloud.migration.status",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:CloudDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: CloudMigrationStatusParams,
-        result: CloudMigrationStatusResult,
-        error: CloudMigrationStatusError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudMigrationStatusParams {}
-
-wire_enum! {
-    CloudMigrationStatusResultState {
-        None = "none",
-        Available = "available",
-        Moving = "moving",
-        Moved = "moved",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudMigrationStatusResult {
-    pub state: CloudMigrationStatusResultState,
-    pub classic_count: i64,
-    pub imported: Vec<MachineId>,
-}
-
-wire_errors! {
-    /// The error codes cloud.migration.status declares.
-    CloudMigrationStatusError {
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        OwnerUnreachable = "owner.unreachable",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// The team's plan: limits and usage this period. Read from the billing owner, never from a request.
-    CloudPlanGetOp {
-        name: "cloud.plan.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:CloudDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: CloudPlanGetParams,
-        result: CloudPlan,
-        error: CloudPlanGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudPlanGetParams {}
-
-wire_errors! {
-    /// The error codes cloud.plan.get declares.
-    CloudPlanGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        OwnerUnreachable = "owner.unreachable",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Open the rescue shell: a wire stream id the client opens as a WebSocket (contract 2.6). Works when the VM daemon is down and for classic machines.
-    CloudShellOpenOp {
-        name: "cloud.shell.open",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:CloudDO",
-        risk: "execute",
-        principals: [Session, Install],
-        params: CloudShellOpenParams,
-        result: CloudShellOpenResult,
-        error: CloudShellOpenError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudShellOpenParams {
-    pub machine: MachineId,
-    pub cols: i64,
-    pub rows: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudShellOpenResult {
-    pub stream: String,
 }

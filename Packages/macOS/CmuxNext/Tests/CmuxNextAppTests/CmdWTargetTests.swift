@@ -4,7 +4,7 @@ import CmuxNextTabs
 import Testing
 
 /// Which tab a person's Cmd-W closes while closes before it are still under way
-/// (``TabCloseGuard/cmdWTarget(_:in:closing:)``): N quick presses close N tabs.
+/// (``TabStripModel/cmdWTarget(_:closing:skipped:)``): N quick presses close N tabs.
 @MainActor @Suite
 struct CmdWTargetTests {
     private static func strip(_ ids: [String], selected: String) -> TabStripModel {
@@ -17,12 +17,12 @@ struct CmdWTargetTests {
     @Test func aPressWhileAPageDecidesItsCloseClosesTheNextTab() {
         let strip = Self.strip(["a", "b", "c"], selected: "b")
         let closing: Set<String> = ["b"]
-        #expect(TabCloseGuard.cmdWTarget(StripTabID("b"), in: strip, closing: { closing.contains($0.rawValue) }) == StripTabID("c"))
+        #expect(strip.cmdWTarget(StripTabID("b"), closing: { closing.contains($0.rawValue) }) == StripTabID("c"))
         // The last tab closing: the one before it.
-        #expect(TabCloseGuard.cmdWTarget(StripTabID("c"), in: strip, closing: { ["b", "c"].contains($0.rawValue) }) == StripTabID("a"))
+        #expect(strip.cmdWTarget(StripTabID("c"), closing: { ["b", "c"].contains($0.rawValue) }) == StripTabID("a"))
         // Nothing else open: nil (the press says why).
-        #expect(TabCloseGuard.cmdWTarget(StripTabID("b"), in: strip, closing: { _ in true }) == nil)
+        #expect(strip.cmdWTarget(StripTabID("b"), closing: { _ in true }) == nil)
         // Not closing: the selected tab itself.
-        #expect(TabCloseGuard.cmdWTarget(StripTabID("b"), in: strip, closing: { _ in false }) == StripTabID("b"))
+        #expect(strip.cmdWTarget(StripTabID("b"), closing: { _ in false }) == StripTabID("b"))
     }
 }
