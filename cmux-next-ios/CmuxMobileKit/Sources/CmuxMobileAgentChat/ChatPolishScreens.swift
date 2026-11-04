@@ -66,11 +66,6 @@ struct SessionInfoScreen: View {
         .task { await reload() }
         .refreshable { await reload() }
         .chatDemoReceiver(store: store, surface: surface)
-        .confirmationDialog("Revoke Allow for This Chat?", isPresented: $confirmsRevoke, titleVisibility: .visible) {
-            Button("Revoke Chat Permission", role: .destructive) { revoke() }
-        } message: {
-            Text("\(store.summary.agentName) asks again before each change in this chat.")
-        }
     }
 
     // MARK: Sections
@@ -138,6 +133,13 @@ struct SessionInfoScreen: View {
             Button("Revoke Chat Permission", systemImage: "hand.raised", role: .destructive) { confirmsRevoke = true }
                 .disabled(revoking || permissions != .loaded(AgentChatPermissions(allowedForChat: true, openGroups: openGroups)))
                 .accessibilityIdentifier("chat.info.revoke")
+                // Anchored to the row it confirms (its popover points at it).
+                .confirmationDialog("Revoke Allow for This Chat?", isPresented: $confirmsRevoke, titleVisibility: .visible) {
+                    Button("Revoke", role: .destructive) { revoke() }
+                        .accessibilityIdentifier("chat.info.revokeConfirm")
+                } message: {
+                    Text("\(store.summary.agentName) asks again before each change in this chat.")
+                }
             Button("Check and Retry Permission", systemImage: "arrow.clockwise") {
                 store.checkAndRetryPermission()
                 Task { await reloadPermissions() }

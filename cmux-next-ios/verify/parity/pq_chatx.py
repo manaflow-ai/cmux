@@ -16,6 +16,7 @@ Run ON the rig mini (PQ_HOST=local), one flow at a time, each recorded to PQ_RAW
 """
 import json
 import os
+import re
 import shlex
 import subprocess
 import time
@@ -165,6 +166,23 @@ def sessioninfo(j, label):
     return out
 
 
+_COUNT = re.compile(r"^(\d+ turns|\d+ bookmarked|No bookmarked prompts|(Turn|Bookmark) \d+ of \d+)$")
+
+
+def turn_count(j):
+    """The turn bar's position text ("Turn 2 of 3", "3 turns")."""
+    e = [x for x in j.sim.find() if _COUNT.match(x.label or "")]
+    check(e, f"no turn bar text: {labels(j)[:40]}")
+    return e[0].label
+
+
+def tap_label(j, label, pause=1.2):
+    e = j.sim.wait(label=label, kind="Button", timeout=6)
+    check(e, f"no {label!r}: {labels(j)[:40]}")
+    j.sim.tap_el(e)
+    time.sleep(pause)
+
+
 def turns(j, label):
     """Long-press the TWO prompt and an answer. After: Bookmark (acpmux `bookmark_get` holds the
     prompt's `user_message` seq), Pin on THREE's answer (its `turn_result` seq), then Jump to
@@ -183,6 +201,11 @@ def turns(j, label):
         out["has_jump"] = "Jump to Turn…" in out["page_menu"]
         c.dismiss(j)
         return out
+    # Rig setup: start from no marks (an earlier run's are cleared on the Mac's own socket).
+    for seq in r.acpmux("_acpmux/bookmark_get", {"sessionId": sid}).get("bookmarks") or []:
+        r.acpmux("_acpmux/bookmark_set", {"sessionId": sid, "seq": seq, "bookmarked": False})
+    c.dismiss(j)
+    hold(j, prompt_bubble(j, "TWO"))
     out["marks_before"] = r.acpmux("_acpmux/bookmark_get", {"sessionId": sid}).get("bookmarks")
     r.tap(j, "Bookmark")
     time.sleep(2)
@@ -200,27 +223,36 @@ def turns(j, label):
     pq.shot("turns-after-answer-menu")
     r.tap(j, "Pin")
     time.sleep(2)
-    results = c.events(sid, {"turn_result"})
-    out["three_result_seq"] = results[-1]["seq"]
     out["marks_after_pin"] = r.acpmux("_acpmux/bookmark_get", {"sessionId": sid}).get("bookmarks")
+    pinned = [m for m in out["marks_after_pin"] if m != seq_two]
+    results = c.events(sid, {"turn_result"})
+    out["pinned_record"] = next(({"seq": e["seq"], "kind": e["kind"], "turnId": e["msg"].get("turnId")} for e in results
+                                 if pinned and e["seq"] == pinned[0]), None)
     # Jump to Turn.
     page_menu(j)
     c.page_row(j, "Jump to Turn…")
     time.sleep(1)
-    out["bar"] = ident(j, "chat.turns.count").label
+    out["bar"] = turn_count(j)
     pq.shot("turns-after-bar")
     steps = []
-    for name in ("chat.turns.previous", "chat.turns.previous", "chat.turns.previous", "chat.turns.next"):
-        tap_ident(j, name, pause=1.2)
-        steps.append(ident(j, "chat.turns.count").label)
+    for name in ("Previous Turn", "Previous Turn", "Previous Turn", "Previous Turn", "Next Turn"):
+        tap_label(j, name)
+        steps.append(turn_count(j))
     out["steps"] = steps
     pq.shot("turns-after-stepped")
-    tap_ident(j, "chat.turns.bookmarked", pause=1)
-    tap_ident(j, "chat.turns.previous", pause=1.5)
-    out["bookmarked_step"] = ident(j, "chat.turns.count").label
+    # Down to the newest turn, then back to the one bookmarked prompt above it.
+    tap_label(j, "Next Turn")
+    tap_label(j, "Next Turn")
+    out["at_end"] = turn_count(j)
+    tap_label(j, "Next Turn")
+    out["past_end"] = turn_count(j)
+    tap_label(j, "Bookmarked prompts only", pause=1)
+    out["bookmarked_bar"] = turn_count(j)
+    tap_label(j, "Previous Bookmarked Prompt", pause=1.5)
+    out["bookmarked_step"] = turn_count(j)
     out["visible_after_bookmark_step"] = [e.label for e in j.sim.find(contains="the word") if 100 < e.center[1] < 400][:3]
     pq.shot("turns-after-bookmarked")
-    tap_ident(j, "chat.turns.done")
+    tap_label(j, "Done")
     # Unbookmark from the phone again (acpmux's marks follow).
     hold(j, prompt_bubble(j, "TWO"))
     out["prompt_menu_after"] = r.labels(j)
@@ -270,8 +302,13 @@ def display(j, label):
 
 
 def readaloud(j, label):
-    """An answer's More menu. After: Read Aloud; while it reads the menu offers Stop Reading."""
-    open_chat(j)
+    """An answer's More menu. After: Read Aloud; while it reads the menu offers Stop Reading.
+    The answer read is a long one (a paragraph asked for from the phone), so it is still
+    reading when the menu opens again."""
+    st = open_chat(j)
+    if label == "after" and not j.sim.find(contains="lighthouse"):
+        c.ask(j, "Write one paragraph of about 120 words about lighthouses.", "lighthouse", timeout=240)
+        c.wait_idle(st["session"])
     j.sim.swipe(200, 650, 200, 250, 0.4)
     time.sleep(1)
     more = [answer_more(j)]
@@ -349,11 +386,54 @@ def replay(j, label):
         time.sleep(1.5)
     tap_ident(j, "chat.replay.speed", pause=0.3)
     out["speed"] = ident(j, "chat.replay.speed").value
-    tap_ident(j, "chat.replay.play", pause=1.0)
+    # Play at the end starts over; a second tap pauses: the clock then stays.
+    tap_ident(j, "chat.replay.play", pause=1.5)
+    out["restarted_clock"] = ident(j, "chat.replay.clock").label
+    tap_ident(j, "chat.replay.play", pause=0.5)
     out["paused_clock"] = [ident(j, "chat.replay.clock").label]
-    time.sleep(2)
+    time.sleep(2.5)
     out["paused_clock"].append(ident(j, "chat.replay.clock").label)
+    pq.shot("replay-after-paused")
     return out
+
+
+_APPCALL = r"""
+import json, socket, sys
+s = socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); f = s.makefile("rw")
+f.write(json.dumps({"id": 1, "method": sys.argv[2], "params": json.loads(sys.argv[3])}) + "\n"); f.flush()
+print(f.readline())
+"""
+
+
+def app_call(method, params):
+    """One call on the rig Mac app's own control socket (its DEBUG `debug.*` methods)."""
+    res = pq.rsh(f"python3 -c {shlex.quote(_APPCALL)} /tmp/cmux-debug-{os.environ.get('PQ_TAG', 'chatx')}.sock "
+                 f"{shlex.quote(method)} {shlex.quote(json.dumps(params))}", timeout=90)
+    check(res.returncode == 0, f"{method}: {res.stderr.strip()[:300]}")
+    return json.loads(res.stdout).get("result")
+
+
+def grant_on_mac(j, st):
+    """Rig setup: the phone asks the agent to run a command; on the Mac, the chat's own pane gives
+    Allow for This Chat (only the person there may: `debug.agent_pane answer_permission`, the
+    pane's own answer path)."""
+    sid = st["session"]
+    c.type_in_composer(j, "Use your Bash tool to run the command date, then reply with its output.")
+    c.send(j)
+
+    def asked():
+        groups = r.acpmux("_acpmux/permission_groups", {"sessionId": sid}).get("groups") or []
+        return [g for g in groups if g.get("state") == "pending"] or None
+    t.until(asked, timeout=180, what="the agent's ask")
+    tabs = json.loads(pq.RemoteMac().cmux("--json", "tab", "list", "--workspace", st["name"]).stdout)
+    chat_tab = next(tab["id"] for tab in tabs if tab.get("content_kind") == "conversation")
+    ws_id = next(w["id"] for w in json.loads(pq.RemoteMac().cmux("--json", "workspace", "list").stdout) if w.get("name") == st["name"])
+    app_call("action.run", {"id": "goToWorkspace", "origin": "script", "args": {"workspace": ws_id}})
+    time.sleep(3)
+    # The pane's Always button, by a native click (an answer the page sends for a script is
+    # refused: an Allow for This Chat is only the person's).
+    pq.RemoteMac()._rmac("cli", "tab", chat_tab, "show")
+    return app_call("debug.agent_pane", {"action": "click", "text": "Always"})
 
 
 def permissions(j, label):
@@ -362,7 +442,11 @@ def permissions(j, label):
     `chatAllowance` off and its `permission_chat_allowance` record; Refresh Permissions."""
     st = open_chat(j)
     sid = st["session"]
-    out = {"groups_before": r.acpmux("_acpmux/permission_groups", {"sessionId": sid}).get("chatAllowance")}
+    out = {}
+    if label == "after" and not (r.acpmux("_acpmux/permission_groups", {"sessionId": sid}).get("chatAllowance") or {}).get("active"):
+        out["grant"] = grant_on_mac(j, st)
+        time.sleep(3)
+    out["groups_before"] = r.acpmux("_acpmux/permission_groups", {"sessionId": sid}).get("chatAllowance")
     if label == "before":
         out["menu"] = page_menu(j)
         c.dismiss(j)
@@ -376,7 +460,7 @@ def permissions(j, label):
     pq.shot("permissions-after-on")
     tap_ident(j, "chat.info.revoke", pause=1.2)
     pq.shot("permissions-after-confirm")
-    r.tap(j, "Revoke Chat Permission")
+    r.tap(j, "Revoke")
     time.sleep(2.5)
     out["allow_row_after"] = ident(j, "chat.info.allowForChat").label
     pq.shot("permissions-after-revoked")
