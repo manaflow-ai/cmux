@@ -95,6 +95,7 @@ import {
   UNKNOWN_AUTH,
 } from "./sessionAuth";
 import { postNative } from "./native";
+import { OpenAppCard } from "./OpenAppCard";
 import { CloudEnvironmentEditor } from "./CloudEnvironmentEditor";
 import { NativeError } from "./nativeError";
 import { errorMessage, isStartCancelled, startCancelled } from "./transportErrors";
@@ -13479,9 +13480,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                         coldOpen={!childRows && opened.cold ? opened.open : undefined}
                                                         onColdOpenShown={coldOpenShown}
                                                         afterLatest={
-                                                          !childRows && trayPlacement === "after-latest-message"
-                                                            ? trayNode
-                                                            : undefined
+                                                          !childRows && (trayPlacement === "after-latest-message" || !quick) ? (
+                                                            <>
+                                                              {!quick && <OpenAppCard />}
+                                                              {trayPlacement === "after-latest-message" && trayNode}
+                                                            </>
+                                                          ) : undefined
                                                         }
                                                         registry={registry}
                                                         githubRepository={githubRepository}
