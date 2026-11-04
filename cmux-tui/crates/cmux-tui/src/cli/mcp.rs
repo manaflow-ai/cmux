@@ -742,7 +742,10 @@ impl<B: Backend> Server<B> {
         let result = match method {
             "initialize" => {
                 chat_tools::remember_client(&params);
-                Ok(initialize(&params, self.list_changed, self.code_mode && self.allowed.is_none()))
+                let code_mode = self.code_mode && self.allowed.is_none();
+                let wrap_up = code_mode
+                    && self.upstreams.iter().any(|up| up.name == code_mode::WRAP_UP_SERVER);
+                Ok(initialize(&params, self.list_changed, code_mode, wrap_up))
             }
             "ping" => Ok(json!({})),
             "tools/list" if self.code_mode && self.allowed.is_none() => {
@@ -1482,15 +1485,18 @@ impl<B: Backend> Server<B> {
     }
 }
 
-fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
+/// `wrap_up`: the chat's acpmux server is folded in, so its next-step box is steered to here too
+/// (code_mode.rs [`code_mode::WRAP_UP_INSTRUCTION`]).
+fn initialize(params: &Value, list_changed: bool, code_mode: bool, wrap_up: bool) -> Value {
     json!({
         "protocolVersion": acpmux::secret_mcp::protocol_version(params),
         "capabilities": {"tools": {"listChanged": list_changed}},
         "serverInfo": {"name": "cmux", "title": "cmux", "version": env!("CARGO_PKG_VERSION")},
         "instructions": format!(
-            "{} {}",
+            "{} {}{}",
             if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
-            acpmux::agent_tools::ASKING_RULE
+            acpmux::agent_tools::ASKING_RULE,
+            if wrap_up { code_mode::WRAP_UP_INSTRUCTION } else { "" }
         ),
     })
 }

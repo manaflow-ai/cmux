@@ -79,7 +79,8 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "bg_output",
             "bg_stop",
             "run_wait",
-            "pr_state"
+            "pr_state",
+            "wrap_up"
         ]
     );
     let send = tools[0]["description"].as_str().unwrap();
@@ -1021,4 +1022,16 @@ fn github_status_is_listed_with_its_instruction() {
     assert_eq!(instructions(&scoped).unwrap(), crate::github_status::STEER);
     let chief = allowed(all, Some(crate::agent_tools::CHIEF_TURN_TOOLS));
     assert!(!crate::mcp_hint::names(&chief).any(|n| n == crate::github_status::TOOL));
+}
+
+/// Every chat's `acpmux` server lists `wrap_up` and tells the agent to end a turn with it; a Chief
+/// turn's allowlist leaves it out like any other tool.
+#[test]
+fn wrap_up_is_listed_with_its_instruction() {
+    let all = tools_with_artifacts(false);
+    assert!(crate::mcp_hint::names(&all).any(|n| n == "wrap_up"));
+    let text = instructions(&all).unwrap();
+    assert!(text.contains("call wrap_up as your last step"), "{text}");
+    let chief = allowed(all, Some(crate::agent_tools::CHIEF_TURN_TOOLS));
+    assert!(!crate::mcp_hint::names(&chief).any(|n| n == "wrap_up"));
 }
