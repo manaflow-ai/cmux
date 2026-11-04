@@ -107,12 +107,22 @@ jobs:
             --attest-signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-artifacts.yml"
           client="$client_bundle/Contents/Resources/bin/cmux"
           probe="$("$client" remote-probe --json)"
-          PROBE="$probe" EXPECTED_COMMIT="$client_commit" python3 - <<'PYVERIFY'
+          version="$("$client" --version)"
+          # Packaged clients stamp the libghostty-vt source: ghostty-next where
+          # the tree has it, else ghostty (older trees).
+          ghostty_source=ghostty
+          if git rev-parse --verify -q HEAD:ghostty-next >/dev/null; then
+            ghostty_source=ghostty-next
+          fi
+          ghostty_sha="$(git rev-parse "HEAD:$ghostty_source")"
+          PROBE="$probe" VERSION="$version" EXPECTED_COMMIT="$client_commit" EXPECTED_GHOSTTY="$ghostty_sha" python3 - <<'PYVERIFY'
           import json
           import os
 
           if json.loads(os.environ["PROBE"]).get("build_identity") != os.environ["EXPECTED_COMMIT"]:
               raise SystemExit("published cmux-tui client has the wrong build identity")
+          if os.environ["EXPECTED_GHOSTTY"] not in os.environ["VERSION"]:
+              raise SystemExit("published cmux-tui client has the wrong Ghostty identity")
           PYVERIFY
           echo "CMUX_TUI_CLIENT_LOCAL=$client" >> "$GITHUB_ENV"
 

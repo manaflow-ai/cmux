@@ -735,6 +735,11 @@ jobs:
       - name: The per-file webviews test runner (scripts/ci/run-webviews-tests.sh)
         run: python3 tests/test_webviews_tests_per_file.py
 
+      # The TAP health classifier and its base-red integration stay on the same
+      # tooling-tests PR lane as the producer's published snapshot contract.
+      - name: The TAP test-health classifier and base-red evidence
+        run: python3 tests/test_tap_test_health.py
+
       # A test no feat-cmux-next pull request runs lands red unseen: a2d6b35 broke
       # tests/test_webviews_tests_per_file.py, which only main pushes and the nightly ran (#23430).
       - name: Every Python test runs on a pull request lane, or is a reviewed exemption
