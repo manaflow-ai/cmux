@@ -1,6 +1,6 @@
 public import Foundation
 
-/// Where the opt-in Cloud Tunnel stands, as Settings, `cmux cloud tunnel status` and MCP show it.
+/// Where the opt-in Cloud Tunnel stands, as Settings, `cmux cloud tunnel-status` and MCP show it.
 public enum CloudTunnelStatus: Sendable, Equatable {
     /// The setting is off. Nothing on the Mac routes to the Cloud network.
     case off

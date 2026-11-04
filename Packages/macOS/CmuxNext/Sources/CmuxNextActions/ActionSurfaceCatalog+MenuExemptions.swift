@@ -42,7 +42,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.quickAgentChat",
             "palette.launchClaudeTeams", "palette.launchCodexTeams", "palette.computerUse.setup",
             "palette.computerUse.accessibility", "palette.computerUse.screenRecording", "palette.computerUse.restart", "computerUseStop",
-            "newCloudMachine", "cloudDiagnostics", "openTeamPicker", "palette.auth.signIn", "palette.auth.signOut",
+            "newCloudMachine", "cloudDiagnostics", "cloudSystemTunnelOn", "cloudSystemTunnelOff", "cloudSystemTunnelStatus", "openTeamPicker", "palette.auth.signIn", "palette.auth.signOut",
             "palette.mobileConnect", "accounts.show", "accounts.refresh", "accounts.reauthenticate",
             "accounts.connect", "accounts.remove", "accounts.githubConnect", "reloadConfiguration", "palette.openCmuxSettingsFile",
             "palette.openGhosttySettings", "settings.customizeMenus", "ghostty.showDiagnostics", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal",

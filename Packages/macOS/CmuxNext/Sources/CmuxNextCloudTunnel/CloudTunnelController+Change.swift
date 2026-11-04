@@ -1,7 +1,7 @@
 public import Foundation
 
 extension CloudTunnelController {
-    /// Turns the tunnel on or off for `cmux cloud tunnel on|off` and MCP, and answers the status
+    /// Turns the tunnel on or off for `cmux cloud tunnel-on|tunnel-off` and MCP, and answers the status
     /// the change settles in.
     ///
     /// Only the person (Settings, or the CLI in their terminal) can turn the tunnel on: an agent

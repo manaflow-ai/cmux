@@ -32,6 +32,8 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		IC000002 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AppIcon.icon; sourceTree = "<group>"; };
@@ -203,7 +205,7 @@
 				CE7A00000000000000000042 /* Embed Computer Use helper (dev) */,
 				CE7A00000000000000000018 /* Bundle Ghostty resources */,
 				CE7A00000000000000000031 /* Bundle server helper */,
-				CT7A00000000000000000018 /* Embed, stamp and check Cloud Tunnel */,
+				CT7A00000000000000000018 /* Embed and check Cloud Tunnel */,
 				CE7A00000000000000000043 /* Bundle MediaRemote adapter */,
 			);
 			buildRules = (
@@ -916,7 +918,7 @@
 			shellPath = /bin/sh;
 			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/build-wg-tun.sh\" \"${TARGET_TEMP_DIR}/wg-tun\"\n";
 		};
-		CT7A00000000000000000018 /* Embed, stamp and check Cloud Tunnel */ = {
+		CT7A00000000000000000018 /* Embed and check Cloud Tunnel */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -930,7 +932,7 @@
 				"$(SRCROOT)/scripts/cmux-next/stamp-cloud-tunnel-identity.sh",
 				"$(SRCROOT)/scripts/cmux-next/check-cloud-tunnel-bundle.sh",
 			);
-			name = "Embed, stamp and check Cloud Tunnel";
+			name = "Embed and check Cloud Tunnel";
 			outputFileListPaths = (
 			);
 			outputPaths = (

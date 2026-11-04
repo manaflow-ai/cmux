@@ -1,7 +1,7 @@
 public import Foundation
 public import Observation
 
-/// The opt-in Cloud Tunnel's one state machine: Settings, `cmux cloud tunnel on|off|status` and
+/// The opt-in Cloud Tunnel's one state machine: Settings, `cmux cloud tunnel-on|tunnel-off|tunnel-status` and
 /// MCP all go through it.
 ///
 /// Off by default, and while off it never touches SystemExtensions or NetworkExtension. A

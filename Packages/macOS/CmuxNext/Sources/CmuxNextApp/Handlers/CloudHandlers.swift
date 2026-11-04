@@ -393,7 +393,7 @@ enum CloudHandlers {
     }
 }
 
-// `cmux cloud tunnel on|off|status` and MCP: the opt-in Cloud Tunnel (plans/cmux-next/cloud-tunnel-DESIGN.md).
+// `cmux cloud tunnel-on|tunnel-off|tunnel-status` and MCP: the opt-in Cloud Tunnel (plans/cmux-next/cloud-tunnel-DESIGN.md).
 // The rules live in CloudTunnelController.change; this only binds the actions.
 extension CloudHandlers {
     static func bindSystemTunnelActions(into registry: ActionRegistry, context: AppActionContext,

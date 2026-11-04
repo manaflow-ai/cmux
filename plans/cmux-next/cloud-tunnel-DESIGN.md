@@ -24,13 +24,13 @@ packet tunnel as a system extension.
 | Mesh (platform#37, #642, cmux#30501) | none | not used. The mesh enrolls install keys and routes only the mesh CIDR for the Native provider; the production Freestyle VMs are on the per-user VPC that only `/api/vm/tunnel` serves. When Native VMs ship, a mesh device role can be a second config source for the same engine |
 | Activation | `OSSystemExtensionRequest` on `cmux vpn up` | same API, behind a protocol seam; only on an explicit enable |
 | Settings | none ("no VPN rows") | one toggle, Settings > Accounts > Cloud: "Cloud Tunnel", off by default |
-| CLI / MCP | `cmux vpn up/down/status` | `cmux cloud tunnel on|off|status` (catalog actions, so MCP gets `app_cloud_tunnel_*` for free) |
+| CLI / MCP | `cmux vpn up/down/status` | `cmux cloud tunnel-on|tunnel-off|tunnel-status` (catalog actions, so MCP gets `app_cloud_tunnel_*` for free) |
 
 ## Flow
 
 1. Off by default. A fresh install, an update and every launch with the
    setting off never touch NetworkExtension or SystemExtensions.
-2. `cloud tunnel on` (Settings toggle, CLI, MCP, or a Cloud action that opens
+2. `cloud tunnel-on` (Settings toggle, CLI, MCP, or a Cloud action that opens
    a VM address outside cmux) sets `cloud.tunnel.enabled`, then:
    1. `OSSystemExtensionRequest.activationRequest` for the bundled extension.
       macOS asks once, in System Settings > General > Login Items &
@@ -54,7 +54,7 @@ packet tunnel as a system extension.
 4. Later launches with the setting on load the saved manager and start it.
    A launch never submits an activation request, so it can never prompt; a
    removed extension makes the start fail with the reason.
-5. `cloud tunnel off` stops the tunnel and removes the manager; the extension
+5. `cloud tunnel-off` stops the tunnel and removes the manager; the extension
    stays installed (removing it needs the user's password). Sign-out also
    turns the setting off and revokes this Mac's peers (through the hub, or
    directly when no hub ran).
@@ -69,7 +69,7 @@ default and the Settings row says so. Guarantees that stay:
   `AllowedIPs` leaves 10/8, 100.64/10 or 172.16/12 (prefix 12 or longer) or
   fc00::/7 (prefix 48 or longer) is refused, so no default, split-default,
   public or home-LAN (192.168/16) route can take the Mac's other traffic.
-- Agents cannot turn it on: `cloud tunnel on` from MCP or another client is
+- Agents cannot turn it on: `cloud tunnel-on` from MCP or another client is
   refused, like the setting's `.network` agent policy.
 - Crypto-key routing: the engine drops a decrypted packet whose source is
   outside `AllowedIPs` (tested).
@@ -114,7 +114,7 @@ the team, a `CFBundleVersion` equal to the app's, and the containing app has a
 - `CloudTunnelExtension/`: the system extension target (main, provider,
   Info.plist, InfoPlist.xcstrings, entitlements per channel).
 - App: `CloudTunnelEnabledSetting` (Settings), catalog actions
-  `cloud tunnel on|off|status`, `CloudHandlers+Tunnel`, composition in the
+  `cloud tunnel-on|tunnel-off|tunnel-status`, `CloudHandlers+Tunnel`, composition in the
   app's Cloud service.
 
 ## Release pipeline
@@ -146,6 +146,6 @@ profile capability", add the two entitlements to the app's, and run
   by default, no NetworkExtension call while off, approval flow, enable,
   disable, launch with it on).
 - Bundle check: a shell test on a built fake bundle.
-- End to end: a NIGHTLY build with the tunnel, `cmux cloud tunnel on`,
+- End to end: a NIGHTLY build with the tunnel, `cmux cloud tunnel-on`,
   approve, `nc -vz <vm ipv4> 1337` from Terminal and `curl` to a dev server
   on the VM, plus the System Settings row before and after.
