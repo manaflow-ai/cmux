@@ -126,23 +126,81 @@ async fn initialize(
     Ok((authority, receiver, snapshot))
 }
 
-fn renewal_at(snapshot: &ReceiverSnapshot) -> anyhow::Result<(Instant, Deadline)> {
+/// When to start the next policy read: early enough that it lands before the
+/// current lease ends. `took` is how long the last read ran; the next one is
+/// started at least one and a half of that (plus a second) before expiry, and
+/// never later than halfway through what is left. A read slower than a third
+/// of the lease used to land after the lease ended every time, so the receiver
+/// dropped every stream and peer once per renewal (cmux link dials then saw
+/// `unreachable`, and open connections ended about every 27 s).
+fn renewal_at(snapshot: &ReceiverSnapshot, took: Duration) -> anyhow::Result<(Instant, Deadline)> {
     let expiry =
         snapshot.elapsed_deadline().ok_or_else(|| anyhow!("cloud.receiver.policy_expired"))?;
     let left = expiry.remaining().ok_or_else(|| anyhow!("cloud.receiver.policy_expired"))?;
-    let delay = (left / 2).max(Duration::from_secs(1)).min(left);
+    let delay = renewal_delay(left, took);
     let wake = expiry
         .shortened_by(left - delay)
         .ok_or_else(|| anyhow!("cloud.receiver.policy_expired"))?;
     Ok((Instant::now() + delay, wake))
 }
 
+/// The wait before the next read, with `left` of the lease remaining and the
+/// last read having taken `took`. Never under a quarter second (one read runs
+/// at a time, so this bounds a fast read's rate), nor past the end.
+fn renewal_delay(left: Duration, took: Duration) -> Duration {
+    let lead = (took + took / 2 + Duration::from_secs(1)).max(left / 2).min(left);
+    (left - lead).max(Duration::from_millis(250)).min(left)
+}
+
+/// One stderr line (the host's journal) for a renewal worth a look: a failed
+/// read, or one whose policy came after the previous lease had ended. A slow
+/// read is reported at most once a minute. Ids and timings only.
+struct RenewalLog {
+    last_slow: Option<Instant>,
+}
+
+impl RenewalLog {
+    fn read(&mut self, took: Duration, lifetime: Duration, lapsed: Option<Duration>) {
+        if let Some(gap) = lapsed {
+            eprintln!(
+                "cmux link: receiver policy read took {} ms and arrived {} ms after the previous \
+                 lease ended ({} ms lease); streams and peers were closed meanwhile",
+                took.as_millis(),
+                gap.as_millis(),
+                lifetime.as_millis()
+            );
+            return;
+        }
+        let slow = took * 3 > lifetime;
+        let due = self.last_slow.is_none_or(|at| at.elapsed() >= Duration::from_secs(60));
+        if slow && due {
+            self.last_slow = Some(Instant::now());
+            eprintln!(
+                "cmux link: receiver policy read took {} ms of a {} ms lease",
+                took.as_millis(),
+                lifetime.as_millis()
+            );
+        }
+    }
+
+    fn failed(&self, took: Duration, retry: Duration) {
+        eprintln!(
+            "cmux link: receiver policy read failed after {} ms; streams and peers closed, \
+             next read in {} ms",
+            took.as_millis(),
+            retry.as_millis()
+        );
+    }
+}
+
 async fn renew(
     source: Arc<AgentReceiver>,
     send: mpsc::Sender<Option<NativePolicy>>,
     mut next: (Instant, Deadline),
+    mut expires: Option<Instant>,
 ) -> anyhow::Result<()> {
     let mut retry = Duration::from_secs(1);
+    let mut log = RenewalLog { last_slow: None };
     loop {
         // A snapshot's own renewal deadline or a failed request's backoff,
         // never a timer that polls unrelated state.
@@ -150,9 +208,15 @@ async fn renew(
         super::receiver_deadline::wait(next.0, Some(next.1))
             .await
             .map_err(|_| anyhow!("cloud.receiver.clock_unavailable"))?;
+        let started = Instant::now();
         match refresh(&source).await {
             Ok(snapshot) => {
-                next = renewal_at(&snapshot)?;
+                let arrived = Instant::now();
+                let took = arrived - started;
+                let lapsed = expires.and_then(|end| arrived.checked_duration_since(end));
+                log.read(took, snapshot.expires() - snapshot.started(), lapsed);
+                expires = Some(snapshot.expires());
+                next = renewal_at(&snapshot, took)?;
                 retry = Duration::from_secs(1);
                 send.send(Some(snapshot.native_policy()))
                     .await
@@ -162,6 +226,8 @@ async fn renew(
                 if source.is_retired() {
                     return Err(anyhow!("cloud.receiver.generation_retired"));
                 }
+                log.failed(started.elapsed(), retry);
+                expires = None;
                 source.invalidate();
                 send.send(None).await.map_err(|_| anyhow!("cloud.receiver.stopped"))?;
                 let elapsed = clock
@@ -203,7 +269,8 @@ async fn run_child(parent: StdStream, control: StdStream, session: PathBuf) -> a
         result = initialize(bootstrap, session) => result?,
     };
     let (send, updates) = mpsc::channel(1);
-    let next = renewal_at(&snapshot)?;
+    let next = renewal_at(&snapshot, snapshot.started().elapsed())?;
+    let expires = Some(snapshot.expires());
     let (stop, stopped) = oneshot::channel();
     let serving = receiver.serve(updates, async {
         let _ = stopped.await;
@@ -217,7 +284,7 @@ async fn run_child(parent: StdStream, control: StdStream, session: PathBuf) -> a
         result = closed(&mut control) => result,
         result = &mut shutdown => result,
         result = &mut serving => { finished = true; result },
-        result = renew(authority.0.clone(), send, next) => result,
+        result = renew(authority.0.clone(), send, next, expires) => result,
     };
     authority.0.invalidate();
     let _ = stop.send(());
@@ -229,3 +296,7 @@ async fn run_child(parent: StdStream, control: StdStream, session: PathBuf) -> a
     control.write_all(&[2]).await?;
     outcome
 }
+
+#[cfg(test)]
+#[path = "native_process_tests.rs"]
+mod tests;

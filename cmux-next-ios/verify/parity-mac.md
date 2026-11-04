@@ -718,3 +718,20 @@ or the relay. States here are from the live run in this batch's proof report. Ri
 | Fork Conversation to New Column Right | `new-conversation-tab`, `move-tab-to-column` | Fork Conversation → **In a New Column** | works (live) | |
 | Customize Right-Click Menus… | the Mac's menu editor | Settings → **Long-Press Menus**: each item of the workspace row and Home row menus on or off | partial | Hiding only; the Mac also reorders. Close Workspace always stays. |
 | DEV build signs in as the NIGHTLY account (`CMUX_NEXT_DEV_ACCOUNT=nightly`) | control socket `auth.session.handoff` from a signed DEV build to the running cmux NIGHTLY, same user and cmux team signature both ways | — | not from a phone | Mac-only: two apps on one Mac hand a session over their local socket, checked by uid and code signature. A paired phone signs in on its own and may not read the Mac's session (SECURITY.md). |
+
+## Terminal tools batch (`feat-cmux-next-ios-terminal-tools-parity`)
+
+| Mac action | Phone | State | Notes |
+| --- | --- | --- | --- |
+| Toggle Copy Mode (⇧⌘M) | terminal page menu **Select Text…**; ⇧⌘M from a hardware keyboard | works | A cursor over the phone's copy of the rows, scrollback included. vi keys: h j k l (and arrows), w b, 0 $, g G, v selects, y copies (the cursor's row with no selection), Escape leaves. Select Text… starts with the cursor's row selected; the selection handles still move either end, and the bar above the composer has Copy and Done. A full-screen app keeps its long-press selection (no Copy Mode, as its screen is its own). |
+| Select All | terminal page menu **Select All** | works | Every row, scrollback included; Copy in the edit menu. |
+| Scroll to Top | terminal page menu **Scroll to Top** | works | The first row the phone holds. |
+| Send Text… | terminal page menu **Send Text…** | works | Typed into the Mac's terminal as is, no Return (`send`). |
+| New Tab to the Right / of the Same Kind / at Start / at End | tab page menu | works | A tab of the tab's kind in its pane (`new-tab`, `new-browser-tab {about:blank}`, or a new chat of the same agent with `new-conversation-tab`), then `move-tab {index}`: after the tab's whole tab group and never among pinned tabs, as the Mac's `NewTabSlot` (Same Kind goes there too, the Mac's default `tabs.newTabPosition`). Not on phone tabs (the Mac opens those). |
+| Clear Tab Name | tab page menu and card menu, on a named tab | works | `rename-surface {name: ""}`. |
+| Copy Tab Link / Tab ID / Pane Link / Pane ID / IDs | tab page menu | works | The Mac's text (`surface_id=tab_…`, `pane_id=…`, `workspace_id=…` lines; `cmux://tab/…`, an agent tab's `cmux://session/…`), only when the Mac sent the ids. |
+| Copy Workspace Link / ID / ID and Ref | workspace row menu > Copy | works | Same text as the Mac. Copy Workspace Path stays the terminal's Copy Directory (the phone has only the abbreviated folder). |
+| Duplicate Workspace | workspace row menu | works | Now the Mac's blueprint: screens, scrolling columns (with widths), splits (with ratios), each terminal in its folder (`cd` typed), each web page, color and icon (a color with alpha loses its alpha: the phone reads `#RRGGBB`). Agent chats and docks are not copied, as on the Mac. |
+| Duplicate Workspace Without Browser Tabs | workspace row menu (a workspace with a page) | works | A pane of pages only goes and its split collapses, as the Mac's `withoutBrowserTabs`. |
+| Send Feedback | Settings > About > **Send feedback** | works | Opens the Mac's feedback page (a new issue). Replaces "Report a problem". |
+| Phone tab: rotate, appearance, software keyboard, volume, app switcher | — | blocked (#13742) | The simulator stream takes `button` home and lock only (`cmux-mobile-host/src/surface.rs` `BUTTONS`; the Mac's `SimulatorSurfaceServer` maps only those). Each needs a new stream input in the mobile host and the Mac's surface server. The phone's own keyboard toggle (typing into the simulator) is already in the accessory bar. |
