@@ -1296,13 +1296,19 @@ local native app can answer, using its person proof and a fresh click bound
 to the exact pending request. Phone answers, cloud peers, turn sessions and
 other-person `ask` children cannot use this path.
 
-Home delivery never proves that Home is open. Hidden requests retain the
-120-second no-answer deadline from #22941 even after their card is delivered;
-replayed events do not reset it. The Chief can still deny or steer the
-subagent, and opening its local workspace retains the existing answer path.
-A timeout or completed/replaced request closes its card, including a late
-delivery acknowledgement. No Preview Features setting is required, and there
-is no rollout polling timer.
+Once the conversation owner acknowledges the card, the request waits for the
+person's Allow or Deny however long Home stays closed: it is never denied for
+the 120-second no-answer deadline from #22941 (Leo, 2026-11-03: a subagent's
+prompt must show in Home as an Allow/Deny card, never be declined silently).
+Replayed events post no second card. The Chief can still deny or steer the
+subagent, and opening its local workspace keeps the existing answer path. A
+hidden request Home cannot draw as Allow once / Deny (no single allow-once and
+reject-once option, a question, or a snapshot over the preview bound) opens
+its subagent's workspace instead, whose tab answers it. The deadline still
+applies until a card is acknowledged, to a card that was refused or retired,
+and where this host makes no workspaces. A completed or replaced request
+closes its card, including a late delivery acknowledgement. No Preview
+Features setting is required, and there is no rollout polling timer.
 
 Policy analysis (the relay rules of this repository's CLAUDE.md):
 

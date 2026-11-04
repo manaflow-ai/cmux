@@ -647,8 +647,9 @@ import SwiftUI
         let kit = try #require(source.tabs.first { $0.id == "t-zsh" })
         let groups = source.pageMenu(for: kit)
         #expect(groups.first?.map(\.title) == ["Files and Links", "Paste"])
-        // Design/terminal P1: Back leaves the workspace, so no "All Workspaces".
-        #expect(groups.map { $0.map(\.title) } == [["Files and Links", "Paste"], ["Copy Directory"], ["Close Tab"]])
+        // Design/terminal P1: Back leaves the workspace, so no "All Workspaces". Command Palette…
+        // (#32570) leads the layout group, which has no Panes, Screens or Send Message here.
+        #expect(groups.map { $0.map(\.title) } == [["Files and Links", "Paste"], ["Copy Directory"], ["Command Palette…"], ["Close Tab"]])
         groups.first?.first?.action()
         #expect(content.performed == ["files"])
     }

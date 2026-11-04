@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "bba25ef6c17ba6206fa161713567d0d998a15d4a2e1103681b3c5badc91feb87";
+pub const ir_sha256 = "90d0605d1f55a8b89b86ace2127f57445382f7e804efff5ba385ae75bddc84dd";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -2078,8 +2078,17 @@ pub const ServerStatsWritePath = struct {
     effect_intent_batches: u64,
     effect_intent_failures: u64,
     effect_intents: u64,
+    registry_wal_frame_bytes: ?u64 = null,
     request_effect_commits: u64,
+    wal_commits: ?u64 = null,
+    wal_synced_commits: ?u64 = null,
     writer_registry_locks: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "registry_wal_frame_bytes",
+        "wal_commits",
+        "wal_synced_commits",
+    };
 };
 
 pub const ServerStatsWriterPhase = enum {
