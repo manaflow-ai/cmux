@@ -62,6 +62,11 @@ impl GoalProvider {
             Self::Unknown(value) => value,
         }
     }
+
+    pub fn is_claude_family(value: &str) -> bool {
+        let value = value.trim().to_ascii_lowercase();
+        value == "claude" || value.starts_with("claude-") || value.starts_with("claude_")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -201,7 +206,12 @@ impl GoalState {
 
         let mut normalized = object.clone();
         normalized.insert("objective".to_owned(), Value::String(objective.to_owned()));
-        normalized.insert("status".to_owned(), Value::String(status.as_str().to_owned()));
+        let wire_status = object
+            .get("status")
+            .or_else(|| object.get("state"))
+            .and_then(Value::as_str)
+            .unwrap_or(status.as_str());
+        normalized.insert("status".to_owned(), Value::String(wire_status.to_owned()));
         normalized.insert("provider".to_owned(), Value::String(provider.as_str().to_owned()));
         // Older daemons stored the goal as an untyped JSON value.  Ignore malformed
         // typed fields instead of letting one stale field make SessionMeta unloadable.
@@ -336,6 +346,14 @@ mod tests {
         assert_eq!(goal.to_value()["timeUsedSeconds"], 42);
         assert_eq!(goal.to_value()["status"], "active");
         assert_eq!(goal.to_value()["lifecycle"], "running");
+
+        let usage = GoalState::from_value(
+            &json!({"objective": "Wait for quota", "status": "usageLimited"}),
+            Some("codex"),
+        )
+        .unwrap();
+        assert_eq!(usage.to_value()["status"], "usageLimited");
+        assert_eq!(usage.to_value()["lifecycle"], "stalled");
     }
 
     #[test]

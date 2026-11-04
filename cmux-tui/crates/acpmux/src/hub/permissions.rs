@@ -351,11 +351,20 @@ impl Hub {
             }
             "usage_update" => m.usage = Some(update.clone()),
             "available_commands_update" => m.available_commands = Some(update.clone()),
-            "plan" if m.family.as_deref() == Some("claude") => {
-                m.goal = crate::goal::GoalState::from_plan_update(update);
-                // Claude emits an empty plan when the loop is cleared. Do not
-                // leave a completed goal banner behind after that update.
-                goal_write = true;
+            "plan"
+                if m.family.as_deref().is_some_and(crate::goal::GoalProvider::is_claude_family) =>
+            {
+                // A TodoWrite plan is supporting detail for an armed /loop. It
+                // must not replace or clear that loop's persistent goal.
+                let loop_goal = m.goal.as_ref().is_some_and(|goal| {
+                    goal.extra.get("kind").and_then(Value::as_str) == Some("loop")
+                });
+                if !loop_goal {
+                    m.goal = crate::goal::GoalState::from_plan_update(update);
+                    // Claude emits an empty plan when the loop is cleared. Do not
+                    // leave a completed goal banner behind after that update.
+                    goal_write = true;
+                }
             }
             "current_mode_update" => {
                 // A mode the harness moves to by itself is not cmux's: the mark goes, so moving
