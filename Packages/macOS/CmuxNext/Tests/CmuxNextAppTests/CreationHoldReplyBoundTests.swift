@@ -27,17 +27,20 @@ struct CreationHoldReplyBoundTests {
     func keysTypedAfterCmdNWhoseDaemonNeverAnswersReachThePressTimeTerminalAtTheBound(_ move: Move) async throws {
         try await Self.cmdNNeverAnswered(then: move) { end, read in
             #expect(end == "replyBoundReached", "\(move): the hold ended \(end), not at its reply bound")
-            let pressed = try await read(.pressed, true)
-            #expect(pressed.ran, "\(move): the press-time terminal did not get the typed line in order; its screen: \(pressed.screen.debugDescription)")
-            let other = try await read(.other, false)
-            #expect(!other.ran, "\(move): the line ran in the other terminal: \(other.screen.debugDescription)")
+            // The last command's own output: with a second line, the read waits for it (round 11 read at `held`, before the
+            // second command ran).
+            let pressed = try await read(.pressed, move == .scriptThenTyping ? .alsoLine : .held)
+            #expect(pressed.matched, "\(move): the press-time terminal did not run the typed line(s); its screen: \(pressed.screen.debugDescription)")
+            let other = try await read(.other, .noHeld)
+            #expect(!other.matched, "\(move): the line ran in the other terminal: \(other.screen.debugDescription)")
             guard move == .scriptThenTyping else { return }
-            // The outputs, in screen order (the typed commands do not contain them; a second line typed while the first
-            // runs is echoed before the first one's output, as in any terminal).
-            let held = pressed.screen.range(of: "held"), also = pressed.screen.range(of: "also")
-            #expect(held != nil && also != nil && held!.lowerBound < also!.lowerBound,
-                    "the two lines did not run in typing order: \(pressed.screen.debugDescription)")
-            #expect(!other.screen.contains("al''so") && !other.screen.contains("also"), "the second line ran in the terminal the script focused")
+            // Both commands ran as typed, in typing order: the first one's output `held` (a line typed while it ran is echoed
+            // before it, as in any shell) on an earlier line than the second one's own output line, and no merged command.
+            let lines = pressed.screen.components(separatedBy: "\n")
+            let held = lines.firstIndex { $0.contains("held") }, also = lines.firstIndex { Self.isLine($0, "also") }
+            #expect(held != nil && also != nil && held! < also!, "the two lines did not run in typing order: \(pressed.screen.debugDescription)")
+            #expect(!pressed.screen.contains("heldecho"), "the two lines ran as one command: \(pressed.screen.debugDescription)")
+            #expect(!other.screen.contains("also"), "the second line ran in the terminal the script focused")
         }
     }
 
@@ -59,13 +62,21 @@ struct CreationHoldReplyBoundTests {
         try await Self.cmdNNeverAnswered(then: move) { end, read in
             #expect(end == "replyBoundReached", "\(move): the hold ended \(end), not at its reply bound")
             for terminal in [Which.pressed, .other] {
-                let screen = try await read(terminal, false)
-                #expect(!screen.ran, "\(move): the line ran in the \(terminal) terminal: \(screen.screen.debugDescription)")
+                let screen = try await read(terminal, .noHeld)
+                #expect(!screen.matched, "\(move): the line ran in the \(terminal) terminal: \(screen.screen.debugDescription)")
             }
         }
     }
 
     enum Which { case pressed, other }
+
+    /// What a read of a terminal's screen waits for (``cmdNNeverAnswered(then:check:)``): the first line's output `held` (up
+    /// to 15 s), the second line's own output line `also` (up to 15 s: the second command ran), or 3 s in which `held` must
+    /// not show.
+    enum Wait { case held, alsoLine, noHeld }
+
+    /// Whether screen line `line` is `word` alone (a command's output line, not its echo).
+    static func isLine(_ line: String, _ word: String) -> Bool { line.trimmingCharacters(in: .whitespacesAndNewlines) == word }
 
     typealias PaneTerminal = (pane: PaneController, tab: String, surface: SurfaceID)
 
@@ -75,10 +86,9 @@ struct CreationHoldReplyBoundTests {
     /// person hold; PersonTerminalKeyboardClaimTests does the same), `echo hel''d` Return typed (it prints `held`, a word its
     /// command line does not contain), then `move`. The reply never
     /// comes: nothing resolves the ticket, as when the daemon never answers. `check` gets the hold's end reason (by name:
-    /// the red build has no such case) and reads a terminal's screen: whether it ran the line, waiting up to 15 s for it
-    /// to show (`expected` true) or 3 s for it not to (false).
+    /// the red build has no such case) and reads a terminal's screen until what it waits for shows (``Wait``).
     private static func cmdNNeverAnswered(then move: Move,
-                                          check: (String, (Which, Bool) async throws -> (ran: Bool, screen: String)) async throws -> Void) async throws {
+                                          check: (String, (Which, Wait) async throws -> (matched: Bool, screen: String)) async throws -> Void) async throws {
         try await PasswordManagerRouteTests.withApp(heldKeyReplay: { event, window, router in
             if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
         }) { services, connection in
@@ -186,19 +196,19 @@ struct CreationHoldReplyBoundTests {
                                                       report: { "the hold did not end at its reply bound" })
             let end = coordinator.lastHoldEnd(in: window).map { "\($0)" } ?? "none"
             coordinator.resolve(ticket, landed: false, in: window) // a reply after the bound belongs to no hold
-            // What the person sees: whether a terminal shows the shell's answer `held` (only the command's run prints it).
-            func ran(_ text: String) -> Bool { text.contains("held") }
+            // What the person sees: a command's own output (`held`, `also`: only its run prints them, its typed line has quotes).
             let (pressedSurface, otherSurface) = (pressed.surface, other.surface)
-            try await check(end) { terminal, expected in
+            try await check(end) { terminal, wait in
                 let surface = terminal == .pressed ? pressedSurface : otherSurface
+                let shows: (String) -> Bool = wait == .alsoLine ? { $0.components(separatedBy: "\n").contains { isLine($0, "also") } } : { $0.contains("held") }
                 var screen = ""
-                let deadline = ContinuousClock.now + (expected ? .seconds(15) : .seconds(3))
-                while ContinuousClock.now < deadline { // until it ran (a red when it must not) or the deadline
+                let deadline = ContinuousClock.now + (wait == .noHeld ? .seconds(3) : .seconds(15))
+                while ContinuousClock.now < deadline { // until the output shows (a red when it must not) or the deadline
                     screen = (try? await connection.request(ReadScreenRequest(surface: surface), timeout: .seconds(2)).text) ?? screen
-                    if ran(screen) { break }
+                    if shows(screen) { break }
                     try await Task.sleep(for: .milliseconds(100))
                 }
-                return (ran(screen), screen)
+                return (shows(screen), screen)
             }
         }
     }
@@ -287,6 +297,32 @@ struct CreationHoldReplyBoundTests {
                 "\(intoPress) of \(typed) key(s) went to the press terminal, person target \(personTarget ?? "none"), shown \(shown)")
         #expect(keys.flatMap(\.keys).count == intoPress, "keys went somewhere else: \(keys.flatMap(\.keys).map { $0.event.characters ?? "" })")
         #expect(buffer.untypedTerminalKeys == (typesIntoPress ? 0 : typed))
+    }
+
+    /// The lines typed for a new workspace before and after a script's focus move go on at the bound as ONE run into the
+    /// press-time terminal, every key in typing order (round 11 of #35275: the second line looked split on the screen; it
+    /// was the shell's echo of typeahead, and the test had read the screen before the second command ran).
+    @Test func thePressTerminalsHeldLinesGoOnAsOneRunInTypingOrder() throws {
+        let buffer = CreationInputBuffer(began: .now)
+        let press = CreationInputBuffer.HeldLane(tab: "press_tab", machine: nil)
+        _ = buffer.open(generation: 1, newWorkspace: true, pressTerminal: press, personTarget: "press_tab")
+        func capture(_ line: String, focusedTab: String) throws {
+            for character in line {
+                let text = String(character)
+                let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                                          context: nil, characters: text, charactersIgnoringModifiers: text, isARepeat: false,
+                                                          keyCode: text == "\r" ? 36 : 0))
+                buffer.capture(event, focusedTab: focusedTab, forNewWorkspace: true)
+            }
+        }
+        try capture("echo hel''d\r", focusedTab: press.tab)
+        try capture("echo al''so\r", focusedTab: "other_tab") // after a script moved the focus; the person's claim holds
+        buffer.endReplyWait(personTarget: "press_tab", shows: { _ in true })
+        let keys = buffer.take(focused: "other_tab", isShortcut: { _, _ in false })
+        #expect(keys.count == 1, "the held keys went on in \(keys.count) runs")
+        guard case .type(let events, let lane)? = keys.first else { return Issue.record("the held keys went on as no typed run") }
+        #expect(lane == press)
+        #expect(events.compactMap(\.characters).joined() == "echo hel''d\recho al''so\r", "the held keys went on out of order")
     }
 
     /// A close's read opened while a creation waits for its reply (a person's Cmd-W) does not restart that creation's reply
