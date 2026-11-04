@@ -91,6 +91,17 @@ export function markHeightFold(node: Element, ms: number): void {
 
 const always = () => true;
 
+/// The folds playing now, each with the step that lands it at once (`settleFoldsIn`). Only folds in
+/// flight are here: each leaves when it ends, so a walk is O(folds playing), never O(rows).
+const settling = new Map<HTMLElement, () => void>();
+
+/// Lands every fold playing inside `root` at once: an open at its full height, a close shut. The
+/// transcript calls it when the reader takes the view during a fold at the very bottom, so the rest
+/// of a closing body's shrink cannot clamp their short scroll up back to the end.
+export function settleFoldsIn(root: Element): void {
+  for (const [node, settle] of [...settling]) if (root.contains(node)) settle();
+}
+
 /// The resize each box is playing (`playResize`), so a resize that ends late lets go of only its own.
 const resizing = new WeakMap<HTMLElement, Animation>();
 
@@ -216,6 +227,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
   const cancelRunning = () => {
     const animation = running.current;
     running.current = undefined;
+    if (ref.current) settling.delete(ref.current);
     if (!animation) return;
     animation.onfinish = null;
     animation.oncancel = null;
@@ -290,6 +302,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
         const settledRest = () => {
           if (running.current !== rest) return;
           running.current = undefined;
+          settling.delete(node);
           stopWatching();
           unwatchMotion();
           clipFold(node, false);
@@ -305,6 +318,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
       stopWatching();
       unwatchMotion();
       running.current = undefined;
+      settling.delete(node);
       if (open) {
         clipFold(node, false);
         return;
@@ -316,6 +330,24 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
     };
     animation.onfinish = settled;
     animation.oncancel = settled;
+    // Lands this fold now, whichever animation (this one or a late size's) is playing: its handlers
+    // go first, so the box is pinned shut or let go in this same task, before any paint.
+    settling.set(node, () => {
+      const playing = running.current;
+      settling.delete(node);
+      if (!playing) return;
+      playing.onfinish = null;
+      playing.oncancel = null;
+      running.current = undefined;
+      stopWatching();
+      unwatchMotion();
+      playing.cancel();
+      if (open) clipFold(node, false);
+      else {
+        pin(node, 0);
+        setClosing(false);
+      }
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a change of `open` plays the fold
   }, [open]);
   useLayoutEffect(

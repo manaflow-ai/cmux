@@ -373,7 +373,7 @@ import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { MessageFooterRow, PromptActions, ReceivedActions, ReplyActions } from "./conversation/MessageActions";
 import { AgentNamesContext, AgentOpenContext, agentNames, agentViews } from "./conversation/agentNames";
 import { setReadAloudState, stopReadingAloud } from "./conversation/readAloud";
-import { heightFoldInFlight, heightFoldPlaying } from "./conversation/fold";
+import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
 import {
   ANCHORED_COLLAPSE_EVENT,
   atFoldBottom,
@@ -3860,7 +3860,8 @@ export function VirtualTranscript({
     from: number;
     /// Each drawn row's viewport top at the click.
     drawn: Map<Element, number>;
-    /// The toggle adds or removes whole rows (toggleRow): the thread slides instead.
+    /// The toggle adds or removes whole rows (toggleRow), or changes its row with no height fold of
+    /// its own (Show all lines, Details): the thread slides instead.
     rows?: boolean;
     animation?: Animation;
     /// The line the held rows start at, in the thread's own coordinates.
@@ -3878,7 +3879,7 @@ export function VirtualTranscript({
     bottomStackFold.current = undefined;
     foldAnchor.current = undefined;
     stack.row.removeAttribute("data-bottom-fold");
-    stack.row.removeAttribute("data-bottom-stack");
+    stack.row.removeAttribute("data-bottom-stack-fold");
     clearTimeout(stack.cleanupTimer);
     if (stack.animation) {
       stack.animation.onfinish = null;
@@ -3912,6 +3913,17 @@ export function VirtualTranscript({
   }, []);
   // Another chat starts with none (its first render already leaves it out, `keptEnd`).
   useLayoutEffect(() => dropFoldRoom(), [sessionId, dropFoldRoom]);
+  /// The reader took the view (a wheel, a key, a drag up) from a fold at the very bottom: the fold
+  /// lands at once and the content keeps the view's end as room, as a close away from the end does,
+  /// so what was left of a closing body's shrink never clamps a short scroll up back to the end.
+  const keepRoomForReader = useCallback((node: HTMLElement, row: HTMLElement) => {
+    const end = foldRoomFor(node.scrollTop, node.clientHeight, foldRoomRef.current);
+    if (end !== foldRoomRef.current) {
+      foldRoomRef.current = end;
+      flushSync(() => setFoldRoom(end));
+    }
+    settleFoldsIn(row);
+  }, []);
   const trimFoldRoom = useCallback((node: HTMLElement) => {
     const kept = foldRoomRef.current;
     if (!kept) return;
@@ -4498,6 +4510,12 @@ export function VirtualTranscript({
       settleFollowBottom(node, latest);
       const delta = layoutScrollTop(node) - stack.beforeTop;
       const host = thread.current;
+      // A control with no height fold of its own (a shell block's Show all lines, a failure's
+      // Details, Raw, Wrap lines) lays out in one step: the thread slides to it, as whole rows do.
+      if (!stack.rows && !heightFoldInFlight(stack.row) && Math.abs(delta - stack.delta) > 0.5) {
+        stack.rows = true;
+        stack.row.setAttribute("data-bottom-fold", "");
+      }
       // A body's own height fold: this pass, run on each of its frames before paint, already moved
       // the offset with it. Nothing else plays.
       if (host && stack.rows && Math.abs(delta - stack.delta) > 0.5) {
@@ -4527,8 +4545,10 @@ export function VirtualTranscript({
             stack.animation.oncancel = stack.animation.onfinish;
           } else stopBottomStackFold();
         }
-        stack.delta = delta;
       }
+      // Every pass takes the offset it pinned as its base, a height fold's frames too: a late measure
+      // after that fold ends slides only by what it adds, never by the whole fold again.
+      stack.delta = delta;
       scrollPacer.current?.cancel();
       setScrollAt(node.scrollTop);
     } else if (folding && node) {
@@ -5368,6 +5388,7 @@ export function VirtualTranscript({
       revealing.current = undefined;
       revealWindow.current = 0;
       // A sideways wheel (a code block's own scroll) keeps a disclosure's hold; the rest lets go.
+      const held = bottomStackFold.current;
       if (!(event?.type === "wheel" && !verticalWheel(event as WheelEvent))) {
         stopBottomStackFold();
         foldAnchor.current = undefined;
@@ -5375,6 +5396,8 @@ export function VirtualTranscript({
       if (findFrame.current !== undefined) cancelAnimationFrame(findFrame.current);
       findFrame.current = undefined;
       if (reader(event)) followIntent(false);
+      // Up and away from a fold at the very bottom: it lands now, and its end stays as room.
+      if (held && !bottomStackFold.current && !followingRef.current) keepRoomForReader(node, held.row);
       // Moving toward the latest row while following keeps following through the hold.
       else if (followingRef.current && movingDown(event)) followRequest.current = intent.request();
       if (jumpTarget.current !== undefined) {
@@ -5495,7 +5518,7 @@ export function VirtualTranscript({
       };
       bottomStackFold.current = stack;
       // The gallery's shift gate reads this: the text above this row rises or falls on purpose.
-      row.setAttribute("data-bottom-stack", "");
+      row.setAttribute("data-bottom-stack-fold", "");
       // The explicit toggle reacquires follow even a few pixels from the end. Streaming never does.
       followIntent(true);
       stack.cleanupTimer = setTimeout(
@@ -5608,7 +5631,7 @@ export function VirtualTranscript({
       gutterRelease.current = undefined;
       gutter?.remove();
     };
-  }, [dropFoldRoom, stopBottomStackFold, stopJump]);
+  }, [dropFoldRoom, keepRoomForReader, stopBottomStackFold, stopJump]);
   // A turn's footer (TurnFooter) shows for the turn the reader points at: anywhere after its prompt
   // to its footer. Marked on the mounted rows, so a hover renders nothing.
   // The last ended turn's prompt offers Retry under its bubble (UserBubble.tsx); turns.ts names

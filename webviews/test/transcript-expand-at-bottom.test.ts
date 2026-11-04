@@ -297,6 +297,66 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
       if (engine !== browser) await engine.close();
     });
 
+  /// A control with no height fold of its own (a shell block's "Show all N lines", a failure's
+  /// Details) glides too at the very bottom: the thread slides to what it laid out in one step, over
+  /// several painted frames, never most of the way in one (router-review F1 on #34780).
+  test("at the very bottom, a shell block's Show all lines glides the text above over several frames", async () => {
+    const page = await open("collapse-tall-group");
+    await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, {
+      timeout: 60_000,
+    });
+    await settled(page);
+    const scrollToEnd = async () => {
+      await page.locator(".acpmux-scroll").evaluate((node) => {
+        node.scrollTop = node.scrollHeight;
+      });
+      await settled(page);
+    };
+    await scrollToEnd();
+    await clickLine(page, GROUP);
+    await settled(page);
+    await page.evaluate(() => {
+      [
+        ...document.querySelectorAll<HTMLElement>(
+          '[data-row-id="expand-at-bottom-run"] button.cv-tool.is-toggle[aria-expanded="false"]',
+        ),
+      ]
+        .at(-1)!
+        .setAttribute("data-shell-probe", "");
+    });
+    await scrollToEnd();
+    await clickLine(page, "[data-shell-probe]");
+    await settled(page);
+    await scrollToEnd();
+    const MORE = '[data-row-id="expand-at-bottom-run"] .cv-output-more[aria-expanded="false"]';
+    await page.locator(MORE).last().waitFor();
+    await page.locator(MORE).last().evaluate((node) => node.setAttribute("data-more-probe", ""));
+    const PROBE = "[data-more-probe]";
+    const before = (await watchOpen(page, PROBE, 0, false))[0]!;
+    expect(before.fromEnd).toBeLessThanOrEqual(2);
+    const frames = await watchOpen(page, PROBE);
+    await settled(page);
+    const after = (await watchOpen(page, PROBE, 0, false))[0]!;
+    expect(await page.locator(PROBE).getAttribute("aria-expanded")).toBe("true");
+    const total = after.line - before.line;
+    expect(total).toBeLessThan(-40);
+    const tops = [before.line, ...frames.map((frame) => frame.line)];
+    let largest = 0;
+    for (let index = 1; index < tops.length; index++)
+      largest = Math.max(largest, Math.abs(tops[index]! - tops[index - 1]!));
+    const between = frames.filter(
+      (frame) => Math.abs(frame.line - before.line) > 1 && Math.abs(frame.line - after.line) > 1,
+    ).length;
+    expect({ between: between >= 3, largest, total }).toEqual({ between: true, largest, total });
+    expect({ largest, total, smooth: largest <= Math.abs(total) * 0.7 }).toEqual({ largest, total, smooth: true });
+    for (const [index, frame] of frames.entries()) {
+      const at = { index, ...frame };
+      expect({ at, end: frame.fromEnd <= 2 }).toEqual({ at, end: true });
+      expect({ at, last: Math.abs(frame.last - before.last) <= 1 }).toEqual({ at, last: true });
+    }
+    await page.close();
+  });
+
   /// The scene's own plays (ExpandAtBottom.gallery.ts) check where the bottom and the clicked line
   /// end up; each throws, and the stage reports it, when they are off. Leo, 2026-11-03: "it's weird
   /// to collapse and get all that empty space at the bottom".
