@@ -147,8 +147,8 @@ mod tests {
     fn hub() -> Arc<Hub> {
         let config: crate::config::Config =
             serde_json::from_value(json!({"store": {"mode": "memory"}})).unwrap();
-        let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent"))
-            .unwrap();
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
         Hub::new(config, store)
     }
 
@@ -193,10 +193,7 @@ mod tests {
         );
 
         let result = hub.machine_info(&session);
-        assert_eq!(
-            result["secrets"],
-            json!([{"name": "API_TOKEN", "status": "provided"}])
-        );
+        assert_eq!(result["secrets"], json!([{"name": "API_TOKEN", "status": "provided"}]));
         assert!(!result.to_string().contains("machine-info-secret-sentinel"));
     }
 }
