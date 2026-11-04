@@ -256,12 +256,25 @@ function directExec(api: Api, machine: string, journey: Journey): Exec {
 }
 
 /** `cmux machine access exec` with the same credential: the journey drives the real CLI. */
-function cliExec(cmux: string, api: Api, machine: string): Exec {
+export function cliExecNeedsDirectFallback(status: number | null, stdout: string, stderr: string): boolean {
+  if (status === 0) return false;
+  const output = `${stdout}\n${stderr}`;
+  return /501\s+Not Implemented[\s\S]*cloud\.provider\.unsupported|cloud\.provider\.unsupported[\s\S]*501\s+Not Implemented/i.test(output);
+}
+
+function cliExec(cmux: string, api: Api, machine: string, journey: Journey): Exec {
+  const fallback = directExec(api, machine, journey);
   return async (command, timeoutMs = 60_000) => {
     const env = { ...process.env, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer };
     const args = ["machine", "access", "exec", "--target", `machine:${machine}`, "--timeout-ms", String(Math.min(timeoutMs, 300_000)), ...(api.team ? ["--team", api.team] : []), "--", "sh", "-c", command];
     const done = spawnSync(cmux, args, { env, encoding: "utf8", timeout: timeoutMs + 30_000 });
     if (done.error) throw new Error(`${cmux}: ${done.error.message}`);
+    // VM API machines do not expose Freestyle client sessions. The CLI's client-session
+    // path reports this documented provider response; keep exercising the real CLI when
+    // it is supported, but use the same direct machine route as directExec for this case.
+    if (cliExecNeedsDirectFallback(done.status, done.stdout ?? "", done.stderr ?? "")) {
+      return fallback(command, timeoutMs);
+    }
     return { code: done.status ?? 1, stdout: done.stdout ?? "", stderr: done.stderr ?? "" };
   };
 }
@@ -662,7 +675,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
-    const exec = cmux ? cliExec(cmux, api, created.id) : directExec(api, created.id, J);
+    const exec = cmux ? cliExec(cmux, api, created.id, J) : directExec(api, created.id, J);
     await J.step("first exec", async () => {
       const r = await exec("echo journey-ok; uname -m");
       if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
