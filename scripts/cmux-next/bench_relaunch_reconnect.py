@@ -91,21 +91,30 @@ PHASES = [
 ]
 
 
-def log_times(home: str, since: float) -> dict:
-    """The daemon log's `acpmux ready` and `shutting down` lines after `since` (ms since 1970), first of each."""
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+# Daemon log lines a round keeps (after the quit): what stopped, started, adopted or replayed.
+LOG_KEEP = re.compile(r"ready|stopping|shutting down|stopped|owner|adopt|replay|host|handoff|lock|resum|warn|error", re.I)
+
+
+def daemon_log(home: str, since: float) -> tuple[dict, list[str]]:
+    """The daemon log since `since` (ms since 1970): the first `acpmux ready` and `shutting down`
+    times, and the lines LOG_KEEP matches (at most 300)."""
     found: dict[str, float] = {}
-    for path in glob.glob(os.path.join(home, "**", "*.log"), recursive=True):
+    kept: list[str] = []
+    for path in sorted(glob.glob(os.path.join(home, "**", "*.log"), recursive=True)):
         try:
             with open(path, errors="replace") as handle:
-                lines = handle.readlines()[-4000:]
+                lines = handle.readlines()[-20000:]
         except OSError:
             continue
-        for line in lines:
-            stamp = re.match(r"\s*(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:?\d\d))", line)
+        for raw in lines:
+            line = ANSI.sub("", raw).rstrip()
+            stamp = re.match(r"\s*(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?)(Z|[+-]\d\d:?\d\d)?", line)
             if not stamp:
                 continue
+            text = stamp.group(1)[:26] + (stamp.group(2) or "Z").replace("Z", "+00:00")
             try:
-                at = datetime.fromisoformat(stamp.group(1).replace("Z", "+00:00")).timestamp() * 1000
+                at = datetime.fromisoformat(text).timestamp() * 1000
             except ValueError:
                 continue
             if at < since:
@@ -113,7 +122,9 @@ def log_times(home: str, since: float) -> dict:
             for name, needle in (("ready", "acpmux ready pid="), ("shutting_down", "shutting down")):
                 if needle in line and (name not in found or at < found[name]):
                     found[name] = at
-    return found
+            if LOG_KEEP.search(line) and len(kept) < 300:
+                kept.append(f"{os.path.basename(path)}: {line[:400]}")
+    return found, kept
 
 
 def quit_app(sock: str, bundle: str):
@@ -233,6 +244,7 @@ def main(argv: list[str] | None = None):
         for mode in modes:
             for index in range(args.rounds):
                 time.sleep(args.settle)  # test script: the chat streams a while before the quit
+                quit_at = time.time() * 1000
                 quit_app(sock, args.app)
                 if mode == "cold":
                     bm.end_processes(daemon_pids(args.app))
@@ -243,12 +255,14 @@ def main(argv: list[str] | None = None):
                 pid, sock, scratch = bm.launch(args.app, config, env, scratch=scratch)
                 page = wait_live(sock, args.live_timeout)
                 timings = bp.rpc(sock, "debug.timings") or {}
-                daemon = log_times(acpmux_home, started)
+                daemon, log_lines = daemon_log(acpmux_home, quit_at)
+                daemon = {name: at for name, at in daemon.items() if at >= started}
                 phases = round_phases(timings, page, daemon)
                 zero = timings.get("process_start_epoch_ms")
                 entry = {"mode": mode, "round": index + 1, "daemon_before": running,
                          "launch_to_process_ms": None if zero is None else round(zero - started, 1),
-                         "phases": phases, "page": page, "daemon_log": daemon,
+                         "phases": phases, "page": page, "daemon_log": daemon, "daemon_log_lines": log_lines,
+                         "daemon_after": sorted(daemon_pids(args.app)),
                          "app_marks": timings.get("launch_ms_since_process_start")}
                 rounds.append(entry)
                 print(f"PERF-RELAUNCH mode={mode} round={index + 1} live_ms={phases.get('first live event')} "
