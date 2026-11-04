@@ -111,24 +111,21 @@ def palette(j, label):
     r.tap(j, "Rename")
     _, took = t.until(lambda: tab_named(ws["key"], "palette-renamed"), timeout=20, what="the Mac to rename the tab")
     out["renamed_on_mac_s"] = round(took, 1)
-    # Cmd-K: New Terminal.
+    # Cmd-Shift-P (the Mac's key): New Terminal.
     before = len(t.ws_tabs(t.mac_workspace(key=ws["key"])))
-    key_combo("k", [CMD])
-    out["cmd_k_opens"] = palette_open(j) is not None
+    key_combo("p", [CMD, SHIFT])
+    out["cmd_shift_p_opens"] = palette_open(j) is not None
     palette_type(j, "new terminal")
-    pq.shot("palette-after-cmd-k-search")
+    pq.shot("palette-after-cmd-shift-p-search")
     j.sim.tap_el(palette_row(j, "new.terminal"))
     _, took = t.until(lambda: len(t.ws_tabs(t.mac_workspace(key=ws["key"]))) == before + 1, timeout=40,
                       what="a new terminal on the Mac")
     out["new_terminal_on_mac_s"] = round(took, 1)
     time.sleep(2)
-    # Cmd-Shift-P (the Mac's own key), then Close.
-    key_combo("p", [CMD, SHIFT])
-    out["cmd_shift_p_opens"] = palette_open(j) is not None
-    pq.shot("palette-after-cmd-shift-p")
-    close = j.sim.wait(ident="palette.close", timeout=4)
-    if close:
-        j.sim.tap_el(close)
+    # Cmd-K on a terminal page stays the terminal's (Ghostty's Clear Screen): no palette.
+    key_combo("k", [CMD])
+    out["cmd_k_on_terminal_opens_palette"] = palette_open(j, timeout=3) is not None
+    pq.shot("palette-after-cmd-k-terminal")
     out["mac_tabs"] = [tab.get("name") or tab.get("title") for _, tab in t.ws_tabs(t.mac_workspace(key=ws["key"]))]
     return out
 
@@ -171,7 +168,7 @@ def searchtabs(j, label):
     pq.shot("searchtabs-after-address-opened")
     # The palette's Search Tabs, from workspace A again.
     t.open_ws(j, a["name"])
-    key_combo("k", [CMD])
+    key_combo("p", [CMD, SHIFT])
     check(palette_open(j), "no palette")
     palette_type(j, needle)
     pq.shot("searchtabs-after-palette")
@@ -202,7 +199,7 @@ def fromtext(j, label):
         pq_panes.close_menu(j)
         return out
     # An address.
-    key_combo("k", [CMD])
+    key_combo("p", [CMD, SHIFT])
     check(palette_open(j), "no palette")
     palette_type(j, "example.org/text")
     out["address_rows"] = [e.label for e in j.sim.find() if (e.ident or "").startswith("palette.row.newTab.")]
@@ -216,7 +213,7 @@ def fromtext(j, label):
     pq.shot("fromtext-after-browser")
     # A command.
     before = kinds().count("pty")
-    key_combo("k", [CMD])
+    key_combo("p", [CMD, SHIFT])
     check(palette_open(j), "no palette")
     palette_type(j, "!echo from-text-$((6*7))")
     pq.shot("fromtext-after-command-rows")
@@ -228,7 +225,7 @@ def fromtext(j, label):
     pq.shot("fromtext-after-terminal")
     # A prompt.
     sessions = {s["sessionId"] for s in c.sessions()}
-    key_combo("k", [CMD])
+    key_combo("p", [CMD, SHIFT])
     check(palette_open(j), "no palette")
     palette_type(j, "Reply with exactly the word PALETTE and nothing else.")
     pq.shot("fromtext-after-prompt-rows")
@@ -237,8 +234,14 @@ def fromtext(j, label):
                          what="a new acpmux session on the Mac")
     sid = made[0]["sessionId"]
     out["chat_session"], out["chat_s"] = sid, round(took, 1)
-    out["reply_s"] = c.wait_text(j, "PALETTE", timeout=240, exclude="Reply with")
-    out["acpmux_prompts"] = [p["text"] for p in c.prompts(sid)]
+    # The Mac is the truth: the chat's tab in this workspace, its prompt in acpmux, then the reply.
+    _, took = t.until(lambda: any(((x.get("conversation") or {}).get("agent_session") or {}).get("session") == sid
+                                  for _, x in t.ws_tabs(t.mac_workspace(key=key))), timeout=60, what="the chat's tab on the Mac")
+    out["chat_tab_s"] = round(took, 1)
+    prompts, took = t.until(lambda: [p["text"] for p in c.prompts(sid)], timeout=60, what="the prompt in acpmux")
+    out["acpmux_prompts"], out["prompt_s"] = prompts, round(took, 1)
+    out["reply"] = t.until(lambda: (lambda s: (s.get("lastMessage") or {}).get("text") if s and s.get("lastMessage", {}).get("role") == "agent" else None)(c.session(sid)),
+                           timeout=240, what="the agent's reply")[0]
     pq.shot("fromtext-after-chat")
     return out
 
@@ -257,7 +260,7 @@ def links(j, label):
     out = {"link": link}
     t.open_ws(j, a["name"])
     if label == "after":
-        key_combo("k", [CMD])
+        key_combo("p", [CMD, SHIFT])
         check(palette_open(j), "no palette")
         palette_type(j, link)
         pq.shot("links-after-open-link-row")
@@ -280,8 +283,9 @@ def links(j, label):
 
 def jumps(j, label):
     """Jump to Latest Unread and Jump to Last Prompt. The Mac: a notification in workspace U's
-    terminal (OSC 9 from its shell, unread), a phone-started chat prompted in workspace P. The phone
-    is in workspace A. Before: no palette rows and no key. After: each jump opens that tab."""
+    terminal (OSC 9 from its shell, unread), a terminal agent prompted in workspace P. The phone
+    is in workspace A. Before: no palette rows and no key. After: each jump opens that tab.
+    Last Prompt follows the Mac's agent roster (terminal agents), as the Mac's action does."""
     a = t.seed("jump-a", terminals=1)
     u = t.seed("jump-unread", terminals=1)
     p = t.seed("jump-prompt", terminals=1)
@@ -293,8 +297,15 @@ def jumps(j, label):
         pq.shot("jumps-before-page-menu")
         pq_panes.close_menu(j)
         return out
-    c.start_phone_chat(j, p["name"])
-    out["prompt_reply_s"] = c.ask(j, "Reply with exactly the word PROMPTED and nothing else.", "PROMPTED")
+    # The Mac's Jump to Last Prompt reads its agent roster (`agent-changed`: terminal agents such as
+    # Claude Code or Codex in a terminal, which report through `report-agent`); an acpmux chat tab
+    # reports nothing there. Rig setup on the Mac: P's terminal reports a turn the person prompted,
+    # as a terminal Claude Code's hook does (idle, then working).
+    p_surface = t.ws_tabs(t.mac_workspace(key=p["key"]))[0][1]["surface"]
+    for state in ("idle", "working"):
+        t.mac_raw({"cmd": "report-agent", "surface": p_surface, "state": state, "agent": "claude",
+                   "source": "socket", "session": f"palette-{time.strftime('%H%M%S')}"})
+    out["mac_agents"] = t.mac_raw({"cmd": "list-agents"}).get("agents")
     surface = t.ws_tabs(t.mac_workspace(key=u["key"]))[0][1]["surface"]
     t.mac_raw({"cmd": "send", "surface": surface, "text": "printf '\\033]9;palette-unread\\007'\r"})
     marker, took = t.until(lambda: (lambda tab: tab.get("notification") if tab and (tab.get("notification") or {}).get("unread") else None)(
@@ -302,7 +313,7 @@ def jumps(j, label):
         what="an unread notification on the Mac")
     out["mac_marker"] = marker
     t.open_ws(j, a["name"])
-    key_combo("k", [CMD])
+    key_combo("p", [CMD, SHIFT])
     check(palette_open(j), "no palette")
     palette_type(j, "jump")
     pq.shot("jumps-after-rows")
@@ -312,12 +323,11 @@ def jumps(j, label):
     time.sleep(2)
     pq.shot("jumps-after-unread")
     t.open_ws(j, a["name"])
-    key_combo("k", [CMD])
+    key_combo("p", [CMD, SHIFT])
     check(palette_open(j), "no palette")
     palette_type(j, "last prompt")
     j.sim.tap_el(palette_row(j, "jumpToLastPrompt"))
     out["prompt_opens_p"] = on_workspace(j, p["key"])
-    out["prompt_shows_chat"] = j.sim.wait(contains="PROMPTED", timeout=10) is not None
     time.sleep(2)
     pq.shot("jumps-after-last-prompt")
     return out
