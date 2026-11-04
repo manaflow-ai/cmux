@@ -266,6 +266,7 @@ def colors_flow(j, label):
     pq.shot(f"colors-{label}-picked")
     j.sim.tap_q(ident="chief.colors.done")
     time.sleep(1.5)
+    out["done_closes_sheet"] = not j.sim.find(ident="chief.colors.sent.default")
     pq.shot(f"colors-{label}-applied")
     j.sim.launch(pq.BUNDLE)
     time.sleep(4)
@@ -274,11 +275,13 @@ def colors_flow(j, label):
     open_page_menu(j)
     tap_menu(j, "Chat Colors…")
     j.sim.wait(ident="chief.colors.reset", timeout=8)
-    out["reset_enabled"] = bool(j.sim.find(ident="chief.colors.reset"))
+    reset = j.sim.find(ident="chief.colors.reset")
+    out["reset_enabled"] = bool(reset) and reset[0].get("enabled", True) is not False
     j.sim.tap_q(ident="chief.colors.reset")
     time.sleep(1.2)
     j.sim.tap_q(ident="chief.colors.done")
     time.sleep(1.5)
+    out["done_closes_sheet_after_reset"] = not j.sim.find(ident="chief.colors.sent.default")
     pq.shot(f"colors-{label}-reset")
     return out
 

@@ -98,7 +98,7 @@ extension ChiefConversationContainer {
     func presentChatColors() {
         guard let key = chatColorsKey, presentedViewController == nil, conversation.presentedViewController == nil else { return }
         view.endEditing(true)
-        let sheet = UIHostingController(rootView: ChiefChatColorsSheet(key: key, name: session.title ?? session.identity.title))
+        let sheet = UIHostingController(rootView: ChiefChatColorsSheet(key: key))
         sheet.modalPresentationStyle = .pageSheet
         if let controller = sheet.sheetPresentationController {
             controller.detents = [.medium(), .large()]
@@ -110,7 +110,9 @@ extension ChiefConversationContainer {
 
     /// The conversation draws in this chat's own colours (none: Messages').
     func applyChatColors() {
-        let colors = chatColorsKey.map { ChiefChatColors.shared.colors(for: $0) }
+        let key = chatColorsKey
+        appliedChatColorsKey = key
+        let colors = key.map { ChiefChatColors.shared.colors(for: $0) }
         conversation.bubbleColors = colors?.isEmpty == false ? colors : nil
     }
 
@@ -118,6 +120,8 @@ extension ChiefConversationContainer {
     private func observeChatColors() {
         withObservationTracking {
             _ = ChiefChatColors.shared.chats
+            // The chat's Mac named later (the coordinator) is another chat's key.
+            _ = session.macID
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.applyChatColors()

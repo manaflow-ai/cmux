@@ -214,8 +214,9 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         conversation.store.addObserver { [weak self] _ in
             guard let self, self.isViewLoaded else { return }
             self.updateAvailability()
-            // The conversation becomes known on connect: its own colours apply then.
-            if self.conversation.bubbleColors == nil, self.chatColorsKey != nil { self.applyChatColors() }
+            // The conversation becomes known on connect (or the store moves to another
+            // Chief): that chat's own colours apply then.
+            if self.chatColorsKey != self.appliedChatColorsKey { self.applyChatColors() }
             guard self.chiefInitials != self.headerAvatar else { return }
             self.headerAvatar = self.chiefInitials
             if self.view.window != nil { self.conversation.setBackUnreadCount(self.backUnreadCount) }
@@ -501,6 +502,8 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     }
 
     private var headerAvatar: String?
+    /// The chat whose colours the conversation draws (``applyChatColors()``).
+    var appliedChatColorsKey: String?
     private var chiefInitials: String? {
         conversation.store.info?.participants.first { $0.id == session.identity.chiefID }?.initials
     }

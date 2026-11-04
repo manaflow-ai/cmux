@@ -16,8 +16,18 @@ public final class ChiefChatColors {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        chats = defaults.data(forKey: Self.defaultsKey)
-            .flatMap { try? JSONDecoder().decode([String: ConversationBubbleColors].self, from: $0) } ?? [:]
+        chats = Self.decode(defaults.data(forKey: Self.defaultsKey))
+    }
+
+    /// Each chat read on its own: one entry this build cannot read never drops the others.
+    static func decode(_ data: Data?) -> [String: ConversationBubbleColors] {
+        guard let data, let entries = try? JSONDecoder().decode([String: Lenient].self, from: data) else { return [:] }
+        return entries.compactMapValues(\.colors)
+    }
+
+    private struct Lenient: Decodable {
+        let colors: ConversationBubbleColors?
+        init(from decoder: any Decoder) throws { colors = try? ConversationBubbleColors(from: decoder) }
     }
 
     /// The key of one chat: its Mac (or the Cloud) and its conversation.

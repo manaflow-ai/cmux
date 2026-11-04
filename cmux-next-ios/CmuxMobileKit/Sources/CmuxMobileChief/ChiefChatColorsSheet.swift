@@ -8,7 +8,6 @@ import UIKit
 /// panel, with its swatches). The chat under the sheet shows each pick as it is made.
 struct ChiefChatColorsSheet: View {
     let key: String
-    let name: String
     @Environment(\.dismiss) private var dismiss
     private let store = ChiefChatColors.shared
 
@@ -49,8 +48,7 @@ struct ChiefChatColorsSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+        // Its detents are the presenting screen's (`presentChatColors`).
         .accessibilityIdentifier("chief.colors")
     }
 
