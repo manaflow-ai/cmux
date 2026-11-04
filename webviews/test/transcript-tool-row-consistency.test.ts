@@ -110,14 +110,14 @@ await requireBrowserLane("transcript-tool-row-consistency.test.ts", async () => 
           ].map((tag) => ({
             text: tag.textContent!.trim(),
             transform: getComputedStyle(tag, "::first-letter").textTransform,
-            display: getComputedStyle(tag).display,
+            whiteSpace: getComputedStyle(tag).whiteSpace,
           })),
         );
         expect(tags.length).toBe(2);
         for (const tag of tags) {
           expect(tag.text.toLowerCase()).toBe("failed");
           expect(tag.transform).toBe("uppercase");
-          expect(tag.display).toBe("inline-block");
+          expect(tag.whiteSpace).toBe("nowrap");
         }
       } finally {
         await page.close();
