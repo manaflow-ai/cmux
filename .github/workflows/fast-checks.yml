@@ -40,16 +40,16 @@ permissions:
   contents: read
 
 jobs:
-  # A small picker starts on hosted Ubuntu, or the broker-selected overflow
-  # after a no-start retry. Its allowlist matches the pinned runtime picker,
-  # so a retry can also escape a queued admission job. It
-  # proves an online, idle fleet Linux runner from the routing App's census;
-  # after 180 seconds without that proof it selects the measured Blacksmith
-  # overflow set. The source snapshot and its arbitrary command never reach
+  # A small picker starts on hosted Ubuntu, or on the smallest measured
+  # Blacksmith size when the broker re-dispatches a run whose admission
+  # waited 180 seconds with no runner: its one re-run route, never 16 or 32
+  # vCPU. It proves an online, idle fleet Linux runner from the routing
+  # App's census; after 180 seconds without that proof it selects the
+  # measured Blacksmith overflow set. The source snapshot and its arbitrary command never reach
   # this job, and the App token is not passed to the checks job.
   admit:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'ubuntu-24.04' }} # github-hosted-required: light read-only runner admission
+    runs-on: ${{ contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'ubuntu-24.04' }} # github-hosted-required: light read-only runner admission
     permissions:
       contents: read
     outputs:
