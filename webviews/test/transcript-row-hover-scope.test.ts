@@ -79,7 +79,7 @@ test("a transcript line with no action behind it never lifts on hover", () => {
       // `.cv-worked` is both the "Worked for" button and the live line's div: a state rule that
       // lights the line itself names the button. Revealing a control inside it is fine.
       const lit = subject(selector);
-      if (/\.cv-worked(?![\w-])/.test(lit) && !/^button\.cv-worked/.test(lit)) found.push(`${file}: ${selector}`);
+      if (/\.cv-worked(?![\w-])/.test(lit) && !lit.startsWith("button.cv-worked")) found.push(`${file}: ${selector}`);
     }
   expect(found).toEqual([]);
 });
@@ -89,7 +89,13 @@ test("a clicked activity row's focus never lights its words", () => {
   // focus lift leaves it out (TranscriptActivityRow.css lights only its chevron).
   const found = rules("conversation.css")
     // A bare `.cv-tool` rule matches an activity row's control; rows inside a step list don't.
-    .filter(({ selector, body }) => selector === subject(selector) && /^\.cv-tool(?![\w-])/.test(selector) && /:focus-within\b/.test(selector) && INK.test(body))
+    .filter(
+      ({ selector, body }) =>
+        selector === subject(selector) &&
+        /^\.cv-tool(?![\w-])/.test(selector) &&
+        /:focus-within\b/.test(selector) &&
+        INK.test(body),
+    )
     .filter(({ selector }) => !/\.cv-agent-activity__control/.test(selector))
     .map(({ selector }) => selector);
   expect(found).toEqual([]);
@@ -97,7 +103,9 @@ test("a clicked activity row's focus never lights its words", () => {
 
 test("the live line's counts read in one dim tone, and no word says total", () => {
   const css = rules("conversation.css");
-  const count = css.find((rule) => rule.selector === ".cv-worked--live > .cv-worked__count:not(:has(.cv-worked__open))");
+  const count = css.find(
+    (rule) => rule.selector === ".cv-worked--live > .cv-worked__count:not(:has(.cv-worked__open))",
+  );
   expect(count?.body).toMatch(/(?<![\w-])color\s*:\s*var\(--cv-text-dim\)/);
   // The turn's clock follows the step's own time after a dot, with no word (#34866).
   expect(readFileSync(join(DIR, "Thinking.tsx"), "utf8")).not.toContain("turn.live.total");
