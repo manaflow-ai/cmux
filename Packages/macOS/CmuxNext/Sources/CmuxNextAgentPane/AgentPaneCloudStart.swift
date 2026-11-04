@@ -22,6 +22,10 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     public var model: String?
     /// The selected Cloud environment id; nil lets workspace ensure resolve personal Default.
     public var environment: String?
+    /// The warm machine reserved by this compose; Send binds it using ``key``.
+    public var reservationKey: String?
+    /// Native Send authorization reserved before waiting for the speculative lease.
+    var gestureTicket: String?
     /// The page's send: a second call with the same key while one runs is the same send.
     public var key: String
     /// The folder the copy uploads (the Git working copy that holds ``cwd``, else ``cwd``), set by
@@ -29,9 +33,11 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// the page named no folder. The App copies only this folder, never one it finds anew.
     public var uploadRoot: String?
 
-    public init(task: String, cwd: String?, harness: String? = nil, model: String? = nil, key: String, environment: String? = nil) {
+    public init(task: String, cwd: String?, harness: String? = nil, model: String? = nil, key: String, environment: String? = nil, reservationKey: String? = nil, gestureTicket: String? = nil) {
         (self.task, self.cwd, self.harness, self.model, self.key) = (task, cwd, harness, model, key)
         self.environment = environment
+        self.reservationKey = reservationKey
+        self.gestureTicket = gestureTicket
     }
 
     /// The page's params, checked; nil for anything else.
@@ -52,11 +58,15 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
               task.count <= AgentPaneRequest.maximumSandboxTask,
               let key = params?["key"] as? String, UUID(uuidString: key) != nil,
               let harness = name("harness"), let model = name("model"), let environment = name("environment") else { return nil }
+        let reservationKey = params?["reservationKey"]
+        if let reservationKey, (reservationKey as? String).flatMap(UUID.init(uuidString:)) == nil { return nil }
+        let gestureTicket = params?["gestureTicket"]
+        if let gestureTicket, (gestureTicket as? String).flatMap(UUID.init(uuidString:)) == nil { return nil }
         let cwd = params?["cwd"]
         if let cwd, !((cwd as? String).map { $0.hasPrefix("/") && !$0.contains("\0") && $0.count <= 4096 } ?? false) { return nil }
         let home = params?["home"]
         if let home, !(home is Bool) || cwd != nil { return nil }
-        self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key, environment: environment)
+        self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key, environment: environment, reservationKey: reservationKey as? String, gestureTicket: gestureTicket as? String)
         self.home = home as? Bool ?? false
         self.attachments = attachments
     }
@@ -204,6 +214,12 @@ struct AgentPaneHandOff {
     private func cloudChecked(_ start: AgentPaneCloudStart) async -> [String: Any] {
         // The folder is a path on this Mac: a chat on another machine never names one to copy.
         guard let run = model.onCloudStartChat, !model.chatIsElsewhere else { return AgentPaneModel.unsupported("cloud.startChat") }
+        if let reservationKey = start.reservationKey,
+           !model.ownsCloudReservation(reservationKey) {
+            // A page cannot attach a lease owned by another compose or pane. The native model is
+            // the source of truth for the one live reservation; page state is only a hand-off hint.
+            return AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
+        }
         guard AgentPaneCloudAttachments(start.attachments) != nil else {
             return AgentPaneReply.failure(code: "cloud_attachments", message: "This attachment needs a local file. Run this chat on This Mac, or paste an image or text to send it to Cloud.")
         }
@@ -238,7 +254,7 @@ struct AgentPaneHandOff {
             start.cwd = folder
             start.uploadRoot = root
         }
-        return await held("cloud.startChat") { [start] replacements in
+        return await held("cloud.startChat", gestureTicket: start.gestureTicket, gestureParams: ["key": start.key]) { [start] replacements in
             let reply = await run(start)
             // A chat that started on the machine keeps the hold: this pane never starts one too,
             // also when the App could not close it.
@@ -265,7 +281,8 @@ struct AgentPaneHandOff {
     }
 
     /// The shared guards, then `body` with the replacements held (it ends the hold).
-    private func held(_ method: String, _ body: @MainActor (AcpmuxPaneReplacements) async -> [String: Any]) async -> [String: Any] {
+    private func held(_ method: String, gestureTicket: String? = nil, gestureParams: [String: Any]? = nil,
+                      _ body: @MainActor (AcpmuxPaneReplacements) async -> [String: Any]) async -> [String: Any] {
         guard model.sessionId == nil else { return AgentPaneModel.unsupported(method) }
         let notNow = AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
         let transport = model.transport
@@ -273,7 +290,13 @@ struct AgentPaneHandOff {
         if let refusal = model.sandboxRuns.refusal { return AgentPaneReply.failure(code: refusal, message: refusal) }
         let replacements = transport.replacements
         guard replacements.beginSandbox() else { return notNow }
-        guard transport.gestures.consume() else {
+        let authorized: Bool
+        if let gestureTicket, let connection = transport.connection, let gestureParams {
+            authorized = transport.gestures.redeem(gestureTicket, connection: connection, method: method, params: gestureParams)
+        } else {
+            authorized = transport.gestures.consume()
+        }
+        guard authorized else {
             replacements.endSandbox()
             return AgentPaneModel.transportFailure(.gestureRequired)
         }

@@ -35,6 +35,9 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
         "session/set_mode": ["modeId"],
         "session/set_config_option": ["configId", "value"],
         "session/prompt": ["promptId"],
+        // A Cloud send reserves its native Send gesture before waiting for the speculative
+        // machine lease; the hand-off redeems the ticket once that lease settles.
+        "cloud.startChat": ["key"],
         // cx-0q7o: the person's pick of one option of one prompt; only such an allow is signed
         // for another daemon run.
         "_acpmux/permission_respond": ["sessionId", "permissionId", "optionId"],
@@ -57,7 +60,11 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
     /// How long a ticket waits for its frame: a pick held while a harness starts, or a prompt held
     /// while the user answers the folder trust question.
     public var lifetime: TimeInterval {
-        method == "session/prompt" ? AgentPaneUserGestures.heldPromptLifetime : AgentPaneUserGestures.ticketLifetime
+        switch method {
+        case "session/prompt": return AgentPaneUserGestures.heldPromptLifetime
+        case "cloud.startChat": return AgentPaneUserGestures.cloudStartTicketLifetime
+        default: return AgentPaneUserGestures.ticketLifetime
+        }
     }
 
     public var method: String
@@ -183,6 +190,16 @@ public nonisolated struct AgentPaneGesturePick: Equatable, Sendable {
             self.params = (acpmux?["promptId"] as? String).map {
                 ["promptId": .string(AgentPaneHandoffPrompt(id: $0).ownID)]
             }
+            return
+        }
+        // A Cloud hand-off carries attachments and other non-gesture fields. Bind its ticket to
+        // the send UUID only; the native start validates the complete request separately.
+        if method == "cloud.startChat" {
+            guard let key = params["key"] as? String else {
+                self.params = nil
+                return
+            }
+            self.params = ["key": .string(key)]
             return
         }
         // A permission answer's pick names its session too (the ticket binds the prompt), and a

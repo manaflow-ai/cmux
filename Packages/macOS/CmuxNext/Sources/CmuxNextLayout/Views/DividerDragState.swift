@@ -16,6 +16,9 @@ struct DividerDragState {
     /// the daemon has not confirmed): a cancel sends that again, in a new transaction.
     var caughtValue: DividerDragValue?
     var replaced: DividerDragValue?
+    /// A press that caught its line where the layout clamps it (rule D): while the line springs to the clamp it never
+    /// shows behind the pointer (`SharedEdgeClamp.follow`).
+    var clampHold: SharedEdgeClamp?
     var grabOffset: CGFloat
     var container: CGRect
     var axis: SplitAxis

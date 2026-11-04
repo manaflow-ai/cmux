@@ -12,10 +12,19 @@ extension SettingsController {
     public func preview(_ descriptor: SettingDescriptor, _ value: JSONValue?) -> Bool {
         guard managedKeys[descriptor.id] == nil else { return false }
         if let value, !descriptor.accepts(value) { return false }
-        var root = Self.replacing(descriptor.path, with: value, in: snapshot.root)
-        // The write's linked keys preview with it (Opacity leaves Material "Ghostty").
-        for edit in windowBackgroundLinkedEdits(writing: descriptor.path, value: value, in: snapshot.root) {
-            root = Self.replacing(edit.path, with: edit.value, in: root)
+        let linked = windowBackgroundLinkedEdits(writing: descriptor.path, value: value, in: snapshot.root)
+        func edit(_ root: JSONValue) -> JSONValue {
+            // The write's linked keys preview with it (Opacity leaves Material "Ghostty").
+            linked.reduce(Self.replacing(descriptor.path, with: value, in: root)) { Self.replacing($1.path, with: $1.value, in: $0) }
+        }
+        // From the settings under the theme file, so a previewed theme file replaces the active one.
+        var root = edit(themeFile == nil ? snapshot.root : rootUnderThemeFile)
+        if let name = ThemeFileSetting.name(in: root) {
+            // The theme file applies (the last load's read: no disk read here), then the previewed
+            // value over it, so a previewed key shows even where the file sets it.
+            let overlay = name == themeFile?.name ? themeFile
+                : ThemeFileOverlay(name: name, source: themeFileSources[name].map { .success($0) }, base: root)
+            if let overlay { root = edit(overlay.applied(to: root, managed: Set(managedKeys.keys))) }
         }
         let previewed = CmuxConfigSnapshot.parse(root, validDensities: SettingsApplier.validDensities,
                                                  validMetrics: SettingsApplier.validMetrics,
@@ -52,7 +61,7 @@ extension SettingsController {
 
     /// `root` with `path` set to `value` (nil removes it), creating objects
     /// on the way.
-    static func replacing(_ path: [String], with value: JSONValue?, in root: JSONValue) -> JSONValue {
+    nonisolated static func replacing(_ path: [String], with value: JSONValue?, in root: JSONValue) -> JSONValue {
         guard let key = path.first else { return value ?? .null }
         var members: [String: JSONValue] = if case .object(let existing) = root { existing } else { [:] }
         if path.count == 1 {
