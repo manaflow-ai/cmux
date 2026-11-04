@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextWakeups
+import QuartzCore
 
 /// `debug.motion` `trace_*` (DEBUG builds): one window's animated geometry, sampled on each
 /// tick of that window's display link, for the golden-interactions motion guard
@@ -42,6 +43,10 @@ final class MotionFrameTrace {
     private var first: CFTimeInterval = 0
     private var refresh: Double = 0
     private var samples: [[String: Any]] = []
+    /// After Core Animation's commit (`CommitBoundary.order`): the first commit after a tick stamps that tick's sample
+    /// with `commit` (ms since the first tick, the same clock as `t`), when main's commit for that frame ended.
+    private var commitObserver: MainRunLoopObserver?
+    private var awaitingCommit = false
 
     func handle(_ action: String, _ params: [String: Any], windows: [NSWindow], samplers: [Sampler]) -> [String: Any] {
         switch action {
@@ -59,6 +64,8 @@ final class MotionFrameTrace {
                 self?.tick(tick) ?? false
             }
             self.client = client
+            commitObserver = MainRunLoopObserver(activities: [.beforeWaiting, .exit], order: 2_000_001,
+                                                 drawsNothingAfterCommit: true) { [weak self] _ in self?.stampCommit() }
             client.activate()
             expiry.schedule(after: Self.maximumRun) { @MainActor [weak self] in self?.stop() }
             return ["running": true, "views": views.count]
@@ -76,6 +83,8 @@ final class MotionFrameTrace {
     private func stop() {
         client?.deactivate()
         client = nil
+        commitObserver = nil
+        awaitingCommit = false
         expiry.cancel()
     }
 
@@ -88,7 +97,9 @@ final class MotionFrameTrace {
         guard let window, samples.count < Self.capacity else { return false }
         if let interval = tick.refreshInterval { refresh = interval }
         if first == 0 { first = tick.timestamp }
-        var sample: [String: Any] = ["t": Self.round((tick.timestamp - first) * 1_000)]
+        // `target`: when this frame is to show (the display link's target time, same clock as `t`).
+        var sample: [String: Any] = ["t": Self.round((tick.timestamp - first) * 1_000),
+                                     "target": Self.round((tick.targetTimestamp - first) * 1_000)]
         if wanted("window") { sample["window"] = [Self.round(window.frame.width), Self.round(window.frame.height)] }
         for traced in views {
             guard let view = traced.view, let values = traced.sampler(view) else { continue }
@@ -97,7 +108,15 @@ final class MotionFrameTrace {
             }
         }
         samples.append(sample)
+        awaitingCommit = true
         return true
+    }
+
+    /// The first main run-loop turn end after a tick: its commit is that frame's (`commit` on the tick's sample).
+    private func stampCommit() {
+        guard awaitingCommit, first != 0, !samples.isEmpty else { return }
+        awaitingCommit = false
+        samples[samples.count - 1]["commit"] = Self.round((CACurrentMediaTime() - first) * 1_000)
     }
 
     /// The serialization of a long trace (700 samples of every pane and divider: 85 ms on the main thread, STATUS
