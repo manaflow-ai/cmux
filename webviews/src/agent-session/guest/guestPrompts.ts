@@ -36,14 +36,19 @@ export function forgetPrompts(storage: Storage, shareId: string, guestId?: strin
 
 /**
  * A tab that kept its outbox by share alone (before it was kept per guest) reloads as the guest that
- * wrote it: move those messages to that guest's outbox once.
+ * wrote it: fold those messages into that guest's outbox. The old outbox goes only once the merged
+ * one is written, so a full storage keeps both and the next reload tries again.
  */
 export function adoptUnscopedPrompts(storage: Storage, shareId: string, guestId: string): void {
-  const unscoped = storage.getItem(key(shareId));
-  if (unscoped === null) return;
+  if (storage.getItem(key(shareId)) === null) return;
+  const scope = guestScope(shareId, guestId);
+  const own = read(storage, scope);
+  const known = new Set(own.map((prompt) => prompt.clientId));
+  const merged = [...read(storage, shareId).filter((prompt) => !known.has(prompt.clientId)), ...own].sort(
+    (a, b) => a.at - b.at,
+  );
   try {
-    if (storage.getItem(key(guestScope(shareId, guestId))) === null)
-      storage.setItem(key(guestScope(shareId, guestId)), unscoped);
+    storage.setItem(key(scope), JSON.stringify(merged));
     storage.removeItem(key(shareId));
   } catch {
     // A full or refused storage keeps the old outbox where it was.
