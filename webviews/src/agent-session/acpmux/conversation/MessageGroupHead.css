@@ -16,6 +16,17 @@
 .cv-message-group__head > .cv-tool__icon {
   color: var(--cv-text-muted);
 }
+/* The sender's mark (SenderMark) nests its glyph in inline spans (AgentIdentity, its tone wrapper),
+   and an inline svg sits on a text baseline 2px above the line's centre. Each wrapper centres its
+   glyph instead, so the mark centres on the row's first line (design/chat-transcript.md "glyph
+   centered"; gallery invariants.ts center-line). The Chief's text avatar keeps its own box. */
+.cv-message-group__head > .cv-tool__icon span:not(.cv-chief-text-avatar) {
+  display: inline-flex;
+  align-items: center;
+}
+.cv-message-group__head > .cv-tool__icon :is(svg, img) {
+  display: block;
+}
 .cv-message-group__head > .cv-tool__text {
   display: flex;
   align-items: baseline;
@@ -32,6 +43,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--cv-text-dim);
+  /* Session names, not a count: set as the row's words, never in tabular figures. */
+  font-variant-numeric: normal;
 }
 .cv-message-group__head > .cv-tool__chevron {
   opacity: 0;
@@ -79,4 +92,14 @@
   .cv-message-group__senders {
     display: none;
   }
+}
+/* Stacked (messageLineLook.ts): the senders on their own line under the count, at the text column
+   (`.cv-msgline__preview`, AgentMessageRow.css), a whole line of the head's box even where the head
+   sits in a flex line (PendingMessagesCard.css `.cv-pending__line`). */
+.cv-message-group__below {
+  flex: 0 0 100%;
+  width: 100%;
+}
+.cv-pending__line:has(> .cv-message-group__below) {
+  flex-wrap: wrap;
 }

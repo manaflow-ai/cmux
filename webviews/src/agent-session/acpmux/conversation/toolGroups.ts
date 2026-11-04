@@ -10,10 +10,10 @@ import { acpmuxSendCalls, recordedMessageBodyChangesForTool, type AcpmuxSendCall
 import { agentMessage, type AgentMessage } from "./agentMessages";
 import { dispatchCall, type DispatchCall } from "./dispatchCalls";
 import { isCmuxExec } from "./cmuxExec";
-import { mcpCall, mcpIsObservational, mcpKey } from "./mcpCalls";
+import { mcpCall, mcpDescription, mcpIsObservational, mcpKey } from "./mcpCalls";
 import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
 import { isThought, mergeThoughts } from "./thoughts";
-import { isFoldedRun } from "./toolRunSummary";
+import { finishedBackgroundPhrase, isFoldedRun } from "./toolRunSummary";
 
 /// The kinds of call that group with their neighbors.
 export type ToolGroupKind = "commands" | "reads" | "edits" | "searches";
@@ -153,7 +153,8 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     const subsession = named && subsessionCall(tool!, named);
     const call = subsession ? undefined : named;
     // A cmux script is its own row even beside another: each says what it did (cmuxExec.ts).
-    const key = call && (isCmuxExec(call) ? `${mcpKey(call)}\u0000${tool!.id}` : mcpKey(call));
+    // So is a described call, as Claude Code desktop draws each with its own words (mcpDescription).
+    const key = call && (isCmuxExec(call) || mcpDescription(call) ? `${mcpKey(call)}\u0000${tool!.id}` : mcpKey(call));
     const rememberMessageFiles = () => {
       if (!tool) return;
       // A parsed MCP action must itself be observational: a generic ACP read/search/fetch kind
@@ -361,6 +362,11 @@ export function isFailed(tool: Tool): boolean {
   return tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0);
 }
 
+/// Whether a call counts as failed on a run's header ("(2 failed)"): it failed, or the shell it
+/// left in the background failed there (direct.ts `markBackgroundCall` keeps the launch's
+/// "completed" status and sets `background.state`).
+export const countsFailed = (tool: Tool): boolean => isFailed(tool) || tool.background?.state === "failed";
+
 /// The distinct files a run of reads opened, by their locations (model.ts `pathKey`), or one per
 /// call without any.
 function readCount(items: readonly AcpmuxActivity[]): number {
@@ -385,8 +391,15 @@ export function toolGroupLabel(
   const calls = groupCalls(items);
   const running = calls.some((item) => isRunning(item.tool!));
   switch (kind) {
-    case "commands":
-      return t(running ? "tools.running" : "tools.ran", { n: calls.length });
+    case "commands": {
+      // A finished run whose background tasks ended leads with them, as Claude Code desktop's
+      // header does: "Finished 2 background tasks, ran 3 commands" (toolRunSummary.ts).
+      const finished = running ? undefined : finishedBackgroundPhrase(t, calls);
+      if (!finished) return t(running ? "tools.running" : "tools.ran", { n: calls.length });
+      const ran = calls.length === 1 ? t("toolRun.ran.one") : t("toolRun.ran.other", { n: calls.length });
+      const text = [finished, ran].join(t("toolRun.separator"));
+      return text.charAt(0).toUpperCase() + text.slice(1);
+    }
     case "reads": {
       const n = readCount(calls);
       return t(n === 1 ? "tools.read.one" : "tools.read.other", { n });

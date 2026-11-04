@@ -253,7 +253,15 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
                          people: item.people.map { CmuxSidebarEntry.Person(id: $0.id, name: $0.name, initials: $0.initials) },
                          preview: item.preview, previewSender: nil, lastAt: item.lastAt, unreadCount: item.unreadCount,
                          pinned: item.isPinned, muted: item.isMuted, avatar: item.chiefAvatar.map(avatar), badge: item.listBadge ?? item.backendBadge,
-                         avatarMotion: item.chiefAvatar == nil ? nil : item.chiefIsWorking ? .working : .idle)
+                         avatarMotion: item.chiefAvatar == nil ? nil : avatarState(item))
+    }
+
+    /// The state a Chief's avatar shows (the Codex pet's states): a failed send first, then its turn
+    /// running, then an unread reply waiting for the person, else idle.
+    static func avatarState(_ item: HomeSidebarItem) -> CmuxSidebarEntry.AvatarMotion {
+        if item.chiefSendFailed { return .failed }
+        if item.chiefIsWorking { return .working }
+        return item.unread ? .waiting : .idle
     }
 
     /// The Chief's avatar as the list draws it: the picture, else its text

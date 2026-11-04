@@ -663,6 +663,10 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     settings["permissions"]["allow"] = json!(crate::approval::turn_allowed_tools());
     // The hooks and skills the user names in cmux.json, bundled skills off.
     crate::turn_user_extras::apply(&mut settings, &paths.session);
+    // The rights table's tool hook (rights.rs); OPTCHAT_RIGHTS=0: none.
+    if std::env::var("OPTCHAT_RIGHTS").as_deref() != Ok("0") {
+        crate::rights::add_turn_hooks(&mut settings, &setup.exe, &paths.tools_socket);
+    }
     let settings = pretty(&settings)?;
     write_private(
         &paths.session.join(".claude").join("settings.json"),
