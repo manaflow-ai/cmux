@@ -69,6 +69,8 @@ Cases (layouts: T terminal fixture, P page fixture, A agent pane; | a vertical d
                      drag of the p1|p2 column edge 150 pt right (divider hit width 24 pt) or of the p1/p2 split 120 pt
                      down, in 400 ms, during the key's spring; x0.25 only (one journey, and the switch variants at it)
                      columns T|P|T and columns T|(T/P)
+  px-keys-then-drag-3t, px-keys-then-split-drag-2st  the same with terminals only (columns T|T|T, T|(T/T)), at x0.1: in the
+                     page layouts the press went to the page window beside the moving edge (ab-s2b-sw-3fbd40a)
 The key of New Column will be Ctrl-Cmd-X after #29866; the cases run the action, as a menu item does.
 """
 import argparse
@@ -100,6 +102,9 @@ SPEEDS_S1R = (("s1", 1.0), ("reduce", None))
 # Stage S2b (a drag during a key spring): a HID drag's mouse-down reaches the app 260-400 ms after its call starts (cmux22),
 # when the key's spring at x1 (about 0.18 s) or under Reduce Motion (one frame) has landed. At x0.25 it still runs.
 SPEEDS_S2B = (("s025", 0.25),)
+# The terminal-only S2b cases: the CuaDriver drag reaches the app about 0.4 s after its call, when a x0.25 key spring has
+# 2-3 pt left (ab-s2b-sw-3fbd40a); at x0.1 about 40 % of the edge's travel is left at the mouse-down.
+SPEEDS_S2BT = (("s010", 0.1),)
 # Seconds, from the first rounds (cmux22, 2026-11-03: a pane's set-up took 1-3 s); MARGIN on top.
 EST_BASE, EST_PANE, EST_FOCUS, EST_FILM, EST_REBUILD, EST_AFTER = 12, {"tui": 4, "page": 12, "agent": 5}, 1, 9, 7, 8
 EST_TAB = 5  # one more terminal tab with its fixture (px_tab_new, the neutral prompt, the TUI)
@@ -287,6 +292,15 @@ C3P = Layout("3", "columns p0 T | p1 P | p2 T",
 C2S = Layout("2s", "columns p0 T | (p1 T / p2 P)",
              [("p0", "tui", YELLOW, None), ("p1", "tui", GREEN, ("newColumn", None)), ("p2", "page", YELLOW, ("splitDown", None))],
              window=[0.0, 0.05, 1.0, 0.9], widths="column.widthOneThird")
+# Stage S2b with terminals only (2026-11-04): in C3P and C2S the press on the moving edge went to the Chromium page window
+# beside it (the app's journal: the page took focus, no divider drag; ab-s2b-sw-3fbd40a), so those films test the catcher,
+# not the shared edges. These two keep the same geometry with a terminal where the page was.
+C3T = Layout("3t", "columns p0 T | p1 T | p2 T",
+             [("p0", "tui", YELLOW, None), ("p1", "tui", GREEN, ("newColumn", None)), ("p2", "tui", YELLOW, ("newColumn", None))],
+             window=[0.0, 0.05, 1.0, 0.9], widths="column.widthOneThird")
+C2ST = Layout("2st", "columns p0 T | (p1 T / p2 T)",
+              [("p0", "tui", YELLOW, None), ("p1", "tui", GREEN, ("newColumn", None)), ("p2", "tui", YELLOW, ("splitDown", None))],
+              window=[0.0, 0.05, 1.0, 0.9], widths="column.widthOneThird")
 C3 = Layout("c3", "columns p0 T | p1 T | p2 A",
             [("p0", "tui", YELLOW, None), ("p1", "tui", GREEN, ("newColumn", None)), ("p2", "agent", AGENT_FILL, ("newColumn", None))])
 
@@ -410,11 +424,12 @@ def key_then_drag_play(target, by, what):
     return play, (lambda speed: 1.0 + land(speed))
 
 
-def key_then_drag_rebuild(target, by):
-    """The layout back for the next film: the dragged edge back by -BY (at rest now), then Ctrl-Shift-H on p0."""
+def key_then_drag_rebuild(target, by, speed=None):
+    """The layout back for the next film: the dragged edge back by -BY (at rest now), then Ctrl-Shift-H on p0 (its spring at
+    the films' SPEED, x0.25 unless named)."""
     return [G.kit_drag(target, [-v for v in by], 400, "back", f"the dragged edge back by {[-v for v in by]} pt"),
             rest(0.6, "the edge rests at the pointer"), focus("p0"), press(H, "unkey"),
-            rest(land(SPEEDS_S2B[0][1]), "p0's column back (its key spring lands)")]
+            rest(land(speed or SPEEDS_S2B[0][1]), "p0's column back (its key spring lands)")]
 
 
 def new_and_close_play(action, what):
@@ -497,6 +512,13 @@ def cases():
                         f"spring ({layout.text})", layout, play, "move", "key then drag", before=[focus("p0")],
                         rebuild=key_then_drag_rebuild(target, by), play_seconds=secs,
                         fixture_tunables=[(HIT_WIDTH, 24)] if hit else [], speeds=SPEEDS_S2B))
+    for layout, target, by, what, name, hit in ((C3T, {"divider": 1}, (150, 0), "the p1|p2 column edge", "drag", True),
+                                                (C2ST, {"row_divider": 0}, (0, 120), "the p1/p2 split divider", "split-drag", False)):
+        play, secs = key_then_drag_play(target, by, what)
+        out.append(Case(f"px-keys-then-{name}-{layout.key}", f"Ctrl-Shift-L on p0, then {what} dragged {list(by)} pt during its "
+                        f"spring ({layout.text}; terminals only)", layout, play, "move", "key then drag", before=[focus("p0")],
+                        rebuild=key_then_drag_rebuild(target, by, speed=SPEEDS_S2BT[0][1]), play_seconds=secs,
+                        fixture_tunables=[(HIT_WIDTH, 24)] if hit else [], speeds=SPEEDS_S2BT))
     return out
 
 
