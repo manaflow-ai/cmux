@@ -709,6 +709,7 @@ mod tests {
             trigger: false,
             notice: false,
             persons: true,
+            from_agents: false,
         });
         // Legacy resend behavior stays intact, but recovery must not answer interrupted.
         assert_eq!(
