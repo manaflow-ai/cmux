@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
-import { nativeProofSkip, waitPreflight, PREFLIGHT_PROBE } from "./cloud-journey";
+import { nativeProofSkip, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("backend names map to the cmux API Worker of each environment", () => {
@@ -80,6 +83,44 @@ describe("cloud journey", () => {
     expect(validLogin("claude", auth)).toBe(false);
     expect(loginBearer("codex", auth)).toBe(JSON.parse(auth).tokens.access_token);
     expect(loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), "codex").install("/p.json")).toContain("python3 - 'codex' '/p.json' owner <<");
+  });
+  test("Codex: the stub config pins the stub's model and keeps the made-up sign-in off chatgpt.com", () => {
+    const dir = mkdtempSync(join(tmpdir(), "journey-codex-config-"));
+    // Runs CODEX_STUB_CONFIG on a config.toml, then reads it back with Python's own TOML parser.
+    const point = (before: string | null) => {
+      const file = join(dir, "config.toml");
+      rmSync(file, { force: true });
+      if (before !== null) writeFileSync(file, before);
+      const run = (args: string[], input: string) => spawnSync("python3", args, { input, encoding: "utf8" });
+      const r = run(["-", "4711", file], CODEX_STUB_CONFIG);
+      expect(r.stderr).toBe("");
+      expect(r.stdout.trim()).toBe("stub-ready");
+      const read = run(["-c", "import json, sys, tomllib; print(json.dumps(tomllib.load(open(sys.argv[1], 'rb'))))", file], "");
+      expect(read.stderr).toBe("");
+      return JSON.parse(read.stdout);
+    };
+    try {
+      const want = (c: any) => {
+        expect(c.model).toBe("stub-model");
+        expect(c.model_provider).toBe("journeystub");
+        expect(c.chatgpt_base_url).toBe("http://127.0.0.1:4711/backend-api/");
+        expect(c.model_providers.journeystub).toEqual({ name: "journey stub", base_url: "http://127.0.0.1:4711/v1", wire_api: "responses", requires_openai_auth: true });
+        expect(c.features).toMatchObject({ apps: false, plugins: false, remote_plugin: false });
+        expect(c.analytics.enabled).toBe(false);
+      };
+      want(point(null));
+      // The image's own settings stay; the keys the stub needs replace theirs, in the tables they already have.
+      const image = 'model = "gpt-6.1-sol"\napproval_policy = "never"\n\n[features]\nplugins = true\nshell_snapshot = true\n\n[analytics]\nenabled = true\n\n[projects."/home/cmux"]\ntrust_level = "trusted"\n';
+      const c = point(image);
+      want(c);
+      expect(c.approval_policy).toBe("never");
+      expect(c.features.shell_snapshot).toBe(true);
+      expect(c.projects["/home/cmux"].trust_level).toBe("trusted");
+      // A second run (a resumed machine) rewrites the provider table instead of adding one TOML refuses.
+      want(point(readFileSync(join(dir, "config.toml"), "utf8")));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
