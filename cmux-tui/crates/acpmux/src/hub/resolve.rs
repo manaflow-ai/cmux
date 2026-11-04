@@ -351,6 +351,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         hibernated_ms: 0,
         idle_launch: None,
         moved_to: None,
+        move_epoch: 0,
         claude_profile: None,
         last_turn: None,
         auth_change: None,

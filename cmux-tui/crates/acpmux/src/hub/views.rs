@@ -490,6 +490,8 @@ impl Hub {
             moving: session.moving().is_some() && m.moved_to.is_none(),
             // Moved away for good (`transfer_out.rs` commit): where it runs now.
             moved_to: m.moved_to.clone(),
+            // Each move raises it (`transfer_out.rs` commit, `transfer.rs` import).
+            move_epoch: m.move_epoch,
             // Shows a conversation another app runs (`watch.rs`): it takes no prompt until taken over.
             watching: m.watching.as_ref().map(|w| w.family.clone()),
             // The agent takes a prompt mid-turn (`_meta.acpmux.steer`); else a steer waits, or
