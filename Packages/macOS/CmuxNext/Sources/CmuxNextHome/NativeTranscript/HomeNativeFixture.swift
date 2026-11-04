@@ -233,10 +233,16 @@ public final class HomeNativeFixture {
     /// With `open`, nothing is posted: the agents row of the last such run (its stopped agents are in it
     /// too) opens or closes, as a click on it does.
     /// With `group`, the run goes to the mock's group with the Chief and two teammates (shown first).
+    /// With `pill`, nothing is posted: agent `pill`'s chat opens in the agent pane, as a click on its pill does.
     /// With `step` N, the run brings only its first N messages: step 1 posts the question, the reply and
     /// one message; each next step adds one, as a live run does (0: all at once).
-    public func debugAgentMessages(notes: Bool = false, open: Bool = false, group: Bool = false, step: Int = 0) -> Bool {
+    public func debugAgentMessages(notes: Bool = false, open: Bool = false, group: Bool = false, step: Int = 0, pill: String? = nil) -> Bool {
         guard let shown else { return false }
+        if let pill {
+            guard let view else { return false }
+            view.debugOpenAgent(pill)
+            return true
+        }
         if open {
             guard let last = lastAgentRun else { return false }
             let group = HomeAgentMessageRow.groupID(author: shown.chief, anchor: last.turn)
