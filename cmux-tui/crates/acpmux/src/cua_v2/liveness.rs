@@ -7,15 +7,20 @@
 //! owner (the helper pid, with its start time when the app recorded it) is
 //! alive and the socket accepts a connection. A file proven stale is removed,
 //! so sessions get the legacy `cmux-cua mcp` until the app writes a new one.
+//!
+//! Windows: the owner is the cmux Remote host's Computer Use worker (`pid`,
+//! and `start`, its creation time); the socket is its named pipe, and a
+//! pipe whose every instance is busy is served, so it counts as live.
 
-#[cfg(unix)]
 use std::path::Path;
 
 /// The helper process the app recorded in `endpoint.json`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Owner {
     pub pid: i32,
-    /// `proc_bsdinfo.pbi_start_tvsec` / `pbi_start_tvusec` (macOS).
+    /// `proc_bsdinfo.pbi_start_tvsec` / `pbi_start_tvusec` (macOS), or
+    /// `(start, 0)` from a cmux Remote host's `start` (Windows: the
+    /// process creation FILETIME; Linux: start ticks, not compared).
     pub start: Option<(u64, u64)>,
 }
 
@@ -24,13 +29,15 @@ impl Owner {
     /// a file from an app build that does not record its owner.
     pub fn from_json(value: &serde_json::Value) -> Option<Self> {
         let pid = i32::try_from(value["pid"].as_i64()?).ok().filter(|pid| *pid > 1)?;
-        let start = value["start_sec"].as_u64().zip(value["start_usec"].as_u64());
+        let start = value["start_sec"]
+            .as_u64()
+            .zip(value["start_usec"].as_u64())
+            .or_else(|| value["start"].as_u64().filter(|start| *start != 0).map(|start| (start, 0)));
         Some(Owner { pid, start })
     }
 }
 
 /// Why an `endpoint.json` is stale, for the log.
-#[cfg(unix)]
 #[derive(Debug, PartialEq, Eq)]
 pub enum Stale {
     OwnerGone(i32),
@@ -43,7 +50,6 @@ pub enum Stale {
     },
 }
 
-#[cfg(unix)]
 impl Stale {
     /// Whether the file is proven to name no running helper, so it may go.
     pub fn removable(&self) -> bool {
@@ -95,9 +101,68 @@ fn start_time(_pid: i32) -> Option<(u64, u64)> {
     None
 }
 
+/// `Ok` when the owner (if recorded) runs and the pipe `socket` has a server.
+#[cfg(windows)]
+pub fn check(owner: Option<Owner>, socket: &Path) -> Result<(), Stale> {
+    if let Some(owner) = owner {
+        match process_start(owner.pid) {
+            Process::Gone => return Err(Stale::OwnerGone(owner.pid)),
+            Process::Alive(Some(now)) if owner.start.is_some_and(|start| start != now) => {
+                return Err(Stale::OwnerReplaced(owner.pid));
+            }
+            Process::Alive(_) => {}
+        }
+    }
+    match super::pipe::probe(socket) {
+        Ok(()) => Ok(()),
+        Err(error) => Err(Stale::SocketDead { error, owner_alive: owner.is_some() }),
+    }
+}
+
+#[cfg(windows)]
+pub(super) enum Process {
+    Gone,
+    /// Alive, with its creation time when this user may read it.
+    Alive(Option<(u64, u64)>),
+}
+
+/// Whether `pid` runs, and its creation time as the host records it
+/// (`(FILETIME, 0)`). A process another user owns answers access denied:
+/// alive, start unknown (as EPERM is on Unix).
+#[cfg(windows)]
+pub(super) fn process_start(pid: i32) -> Process {
+    use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, FILETIME};
+    use windows_sys::Win32::System::Threading::{
+        GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    let Ok(pid) = u32::try_from(pid) else { return Process::Gone };
+    // SAFETY: plain call; a null handle is handled.
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if handle.is_null() {
+        let denied = std::io::Error::last_os_error().raw_os_error()
+            == Some(ERROR_ACCESS_DENIED as i32);
+        return if denied { Process::Alive(None) } else { Process::Gone };
+    }
+    let zero = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+    let (mut created, mut exited, mut kernel, mut user) = (zero, zero, zero, zero);
+    // SAFETY: a process handle with query rights and four FILETIME out pointers.
+    let ok = unsafe { GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user) }
+        != 0;
+    // SAFETY: the handle OpenProcess returned, closed once.
+    unsafe { CloseHandle(handle) };
+    if !ok {
+        return Process::Alive(None);
+    }
+    // An exited process answers until its last handle closes: an exit time means gone.
+    if exited.dwLowDateTime != 0 || exited.dwHighDateTime != 0 {
+        return Process::Gone;
+    }
+    let start = (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime);
+    Process::Alive(Some((start, 0)))
+}
+
 /// Removes `path` when it still holds `text`, so a file the app wrote for a
 /// new helper since it was read stays.
-#[cfg(unix)]
 pub fn remove_if_unchanged(path: &Path, text: &str) {
     if std::fs::read_to_string(path).is_ok_and(|now| now == text) {
         let _ = std::fs::remove_file(path);

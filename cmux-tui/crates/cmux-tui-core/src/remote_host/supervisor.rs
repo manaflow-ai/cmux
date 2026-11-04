@@ -667,6 +667,14 @@ impl RemoteHostSupervisor {
 }
 
 impl crate::mux::Mux {
+    /// This machine's acpmux socket for cmux Remote alone (Windows, where the
+    /// daemon has no agent session attach): the host's Computer Use worker
+    /// admits only the bridges of the acpmux daemon serving it. Set before
+    /// [`Self::configure_remote_host`], it rides in the host's bootstrap.
+    pub fn set_remote_host_acpmux_socket(&self, socket: Option<PathBuf>) {
+        self.control_clients.remote_host.set_acpmux_socket(socket);
+    }
+
     /// Lets this daemon run cmux Remote (macOS): the host for the daemon on
     /// `daemon_socket`, with durable state beside the daemon's own.
     pub fn configure_remote_host(self: &Arc<Self>, daemon_socket: &Path) {

@@ -2496,6 +2496,11 @@ fn run_server(
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
     mux.configure_journal_plugin(config.agents.plugin.clone());
     mux.configure_browser_host(&socket_path);
+    // Windows: the acpmux daemon whose agents' bridges cmux Remote's Computer
+    // Use worker admits, named before the host starts so its bootstrap
+    // carries it (Unix names it with the agent chat watch below).
+    #[cfg(windows)]
+    mux.set_remote_host_acpmux_socket(acp::daemon_socket_path());
     mux.configure_remote_host(&socket_path);
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener
