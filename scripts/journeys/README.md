@@ -244,7 +244,10 @@ a text line can reach a marker pixel row). It needs the pane's own width to be a
 terminal's size, not an exported `COLUMNS`; it exits 3 when the pane is narrower and 4 when its output is no
 terminal), and the typed command line itself is about 40 columns. `frame_marker_lacks {"token": T, "with": W}` is the
 negative for the journey's own lines (the frame negative for other text stays `frame_screen` `lacks`): it holds only
-on a frame that shows W's marker and has no unreadable marker; it proves the absence only where the frame shows the
+on a frame that shows W's marker and has no unreadable marker, and it fails at once on the first frame that shows T's
+marker (a later frame without T does not undo it). Like every frame condition it is read on fresh snapshots after the
+step's live conditions hold and after its `settle` time, not during them: a T marker that shows only before that is
+not seen. It proves the absence only where the frame shows the
 pane, so a marker scrolled away or covered is not seen either way; nor is a marker drawn under 6 pixel rows, one whose
 START cells are covered, or one whose cell edges are blended (none of them is reported, so they do not make the
 negative fail; a covered data cell does, as an unreadable marker). A marker reads where the window shows it, not only
@@ -270,8 +273,9 @@ each one (`load_extensions`) and `run.py` sends them to the mini with it. A grou
 app back for the next journey: leave full screen, close a second window, restore the window
 frame); they run whatever happened and never change the status.
 
-A group may list its negative conditions in `NEGATIVE` (read every poll and through `settle`, as
-`*_lacks` are).
+A group may list its negative conditions in `NEGATIVE` (a live one is read every poll and through `settle`, as
+`*_lacks` are; a frame one fails at once on a frame whose detail says `seen`, what it forbids, and is not tried
+again).
 
 `ext_multiwindow.py` (group multi-window, `journeys/p0/mw-*.json`) judges which window an input acted
 in: the target window changed as asked and every other window did not change. Steps: `name_window`,

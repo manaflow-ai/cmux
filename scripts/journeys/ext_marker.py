@@ -337,7 +337,7 @@ def cond_frame_marker_lacks(j, want, cache):
     unreadable = [m for m in markers if not m["ok"]]
     present = any(m["ok"] and m["digest"] == bad for m in markers)
     proven = any(m["ok"] and m["digest"] == shows for m in markers)
-    detail = {"image": image, "lacks": bad, "with": shows, "markers": _brief(markers)}
+    detail = {"image": image, "lacks": bad, "with": shows, "markers": _brief(markers), "seen": present}
     if not proven:
         detail["why"] = "the frame does not show the marker that proves it is this run's frame"
     elif unreadable:

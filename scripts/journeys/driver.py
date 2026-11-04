@@ -1265,6 +1265,10 @@ class Journey:
                 s["detail"] = dict(detail, tries=tries) if isinstance(detail, dict) else detail
                 if ok:
                     s["ok"], s["at"] = True, now()
+                elif s["negative"] and isinstance(detail, dict) and detail.get("seen"):
+                    # A negative frame condition saw on a frame what must not be there (its detail says `seen`): a
+                    # later frame without it does not undo that frame, so it is not tried again.
+                    break
                 elif now() >= frame_until and tries >= 2:
                     break
         failed = []
