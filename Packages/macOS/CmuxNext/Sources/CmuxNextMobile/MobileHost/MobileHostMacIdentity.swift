@@ -40,6 +40,13 @@ public struct MobileHostMacIdentity: Sendable, Equatable {
     static func hex(_ data: Data) -> String { data.map { String(format: "%02x", $0) }.joined() }
 }
 
+/// Why ``MobileHostMacIdentityStore/loadOrCreate(mintOnRefusal:)`` has no key yet.
+public enum MobileHostMacIdentityError: Error, Equatable {
+    /// The Keychain holds this Mac's key but refused the read (locked, or this build may not read
+    /// it); the caller tries again rather than prove a second identity.
+    case keychainRefused(OSStatus)
+}
+
 /// Where the identity key lives: the login Keychain (a generic password of
 /// `service`, this device only), created on first use. When the Keychain
 /// refuses (a build without Keychain access), a 0600 file in the iPhone host's
@@ -49,15 +56,9 @@ public struct MobileHostMacIdentity: Sendable, Equatable {
 /// another build's key. Every call runs with Keychain UI off (``LoginKeychain/withoutUI(_:)``): a
 /// login item trusts the signature that made it, so an earlier build of the same bundle id signed
 /// another way (a rebuilt DEV tag, an ad hoc rig build) would otherwise make macOS ask for the
-/// login keychain password. That read is refused instead and the file store is used, with a new
-/// key when the file has none (phones paired with the old build pair again).
-/// Why ``MobileHostMacIdentityStore/loadOrCreate(mintOnRefusal:)`` has no key yet.
-public enum MobileHostMacIdentityError: Error, Equatable {
-    /// The Keychain holds this Mac's key but refused the read (locked, or this build may not read
-    /// it); the caller tries again rather than prove a second identity.
-    case keychainRefused(OSStatus)
-}
-
+/// login keychain password. That read is refused instead and the file store is used; with no file
+/// key the caller retries, and only a DEV build makes one after its retries (phones paired with the
+/// old build pair again).
 public struct MobileHostMacIdentityStore: Sendable {
     public let service: String
     public let fallbackFile: URL
@@ -112,10 +113,7 @@ public struct MobileHostMacIdentityStore: Sendable {
             switch keychainRead() {
             case .found(let data):
                 if let stored = MobileHostMacIdentity.restore(data) {
-                    if fileKey != nil {
-                        Self.logger.error("iPhone host identity: removing the file key beside the Keychain's (a second identity)")
-                        try? FileManager.checked.removeItem(at: fallbackFile)
-                    }
+                    if fileKey != nil { setAsideFileKey() }
                     return stored
                 }
             case .notFound:
@@ -167,6 +165,20 @@ public struct MobileHostMacIdentityStore: Sendable {
 
     private func keychainAdd(_ privateKey: Data) -> Bool {
         loginKeychain.withoutUI { keychain.add(Self.addQuery(service: service, privateKey: privateKey)) } == errSecSuccess
+    }
+
+    /// The file key beside a readable Keychain key is a second identity: it stops counting, but it is
+    /// moved aside (`mac-identity.superseded`), never deleted, so a phone that pinned it while the
+    /// Mac was split can still be recovered from it by hand.
+    private func setAsideFileKey() {
+        let aside = fallbackFile.appendingPathExtension("superseded")
+        do {
+            if FileManager.checked.fileExists(atPath: aside.path) { try FileManager.checked.removeItem(at: aside) }
+            try FileManager.checked.moveItem(at: fallbackFile, to: aside)
+            Self.logger.error("iPhone host identity: the file key beside the Keychain's was a second identity; set aside")
+        } catch {
+            Self.logger.error("iPhone host identity: could not set the second identity aside (\(String(describing: error), privacy: .public))")
+        }
     }
 
     private func writeFallback(_ privateKey: Data) throws {

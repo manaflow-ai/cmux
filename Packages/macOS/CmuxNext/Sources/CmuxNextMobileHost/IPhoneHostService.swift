@@ -195,9 +195,18 @@ public final class IPhoneHostService {
     /// The spacing of those tries (1 s doubling to 30 s), and the clock it waits on (tests inject their own).
     @ObservationIgnored private var identityBackoff = Backoff(initial: .seconds(1), maximum: .seconds(30))
     @ObservationIgnored var identityRetryClock: any Clock<Duration> = ContinuousClock()
-    /// Refused reads in a row after which a build that can never read its item (a re-signed DEV app)
-    /// makes a file key, as before (about a minute of tries).
+    /// The account and team those refusals were counted for: another one starts from zero.
+    @ObservationIgnored private var identityRefusalsKey: String?
+    /// Refused reads in a row after which a DEV build makes a file key, as before (about a minute of
+    /// tries): a rebuilt or re-signed DEV app may never read the item an earlier signature made. A
+    /// Release build (nightly, stable) is always signed the same way, so a refusal there is a locked
+    /// or busy Keychain: it waits for it however long, and never makes a second identity.
     static let identityRefusalsBeforeFileKey = 6
+    #if DEBUG
+    static let mayMintOnRefusal = true
+    #else
+    static let mayMintOnRefusal = false
+    #endif
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone")
 
     /// A host that runs nothing until it is wired and an account with the setting on arrives.
@@ -476,16 +485,18 @@ public final class IPhoneHostService {
         await pairedFile?.drained()
     }
 
-    /// Starts hostd again after a refused identity read, after the next ``identityBackoff`` wait.
-    private func retryIdentity() {
+    /// Starts hostd again after a refused identity read for `key`, after the next ``identityBackoff`` wait.
+    private func retryIdentity(for key: String?) {
+        identityRefusalsKey = key
         identityRefusals += 1
         identityRetry?.cancel()
+        // The spacing advances here, on the main actor, so a success meanwhile (its reset) is never undone.
+        let delay = identityBackoff.next()
         // task-owner: stored in `identityRetry`; stop() and the next refusal cancel it
         identityRetry = Task { [weak self, clock = identityRetryClock] in
-            guard var backoff = self?.identityBackoff else { return }
+            var wait = Backoff(initial: delay, maximum: delay, jitter: 0)
             // concurrency-allow: Backoff.wait is an async sleep after a failure (a refused Keychain read), not a blocking wait.
-            do { try await backoff.wait(owner: "iphone-host.identity", clock: clock) } catch { return }
-            self?.identityBackoff = backoff
+            do { try await wait.wait(owner: "iphone-host.identity", clock: clock) } catch { return }
             self?.reconcile()
         }
     }
@@ -529,7 +540,8 @@ public final class IPhoneHostService {
                 let store = MobileHostMacIdentityStore(bundleID: dependencies.stateDirectory.deletingLastPathComponent().lastPathComponent,
                                                 stateDirectory: dependencies.stateDirectory, loginKeychain: loginKeychain)
                 // task-owner: one Keychain read per hostd start; awaited here
-                let mint = (self?.identityRefusals ?? 0) >= Self.identityRefusalsBeforeFileKey
+                if self?.identityRefusalsKey != key { self?.identityRefusals = 0; self?.identityBackoff.reset() }
+                let mint = Self.mayMintOnRefusal && (self?.identityRefusals ?? 0) >= Self.identityRefusalsBeforeFileKey
                 let identity = try await Task.detached { try store.loadOrCreate(mintOnRefusal: mint) }.value
                 self?.identityRefusals = 0
                 self?.identityBackoff.reset()
@@ -546,11 +558,14 @@ public final class IPhoneHostService {
                     surfaceHosts: dependencies.surfaceHosts, cloudLinks: dependencies.cloudLinks))
             } catch MobileHostMacIdentityError.keychainRefused(let status) {
                 // The Keychain holds this Mac's identity but refused the read (locked at login or wake):
-                // try again shortly rather than prove a second key the phones would refuse.
+                // try again shortly rather than prove a second key the phones would refuse. A stop() or a
+                // newer reconcile meanwhile owns what happens next: no retry from this one.
+                guard !Task.isCancelled, self?.running == key else { return }
                 logger.error("iPhone host waits for the Keychain (\(status, privacy: .public)) to read this Mac's identity")
                 await supervisor.stop(phase: .waiting(IPhoneHostStrings.unavailable))
-                if self?.running == key { self?.running = nil }
-                self?.retryIdentity()
+                guard !Task.isCancelled, self?.running == key else { return }
+                self?.running = nil
+                self?.retryIdentity(for: key)
             } catch {
                 logger.error("iPhone host not started: \(String(describing: error), privacy: .public)")
                 await supervisor.stop(phase: .waiting(String(describing: error)))

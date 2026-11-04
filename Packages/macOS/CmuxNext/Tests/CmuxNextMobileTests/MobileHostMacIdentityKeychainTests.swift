@@ -130,8 +130,9 @@ nonisolated let testLoginKeychain = LoginKeychain()
     }
 
     /// A Mac already split (this nightly since 2026-11-02: a file key beside the Keychain's) heals at the
-    /// next read that answers: the file key goes, so no later refused read proves it.
-    @Test func aSecondIdentityInTheFileIsRemovedWhenTheKeychainAnswers() throws {
+    /// next read that answers: the file key stops counting, so no later refused read proves it, and is
+    /// set aside (never deleted: a phone may have pinned it while the Mac was split).
+    @Test func aSecondIdentityInTheFileIsSetAsideWhenTheKeychainAnswers() throws {
         let recorder = Recorder()
         let directory = scratch()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -142,6 +143,8 @@ nonisolated let testLoginKeychain = LoginKeychain()
         try second.privateKey.write(to: store.fallbackFile)
         #expect(try store.loadOrCreate() == pinned)
         #expect(!FileManager.default.fileExists(atPath: store.fallbackFile.path))
+        let aside = try Data(contentsOf: store.fallbackFile.appendingPathExtension("superseded"))
+        #expect(MobileHostMacIdentity.restore(aside) == second)
         recorder.refuseReads(errSecAuthFailed)
         #expect(throws: MobileHostMacIdentityError.keychainRefused(errSecAuthFailed)) { try store.loadOrCreate(mintOnRefusal: false) }
     }
