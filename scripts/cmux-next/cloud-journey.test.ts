@@ -116,6 +116,11 @@ describe("cloud journey", () => {
       expect(c.approval_policy).toBe("never");
       expect(c.features.shell_snapshot).toBe(true);
       expect(c.projects["/home/cmux"].trust_level).toBe("trusted");
+      // An active profile's model and model_provider would win over the root ones: no profile stays active.
+      const profiled = point('profile = "work"\n\n[profiles.work]\nmodel = "gpt-6.1-sol"\nmodel_provider = "openai"\n');
+      want(profiled);
+      expect(profiled.profile).toBeUndefined();
+      expect(profiled.profiles.work.model).toBe("gpt-6.1-sol");
       // A second run (a resumed machine) rewrites the provider table instead of adding one TOML refuses.
       want(point(readFileSync(join(dir, "config.toml"), "utf8")));
     } finally {
