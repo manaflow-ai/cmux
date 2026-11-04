@@ -31,8 +31,6 @@ import {
   PinButton,
   ReadAloudButton,
   ROW_ICON,
-  TryAnotherApproachButton,
-  tryAnotherApproachWithFeedback,
 } from "./MessageActions";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { useT } from "../i18n";
@@ -295,9 +293,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const {
     fork,
-    tryAnotherApproach,
     forkSeq,
     forkAny,
+    tryAnotherApproach,
     retry,
     retryWith,
     reauthenticate,
@@ -397,11 +395,16 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             {fork && seq !== undefined && (forkAny || seq === forkSeq) && (
               <ForkButton throughSeq={seq} onFork={() => forkWithFeedback(seq, () => fork(seq))} />
             )}
-            {tryAnotherApproach && seq !== undefined && (
-              <TryAnotherApproachButton
-                throughSeq={seq}
-                onTry={() => tryAnotherApproachWithFeedback(seq, () => tryAnotherApproach(seq))}
-              />
+            {tryAnotherApproach && seq !== undefined && seq === forkSeq && (
+              <button
+                type="button"
+                className="cv-iconbtn cv-iconbtn--compact cv-turn-try-another"
+                aria-label="Try another approach"
+                title="Try another approach"
+                onClick={() => void tryAnotherApproach(seq)}
+              >
+                Try another approach
+              </button>
             )}
             <PinButton rowId={row.id} />
             {text && <ReadAloudButton id={row.id} text={text} />}

@@ -282,6 +282,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// permissions through that machine's session daemon (cmux-tui/spec/commands.md
     /// "Agent session attach").
     case agentSessionAttach = "agent-session-attach-v1"
+    /// `agent-session-fork`: fork an attached chat through its latest completed turn.
+    case agentSessionFork = "agent-session-fork-v1"
     /// Read-only observation of a remote agent session. An observer never falls back to the
     /// writable attach capability (`cmux-tui/spec/commands.md`, `agent-session-observe`).
     case agentSessionObserve = "agent-session-observe-v1"

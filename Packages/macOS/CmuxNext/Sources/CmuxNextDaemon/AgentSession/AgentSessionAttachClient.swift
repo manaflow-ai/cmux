@@ -82,6 +82,8 @@ public actor AgentSessionAttachClient {
         var trustVMKind = false
         /// `agent-session-children-v1`.
         var children = false
+        /// `agent-session-fork-v1`.
+        var fork = false
         /// `agent-session-presence-v1`.
         var presence = false
     }
@@ -218,6 +220,7 @@ public actor AgentSessionAttachClient {
 
     /// The code ``start(cwd:harness:)`` throws for a daemon without `agent-session-start-v1`.
     public static let startUnsupported = "agent_session.start_unsupported"
+    public static let forkUnsupported = "agent_session.fork_unsupported"
 
     public func prompt(id: String, text: String) async throws -> Data {
         try await call("agent-session-prompt", ["prompt_id": id, "text": text])
@@ -251,6 +254,30 @@ public actor AgentSessionAttachClient {
         _ = try await liveTransport()
         guard served.children else { return Data(#"{"sessions":[]}"#.utf8) }
         return try await call("agent-session-children", [:])
+    }
+
+    /// `agent-session-fork` (`agent-session-fork-v1`): fork this attached chat through its
+    /// latest completed turn. The daemon pins the source session from the attachment and the
+    /// acpmux fork copies its transcript without changing the parent.
+    public func fork(throughSeq: Int, name: String? = nil) async throws -> (session: String, data: Data) {
+        guard mode == .attach else {
+            throw AgentSessionAttachError(code: Self.forkUnsupported, message: "a read-only agent session cannot fork a chat")
+        }
+        guard throughSeq > 0 else {
+            throw AgentSessionAttachError(code: "agent_session.refused", message: "throughSeq must be positive")
+        }
+        _ = try await liveTransport()
+        guard served.fork else {
+            throw AgentSessionAttachError(code: Self.forkUnsupported, message: "the daemon does not serve agent session fork")
+        }
+        var params: [String: any Sendable] = ["through_seq": throughSeq]
+        if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { params["name"] = name }
+        let data = try await call("agent-session-fork", params)
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let session = object["sessionId"] as? String, !session.isEmpty else {
+            throw AgentSessionAttachError(code: "agent_session.refused", message: "agent-session-fork answered no session")
+        }
+        return (session, data)
     }
 
     /// `agent-session-typing` (`agent-session-presence-v1`): the person starts or stops typing in
@@ -376,6 +403,7 @@ public actor AgentSessionAttachClient {
                             model: identity.supports(DaemonCapability.agentSessionStartModel.rawValue),
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
+                            fork: identity.supports(DaemonCapability.agentSessionFork.rawValue),
                             presence: identity.supports(DaemonCapability.agentSessionPresence.rawValue))
             _ = try await DaemonConnection.perform(
                 // `agent-session-presence-v1` echoed: the daemon then streams presence (an app

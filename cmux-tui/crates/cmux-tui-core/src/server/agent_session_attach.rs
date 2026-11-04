@@ -41,6 +41,8 @@ pub use agent_session_trust::{
 };
 
 pub const AGENT_SESSION_ATTACH_CAPABILITY: &str = "agent-session-attach-v1";
+/// `agent-session-fork`: fork the attached chat through its latest completed turn.
+pub const AGENT_SESSION_FORK_CAPABILITY: &str = "agent-session-fork-v1";
 /// `agent-session-typing` and `agent-session-view`, and the `agent-session-presence` event: who
 /// is in the attached chat (chat multiplayer, hq#4389), through acpmux's `_acpmux/typing`,
 /// `_acpmux/view` and `_acpmux/presence`. The event goes only to a connection that echoed the
@@ -334,6 +336,7 @@ enum AgentSessionCommand {
     Permission(PermissionParams),
     Detach(SurfaceParams),
     Children(SurfaceParams),
+    Fork(ForkParams),
     Media(MediaParams),
     Typing(TypingParams),
     View(ViewParams),
@@ -353,6 +356,7 @@ impl AgentSessionCommand {
             "agent-session-permission" => Self::Permission(from_value(params).ok()?),
             "agent-session-detach" => Self::Detach(from_value(params).ok()?),
             "agent-session-children" => Self::Children(from_value(params).ok()?),
+            "agent-session-fork" => Self::Fork(from_value(params).ok()?),
             "agent-session-media" => Self::Media(from_value(params).ok()?),
             "agent-session-typing" => Self::Typing(from_value(params).ok()?),
             "agent-session-view" => Self::View(from_value(params).ok()?),
@@ -365,6 +369,15 @@ impl AgentSessionCommand {
 #[serde(deny_unknown_fields)]
 struct SurfaceParams {
     surface: SurfaceId,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ForkParams {
+    surface: SurfaceId,
+    through_seq: u64,
+    #[serde(default)]
+    name: Option<String>,
 }
 
 /// `agent-session-typing`: the person starts (`on`) or stops typing in the attached chat.
@@ -705,6 +718,7 @@ fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
         AgentSessionCommand::Cancel(params)
         | AgentSessionCommand::Detach(params)
         | AgentSessionCommand::Children(params) => params.surface,
+        AgentSessionCommand::Fork(params) => params.surface,
         AgentSessionCommand::Media(params) => params.surface,
         AgentSessionCommand::Typing(params) => params.surface,
         AgentSessionCommand::View(params) => params.surface,
@@ -934,6 +948,7 @@ fn run_on_worker(
                 | AgentSessionCommand::Cancel(_)
                 | AgentSessionCommand::Permission(_)
                 | AgentSessionCommand::Typing(_)
+                | AgentSessionCommand::Fork(_)
         )
     {
         return refuse(writer, id, Refusal::ReadOnly);
@@ -1101,6 +1116,22 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
         // A shared chat covers that chat only: a teammate lists no descendants.
         AgentSessionCommand::Children(_) if attachment.author.is_some() => Err(Refusal::NotTrusted),
         AgentSessionCommand::Children(_) => agent_session_children::list(attachment),
+        AgentSessionCommand::Fork(ForkParams { through_seq, name, .. }) => {
+            if through_seq == 0 || name.as_ref().is_some_and(|name| name.len() > 256) {
+                return Err(Refusal::BadRequest);
+            }
+            let mut params = json!({
+                "sessionId": session,
+                "_meta": {"acpmux": {"throughSeq": through_seq}},
+            });
+            if let Some(name) = name.filter(|name| !name.trim().is_empty()) {
+                params["name"] = Value::String(name);
+            }
+            attachment
+                .link
+                .call("session/fork", attachment.stamp(params), CALL_TIMEOUT)
+                .map_err(Refusal::of)
+        }
         AgentSessionCommand::Media(MediaParams { path, .. }) => media(attachment, path),
         // The session is the tab's own; acpmux bounds typing (2 a second, `typing.rate_limited`).
         // acpmux's rate refusal is the attachment's bound (`agent_session.limit`): the pane says

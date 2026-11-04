@@ -141,6 +141,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case cloudMachine(AgentPaneCloudMachineRequest)
     /// A user-confirmed provider credential transfer for one Cloud chat.
     case cloudCredentialTransfer(AgentPaneCloudCredentialTransferRequest)
+    /// Fork a Cloud machine as it is now and its latest completed transcript turn into one sibling.
+    case tryAnotherApproach(AgentPaneTryAnotherApproach)
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of

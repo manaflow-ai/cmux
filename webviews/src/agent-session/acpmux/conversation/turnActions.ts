@@ -12,11 +12,12 @@ import type { RetryModel } from "./retryModelSections";
 import type { QueuedMessageActionsValue } from "./QueuedMessageCard";
 
 export type TurnActions = {
+  /// Cloud chats can fork their current machine and transcript into one sibling. The action is
+  /// intentionally latest-turn-only until platform checkpoint inputs are available.
+  tryAnotherApproach?: (throughSeq: number) => Promise<void>;
   /// Fork the session through the turn whose summary event is `throughSeq`; absent when
   /// acpmux does not serve forks.
   fork?: (throughSeq: number) => void;
-  /// Fork a Cloud chat's machine and transcript at this completed turn, leaving this chat selected.
-  tryAnotherApproach?: (throughSeq: number) => Promise<unknown>;
   /// The latest completed turn (`latestForkSeq`), the only one `fork` goes through unless `forkAny`.
   forkSeq?: number;
   /// Each answered prompt's own turn (`promptTurns`): the Fork under its bubble forks through it.

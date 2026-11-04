@@ -211,6 +211,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onUploadStage: (@MainActor () -> AgentPaneUploadStager?)?
     /// App-owned, explicitly confirmed provider credential setup for this pane's Cloud chat.
     @ObservationIgnored public var onCloudCredentialTransfer: (@MainActor (AgentPaneCloudCredentialTransferRequest) async -> Bool)?
+    /// Runs the Cloud machine + latest transcript fork and opens its sibling without selecting this chat.
+    @ObservationIgnored public var onTryAnotherApproach: (@MainActor (Int) async throws -> [String: Any])?
 
     @ObservationIgnored let host: any AgentPaneHostProviding
     /// The page's host is another machine's (cx-k21v): it never becomes this Mac's prewarmed spare.
@@ -440,6 +442,15 @@ public final class AgentPaneModel {
             // Preserve the original click's one-use, session/prompt-scoped grant and expiry.
             released = true
             return AgentPaneReply.success(["transferred": true, "promptId": request.retryPromptID, "ticket": ticket])
+        case .tryAnotherApproach(let request):
+            guard remoteChat, newTab == nil, sessionId != nil, let onTryAnotherApproach else {
+                return Self.unsupported(AgentPaneTryAnotherApproach.method)
+            }
+            do {
+                return AgentPaneReply.success(try await onTryAnotherApproach(request.throughSeq))
+            } catch {
+                return AgentPaneReply.failure(code: "try_another_approach_failed", message: error.localizedDescription, retryable: true)
+            }
         case .btwInline(let question, let sessionId):
             // Handshake-attached panes keep the daemon path in `acpmuxSocket`; direct
             // transport tests and pre-handshake calls retain the connection path.

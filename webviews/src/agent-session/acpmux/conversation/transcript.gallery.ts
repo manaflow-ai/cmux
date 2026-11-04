@@ -1424,44 +1424,6 @@ export default agentPaneEntry({
       snapshot: forkTurns("claude"),
       play: forkEarlierTurn,
     },
-    "cloud-try-another-approach": {
-      note: "Play: a Cloud chat offers Try another approach at a completed checkpoint and leaves the parent transcript unchanged while the sibling opens with its parent label.",
-      ready: { transport: "mock", cloudMachineID: "machine-parent" },
-      native: {
-        "chat.tryAnotherApproach": {
-          childSessionId: "cloud-child",
-          opened: true,
-          parentLabel: "Parent Cloud chat",
-        },
-      },
-      snapshot: forkTurns("claude").snapshot,
-      play: async (ctx) => {
-        const page = ctx.document.defaultView as unknown as {
-          cmuxGalleryLog: { method: string; params?: Record<string, unknown> }[];
-        };
-        await ctx.focus({ selector: "[contenteditable='true']" });
-        const action = () =>
-          [...ctx.document.querySelectorAll<HTMLButtonElement>("button[aria-label^='Try another approach']")].find(
-            (button) => button.dataset.throughSeq === "3",
-          );
-        await ctx.waitFor(() => Boolean(action()));
-        action()!.click();
-        await ctx.waitFor(() =>
-          page.cmuxGalleryLog.some(
-            ({ method, params }) => method === "chat.tryAnotherApproach" && params?.throughSeq === 3,
-          ),
-        );
-        if (page.cmuxGalleryLog.some(({ method }) => method === "chat.select")) throw new Error("parent chat was selected");
-      },
-    },
-    "cloud-try-another-approach-child": {
-      note: "The sibling opened from a checkpoint carries a visible parent label.",
-      ready: { transport: "mock", cloudMachineID: "machine-child" },
-      snapshot: {
-        ...forkTurns("claude").snapshot,
-        summary: { ...forkTurns("claude").snapshot.summary!, title: "Try another approach · Parent Cloud chat" },
-      },
-    },
     "fork-any-turn-codex": {
       note: "Play: a Codex chat offers Fork under every completed turn too (cx-a7r); an earlier turn's forks through that turn.",
       snapshot: forkTurns("codex"),
@@ -1476,6 +1438,26 @@ export default agentPaneEntry({
           () => ctx.document.querySelectorAll('.cv-turn-actions button[aria-label="Fork from here"]').length === 1,
         );
       },
+    },
+    "try-another-approach-cloud": {
+      note: "Cloud's latest completed turn offers Try another approach. It snapshots the machine now, copies the transcript through that turn, and opens one sibling labelled with its parent; the parent stays selected.",
+      ready: { transport: "mock", cloudMachineID: "vm_gallery_cloud" },
+      native: { "chat.tryAnotherApproach": { childId: "child-gallery", parentLabel: "Try another approach · Add retries to the fetch helper" } },
+      snapshot: forkTurns(undefined),
+      play: async (ctx) => {
+        const page = ctx.document.defaultView as unknown as { cmuxGalleryLog: GalleryCall[] };
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll('.cv-turn-actions button[aria-label="Try another approach"]').length === 1);
+        const buttons = ctx.document.querySelectorAll<HTMLButtonElement>('.cv-turn-actions button[aria-label="Try another approach"]');
+        buttons[0]!.click();
+        await ctx.waitFor(() => page.cmuxGalleryLog.some(({ method, params }) => method === "chat.tryAnotherApproach" && params?.throughSeq === 6));
+        if (ctx.document.querySelectorAll('.cv-turn-actions button[aria-label="Try another approach"]').length !== 1) throw new Error("parent action changed");
+      },
+    },
+    "try-another-approach-child": {
+      note: "Sibling chat opened by Try another approach, with the parent label visible in its title.",
+      ready: { transport: "mock", cloudMachineID: "vm_gallery_cloud" },
+      snapshot: forkTurns(undefined, "Try another approach · Add retries to the fetch helper"),
     },
     "mark-unread-menu": {
       note: "Play: the chat menu's Mark as Unread (cx-ncc.78, Codex parity) asks acpmux on the pane's own connection (cx-jlzsf), never the host.",
@@ -3363,7 +3345,7 @@ async function forkEarlierTurn(ctx: PlayContext) {
   );
 }
 
-function forkTurns(family: string | undefined) {
+function forkTurns(family: string | undefined, title = "Add retries to the fetch helper") {
   const snapshot = chat([
     user("Add retry with backoff to the uploader", 9, { seq: 1 }),
     assistant("Done: three tries, doubling from 200 ms, only on 5xx and timeouts.", 8.5),
@@ -3372,5 +3354,5 @@ function forkTurns(family: string | undefined) {
     assistant("Added `uploader.retry.test.ts`; it passes and fails without the retry.", 5),
     summary(5, { seq: 6, status: "completed" }),
   ]);
-  return { ...snapshot, summary: snapshot.summary && { ...snapshot.summary, family } };
+  return { ...snapshot, summary: snapshot.summary && { ...snapshot.summary, family, title }, sessions: snapshot.sessions.map((entry) => ({ ...entry, displayTitle: title })) };
 }
