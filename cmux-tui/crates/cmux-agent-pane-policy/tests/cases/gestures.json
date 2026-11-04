@@ -348,5 +348,32 @@
   },
   "denies": [],
   "needs": true
+ },
+ {
+  "name": "agent_setup/save always",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/agent_setup/save",
+   "params": {
+    "sessionId": "s",
+    "systemPrompt": "Be brief."
+   }
+  },
+  "denies": [],
+  "needs": true
+ },
+ {
+  "name": "agent_setup read needs none",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/agent_setup",
+   "params": {
+    "sessionId": "s"
+   }
+  },
+  "denies": [],
+  "needs": false
  }
 ]

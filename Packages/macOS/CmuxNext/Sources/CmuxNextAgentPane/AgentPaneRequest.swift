@@ -254,6 +254,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chat.subagentShown {subagent?, title?}`: a pane opened on a subagent now shows that subagent
     /// (named `title`), or its chat again (no subagent): its tab's name follows (``SubagentTabTitles``).
     case subagentShown(String?, title: String?)
+    /// `chat.setupPane {sessionId}`: this chat's Agent setup (what its agent is told beside the
+    /// person's messages) in an agent pane of its own, right of the chat (``AgentSetupPane``).
+    case setupPane(String)
     /// `chat.processTerminal {toolCallId}`: the background process this chat's tool call started,
     /// in a read-only terminal tab beside the chat (``AgentPaneProcessViewer``).
     case processTerminal(toolCall: String)

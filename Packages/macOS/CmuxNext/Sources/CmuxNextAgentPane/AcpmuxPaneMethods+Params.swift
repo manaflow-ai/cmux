@@ -62,6 +62,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/subsession/limits": (["sessionId", "maxRunning"], []),
         // `server`: one of that chat's MCP servers by name; acpmux refuses a name the chat does not list.
         "_acpmux/mcp/reconnect": (["sessionId", "server"], []),
+        // Agent setup: a read of the chat in scope, and Save of its preset system prompt.
+        "_acpmux/agent_setup": (["sessionId"], []),
+        "_acpmux/agent_setup/save": (["sessionId", "systemPrompt"], []),
         // `release`: a new chat's typing prewarm taken back (cleared prompt, closed unsent; newChatPrewarm.ts).
         "_acpmux/prewarm": (["harness", "cwd", "release"], []),
         "_acpmux/start_mode": (["harness", "cwd"], []),

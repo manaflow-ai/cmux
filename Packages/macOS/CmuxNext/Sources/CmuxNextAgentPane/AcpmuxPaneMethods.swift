@@ -161,6 +161,11 @@ nonisolated enum AcpmuxPaneMethods {
         // that chat's agent signed in.
         "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key",
         "_acpmux/agent_login/cancel",
+        // The Agent setup tab (a chat's own pane opened on `agent-setup`): what the chat's agent is
+        // told beside the person's messages, read only, and Save of the chat's preset system prompt.
+        // Save takes the person's click (``gestureRules``), and acpmux takes it only from a
+        // connection that proved the person key (server/requests/agent_setup.rs).
+        "_acpmux/agent_setup", "_acpmux/agent_setup/save",
     ]
 
     /// Notifications (no `id`).
@@ -260,7 +265,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
-        "_acpmux/mcp/reconnect", "_acpmux/subsession/limits",
+        "_acpmux/mcp/reconnect", "_acpmux/subsession/limits", "_acpmux/agent_setup", "_acpmux/agent_setup/save",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
@@ -356,6 +361,8 @@ nonisolated enum AcpmuxPaneMethods {
         // for the failed prompt's resend. Cancel stops work: none.
         "_acpmux/agent_login/start": .always,
         "_acpmux/agent_login/api_key": .always,
+        // Agent setup's Save changes what the chat's agent is told on every turn: the person's click.
+        "_acpmux/agent_setup/save": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
         // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work
         // Start begins is its session/prompt, which has one).

@@ -2034,5 +2034,34 @@
   },
   "mode_fields": null,
   "breaks": true
+ },
+ {
+  "name": "agent_setup/save known params pass",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/agent_setup/save",
+   "params": {
+    "sessionId": "a",
+    "systemPrompt": "Be brief."
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "agent_setup/save names nothing but the prompt",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/agent_setup/save",
+   "params": {
+    "sessionId": "a",
+    "systemPrompt": "Be brief.",
+    "harness": "claude"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
  }
 ]

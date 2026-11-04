@@ -491,6 +491,8 @@ extension AgentPaneRequest {
             if let id, id.isEmpty || id.count > 256 { self = .unsupported(method) } else {
                 self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String)
             }
+        case "chat.setupPane":
+            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .setupPane(id) } else { self = .unsupported(method) }
         case "chat.processTerminal":
             if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }
         case "chat.newHere":

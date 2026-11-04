@@ -848,5 +848,67 @@
    "a"
   ],
   "refused": true
+ },
+ {
+  "name": "agent_setup for the chat in scope passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/agent_setup",
+   "params": {
+    "sessionId": "a"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "agent_setup for another chat is refused",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/agent_setup",
+   "params": {
+    "sessionId": "b"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
+  "name": "agent_setup/save for the chat in scope passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/agent_setup/save",
+   "params": {
+    "sessionId": "a",
+    "systemPrompt": "Be brief."
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "agent_setup/save for another chat is refused",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/agent_setup/save",
+   "params": {
+    "sessionId": "b",
+    "systemPrompt": "Be brief."
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
  }
 ]

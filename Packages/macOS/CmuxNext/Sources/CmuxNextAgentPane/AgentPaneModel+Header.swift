@@ -62,6 +62,9 @@ public struct AgentPaneHeaderHooks {
     /// This chat's tab, a pane opened on a subagent, now shows a subagent named `title`, or (nil) its
     /// chat again: the tab's name follows (``SubagentTabTitles/show(_:inTab:)``).
     public var showsSubagent: @MainActor (_ title: String?) -> Void
+    /// Shows session `session`'s Agent setup in an agent pane right of the chat, focused
+    /// (``AgentSetupPane``); false when no pane opened.
+    public var openSetup: @MainActor (_ session: String) -> Bool
     /// Opens `viewer` (a background process's read-only terminal) in a tab beside the chat; false
     /// when no tab opened.
     public var openProcess: @MainActor (_ viewer: AgentPaneProcessViewer) -> Bool
@@ -115,6 +118,7 @@ public struct AgentPaneHeaderHooks {
                 openTab: @escaping @MainActor (String, AgentForkDestination) -> Bool = { _, _ in false },
                 openSubagent: @escaping @MainActor (String, String, Bool) -> Bool = { _, _, _ in false },
                 showsSubagent: @escaping @MainActor (String?) -> Void = { _ in },
+                openSetup: @escaping @MainActor (String) -> Bool = { _ in false },
                 openProcess: @escaping @MainActor (AgentPaneProcessViewer) -> Bool = { _ in false },
                 newChat: @escaping @MainActor (String) -> Bool = { _ in false },
                 sideTabs: @escaping @MainActor () -> Bool? = { nil },
@@ -136,6 +140,7 @@ public struct AgentPaneHeaderHooks {
         self.openTab = openTab
         self.openSubagent = openSubagent
         self.showsSubagent = showsSubagent
+        self.openSetup = openSetup
         self.openProcess = openProcess
         self.newChat = newChat
         self.sideTabs = sideTabs
@@ -294,6 +299,12 @@ extension AgentPaneModel {
             }
             header.showsSubagent(agent == nil ? nil : title)
             return AgentPaneReply.success()
+        case .setupPane(let requested):
+            // Only the pane's own chat, and not from a New Tab page. A refusal answers `opened: false`.
+            guard let sessionId, requested == sessionId, newTab == nil, let header else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.setupPane")
+            }
+            return AgentPaneReply.success(["opened": header.openSetup(sessionId)])
         case .processTerminal(let call):
             return AgentPaneProcessViewer.open(call, in: self)
         case .chatTab(let chat, let destination):
