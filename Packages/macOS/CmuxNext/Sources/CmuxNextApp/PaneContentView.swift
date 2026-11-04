@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextSettings
@@ -107,6 +108,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding {
     /// Browsers this pane showed before, kept in place and hidden, oldest
     /// first (`PaneContentView+Parking`).
     var parked: [ParkedContent] = []
+    let browserChrome = BrowserPaneChrome()  // the pane's browser tabs' one chrome
 
     /// - Parameter reveal: Holds the strip until the first tabs arrive and
     ///   the content until the first terminal frame (launch load-in).
@@ -447,28 +449,6 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         themeDidChange()
-    }
-
-    /// The content background under the content only (the strip has its
-    /// own backdrop), or nothing in a translucent window, where the window
-    /// root paints the one sheet (`WindowBackdrop`).
-    func themeDidChange() {
-        needsLayout = true
-        // In scope: its workspace's picture decides, not the app's (#28867: a black pane behind the chat).
-        performWithTheme {
-            let paints = WindowBackdrop.current(themeTokens).panesPaintBackground
-            contentHost.layer?.backgroundColor = paints ? Palette.surfaceBackground.cgColor : nil
-        }
-        paintStrip()
-        paintPaneBackdrop()
-    }
-
-    /// The strip: clear, or the user's tab bar background (R55). A chat sharing the row never gives it
-    /// a fill: the row, its tabs and the chat's tools sit on the window's own glass (Leo, 2026-11-03,
-    /// on the chat's color behind the header buttons: "it's so obvious to just remove the thing").
-    func paintStrip() {
-        stripView.wantsLayer = true
-        stripView.layer?.backgroundColor = stripView.performWithTheme { Palette.surfaceOverride(.tabBar)?.cgColor }
     }
 }
 // A terminal or page edge inside the titlebar band never moves the window;
