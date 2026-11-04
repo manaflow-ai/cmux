@@ -319,7 +319,7 @@ mod tests {
 
     #[test]
     fn no_mode_is_ask() {
-        assert_eq!(parse("").unwrap().mode, Mode::Ask);
+        assert_eq!(parse("").unwrap().mode, Mode::Standard, "per-app asking is off by default (D24)");
     }
 
     #[test]

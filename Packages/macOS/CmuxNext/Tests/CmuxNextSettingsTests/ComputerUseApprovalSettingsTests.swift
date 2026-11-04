@@ -2,12 +2,13 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// `computerUse.mode` and `computerUse.phoneAlwaysAllow` (docs/computer-use-approvals.md): ask
-/// and off by default, read from cmux.json, and never an agent's to change.
+/// `computerUse.mode` and `computerUse.phoneAlwaysAllow` (docs/computer-use-approvals.md): standard
+/// (per-app asking off, decision D24) and off by default, read from cmux.json, and never an agent's
+/// to change.
 struct ComputerUseApprovalSettingsTests {
-    @Test func defaultsAskAndNoPhoneAlways() {
+    @Test func defaultsStandardAndNoPhoneAlways() {
         let settings = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: []).computerUse
-        #expect(settings.mode == .ask)
+        #expect(settings.mode == .standard)
         #expect(!settings.phoneAlwaysAllow)
     }
 
