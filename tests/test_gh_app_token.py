@@ -278,6 +278,8 @@ class ReadsOnlyTests(unittest.TestCase):
         ("api", "repos/o/r/dispatches", "--raw-field=event_type=x"),
         ("api", "repos/o/r/git/refs", "--input", "body.json"),
         ("api", "graphql", "-f", "query=mutation { addComment(input: {}) { clientMutationId } }"),
+        ("api", "graphql", "-F", "query=@mutation.graphql"),
+        ("api", "graphql", "--input", "request.json"),
         ("run", "rerun", "1", "--failed", "-R", "o/r"),
         ("run", "cancel", "1"),
         ("auth", "token"),

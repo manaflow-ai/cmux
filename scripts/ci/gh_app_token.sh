@@ -94,8 +94,9 @@ if [ ! -s "$dir/token" ] || [ -z "$caller" ] ||
 fi
 
 # Whether a call only reads (--reads-only): `gh api` with no method but GET and no request
-# fields (gh sends a call with fields as POST), a GraphQL request with no mutation, or a list or
-# view subcommand. Anything else counts as a write.
+# fields (gh sends a call with fields as POST), a GraphQL request whose query is on the command
+# line with no mutation (one read from a file or stdin, `@file` or `--input`, counts as a write),
+# or a list or view subcommand. Anything else counts as a write.
 reads_only_call() {
   local method="" fields="" graphql="" mutation="" next=""
   case "${1:-}" in
@@ -106,7 +107,7 @@ reads_only_call() {
   esac
   shift
   for arg in "$@"; do
-    case "$arg" in *mutation*) mutation=1 ;; esac
+    case "$arg" in *mutation* | *=@* | --input | --input=*) mutation=1 ;; esac
     if [ "$next" = method ]; then method="$arg"; next=""; continue; fi
     if [ "$next" = value ]; then next=""; continue; fi
     case "$arg" in
