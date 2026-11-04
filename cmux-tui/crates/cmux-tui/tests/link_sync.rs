@@ -20,7 +20,14 @@ use sha2::{Digest as _, Sha256};
 /// Serves `fs.*` lines on `socket` with the real owner over `home`, one
 /// thread per connection, until the test process ends.
 fn serve_fs(socket: &Path, home: &Path) -> &'static Mutex<Vec<Planted>> {
-    serve_hostile_fs(socket, home)
+    serve_hostile_fs(socket, home, &[])
+}
+
+/// [`serve_fs`] whose `identify` lists `capabilities`, as a Cloud daemon's
+/// does (`cmux_tui_core::fs_ops::advertised`). Its listings leave out
+/// symlinks: they stand in for a listing read before the machine made one.
+fn serve_fs_advertising(socket: &Path, home: &Path, capabilities: &'static [&'static str]) {
+    serve_hostile_fs(socket, home, capabilities);
 }
 
 /// A file a malicious machine plants in a listing: the folder's path as the
@@ -31,7 +38,11 @@ type Planted = (String, String, Vec<u8>);
 /// [`serve_fs`] that can turn malicious: the listings of the folders in the
 /// returned list also name its files, and `fs.stat` and `fs.read` of their
 /// paths answer with their bytes.
-fn serve_hostile_fs(socket: &Path, home: &Path) -> &'static Mutex<Vec<Planted>> {
+fn serve_hostile_fs(
+    socket: &Path,
+    home: &Path,
+    capabilities: &'static [&'static str],
+) -> &'static Mutex<Vec<Planted>> {
     let listener = UnixListener::bind(socket).unwrap();
     let service: &'static FsService =
         Box::leak(Box::new(FsService::new(Roots::new([home.to_path_buf()]))));
@@ -48,13 +59,20 @@ fn serve_hostile_fs(socket: &Path, home: &Path) -> &'static Mutex<Vec<Planted>> 
                     let cmd = request["cmd"].as_str().unwrap_or_default().to_string();
                     let path = request["path"].as_str().unwrap_or_default().to_string();
                     let planted = planted.lock().unwrap().clone();
-                    let reply = match hostile_answer(&planted, &cmd, &path) {
+                    let advertised = (cmd == "identify" && !capabilities.is_empty())
+                        .then(|| json!({ "capabilities": capabilities }));
+                    let reply = match advertised.or_else(|| hostile_answer(&planted, &cmd, &path)) {
                         Some(data) => json!({"id": id, "ok": true, "data": data}),
                         None => {
                             let mut reply =
                                 stream::answer(&id, service.call("local", &cmd, request));
                             if cmd == "fs.list" {
                                 plant_entries(&planted, &path, &mut reply);
+                                if !capabilities.is_empty()
+                                    && let Some(entries) = reply["data"]["entries"].as_array_mut()
+                                {
+                                    entries.retain(|entry| entry["kind"] != "symlink");
+                                }
                             }
                             reply
                         }
@@ -468,7 +486,7 @@ fn hostile_pushed_repo()
     std::fs::create_dir_all(home.join("work")).unwrap();
     let sockets = tempfile::Builder::new().prefix("cs").tempdir_in("/tmp").unwrap();
     let socket = sockets.path().join("fs.sock");
-    let planted = serve_hostile_fs(&socket, &home);
+    let planted = serve_hostile_fs(&socket, &home, &[]);
     let remote = home.join("work/app");
     push(&socket, &repo, &remote);
     (root, sockets, repo, remote, socket, planted)
@@ -1281,6 +1299,49 @@ fn a_file_is_never_written_through_a_link_the_machine_changed() {
     assert!(ok, "{again}");
     assert_eq!(std::fs::read_to_string(remote.join("secret.txt")).unwrap(), "secret\n");
     assert_eq!(std::fs::read_link(remote.join("link")).unwrap(), Path::new("secret.txt"));
+}
+
+/// With no-follow writes (`fs-write-nofollow-v1`) a push asks each folder's
+/// listing what is in the way instead of an `fs.stat` a file, and a link the
+/// machine made after that listing still stops the file: the machine refuses
+/// it at its path (`fs.symlink_in_path`), and a folder on the way is a link.
+#[test]
+fn a_no_follow_push_never_writes_through_a_link_the_machine_changed() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let folder = root.join("site");
+    std::fs::create_dir_all(folder.join("sub")).unwrap();
+    std::fs::write(folder.join("a.txt"), "a\n").unwrap();
+    std::fs::write(folder.join("sub/b.txt"), "b\n").unwrap();
+    let (_sockets, socket, home) = machine_home(&root);
+    serve_fs_advertising(
+        &socket,
+        &home,
+        &["fs-v1", "fs-symlink-v1", "fs-write-deflate-v1", "fs-write-nofollow-v1"],
+    );
+    let remote = home.join("work/site");
+    let (ok, summary, _) = push_output(&socket, &folder, &remote);
+    assert!(ok, "{summary}");
+    assert_eq!(std::fs::read_to_string(remote.join("sub/b.txt")).unwrap(), "b\n");
+
+    std::fs::write(remote.join("secret.txt"), "secret\n").unwrap();
+    std::fs::remove_file(remote.join("a.txt")).unwrap();
+    std::os::unix::fs::symlink("secret.txt", remote.join("a.txt")).unwrap();
+    std::fs::remove_dir_all(remote.join("sub")).unwrap();
+    std::fs::create_dir_all(remote.join("elsewhere")).unwrap();
+    std::os::unix::fs::symlink("elsewhere", remote.join("sub")).unwrap();
+    std::fs::write(folder.join("a.txt"), "mine\n").unwrap();
+    std::fs::write(folder.join("sub/b.txt"), "mine\n").unwrap();
+    std::fs::write(folder.join("new.txt"), "new\n").unwrap();
+
+    let (ok, pushed, _) = push_output(&socket, &folder, &remote);
+    assert!(ok, "{pushed}");
+    assert_eq!(std::fs::read_to_string(remote.join("secret.txt")).unwrap(), "secret\n");
+    assert_eq!(std::fs::read_link(remote.join("a.txt")).unwrap(), Path::new("secret.txt"));
+    assert!(!remote.join("elsewhere/b.txt").exists(), "{pushed}");
+    let skipped = skipped_by_path(&pushed);
+    assert!(skipped.contains_key("a.txt") && skipped.contains_key("sub/b.txt"), "{pushed}");
+    assert_eq!(std::fs::read_to_string(remote.join("new.txt")).unwrap(), "new\n");
 }
 
 /// A machine link at or above the hooks folder never comes back: through it

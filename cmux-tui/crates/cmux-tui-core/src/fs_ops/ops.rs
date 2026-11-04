@@ -84,6 +84,10 @@ struct WriteParams {
     encoding: Option<String>,
     #[serde(default)]
     decoded_size: Option<u64>,
+    /// `fs-write-nofollow-v1`: a symlink as any component of `path` is
+    /// `fs.symlink_in_path`, never followed or replaced.
+    #[serde(default)]
+    no_follow: bool,
 }
 
 #[derive(Deserialize)]
@@ -305,11 +309,15 @@ impl FsService {
             if params.permissions.is_some() {
                 return Err(FsError::ParamsInvalid("permissions is not valid with append".into()));
             }
-            return Ok(json!({ "entry": append(&self.roots, &params.path, &expected, &data)? }));
+            return Ok(json!({ "entry": append(&self.roots, &params.path, &expected, &data, params.no_follow)? }));
         }
         let mode = WriteMode::parse(&params.mode, params.expected)?;
-        let mut pending =
-            PendingWrite::begin(&self.roots, &params.path, mode, Some(data.len() as u64))?;
+        let size = Some(data.len() as u64);
+        let mut pending = if params.no_follow {
+            PendingWrite::begin_no_follow(&self.roots, &params.path, mode, size)?
+        } else {
+            PendingWrite::begin(&self.roots, &params.path, mode, size)?
+        };
         if let Some(permissions) = params.permissions {
             pending.set_permissions(permissions)?;
         }

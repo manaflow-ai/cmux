@@ -43,6 +43,8 @@ const MAX_OTHER_ANSWERS: usize = 16;
 /// file whose start does not shrink (a git pack, an image, an archive) is
 /// sent as it is, without spending time on the rest.
 const PROBE_BYTES: usize = 64 * 1024;
+/// The refusal of a no-follow write that met a symlink on its path.
+pub(super) const SYMLINK_IN_PATH: &str = "fs.symlink_in_path";
 /// The deflate level: about as fast as a link of hundreds of MB/s, and
 /// within a few percent of the best size on source text.
 const DEFLATE_LEVEL: u32 = 3;
@@ -92,6 +94,10 @@ pub(super) struct Remote {
     /// The machine takes deflate write bytes (`fs-write-deflate-v1`,
     /// [`Remote::negotiate`]); otherwise every write is plain base64.
     deflate: bool,
+    /// The machine refuses a write through a symlink on its path
+    /// (`fs-write-nofollow-v1`, [`Remote::negotiate`]): every write says
+    /// `no_follow`, so a caller need not `fs.stat` the target first.
+    no_follow: bool,
 }
 
 impl Remote {
@@ -102,7 +108,7 @@ impl Remote {
         // A machine that stops reading must not hold a write (and a
         // caller's lock) forever either.
         stream.set_write_timeout(Some(IO_DEADLINE))?;
-        Ok(Self { reader: BufReader::new(stream), next_id: 1, deflate: false })
+        Ok(Self { reader: BufReader::new(stream), next_id: 1, deflate: false, no_follow: false })
     }
 
     /// [`Remote::connect`], then asks the machine which write encodings it
@@ -114,15 +120,36 @@ impl Remote {
     }
 
     /// Writes compressed bytes from now on when the machine's `identify`
-    /// lists `fs-write-deflate-v1`. A machine that lacks it, or does not
-    /// answer `identify`, gets every write exactly as before.
+    /// lists `fs-write-deflate-v1`, and no-follow writes when it lists
+    /// `fs-write-nofollow-v1`. A machine that lacks them, or does not answer
+    /// `identify`, gets every write exactly as before.
     pub(super) fn negotiate(&mut self) {
-        let capability = cmux_tui_core::fs_ops::FS_WRITE_DEFLATE_CAPABILITY;
-        self.deflate = self.call("identify", json!({})).is_ok_and(|identity| {
-            identity["capabilities"]
-                .as_array()
-                .is_some_and(|served| served.iter().any(|name| name.as_str() == Some(capability)))
-        });
+        let served: Vec<String> = self
+            .call("identify", json!({}))
+            .ok()
+            .and_then(|identity| {
+                identity["capabilities"].as_array().map(|served| {
+                    served.iter().filter_map(|name| name.as_str().map(str::to_string)).collect()
+                })
+            })
+            .unwrap_or_default();
+        let serves = |capability: &str| served.iter().any(|name| name == capability);
+        self.deflate = serves(cmux_tui_core::fs_ops::FS_WRITE_DEFLATE_CAPABILITY);
+        self.no_follow = serves(cmux_tui_core::fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY);
+    }
+
+    /// Whether every write of this connection refuses a symlink on its path
+    /// (`fs.symlink_in_path`) instead of following it.
+    pub(super) fn no_follow(&self) -> bool {
+        self.no_follow
+    }
+
+    /// `request` with `no_follow` when the machine takes it.
+    fn guarded(&self, mut request: Value) -> Value {
+        if self.no_follow {
+            request.set("no_follow", json!(true));
+        }
+        request
     }
 
     /// Sends one request and returns its `data`; an `ok: false` answer is
@@ -333,7 +360,8 @@ impl Remote {
         let compress = self.deflate && shrinks(&first);
         let second = if first.len() == PART_BYTES { read_part(reader)? } else { Vec::new() };
         if second.is_empty() {
-            let request = json!({ "path": path, "mode": "overwrite", "permissions": permissions });
+            let request = self
+                .guarded(json!({ "path": path, "mode": "overwrite", "permissions": permissions }));
             let entry = self.call_with_progress(
                 "fs.write",
                 with_bytes(request, &first, compress)?,
@@ -343,7 +371,8 @@ impl Remote {
         }
         let (parent, name) = split(path)?;
         let part = format!("{}/.{name}.cmux-sync-part", parent.trim_end_matches('/'));
-        let request = json!({ "path": part, "mode": "overwrite", "permissions": permissions });
+        let request = self
+            .guarded(json!({ "path": part, "mode": "overwrite", "permissions": permissions }));
         let mut revision = revision_of(&self.call_with_progress(
             "fs.write",
             with_bytes(request, &first, compress)?,
@@ -351,7 +380,8 @@ impl Remote {
         )?)?;
         let mut chunk = second;
         while !chunk.is_empty() {
-            let request = json!({ "path": part, "mode": "append", "expected": revision });
+            let request =
+                self.guarded(json!({ "path": part, "mode": "append", "expected": revision }));
             revision = revision_of(&self.call_with_progress(
                 "fs.write",
                 with_bytes(request, &chunk, compress)?,
@@ -360,9 +390,19 @@ impl Remote {
             chunk = read_part(reader)?;
         }
         // Only a file is replaced; a folder in the way stays and the rename
-        // answers fs.exists.
-        if self.kind(path)?.as_deref() == Some("file") {
-            self.delete(&[path.to_string()])?;
+        // answers fs.exists. A symlink there stays too, and with no-follow
+        // writes the caller hears of it as the daemon would say it.
+        match self.kind(path)?.as_deref() {
+            Some("file") => self.delete(&[path.to_string()])?,
+            Some("symlink") if self.no_follow => {
+                self.delete(&[part.clone()])?;
+                return Err(FsRefusal {
+                    code: SYMLINK_IN_PATH.to_string(),
+                    message: "a symlink is on the path".to_string(),
+                }
+                .into());
+            }
+            _ => {}
         }
         let entry = self.call("fs.rename", json!({ "path": part, "name": name }))?;
         // A rename keeps size and mtime, so the revision is the last part's.
@@ -596,7 +636,7 @@ mod tests {
             server.write_all(format!("{answer}\n").as_bytes()).unwrap();
             heard
         });
-        let mut remote = Remote { reader: BufReader::new(client), next_id: 1, deflate: false };
+        let mut remote = Remote { reader: BufReader::new(client), next_id: 1, deflate: false, no_follow: false };
         let data = vec![7u8; PART_BYTES];
         let mut progress = || {
             let _ = tick.send(());
@@ -629,7 +669,7 @@ mod tests {
                 json!({"id": request["id"], "ok": true, "data": {"entry": {"revision": "r1"}}});
             server.write_all(format!("{answer}\n").as_bytes()).unwrap();
         });
-        let mut remote = Remote { reader: BufReader::new(client), next_id: 1, deflate: false };
+        let mut remote = Remote { reader: BufReader::new(client), next_id: 1, deflate: false, no_follow: false };
         let data = vec![7u8; 256 * 1024];
         let revision = remote.write("/work/cmux-tui", &mut data.as_slice(), 0o755).unwrap();
         assert_eq!(revision, "r1");
@@ -668,7 +708,7 @@ mod tests {
             serve(&mut requests, &mut server);
             std::thread::sleep(Duration::from_secs(30));
         });
-        Remote { reader: BufReader::new(client), next_id: 1, deflate: false }
+        Remote { reader: BufReader::new(client), next_id: 1, deflate: false, no_follow: false }
     }
 
     /// An answer line that never ends is refused, not held in memory.
@@ -755,7 +795,25 @@ mod tests {
         let request = writes.recv().unwrap();
         assert!(request.get("encoding").is_none(), "{request}");
         assert!(request.get("decoded_size").is_none(), "{request}");
+        assert!(request.get("no_follow").is_none(), "{request}");
         assert_eq!(decoded(&request), text.as_bytes());
+    }
+
+    /// With `fs-write-nofollow-v1` every write says `no_follow`: the one of
+    /// a small file, and each part and append of a large one.
+    #[test]
+    fn a_machine_with_no_follow_writes_gets_it_on_every_part() {
+        let (mut remote, writes) = recording(json!(["fs-v1", "fs-write-nofollow-v1"]));
+        remote.negotiate();
+        assert!(remote.no_follow() && !remote.deflate);
+        remote.write("/work/small.rs", &mut b"x".as_slice(), 0o644).unwrap();
+        assert_eq!(writes.recv().unwrap()["no_follow"], true);
+        let data = vec![1u8; PART_BYTES + 1];
+        remote.write("/work/big.bin", &mut data.as_slice(), 0o644).unwrap();
+        let first = writes.recv().unwrap();
+        let append = writes.recv().unwrap();
+        assert_eq!((first["mode"].as_str(), append["mode"].as_str()), (Some("overwrite"), Some("append")));
+        assert_eq!((&first["no_follow"], &append["no_follow"]), (&json!(true), &json!(true)));
     }
 
     /// With the capability, text goes compressed and the parts of a file
