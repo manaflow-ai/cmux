@@ -20,6 +20,15 @@ fn committed_header_is_cbindgen_output() {
         .generate()
         .expect("cbindgen generates the header")
         .write(&mut generated);
+    // The ABI has no constants: cbindgen copies a reachable struct's
+    // associated consts as macros (HoverRect::NULL's `f64_INFINITY` is not C),
+    // so a new one needs `cbindgen:ignore`.
+    let defines: Vec<&str> = std::str::from_utf8(&generated)
+        .expect("utf-8 header")
+        .lines()
+        .filter(|l| l.starts_with("#define") && *l != "#define CMUX_MOTION_FFI_H")
+        .collect();
+    assert!(defines.is_empty(), "unexpected macros in the header: {defines:?}");
 
     if std::env::var_os("CMUX_APP_FFI_HEADER_BLESS").is_some() {
         std::fs::write(&header, &generated).expect("write the header");

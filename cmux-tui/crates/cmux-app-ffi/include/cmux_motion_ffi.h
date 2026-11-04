@@ -130,14 +130,6 @@ typedef struct {
     double width;
     double height;
 } CmuxHoverRect;
-/*
- `CGRect.zero`.
- */
-#define CmuxHoverRect_ZERO (CmuxHoverRect){ .x = 0., .y = 0., .width = 0., .height = 0. }
-/*
- `CGRect.null`.
- */
-#define CmuxHoverRect_NULL (CmuxHoverRect){ .x = f64_INFINITY, .y = f64_INFINITY, .width = 0., .height = 0. }
 
 /*
  A point.
