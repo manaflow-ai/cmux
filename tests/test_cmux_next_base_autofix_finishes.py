@@ -366,7 +366,8 @@ class BaseAutofixFinishes(unittest.TestCase):
                      "--cloud-clients", "--webviews-fmt-patch"):
             self.assertNotIn(flag, args)
 
-    def mac_busy(self, runs: dict[int, list[tuple[str, str]]], self_run: int = 1, fail: bool = False) -> str:
+    def mac_busy(self, runs: dict[int, list[tuple[str, str]]], self_run: int = 1, fail: bool = False,
+                 older_only: bool = False) -> str:
         """Runs base-autofix-mac-busy.sh with a gh stand-in: `runs` maps an unfinished run to its (job, status)."""
         work = Path(tempfile.mkdtemp())
         self.addCleanup(subprocess.run, ["rm", "-rf", str(work)])
@@ -389,7 +390,10 @@ else:
 sys.exit(subprocess.run(["jq", "-r", jq], input=json.dumps(body), text=True).returncode)
 """)
         gh.chmod(0o755)
-        done = subprocess.run(["bash", str(ROOT / "scripts/cmux-next/base-autofix-mac-busy.sh"), str(self_run)],
+        args = ["bash", str(ROOT / "scripts/cmux-next/base-autofix-mac-busy.sh"), str(self_run)]
+        if older_only:
+            args.extend(["feat-cmux-next", "--older-only"])
+        done = subprocess.run(args,
                               capture_output=True, text=True, env={**os.environ, "PATH": f"{work / 'bin'}:{os.environ['PATH']}"})
         self.assertEqual(done.returncode, 0, done.stderr)
         return done.stdout
@@ -414,6 +418,19 @@ sys.exit(subprocess.run(["jq", "-r", jq], input=json.dumps(body), text=True).ret
     def test_mac_busy_fails_open_when_github_cannot_be_read(self):
         # Two Mac jobs beat none.
         self.assertEqual(self.mac_busy({7: [("action exports (Mac)", "queued")]}, fail=True), "mac_busy=false\n")
+
+    def test_secondary_carrier_check_never_defers_to_a_newer_run(self):
+        runs = {8: [("exports from the push's generated files", "in_progress")],
+                9: [("action exports (Mac)", "queued")]}
+        self.assertEqual(self.mac_busy(runs, self_run=8, older_only=True), "mac_busy=false\n")
+        self.assertEqual(self.mac_busy(runs, self_run=9, older_only=True),
+                         "mac_busy=true\nmac_busy_run=8\n")
+
+    def test_secondary_carrier_check_preserves_unknown_and_completed_fallbacks(self):
+        runs = {7: [("exports from the push's generated files", "in_progress")]}
+        self.assertEqual(self.mac_busy(runs, self_run=9, fail=True, older_only=True), "mac_busy=false\n")
+        self.assertEqual(self.mac_busy({7: [("action exports (Mac)", "completed")]},
+                                       self_run=9, older_only=True), "mac_busy=false\n")
 
     def since(self, runs: list[tuple[int, str, list[tuple[str, str]] | None]], fail: bool = False) -> str:
         """Runs base-autofix-since.sh with a gh stand-in: `runs` lists successful runs, newest first, as
