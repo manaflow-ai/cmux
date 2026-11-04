@@ -1000,7 +1000,7 @@ async function listStackTeams(
   return { teams, complete: false, incompleteReason: "Stack team pagination exceeded its page limit" };
 }
 
-async function listAllStackTeams(
+export async function listAllStackTeams(
   user: StackUserLike,
   signal: AbortSignal | undefined,
 ): Promise<readonly unknown[]> {

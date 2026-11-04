@@ -33,12 +33,37 @@ export function pauseBudgetVm(
   });
 }
 
+const VM_PLAN_LAPSE_PAUSE_TIMEOUT_MS = 60_000;
+
+/** Pause a machine whose owner no longer pays and holds no grant (services/vms/planLapseJob.ts). */
+export function pausePlanLapsedVm(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+) {
+  return pauseForAllowance(repo, providers, vm, providerVmId, {
+    reason: "plan_lapsed", planId: vm.billingPlanId ?? "free", capRuntime: false, ownCronRetries: { timeoutMs: VM_PLAN_LAPSE_PAUSE_TIMEOUT_MS },
+  });
+}
+
 function pauseForAllowance(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
   vm: CloudVmRow,
   providerVmId: string,
-  options: { readonly reason: string; readonly planId: string; readonly capRuntime: boolean; readonly usedSeconds?: number },
+  options: {
+    readonly reason: string;
+    readonly planId: string;
+    readonly capRuntime: boolean;
+    readonly usedSeconds?: number;
+    /**
+     * The caller's own cron decides again next run, so a failed pause leaves no
+     * intent behind: the minute job would otherwise finish it under its own
+     * allowance reason, whatever the plan is by then.
+     */
+    readonly ownCronRetries?: { readonly timeoutMs: number };
+  },
 ) {
   return Effect.gen(function* () {
     const setRuntimeBudget = providers.setRuntimeBudget;
@@ -54,14 +79,27 @@ function pauseForAllowance(
     // a provider effect that fails drops it again.
     const intent = repo.recordPauseIntent ? yield* repo.recordPauseIntent({ id: vm.id, providerVmId, cause: "allowance" }) : null;
     const pause = providers.pause;
-    yield* Effect.gen(function* () {
+    const providerEffect = Effect.gen(function* () {
       if (options.capRuntime && setRuntimeBudget) yield* setRuntimeBudget(vm.provider, providerVmId, 0);
       // The database may already say paused. An idempotent provider pause also
       // stops machines resumed outside the control plane.
       yield* pause(vm.provider, providerVmId);
-    }).pipe(Effect.tapError(() => intent === null || !repo.clearPauseIntent
-      ? Effect.void
-      : repo.clearPauseIntent({ id: vm.id, epoch: intent }).pipe(Effect.catchAll(() => Effect.void))));
+    });
+    const ownCronRetries = options.ownCronRetries;
+    const bounded = ownCronRetries
+      ? providerEffect.pipe(Effect.timeoutFail({
+        duration: ownCronRetries.timeoutMs,
+        onTimeout: () => new VmDatabaseError({ operation: "plan_lapse_pause_timeout", cause: `No provider answer in ${ownCronRetries.timeoutMs} ms` }),
+      }))
+      : providerEffect;
+    yield* bounded.pipe(Effect.tapError(() => Effect.all([
+      intent === null || !repo.clearPauseIntent
+        ? Effect.void
+        : repo.clearPauseIntent({ id: vm.id, epoch: intent }).pipe(Effect.catchAll(() => Effect.void)),
+      ownCronRetries
+        ? mergeMetadata({ id: vm.id, patch: { [GO_PAUSE_INTENT_KEY]: null } }).pipe(Effect.catchAll(() => Effect.void))
+        : Effect.void,
+    ], { discard: true })));
     // A stated cause: it settles an idle pause claim and stamps the fence, so the idle cron never
     // undoes this pause as a lost idle pause (services/vms/README.md, idle auto-pause).
     const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused", pauseReason: "allowance" });

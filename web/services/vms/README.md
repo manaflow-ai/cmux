@@ -593,6 +593,26 @@ provider state even when the control-plane row still says `running`, resumes a p
 machine, and only then mints its attach or port endpoint. Machines created before this policy
 are migrated when they are resumed: any finite legacy idle timeout is cleared best-effort.
 
+### Plan lapse pause
+
+The `vm-plan-lapse` cron (`services/vms/planLapse.ts`, `planLapseJob.ts`) runs hourly over running
+Freestyle machines and finds owners with no company account, no paid `cmuxVmPlan` grant, no live
+Stripe subscription, no Apple plan and no paid team. A personal Stripe subscription that is paused
+keeps status `active` with `pause_collection` set, and it does not count as live here, though the
+rest of the product still treats it as paid. A paused team subscription is not separated out: a team
+whose metadata still says paid stays kept.
+
+These leave a machine running: a machine on a team with other members (any member may be the paying
+caller), a paid `cmuxPlan` with no subscription row behind it, an unknown owner, a failed or slow
+lookup, and Stripe itself reporting a live subscription on the user's or one of their teams' customers.
+
+It is a dry run until `CMUX_VM_PLAN_LAPSE_PAUSE=enforce`: it reports what it would pause and changes
+nothing. Enforced, it pauses at most 50 machines a run through the allowance pause path, so the idle
+cron does not undo the pause, and it re-reads each row first. It pauses nothing and reports a failure
+when more than 10 owners and more than a quarter of all owners look lapsed, unless
+`CMUX_VM_PLAN_LAPSE_ALLOW_LARGE_RUN=1`. Nothing is destroyed.
+`scripts/cloud-vm/vm-plan-lapse-report.ts` prints the same list with owner emails for an operator.
+
 ### Idle auto-pause
 
 Freestyle's idle timer stays off (it counts only network and exec traffic, so it would pause
