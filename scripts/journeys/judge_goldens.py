@@ -961,27 +961,31 @@ def ruler_check(base, fact):
 
 
 class Unchecked(Exception):
-    """A TRUTH expectation the result cannot answer (its list is missing; an absence on a judge that saw no frame):
-    NO VERDICT, never met."""
+    """A TRUTH expectation the result cannot answer (its list is missing; an absence whose check did not look): NO
+    VERDICT, never met."""
 
 
-def _expectation(result, expect):
+def _unmet_need(judge, name, result, movie):
+    """The first input NAME's check needs (NAMES) that RESULT does not show, as the words of NEEDS; None when all
+    show. MOVIE: the film's movie is pinned in the store (video_judge decodes it for its movie checks)."""
+    for need in NAMES[judge][name][1]:
+        words, shows = NEEDS[need]
+        if not shows(result, movie):
+            return words
+    return None
+
+
+def _expectation(result, expect, movie=False):
     """None when the judge RESULT meets the TRUTH expectation EXPECT, else why not; Unchecked when RESULT cannot
-    answer it."""
+    answer it. A name is read at the severity its judge writes it with (NAMES). An absence fails when the judge
+    reports the name; when it does not, it holds only where the name's own check looked (NAMES' needs, as the result
+    shows them; review 5 of #33930, finding A): else Unchecked. MOVIE: the film's movie is in the store."""
     if not isinstance(result, dict) or result.get("error") and len(result) == 1:
         return f"the judge gave no result: {json.dumps(result)[:200]}"
-    listed = KIND_LIST.get(expect.get("judge"))
+    judge = expect.get("judge")
+    listed = KIND_LIST.get(judge)
     if listed and not isinstance(result.get(listed), list):
-        raise Unchecked(f"{expect.get('judge')}'s result has no {listed} list")
-    # An absence holds only where its judge looked (R4: an absence of defects needs the coverage that could show one).
-    if "absent_kind" in expect and result.get("motion") is None:
-        raise Unchecked("judge_trace judged no motion of this film: an absence needs a judged motion")
-    if "absent_check" in expect:
-        if not result.get("frames"):
-            raise Unchecked("video_judge judged no frame of this film: an absence needs the film's frames")
-        if expect["absent_check"] not in TRACE_ONLY_CHECKS and not result.get("motion"):
-            raise Unchecked("video_judge judged no motion window of this film: its checks look only inside motion "
-                            "windows, so an absence needs one")
+        raise Unchecked(f"{judge}'s result has no {listed} list")
     if "defect_frames" in expect:  # every frame of these spans is inside some defect finding of the judge
         spans = [f.get("frames") for f in result.get("findings") or [] if f.get("severity") == "defect"
                  and isinstance(f.get("frames"), list) and len(f["frames"]) == 2]
@@ -990,27 +994,49 @@ def _expectation(result, expect):
         if missed:
             return f"{len(missed)} frames of {expect['defect_frames']} are in no defect finding (first {missed[:6]})"
         return None
-    if "check" in expect or "absent_check" in expect:  # video_judge findings
-        defects = [f for f in result.get("findings") or [] if f.get("severity") == "defect"]
+    if "check" in expect or "absent_check" in expect:  # video_judge findings, at the name's own severity
+        name = expect.get("check", expect.get("absent_check"))
+        severity = NAMES["video_judge"][name][0]
+        hits = [f for f in result.get("findings") or [] if f.get("check") == name and f.get("severity") == severity]
         if "check" in expect:
-            hits = [f for f in defects if f.get("check") == expect["check"]]
             if expect.get("frames") is not None and not any(f.get("frames") == list(expect["frames"]) for f in hits):
                 seen = [f.get("frames") for f in hits]
-                return f"no {expect['check']!r} defect over exactly frames {expect['frames']} (it reports {seen or 'none'})"
-            if not hits:
-                return f"no {expect['check']!r} defect"
-            return None
-        hits = [f.get("frames") for f in defects if f.get("check") == expect["absent_check"]]
-        return f"must not report {expect['absent_check']!r}, reports it over frames {hits}" if hits else None
+                return f"no {name!r} {severity} over exactly frames {expect['frames']} (it reports {seen or 'none'})"
+            return None if hits else f"no {name!r} {severity}"
+        if hits:
+            return f"must not report {name!r} ({severity}), reports it over frames {[f.get('frames') for f in hits]}"
+        unmet = _unmet_need("video_judge", name, result, movie)
+        if unmet:
+            raise Unchecked(f"{unmet}: an absence of {name!r} needs it")
+        return None
     if "kind" in expect or "absent_kind" in expect:  # judge_trace defects
         kinds = collections.Counter(d.get("kind") for d in result.get("defects") or [])
         if "kind" in expect:
             want = int(expect.get("count", 1))
             return None if kinds.get(expect["kind"], 0) >= want else \
                 f"no {expect['kind']!r} defect ({dict(kinds) or 'none'})"
-        n = kinds.get(expect["absent_kind"], 0)
-        return f"must not report {expect['absent_kind']!r}, reports {n}" if n else None
+        name = expect["absent_kind"]
+        n = kinds.get(name, 0)
+        if n:
+            return f"must not report {name!r}, reports {n}"
+        unmet = _unmet_need("judge_trace", name, result, movie)
+        if unmet:
+            raise Unchecked(f"{unmet}: an absence of {name!r} needs it")
+        return None
     return f"an expectation this runner does not know: {json.dumps(expect)[:200]}"
+
+
+NO_VERDICT_TRUTH = "a TRUTH fact cannot be checked on the stored film (each line says why)"
+
+
+def read_truth(manifest, films_doc):
+    """(truth.json's document, why its facts cannot be checked): the one read of truth.json per command, so the facts
+    checked are the facts validated (review 4 of #33930, note 1). A missing or broken file is a problem."""
+    try:
+        truth = load_truth(manifest)
+    except ValueError as error:
+        return None, [str(error)]
+    return truth, truth_problems(truth, films_doc)
 
 
 def load_truth(manifest):
@@ -1031,22 +1057,77 @@ FACT_KEYS = {"id", "film", "why", "ruler", "expect"}
 KIND_JUDGE = {"check": "video_judge", "defect_frames": "video_judge", "absent_check": "video_judge",
               "kind": "judge_trace", "absent_kind": "judge_trace"}
 KIND_LIST = {"video_judge": "findings", "judge_trace": "defects"}
-# The names each judge reports (video_judge's finding checks; judge_trace's defect kinds), as their source writes them
-# (a test pins these sets to the source). A fact that names anything else checks nothing: NO VERDICT. A judge PR that
-# adds a name adds it here.
-JUDGE_NAMES = {
-    "video_judge": frozenset({
-        "blank pane", "capture stall", "capture stall in motion", "content not at final size after motion",
-        "content size during motion", "content stretched", "content wait", "divider not shown", "dropped frames",
-        "encoder dropped frames", "flash", "frame gap during slow input", "gap or overlap", "half-pixel blend",
-        "idle refresh in motion", "jump", "jump back", "jump back (animation)",
-        "main thread missed refreshes before the first frame", "model edge off the device-pixel grid", "reflow",
-        "scan count mismatch", "shown geometry not in the model"}),
-    "judge_trace": frozenset({"dropped", "end-jump", "gap", "lurch", "off-grid", "overlap", "overlap-fading",
-                              "reverse"}),
+def _panes_at_rest(result):
+    """The most panes at rest of any motion judge_trace judged (its gap and overlap checks look only between
+    neighbours at rest)."""
+    motions = [m.get("motion") for m in result.get("motions") or [] if isinstance(m, dict)] + [result.get("motion")]
+    return max((len(m.get("panes_at_rest") or []) for m in motions if isinstance(m, dict)), default=0)
+
+
+# What a name's check needs to have had for an ABSENCE of the name to mean that it looked (R4), with the words NO
+# VERDICT says when the result does not show it. Each is read from the judge's result, except the movie: the film's
+# movie pinned in the store (video_judge decodes it for its movie checks).
+NEEDS = {
+    "frames": ("video_judge judged no frame of this film", lambda r, movie: bool(r.get("frames"))),
+    "motion": ("video_judge judged no motion window of this film (its checks look only inside motion windows)",
+               lambda r, movie: bool(r.get("motion"))),
+    "trace": ("the film has no trace samples (video_judge's pacing.trace is false)",
+              lambda r, movie: bool((r.get("pacing") or {}).get("trace"))),
+    "tracked": ("video_judge tracked no divider on this film (tracked_dividers is 0): its divider checks did not look",
+                lambda r, movie: bool(r.get("tracked_dividers"))),
+    "model": ("video_judge compared no tracked divider with the trace (model_lag is empty)",
+              lambda r, movie: bool(r.get("model_lag"))),
+    "movie": ("the film has no movie in the store: video_judge's movie checks did not look", lambda r, movie: movie),
+    "input": ("video_judge's result does not show the input this check starts from (it writes no count of inputs)",
+              lambda r, movie: False),
+    "judged": ("judge_trace judged no motion of this film", lambda r, movie: r.get("motion") is not None),
+    "neighbours": ("judge_trace judged no motion with 2 or more panes at rest (it checks gap and overlap only between "
+                   "neighbours at rest)", lambda r, movie: _panes_at_rest(r) >= 2),
 }
-# video_judge checks the trace alone, outside any motion window: an absence of these needs no motion window.
-TRACE_ONLY_CHECKS = frozenset({"model edge off the device-pixel grid"})
+# Every name each judge reports, as its source writes it (a test pins the names and video_judge's severities to the
+# source): (the severity its judge writes it with, what its check needs; see NEEDS). video_judge writes each name at
+# one severity: 14 are defects, 5 notes, 4 recorder findings. Every video_judge check but the model grid reads complete
+# frames (a film with none is judged on its trace only). A judge PR that adds a name or changes one adds it here.
+NAMES = {
+    "video_judge": {
+        # pacing: the refreshes of each motion window; the trace says why a refresh brought no frame
+        "dropped frames": ("defect", ("frames", "motion")),
+        "idle refresh in motion": ("defect", ("frames", "motion")),
+        "capture stall in motion": ("recorder", ("frames", "motion")),
+        "content wait": ("note", ("frames", "motion", "trace")),
+        "frame gap during slow input": ("note", ("frames", "motion", "input")),
+        "main thread missed refreshes before the first frame": ("defect", ("frames", "motion", "trace", "input")),
+        # blends: the scanned frames of each motion window against its frames at rest
+        "half-pixel blend": ("defect", ("frames", "motion")),
+        # dividers: the dividers tracked along the scan lines in each motion window
+        "gap or overlap": ("defect", ("frames", "motion", "tracked")),
+        "divider not shown": ("defect", ("frames", "motion", "tracked")),
+        "jump": ("defect", ("frames", "motion", "tracked")),
+        "jump back": ("defect", ("frames", "motion", "tracked")),
+        "jump back (animation)": ("note", ("frames", "motion", "tracked")),
+        # model: the tracked dividers' frames against the trace's dividers
+        "shown geometry not in the model": ("defect", ("frames", "motion", "trace", "tracked", "model")),
+        # content size: the trace's content sizes in each motion window
+        "content not at final size after motion": ("defect", ("frames", "motion", "trace")),
+        "content size during motion": ("note", ("frames", "motion", "trace")),
+        # movie: the decoded movie of each motion window, with the trace
+        "blank pane": ("defect", ("frames", "motion", "trace", "movie")),
+        "flash": ("defect", ("frames", "motion", "trace", "movie")),
+        "content stretched": ("defect", ("frames", "motion", "trace", "movie")),
+        "reflow": ("note", ("frames", "motion", "trace", "movie")),
+        # recorder: every complete frame; capture gaps only around motion (at rest a capture may be silent)
+        "encoder dropped frames": ("recorder", ("frames",)),
+        "scan count mismatch": ("recorder", ("frames",)),
+        "capture stall": ("recorder", ("frames", "motion")),
+        # the trace alone, every sample, with or without a motion window
+        "model edge off the device-pixel grid": ("defect", ("trace",)),
+    },
+    "judge_trace": {
+        **{kind: ("defect", ("judged",)) for kind in ("dropped", "end-jump", "lurch", "off-grid", "reverse")},
+        **{kind: ("defect", ("judged", "neighbours")) for kind in ("gap", "overlap", "overlap-fading")},
+    },
+}
+JUDGE_NAMES = {judge: frozenset(names) for judge, names in NAMES.items()}
 
 
 def _span_problem(span):
@@ -1055,18 +1136,15 @@ def _span_problem(span):
     return None if ok else f"{json.dumps(span)} is not a span [first, last] with first <= last"
 
 
-def truth_problems(manifest, films_doc):
-    """Why a TRUTH fact cannot be checked (each names the fact): a film not in films.json, no check at all, a
-    ruler or an expectation of an unknown form, an empty or reversed span. Such a fact is NO VERDICT in run and in
-    bless, never a pass (review 2 of #33930, finding C: run skipped a fact of an unknown film; some shapes were met
-    by any result)."""
+def truth_problems(truth, films_doc):
+    """Why a TRUTH fact of TRUTH (load_truth's document: read once per command, so the facts checked are the facts
+    validated) cannot be checked (each names the fact): a film not in films.json, no check at all, a ruler or an
+    expectation of an unknown form, an empty or reversed span, a name that is no text or that its judge does not
+    report. Such a fact is NO VERDICT in run and in bless, never a pass (review 2 of #33930, finding C: run skipped a
+    fact of an unknown film; some shapes were met by any result)."""
     problems, seen = [], set()
     films = (films_doc or {}).get("films") or {}
-    try:
-        facts = load_truth(manifest)["facts"]
-    except ValueError as error:
-        return [str(error)]
-    for fact in facts:
+    for fact in truth["facts"]:
         fid = fact.get("id") if isinstance(fact, dict) else None
         if not isinstance(fact, dict) or not fid:
             problems.append(f"a fact with no id: {json.dumps(fact)[:120]}")
@@ -1105,6 +1183,9 @@ def truth_problems(manifest, films_doc):
             if KIND_JUDGE.get(kinds[0]) != expect["judge"]:
                 problems.append(f"{fid}: {kinds[0]} reads {KIND_JUDGE.get(kinds[0])}'s result, not "
                                 f"{expect['judge']}'s: it would check nothing")
+            elif kinds[0] in ("check", "absent_check", "kind", "absent_kind") and not isinstance(expect[kinds[0]], str):
+                problems.append(f"{fid}: {kinds[0]} names one {expect['judge']} name as a text, not "
+                                f"{json.dumps(expect[kinds[0]])[:80]}")
             elif kinds[0] in ("check", "absent_check", "kind", "absent_kind") \
                     and expect[kinds[0]] not in JUDGE_NAMES.get(expect["judge"], ()):
                 problems.append(f"{fid}: {expect['judge']} reports no {expect[kinds[0]]!r} (its names: "
@@ -1125,16 +1206,20 @@ def truth_problems(manifest, films_doc):
     return problems
 
 
-def check_truth(store, manifest, results, films=None):
-    """(passed, total, failures, no_verdict) of the truth facts on RESULTS (per film and judge, as judge_all gives),
-    for the facts of FILMS (default: every fact). A ruler fact the film does not show is NO VERDICT (the film or the
-    fact is wrong); an expectation a judge does not meet is a TRUTH failure."""
+def check_truth(store, truth, films_doc, results, films=None):
+    """(passed, total, failures, no_verdict) of the facts of TRUTH (load_truth's document) on RESULTS (per film and
+    judge, as judge_all gives), for the facts of FILMS (default: every fact). A ruler fact the film does not show, or an
+    expectation its result cannot answer, is NO VERDICT (the film, the fact or the judge's coverage is wrong); an
+    expectation a judge does not meet is a TRUTH failure."""
     passed = total = 0
     failures, no_verdict = [], []
-    for fact in load_truth(manifest)["facts"]:
+    table = files_table(store, films_doc)
+    for fact in truth["facts"]:
         fid, film = fact.get("id"), fact.get("film")
         if films is not None and film not in films:
             continue
+        folder, _, name = str(film).rpartition("/")
+        movie = f"{name}.mov" in (table.get(folder) or {})
         base = str(Path(store) / "films" / film)
         if fact.get("ruler"):
             total += 1
@@ -1154,7 +1239,7 @@ def check_truth(store, manifest, results, films=None):
                 no_verdict.append(f"{fid} ({film}): {judge} did not judge this film")
                 continue
             try:
-                why = _expectation(results[film][judge]["result"], expect)
+                why = _expectation(results[film][judge]["result"], expect, movie=movie)
             except Unchecked as error:
                 no_verdict.append(f"{fid} ({film}): {judge}: {error}")
                 continue
@@ -1165,10 +1250,12 @@ def check_truth(store, manifest, results, films=None):
     return passed, total, failures, no_verdict
 
 
-def unit_tests(judges_dir):
+def unit_tests(judges_dir, store=None):
     """Runs the judges' unit tests (UNIT_TEST_GLOBS in JUDGES_DIR) in their own process: (ran, failed, skipped, the
-    names), or None when the folder has none."""
+    names), or None when the folder has none. The tests get STORE as JUDGE_GOLDENS_STORE (a test that judges a stored
+    film reads it from the store this run judges). A skipped test checks nothing: bless and run say NO VERDICT."""
     judges_dir = Path(judges_dir).resolve()
+    env = dict(os.environ, **({"JUDGE_GOLDENS_STORE": str(Path(store).resolve())} if store is not None else {}))
     files = sorted({p for g in UNIT_TEST_GLOBS for p in judges_dir.glob(g)})
     if not files:
         return None
@@ -1178,7 +1265,8 @@ def unit_tests(judges_dir):
         with tempfile.TemporaryDirectory(prefix="judge-unit-") as pycache:
             try:
                 done = subprocess.run([sys.executable, "-I", "-X", f"pycache_prefix={pycache}", str(path)],
-                                      capture_output=True, text=True, cwd=str(path.parent), timeout=UNIT_TEST_TIMEOUT_S)
+                                      capture_output=True, text=True, cwd=str(path.parent), timeout=UNIT_TEST_TIMEOUT_S,
+                                      env=env)
             except subprocess.TimeoutExpired:
                 raise Fault(f"the judges' unit tests in {name} did not finish in {UNIT_TEST_TIMEOUT_S} s")
         if done.returncode < 0:
@@ -1225,7 +1313,7 @@ def cmd_bless(opts):
                   f"inputs and normalizes their results):\n{judges_state['runner']['dirty']}", file=sys.stderr)
             return 2
     films = select(films_doc, None)
-    truth_bad = truth_problems(manifest, films_doc)
+    truth, truth_bad = read_truth(manifest, films_doc)
     if truth_bad:
         print("REFUSED (NO VERDICT): truth.json has facts that cannot be checked:\n  " + "\n  ".join(truth_bad[:40]),
               file=sys.stderr)
@@ -1241,14 +1329,18 @@ def cmd_bless(opts):
     except Fault as fault:
         print(f"REFUSED (NO VERDICT): {fault}", file=sys.stderr)
         return 2
-    passed, total, failures, no_verdict = check_truth(store, manifest, results)
+    passed, total, failures, no_verdict = check_truth(store, truth, films_doc, results)
     if no_verdict:
-        print("REFUSED (NO VERDICT): a TRUTH ruler fact does not hold:\n  " + "\n  ".join(no_verdict), file=sys.stderr)
+        print(f"REFUSED (NO VERDICT): {NO_VERDICT_TRUTH}:\n  " + "\n  ".join(no_verdict), file=sys.stderr)
         return 2
     try:
-        unit = unit_tests(opts.judges)
+        unit = unit_tests(opts.judges, store)
     except Fault as fault:
         print(f"REFUSED (NO VERDICT): {fault}", file=sys.stderr)
+        return 2
+    if unit is not None and unit[2]:
+        print(f"REFUSED (NO VERDICT): {unit[2]} of the judges' unit tests were skipped in {', '.join(unit[3])}: a "
+              "skipped test checks nothing", file=sys.stderr)
         return 2
     if unit is None or unit[1]:
         failures.append("unit tests: " + ("none in the judges folder" if unit is None else
@@ -1302,7 +1394,7 @@ def cmd_run(opts):
         print(f"NO VERDICT: no film matches {opts.only or 'the manifest'}: a run that judges nothing proves nothing",
               file=sys.stderr)
         return 2
-    truth_bad = truth_problems(manifest, films_doc)
+    truth, truth_bad = read_truth(manifest, films_doc)
     if truth_bad:
         print("NO VERDICT: truth.json has facts that cannot be checked:\n  " + "\n  ".join(truth_bad[:40]),
               file=sys.stderr)
@@ -1352,11 +1444,11 @@ def cmd_run(opts):
             diffs.append(f"DIFF {judge} {film}: {detail or 'same summary'}\n      " + "\n      ".join(paths))
     for line in sorted(diffs):
         print(line)
-    t_passed, t_total, t_failures, t_no_verdict = check_truth(store, manifest, results, set(films))
+    t_passed, t_total, t_failures, t_no_verdict = check_truth(store, truth, films_doc, results, set(films))
     for line in t_failures:
         print(line)
     try:
-        unit = None if opts.no_unit_tests else unit_tests(opts.judges)
+        unit = None if opts.no_unit_tests else unit_tests(opts.judges, store)
     except Fault as fault:
         print(f"NO VERDICT: {fault}", file=sys.stderr)
         return 2
@@ -1380,8 +1472,11 @@ def cmd_run(opts):
                                "truth": {"passed": t_passed, "total": t_total, "failures": t_failures,
                                          "no_verdict": t_no_verdict}, "unit_tests": unit_line})
     if t_no_verdict:
-        print("NO VERDICT: a TRUTH ruler fact does not hold on the stored film:\n  " + "\n  ".join(t_no_verdict),
-              file=sys.stderr)
+        print(f"NO VERDICT: {NO_VERDICT_TRUTH}:\n  " + "\n  ".join(t_no_verdict), file=sys.stderr)
+        return 2
+    if unit is not None and unit[2]:
+        print(f"NO VERDICT: {unit[2]} of the judges' unit tests were skipped in {', '.join(unit[3])}: a skipped test "
+              "checks nothing", file=sys.stderr)
         return 2
     return 0 if same == total and not t_failures and not unit_failed else 1
 

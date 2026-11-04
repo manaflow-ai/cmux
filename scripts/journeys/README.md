@@ -304,11 +304,18 @@ Every change to a judge reproduces the judge goldens. They have two tiers:
   it, how) in its `why`. A fact that cannot be checked is NO VERDICT in both: its film is not in `films.json`, it has
   no `why`, an unknown key, no ruler and no expectation, an expectation of an unknown form or of a kind its judge
   does not report (`check`, `defect_frames` and `absent_check` are video_judge's findings; `kind` and `absent_kind`
-  are judge_trace's defects), a judge that does not judge its film, or an empty or reversed span; so is an absence on
-  a video_judge result with no frame or no motion window (except the trace-only model-grid check) and on a
-  judge_trace result with no motion; so is a check, kind or absence of a name its judge does not report
-  (`JUDGE_NAMES`), and a missing `truth.json`. A ruler fact also needs the film's scan records to be its complete
-  frames, one each, in order (the judge's frame numbers).
+  are judge_trace's defects), a judge that does not judge its film, or an empty or reversed span; so is a check, kind
+  or absence of a name its judge does not report or that is no text, a missing `truth.json`, and a skipped judge unit
+  test (the runner gives the tests the store it judges as `JUDGE_GOLDENS_STORE`). A name is read at the severity its
+  judge writes it with (`NAMES` in `judge_goldens.py`, pinned to the source: 14 video_judge names are defects, 5 notes
+  and 4 recorder findings). An absence fails when the judge reports the name; when it does not, it holds only where
+  that name's own check looked, as the result shows it (`NEEDS`: complete frames, a motion window, trace samples, a
+  tracked divider, a divider compared with the trace, the film's movie in the store; for judge_trace a judged motion,
+  and 2 or more panes at rest for `gap`, `overlap` and `overlap-fading`); else it is NO VERDICT. Two video_judge
+  checks start from an input that its result does not count (`main thread missed refreshes before the first frame`,
+  `frame gap during slow input`): an absence of them is NO VERDICT until the judge writes that count. A check (must
+  report) needs no coverage: a judge that did not look, and so missed it, fails. A ruler fact also needs the film's
+  scan records to be its complete frames, one each, in order (the judge's frame numbers).
 
 ```bash
 PY=/work/tmp/bv-venv/bin/python
@@ -328,8 +335,8 @@ $PY -I scripts/journeys/test_judge_goldens.py          # the runner's own tests 
   machine, a result with no stable JSON form, a changed, missing or unpinned store file, a blessed result that is
   gone or changed, a judge or runner file that changed during the run, another toolchain (python, numpy, the ffmpeg
   binary), a TRUTH fact that cannot be checked or a
-  ruler fact the film does not show, a unit-test file that is ended by a signal or reports no count, or no film
-  selected.
+  ruler fact the film does not show, an expectation whose check did not look, a unit-test file that is ended by a
+  signal or reports no count, a skipped unit test, or no film selected.
 - Each film is judged in its own process (its process group is ended at the budget), in a sealed view that holds
   only the film's pinned files (reflinks under `<store>/.scratch`), with bytecode that only this run wrote (a prefix
   per run): a result cannot depend on `--jobs`, film order, an older run's bytecode, or a file the table does not

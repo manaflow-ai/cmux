@@ -23,6 +23,7 @@ Run: /work/tmp/resize-videos/venv/bin/python -I scripts/journeys/test_video_judg
    mouse journal and the HID entries).
 """
 import json
+import os
 import shutil
 import struct
 import subprocess
@@ -39,8 +40,11 @@ import video_judge as vj  # noqa: E402
 PACING_FIXTURE = HERE / "fixture-video-judge-content-wait-bv-dt-5851715-b-r4.json"
 DRAG_FIXTURE = HERE / "fixture-judge-trace-clamp-two-drags-5851715.json"
 JUDGE_TRACE = HERE / "video-cases" / "judge_trace.py"
-REAL_BV = Path("/work/tmp/pacing-triage/runs/pt-feat-5851715-b-20261103T024936Z-cmux22/bv-dt-bottom-light-dark/video/"
-               "bv-dt-bottom-light-dark-r4")
+# The film is in the judge goldens store; the runner gives its tests the store it judges (JUDGE_GOLDENS_STORE). Its bytes
+# are those of pacing triage round pt-feat-5851715-b-20261103T024936Z-cmux22, bv-dt-bottom-light-dark r4. Run alone
+# without the store, the test is skipped; the runner calls a skipped test NO VERDICT (review 5 of #33930, note 1).
+REAL_BV = (Path(os.environ.get("JUDGE_GOLDENS_STORE", "/work/goldens/judge-films")) / "films"
+           / "pt-feat-5851715-b-120x1" / "bv-dt-bottom-light-dark-r4")
 OLD_DROPPED = 22  # the old judge's count for this film (pacing triage films.jsonl, round b r4)
 
 
