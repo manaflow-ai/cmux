@@ -228,6 +228,10 @@ fn run_owner(control: &RosterControl, mux: &Weak<Mux>) {
         drop(session);
         let mut requests = control.lock();
         requests.done = requests.done.max(ticket);
+        // MUTANT (review 2 of #35334, never merge): the owner drops the work recorded during its
+        // pass, as the first fix's F1 did. The existing F1 test settles, which asks for a pass of
+        // its own; the review's idle-wait test must go red here.
+        requests.pending = false;
         #[cfg(test)]
         requests.set_busy_for_test(false);
         // A retirement whose journal head could not be read or reached waits
