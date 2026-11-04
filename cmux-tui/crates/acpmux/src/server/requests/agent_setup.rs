@@ -79,6 +79,9 @@ pub(super) async fn save(
     params: &Value,
 ) -> Result<Value, RpcError> {
     let prompt = match params.get("systemPrompt") {
+        // A cleared editor removes the prompt, so the harness's own prompt applies again, instead
+        // of an empty file that would replace it with nothing.
+        Some(Value::String(text)) if text.trim().is_empty() => Value::Null,
         Some(Value::String(text)) => json!(text),
         Some(Value::Null) => Value::Null,
         _ => {

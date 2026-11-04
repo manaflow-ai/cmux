@@ -47,7 +47,9 @@ pub(super) fn redact_for_remote(method: &str, reply: &mut Value) {
     }
     // A preset's args, env and system prompt never leave the unix socket
     // (the Web and the local app alike): `_acpmux/presets` (one or all) and
-    // `_acpmux/harnesses` say only whether a preset has them.
+    // `_acpmux/harnesses` say only whether a preset has them. The one exception
+    // is `_acpmux/agent_setup`, which gives the person's own pane in the app
+    // (LocalApp with person proof) its chat's preset system prompt to edit.
     match reply.get_mut("presets") {
         Some(Value::Array(list)) => list.iter_mut().for_each(hide_preset_contents),
         Some(Value::Object(map)) => map.values_mut().for_each(hide_preset_contents),

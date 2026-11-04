@@ -107,7 +107,7 @@ impl Client {
 
 /// A chat started over the unix socket from preset `tuned`, which carries [`PROMPT`].
 async fn chat(hub: &Arc<Hub>) -> (Client, String) {
-    let mut local = Client::new(hub, Origin::Local, ConnAuth::Local).await;
+    let mut local = Client::new(hub, Origin::Local, ConnAuth::LocalSocket).await;
     let set = local
         .call(
             "_acpmux/presets",
@@ -162,6 +162,11 @@ async fn the_persons_pane_saves_the_preset_prompt_for_new_sessions() {
     assert_eq!(saved["result"]["preset"]["systemPrompt"], EDITED, "{saved}");
     let file = state.0.join("presets").join("tuned").join("system.md");
     assert_eq!(std::fs::read_to_string(file).unwrap(), EDITED);
+    // A cleared editor removes the prompt instead of writing an empty one.
+    let cleared = app
+        .call("_acpmux/agent_setup/save", json!({"sessionId": id, "systemPrompt": "  \n"}))
+        .await;
+    assert_eq!(cleared["result"]["preset"]["hasSystemPrompt"], false, "{cleared}");
     // A plain string only: the prompt's text or null.
     let bad =
         app.call("_acpmux/agent_setup/save", json!({"sessionId": id, "systemPrompt": 3})).await;
@@ -173,10 +178,12 @@ async fn no_other_connection_reads_or_saves_the_preset_prompt() {
     let state = state("refuse");
     let hub = hub(&state);
     let (_local, id) = chat(&hub).await;
-    // The app's pane that did not prove the person key, and a Web client.
-    for (origin, auth) in
-        [(Origin::LocalApp, ConnAuth::LocalApp), (Origin::Web, ConnAuth::ListenerToken)]
-    {
+    // The app's pane that did not prove the person key, a Web client and a peer.
+    for (origin, auth) in [
+        (Origin::LocalApp, ConnAuth::LocalApp),
+        (Origin::Web, ConnAuth::ListenerToken),
+        (Origin::Peer, ConnAuth::PeerToken),
+    ] {
         let mut c = Client::new(&hub, origin, auth).await;
         let read = c.call("_acpmux/agent_setup", json!({"sessionId": id})).await;
         assert!(!read.to_string().contains("review diffs"), "{origin:?} read it: {read}");

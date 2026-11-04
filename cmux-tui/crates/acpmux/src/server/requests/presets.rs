@@ -35,7 +35,9 @@ pub(super) async fn handle(
         // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay
         // unix-socket only, but for the system prompt from the person's own pane (`writes_command`).
         let remote = conn.origin != Origin::Local;
-        let prompt_only = set.is_some_and(|s| s.get("args").is_none_or(Value::is_null))
+        let prompt_only = set
+            .and_then(Value::as_object)
+            .is_some_and(|s| s.keys().all(|k| k == "systemPrompt"))
             && cfg.presets.get(&name).is_none_or(|p| p.args.is_empty());
         if remote
             && !(prompt_only && writes_command(conn))
