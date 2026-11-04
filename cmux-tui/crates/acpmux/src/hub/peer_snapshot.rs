@@ -986,19 +986,29 @@ impl Store {
         h.from_start = h.first_seq <= 1;
         // Only retain a prompt before the copy's run, from this same accepted page and
         // generation. A page that extends the run backwards may put the old opener inside it.
+        let mut metadata_changed = false;
         if h.turn_opener.as_ref().and_then(seq_of).is_some_and(|s| s >= h.first_seq) {
             h.turn_opener = None;
+            metadata_changed = true;
         }
         if let Some(opener) = page.turn_opener.filter(|r| {
             starts_turn(r) && of_session(r, key) && seq_of(r).is_some_and(|s| s < h.first_seq)
         }) && h.turn_opener.as_ref().and_then(seq_of) < seq_of(&opener)
         {
             h.turn_opener = Some(opener);
+            metadata_changed = true;
         }
-        if let Some(row) = row {
+        if let Some(row) = row
+            && h.summary != row
+        {
             h.summary = row;
+            metadata_changed = true;
         }
-        self.charge(key);
+        // Cursor/capture-time bookkeeping costs no more retained metadata. Count the
+        // potentially large row and prompt only when one changes, not on every page.
+        if metadata_changed {
+            self.charge(key);
+        }
         self.add(key, page.records);
     }
 
@@ -1191,6 +1201,11 @@ impl Store {
                     head.first_seq = if head.from_start { 1 } else { lo.unwrap_or(1) };
                 }
                 head.from_start = head.first_seq <= 1;
+                // The serialized head was validated before normalizing its first seq.
+                // An opener now inside the actual record run is no longer its prefix.
+                if head.turn_opener.as_ref().and_then(seq_of).is_some_and(|s| s >= head.first_seq) {
+                    head.turn_opener = None;
+                }
                 if let Some(c) = self.copies.get_mut(key) {
                     c.head = head;
                     c.records = Some(records);
