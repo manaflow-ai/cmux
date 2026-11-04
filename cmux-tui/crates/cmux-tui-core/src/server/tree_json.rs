@@ -522,8 +522,12 @@ fn check_entity_against_whole_tree(
         }
         before = after;
     }
-    // The live fields moved during every attempt: nothing to compare.
+    // The live fields moved during every attempt: nothing to compare. Said, so
+    // a check that never compares is seen.
     PANES_BUILT.with(|cell| cell.set(built));
+    eprintln!(
+        "tree entity check: the {kind:?} entity of {id} kept changing during {ENTITY_CHECK_ATTEMPTS} builds; not compared"
+    );
 }
 
 /// Only the entity itself: the one workspace, screen, pane or tab, never the whole tree (each
