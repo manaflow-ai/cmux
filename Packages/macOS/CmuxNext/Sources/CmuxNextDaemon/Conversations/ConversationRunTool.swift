@@ -7,6 +7,8 @@ public struct ConversationRunTool: Decodable, Sendable, Hashable {
         public var id: String?
         public var message: String?
         public var isTellEnvelope = false
+        /// The prompt's `_meta.cmux.sender` (`human:<participant>`, `chief:<id>`); nil when it has none.
+        public var sender: String?
 
         private enum CodingKeys: String, CodingKey { case id, message, arguments, server, tool }
 
