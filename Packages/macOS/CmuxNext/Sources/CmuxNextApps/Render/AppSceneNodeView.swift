@@ -63,6 +63,12 @@ struct AppSceneNodeView: View {
             AppSceneBadge(text: node.string("text") ?? "", tone: node.props["tone"])
         case .emptyState:
             AppSceneEmptyState(node: node)
+        case .toggle:
+            AppSceneToggle(model: model, id: id, node: node)
+        case .slider:
+            AppSceneSlider(model: model, id: id, node: node)
+        case .panel:
+            AppScenePanel(node: node) { children(node) }
         }
     }
 
@@ -95,3 +101,44 @@ struct AppSceneButton: View {
     }
 }
 
+/// `Toggle`: the native switch, two-way bound like `TextField`. The scene's
+/// `value` is the state; with `onChange`, a flip shows at once and sends
+/// `change {value}`, and the next `value` the app sends wins. Without
+/// `onChange` it only shows the app's value, disabled.
+/// Inked with the scope's primary text, the emphasis cmux chrome uses (never
+/// system blue).
+struct AppSceneToggle: View {
+    @Environment(\.appSceneColors) private var colors
+    let model: AppSceneModel
+    let id: String
+    let node: AppSceneNode
+    @State private var isOn: Bool
+
+    init(model: AppSceneModel, id: String, node: AppSceneNode) {
+        self.model = model
+        self.id = id
+        self.node = node
+        _isOn = State(initialValue: node.flag("value"))
+    }
+
+    var body: some View {
+        // A settings row: the label leading, the switch trailing, as the app's own switch rows.
+        HStack(spacing: Metrics.space2) {
+            if let label = node.string("label") {
+                Text(label).font(Font(Typography.body)).foregroundStyle(colors.primary).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            Toggle(node.string("label") ?? "", isOn: Binding(get: { isOn }, set: { new in
+                guard node.flag("onChange") else { return }
+                isOn = new
+                model.send(id, "change", ["value": .bool(new)])
+            }))
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .tint(colors.primary)
+            .labelsHidden()
+            .disabled(node.flag("disabled") || !node.flag("onChange"))
+        }
+        .onChange(of: node.flag("value")) { _, new in if new != isOn { isOn = new } }
+    }
+}

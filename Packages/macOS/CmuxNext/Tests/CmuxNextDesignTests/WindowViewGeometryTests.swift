@@ -48,6 +48,17 @@ import Testing
         #expect(change.lines.contains { $0.contains("appeared") })
     }
 
+    @Test func aViewWithNoAreaChangesNothingUntilItHasOne() {
+        let views = tree()
+        let dot = NSView(frame: .zero)
+        views.sidebar.addSubview(dot)
+        let first = WindowViewGeometry(root: views.root)
+        dot.frame.origin = NSPoint(x: 6, y: 30) // still no area: draws nothing
+        #expect(WindowViewGeometry(root: views.root).changes(since: first).total == 0)
+        dot.frame.size = NSSize(width: 8, height: 8) // laid out: it shows
+        #expect(WindowViewGeometry(root: views.root).changes(since: first).lines == ["NSView shown 6,30,8,8"])
+    }
+
     @Test func aClearContainerHidesItsSubtree() {
         let views = tree()
         views.pane.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100)))
