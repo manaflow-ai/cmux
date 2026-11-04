@@ -43,14 +43,19 @@ import Testing
         #expect(message.hasPrefix("themes/tokyo.json: appearance.accent = \"purple\" was ignored"))
     }
 
-    @Test func aMissingOrBrokenFileIsReportedAtTheSetting() {
+    @Test func aMissingOrBrokenFileIsReportedAtTheSetting() throws {
         let missing = ThemeFileOverlay(name: "gone", source: nil, base: .object([:]))
         #expect(!missing.isLoaded)
         #expect(missing.diagnostics.map(\.path) == ["appearance.themeFile"])
         #expect(missing.diagnostics.first?.file == nil)
         let broken = Self.overlay("{ not json")
         #expect(!broken.isLoaded)
-        #expect(broken.diagnostics.first?.message.hasPrefix("themes/tokyo.json could not be read") == true)
+        #expect(broken.isUnparsable)
+        let problem = try #require(broken.diagnostics.first)
+        #expect(problem.kind == .unreadableFile && problem.file == "themes/tokyo.json")
+        // The toast words it as cmux-next.json's, with the theme file's name.
+        let notice = SettingsDiagnosticNotices.Notice(kind: problem.kind, path: problem.path, value: nil, message: problem.message, file: problem.file)
+        #expect(SettingsDiagnosticStrings.message(notice, valueLimit: 80).hasPrefix("themes/tokyo.json could not be read ("))
     }
 
     @Test func colorsEditTheTerminalThemeTheFileNamesAndKeepOtherEdits() {
@@ -250,7 +255,7 @@ import Testing
             await settings.reload()
             #expect(settings.snapshot.accent == .blue)
             let problem = try #require(settings.diagnostics.first { $0.kind == .unreadableFile && $0.file == "themes/tokyo.json" })
-            #expect(problem.path == "appearance.themeFile")
+            #expect(problem.path.isEmpty)
             let update = notices.update(settings.diagnostics, file: settings.fileRoot)
             fingerprints.formUnion(update.announce.filter { $0.file != nil }.map(\.fingerprint))
         }

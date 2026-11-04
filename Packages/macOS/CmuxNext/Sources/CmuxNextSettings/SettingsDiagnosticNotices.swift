@@ -38,7 +38,7 @@ public struct SettingsDiagnosticNotices: Sendable {
             self.message = message
             self.file = file
             if kind == .unreadableFile {
-                fingerprint = kind.rawValue
+                fingerprint = ([file, kind.rawValue] as [String?]).compactMap(\.self).joined(separator: "\u{0}")
             } else {
                 let digest = value.map { SHA256.hash(data: Data($0.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined() } ?? ""
                 fingerprint = ([file, path, digest, message] as [String?]).compactMap(\.self).joined(separator: "\u{0}")

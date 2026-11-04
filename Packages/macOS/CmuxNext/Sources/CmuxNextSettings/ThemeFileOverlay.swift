@@ -25,10 +25,13 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     public let name: String
     /// Whether the file was found and read.
     public let isLoaded: Bool
+    /// Whether the file is there but is no JSON object (a save mid-edit): the load keeps the last
+    /// good text of the same file (`SettingsController`), as cmux-next.json keeps its last good load.
+    public let isUnparsable: Bool
     /// Each value the file sets, by key path, in a stable order.
     public let values: [(path: [String], value: JSONValue)]
     /// Refused values, a missing or unreadable file, and contrast corrections.
-    public let diagnostics: [SettingsDiagnostic]
+    public internal(set) var diagnostics: [SettingsDiagnostic]
     /// The color tokens raised for contrast (`foreground`), empty when none were.
     public let corrected: [String]
 
@@ -72,6 +75,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         self.name = name
         var reader = Reader(file: "\(ThemeFileSetting.folderName)/\(name).\(ThemeFileSetting.fileExtension)")
         isLoaded = reader.read(source, base: base)
+        isUnparsable = reader.isUnparsable
         values = reader.values.sorted { $0.path.lexicographicallyPrecedes($1.path) }
         diagnostics = reader.diagnostics
         corrected = reader.corrected
@@ -87,7 +91,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     }
 
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.name == rhs.name && lhs.isLoaded == rhs.isLoaded && lhs.diagnostics == rhs.diagnostics && lhs.corrected == rhs.corrected
+        lhs.name == rhs.name && lhs.isLoaded == rhs.isLoaded && lhs.isUnparsable == rhs.isUnparsable && lhs.diagnostics == rhs.diagnostics && lhs.corrected == rhs.corrected
             && lhs.values.map(\.path) == rhs.values.map(\.path) && lhs.values.map(\.value) == rhs.values.map(\.value)
     }
 
@@ -96,6 +100,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         var values: [(path: [String], value: JSONValue)] = []
         var diagnostics: [SettingsDiagnostic] = []
         var corrected: [String] = []
+        var isUnparsable = false
 
         /// Reads the file's text; false when there is none or it is not a JSON object.
         mutating func read(_ source: Result<String, any Error>?, base: JSONValue) -> Bool {
@@ -107,11 +112,11 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
             do {
                 parsed = try JSONC.parse(try source.get())
             } catch {
-                refuse("", nil, "\(file) could not be read (\(error))")
+                unreadable(String(describing: error))
                 return false
             }
             guard case .object(let members) = parsed else {
-                refuse("", nil, "\(file) is not a JSON object")
+                unreadable("root is not an object")
                 return false
             }
             for (key, value) in members.sorted(by: { $0.key < $1.key }) where !ThemeFileOverlay.reservedKeys.contains(key) {
@@ -140,6 +145,13 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
             // A key written twice (nested and dotted) keeps the later one in key order.
             values.removeAll { $0.path == descriptor.path }
             values.append((descriptor.path, value))
+        }
+
+        /// The file is there but does not parse: one `.unreadableFile` notice of the file whatever the
+        /// error says (its fingerprint is the file and the kind), worded as cmux-next.json's.
+        private mutating func unreadable(_ problem: String) {
+            isUnparsable = true
+            diagnostics.append(SettingsDiagnostic(kind: .unreadableFile, path: "", message: problem, file: file))
         }
 
         /// A refused entry of the file at its key (`colors.background` for a color). The file itself

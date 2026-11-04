@@ -54,6 +54,10 @@ public nonisolated struct ThemeFileSetting: Sendable {
 }
 
 extension SettingsController {
+    /// What Settings lists as problems: every diagnostic but the notes saying which keys the theme
+    /// file sets, which are no problem (a working theme file shows no warning).
+    public var pageDiagnostics: [SettingsDiagnostic] { diagnostics.filter { $0.kind != .setByThemeFile } }
+
     /// A palette row's values: for `appearance.themeFile` None and every file in the themes folder
     /// (as the last load read it, so hovering one previews it with no disk read); for any other
     /// setting its kind's values (`SettingDescriptor.paletteOptions`).
@@ -64,13 +68,14 @@ extension SettingsController {
             + names.map { SettingOption(value: .string($0), title: $0, isCurrent: current?.stringValue == $0) }
     }
 
-    /// `value` without the entries the active theme file adds to `descriptor`'s object (its
-    /// `appearance.themeEdits` colors), unless the person's own file holds the same entry.
+    /// `value` with each entry the active theme file supplies to `descriptor`'s object (its
+    /// `appearance.themeEdits` colors) put back to the person's own: their entry when their file has
+    /// one, else none. An entry the person changed is theirs and stays.
     func strippingThemeFileEntries(_ descriptor: SettingDescriptor, _ value: JSONValue?) -> JSONValue? {
         guard case .object(var members)? = value,
               let added = themeFile?.values.first(where: { $0.path == descriptor.path })?.value.objectValue else { return value }
         let own = fileRoot.value(at: descriptor.path)?.objectValue ?? [:]
-        for (key, entry) in added where members[key] == entry && own[key] != entry { members[key] = nil }
+        for (key, entry) in added where members[key] == entry && own[key] != entry { members[key] = own[key] }
         return .object(members)
     }
 }
