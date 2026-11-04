@@ -32,12 +32,13 @@ from pathlib import Path
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True, help="the tagged app bundle")
 parser.add_argument("--tag", required=True)
-parser.add_argument("--prompt", required=True)
+parser.add_argument("--prompt", default="")
 parser.add_argument("--agent", default="claude")
 parser.add_argument("--cloud-backend", required=True, choices=("staging", "prod"))
 parser.add_argument("--expected-api-origin", required=True)
 parser.add_argument("--credentials-file", help="0600 Stack credentials file read by the app")
 parser.add_argument("--evidence", required=True)
+parser.add_argument("--cleanup-machine", default="", help="vm_<hex>: inspect and kill this machine, no chat")
 args = parser.parse_args()
 
 CLI = str(Path(args.app) / "Contents/Resources/bin/cmux")
@@ -232,6 +233,43 @@ def listed() -> tuple[int, str, str, dict]:
     return code, out, err, parsed(out) if code == 0 else {}
 
 
+STATUS_FIELDS = ("status", "state", "title", "running_since", "hourly_rate_usd", "estimated_cost_usd")
+IDLE_PAUSE_FIELDS = ("minutes", "last_checked_at", "idle_since", "last_api_activity_at", "private_address_known")
+
+
+def scalar(value: object) -> object:
+    if isinstance(value, str):
+        return "[left out]" if EVIDENCE_SCAN.search(value) else clean(value, 300)
+    return value if isinstance(value, (int, float, bool)) or value is None else None
+
+
+def machine_status(machine: str) -> tuple[int, dict, str]:
+    code, out, err = cmux("cloud", "machine-status", "--target", f"machine:{machine}", "--json", timeout=60)
+    value = parsed(out)
+    for key in ("machine", "fields"):
+        if isinstance(value.get(key), dict):
+            value = {**value[key], **{k: v for k, v in value.items() if k != key}}
+    summary = {key: scalar(value[key]) for key in STATUS_FIELDS if key in value}
+    idle = value.get("idle_pause")
+    if isinstance(idle, dict):
+        summary["idle_pause"] = {key: scalar(idle[key]) for key in IDLE_PAUSE_FIELDS if key in idle}
+    return code, summary, failure_text(err, out) if code != 0 else ""
+
+
+def kill_machine(machine: str) -> bool:
+    code, out, err = cmux("cloud", "kill-machine", "--target", f"machine:{machine}", "--confirm", "--json", timeout=120)
+    if code == 0:
+        record("cloud kill-machine", code, "", "")
+        return True
+    status_code, status_summary, status_detail = machine_status(machine)
+    record("cloud kill-machine", code, "", failure_text(err, out) or "kill-machine returned no error",
+           status_after_failure={"exit": status_code, **status_summary,
+                                 **({"error": status_detail} if status_detail else {})})
+    retry, out_retry, err_retry = cmux("cloud", "kill-machine", "--target", f"machine:{machine}", "--confirm", "--json", timeout=120)
+    record("cloud kill-machine retry", retry, "", failure_text(err_retry, out_retry) if retry else "")
+    return retry == 0
+
+
 def guest_events(machine: str, session: str) -> tuple[int, list[dict], str]:
     """Read raw ACP events from the guest, without putting the raw log in evidence."""
     prelude = 'export HOME="${HOME:-/home/cmux}"; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; '
@@ -373,6 +411,23 @@ actual = wait_for("selected backend active and signed in", ("app", "call", "auth
                   and value.get("backend", "").rstrip("/") == args.expected_api_origin.rstrip("/")
                   and value.get("signed_in") is True)
 evidence["api_origin"] = actual.get("backend")
+
+if args.cleanup_machine:
+    machine = args.cleanup_machine
+    evidence["cleanup_machine"] = machine
+    _, _, _, machines = listed()
+    row = next((r for r in machines.get("machines") or []
+                if isinstance(r, dict) and r.get("machine_id") == machine), None)
+    record("cloud list-machines (cleanup target)", 0, "", "", listed=row is not None,
+           loaded=machines.get("loaded"),
+           **({"row": {key: scalar(row[key]) for key in ("title", "status", "created_at") if key in row}}
+              if row else {}))
+    status_code, status_summary, status_detail = machine_status(machine)
+    record("cloud machine-status", status_code, "", status_detail, machine_status=status_summary)
+    killed = kill_machine(machine)
+    after_code, after_summary, after_detail = machine_status(machine)
+    record("cloud machine-status after kill", after_code, "", after_detail, machine_status=after_summary)
+    finish("pass" if killed else "fail: kill-machine failed twice")
 
 # 2. A VM agent key at the selected environment's issuer.
 started = time.monotonic()

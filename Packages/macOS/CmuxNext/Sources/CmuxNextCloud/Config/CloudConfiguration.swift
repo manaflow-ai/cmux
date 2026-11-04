@@ -85,6 +85,35 @@ public struct CloudConfiguration: Sendable, Equatable {
         return selection.legacyStorage ? selection.authStorageNamespace : selection.authNamespace
     }
 
+    static let signedDEVBundleID = "com.cmuxterm.app.debug.next"
+
+    /// The account selected for a signed NEXT DEV launch. This is launch metadata only;
+    /// backend origins and credentials still come from Rust's runtime selection.
+    public enum DevAccount: String, Sendable, Equatable {
+        case staging
+        case nightly
+    }
+
+    /// A signed DEV production selection adopts the running NIGHTLY session in memory.
+    public var adoptsNightlySession: Bool {
+        !isDebugBuild && bundleID == Self.signedDEVBundleID && runtimeSelection?.name == "prod"
+    }
+
+    public static func launchAccount(chosen: DevAccount, nightlyIsRunning: () -> Bool) -> DevAccount {
+        chosen == .nightly && !nightlyIsRunning() ? .staging : chosen
+    }
+
+    static let devAccountDefaultsKey = "cmux.next.dev.account"
+
+    public static func devAccount(environment: [String: String], defaults: UserDefaults) -> DevAccount {
+        let raw = environment["CMUX_NEXT_DEV_ACCOUNT"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let account = raw.flatMap(DevAccount.init(rawValue:)) {
+            defaults.set(account.rawValue, forKey: devAccountDefaultsKey)
+            return account
+        }
+        return defaults.string(forKey: devAccountDefaultsKey).flatMap(DevAccount.init(rawValue:)) ?? .staging
+    }
+
     /// A signed NEXT DEV production launch may import the existing NIGHTLY session without
     /// changing or clearing NIGHTLY's own token store. This is read-only metadata for CloudAuth.
     public struct NightlySession: Sendable, Equatable {
