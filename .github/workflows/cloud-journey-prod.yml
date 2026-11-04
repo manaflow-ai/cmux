@@ -14,9 +14,9 @@ name: Cloud journey (production, hourly)
 #   and the real model.
 #
 # A red run opens one issue per model, or rewrites the open one's body; the next green run of that model closes it.
-# Secrets: the repository's production agent test account (CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD; the
-# cmux-next-vm-image-dev environment shadows them with the staging account, so this job takes no environment), and
-# for the real model CLAUDE_CODE_OAUTH_TOKEN. They reach the one run step through env; the journey sends them only
+# Secrets: the production agent test account, CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD in the cmux-next-cloud-journey
+# environment (they shadow the repository's pair, the dev Stack account, which production rejects), and for the real
+# model the repository's CLAUDE_CODE_OAUTH_TOKEN. They reach the one run step through env; the journey sends them only
 # in headers and request bodies and scrubs them from its output.
 #
 # The schedule registers from main; the scripts it runs come from feat-cmux-next. A pull request that changes the
@@ -56,6 +56,7 @@ jobs:
         model: [stub, real]
     runs-on: ${{ contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 30
+    environment: cmux-next-cloud-journey
     permissions:
       contents: read
       issues: write
