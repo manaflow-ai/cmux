@@ -46,8 +46,23 @@ pub(super) fn new_watch() -> Arc<ResumeState> {
 
 impl Hub {
     /// How many gaps this daemon saw; changes once per gap.
+    /// A new subscriber starts a parked tick (it reads gaps from now on).
     pub fn subscribe_resumes(&self) -> tokio::sync::watch::Receiver<u64> {
-        self.resumes.subscribe()
+        let receiver = self.resumes.subscribe();
+        if self.resume_watch.watch.lock().unwrap_or_else(|e| e.into_inner()).parked() {
+            self.resume_watch.unparked.notify_one();
+        }
+        receiver
+    }
+
+    /// Called before a turn is set (started, restored on adoption, carried, put back after a
+    /// failover): a parked watch is checked now, while the turn is not set yet, so a sleep while
+    /// no turn ran is seen as a gap of no turn (never told in the new turn), and the tick starts.
+    pub(super) fn resume_before_turn(&self) {
+        let parked = self.resume_watch.watch.lock().unwrap_or_else(|e| e.into_inner()).parked();
+        if parked {
+            self.check_resume();
+        }
     }
 
     /// Tests: the watch as an idle daemon leaves it: parked, the wall clock `lead` ahead of the
@@ -90,7 +105,13 @@ impl Hub {
 
     /// Whether anything reads the gaps now: a running turn here, or a subscriber.
     fn resume_needed(&self) -> bool {
-        self.resumes.receiver_count() > 0 || self.sessions().iter().any(|s| s.turn().is_some())
+        if self.resumes.receiver_count() > 0 {
+            return true;
+        }
+        // Unsorted, and released before any turn lock is taken.
+        let all: Vec<Arc<Session>> =
+            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
+        all.iter().any(|s| s.turn.lock().unwrap_or_else(|e| e.into_inner()).is_some())
     }
 
     /// Handles one gap (module docs). Public so a test can stand in for a paused machine.
