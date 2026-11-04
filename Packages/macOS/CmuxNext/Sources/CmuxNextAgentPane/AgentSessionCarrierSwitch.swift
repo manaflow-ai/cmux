@@ -343,7 +343,7 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
             return (state.current, state.live)
         }
         let answer = try await client.attach(page, events: self.handler(for: generation))
-        let covered = Self.page(answer).lastSeq
+        let covered = Self.covered(answer, by: page)
         state.withLock { $0.newest = max($0.newest, covered) }
         return answer
     }
@@ -351,8 +351,9 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
     /// A forward page the page gets here covers its records too, so a move replays past them.
     public func events(_ page: AgentSessionPage) async throws -> Data {
         let answer = try await call { try await $0.events(page) }
-        if page.afterSeq != nil, page.beforeSeq == nil, let newest = Self.page(answer).newestSeq {
-            state.withLock { $0.newest = max($0.newest, newest) }
+        if page.afterSeq != nil, page.beforeSeq == nil {
+            let covered = Self.covered(answer, by: page)
+            state.withLock { $0.newest = max($0.newest, covered) }
         }
         return answer
     }
@@ -410,8 +411,20 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
         return (object["seq"] as? NSNumber)?.uint64Value
     }
 
+    /// The newest seq through which `answer` (a page asked as `request`) holds every record: acpmux's
+    /// `pageThrough`. Without it, by acpmux's own rule: the log's head (`lastSeq`) for the newest page
+    /// or a forward one with nothing more to read, else the page's own newest record. `lastSeq` alone
+    /// is the head even when the page stops short of it.
+    static func covered(_ answer: Data, by request: AgentSessionPage) -> UInt64 {
+        let object = (try? JSONSerialization.jsonObject(with: answer)) as? [String: Any] ?? [:]
+        if let through = (object["pageThrough"] as? NSNumber)?.uint64Value { return through }
+        let page = page(answer)
+        let toHead = request.beforeSeq == nil && (request.afterSeq == nil || !page.hasMore)
+        return toHead ? page.lastSeq : page.newestSeq ?? 0
+    }
+
     /// An attach or events answer: its records (each as JSON), whether more follow, the newest
-    /// record seq and the `lastSeq` it covers.
+    /// record seq and the log's head (`lastSeq`, at least the newest record).
     static func page(_ answer: Data) -> (records: [Data], hasMore: Bool, newestSeq: UInt64?, lastSeq: UInt64) {
         guard let object = try? JSONSerialization.jsonObject(with: answer) as? [String: Any] else { return ([], false, nil, 0) }
         let events = object["events"] as? [Any] ?? []

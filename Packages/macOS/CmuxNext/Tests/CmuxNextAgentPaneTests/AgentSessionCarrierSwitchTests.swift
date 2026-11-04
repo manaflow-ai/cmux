@@ -316,4 +316,33 @@ struct AgentSessionCarrierSwitchTests {
         #expect(await chat.move(to: direct))
         #expect(!chat.isReadOnly)
     }
+
+    /// Codex re-review of cmux#35770 at c720068f: a forward attach that stops short of the log's head
+    /// (`hasMore`) covers only through its own records (`pageThrough`), not through `lastSeq`. A move
+    /// must re-attach from there, or the records between are skipped for good.
+    @Test func aShortForwardAttachCoversOnlyItsOwnRecords() async throws {
+        let relay = Carrier(log: [1, 2, 3, 4, 5])
+        relay.state.withLock { $0.pageLimit = 2 }
+        let direct = Carrier(log: [1, 2, 3, 4, 5])
+        let chat = AgentSessionCarrierSwitch(fallback: relay)
+        let page = Page()
+        // The page holds 1-2 from the attach answer and has not read on yet.
+        _ = try await chat.attach(AgentSessionPage(afterSeq: 0, limit: 2), events: page.handler)
+        #expect(await chat.move(to: direct))
+        #expect(direct.state.withLock { $0.attaches.first?.afterSeq } == 2)
+        #expect(page.seqs == [3, 4, 5])
+    }
+
+    @Test func coveredFollowsAcpmuxsPageThroughRule() {
+        let json = { (object: [String: Any]) in RemoteAcpmuxWire.json(object) }
+        let partial = json(["events": [["seq": 1], ["seq": 2]], "hasMore": true, "lastSeq": 9])
+        let told = json(["events": [["seq": 1]], "hasMore": true, "lastSeq": 9, "pageThrough": 1])
+        let whole = json(["events": [["seq": 8], ["seq": 9]], "hasMore": false, "lastSeq": 9])
+        #expect(AgentSessionCarrierSwitch.covered(partial, by: AgentSessionPage(afterSeq: 0)) == 2)
+        #expect(AgentSessionCarrierSwitch.covered(told, by: AgentSessionPage(afterSeq: 0)) == 1)
+        #expect(AgentSessionCarrierSwitch.covered(whole, by: AgentSessionPage(afterSeq: 7)) == 9)
+        // The newest page (no cursor) holds through the head; an older page only through its own.
+        #expect(AgentSessionCarrierSwitch.covered(partial, by: AgentSessionPage(limit: 2)) == 9)
+        #expect(AgentSessionCarrierSwitch.covered(partial, by: AgentSessionPage(beforeSeq: 3)) == 2)
+    }
 }
