@@ -340,7 +340,7 @@ function grantingHost() {
   const releases: (() => void)[] = [];
   const calls: string[] = [];
   const native = (method: string, params?: Record<string, unknown>): Promise<unknown> => {
-    calls.push(params?.cwd ? `${method} ${params.cwd}` : method);
+    calls.push(params?.cwd ? `${method} ${String(params.cwd)}` : method);
     if (method === "workspace.useFolder")
       return new Promise((resolve) => releases.push(() => resolve({ status: "ok", cwd: params?.cwd })));
     return Promise.resolve({});
@@ -403,7 +403,9 @@ test("a Cloud start waits only for the grant of the folder it sends", async () =
 test("the pane builds its Cloud start from grantedCloudStart and hands every Cloud pick's grant to it", () => {
   const source = readFileSync(join(import.meta.dir, "App.tsx"), "utf8");
   expect(source).toMatch(/const \[cloudFolderGrant\] = useState\(\(\) => cloudFolderGrants\(\)\);/);
-  expect(source).toMatch(/const \[startCloud\] = useState\(\(\) => grantedCloudStart\(callNative, cloudFolderGrant\)\);/);
+  expect(source).toMatch(
+    /const \[startCloud\] = useState\(\(\) => grantedCloudStart\(callNative, cloudFolderGrant\)\);/,
+  );
   expect(source).toMatch(/cloudFolderGrant\.granting\(folder\.cwd, pickFolder\(callNative, folder\.cwd/);
   expect(source).toMatch(/newTabProjectPick\(callNative, sandboxOfferable, cloudFolderGrant\.granting\)/);
   expect(source).not.toMatch(/oneCloudStart\(/);
