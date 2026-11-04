@@ -1721,14 +1721,14 @@ fn warm_seeded_deps(folder: &Path) {
     let log = std::env::temp_dir().join("cmux-deps-warm.log");
     let out = std::fs::OpenOptions::new().create(true).append(true).open(&log).ok();
     let err = out.as_ref().and_then(|f| f.try_clone().ok());
-    let mut command = std::process::Command::new(exe);
+    let mut command = cmux_process::Command::new(exe);
     command
         .args(["acp", "machine", "deps", "warm", "--if-joined", "--json"])
         .arg(folder)
         .current_dir(folder)
-        .stdin(std::process::Stdio::null())
-        .stdout(out.map_or_else(std::process::Stdio::null, Into::into))
-        .stderr(err.map_or_else(std::process::Stdio::null, Into::into));
+        .stdin(cmux_process::Stdio::null())
+        .stdout(out.map_or_else(cmux_process::Stdio::null, Into::into))
+        .stderr(err.map_or_else(cmux_process::Stdio::null, Into::into));
     // Reaped by a thread so it never lingers as a zombie of the daemon.
     if let Ok(mut child) = command.spawn() {
         let _ = std::thread::Builder::new()
