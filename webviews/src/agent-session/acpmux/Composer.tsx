@@ -1,5 +1,6 @@
 import { acpmuxPerf } from "./perf";
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
@@ -364,6 +365,8 @@ type Props = {
   /// A chat on another machine: that machine's own folders (`project.list`), for its folder menu.
   machineFolders?: Project[];
   onBrowseProject?(): void;
+  /// A new chat's extra folders, in its folder menu (ComposerContext `extraFolders`).
+  extraFolders?: ExtraFolderControl;
   /// New Worktree: a new chat on this Mac starts in a worktree of its folder (cx-lyqio.2).
   onNewWorktree?(cwd: string): void;
   /// A started chat's Choose folder…: the host's folder panel (see ComposerContext).
@@ -466,6 +469,7 @@ export function Composer({
   projectChoices,
   machineFolders,
   onBrowseProject,
+  extraFolders,
   onNewWorktree,
   onBrowseFolder,
   onConnect,
@@ -2125,6 +2129,7 @@ export function Composer({
       projectChoices={projectChoices}
       machineFolders={machineFolders}
       onBrowseProject={onBrowseProject}
+      {...(extraFolders ? { extraFolders } : {})}
       onNewWorktree={onNewWorktree}
       onBrowseFolder={onBrowseFolder}
       onConnect={onConnect}
