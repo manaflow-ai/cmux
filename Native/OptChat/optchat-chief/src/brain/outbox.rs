@@ -181,14 +181,20 @@ impl Brain {
                         *root = thread_root.clone();
                     }
                     // A card rejection must not discard originals that
-                    // already uploaded successfully alongside the card.
-                    if let (
-                        Op::MessageSend { parts, .. },
-                        Op::MessageSend {
-                            parts: fallback_parts,
-                            ..
-                        },
-                    ) = (&op, &mut fallback.op)
+                    // already uploaded successfully alongside the card. A
+                    // refusal of the attachments themselves would refuse
+                    // the text again: the text then goes without them.
+                    let attachments_refused = ["unknown_attachment", "attachment_mismatch"]
+                        .iter()
+                        .any(|code| reason.contains(code));
+                    if !attachments_refused
+                        && let (
+                            Op::MessageSend { parts, .. },
+                            Op::MessageSend {
+                                parts: fallback_parts,
+                                ..
+                            },
+                        ) = (&op, &mut fallback.op)
                     {
                         fallback_parts.extend(
                             parts
@@ -282,9 +288,15 @@ impl Brain {
 /// Whether the owner refused a send for its parts (cards it cannot take),
 /// not for its thread or its pace: only then does the text go instead.
 fn refuses_parts(reason: &str) -> bool {
-    ["invalid_parts", "unknown_attachment", "attachment_mismatch"]
-        .iter()
-        .any(|code| reason.contains(code))
+    // `unsupported_*`: an owner without a part's kind (`unsupported_link_preview`).
+    [
+        "invalid_parts",
+        "unknown_attachment",
+        "attachment_mismatch",
+        "unsupported_",
+    ]
+    .iter()
+    .any(|code| reason.contains(code))
 }
 
 /// Whether `op` sends link cards (a reply the preview thread filled).

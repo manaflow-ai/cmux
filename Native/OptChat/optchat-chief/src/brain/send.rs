@@ -150,8 +150,9 @@ impl Brain {
                 super::REPLY_BYTES
             ));
         }
-        let mut entry = if text.is_empty() {
-            // A card alone (`sign_in`): no text part.
+        let mut entry = if text.is_empty() && files.is_empty() {
+            // A card alone (`sign_in`): no text part. Files need the text
+            // entry, which `reply_with_media` fills with their parts.
             super::op_entry(
                 conversation,
                 &key,
