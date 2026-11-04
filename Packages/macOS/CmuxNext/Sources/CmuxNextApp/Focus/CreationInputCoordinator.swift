@@ -138,7 +138,7 @@ final class CreationInputCoordinator {
         buffer.onBound = { [weak self, weak window] buffer, bound in // a bound ends the hold; the reply bound's keys go on in order (m12)
             guard let self, buffers[number] === buffer else { return }
             guard let window else { return endClosed(buffer, window: number) } // the window is gone
-            if bound == .reply { buffer.endReplyWait(); claims.end(inWindow: number) } // its new workspace's terminal never came
+            if bound == .reply { buffer.endReplyWait(personStayed: claimHolds(in: window)); claims.end(inWindow: number) } // no terminal came
             flush(in: window, force: true, end: bound == .reply ? .replyBoundReached : .limitReached)
         }
         buffer.expire(after: holdLimit)

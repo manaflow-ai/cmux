@@ -199,7 +199,7 @@ struct CreationHoldReplyBoundTests {
             typed += 1
         }
         buffer.personMovedOn()
-        buffer.endReplyWait()
+        buffer.endReplyWait(personStayed: true) // a stale claim: the move itself still keeps the keys out
         let keys = buffer.take(focused: nil, isShortcut: { _, _ in false })
         let intoPress = keys.flatMap(\.keys).filter { $0.lane == press }.count
         #expect(intoPress == 0, "\(intoPress) key(s) of the left workspace ran in the press terminal")

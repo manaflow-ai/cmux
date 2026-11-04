@@ -79,7 +79,7 @@ public final class CreationInputBuffer {
     /// shows that workspace with its terminal, also after the person left it (``shownWorkspaceToWaitFor``,
     /// ``leftWorkspaceWithKeys``), and are dropped when it fails or has not shown by the hold's limit
     /// (``resolve(_:awaitsFocus:workspace:)``, ``dropKeys(ofWorkspacesOtherThan:)``); at the reply bound they go into the
-    /// terminal that has the keyboard (``endReplyWait()``, cmux-ad m12).
+    /// press terminal if the person stayed, else nowhere (``endReplyWait(personStayed:)``, cmux-ad m12).
     /// `at`: when the creation began (tests pass an earlier time).
     /// `pressTerminal`: a new workspace's: the terminal that had the keyboard at the press (``pressLanes``).
     public func open(generation: UInt64, earlyTab: String? = nil, tab: String? = nil, machine: String? = nil, newWorkspace: Bool = false,
@@ -384,15 +384,16 @@ public final class CreationInputBuffer {
     }
 
     /// The reply bound passed: no creation waits for its reply any more. A new workspace's keys go into the terminal the
-    /// person typed into at the press (``pressLanes``) unless they moved on from it (``personMovedOn()``), else are counted,
-    /// never typed; another creation's run as typed in what has the keyboard; a close keeps its lane.
-    public func endReplyWait() {
+    /// person typed into at the press (``pressLanes``) only when the person stayed (`personStayed`: their keyboard claim
+    /// holds, ``CreationKeyboardClaims``) and did not move on from it (``personMovedOn()``), else are counted, never typed;
+    /// another creation's run as typed in what has the keyboard; a close keeps its lane.
+    public func endReplyWait(personStayed: Bool) {
         let waiting = Set(pending.keys).subtracting(closingTabs.keys)
         for id in waiting {
             (pending[id], tabs[id], earlyTabs[id]) = (nil, nil, nil)
             if !workspaceTickets.contains(id) {
                 (laneTabs[id], laneMachines[id]) = (nil, nil) // run as typed in what has the keyboard (its provisional view)
-            } else if let press = pressLanes[id], !movedOnFrom.contains(id) {
+            } else if personStayed, let press = pressLanes[id], !movedOnFrom.contains(id) {
                 (laneTabs[id], laneMachines[id]) = (press.tab, press.machine) // the terminal the person typed into at the press
             } else {
                 strandedWorkspaces.insert(id) // asked for over no terminal, or left: never typed into anything (review of #35275)
