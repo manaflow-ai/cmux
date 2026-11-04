@@ -344,6 +344,7 @@ import {
   useAutoOpenSubagents,
   useOpenNewSubagents,
 } from "./subagents/subagentPanes";
+import { useShownSubagent } from "./subagents/subagentShown";
 import { turnCounts } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
@@ -8973,18 +8974,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const shownSubagentKnown = !!subagentView && freshAgents.some((agent) => agent.id === subagentView);
   const shownSubagentTitle =
     ownSubagentPane && subagentView && shownSubagentKnown ? subagentTitle(subagentView) : undefined;
-  const subagentShownOnce = useRef(false);
-  useEffect(() => {
-    if (!ownSubagentPane) return;
-    if (subagentView) {
-      subagentShownOnce.current = true;
-      if (!shownSubagentTitle) return;
-    } else if (!subagentShownOnce.current) return;
-    void callNative(
-      "chat.subagentShown",
-      subagentView ? { subagent: subagentView, title: shownSubagentTitle, tone: agentTone(subagentView) } : {},
-    ).catch(() => undefined);
-  }, [ownSubagentPane, subagentView, shownSubagentTitle]);
+  useShownSubagent(callNative, ownSubagentPane, subagentView, shownSubagentTitle);
   const showWorkflowAgent = useCallback(
     (agent: WorkflowAgent) => {
       const workflow = workflows.find((entry) => entry.agents.some((candidate) => candidate.id === agent.id));
