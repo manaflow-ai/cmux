@@ -17,6 +17,10 @@
 //!   publishes another route ([`InputPort::route_changed`]) and writes to it, until the frame's own deadline,
 //!   `HOST_INPUT_RECONNECT_WAIT` after the port took it. The old path's deadline started at the write call, so writes
 //!   queued behind a host that does not come back fail together, and a later loss gives its writes their own wait.
+//!   When no route will come (the reader ended or gave the host up, or the owner detaches the terminal),
+//!   [`InputPort::reconnect_ended`] ends the wait at once and the frame fails then, as the old path's write did.
+//! - The port lock is a leaf: no holder of it waits for another lock. So the runtime lock's holders (a route
+//!   publication, a detach, the order barrier's callers) may take it.
 //! - A full port refuses at once with a typed error: nothing is dropped silently and nothing waits. Each queued
 //!   frame counts its bookkeeping too ([`PORT_FRAME_COST`]), so many tiny frames cannot grow the queue without bound.
 //! - A connection the reader shut down (`Failed`, it keeps retrying: [`InputRoute::Failed`]) or a reader that ended
