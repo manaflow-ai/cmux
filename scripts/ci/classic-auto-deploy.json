@@ -30,7 +30,9 @@
         "web/package.json",
         "web/bun.lock",
         "web/patches/**",
-        "config/iroh/managed-relay-catalog.json"
+        "config/iroh/managed-relay-catalog.json",
+        "web/data/model-catalog/**",
+        "workers/presence/src/generated/managedRelayCatalog.ts"
       ],
       "exclude": [
         "**/*.md",
