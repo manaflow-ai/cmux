@@ -39,6 +39,28 @@ struct AgentPaneMenuLookTests {
     static let links = AgentPaneMessageTarget(text: "Two links.", markdown: "Two [links](https://cmux.com/docs).",
                                               links: [docs, docs.appending(path: "blog")])
 
+    @Test func aReplyMenuStartsWithItsQuietTimestamp() throws {
+        let target = try #require(AgentPaneMessageTarget(report: [
+            "text": "Done.", "markdown": "Done.", "replyTime": "Today, 5:29 PM",
+        ]))
+        let menu = Self.menu(target: target)
+        let header = try #require(menu.items.first)
+        #expect(header.title == "Today, 5:29 PM")
+        #expect(header.action == nil)
+        #expect(!header.isEnabled)
+        #expect(header.image == nil)
+        #expect(header.view == nil)
+        #expect(menu.items[1].isSeparatorItem)
+        #expect(menu.items.contains { $0.title == AgentPaneMenuStrings.copyMessage })
+    }
+
+    @Test func aPromptOrSelectionHasNoReplyTimestampHeader() {
+        let prompt = AgentPaneMessageTarget(text: "Fix the build.", replyTime: "Today, 5:29 PM")
+        #expect(Self.menu(target: prompt).items.first?.title != "Today, 5:29 PM")
+        let reply = AgentPaneMessageTarget(text: "Done.", markdown: "Done.", replyTime: "Today, 5:29 PM")
+        #expect(Self.menu(target: reply, selection: "Done").items.first?.title != "Today, 5:29 PM")
+    }
+
     @Test(arguments: ["prompt", "reply", "links", "selection"])
     func everyRowIsNativeWithAnIcon(_ kind: String) throws {
         let menu = switch kind {

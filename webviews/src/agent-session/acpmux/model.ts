@@ -1,3 +1,5 @@
+import { experimentArm } from "../../experiments/experiment";
+import { backgroundReactionLook, reactsOnCall } from "./conversation/backgroundReaction.experiment";
 import { BUBBLE } from "./transcriptSpacing";
 import {
   footerAfter,
@@ -177,6 +179,10 @@ export type AcpmuxBackgroundReaction = {
   weight: AcpmuxBackgroundWeight;
   text?: string;
   fresh?: true;
+  /// The task's end was interim (acpmux's cause status `interim`: Claude Code said the agent "is
+  /// waiting on its own background work"): it has not given its final report yet. A later end of
+  /// the same call replaces the reaction, which clears it.
+  interim?: true;
 };
 
 /// What a run of background-task notifications' line counts (conversation/backgroundRuns.ts): quiet
@@ -1052,6 +1058,8 @@ export type AcpmuxSnapshot = {
     toolsMutable?: boolean;
   };
   connection: string;
+  /** The first request that crossed its progress threshold while the socket stayed open. */
+  daemonWaitingSince?: number;
   /// The origin acpmux names for this connection in `initialize` (`_meta.acpmux.origin`):
   /// `remote` gets its Web rules (no Codex or opencode, remoteEditing.ts); `unknown` is an older
   /// acpmux that names none. Unset in a snapshot no client built (fixtures).
@@ -1309,6 +1317,11 @@ export const isLiveLine = (row: AcpmuxRow) =>
 /// spacing and formatting"; design/transcript-spacing.md rule 3).
 export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
   isLiveLine(row) && prev !== undefined && (isStepRow(prev) || isStatusRow(prev));
+/// A row's kind for the gap rules (transcriptGrid.ts transcriptGap), `prev` the drawn row above it.
+/// A compact live line keeps its 22px height and composer gap, but is a live indicator for
+/// spacing: classifying it as another step would swallow the run gap before Thinking.
+export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
+  isStepRow(row) ? MARK_STEP : isLiveStep(row, prev) ? MARK_INDICATOR : isStatusRow(row) ? MARK_STATUS : rowMark(row);
 const LIVE_STEP_EDGE = "+step";
 /// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
 /// #29965), `--cv-tool-row-height`.
@@ -1346,6 +1359,19 @@ function noteHeight(text: string | undefined, width: number): number {
   const flat = text?.replace(/\s+/g, " ").trim();
   const lines = flat ? textHeight(flat, width, notePrepared, undefined, NOTE_LINE) : NOTE_LINE;
   return Math.max(NOTE_LINE, lines) + 2 * noteGap();
+}
+/// The chat's reply to a subagent's end under its finished line (ReactionMark.tsx `ReactionReply`):
+/// its text on the notes' 20px lines at the rows' text column, with no margin of its own.
+const reactionPrepared = new Map<string, PreparedText | null>();
+const REACTION_INSET_PT = gridLength("transcript-text-gap");
+function reactionReplyHeight(text: string | undefined, width: number): number {
+  // Drawn only in the arms that put a task's end on its call (ReactionMark.tsx `ReactionReply`).
+  if (!text || !reactsOnCall(experimentArm(backgroundReactionLook))) return 0;
+  if (reactionPrepared.size > 256) reactionPrepared.clear();
+  return Math.max(
+    NOTE_LINE,
+    textHeight(text, Math.max(1, width - REACTION_INSET_PT * chromeScale), reactionPrepared, undefined, NOTE_LINE),
+  );
 }
 function activityStepHeight(item: AcpmuxActivity, width: number): number {
   const tool = item.tool;
@@ -1870,13 +1896,9 @@ function fallbackRowHeight(
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
   // subagent, the last with the list's 8px below (subagents/SubagentGroup.tsx).
-  // An agent a shell call started (subagents/AgentRunCard.tsx): its card with its model line, its
-  // reply once it ended, and the Raw toggle's row.
-  if (isRunGroup(row)) {
-    const agent = row.subagents![0]!;
-    const reply = agent.result && agent.state !== "running" ? replyHeight(agent.result) : 0;
-    return finish(cardHeight("working") + reply + toolRowHeight());
-  }
+  // An agent a shell call started (subagents/AgentRunCard.tsx): one collapsed disclosure line; its
+  // reply and Raw are measured once the reader opens it.
+  if (isRunGroup(row)) return finish(cardHeight("working"));
   if (row.kind === SUBAGENTS) return finish(56);
   // A workflow's card (summary/WorkflowCard.css): three fixed lines in a hairline box.
   // WorkflowCard: head, metadata, latest line, progress bar and focus line.
@@ -1954,10 +1976,14 @@ function fallbackRowHeight(
   // A turn's footer: its line of buttons (the stack gives the gaps). An empty footer (only hover
   // controls, conversation/turns.ts isEmptyFooter) takes no extra line; its gap fits the controls.
   if (row.kind === "turnSummary") return finish(isEmptyFooter(row) ? Math.max(metaRow(), TURN_GAP) : footerRow());
+  // A finished subagent's line, and the chat's reply to its end under it on the reply's own lines
+  // (conversation.css `.cv-tools > .cv-reaction-reply`; ReactionMark.tsx), which the row draws in
+  // the default `background-reaction-look` arm.
+  if (row.kind === SUBAGENT_DONE)
+    return finish(toolRowHeight() + reactionReplyHeight(row.subagents?.[0]?.reaction?.text, width));
   if (
     row.kind === "notice" ||
     row.kind === "backgroundTask" ||
-    row.kind === SUBAGENT_DONE ||
     row.kind === "compaction" ||
     row.kind === "failover" ||
     row.kind === "policyUnenforced" ||
@@ -2458,15 +2484,7 @@ export function layoutConversation(
   let prevDrawn = prevDrawnRow(rows, start);
   for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
-    // A compact live line keeps its 22px height and composer gap, but is a live indicator for
-    // spacing: classifying it as another step would swallow the run gap before Thinking.
-    marks[index] = isStepRow(row)
-      ? MARK_STEP
-      : isLiveStep(row, prevDrawn)
-        ? MARK_INDICATOR
-        : isStatusRow(row)
-          ? MARK_STATUS
-          : rowMark(row);
+    marks[index] = gridMark(row, prevDrawn);
     messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
