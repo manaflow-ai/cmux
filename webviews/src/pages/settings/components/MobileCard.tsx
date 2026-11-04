@@ -3,6 +3,7 @@
 // host's live state (`iphone` in the host lists, through cmux.settings.host.changed), every text
 // localized by the host. Room for more mobile parts goes here.
 import { Button } from "../../../ui/Button";
+import { SignInButton } from "../../../ui/SignInButton";
 import { useSettingsState, useStore } from "../context";
 import { ActionRow } from "./ActionRow";
 
@@ -16,7 +17,9 @@ export function MobileCard() {
       <h3 className="group-title">{state.title}</h3>
       <div className="rows">
         <ActionRow title={state.status_title} help={state.status}>
-          {state.phase === "removed" && state.allow_again_title ? (
+          {state.sign_in ? (
+            <SignInButton label={state.sign_in} onSignIn={() => void store.runAction("palette.auth.signIn")} />
+          ) : state.phase === "removed" && state.allow_again_title ? (
             <Button type="button" className="button" data-allow-again="" onClick={() => void store.allowPhonesAgain()}>
               {state.allow_again_title}
             </Button>
