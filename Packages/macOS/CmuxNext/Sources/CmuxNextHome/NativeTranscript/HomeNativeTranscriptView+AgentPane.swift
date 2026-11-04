@@ -17,6 +17,8 @@ extension HomeNativeTranscriptView {
         }
         agentPane.open(peer)
         agentPaneView?.apply()
+        // task-owner: one place read for the open tabs (a moved agent re-attaches); ends when the owner answers
+        Task { [agentPane] in await agentPane.followSessions() }
         needsLayout = true
     }
 
@@ -47,5 +49,12 @@ extension HomeNativeTranscriptView {
 
     /// Opens agent `peer`'s chat as a click on its pill does (`debug.home.drive` `agent_pill`).
     public func debugOpenAgent(_ peer: String) { openAgent(peer) }
+
+    /// Sends `text` from the selected agent's composer, as the person does (`debug.home.drive` `agent_messages` `say`).
+    public func debugSendToAgent(_ text: String) -> Bool {
+        guard let chat = agentPaneView?.selectedChat, chat.hasComposer else { return false }
+        chat.sendFromComposer(text)
+        return true
+    }
     #endif
 }
