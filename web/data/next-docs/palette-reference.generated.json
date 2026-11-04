@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1290,
+    "entries": 1289,
     "shortcuts": 189
   },
   "sections": [
@@ -6478,12 +6478,6 @@
           "command": null
         },
         {
-          "id": "cloudSystemTunnelStatus",
-          "title": "Cloud Tunnel Status",
-          "shortcut": null,
-          "command": "cmux cloud tunnel status"
-        },
-        {
           "id": "accounts.connect",
           "title": "Connect Account to CodeRouter…",
           "shortcut": null,
@@ -6848,18 +6842,6 @@
           "title": "Switch Active Team…",
           "shortcut": "⌥⇧⌘T",
           "command": null
-        },
-        {
-          "id": "cloudSystemTunnelOff",
-          "title": "Turn Off Cloud Tunnel",
-          "shortcut": null,
-          "command": "cmux cloud tunnel off"
-        },
-        {
-          "id": "cloudSystemTunnelOn",
-          "title": "Turn On Cloud Tunnel",
-          "shortcut": null,
-          "command": "cmux cloud tunnel on"
         },
         {
           "id": "cloudFileWrite",
@@ -7318,6 +7300,12 @@
           "command": "cmux settings keyboard-shortcuts"
         },
         {
+          "id": "agentPane.display.railOnRight",
+          "title": "Prompt Rail on Right Edge",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "reloadConfiguration",
           "title": "Reload Configuration",
           "shortcut": "⇧⌘,",
@@ -7436,6 +7424,12 @@
           "title": "Show Announcements",
           "shortcut": null,
           "command": "cmux settings show-announcements"
+        },
+        {
+          "id": "agentPane.display.showMinimap",
+          "title": "Show Chat Minimap",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "help.showCrashLogs",

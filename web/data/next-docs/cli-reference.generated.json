@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 801,
-    "mcp": 715
+    "verbs": 798,
+    "mcp": 712
   },
   "nouns": [
     {
@@ -1609,27 +1609,6 @@
           "id": "cloudStartSession",
           "mcp": true,
           "mcpTool": "app_cloud_start_session"
-        },
-        {
-          "command": "cmux cloud tunnel off",
-          "title": "Turn Off Cloud Tunnel",
-          "id": "cloudSystemTunnelOff",
-          "mcp": true,
-          "mcpTool": "app_cloud_tunnel_off"
-        },
-        {
-          "command": "cmux cloud tunnel on",
-          "title": "Turn On Cloud Tunnel",
-          "id": "cloudSystemTunnelOn",
-          "mcp": true,
-          "mcpTool": "app_cloud_tunnel_on"
-        },
-        {
-          "command": "cmux cloud tunnel status",
-          "title": "Cloud Tunnel Status",
-          "id": "cloudSystemTunnelStatus",
-          "mcp": true,
-          "mcpTool": "app_cloud_tunnel_status"
         },
         {
           "command": "cmux cloud tunnel-attach",

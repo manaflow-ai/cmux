@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 564,
+  "count": 566,
   "sections": [
     {
       "id": "general",
@@ -17,6 +17,18 @@
             "inline",
             "strip",
             "both"
+          ]
+        },
+        {
+          "key": "agentPane.composerRing",
+          "title": "Composer Ring",
+          "help": "What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them.",
+          "kind": "choice",
+          "default": "context",
+          "group": "Agent Chat",
+          "values": [
+            "context",
+            "planUsage"
           ]
         },
         {
@@ -1507,7 +1519,7 @@
           "title": "Titlebar",
           "help": "Minimal has no titlebar strip; the top row moves the window.",
           "kind": "choice",
-          "default": "minimal",
+          "default": "standard",
           "group": "Window",
           "values": [
             "minimal",
@@ -1723,6 +1735,14 @@
             "full",
             "off"
           ]
+        },
+        {
+          "key": "agentPane.display.pinnedPlan",
+          "title": "Pin Task List in Chat",
+          "help": "While the agent works, its task list stays under the latest message instead of in the bar over the composer.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.presentation",
@@ -5531,6 +5551,14 @@
           ]
         },
         {
+          "key": "feed.needsYouInChief",
+          "title": "Pin Needs You in Chief",
+          "help": "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Feed"
+        },
+        {
           "key": "notifications.attention.agentChatBlinkCount",
           "title": "Agent Chat Blinks",
           "help": "",
@@ -5987,7 +6015,7 @@
           "title": "Let Agents Start Cloud Sessions Without Asking",
           "help": "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Cloud Workspaces"
         },
         {
@@ -6009,14 +6037,6 @@
           "kind": "toggle",
           "default": false,
           "group": "Cloud Workspaces"
-        },
-        {
-          "key": "cloud.tunnel.enabled",
-          "title": "Cloud Tunnel",
-          "help": "Lets every app on this Mac reach your Cloud machines' private addresses, like a VPN for your Cloud network only. macOS asks you to allow the cmux network extension once. cmux itself does not need it.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Cloud Tunnel"
         },
         {
           "key": "cloud.useMyClaudeLoginOnMyCloudMachines",
