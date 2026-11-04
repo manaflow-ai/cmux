@@ -100,7 +100,22 @@ fn the_allowlist_is_what_the_page_sends() {
     let p = policy();
     assert!(sent.remove(&p.initialize), "the page sends initialize");
     assert!(sent.remove("file.search"), "file.search is a mock-mode literal");
-    assert_eq!(sent, p.requests, "requests the page sends vs policy.json requests");
+    // Race RPCs are daemon-backed and may be exercised by the native debug bridge before
+    // the regular page client is present. Keep their policy entries explicit while allowing
+    // the page send set to grow independently.
+    let daemon_only = [
+        "_acpmux/race/start",
+        "_acpmux/race/get",
+        "_acpmux/race/list",
+        "_acpmux/race/cancel",
+        "_acpmux/race/stats",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect::<BTreeSet<_>>();
+    let mut expected = sent.clone();
+    expected.extend(daemon_only);
+    assert_eq!(expected, p.requests, "requests the page sends vs policy.json requests");
     // A frame the page writes itself: `jsonrpc: "2.0",` then its `method:`.
     let notifications: BTreeSet<String> = direct
         .split(r#"jsonrpc: "2.0","#)
