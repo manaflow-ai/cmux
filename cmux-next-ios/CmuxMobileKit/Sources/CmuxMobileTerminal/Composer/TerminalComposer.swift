@@ -135,7 +135,8 @@ struct TerminalComposer: View {
             voice.toggle(source)
         } label: {
             ComposerCircleLabel(systemImage: "waveform",
-                                foreground: active ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color.primary.opacity(0.78)))
+                                foreground: active ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(Color.primary.opacity(0.78)),
+                                tint: active ? Color.cmuxMobileAccent : nil)
                 .symbolEffect(.variableColor.iterative, isActive: active)
         }
         .buttonStyle(.plain)
@@ -316,13 +317,15 @@ struct TerminalComposer: View {
 struct ComposerCircleLabel: View {
     let systemImage: String
     var foreground = AnyShapeStyle(Color.primary.opacity(0.78))
+    /// On (voice mode running): glass tinted like the send circle.
+    var tint: Color?
 
     var body: some View {
         Image(systemName: systemImage)
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(foreground)
             .frame(width: TerminalDockMetrics.control, height: TerminalDockMetrics.control)
-            .glassSurface(in: .circle)
+            .glassEffect(tint.map { .regular.tint($0).interactive() } ?? .regular.interactive(), in: .circle)
             .contentShape(.circle)
     }
 }
