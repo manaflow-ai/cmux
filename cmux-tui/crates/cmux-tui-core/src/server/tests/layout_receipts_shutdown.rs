@@ -251,7 +251,7 @@ fn set_layout_sizes_applies_a_trade_whole_or_refuses_it_whole() {
     assert_eq!(applied["ok"], true, "{applied}");
     assert_eq!(widths(&mux), vec![0.4, 0.6]);
 
-    // #34928 review A: a value with both pairs is neither a ratio nor a width; it is refused, not half applied.
+    // A ratio value: the second column's split at 0.5 makes it as wide as the column left of it (0.4).
     let split = mux.with_state(|state| state.workspaces[0].screens[0].layout_columns[1].id);
     handle_message(
         &mux,
@@ -259,16 +259,47 @@ fn set_layout_sizes_applies_a_trade_whole_or_refuses_it_whole() {
         &json!({
             "id": 44,
             "cmd": "set-layout-sizes",
-            "values": [{"split": split, "ratio": 0.5, "pane": right_pane, "width": 0.3}],
+            "values": [{"split": split, "ratio": 0.5}],
             "transaction": 3
         })
         .to_string(),
         &writer,
     );
-    let both: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
-    assert_eq!(both["id"], 44);
-    assert_eq!(both["ok"], false, "a value with both a ratio and a width was taken: {both}");
-    assert_eq!(widths(&mux), vec![0.4, 0.6], "a refused value changed a width");
+    let ratio: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+    assert_eq!(ratio["id"], 44);
+    assert_eq!(ratio["ok"], true, "{ratio}");
+    let after_ratio = widths(&mux);
+    assert!(
+        after_ratio.len() == 2 && (after_ratio[1] - after_ratio[0]).abs() < 1e-5,
+        "a ratio of 0.5 must make the second column as wide as the first: {after_ratio:?}"
+    );
+
+    // #34928 review A and #35261 review: a value that is not exactly one pair (both pairs, or an array) is refused as
+    // a malformed request, not half applied.
+    for (id, value) in [
+        (45, json!({"split": split, "ratio": 0.6, "pane": right_pane, "width": 0.3})),
+        (46, json!([split, 0.6])),
+    ] {
+        handle_message(
+            &mux,
+            mux.local_test_client(7),
+            &json!({"id": id, "cmd": "set-layout-sizes", "values": [value], "transaction": 3})
+                .to_string(),
+            &writer,
+        );
+        let refused: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(refused["id"], id);
+        assert_eq!(
+            refused["ok"], false,
+            "a value that is not exactly one pair was taken: {refused}"
+        );
+        assert!(
+            refused["error"].as_str().is_some_and(|error| error.starts_with("bad request: ")),
+            "{refused}"
+        );
+        assert!(refused.get("error_code").is_none(), "{refused}");
+        assert_eq!(widths(&mux), after_ratio, "a refused value changed a width");
+    }
 }
 
 /// #34928 review C: identify advertises the batch command.

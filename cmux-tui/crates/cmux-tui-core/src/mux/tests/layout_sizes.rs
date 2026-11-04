@@ -171,28 +171,28 @@ fn a_ratio_value_uses_the_widths_the_batch_set_before_it() {
     assert_eq!(after_undo, undo + 1, "the batch is not one undo step");
 }
 
-/// #34928 review B: a non-finite ratio is refused in-process, as the single command refuses it, and nothing changes.
+/// #34928 review B: a NaN ratio is refused in-process (the clamp keeps a NaN, and the store cannot persist one), and
+/// nothing changes.
 #[test]
-fn a_non_finite_ratio_is_refused_and_changes_nothing() {
+fn a_nan_ratio_is_refused_and_changes_nothing() {
     let mux = test_mux();
     let [first_pane, _, _] = three_columns(&mux);
     let third_split = column_split(&mux, 2);
     let before = widths_revision_and_undo(&mux);
-    for ratio in [f32::NAN, f32::INFINITY] {
-        let error = mux
-            .set_layout_sizes_in_transaction_checked_as(
-                &Actor::Daemon,
-                &[
-                    LayoutSizeValue::PaneWidth { pane: first_pane, width: 0.4 },
-                    LayoutSizeValue::SplitRatio { split: third_split, ratio },
-                ],
-                7,
-                16,
-            )
-            .expect_err("a non-finite ratio was taken");
-        assert_eq!(error.index(), Some(1), "{error}");
-        assert_eq!(widths_revision_and_undo(&mux), before, "a refused batch changed the layout");
-    }
+    let error = mux
+        .set_layout_sizes_in_transaction_checked_as(
+            &Actor::Daemon,
+            &[
+                LayoutSizeValue::PaneWidth { pane: first_pane, width: 0.4 },
+                LayoutSizeValue::SplitRatio { split: third_split, ratio: f32::NAN },
+            ],
+            7,
+            16,
+        )
+        .expect_err("a NaN ratio was taken");
+    assert_eq!(error.index(), Some(1), "{error}");
+    assert_eq!(error.code(), "invalid-argument");
+    assert_eq!(widths_revision_and_undo(&mux), before, "a refused batch changed the layout");
 }
 
 /// #34928 review C: values on two screens are refused whole, with the index of the first value on another screen.
@@ -265,22 +265,24 @@ fn a_batch_sends_one_layout_changed_event() {
         19,
     )
     .unwrap();
-    let mut layout_changes = 0;
+    let mut transactions = Vec::new();
     while let Ok(event) = events.try_recv() {
-        if matches!(event, MuxEvent::LayoutChanged(..)) {
-            layout_changes += 1;
+        if let MuxEvent::LayoutChanged(_, delta) = event {
+            transactions.push(delta.and_then(|delta| delta.transaction.clone()));
         }
     }
     assert_eq!(
-        layout_changes, 1,
-        "a batch of two values sent {layout_changes} layout-changed events"
+        transactions,
+        vec![Some(Arc::<str>::from("19"))],
+        "a batch of two values must send one layout-changed event that echoes its transaction"
     );
 }
 
-/// #34928 review B, on the path it named: a tree split (no viewport column, so no implied width to refuse a NaN)
-/// takes the ratio as it is. A NaN or infinite ratio is refused there too, and nothing changes.
+/// #34928 review B, on the path it named: a tree split (no viewport column, so no implied width to refuse it) takes
+/// the ratio as it is. A NaN ratio is refused there too; an infinite one (JSON `1e39` read as f32) clamps to 0.95, as
+/// `set-split-ratio` clamps it (#35261 review).
 #[test]
-fn a_non_finite_ratio_on_a_tree_split_is_refused() {
+fn a_nan_ratio_on_a_tree_split_is_refused_and_an_infinite_one_clamps() {
     let mux = test_mux();
     let (_, _, _, root_split, _) = seed_split_ratio_tree(&mux);
     let root_ratio = |mux: &Arc<Mux>| {
@@ -288,16 +290,23 @@ fn a_non_finite_ratio_on_a_tree_split_is_refused() {
     };
     let before = root_ratio(&mux);
     assert!(before.is_some(), "the seed's root is a split");
-    for ratio in [f32::NAN, f32::INFINITY] {
-        let error = mux
-            .set_layout_sizes_in_transaction_checked_as(
-                &Actor::Daemon,
-                &[LayoutSizeValue::SplitRatio { split: root_split, ratio }],
-                7,
-                20,
-            )
-            .expect_err("a non-finite ratio on a tree split was taken");
-        assert_eq!(error.index(), Some(0), "{error}");
-        assert_eq!(root_ratio(&mux), before, "a refused ratio changed the split");
-    }
+    let error = mux
+        .set_layout_sizes_in_transaction_checked_as(
+            &Actor::Daemon,
+            &[LayoutSizeValue::SplitRatio { split: root_split, ratio: f32::NAN }],
+            7,
+            20,
+        )
+        .expect_err("a NaN ratio on a tree split was taken");
+    assert_eq!(error.index(), Some(0), "{error}");
+    assert_eq!(root_ratio(&mux), before, "a refused ratio changed the split");
+
+    mux.set_layout_sizes_in_transaction_checked_as(
+        &Actor::Daemon,
+        &[LayoutSizeValue::SplitRatio { split: root_split, ratio: f32::INFINITY }],
+        7,
+        21,
+    )
+    .expect("an infinite ratio is clamped, as set-split-ratio clamps it");
+    assert_eq!(root_ratio(&mux), Some(0.95), "an infinite ratio did not clamp to 0.95");
 }
