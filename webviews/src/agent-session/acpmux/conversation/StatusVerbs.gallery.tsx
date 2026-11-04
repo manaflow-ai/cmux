@@ -1,28 +1,43 @@
 // l10n-allow-file: gallery fixtures for the live status line's sample verbs.
+import { useMemo, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { Thinking } from "./Thinking";
-import { DEFAULT_STATUS_VERB_CONFIG, StatusVerbContext, type StatusVerbConfig } from "../statusVerbs";
+import { resolveStatusVerbConfig, StatusVerbContext } from "../statusVerbs";
 
 type Variant = "rotating" | "thinking-only" | "custom";
 
 function Fixture({ variant }: { variant: Variant }) {
-  const config: StatusVerbConfig =
-    variant === "thinking-only"
-      ? { mode: "thinking", verbs: ["Thinking"] }
-      : variant === "custom"
-        ? { mode: "custom", verbs: ["Planning", "Reading", "Testing"] }
-        : DEFAULT_STATUS_VERB_CONFIG;
+  const [mode, setMode] = useState(
+    variant === "thinking-only" ? "thinking" : variant === "custom" ? "custom" : "rotate",
+  );
+  const [custom, setCustom] = useState("Planning, Reading, Testing");
+  const [since] = useState(Date.now);
+  const config = useMemo(
+    () =>
+      resolveStatusVerbConfig({
+        "agentPane.display.statusVerbs.mode": mode,
+        "agentPane.display.statusVerbs.custom": custom,
+      }),
+    [mode, custom],
+  );
   return (
     <StatusVerbContext.Provider value={config}>
       <div style={{ padding: 24, maxWidth: 640 }}>
-        <div className="text-caption" style={{ marginBottom: 16, opacity: 0.7 }}>
-          {variant === "rotating"
-            ? "Default rotating verbs"
-            : variant === "thinking-only"
-              ? "Thinking only"
-              : "Custom verbs"}
-        </div>
-        <Thinking since={0} now={() => (variant === "rotating" ? 4_800 : 2_400)} />
+        <label style={{ display: "block", marginBottom: 12 }}>
+          Working status{" "}
+          <select aria-label="Working status" value={mode} onChange={(event) => setMode(event.target.value)}>
+            <option value="rotate">Rotating verbs</option>
+            <option value="thinking">Thinking only</option>
+            <option value="custom">Custom verbs</option>
+          </select>
+        </label>
+        {mode === "custom" && (
+          <label style={{ display: "block", marginBottom: 12 }}>
+            Custom verbs{" "}
+            <input aria-label="Custom verbs" value={custom} onChange={(event) => setCustom(event.target.value)} />
+          </label>
+        )}
+        <Thinking since={since} />
       </div>
     </StatusVerbContext.Provider>
   );
@@ -33,8 +48,9 @@ export default componentEntry<{ variant: Variant }>({
   title: "Live status verbs",
   area: "Agent pane",
   pane: true,
-  height: 180,
+  height: 220,
   widths: { narrow: 360, normal: 560, wide: 760 },
+  styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
   covers: ["agent-session/acpmux/conversation/Thinking.tsx#Thinking"],
   variants: {
     rotating: {
@@ -52,4 +68,3 @@ export default componentEntry<{ variant: Variant }>({
   },
   load: () => Promise.resolve(Fixture),
 });
-

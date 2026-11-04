@@ -15,7 +15,7 @@ const VERB_KEYS = {
 } as const;
 
 /// The live line's default personality. These are cmux's own words; they are deliberately not
-/// copied from another client. Keep each entry short enough that the shimmer does not reflow the row.
+/// copied from another client. The live line reserves room for the complete localized list.
 export const DEFAULT_STATUS_VERBS = [
   "Thinking",
   "Exploring",
@@ -75,7 +75,7 @@ const sameConfig = (left: StatusVerbConfig, right: StatusVerbConfig) =>
   left.verbs.length === right.verbs.length &&
   left.verbs.every((verb, i) => verb === right.verbs[i]);
 
-let current = DEFAULT_STATUS_VERB_CONFIG;
+let current: StatusVerbConfig = DEFAULT_STATUS_VERB_CONFIG;
 const listeners = new Set<() => void>();
 
 /// Update the setting from the native display event. The store is intentionally tiny and event
@@ -111,9 +111,19 @@ export function statusVerbAt(elapsedMs: number, config: StatusVerbConfig = DEFAU
   return config.verbs[index] ?? "Thinking";
 }
 
-/// Custom words remain verbatim; built-in labels follow the pane's language.
-export function statusVerbLabel(t: Translate, elapsedMs: number, config: StatusVerbConfig): string {
-  const word = statusVerbAt(elapsedMs, config);
-  return config.mode === "custom" ? word : t(VERB_KEYS[word as keyof typeof VERB_KEYS] ?? "thinking");
+/// Custom words remain verbatim. A partially translated default list keeps the existing localized
+/// Thinking label rather than switching languages during a turn.
+export function statusVerbLabels(
+  t: Translate,
+  language: string,
+  config: StatusVerbConfig,
+  table: Partial<Record<string, string>> | undefined = globalThis.__cmuxPaneStrings?.[language],
+): readonly string[] {
+  if (config.mode === "custom" && config.verbs.length > 0) return config.verbs;
+  if (
+    config.mode === "thinking" ||
+    (language !== "en" && !Object.values(VERB_KEYS).every((key) => table?.[key]?.trim()))
+  )
+    return [t("thinking")];
+  return DEFAULT_STATUS_VERBS.map((word) => t(VERB_KEYS[word]));
 }
-

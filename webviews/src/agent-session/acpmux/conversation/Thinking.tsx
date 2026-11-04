@@ -8,7 +8,7 @@
 // the first output (cx-ncc.58). Only the status is the live region. While the chat waits on the person (an
 // ask above the composer, waitingOn.ts), the line says that instead, with no time and no sweep:
 // never "Thinking" while the agent is blocked on them.
-import { useContext, useLayoutEffect, useRef, useState } from "react";
+import { useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { usePaneLanguage, useT } from "../i18n";
 import { agentStartLook } from "./agentStart.experiment";
@@ -22,7 +22,7 @@ import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 import { compactTokens, hasTokens, tokenDetail, TurnTokens } from "./TurnTokens";
 import { verbLeads } from "./ToolVerb";
 import { useTicking, WorkingCountsContext, workingParts } from "./WorkingFor";
-import { statusVerbLabel, useStatusVerbConfig } from "../statusVerbs";
+import { statusVerbAt, statusVerbLabels, useStatusVerbConfig } from "../statusVerbs";
 import type { AcpmuxTurnRetry } from "../model";
 import type { Translate } from "../i18n";
 
@@ -180,6 +180,15 @@ export function Thinking({
   const timed = !waiting && from !== undefined;
   const time = useTicking(timed, now);
   const statusVerbConfig = useStatusVerbConfig();
+  const verbs = useMemo(() => statusVerbLabels(t, language, statusVerbConfig), [t, language, statusVerbConfig]);
+  // CSS sizes both shimmer layers from these inert samples once, not by measuring on each tick.
+  const verbSizes = useMemo(
+    () =>
+      verbs.map((word, index) => (
+        <span key={index} className="cv-status-verb__size" data-text={word} aria-hidden="true" inert />
+      )),
+    [verbs],
+  );
   const quiet = useQuiet(waiting || doing !== undefined ? undefined : quietKey);
   // A reply that paused only a moment is still being written; one silent for longer is the agent
   // thinking before its next step, which reads "Thinking" (Leo, 2026-11-03).
@@ -188,13 +197,14 @@ export function Thinking({
   const waitsOnAgents = liveState === "subagents" && liveAgents > 0;
   const writing = liveState === "writing" && stillWriting;
   const elapsedMs = timed ? Math.max(0, time - from) : 0;
+  const decorative = doing === undefined && !waitsOnAgents && !writing;
   const label =
     doing === undefined
       ? waitsOnAgents
         ? t("turn.live.waitingOnSubagents", { n: liveAgents })
         : writing
           ? t("turn.live.writing")
-          : statusVerbLabel(t, elapsedMs, statusVerbConfig)
+          : statusVerbAt(elapsedMs, { mode: "custom", verbs })
       : sendName !== undefined
         ? t("send.sending", { target: sendName })
         : doingShell
@@ -298,13 +308,20 @@ export function Thinking({
                     <span className="cv-worked__lead">{lead.lead}</span>
                     {lead.rest}
                   </>
+                ) : decorative ? (
+                  <span className="cv-status-verb">
+                    {verbSizes}
+                    <span className="cv-status-verb__word">{label}</span>
+                  </span>
                 ) : (
                   label
                 )
               }
               lit={
                 <>
-                  <span className="cv-shimmer__lit-label" data-text={label} />
+                  <span className={`cv-shimmer__lit-label${decorative ? " cv-status-verb" : ""}`} data-text={label}>
+                    {decorative && verbSizes}
+                  </span>
                   {elapsed && <span className="cv-shimmer__lit-time" data-text={elapsed} />}
                 </>
               }
