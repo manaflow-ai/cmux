@@ -57,7 +57,11 @@ const THREE = [
     error: API_ERROR,
     endedAt: minutesAgo(40 - 24.43),
   }),
-  agent("Folder sync", "Speed up Cloud folder sync", { retryable: true, error: API_ERROR, endedAt: minutesAgo(40 - 21.95) }),
+  agent("Folder sync", "Speed up Cloud folder sync", {
+    retryable: true,
+    error: API_ERROR,
+    endedAt: minutesAgo(40 - 21.95),
+  }),
 ];
 const MIXED = [
   THREE[0]!,

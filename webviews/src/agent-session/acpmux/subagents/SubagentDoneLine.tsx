@@ -131,10 +131,11 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
   const failed = agent.state === "failed" && !waiting;
   const look = failed ? failedLook : undefined;
   const quiet = look === "grid" || look === "quiet";
-  const reason = [
-    ...(phase.kind === "failed" && phase.gaveUp ? [t("retry.retriedOut", { of: phase.gaveUp.of })] : []),
-    ...(error ? [shortReason(error)] : []),
-  ].join(" · ") || t("subagents.state.failed");
+  const reason =
+    [
+      ...(phase.kind === "failed" && phase.gaveUp ? [t("retry.retriedOut", { of: phase.gaveUp.of })] : []),
+      ...(error ? [shortReason(error)] : []),
+    ].join(" · ") || t("subagents.state.failed");
   const run = () => {
     if (!retryAgent || shown?.busy) return;
     setNote({ version: row.version, busy: true });
@@ -184,14 +185,16 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
               {reason && <span className="cv-subagent-failed__reason">{reason}</span>}
             </span>
           ) : (
-          /* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */
-          <span className="cv-tool__text cv-agent-activity__sentence" title={whole}>
-            {!waiting && before}
-            <AgentTag name={name} />
-            {!waiting && after}
-            {/* Its own box, cut before the chip (subagents.css): the reason and failure go first. */}
-            {parts.length > 1 && <span className="cv-subagent-done__suffix">{` · ${parts.slice(1).join(" · ")}`}</span>}
-          </span>
+            /* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */
+            <span className="cv-tool__text cv-agent-activity__sentence" title={whole}>
+              {!waiting && before}
+              <AgentTag name={name} />
+              {!waiting && after}
+              {/* Its own box, cut before the chip (subagents.css): the reason and failure go first. */}
+              {parts.length > 1 && (
+                <span className="cv-subagent-done__suffix">{` · ${parts.slice(1).join(" · ")}`}</span>
+              )}
+            </span>
           )}
         </button>
         {inline}

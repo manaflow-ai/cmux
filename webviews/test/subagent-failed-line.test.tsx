@@ -111,11 +111,13 @@ test("the grid's columns are fixed, and red is on the mark only", () => {
   expect(css).toMatch(
     /\.cv-tool\.cv-subagent-done-row\[data-look="grid"\] \{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) var\(--cv-failed-retry-width, 64px\) auto var\(--cv-failed-time-width, 7ch\)/,
   );
-  expect(css).toMatch(/\[data-look="grid"\] \.cv-subagent-failed__text \{[^}]*grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\)/);
   expect(css).toMatch(
-    /:is\(\[data-look="grid"\], \[data-look="quiet"\]\)\) > \.cv-subagent-done\[data-state="failed"\] \{\s*color: var\(--cv-activity-text\)/,
+    /\[data-look="grid"\] \.cv-subagent-failed__text \{[^}]*grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\)/,
   );
   expect(css).toMatch(
-    /:is\(\[data-look="grid"\], \[data-look="quiet"\]\)\) > \.cv-subagent-done \.cv-tool__icon \{\s*color: var\(--agent-status-failure\)/,
+    /:is\(\[data-look="grid"\], \[data-look="quiet"\]\) > \.cv-subagent-done\[data-state="failed"\] \{\s*color: var\(--cv-activity-text\)/,
+  );
+  expect(css).toMatch(
+    /:is\(\[data-look="grid"\], \[data-look="quiet"\]\) > \.cv-subagent-done \.cv-tool__icon \{\s*color: var\(--agent-status-failure\)/,
   );
 });
