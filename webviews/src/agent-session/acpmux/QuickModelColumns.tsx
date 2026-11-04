@@ -36,7 +36,12 @@ import {
   type QuickModel,
 } from "./QuickModelMenu";
 import { usePopupHost } from "../../ui/UiProvider";
-import { useNativePopup, type NativePopupDescription, type NativePopupEvent, type NativePopupRow } from "../../ui/nativePopup";
+import {
+  useNativePopup,
+  type NativePopupDescription,
+  type NativePopupEvent,
+  type NativePopupRow,
+} from "../../ui/nativePopup";
 import { QuickNativeRows } from "./quickMenuNative";
 import "./quickModelColumns.css";
 
@@ -1018,9 +1023,14 @@ function Columns({
     });
     if (families.onAddHarness)
       railRows.push(
-        out.action("add-harness", t("modelPicker.addHarness"), after(() => families.onAddHarness?.()), {
-          icon: "action.add",
-        }),
+        out.action(
+          "add-harness",
+          t("modelPicker.addHarness"),
+          after(() => families.onAddHarness?.()),
+          {
+            icon: "action.add",
+          },
+        ),
       );
     // The models.
     const modelNative = (model: QuickModel, index: number): NativePopupRow => {
@@ -1040,9 +1050,7 @@ function Columns({
           checked: isChosen(model),
           ...(twins.has(model) ? { description: model.id } : {}),
           ...(model.disabled ? { disabled: true } : {}),
-          ...(stars
-            ? { actions: [{ id: starId, label: starred ? "★" : "☆", keepOpen: true }] }
-            : {}),
+          ...(stars ? { actions: [{ id: starId, label: starred ? "★" : "☆", keepOpen: true }] } : {}),
         },
       );
     };
@@ -1077,9 +1085,21 @@ function Columns({
       );
     if (!query && shown?.note && rows.length > 0 && shown.setUp) modelRows.push(out.text("note", shown.note));
     if (!query && shown?.note && shown.logIn)
-      modelRows.push(out.action("log-in", t("harness.logIn"), after(() => shown.logIn?.())));
+      modelRows.push(
+        out.action(
+          "log-in",
+          t("harness.logIn"),
+          after(() => shown.logIn?.()),
+        ),
+      );
     if (!query && shown?.note && shown.setUp)
-      modelRows.push(out.action("set-up", t("harnesses.install"), after(() => shown.setUp?.())));
+      modelRows.push(
+        out.action(
+          "set-up",
+          t("harnesses.install"),
+          after(() => shown.setUp?.()),
+        ),
+      );
     // The shown model's settings: its levels (highest first), its providers, then Fast.
     const tuneNative: NativePopupRow[] = [out.section("effort-head", t("effort.title"))];
     const tuneAction = (key: string, label: string, checked: boolean, disabled: boolean, run: () => void) => {
@@ -1146,9 +1166,17 @@ function Columns({
     if (auth && authNote) {
       spanning.push(out.text("auth", authNote));
       if (canSessionLogin(auth.verdict) && auth.onLogin)
-        spanning.push(out.action("auth-login", authLoginText(auth.verdict, t), after(() => auth.onLogin?.())));
+        spanning.push(
+          out.action(
+            "auth-login",
+            authLoginText(auth.verdict, t),
+            after(() => auth.onLogin?.()),
+          ),
+        );
       if (auth.onRefresh)
-        spanning.push(out.action("auth-refresh", t("harnesses.checkAgain"), () => auth.onRefresh?.(), { keepOpen: true }));
+        spanning.push(
+          out.action("auth-refresh", t("harnesses.checkAgain"), () => auth.onRefresh?.(), { keepOpen: true }),
+        );
     }
     // The account avatar and its card, beside the popup.
     const cardRows: NativePopupRow[] = [
@@ -1178,16 +1206,21 @@ function Columns({
     }
     if (canAdd || (signedOut && onChatTab && auth?.onRefresh)) {
       cardRows.push(out.separator("card-sep"));
-      if (canAdd) cardRows.push(out.action("card-add", t(signedOut ? "picker.useApiKey" : "picker.addAccountMore"), openAdd));
+      if (canAdd)
+        cardRows.push(out.action("card-add", t(signedOut ? "picker.useApiKey" : "picker.addAccountMore"), openAdd));
       if (signedOut && onChatTab && auth?.onRefresh)
-        cardRows.push(out.action("card-refresh", t("harnesses.checkAgain"), () => auth.onRefresh?.(), { keepOpen: true }));
+        cardRows.push(
+          out.action("card-refresh", t("harnesses.checkAgain"), () => auth.onRefresh?.(), { keepOpen: true }),
+        );
     }
     const accessory: NativePopupRow = avatarShown
       ? {
           id: out.id("account"),
           kind: "submenu",
           label: `${ownerName} · ${t("picker.account")}: ${faceName}`,
-          ...(face && !face.glyph ? { monogram: initialOf(face.name) } : { icon: face?.glyph === "key" ? "key.fill" : "account" }),
+          ...(face && !face.glyph
+            ? { monogram: initialOf(face.name) }
+            : { icon: face?.glyph === "key" ? "key.fill" : "account" }),
           children: cardRows,
         }
       : { id: out.id("account"), kind: "action", label: t("picker.account"), icon: "account", disabled: true };
@@ -1220,7 +1253,11 @@ function Columns({
         ? {
             footer: [
               out.text("update-text", menu.update.text),
-              out.action("update", t("harness.update"), after(() => menu.update?.run())),
+              out.action(
+                "update",
+                t("harness.update"),
+                after(() => menu.update?.run()),
+              ),
             ],
           }
         : {}),

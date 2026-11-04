@@ -100,7 +100,13 @@ const families: QuickFamily[] = [
     models: [model("opus", "Opus 5.5", "claude"), model("sonnet", "Sonnet 5.5", "claude")],
     more: [],
   },
-  { id: "codex", name: "Codex", mark: "codex", models: [model("sol", "GPT-6.1 Sol", "codex", { canFast: true })], more: [] },
+  {
+    id: "codex",
+    name: "Codex",
+    mark: "codex",
+    models: [model("sol", "GPT-6.1 Sol", "codex", { canFast: true })],
+    more: [],
+  },
   { id: "quill", name: "Quill Agent", models: [model("quill-1", "Quill One", "quill")], more: [] },
 ];
 
