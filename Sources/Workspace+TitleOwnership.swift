@@ -257,12 +257,15 @@ extension Workspace {
             customTitleSource = source
             self.title = trimmed
         }
-        // A single local terminal is the workspace's chat, so a manual sidebar,
-        // palette or CLI rename should name its tab too. Keep split/browser and
-        // remote tmux labels independent, and never turn auto-naming into a user edit.
-        if source == .user, !isRemoteTmuxMirror, panels.count == 1,
-           let terminal = panels.values.first as? TerminalPanel {
-            if !trimmed.isEmpty || (previousCustomTitle != nil && panelCustomTitles[terminal.id] == previousCustomTitle) {
+        // A manual workspace rename follows its focused terminal, including
+        // split layouts. Explicit sibling tab names retain their own ownership.
+        if source == .user, !isRemoteTmuxMirror,
+           let focusedPanelId, let terminal = panels[focusedPanelId] as? TerminalPanel {
+            let panelTitle = panelCustomTitles[terminal.id]
+            let inherited = previousCustomTitle != nil && panelTitle == previousCustomTitle
+            let followsWorkspace = panels.count == 1 || panelTitle == nil ||
+                panelCustomTitleSources[terminal.id] == .auto || inherited
+            if followsWorkspace, !trimmed.isEmpty || inherited {
                 setPanelCustomTitle(
                     panelId: terminal.id, title: trimmed.isEmpty ? nil : trimmed,
                     source: .user, propagateToRemoteTmux: false, propagateToCloud: false
