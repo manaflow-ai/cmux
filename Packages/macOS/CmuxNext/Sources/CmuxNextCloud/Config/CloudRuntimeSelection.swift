@@ -18,6 +18,10 @@ public struct CloudRuntimeSelection: Decodable, Sendable, Equatable {
     public var bundleId: String
     public var mutable: Bool
     public var authNamespace: String
+    public var legacyStorage: Bool
+
+    /// Only an actual environment switch changes existing native credential/pairing names.
+    public var storageNamespace: String? { legacyStorage ? nil : authNamespace }
 
     /// Decodes the CLI's JSON response without maintaining another environment table.
     public static func decode(_ data: Data) throws -> Self {

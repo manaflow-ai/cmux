@@ -77,7 +77,7 @@ public struct CloudConfiguration: Sendable, Equatable {
     // prime its cached user/team. A stable namespace preserves staging sign-in
     // on subsequent launches and leaves the old production session untouched.
     private var authStorageProject: String? {
-        if let runtimeSelection { return runtimeSelection.authNamespace }
+        if let namespace = runtimeSelection?.storageNamespace { return namespace }
         return legacyAuthStorageProject
     }
 

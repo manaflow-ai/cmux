@@ -2,11 +2,9 @@
 """A Cloud chat end to end from a tagged DEV app, signed in as the agent test account.
 
 Run by .github/workflows/cloud-chat-proof.yml after `scripts/reload.sh --tag TAG --launch
---auth-profile agent --credentials-file FILE`. A tagged Debug build signs in on the staging Stack
-project and mints VM keys at vm-staging.cmux.dev (CloudConfiguration.resolve,
-AppControl+VMAgentKey.vmBaseURL). Through the tagged app's own CLI and socket:
+--auth-profile agent --credentials-file FILE`. Through the tagged app's own CLI and socket:
 
-1. waits until the app is signed in (`cloud list-machines` says account.signed_in),
+1. switches Cloud environment, verifies the restarted app's actual backend and waits for sign-in,
 2. `vm token create --ttl 30m` (the key goes to the login Keychain; it is never printed),
 3. `cloud start-chat --prompt ... --wait`: a new machine, a chat on it, the prompt, the reply,
 4. kills the machine the chat made.
@@ -27,6 +25,7 @@ parser.add_argument("--app", required=True, help="the tagged app bundle")
 parser.add_argument("--tag", required=True)
 parser.add_argument("--prompt", required=True)
 parser.add_argument("--agent", default="claude")
+parser.add_argument("--cloud-environment", default="staging")
 parser.add_argument("--evidence", required=True)
 args = parser.parse_args()
 
@@ -34,7 +33,8 @@ CLI = str(Path(args.app) / "Contents/Resources/bin/cmux")
 ENV = {**os.environ, "CMUX_SOCKET_PATH": f"/tmp/cmux-debug-{args.tag}.sock"}
 # Strings that may never reach the evidence or the log, whatever a CLI answer holds.
 SECRET_MARKERS = ("cmvm_", "cmk_", "eyJ", "Bearer ", "apiKey", '"key"')
-evidence = {"tag": args.tag, "agent": args.agent, "prompt": args.prompt, "steps": []}
+evidence = {"tag": args.tag, "agent": args.agent, "prompt": args.prompt,
+            "cloud_environment": args.cloud_environment, "steps": []}
 
 
 def clean(text: str, limit: int = 2000) -> str:
@@ -83,21 +83,48 @@ def listed() -> tuple[int, str, str, dict]:
     return code, out, err, parsed(out) if code == 0 else {}
 
 
-# 1. Signed in: the auto sign-in runs at launch. list-machines answers while signed out too
-# (account.signed_in false), so the wait reads that field, not the exit code.
-deadline = time.monotonic() + 240
-while True:  # bounded wait on the app's sign-in, not app code
-    code, out, err, machines = listed()
-    signed_in = (machines.get("account") or {}).get("signed_in") is True
-    if signed_in or time.monotonic() > deadline:
-        break
-    time.sleep(5)
-record("signed in (cloud list-machines)", 0 if signed_in else (code or 1), "" if signed_in else out, err,
-       signed_in=signed_in)
-if not signed_in:
-    finish("fail: the app never signed in (cloud list-machines: account.signed_in is not true)")
+def wait_for(name: str, words: tuple[str, ...], ready, timeout: int = 240) -> dict:
+    """Bounded wait for app launch, restart or authentication; record only safe status fields."""
+    started = time.monotonic()
+    deadline = started + timeout
+    while True:
+        code, out, err = cmux(*words, timeout=min(30, max(1, int(deadline - time.monotonic()))))
+        value = parsed(out) if code == 0 else {}
+        satisfied = code == 0 and ready(value)
+        if satisfied or time.monotonic() >= deadline:
+            break
+        time.sleep(min(5, max(0, deadline - time.monotonic())))
+    safe = {key: value.get(key) for key in ("pid", "signed_in", "backend", "cloud_environment")
+            if key in value}
+    record(name, 0 if satisfied else (code or 1), "", "" if satisfied else err,
+           elapsed_ms=round((time.monotonic() - started) * 1000), **safe)
+    if not satisfied:
+        finish(f"fail: {name}")
+    return value
 
-# 2. A VM agent key at this build's issuer (vm-staging.cmux.dev for a tagged Debug build).
+
+# 1. A persisted CLI selection alone does not prove the running app uses it. Read the app's
+# actual configuration after the switch, and require a new process if a restart was scheduled.
+identity = wait_for("initial app ready", ("app", "identify", "--json"), lambda value: bool(value.get("pid")))
+started = time.monotonic()
+code, out, err = cmux("cloud", "env", "set", args.cloud_environment, "--json", timeout=150)
+selection = parsed(out) if code == 0 else {}
+record("cloud env set", code, "", err, selected_environment=selection.get("name"),
+       api_origin=selection.get("api_origin"), restart_scheduled=selection.get("restart_scheduled"),
+       sign_in_required=selection.get("sign_in_required"),
+       elapsed_ms=round((time.monotonic() - started) * 1000))
+if code != 0 or selection.get("name") != args.cloud_environment or not selection.get("api_origin"):
+    finish("fail: cloud env set did not select the requested environment")
+if selection.get("restart_scheduled") is True:
+    wait_for("app restarted", ("app", "identify", "--json"),
+             lambda value: bool(value.get("pid")) and value["pid"] != identity["pid"])
+actual = wait_for("selected backend active and signed in", ("app", "call", "auth.status", "--json"),
+                  lambda value: value.get("cloud_environment") == selection["name"]
+                  and value.get("backend", "").rstrip("/") == selection["api_origin"].rstrip("/")
+                  and value.get("signed_in") is True)
+evidence["api_origin"] = actual["backend"]
+
+# 2. A VM agent key at the selected environment's issuer.
 code, out, err = cmux("vm", "token", "create", "--ttl", "30m", "--json", timeout=60)
 record("vm token create", code, out, err)
 if code != 0:

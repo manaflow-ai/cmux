@@ -1,11 +1,11 @@
-name: Cloud chat proof (staging, tagged DEV app)
+name: Cloud chat proof (runtime backend, tagged DEV app)
 
 # One manual trip through a Cloud chat from a tagged DEV build of the dispatched commit, signed in as
 # the team's agent test account: build and launch the app with `scripts/reload.sh --auth-profile agent
 # --credentials-file`, then through its own CLI run `cmux vm token create` and `cmux cloud start-chat
-# --wait`, read the reply back and kill the machine the chat made. A tagged Debug build signs in on the
-# staging Stack project, talks to cmux-staging.vercel.app for Cloud and mints VM keys at
-# vm-staging.cmux.dev (CloudConfiguration.resolve, AppControl+VMAgentKey.vmBaseURL). Nothing gates on
+# --wait`, read the reply back and kill the machine the chat made. Before the chat, switch the running
+# app with `cloud env set`, wait for its restart and verify auth.status reports the selected backend.
+# The selected Rust environment table supplies every origin and the Stack project. Nothing gates on
 # it. The evidence (each step's exit code and message, and the reply text; never a key) is the run
 # summary and the only artifact.
 #
@@ -15,6 +15,11 @@ name: Cloud chat proof (staging, tagged DEV app)
 on:
   workflow_dispatch:
     inputs:
+      cloud_environment:
+        description: Runtime Cloud backend (local, dev, preview-N, staging or prod)
+        required: false
+        default: staging
+        type: string
       prompt:
         description: The prompt the Cloud chat gets
         required: false
@@ -106,14 +111,16 @@ jobs:
           fi
           echo "CMUX_PROOF_APP=$app" >> "$GITHUB_ENV"
 
-      - name: Token, Cloud chat and reply
+      - name: Switch backend, token, Cloud chat and reply
         timeout-minutes: 30
         env:
           PROOF_PROMPT: ${{ inputs.prompt }}
           PROOF_AGENT: ${{ inputs.agent }}
+          PROOF_CLOUD_ENVIRONMENT: ${{ inputs.cloud_environment }}
         run: |
           python3 -I scripts/cmux-next/cloud-chat-proof.py --app "$CMUX_PROOF_APP" --tag "$CMUX_PROOF_TAG" \
-            --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" --evidence "$RUNNER_TEMP/cloud-chat-proof/evidence.json"
+            --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" --cloud-environment "$PROOF_CLOUD_ENVIRONMENT" \
+            --evidence "$RUNNER_TEMP/cloud-chat-proof/evidence.json"
 
       - name: Summarize the evidence
         id: evidence
@@ -128,7 +135,7 @@ jobs:
           fi
           echo "clean=true" >> "$GITHUB_OUTPUT"
           {
-            echo '## Cloud chat proof (staging)'
+            echo '## Cloud chat proof (runtime backend)'
             echo
             echo '```json'
             cat "$file"
