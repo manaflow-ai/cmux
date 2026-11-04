@@ -127,4 +127,27 @@ import Testing
         settings.endPreview()
         #expect(settings.applied.chromeTheme == nil)
     }
+
+    /// Leo, 2026-11-04: "theme previews, like for not just the terminal, but the app itself". With an
+    /// App Theme saved, a whole-app preview shows the terminal theme on the terminals and the chrome
+    /// together (the App Theme previews as "match the terminal"), and ending it restores both.
+    @Test func aWholeAppPreviewShowsTheTerminalThemeOnTheChromeTooAndEndingRestoresBoth() async throws {
+        let (settings, url) = try await make()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try await settings.setSetting(try descriptor("appearance.appTheme"), to: .string("Rose Pine"), by: .currentRun())
+        await settings.reload()
+        #expect(settings.applied.chromeTheme == "Rose Pine")
+        #expect(settings.preview([(try descriptor("appearance.theme"), .string("Gruvbox Dark")),
+                                  (try descriptor("appearance.appTheme"), nil)]))
+        #expect(settings.applied.appTheme == "Gruvbox Dark")
+        #expect(settings.applied.chromeTheme == nil)
+        #expect(settings.snapshot.appTheme == "Nord" && settings.snapshot.chromeTheme == "Rose Pine")
+        settings.endPreview()
+        #expect(settings.applied.appTheme == "Nord")
+        #expect(settings.applied.chromeTheme == "Rose Pine")
+        // One refused value refuses the whole preview, and nothing shows.
+        #expect(!settings.preview([(try descriptor("appearance.theme"), .string("Gruvbox Dark")),
+                                   (try descriptor("appearance.appTheme"), .number(3))]))
+        #expect(settings.applied.appTheme == "Nord")
+    }
 }
