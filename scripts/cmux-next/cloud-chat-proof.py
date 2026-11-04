@@ -322,7 +322,7 @@ def kill_failure(code: int, out: str, err: str) -> dict:
             "raw": {"exit": code, "stdout": raw_output(out), "stderr": raw_output(err)}}
 
 
-def kill_machine(machine: str) -> bool:
+def kill_machine(machine: str, *, inspect_status: bool = True) -> bool:
     """Kill MACHINE (a destructive verb needs --confirm from a script). A failed kill reads one
     bounded status snapshot and retries once; only the safe status/error summary and the redacted
     raw output are kept."""
@@ -333,10 +333,12 @@ def kill_machine(machine: str) -> bool:
     # A failed kill used to be silent, leaving the proof unable to distinguish a deleted
     # machine from a leaked one.
     failed = kill_failure(code_k, out_k, err_k)
-    status_code, status_summary, status_detail = machine_status(machine)
-    record("cloud kill-machine", code_k, "", failed["stderr"], raw=failed["raw"],
-           status_after_failure={"exit": status_code, **status_summary,
-                                 **({"error": status_detail} if status_detail else {})})
+    extra = {}
+    if inspect_status:
+        status_code, status_summary, status_detail = machine_status(machine)
+        extra["status_after_failure"] = {"exit": status_code, **status_summary,
+                                         **({"error": status_detail} if status_detail else {})}
+    record("cloud kill-machine", code_k, "", failed["stderr"], raw=failed["raw"], **extra)
     code_retry, out_retry, err_retry = kill_command(machine)
     if code_retry == 0:
         record("cloud kill-machine retry", code_retry, "", "")
@@ -569,7 +571,7 @@ record("cloud browser event proof", event_code, "", "",
        browser_proof={"url": BROWSER_PROOF_URL, **event_proof})
 
 # 5. The machine the chat made goes, pass or fail.
-killed = kill_machine(machine) if machine else True
+killed = kill_machine(machine, inspect_status=False) if machine else True
 
 if not (code == 0 and reply_text):
     finish("fail: cloud start-chat gave no reply")
