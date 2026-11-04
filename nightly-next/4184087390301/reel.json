@@ -1,0 +1,323 @@
+{
+  "version": 1,
+  "build": "4184087390301",
+  "notes": "notes/4184087390301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 35447,
+      "title": "Agent pane: ask the store again when the start-folder prefetch came back empty",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33930,
+      "title": "journeys: one copy of the film judges on feat, and judge goldens (BASELINE and TRUTH) that every judge change must reproduce (R-HARNESS S1a + S1c part 1)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34889,
+      "title": "Cloud: promote devbox image 202611040528-cf86f55a1c-20b3afa254db",
+      "author": "manaflow-glaeda-route[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35409,
+      "title": "base red: web-lint check:fixed-waits and the type and lint errors behind it, from #35206",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34756,
+      "title": "perf(sidebar): workspace rows make their hover controls when they first show (REOPEN-F7)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35408,
+      "title": "test(cmux-tui): the returning phone test waits until the daemon saw the phone leave",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35367,
+      "title": "Format the ParallelAgents gallery's expand step (base web lint red from #34480)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35375,
+      "title": "fix(cmux-tui-core): viewer sizes go behind the input port's held keys without waiting; the settle ends by its deadline; a lost taken frame may be written (R-DAEMON-STATE S1.6c part 2)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35218,
+      "title": "cmux-tui: an app's daemon and Chief daemon stop when the app quits, crashes or is killed with nothing to keep them (R-LIFECYCLE ORPHANS)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34475,
+      "title": "Fresh-home launch smoke: the first-run history page over Home is a healthy launch",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35386,
+      "title": "base red: arch app_lines from #35294 (wordmark label moves to CmuxNextDesign)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35398,
+      "title": "workflow: create journals with owner-only permissions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34520,
+      "title": "Agent pane: a new tab's project or no project is final on its first frame",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35282,
+      "title": "journeys: the text reader reads an image that macOS 27's Vision finds empty again in four bands (r3-after-switch not judged)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35328,
+      "title": "acpmux: one warm spare per harness, so a new session takes a running agent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35175,
+      "title": "Agent pane gallery: the per-harness fold entry's interim note stays between its runs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35279,
+      "title": "fix(cmux-tui-core): a session with a poisoned state still shuts down (terminal_resource_surface recovers the poisoned guard)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35278,
+      "title": "acpmux: an idle agent daemon stops when its app quits even while cmux-tui watches it (R-LIFECYCLE ORPHANS part 2)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35391,
+      "title": "ci: read a commit over REST when GraphQL lists a null check run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35314,
+      "title": "Add the view shell and cmux preview open: the UI in real windows without the app",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34885,
+      "title": "Remove obsolete publication smoke scripts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35261,
+      "title": "fix(cmux-tui-core): set-layout-sizes takes a value only as exactly one pair and refuses a non-finite ratio; tests and docs (#34928 review follow-ups)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35029,
+      "title": "docs(review): a visual fix says what the person sees in each frame",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35347,
+      "title": "perf(tabs): the keyboard leaves the old tab before it hides; focus has the new selection first",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35383,
+      "title": "machine vault E2E: wait up to 120 s for the model stub, and show its output if it never listens",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35342,
+      "title": "ci: answer the INTERNAL trigger's builder-script probe with git, not REST",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35292,
+      "title": "cmux NEXT: a relaunched pane's toolbar has its width in the first frame",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35209,
+      "title": "ci: guard against new short hard timeouts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35338,
+      "title": "machine vault E2E: the agent step runs on the shared model stub; the real login only on the canary",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35286,
+      "title": "cmux NEXT: UI host windows wear the app's look, open at many sizes and animate",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35141,
+      "title": "Enable headless Cloud link credentials",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35288,
+      "title": "ci(backend): cache the Bun package cache in backend workflows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35195,
+      "title": "Browser: in a keyboard resize a Chromium page moves with its pane's top-left corner, never scaled (cmux-ad m6 1b)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35289,
+      "title": "acpmux: ACP schema conformance against the vendored upstream v1 schema",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35206,
+      "title": "Webview agent pane waits on live daemon requests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35330,
+      "title": "ci(pr red checks): read check runs, steps and annotations over GraphQL, REST only as the fallback",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35350,
+      "title": "cmux-vm: mark a mesh's removed rules deleted in batches",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35294,
+      "title": "feat(next): add built-in art to empty workspace splash",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34940,
+      "title": "Running tray: own-family subagents draw toned sparkles; the header stacks the lines' marks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35340,
+      "title": "idle_cpu: ready = a visible window and its first frame, not Home selected",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35323,
+      "title": "ci(base-red): compare errors with each run's temp dirs, checkout root, times and durations masked",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35333,
+      "title": "cloud-chat-proof: say why a Cloud start failed, and what the app's link logged",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35337,
+      "title": "ci(r2): stream PUT bodies so the socket timeout bounds idle gaps, not the whole upload",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34602,
+      "title": "Show reply timestamp in the native More menu",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35280,
+      "title": "fix(cmux-tui-core): the reader's end, give-up and the owner's detach end the input port's reconnect wait (R-DAEMON-STATE S1.6c)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35302,
+      "title": "cmux NEXT Cloud: agents create and move to Cloud without the card by default, with a toggle",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34480,
+      "title": "Running tray: each agent's latest line, and waiting on its own background work",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35161,
+      "title": "refactor(pane motion): delete motion.frameOwner.contentPolicy; containers always follow and a closing pane always keeps its ground (FRAME OWNER S3)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35306,
+      "title": "base red: fs_wire deflate over-size test panics with BrokenPipe on macOS",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35180,
+      "title": "base red: panic ratchet rows from #35133, #34360 and #35138 (cmux-tui indexing_slicing 841 > 831)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35332,
+      "title": "test: a shared model stub for agent tests (Anthropic Messages and OpenAI Responses)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35307,
+      "title": "cmux-app-ffi: generate cmux_motion_ffi.h with cbindgen, fail on drift",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
