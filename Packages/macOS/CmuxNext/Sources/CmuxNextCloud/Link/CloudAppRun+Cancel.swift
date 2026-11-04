@@ -1,12 +1,11 @@
-import Foundation
 import CmuxNextCompat
 
-extension CloudAppLinks {
+extension CloudAppRun {
     /// Runs `operation` and stops waiting for it when the caller is
     /// cancelled: the caller gets `CancellationError` at once, the operation
     /// runs to its own end (a daemon request has its deadline) and its late
     /// answer is dropped. For waits that do not see a cancel themselves.
-    nonisolated static func abandoningOnCancel<T: Sendable>(_ operation: @escaping @Sendable () async throws -> T) async throws -> T {
+    public static func abandoningOnCancel<T: Sendable>(_ operation: @escaping @Sendable () async throws -> T) async throws -> T {
         let slot = ResultSlot<T>()
         // task-owner: the operation ends by itself (its own deadline); a cancelled caller only stops waiting
         let work = Task {
@@ -22,7 +21,7 @@ extension CloudAppLinks {
 }
 
 /// One result, first resolution wins; a waiter before or after it gets it.
-private nonisolated final class ResultSlot<T: Sendable>: Sendable {
+private final class ResultSlot<T: Sendable>: Sendable {
     private enum State {
         case waiting(CheckedContinuation<T, any Error>?)
         case done(Result<T, any Error>)

@@ -102,6 +102,8 @@ import { trayFoldHeadLook } from "./trayFoldHead.experiment";
 import { trayOpenLook } from "./trayOpen.experiment";
 import { trayHeadKindsLook } from "./trayHeadKinds.experiment";
 import { trayHead } from "./trayHeadKinds";
+import { COMMAND_KIND_ICON, commandKind } from "./trayCommandKinds";
+import { KIND_LINE_SEPARATOR, trayKindLineLook } from "./trayKindLine.experiment";
 import { traySurfaceLook } from "./traySurface.experiment";
 import { Tick, useTrayMotion } from "./trayMotion";
 import type { StartedSession } from "../started/startedSessions";
@@ -217,6 +219,7 @@ export const SubagentTray = memo(function SubagentTray({
   const [stopLook] = useState(() => experimentArm(trayStopLook));
   const [opensArm] = useState(() => experimentArm(trayOpenLook));
   const [kindsArm] = useState(() => experimentArm(trayHeadKindsLook));
+  const [kindLine] = useState(() => experimentArm(trayKindLineLook));
   // How the header reaches the Background tasks panel, where the chat has one (Leo, 2026-11-03: "a
   // thing like this that can either expand OR open up to this sort of thing"): a panel button beside
   // its chevron (the default), or the whole header, Claude's chip.
@@ -348,8 +351,17 @@ export const SubagentTray = memo(function SubagentTray({
   }, []);
   const newest = useMemo(() => newestNames(t, items), [t, items]);
   const headCounts = useMemo(
-    () => trayHead(t, { items, finished, waiting, working, chatHarness, arm: kindsArm }),
-    [t, items, finished, waiting, working, chatHarness, kindsArm],
+    () =>
+      trayHead(t, {
+        items,
+        finished,
+        waiting,
+        working,
+        chatHarness,
+        arm: kindsArm,
+        separator: KIND_LINE_SEPARATOR[kindLine],
+      }),
+    [t, items, finished, waiting, working, chatHarness, kindsArm, kindLine],
   );
   if (items.length === 0 && finished.length === 0 && !planned) return null;
   // The counts, split by kind, then what ended and failed (trayHeadKinds.ts; Leo, 2026-11-03: "the
@@ -638,7 +650,14 @@ export const SubagentTray = memo(function SubagentTray({
       const processId = item.command.processId;
       // Named in words (session-info/commandRules.ts); the command as typed is its tooltip and the
       // first line of its tail.
-      const read = commandRead(t, item.command, undefined, currentCommandRules());
+      // A rule's mark where one reads the command (commandRules.ts), else the mark of the kind the
+      // header counts it under (trayCommandKinds.ts), in place of the word Command.
+      const read = commandRead(
+        t,
+        item.command,
+        COMMAND_KIND_ICON[commandKind(item.command.command)],
+        currentCommandRules(),
+      );
       // A subagent's command says whose it is: "Reviewer · Waiting 14m · hold".
       const named = sendLabel(t, item.command) ?? read.label;
       return (
@@ -647,7 +666,6 @@ export const SubagentTray = memo(function SubagentTray({
             <AgentLine
               name={item.owner ? `${subagentDisplayName(t, item.owner)} · ${named}` : named}
               title={item.command.command}
-              kind={t("tray.kind.command")}
               chevron
               icon={read.icon}
               working
