@@ -100,7 +100,13 @@ struct AgentPaneRelaunchWakeTests {
         let records = [
             "tab_chat": AgentSessionRef(host: Self.thisMac, hostName: "This Mac", session: "s-chat", harness: "claude"),
         ]
-        let held = AgentPaneWakeState(subagentDrafts: ["s-chat\u{0}agent-1": "check the flaky test first"])
+        // One draft past a tab's whole JSON budget (AgentPaneRelaunchWake.maximumTabBytes, 4 MiB): its
+        // text goes to a file of its own, so it comes back.
+        let long = String(repeating: "x", count: 4 * 1024 * 1024 + 1)
+        let held = AgentPaneWakeState(subagentDrafts: [
+            "s-chat\u{0}agent-1": .init(text: "check the flaky test first", at: 1_790_000_000_000),
+            "s-chat\u{0}agent-2": .init(text: long, at: 1_790_000_001_000),
+        ])
         #expect(!held.isEmpty, "a wake state holding only a subagent's draft counted as empty")
 
         let before = Self.run(file: file, records: records)
@@ -113,7 +119,10 @@ struct AgentPaneRelaunchWakeTests {
         let page = try #require(after.view(for: "tab_chat"))
         let handshake = try await Self.ready(page)
         let wake = try #require(handshake["wake"] as? [String: Any], "the chat came back without its subagent's draft")
-        #expect((wake["subagentDrafts"] as? [String: String])?["s-chat\u{0}agent-1"] == "check the flaky test first")
+        let drafts = try #require(wake["subagentDrafts"] as? [String: [String: Any]], "the chat came back without its subagents' drafts")
+        #expect(drafts["s-chat\u{0}agent-1"]?["text"] as? String == "check the flaky test first")
+        #expect((drafts["s-chat\u{0}agent-1"]?["at"] as? NSNumber)?.doubleValue == 1_790_000_000_000)
+        #expect((drafts["s-chat\u{0}agent-2"]?["text"] as? String)?.count == long.count, "the draft past the tab's JSON budget was dropped")
     }
 
     /// A restored New Tab page with chips from the last quit never adopts the prewarmed spare (its

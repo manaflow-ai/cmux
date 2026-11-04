@@ -23,10 +23,21 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     /// The page holds edits, attachments or sends that its wake state cannot restore, or has an
     /// input method or popup open. Only a hidden-page release asks to retain that state.
     public var holdsPageState: Bool?
-    /// Each subagent's unsent prompt in this chat's pane (webviews subagents/subagentDrafts.ts), by
-    /// its draft key, as text with its pasted chips in their places: a subagent has no acpmux session
-    /// to keep it, so the page's wake state does.
-    public var subagentDrafts: [String: String]?
+    /// The subagents' unsent prompts this page kept (webviews subagents/subagentDrafts.ts), by draft
+    /// key: a subagent has no acpmux session to keep it, so the page's wake state does. A quit keeps
+    /// each one's text in a file of its own (``AgentPaneRelaunchWake``), so it has no size limit.
+    public var subagentDrafts: [String: SubagentDraft]?
+
+    /// A subagent's unsent prompt as text, its pasted chips in their places, with when it was kept
+    /// (ms since 1970), which decides between two pages' copies. An empty text is a cleared draft.
+    public nonisolated struct SubagentDraft: Codable, Sendable, Equatable {
+        public var text: String?
+        public var at: Double
+
+        public init(text: String?, at: Double) {
+            (self.text, self.at) = (text, at)
+        }
+    }
 
     public nonisolated struct Attachment: Codable, Sendable, Equatable {
         public var id: String
@@ -57,7 +68,7 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
 
     public init(attachments: [Attachment]? = nil, shell: Bool? = nil, shellText: String? = nil,
                 scrollAnchor: AgentPaneScrollAnchor? = nil, atLatest: Bool? = nil, holdsPrompts: Bool? = nil,
-                holdsPageState: Bool? = nil, subagentDrafts: [String: String]? = nil) {
+                holdsPageState: Bool? = nil, subagentDrafts: [String: SubagentDraft]? = nil) {
         self.attachments = attachments
         self.shell = shell
         self.shellText = shellText

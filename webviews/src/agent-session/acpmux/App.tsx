@@ -7912,6 +7912,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   const sessionIdRef = useRef(snapshot.sessionId);
   sessionIdRef.current = snapshot.sessionId;
+  // The chat part of its subagents' draft keys (subagents/subagentDrafts.ts), for the wake state.
+  const subagentDraftChat = shownSessionId ?? chatName;
+  const subagentDraftChatRef = useRef(subagentDraftChat);
+  subagentDraftChatRef.current = subagentDraftChat;
   /// Opens the turn's changes in a diff tab right of the chat, as the header's Changes does
   /// (Lawrence 2026-10-13: "when i click diff viewer it opens in new pane to right, not in a split in
   /// same webpage"; Leo, 2026-11-03: "just put it in a tab???"): the chat folder's diff, on the chat's
@@ -12226,8 +12230,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             const anchor = transcriptAnchor.current?.();
             const composer = composerHandle.current?.wakeState();
             const attachments = [...chips, ...(composer?.attachments ?? [])];
-            // Subagents' unsent prompts have no acpmux session: the host keeps them with the tab.
-            const subagentDrafts = wakeSubagentDrafts();
+            // Subagents' unsent prompts have no acpmux session: the host keeps them with the tab, the
+            // ones this page kept and its chat's.
+            const subagentDrafts = wakeSubagentDrafts(subagentDraftChatRef.current);
             return {
               ...composer,
               ...(attachments.length ? { attachments } : {}),
@@ -14066,7 +14071,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The subagent's draft is its own, by keys that hold while its pane is open: the chat's session and
   // the pane's own subagent id (a workflow agent's run and id). Never the relay target, whose harness
   // id, task name and connected chat arrive or change later and would remount the composer empty.
-  const subagentDraftKey = `${shownSessionId ?? chatName}\u0000${shownSubagentId ?? ""}`;
+  const subagentDraftKey = `${subagentDraftChat}\u0000${shownSubagentId ?? ""}`;
   const composer = readOnlySubagent ? (
     <SubagentComposer
       key={subagentDraftKey}

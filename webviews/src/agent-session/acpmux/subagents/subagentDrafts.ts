@@ -6,8 +6,10 @@
 // composer".
 //
 // Every draft is kept in memory and written through to localStorage, which survives the page while
-// the app runs (its pages' storage is not kept on disk), and rides in the chat page's wake state
-// (`pane.wakeState` subagentDrafts, AgentPaneWakeState.swift), which the host keeps through a quit. One
+// the app runs (its pages' storage is not kept on disk), and rides in the wake state of the page it
+// was typed in (`pane.wakeState` subagentDrafts, AgentPaneWakeState.swift), with when it was kept:
+// the host keeps it through a quit, its text in a file of its own (AgentPaneRelaunchWake.swift), so a
+// draft of any size comes back, and of two pages' copies the newer one wins. One
 // the storage refuses (its quota, a big image chip) stays in memory only and holds the page: a
 // hidden page is not let go (`pane.wakeState` holdsPageState) and a web update does not reload it
 // (webSwap.ts) while it is held. A composer subscribes to its key, so a send that fails after the
@@ -25,8 +27,11 @@ const PREFIX = "cmux.subagentDraft.";
 const DRAFT_DAYS = 14;
 
 const drafts = new Map<string, Draft>();
-/// When each draft in `drafts` was last kept, which orders the wake state's drafts.
+/// When each draft in `drafts` was last kept, which decides between two copies of it.
 const keptAt = new Map<string, number>();
+/// The drafts this page kept (typed here, or woken into it): only these ride in its wake state, so
+/// no tab carries other tabs' drafts.
+const keptHere = new Set<string>();
 const unsaved = new Set<string>();
 const listeners = new Map<string, Set<(draft: Draft) => void>>();
 let loaded = false;
@@ -92,13 +97,14 @@ export function subagentDraft(key: string, now = Date.now()): Draft {
 export function keepSubagentDraft(key: string, draft: Draft, now = Date.now()) {
   load(now);
   const empty = !draft.text && draft.attachments.length === 0;
+  // An emptied draft stays this page's to hand on: a newer empty copy clears an older one.
+  keptHere.add(key);
   if (empty) {
     drafts.delete(key);
-    keptAt.delete(key);
   } else {
     drafts.set(key, draft);
-    keptAt.set(key, now);
   }
+  keptAt.set(key, now);
   const store = storage();
   try {
     if (empty) store?.removeItem(PREFIX + key);
@@ -155,40 +161,48 @@ export function draftMessage(draft: Draft): string {
     .trim();
 }
 
-/// The most a page's wake state carries of its subagents' drafts: the host keeps a tab's wake state
-/// only under its cap (AgentPaneRelaunchWake.maximumTabBytes, 4 MiB), which the chat's own chips
-/// share, so drafts past this stay out of it rather than costing the chat its chips.
-const WAKE_DRAFT_CHARS = 1_000_000;
+/// A draft as a page's wake state carries it: its text (`draftMessage`) and when it was kept. An
+/// empty text is a cleared draft, which wins over an older copy too.
+export type WokenDraft = { text: string; at: number };
 
-/// The drafts a page about to let go (or quit) hands the host, as text (`draftMessage`), the most
-/// recently kept first within WAKE_DRAFT_CHARS; undefined for none.
-export function wakeSubagentDrafts(now = Date.now()): Record<string, string> | undefined {
+/// The drafts a page about to let go (or quit) hands the host: those it kept, and those of `chat`, the
+/// chat it shows (a page a web update reloaded keeps them in storage only); undefined for none. Each
+/// goes whatever its size: the host keeps its text in a file of its own.
+export function wakeSubagentDrafts(chat?: string, now = Date.now()): Record<string, WokenDraft> | undefined {
   load(now);
-  const out: Record<string, string> = {};
-  let total = 0;
-  const newest = [...drafts].sort(([a], [b]) => (keptAt.get(b) ?? 0) - (keptAt.get(a) ?? 0));
-  for (const [key, draft] of newest) {
-    const message = draftMessage(draft);
-    if (!message || total + message.length > WAKE_DRAFT_CHARS) continue;
-    out[key] = message;
-    total += message.length;
+  const out: Record<string, WokenDraft> = {};
+  const keys = new Set(keptHere);
+  if (chat !== undefined) for (const key of drafts.keys()) if (key.startsWith(`${chat}\u0000`)) keys.add(key);
+  for (const key of keys) {
+    const draft = drafts.get(key);
+    const at = keptAt.get(key) ?? now;
+    // A cleared draft is handed on only while an older copy could still be around.
+    if (!draft && now - at > DRAFT_DAYS * 86_400_000) continue;
+    out[key] = { text: draft ? draftMessage(draft) : "", at };
   }
   return Object.keys(out).length ? out : undefined;
 }
 
-/// Takes back the drafts a woken page's wake state carries (`wakeSubagentDrafts`); a draft this page
-/// already keeps for the same subagent (storage outlived the page) is the same or newer and stays.
+/// Takes back the drafts a woken page's wake state carries (`wakeSubagentDrafts`): each one newer
+/// than the copy this page has (storage outlived the page, or another page woke first) replaces it.
 export function wakeIntoSubagentDrafts(value: unknown, now = Date.now()) {
   if (!value || typeof value !== "object") return;
   load(now);
-  for (const [key, text] of Object.entries(value as Record<string, unknown>))
-    if (typeof text === "string" && text && !drafts.has(key)) keepSubagentDraft(key, { text, attachments: [] }, now);
+  for (const [key, woken] of Object.entries(value as Record<string, unknown>)) {
+    const { text, at } = (woken ?? {}) as Partial<WokenDraft>;
+    if (typeof text !== "string" || typeof at !== "number") continue;
+    if (keptAt.has(key) && (keptAt.get(key) ?? 0) >= at) continue;
+    // Kept, not restored: the page has just started, before a composer reads it, and a restore
+    // reads to a shown composer as a failed send.
+    keepSubagentDraft(key, { text, attachments: [] }, at);
+  }
 }
 
 /// Forgets every draft in memory (the stored ones are read again), for tests.
 export function resetSubagentDraftsForTests() {
   drafts.clear();
   keptAt.clear();
+  keptHere.clear();
   unsaved.clear();
   listeners.clear();
   loaded = false;
