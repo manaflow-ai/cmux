@@ -59,8 +59,8 @@ drawn2=$(grep "redrawn generation=2" "$out/shell.log" | sed 's/.*at=//')
 repatched="no: generation 2 drew the same picture as generation 1"
 cmp -s "$out/generation-1.png" "$out/generation-2.png" || repatched="yes"
 
-# 3. A new stored property: a layout change the running code cannot take.
-sed -i '' -e 's/    let text: String/    let text: String\n    var extra = 0/' "$package/Sources/ViewShell/Badge.swift"
+# 3. A new stored property (a SwiftUI `@State`, whose layout the runtime fills in): refused.
+sed -i '' -e 's/    let text: String/    let text: String\n    @State private var extra = 0/' "$package/Sources/ViewShell/Badge.swift"
 "$package/inject.sh" --live "$live" "$package/Sources/ViewShell/Badge.swift" | tee "$out/inject-3.log" || true
 sleep 3
 stored="not applied"

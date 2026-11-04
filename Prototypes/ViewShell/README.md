@@ -62,7 +62,11 @@ What applies live: any change inside a function or computed property, a view's b
 view whose `body` is `AnyView(content)` (`PreviewBadge`) may also change what it builds, its
 modifiers and their types. What needs a rebuild: a new or changed stored property, a changed
 function signature, a new type used from another file, `main.swift` and `LiveCode.swift`
-themselves, resources and the package manifest. Nothing in the shell checks for those: such a
-patch is applied anyway and can corrupt memory, so the tool that sends patches has to refuse them. `--live-render DIR` draws the badge offscreen
+themselves, resources and the package manifest. A patch whose internal or public
+types change size (a stored property added or removed, or retyped to another size) is refused before anything
+is repointed: the shell compares each type's size and stride, or a class's instance size, with
+this build's and prints `refused: stored properties changed`. A reorder, a same-size retype or a
+change to a `private` type (its symbols are local, so the check does not see it) still needs a
+rebuild (`scripts/cmux-next/try-pr.sh` classifies a PR's diff and says so). `--live-render DIR` draws the badge offscreen
 after each patch (`generation-N.png`), and `--headless` runs the loop with no windows, so a host
 without a screen can measure it (`scripts/measure/live-code-shell.sh`).

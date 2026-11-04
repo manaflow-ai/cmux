@@ -38,6 +38,8 @@ chrono.workspace = true
 chrono-tz.workspace = true
 cmux-server = { path = "../cmux-server" }
 cmux-json.workspace = true
+# The event log's journal (R-DURABILITY S2, `store.journal`).
+cmux-journal.workspace = true
 cmux-chat-index.workspace = true
 cmux-palette-ranker.workspace = true
 cmux-coderouter.workspace = true
@@ -136,6 +138,8 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+# The simulated crash file system, for the journal store's crash tests.
+cmux-journal = { workspace = true, features = ["sim"] }
 cmux-server-core = { path = "../cmux-server-core" }
 rcgen = "0.14"
 # Paused time for the media handle sweeper's tests (`hub/media_handles_tests.rs`).
