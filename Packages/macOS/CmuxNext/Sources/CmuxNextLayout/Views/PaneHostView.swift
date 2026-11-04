@@ -59,7 +59,7 @@ final class PaneHostView: NSView, RestingPlacement {
         reporter?.onPaneHeaderHeightChange = { [weak self] in self?.applyChromeShape() }
     }
 
-    /// A host made ahead (``LayoutViewContext/parkSpare(_:)``) becomes `pane`'s when that pane adopts its content.
+    /// A host made ahead (``LayoutViewContext/parkSpare(_:in:)``) becomes `pane`'s when that pane adopts its content.
     func adopt(_ pane: PaneID, holdsContentInMotion: @escaping () -> Bool) {
         self.pane = pane
         self.holdsContentInMotion = holdsContentInMotion
