@@ -1,12 +1,65 @@
 {
  "id": "adopt-pane-diag-proof",
  "priority": "P3",
- "title": "SCRATCH (never pinned): a terminal whose screen is empty and silent makes adopt_pane time out and save its diag-adopt* files",
- "why": "Fleet proof of cp/journey-close-then-type-diag (STATUS 12261): the diagnostics path runs on a real mini.",
- "budget_seconds": 90,
+ "title": "SCRATCH (never pinned): a new pane whose screen stays empty makes adopt_pane time out and save its diag-adopt* files",
+ "why": "Fleet proof of cp/journey-close-then-type-diag (STATUS 12261): the diagnostics path runs on a real mini. The new pane's shell is replaced by a silent command that clears the screen, so the step must fail with the diagnostics.",
+ "budget_seconds": 120,
  "steps": [
-  {"do": "new_terminal", "via": "key"},
-  {"do": "type", "text": "printf '\\033[2J\\033[3J\\033[H'; exec sleep 600", "enter": true},
-  {"do": "adopt_pane", "as": "silent", "timeout": 6}
+  {
+   "do": "new_terminal",
+   "via": "key"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "left"
+  },
+  {
+   "do": "type",
+   "text": "echo keep-${nonce}",
+   "enter": true,
+   "mark": "keep"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the first pane answers",
+   "since": "keep",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "keep-${nonce}"
+    },
+    {
+     "app_text_line": "keep-${nonce}"
+    },
+    {
+     "pane_frame_text": "keep-${nonce}"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "type",
+   "text": "printf '\\033[2J\\033[3J\\033[H'; exec sleep 600",
+   "enter": true
+  },
+  {
+   "do": "wait",
+   "seconds": 3,
+   "title": "scratch only: the clear has run before adopt_pane reads the new pane (not a test of timing)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "silent",
+   "timeout": 8
+  }
  ]
 }
