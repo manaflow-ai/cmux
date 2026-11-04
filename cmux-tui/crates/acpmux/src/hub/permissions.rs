@@ -359,23 +359,20 @@ impl Hub {
                 let loop_goal = m.goal.as_ref().is_some_and(|goal| {
                     goal.extra.get("kind").and_then(Value::as_str) == Some("loop")
                 });
-                if loop_goal {
-                    // A TodoWrite plan is checklist detail for the armed /loop. Keep the
-                    // loop's objective and lifecycle, but replace its visible steps as Claude
-                    // advances or clears the plan.
-                    if update.get("entries").and_then(Value::as_array).is_some()
-                        && let Some(goal) = m.goal.as_mut()
-                    {
-                        goal.steps = crate::goal::GoalState::from_plan_update(update)
-                            .and_then(|plan| plan.steps);
-                        goal_write = true;
-                    }
-                } else {
-                    m.goal = crate::goal::GoalState::from_plan_update(update);
-                    // Claude emits an empty plan when the loop is cleared. Do not
-                    // leave a completed goal banner behind after that update.
+                // A TodoWrite plan is checklist detail for the armed /loop. Keep the
+                // loop's objective and lifecycle, but replace its visible steps as Claude
+                // advances or clears the plan.
+                if loop_goal
+                    && update.get("entries").and_then(Value::as_array).is_some()
+                    && let Some(goal) = m.goal.as_mut()
+                {
+                    goal.steps =
+                        crate::goal::GoalState::from_plan_update(update).and_then(|plan| plan.steps);
                     goal_write = true;
                 }
+                // An ordinary TodoWrite plan (no armed /loop) is not published as the chat's
+                // goal: the current web client would render it with Codex's Pause/Clear
+                // controls, which cannot drive Claude's checklist (review on #34457).
             }
             "current_mode_update" => {
                 // A mode the harness moves to by itself is not cmux's: the mark goes, so moving
