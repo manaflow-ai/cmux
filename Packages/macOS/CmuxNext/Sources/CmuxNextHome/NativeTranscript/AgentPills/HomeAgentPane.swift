@@ -69,6 +69,14 @@ final class HomeAgentPane {
         threads.agentThread(peer, in: conversation).map { HomeAgentChatContent($0, now: now) }
     }
 
+    /// Go to workspace on agent `peer`'s tab: where its session runs at this moment (a read, then a
+    /// re-attach when it moved), so the button opens the place it went, never the one it left.
+    ///
+    /// - Returns: The link to open; nil when the agent has no workspace link.
+    func goToWorkspace(_ peer: String) async -> URL? {
+        content(peer, now: Date())?.workspaceLink
+    }
+
     /// Agent `peer`'s title for its tab (its id when its chat is not loaded).
     func title(_ peer: String) -> String {
         threads.agentThread(peer, in: conversation)?.title ?? peer
