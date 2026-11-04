@@ -999,6 +999,8 @@ characters become spaces, then it cuts to the limit in code points):
 | Field | Limit | Meaning |
 | --- | --- | --- |
 | `kind` | | adds `terminal` (an OSC 9, OSC 777 or OSC 99 desktop notification from a program in a cmux terminal) |
+| `kind` | | adds `computer_use` (a Computer Use approval question; docs/computer-use-approvals.md, "Phone wire (macOS)"). Not a phone preference: it goes to every phone whose `kinds` has `permission`, and `wants` lists it then |
+| `computerUse` | 2048 bytes as JSON | with `kind` `computer_use` only, required: `{request, always}`, the worker's request object (its `digest` 64 hex) as the Mac sent it, never cleaned or cut (the phone recomputes the digest from it), and whether Always Allow may be offered. Category `CMUX_MOBILE_COMPUTER_USE`, banner "<Agent> wants to use <title>", subtitle "<workspace> · <Mac>", time-sensitive, `apns-expiration` at the request's `answerable_until_ms` |
 | `workspace` | 60 | the workspace's title (`place` stays the folder name) |
 | `workspaceId`, `tabId` | 128 | the daemon's ids; `tabId` is `s<surface>` for a terminal |
 | `permissionId` | 128 | the acpmux permission id of a question or permission |
@@ -1110,6 +1112,22 @@ agent's question from the phone".
 | `cmux.reply` (text input) | completed, failed, chief | authenticationRequired | background: a prompt to the session, or a Chief message |
 | `cmux.terminal.reply` (text input) | terminal (PR B) | authenticationRequired | background: input to the terminal |
 | `cmux.retry` | the "Couldn't reach <Mac>" notification | foreground | the app opens and sends again |
+| `cmux.cu.once` | Computer Use (`CMUX_MOBILE_COMPUTER_USE` from a Mac, `CMUX_COMPUTER_USE_APPROVAL` from the device hub) | foreground, authenticationRequired | the app opens on the request's sheet, Face ID, signed `once` |
+| `cmux.cu.session` | Computer Use (both categories) | foreground, authenticationRequired | the app opens, Face ID, signed `session` |
+| `cmux.cu.always` | Computer Use, only when the asking machine allows it | foreground, authenticationRequired | never a static button: "Always Allow <App>" is in the app's sheet, Face ID, signed `always` |
+| `cmux.cu.deny` | Computer Use (both categories) | destructive, authenticationRequired | background: unsigned `deny` to a Mac (link `cu-approval-answer`, else the mailbox), signed `deny` to the hub (`POST /v1/approvals/:id/decision`) |
+
+Computer Use questions (docs/computer-use-approvals.md, "Phone wire (macOS)";
+docs/device-hub/PROTOCOL.md, "Computer Use approvals"): a Mac's push carries
+the request (`computerUse {request, always}`, sealed in `box` when the Mac
+seals) and the phone recomputes its digest before it offers an answer; a hub
+push (`cmuxComputerUse {approvalId, hub, …}`) only names the approval, which
+the phone fetches from the hub it is built with (a push naming another hub is
+ignored), then checks the digest, the deadline, the state and that it did not
+ask it. A Mac answer is signed with the approval key over
+`cmux-cu-phone-approval-v1 \0 phone \0 digest \0 decision \0 expiresAt`
+(now + 120 s, hex r||s); a hub answer with the device hub key over
+`cmux-cu-approval-v1\n<digest>\n<decision>` after Face ID.
 
 The content extension replaces the buttons with the payload's own options
 (`extensionContext.notificationActions`). Its option rows, Submit and its

@@ -182,6 +182,8 @@ pub struct Pairing {
     /// Notification replies already applied, over a link or from the mailbox
     /// (`mailbox.rs`): a reply that came both ways is applied once.
     pub spent_replies: Arc<crate::mailbox::SpentReplies>,
+    /// Computer Use questions the app asked the phones (`computer_use.rs`).
+    pub computer_use: Arc<crate::computer_use::ComputerUse>,
 }
 
 impl Pairing {
@@ -190,7 +192,9 @@ impl Pairing {
         trust: watch::Receiver<Option<DeviceTrust>>,
         emit: Arc<dyn Fn(Event) + Send + Sync>,
     ) -> Self {
+        let computer_use = Arc::new(crate::computer_use::ComputerUse::new(trust.clone(), Arc::clone(&emit)));
         Self {
+            computer_use,
             mac_device_id,
             trust,
             emit,
@@ -206,6 +210,12 @@ impl Pairing {
     /// With the store of applied notification replies.
     pub fn with_spent_replies(mut self, spent: Arc<crate::mailbox::SpentReplies>) -> Self {
         self.spent_replies = spent;
+        self
+    }
+
+    /// With the app's Computer Use questions (`control::Supplied::computer_use`).
+    pub fn with_computer_use(mut self, computer_use: Arc<crate::computer_use::ComputerUse>) -> Self {
+        self.computer_use = computer_use;
         self
     }
 

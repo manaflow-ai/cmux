@@ -8,6 +8,10 @@ public enum DeviceHubError: Error, Sendable, Equatable, CustomStringConvertible 
         case badRequest, unauthorized, notFound, badSignature, staleTimestamp, replay, deviceRemoved, deviceKeyMismatch
         case notShared, permissionNone, scopeExceedsPermission, hostOffline, notHost, sessionNotPending, sessionNotActive
         case ticketInvalid, roleTaken, rateLimited, internalError
+        case notSelf
+        /// Computer Use approvals (PROTOCOL.md, "Computer Use approvals").
+        case digestMismatch, approvalExists, selfApproval, notApprover, notAsker, approvalNotPending, approvalExpired
+        case alwaysNotAllowed, badDecisionSignature
         case other(String)
 
         static let table: [(Code, String)] = [
@@ -17,7 +21,11 @@ public enum DeviceHubError: Error, Sendable, Equatable, CustomStringConvertible 
             (.permissionNone, "permission_none"), (.scopeExceedsPermission, "scope_exceeds_permission"),
             (.hostOffline, "host_offline"), (.notHost, "not_host"), (.sessionNotPending, "session_not_pending"),
             (.sessionNotActive, "session_not_active"), (.ticketInvalid, "ticket_invalid"), (.roleTaken, "role_taken"),
-            (.rateLimited, "rate_limited"), (.internalError, "internal"),
+            (.rateLimited, "rate_limited"), (.internalError, "internal"), (.notSelf, "not_self"),
+            (.digestMismatch, "digest_mismatch"), (.approvalExists, "approval_exists"), (.selfApproval, "self_approval"),
+            (.notApprover, "not_approver"), (.notAsker, "not_asker"), (.approvalNotPending, "approval_not_pending"),
+            (.approvalExpired, "approval_expired"), (.alwaysNotAllowed, "always_not_allowed"),
+            (.badDecisionSignature, "bad_decision_signature"),
         ]
 
         public init(_ raw: String) {

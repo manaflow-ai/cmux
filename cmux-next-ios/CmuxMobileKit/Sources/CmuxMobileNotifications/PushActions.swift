@@ -16,6 +16,10 @@ public enum PushCategory: String, CaseIterable, Sendable {
     /// on (an unsealed one from a Mac that seals, a stale one): no buttons
     /// (PR B security review H1).
     case sealed = "CMUX_MOBILE_SEALED"
+    /// A Computer Use question from the device hub (``ComputerUseApprovalNotice``).
+    case computerUseApproval = "CMUX_COMPUTER_USE_APPROVAL"
+    /// A Computer Use question from a Mac's cmux app through its iPhone host (kind `computer_use`).
+    case computerUse = "CMUX_MOBILE_COMPUTER_USE"
 }
 
 /// One notification button (PROTOCOL.md "Phone actions").
@@ -142,7 +146,8 @@ public struct PushActions: Sendable {
                 identifier: category.rawValue,
                 actions: staticActions(category),
                 intentIdentifiers: [],
-                hiddenPreviewsBodyPlaceholder: String(localized: "Notification from your Mac"),
+                hiddenPreviewsBodyPlaceholder: category == .computerUseApproval || category == .computerUse
+                    ? String(localized: "Computer Use request") : String(localized: "Notification from your Mac"),
                 options: []
             )
         })
@@ -155,6 +160,8 @@ public struct PushActions: Sendable {
         case .completed, .failed, .chief: [action(.reply)]
         case .terminal, .sealed: []
         case .retry: [action(.retry)]
+        case .computerUseApproval, .computerUse:
+            ComputerUseApprovalAction.notificationButtons.map { $0.notificationAction(requireFaceID: requireFaceID) }
         }
     }
 
@@ -190,6 +197,9 @@ public struct PushActions: Sendable {
         case .terminal:
             // Text into the terminal (device unlock), only when its poster takes a reply.
             return payload.replyable && payload.notificationId != nil ? [(.terminalReply, title(.terminalReply))] : []
+        case .computerUse:
+            // Its own buttons (`ComputerUseApprovalAction`), from the category: the content extension takes no part.
+            return []
         }
     }
 

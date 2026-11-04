@@ -1,0 +1,136 @@
+{
+  "v": 1,
+  "about": "Shared device hub test vectors (docs/device-hub/PROTOCOL.md, Identity and Computer Use approvals). Every client (TypeScript hub, Swift CmuxDeviceHub, Rust cmux-device-hub-client) must reproduce the canonical strings and digests byte for byte and accept every signature, high-S ones included. ECDSA is randomized, so signatures are verified, not reproduced.",
+  "key": {
+    "privateKeyHex": "e5677d1ea943b0c58b0f90ad69c40d6dd0bd437d96c9286b6883ad97d32346f8",
+    "signingKey": "BIuJiqRVrFAkGfYt6B18vnWP08eA/4TchK7dGRDzJ0ZGfQV9X/kI0dNYOppguYg0ieqZhfMbb/11cYCsP1OoDGU="
+  },
+  "requestSigning": [
+    {
+      "method": "POST",
+      "pathAndQuery": "/v1/approvals",
+      "ts": "1793400000",
+      "body": "{\"request\":{\"v\":1}}",
+      "bodySha256": "c5f3a38cac6b5b23b51120f4206d39d504dbd37ed02e438bdfd63f27405f23cc",
+      "canonical": "POST\n/v1/approvals\n1793400000\nc5f3a38cac6b5b23b51120f4206d39d504dbd37ed02e438bdfd63f27405f23cc",
+      "sig": "kcmkOcF801esmUiaUFhdhpOiPZHnatDOdOzryughcd4b7NCZfP8nFXkb3yhDqMhFvQYTI3CsWcNadkt8It8WDg==",
+      "sigHighS": "kcmkOcF801esmUiaUFhdhpOiPZHnatDOdOzryughcd7kEy9lgwDY64bkINe8Vze5/+DnijZrRMGZQ39G2YQPQw==",
+      "lowSHex": "91c9a439c17cd357ac99489a50585d8693a23d91e76ad0ce74ecebcae82171de1becd0997cff2715791bdf2843a8c845bd06132370ac59c35a764b7c22df160e"
+    },
+    {
+      "method": "GET",
+      "pathAndQuery": "/v1/approvals/0b9f4c1e-8d1a-4d7e-9a43-2f0c5e7b1a60",
+      "ts": "1793400001",
+      "body": "",
+      "bodySha256": "",
+      "canonical": "GET\n/v1/approvals/0b9f4c1e-8d1a-4d7e-9a43-2f0c5e7b1a60\n1793400001\n",
+      "sig": "uILgYywW5HWmrKWeBcn4bjNWmj66tENt/D57WYtT6+BzvPn3aDCexRMgGWeZNMZMwmsYHg5CZ0G0/DHAGBv91A==",
+      "sigHighS": "uILgYywW5HWmrKWeBcn4bjNWmj66tENt/D57WYtT6+CMQwYHl89hO+zf5phmyzmy+nvij5jVN0M+vZkC5EcnfQ==",
+      "lowSHex": "b882e0632c16e475a6aca59e05c9f86e33569a3ebab4436dfc3e7b598b53ebe073bcf9f768309ec5132019679934c64cc26b181e0e426741b4fc31c0181bfdd4"
+    },
+    {
+      "method": "GET",
+      "pathAndQuery": "/v1/user/ws",
+      "ts": "1793400002",
+      "body": "",
+      "bodySha256": "",
+      "canonical": "GET\n/v1/user/ws\n1793400002\n",
+      "sig": "Bewn5b952o3hv4xCKCk74rsZ6tdPNEOsOOUXMw+NT31Z125stAhh3/kQ5HBCxzQeWuPMvWK6dxHiNYwi49J0Kw==",
+      "sigHighS": "Bewn5b952o3hv4xCKCk74rsZ6tdPNEOsOOUXMw+NT32mKJGSS/eeIQbvG4+9OMvhYgMt8ERdJ3MRhD6gGJCxJg==",
+      "lowSHex": "05ec27e5bf79da8de1bf8c4228293be2bb19ead74f3443ac38e517330f8d4f7d59d76e6cb40861dff910e47042c7341e5ae3ccbd62ba7711e2358c22e3d2742b"
+    }
+  ],
+  "canonicalJson": [
+    {
+      "value": {
+        "v": 1,
+        "nonce": "6f1d2c3b4a5968778695a4b3c2d1e0f1",
+        "client": "com.cmuxterm.app.debug.cu1",
+        "machine": "build-box-7",
+        "session": "c-41",
+        "agent": "Claude",
+        "workspace": "api-server",
+        "target": {
+          "bundle_id": null,
+          "executable": "/usr/bin/gedit",
+          "name": "Text Editor \"β\"\n/tmp ☃ \u0001"
+        },
+        "tool": "click",
+        "risk": "R1",
+        "created_ms": 1793400000000,
+        "wait_until_ms": 1793400120000,
+        "answerable_until_ms": 1793400600000
+      },
+      "canonical": "{\"agent\":\"Claude\",\"answerable_until_ms\":1793400600000,\"client\":\"com.cmuxterm.app.debug.cu1\",\"created_ms\":1793400000000,\"machine\":\"build-box-7\",\"nonce\":\"6f1d2c3b4a5968778695a4b3c2d1e0f1\",\"risk\":\"R1\",\"session\":\"c-41\",\"target\":{\"bundle_id\":null,\"executable\":\"/usr/bin/gedit\",\"name\":\"Text Editor \\\"β\\\"\\n/tmp ☃ \\u0001\"},\"tool\":\"click\",\"v\":1,\"wait_until_ms\":1793400120000,\"workspace\":\"api-server\"}",
+      "sha256": "8b103ea20764ba906dc15f5fc3a90a99de23c979a7d53df845577a268c73e1d5"
+    },
+    {
+      "value": {
+        "b": [
+          1,
+          true,
+          null,
+          {
+            "z": "",
+            "a": -5
+          }
+        ],
+        "a": "\t\b\f\r\u001f/é𝄞"
+      },
+      "canonical": "{\"a\":\"\\t\\b\\f\\r\\u001f/é𝄞\",\"b\":[1,true,null,{\"a\":-5,\"z\":\"\"}]}",
+      "sha256": "73e127e1e08e27c0e91fac7f6e801236f5fd90fa8d1a821ed46981b14f0bd968"
+    }
+  ],
+  "approvalRequest": {
+    "request": {
+      "v": 1,
+      "nonce": "6f1d2c3b4a5968778695a4b3c2d1e0f1",
+      "client": "com.cmuxterm.app.debug.cu1",
+      "machine": "build-box-7",
+      "session": "c-41",
+      "agent": "Claude",
+      "workspace": "api-server",
+      "target": {
+        "bundle_id": null,
+        "executable": "/usr/bin/gedit",
+        "name": "Text Editor \"β\"\n/tmp ☃ \u0001"
+      },
+      "tool": "click",
+      "risk": "R1",
+      "created_ms": 1793400000000,
+      "wait_until_ms": 1793400120000,
+      "answerable_until_ms": 1793400600000,
+      "digest": "8b103ea20764ba906dc15f5fc3a90a99de23c979a7d53df845577a268c73e1d5"
+    }
+  },
+  "approvalDecisions": [
+    {
+      "decision": "once",
+      "message": "cmux-cu-approval-v1\n8b103ea20764ba906dc15f5fc3a90a99de23c979a7d53df845577a268c73e1d5\nonce",
+      "sig": "zJOxEo2bvsx/w+TfffQMwzxtJ27h6FCrzRlHhKXfVFN67s0Iea6JR5EcoHUwaAxK4GAKUeoehYZj0bbdCuFipQ==",
+      "sigHighS": "zJOxEo2bvsx/w+TfffQMwzxtJ27h6FCrzRlHhKXfVFOFETL2hlF2uW7jX4rPl/O03IbwW7z5GP6P6BPl8YHCrA==",
+      "lowSHex": "cc93b1128d9bbecc7fc3e4df7df40cc33c6d276ee1e850abcd194784a5df54537aeecd0879ae8947911ca07530680c4ae0600a51ea1e858663d1b6dd0ae162a5"
+    },
+    {
+      "decision": "session",
+      "message": "cmux-cu-approval-v1\n8b103ea20764ba906dc15f5fc3a90a99de23c979a7d53df845577a268c73e1d5\nsession",
+      "sig": "ERIth32RZdI0MvhUAiZbL24Rw66Y67REa0JuU8KXKqRezg+p6NrTDzRn432z0K9oRGW5bbzQh3qY20VUEFUFqA==",
+      "sigHighS": "ERIth32RZdI0MvhUAiZbL24Rw66Y67REa0JuU8KXKqShMfBVFyUs8cuYHIJML1CXeIFBP+pHFwpa3oVu7A4fqQ==",
+      "lowSHex": "11122d877d9165d23432f85402265b2f6e11c3ae98ebb4446b426e53c2972aa45ece0fa9e8dad30f3467e37db3d0af684465b96dbcd0877a98db4554105505a8"
+    },
+    {
+      "decision": "always",
+      "message": "cmux-cu-approval-v1\n8b103ea20764ba906dc15f5fc3a90a99de23c979a7d53df845577a268c73e1d5\nalways",
+      "sig": "s26nhUO4Wn1c/mDvs+QpiKiFwykqii7Mt8TuTnegzidE3bJugF+x4KB7wbLsQ1Yk44b/z18zoauuil0H4lt7Vg==",
+      "sigHighS": "s26nhUO4Wn1c/mDvs+QpiKiFwykqii7Mt8TuTnegzie7Ik2Qf6BOIF+EPk0TvKna2V/63kfj/NlFL227Ggep+w==",
+      "lowSHex": "b36ea78543b85a7d5cfe60efb3e42988a885c3292a8a2eccb7c4ee4e77a0ce2744ddb26e805fb1e0a07bc1b2ec435624e386ffcf5f33a1abae8a5d07e25b7b56"
+    },
+    {
+      "decision": "deny",
+      "message": "cmux-cu-approval-v1\n8b103ea20764ba906dc15f5fc3a90a99de23c979a7d53df845577a268c73e1d5\ndeny",
+      "sig": "+HdRtGn7q5ekwEjoHCzT9hiRLJJPNg7lM9EOymVCTG5+BXdLED+934ZPQdY+vS3HkEsRv+w0GluWSWR9FnYIIw==",
+      "sigHighS": "+HdRtGn7q5ekwEjoHCzT9hiRLJJPNg7lM9EOymVCTG6B+oiz78BCIXmwvinBQtI4LJvo7brjhCldcGZF5e0dLg==",
+      "lowSHex": "f87751b469fbab97a4c048e81c2cd3f618912c924f360ee533d10eca65424c6e7e05774b103fbddf864f41d63ebd2dc7904b11bfec341a5b9649647d16760823"
+    }
+  ]
+}

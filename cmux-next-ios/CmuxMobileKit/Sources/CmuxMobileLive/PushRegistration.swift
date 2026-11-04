@@ -164,7 +164,7 @@ public final class PushRegistration {
     /// provisioning profile (Xcode and hand-installed builds) says
     /// `development`, so APNs is the sandbox; App Store and TestFlight builds
     /// carry no embedded profile and use production.
-    static let environment: String = {
+    public static let environment: String = {
         #if targetEnvironment(simulator)
         return "sandbox"
         #else

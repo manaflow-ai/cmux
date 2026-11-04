@@ -6,6 +6,8 @@ public import Foundation
 
 public enum DevicePlatform: String, Codable, Sendable, Equatable {
     case macos, ios
+    /// Machines running cmux-tui with Computer Use: they ask approvals, never answer them.
+    case windows, linux
 }
 
 /// What a viewer may do on a host's screen.

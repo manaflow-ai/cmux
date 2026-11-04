@@ -24,6 +24,10 @@
 //!   issued through the app), the whole set each time. That phone's `acpmux` channel
 //!   presents it instead of the dashboard token, so acpmux knows which phone it is and
 //!   that phone's Full-access setting can cover it (`services.rs`). Never logged.
+//! - `{"type":"cu_approval","request":{…},"always":bool}`: a Computer Use
+//!   question for the owner's phones (`computer_use.rs`); the same digest twice
+//!   is the same question.
+//! - `{"type":"cu_approval_done","digest":"<64 hex>"}`: that question is over.
 //!
 //! End of stdin means the app is gone: the process exits.
 //!
@@ -138,6 +142,16 @@ pub enum Inbound {
     PhoneCredentials {
         credentials: std::collections::HashMap<String, Secret>,
     },
+    /// A Computer Use question to push to the owner's phones (`computer_use.rs`).
+    CuApproval {
+        request: serde_json::Value,
+        #[serde(default)]
+        always: bool,
+    },
+    /// The Computer Use question `digest` was answered, cancelled or expired.
+    CuApprovalDone {
+        digest: String,
+    },
 }
 
 impl Inbound {
@@ -202,6 +216,16 @@ pub enum Event {
     NeedSurface { request: u64, tab: String },
     /// hostd no longer needs the surface source of `tab`: stop it.
     SurfaceStop { tab: String },
+    /// A paired phone answered the Computer Use question `digest` (`computer_use.rs`):
+    /// hostd checked it; the app checks the signature again before it counts.
+    CuApprovalAnswer {
+        phone_device_id: String,
+        digest: String,
+        decision: String,
+        expires_at: u64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
 }
 
 /// Writes `event` as one stdout line when supervised; otherwise nothing.
@@ -227,6 +251,8 @@ pub struct Supplied {
     pub browser: std::sync::Arc<crate::browser::BrowserBroker>,
     /// Simulator surface sources the app starts for the `surface` service.
     pub surface: std::sync::Arc<crate::browser::BrowserBroker>,
+    /// Computer Use questions the app asks the phones (`cu_approval`).
+    pub computer_use: std::sync::Arc<crate::computer_use::ComputerUse>,
 }
 
 /// Reads stdin until it ends, then exits the process (the app is gone).
@@ -239,6 +265,11 @@ pub fn spawn_stdin_reader() -> Supplied {
     let broker = std::sync::Arc::clone(&browser);
     let surface = std::sync::Arc::new(crate::browser::BrowserBroker::for_surfaces(std::sync::Arc::new(emit)));
     let surfaces = std::sync::Arc::clone(&surface);
+    let computer_use = std::sync::Arc::new(crate::computer_use::ComputerUse::new(
+        devices.clone(),
+        std::sync::Arc::new(|e| emit(&e)),
+    ));
+    let questions = std::sync::Arc::clone(&computer_use);
     tokio::spawn(async move {
         let mut lines = BufReader::new(tokio::io::stdin()).lines();
         while let Ok(Some(line)) = lines.next_line().await {
@@ -276,6 +307,12 @@ pub fn spawn_stdin_reader() -> Supplied {
                 }
                 Some(Inbound::SurfaceFailed { request, reason }) => surfaces.answer(request, Err(reason)),
                 Some(Inbound::SurfaceGone { tab }) => surfaces.gone(&tab),
+                Some(Inbound::CuApproval { request, always }) => {
+                    if let Err(why) = questions.ask(request, always) {
+                        tracing::warn!(why, "ignoring a Computer Use question");
+                    }
+                }
+                Some(Inbound::CuApprovalDone { digest }) => questions.done(&digest),
                 None => tracing::warn!("ignoring an unknown control line"),
             }
         }
@@ -283,7 +320,7 @@ pub fn spawn_stdin_reader() -> Supplied {
         crate::size_release::stop_and_release(crate::size_release::EXIT_WAIT).await;
         std::process::exit(0);
     });
-    Supplied { token, acpmux, devices, identity, browser, surface }
+    Supplied { token, acpmux, devices, identity, browser, surface, computer_use }
 }
 
 /// The wire name of a transport.
@@ -344,6 +381,20 @@ mod tests {
             Some(Inbound::BrowserGone { tab: "s4".into() })
         );
         assert_eq!(Inbound::parse(r#"{"type":"network_changed"}"#), Some(Inbound::NetworkChanged));
+        assert_eq!(
+            Inbound::parse(r#"{"type":"cu_approval","request":{"v":1,"digest":"ab"},"always":true}"#),
+            Some(Inbound::CuApproval { request: serde_json::json!({"v": 1, "digest": "ab"}), always: true })
+        );
+        assert_eq!(
+            Inbound::parse(r#"{"type":"cu_approval","request":{"v":1}}"#),
+            Some(Inbound::CuApproval { request: serde_json::json!({"v": 1}), always: false }),
+            "always defaults to off"
+        );
+        assert_eq!(
+            Inbound::parse(r#"{"type":"cu_approval_done","digest":"ab"}"#),
+            Some(Inbound::CuApprovalDone { digest: "ab".into() })
+        );
+        assert_eq!(Inbound::parse(r#"{"type":"cu_approval_done"}"#), None);
         assert_eq!(Inbound::parse(r#"{"type":"nope"}"#), None);
         assert_eq!(Inbound::parse("not json"), None);
     }

@@ -47,7 +47,7 @@ pub struct DeviceRegistration {
 #[serde(rename_all = "camelCase")]
 pub struct NotifyEvent {
     pub event_id: String,
-    /// `question`, `permission`, `completed`, `failed`, `chief` or `terminal`.
+    /// `question`, `permission`, `completed`, `failed`, `chief`, `terminal` or `computer_use`.
     pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
@@ -87,6 +87,10 @@ pub struct NotifyEvent {
     /// A terminal notification that takes a typed reply (`notification-reply-v1`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replyable: Option<bool>,
+    /// A Computer Use question (`kind: "computer_use"`): `{request, always}`,
+    /// the request object as the Mac app sent it, so the phone recomputes its digest.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub computer_use: Option<serde_json::Value>,
 }
 
 /// One acpmux permission option (`optionId`, `name`, `kind`).

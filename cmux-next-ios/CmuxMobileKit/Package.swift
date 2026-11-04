@@ -29,6 +29,7 @@ let package = Package(
         .library(name: "CmuxMobileRealtime", targets: ["CmuxMobileRealtime"]),
         .library(name: "CmuxMobileNotifications", targets: ["CmuxMobileNotifications"]),
         .library(name: "CmuxMobileScreenSharing", targets: ["CmuxMobileScreenSharing"]),
+        .library(name: "CmuxMobileComputerUse", targets: ["CmuxMobileComputerUse"]),
     ],
     dependencies: [
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
@@ -150,6 +151,12 @@ let package = Package(
             .product(name: "CmuxScreenKit", package: "CmuxScreenKit", condition: .when(platforms: [.iOS])),
             .product(name: "CmuxScreenKitUI", package: "CmuxScreenKit", condition: .when(platforms: [.iOS])),
         ]),
+        // Computer Use approvals (docs/computer-use-approvals.md): this iPhone answers a machine's
+        // question about an app, from the device hub or a Mac's cmux app; the sheet and its checks.
+        .target(name: "CmuxMobileComputerUse", dependencies: [
+            "CmuxMobileDesign", "CmuxMobileNotifications",
+            .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
+        ]),
         // Chief calls: the Action Button voice note (recorder, on-device transcriber, delivery to Chief)
         // and the live call (WebRTC link to the Realtime API, call screen, Chief's tools).
         .target(
@@ -169,6 +176,7 @@ let package = Package(
                 "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth", "CmuxMobileOnboarding", "CmuxMobileSettings",
                 "CmuxMobileAgentChat", "CmuxMobileFeed", "CmuxMobileTransport", "CmuxMobileWorkspaces", "CmuxMobileChief", "CmuxMobileLive", "CmuxMobileTerminal",
                 "CmuxMobileBrowserStream", "CmuxMobileNotifications", "CmuxMobileVoice", "CmuxMobileRealtime", "CmuxMobileScreenSharing",
+                "CmuxMobileComputerUse",
                 .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
@@ -179,6 +187,10 @@ let package = Package(
             "CmuxMobileScreenSharing",
             .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
             .product(name: "CmuxScreenKit", package: "CmuxScreenKit", condition: .when(platforms: [.iOS])),
+        ]),
+        .testTarget(name: "CmuxMobileComputerUseTests", dependencies: [
+            "CmuxMobileComputerUse", "CmuxMobileNotifications",
+            .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
         ]),
         .testTarget(name: "CmuxMobileModelTests", dependencies: ["CmuxMobileModel"]),
         .testTarget(name: "CmuxMobileNotificationsTests", dependencies: ["CmuxMobileNotifications"]),

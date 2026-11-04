@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileAgentChat
 import CmuxMobileChief
+import CmuxMobileComputerUse
 import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileNotifications
@@ -72,7 +73,12 @@ public final class NotificationRouter {
     /// Settings → Require Face ID has the app locked (AppLock): replies that
     /// need Face ID wait, so the two prompts never overlap.
     public internal(set) var appLocked = false {
-        didSet { if !appLocked { PushReplies.shared.appStateChanged() } }
+        didSet {
+            if !appLocked {
+                PushReplies.shared.appStateChanged()
+                ComputerUseApprovals.shared.interactivityChanged()
+            }
+        }
     }
     /// Set by the shell: whether this route's screen is what the user is looking at.
     @ObservationIgnored var isShowing: (NotificationRoute) -> Bool = { _ in false }
@@ -136,6 +142,8 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         // The App Group resolves once, off the main thread (its lookup is a synchronous XPC).
         PushAppGroup.prime()
         PushReplies.shared.registerCategories()
+        // Computer Use questions: the hub, the Mac links and Face ID (before any notification arrives).
+        ComputerUseHost.shared.configure()
         // One notification per Chief reply: the Mac's push when this phone gets them, else the app's own alert.
         ChiefAlerts.shared.macPushesReplies = { PushRegistration.shared.receivesChiefPushes }
         // A cmux link tapped in a chat, the Feed or Chief opens here, not in Safari.
@@ -158,6 +166,8 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
 
     public func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         PushRegistration.shared.didRegister(deviceToken: deviceToken)
+        // The device hub gets it too: Computer Use questions from machines without the Mac app.
+        ComputerUseApprovals.shared.didRegister(deviceToken: deviceToken)
     }
 
     public func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
@@ -196,6 +206,18 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
             let kind = route.kind, mac = route.mac, conversation = route.conversationID
             Task { @MainActor in
                 NotificationRouter.shared.set(NotificationRoute(kind: kind, mac: mac, conversationID: conversation))
+                completionHandler()
+            }
+            return
+        }
+        // A Computer Use question from the device hub: it names the approval; the app fetches it.
+        if let notice = ComputerUseApprovalNotice(userInfo: userInfo) {
+            let action = ComputerUseApprovalAction(identifier: response.actionIdentifier)
+            let dismissed = response.actionIdentifier == UNNotificationDismissActionIdentifier
+            Task { @MainActor in
+                if !dismissed {
+                    await ComputerUseApprovals.shared.handle(notice, action: action, requireFaceID: PushReplies.shared.requireFaceID)
+                }
                 completionHandler()
             }
             return

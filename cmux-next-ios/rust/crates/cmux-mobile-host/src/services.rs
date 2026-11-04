@@ -259,6 +259,7 @@ async fn daemon(
             DaemonPolicy::new(&peer.device_id).with_agent_tab_host(config.agent_tab_host.clone()),
         ),
         config.pairing.as_ref().map(|pairing| std::sync::Arc::clone(&pairing.spent_replies)),
+        config.pairing.as_ref().map(|pairing| std::sync::Arc::clone(&pairing.computer_use)),
         sender,
         receiver,
     )
@@ -286,7 +287,7 @@ async fn chief(
         }),
         None => ChiefPolicy::new(),
     };
-    splice(&path, "chief", LinePolicy::Chief(policy), None, sender, receiver).await
+    splice(&path, "chief", LinePolicy::Chief(policy), None, None, sender, receiver).await
 }
 
 /// Bound an unanswered ordered command; its splice closes on expiry. Terminal
@@ -300,6 +301,7 @@ async fn splice(
     label: &str,
     policy: LinePolicy,
     spent_replies: Option<std::sync::Arc<crate::mailbox::SpentReplies>>,
+    computer_use: Option<std::sync::Arc<crate::computer_use::ComputerUse>>,
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
 ) -> Result<(), Refusal> {
@@ -459,6 +461,29 @@ async fn splice(
                 let (verdict, canonical) = policy.evaluate(&line);
                 if let Some(canonical) = canonical {
                     line = canonical;
+                }
+                // A Computer Use answer is hostd's own (computer_use.rs): checked here
+                // and told to the app, never sent to the daemon. Unsupervised (no
+                // pairing) nothing is paired to answer it.
+                if matches!(verdict, Verdict::Forward)
+                    && let Some(phone) = &reply_phone
+                    && is_command(&line, "cu-approval-answer")
+                {
+                    let mut answer = match &computer_use {
+                        Some(questions) => questions.answer_line(phone, &line),
+                        None => {
+                            let id = serde_json::from_slice::<Value>(&line)
+                                .ok()
+                                .and_then(|v| v.get("id").cloned());
+                            crate::policy::error_line(id.as_ref(), "not_paired", "this Mac pairs no iPhone")
+                        }
+                    }
+                    .into_bytes();
+                    answer.push(b'\n');
+                    if refusals.send(answer).await.is_err() {
+                        return;
+                    }
+                    continue;
                 }
                 // A reply to a terminal notification is answered locally. Keep it
                 // in the input task so it cannot be confused with an ordinary rewrite.
@@ -626,9 +651,14 @@ fn is_terminal_input(line: &[u8]) -> bool {
 
 /// Whether `line` is a `notification-reply` request.
 fn is_notification_reply(line: &[u8]) -> bool {
+    is_command(line, "notification-reply")
+}
+
+/// Whether `line` is a v12 request for `command`.
+fn is_command(line: &[u8], command: &str) -> bool {
     serde_json::from_slice::<Value>(line)
         .ok()
-        .is_some_and(|v| v.get("cmd").and_then(Value::as_str) == Some("notification-reply"))
+        .is_some_and(|v| v.get("cmd").and_then(Value::as_str) == Some(command))
 }
 
 /// Releases every terminal size the phone claimed on this channel and waits

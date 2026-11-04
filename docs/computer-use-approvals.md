@@ -171,6 +171,13 @@ or a 0600 key file on a headless box, reported as lower assurance).
   (`GET /v1/devices`) and that the decider is not itself before it applies the
   decision; the hub's word alone never grants.
 - `GET /v1/approvals/:id` returns the state after a reconnect.
+- Only the user's Macs and iPhones answer (403 `not_approver` for a Windows
+  or Linux machine). `POST /v1/approvals` carries `allowAlways`, the asking
+  machine's `computerUse.phoneAlwaysAllow`; without it the hub refuses
+  `always` and approvers do not offer it. The full API, the canonical JSON
+  rules, `approval.closed`, cancel, expiry and the APNs payload are in
+  `docs/device-hub/PROTOCOL.md`, "Computer Use approvals"; the Rust client is
+  `cmux-tui/crates/cmux-device-hub-client`.
 
 ## Controls
 

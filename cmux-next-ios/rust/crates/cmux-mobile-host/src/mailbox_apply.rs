@@ -53,6 +53,8 @@ pub struct LiveApplier {
     /// The app's daemon socket (the `daemon` service's default session).
     pub daemon_socket: PathBuf,
     pub chief_socket: Option<PathBuf>,
+    /// The app's Computer Use questions (`computer_use.rs`): kind `computer_use`.
+    pub computer_use: Option<std::sync::Arc<crate::computer_use::ComputerUse>>,
 }
 
 impl Applier for LiveApplier {
@@ -63,6 +65,10 @@ impl Applier for LiveApplier {
                 "completed" | "failed" => self.prompt(reply).await,
                 "chief" => self.chief(reply).await,
                 "terminal" => self.terminal(reply).await,
+                "computer_use" => match &self.computer_use {
+                    Some(questions) => questions.apply_mailbox(reply),
+                    None => Err(Rejection::NotPending),
+                },
                 _ => Err(Rejection::Refused("unknown kind".into())),
             }
         })
@@ -625,6 +631,7 @@ mod tests {
                 conversation_id: Some("conv_A".into()),
                 tab_id: Some("s7".into()),
                 notification_id: Some("12".into()),
+                digest: None,
             },
             action,
             option_id: Some("allow".into()),

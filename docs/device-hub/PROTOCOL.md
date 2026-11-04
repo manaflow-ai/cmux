@@ -34,7 +34,13 @@ host-signed allow lists are later work.
   `Authorization: Bearer <session>` on every call.
 - **Device key**: each device has two P-256 keys in its Secure Enclave
   (CryptoKit `SecureEnclave.P256.Signing` and `.KeyAgreement`). Public keys are
-  sent as base64 of the X9.63 uncompressed point (65 bytes).
+  sent as base64 of the X9.63 uncompressed point (65 bytes). A Windows or
+  Linux machine running cmux-tui (Computer Use, `docs/computer-use-approvals.md`)
+  registers the same way with the Rust client
+  (`cmux-tui/crates/cmux-device-hub-client`) and says where its keys live in
+  `assurance`: `hardware` (Secure Enclave, a TPM-backed CNG key), `keystore`
+  (the Linux Secret Service, a Windows software CNG key) or `file` (a 0600 key
+  file on a headless box: the lowest).
 - **Device-signed requests**: every device-scoped call (all calls below except
   `/v1/auth/stack`) carries
   - `X-Device-Id: <uuid>` (lowercase),
@@ -59,9 +65,15 @@ host-signed allow lists are later work.
 ## Records (User DO SQLite)
 
 ```
-devices(id TEXT PK, name, platform 'macos'|'ios', signing_key, agreement_key,
-        created_at, last_seen_at, removed_at NULL, mac_screen_shared INT 0/1,
-        name_pinned INT 0/1, owner_kind, owner_id)
+devices(id TEXT PK, name, platform 'macos'|'ios'|'windows'|'linux', signing_key,
+        agreement_key, created_at, last_seen_at, removed_at NULL,
+        mac_screen_shared INT 0/1, name_pinned INT 0/1, owner_kind, owner_id,
+        assurance 'hardware'|'keystore'|'file', push_token NULL, push_topic NULL,
+        push_env NULL 'production'|'development')
+approvals(id TEXT PK, asker_id, nonce, digest, request JSON, allow_always INT,
+        state 'pending'|'decided'|'expired'|'cancelled', decision NULL,
+        decider_id NULL, sig NULL, created_at, answerable_until, decided_at NULL,
+        owner_kind, owner_id, UNIQUE(asker_id, nonce))
 permissions(host_id, viewer_id, scope 'none'|'ask'|'view'|'full', updated_at,
         owner_kind, owner_id,
         PRIMARY KEY(host_id, viewer_id))         -- default when absent: 'ask'
@@ -80,7 +92,10 @@ in place when an existing User DO starts, and its rows are backfilled with the
 user id. `audit.device_id` is the device a `device_added`/`device_removed`
 entry is about.
 Audit events: `shared`, `unshared`, `requested`, `approved`, `denied`,
-`started`, `ended`, `permission_changed`, `device_added`, `device_removed`.
+`started`, `ended`, `permission_changed`, `device_added`, `device_removed`,
+and for Computer Use approvals `cu_requested`, `cu_decided`, `cu_expired`,
+`cu_cancelled` (`hostId` the asking machine, `viewerId` the deciding device,
+`sessionId` the approval id, `detail` `<tool> <target name>` or the decision).
 Audit holds metadata only: never screen content, keystrokes or clipboard.
 Audit rows are never deleted or hidden: removing a device keeps every row that
 names it, and the device row itself stays (with `removed_at`), so entries
@@ -91,7 +106,7 @@ digest, expires_at)` table (digest = ts and low-S signature) for the 120 s
 replay cache.
 
 JSON shapes: a device is `{id, name, platform, signingKey, agreementKey,
-createdAt, lastSeenAt, macScreenShared, online}`; an ICE server is
+createdAt, lastSeenAt, macScreenShared, online, assurance}`; an ICE server is
 `{urls:[…], username?, credential?}`; an audit entry is `{id, ts, event,
 viewerId, hostId, deviceId, viewerName, hostName, deviceName, scope, sessionId,
 detail, durationS}` (`detail` carries the
@@ -104,7 +119,8 @@ end reason, the decision, or `old->new` for a permission change).
 | `GET /v1/health` | | `{ok, service, protocol, time}` | No auth. |
 | `POST /v1/auth/stack` | `{token}` | `{session, userId, expiresAt}` | Verifies the Stack Auth token (JWKS). The session carries the Stack token sealed (AES-GCM, key derived from the session key) for the cmux relay check, and ends no later than that token (at most 1 h). A session from before this (no sealed token) still works but never gets the cmux relay; one whose token does not open is refused with 401 `unauthorized`. |
 | `GET /v1/me` | | `{userId, plan: 'free'\|'paid', device}` | `plan` is `paid` when cmux billing says the cmux relay is included (see Plans); `free` otherwise, including when the lookup fails. Needs a registered device. |
-| `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey}` | `{device}` | Registers or updates this device. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. |
+| `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey, assurance?}` | `{device}` | Registers or updates this device. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. `platform` is `macos`, `ios`, `windows` or `linux`; `assurance` defaults to `hardware` for `macos`/`ios` and `file` for `windows`/`linux`. A registered id keeps its platform, and its assurance only goes down (`hardware` > `keystore` > `file`): otherwise 409 `device_platform_mismatch`, since the platform decides who answers Computer Use questions. |
+| `PUT /v1/devices/:id/push` | `{token, topic, environment}` | `{push:{registered, configured}}` | Only device `:id` itself (403 `not_self`), only an `ios` device (400). `token` the APNs device token in hex (64-200 digits), `topic` its app's bundle id (one of `APNS_TOPICS`), `environment` `production` or `development`. `{token: null}` forgets it. `configured` is false when this hub has no APNs key: Computer Use questions then reach the phone only over its socket. |
 | `GET /v1/devices` | | `{devices:[…]}` | Not removed devices, with `online` from open sockets. |
 | `PATCH /v1/devices/:id` | `{name}` | `{device}` | Any of the user's devices. |
 | `DELETE /v1/devices/:id` | | `{}` | Removes the device; ends its sessions; pushes revocations. Deletes every permission that names it, as host or as viewer, and pushes `permissions.changed` for each host that listed it. |
@@ -128,7 +144,10 @@ Codes: `bad_request`, `unauthorized` (missing/expired hub session),
 `scope_exceeds_permission` (no longer sent: hubs before 2026-10-20 refused a
 scope above `view` with it; apps still read it as View Only), `host_offline`, `not_host`, `session_not_pending`,
 `session_not_active`, `ticket_invalid`, `role_taken`, `rate_limited` (reserved;
-v1 does not rate-limit yet), `internal` (500).
+v1 does not rate-limit yet), `host_scope`, `not_anchored`, `not_self`, `device_platform_mismatch`, and for
+approvals `digest_mismatch`, `approval_exists`, `self_approval`,
+`not_approver`, `not_asker`, `approval_not_pending`, `approval_expired`,
+`always_not_allowed`, `bad_decision_signature`; `internal` (500).
 
 ## WebSocket: User DO
 
@@ -150,6 +169,9 @@ others. Server → device messages:
 {type:'session.denied', sessionId}             // to the viewer
 {type:'session.revoked', sessionId, reason}    // to both; end at once
 {type:'session.ended', sessionId, reason}
+{type:'approval.request', approval:{id, deviceId, deviceName, request, allowAlways, answerableUntil}}  // to approvers
+{type:'approval.decided', id, decision, digest, deciderId, sig}   // to the asking device
+{type:'approval.closed', id, state, decision}                     // to every other device: drop the question
 ```
 Device → server: `{type:'ping'}` (auto-response `{type:'pong'}`). The
 auto-response matches bytes exactly: send the text frame `{"type":"ping"}`, no
@@ -277,3 +299,80 @@ or `max`, or `teamPlanId` `team` (the user's billing team, as cmux billing
 resolves it). Go, Free, a non-200, a timeout (5 s) or any other answer gives
 `ice: []`. There is no cache, so a lapsed subscription loses the relay on its
 next ticket or refresh; ICE already handed out lasts its 1 h TTL.
+
+## Computer Use approvals
+
+A machine whose Computer Use worker needs a person's answer (a call on an app
+outside the agent session's manifest; `docs/computer-use-approvals.md`, "The
+approval question") asks the user's other devices through the hub. The hub
+stores and forwards; it never decides, and the asking machine never takes its
+word: it checks the deciding device's signature itself.
+
+**Approvers** are the user's `macos` and `ios` devices other than the asking
+one: the only ones with a protected collector (the cmux app's card, Face ID on
+the phone). A Windows or Linux machine asks; it never answers (403
+`not_approver`), and no device answers its own question (403 `self_approval`).
+
+**The request** is the worker's object from the contract, unchanged:
+`{v, nonce, client, machine, session, agent, workspace, target:{bundle_id,
+executable, name}, tool, risk, created_ms, wait_until_ms, answerable_until_ms,
+digest}`, where `digest` is the lowercase hex SHA-256 of the canonical JSON of
+the object without `digest`. Canonical JSON: object keys (ASCII) sorted
+by code point, no whitespace, integers only (no fractions or exponents),
+strings escaped only for `"`, `\\`, `\b \f \n \r \t` and other U+0000-U+001F
+as `\u00xx` (lowercase hex); everything else, `/` and non-ASCII included, is
+written as its UTF-8 bytes. A string holding a lone surrogate (`\ud800` in
+the body) is refused (400): Swift and Rust strings cannot hold one. `schemas/device-hub/test-vectors.json` holds the
+shared vectors every client (hub, Swift `CmuxDeviceHub`, Rust client) tests
+against: request signing, low-S, canonical JSON and decision signatures.
+
+**The decision signature** (`sig`): the deciding device's ECDSA-P256-SHA256,
+base64 raw r||s (64 bytes, high-S accepted), over the UTF-8 string
+`"cmux-cu-approval-v1\n<digest>\n<decision>"` with `decision` one of `once`,
+`session`, `always`, `deny`.
+
+An approval is `{id, deviceId, deviceName, request, allowAlways, state,
+decision, deciderId, sig, createdAt, answerableUntil, decidedAt}`; `state` is
+`pending`, `decided`, `expired` or `cancelled`.
+
+| Method, path | Body | Result | Notes |
+|---|---|---|---|
+| `POST /v1/approvals` | `{request, allowAlways?}` | `{approval}` | From the asking machine. The hub checks the shape (`v` 1, `nonce` 32 lowercase hex, the strings 1-200 characters, `bundle_id`/`executable` a string or null with at least one set, `target.name` 1-200, the times integers with `created_ms` <= `wait_until_ms` <= `answerable_until_ms`, `answerable_until_ms` in the future and at most 15 min away, the canonical request at most 4 KiB) and recomputes `digest` (400 `digest_mismatch`). `allowAlways` (default false) is the asking machine's `computerUse.phoneAlwaysAllow`: approvers offer Always Allow only when it is true, and the hub refuses an `always` otherwise. The same `nonce` again from the same device with the same digest returns the stored approval (a retry); with another digest, 409 `approval_exists`, as for a copy of another device's open question (same digest). At most 32 open questions per machine (429 `rate_limited`). Pushes `approval.request` to every approver's socket and an APNs alert to every `ios` approver with a push token. Audit `cu_requested`. |
+| `GET /v1/approvals` | | `{approvals:[…]}` | The pending approvals this device may answer (not its own), oldest first: what a phone or Mac shows after it reconnects. |
+| `GET /v1/approvals/:id` | | `{approval}` | Any device of the user. The asking machine reads the outcome after a reconnect. |
+| `POST /v1/approvals/:id/decision` | `{decision, digest, sig}` | `{approval}` | From an approver. Checks, in order: 403 `self_approval` (the asking device), 403 `not_approver` (not `macos`/`ios`), 409 `approval_not_pending` (already decided or cancelled: a second answer or a replay), 409 `approval_expired` (past `answerable_until_ms`), 400 `digest_mismatch` (`digest` is not the stored one), 403 `always_not_allowed` (`always` without `allowAlways`), 400 `bad_decision_signature` (`sig` does not verify with the decider's registered key). Then the approval is `decided`; the hub pushes `approval.decided` to the asking device and `approval.closed` to the others. Audit `cu_decided`. |
+| `DELETE /v1/approvals/:id` | | `{approval}` | Only the asking device (403 `not_asker`): its agent session ended (`app_approval_cancel`). A pending approval becomes `cancelled` (audit `cu_cancelled`, push `approval.closed`); any other state is returned as it is. |
+
+- At `answerable_until_ms` a pending approval becomes `expired` (audit
+  `cu_expired`, `approval.closed` to every device, the asking one included).
+  Rows are deleted an hour after `answerable_until_ms`; the audit stays.
+- The asking machine applies `approval.decided` (or a `decided` approval it
+  read) only when `deciderId` is not itself, the decider is a `macos` or `ios`
+  device in `GET /v1/devices`, `digest` is its own request's, and `sig`
+  verifies with that device's `signingKey`. `always` also needs its own
+  `computerUse.phoneAlwaysAllow`, whichever device answered. Anything else
+  is ignored and the question stays open until its deadline.
+- A host-scoped session (Device renewal) may ask, read and cancel its own
+  approvals; it never lists, reads or answers another machine's (403
+  `host_scope`).
+
+**Phone push** (APNs, when the hub has `APNS_KEY_P8`, `APNS_KEY_ID`,
+`APNS_TEAM_ID` and the token's topic is in `APNS_TOPICS`): to
+`api.push.apple.com` (`production`) or `api.sandbox.push.apple.com`
+(`development`), `apns-push-type: alert`, priority 10, `apns-collapse-id:
+cu-<id>`, `apns-expiration` = `answerable_until_ms` in seconds:
+
+```json
+{"aps": {"alert": {"title": "Claude wants to use Safari", "subtitle": "build-box-7", "body": "api-server · click"},
+         "sound": "default", "category": "CMUX_COMPUTER_USE_APPROVAL", "interruption-level": "time-sensitive",
+         "thread-id": "cu:<asking device id>", "mutable-content": 1},
+ "cmuxComputerUse": {"v": 1, "approvalId": "…", "deviceId": "<asking device id>", "hub": "<public origin>",
+                     "allowAlways": false, "answerableUntil": 1793400600000}}
+```
+
+Texts are cleaned like the mobile Worker's (control and format characters
+become spaces, cut to 60 characters with "…"); the machine name is the asking
+device's hub name. The phone never acts on the push's text: it fetches the
+approval from `hub` (only a hub address it has built in), recomputes the
+digest from `request` and shows that. A token APNs answers 410 or
+`BadDeviceToken` for is forgotten.

@@ -139,6 +139,10 @@ pub static ALLOWED_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
         // only (`notification_reply_refusal`). hostd answers it itself
         // (`mailbox_apply::reply_to_notification`); the daemon never sees it.
         "notification-reply",
+        // A Computer Use answer (`computer_use.rs`): the digest, the decision,
+        // its expiry and signature only. hostd answers it itself; the daemon
+        // never sees it.
+        "cu-approval-answer",
         // Restart Shell: a dead terminal tab of the person's gets its shell
         // again, on this Mac, under the same terminal id; the surface only
         // (`creation_fields`). Verified live (cmux-next-ios/SECURITY.md "Restart Shell").
@@ -227,6 +231,9 @@ fn creation_fields(command: &str) -> Option<HashSet<&'static str>> {
         "reopen-saved-tab-group" => return Some(["saved", "pane", "transaction"].into_iter().collect()),
         "delete-saved-tab-group" => return Some(["saved"].into_iter().collect()),
         "notification-reply" => return Some(["notification", "text", "reply_id"].into_iter().collect()),
+        "cu-approval-answer" => {
+            return Some(["digest", "decision", "expires_at", "signature"].into_iter().collect());
+        }
         "new-tab" | "new-pane" => &["pane"],
         "new-pane-right" => &["pane", "width"],
         "split" => &["pane", "dir"],
@@ -1130,6 +1137,14 @@ mod tests {
     /// answers it itself (`mailbox_apply::reply_to_notification`): the text
     /// goes only to the terminal that posted that notification.
     #[test]
+    fn cu_approval_answer_takes_only_its_answer_fields() {
+        let line = br#"{"cmd":"cu-approval-answer","id":"c1","digest":"ab","decision":"once","expires_at":1,"signature":"00"}"#;
+        assert_eq!(policy().evaluate(line), Verdict::Forward);
+        let extra = br#"{"cmd":"cu-approval-answer","id":"c2","digest":"ab","decision":"once","expires_at":1,"phone":"other"}"#;
+        assert!(matches!(policy().evaluate(extra), Verdict::Refuse(_)));
+    }
+
+    #[test]
     fn notification_reply_takes_only_its_notification_and_text() {
         assert_eq!(
             policy().evaluate(br#"{"cmd":"notification-reply","id":"m5","notification":1,"text":"y"}"#),
@@ -1557,10 +1572,14 @@ mod tests {
         let start = swift.find("allowedCommands: Set<String> = [").expect("allowlist in Swift");
         let end = start + swift[start..].find("]\n").expect("end of allowlist");
         let swift_commands: HashSet<&str> = swift[start..end].split('"').skip(1).step_by(2).collect();
-        // `notification-reply` is answered by hostd itself, never by the daemon, so
-        // the Mac's own phone lane (an allowlist of daemon commands) leaves it out.
-        let rust_commands: HashSet<&str> =
-            ALLOWED_COMMANDS.iter().copied().filter(|command| *command != "notification-reply").collect();
+        // `notification-reply` and `cu-approval-answer` are answered by hostd itself,
+        // never by the daemon, so the Mac's own phone lane (an allowlist of daemon
+        // commands) leaves them out.
+        let rust_commands: HashSet<&str> = ALLOWED_COMMANDS
+            .iter()
+            .copied()
+            .filter(|command| !matches!(*command, "notification-reply" | "cu-approval-answer"))
+            .collect();
         assert_eq!(swift_commands, rust_commands);
         let start = swift
             .find("allowedResourceOperations: [String: Set<String>] = [")

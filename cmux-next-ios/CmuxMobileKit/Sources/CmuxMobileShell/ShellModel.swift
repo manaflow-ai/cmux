@@ -607,10 +607,12 @@ struct ShareSheet: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 extension ShellModel {
-    /// Signed in: one Screen Sharing service for the account (it opens the
-    /// device hub when its page first shows). Signed out: it ends and forgets the hub.
+    /// Signed in: one Screen Sharing service for the account, which opens the device hub
+    /// at once: this phone answers Computer Use questions from the account's machines
+    /// (ComputerUseHost). Signed out: it ends and forgets the hub.
     func attachScreenSharing(signedIn: Bool) {
         guard signedIn else {
+            ComputerUseHost.shared.detach()
             screenSharing?.stop()
             screenSharing = nil
             ScreenSharingService.current = nil
@@ -632,6 +634,7 @@ extension ShellModel {
         let service = ScreenSharingService(configuration: configuration)
         screenSharing = service
         ScreenSharingService.current = service
+        ComputerUseHost.shared.attach(service)
     }
 }
 #endif

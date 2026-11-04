@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileAuth
+import CmuxMobileComputerUse
 import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileNotifications
@@ -118,7 +119,42 @@ public final class PushReplies {
     /// content extension left while the app was not running (review #2).
     func attach(live: LiveCoordinator) {
         self.live = live
+        liveAttachments += 1
         drainOutbox()
+    }
+
+    /// No coordinator could be built (signed out, or the account did not load in time).
+    struct NoCoordinator: Error {}
+
+    /// Bumped each time RootView's coordinator attaches (``onCoordinator(_:)`` waits on it).
+    private(set) var liveAttachments = 0
+
+    /// Runs `body` on RootView's coordinator; in the foreground it waits for it (a cold
+    /// launch from a notification button), in the background it builds a headless one,
+    /// as background replies do. Rethrows what `body` throws.
+    func onCoordinator(_ body: @escaping @MainActor (LiveCoordinator) async throws -> Void) async throws {
+        if live == nil, UIApplication.shared.applicationState == .active {
+            _ = await ObservationWait({ [weak self] in
+                guard let self else { return true }
+                _ = liveAttachments // observed: `live` itself is not
+                return live != nil
+            }, budget: Self.coldBudget).value
+        }
+        if let live {
+            try await body(live)
+            return
+        }
+        var outcome: Result<Void, any Error> = .failure(NoCoordinator())
+        await headlessSession.withCoordinator(create: { await self.headless() }, stop: { $0.stop() }) { coordinator in
+            guard let coordinator else { return }
+            do {
+                try await body(coordinator)
+                outcome = .success(())
+            } catch {
+                outcome = .failure(error)
+            }
+        }
+        try outcome.get()
     }
 
     /// Waits for a headless delivery to end (RootView calls it before it
@@ -207,6 +243,13 @@ public final class PushReplies {
     /// background reply was delivered or failed: iOS keeps the app awake
     /// until the delegate returns.
     public func handle(_ response: Response) async {
+        // A Mac's Computer Use question: its own sheet and answer path (docs/computer-use-approvals.md).
+        if let payload = response.payload, payload.kind == .computerUse, response.retry == nil {
+            guard response.actionIdentifier != UNNotificationDismissActionIdentifier else { return }
+            await ComputerUseApprovals.shared.handle(macPayload: payload, action: ComputerUseApprovalAction(identifier: response.actionIdentifier),
+                                                     actionable: response.actionable, requireFaceID: requireFaceID)
+            return
+        }
         switch Self.outcome(response, requireFaceID: requireFaceID) {
         case .nothing:
             break
@@ -415,7 +458,7 @@ public final class PushReplies {
     }
 
     /// The answered notification leaves Notification Center.
-    private func clearDelivered(eventId: String) {
+    func clearDelivered(eventId: String) {
         let center = UNUserNotificationCenter.current()
         Task {
             let delivered = await center.deliveredNotifications()

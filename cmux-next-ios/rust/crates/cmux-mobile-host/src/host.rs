@@ -154,6 +154,7 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
             config.services.acpmux.clone(),
             Some(config.services.daemon_socket()),
             sealer,
+            services.pairing.as_ref().map(|pairing| Arc::clone(&pairing.computer_use)),
         ))))
     } else {
         None
@@ -339,6 +340,7 @@ fn mailbox_for(services: &ServiceConfig) -> Option<Arc<crate::mailbox::Mailbox>>
             acpmux: services.acpmux.clone(),
             daemon_socket,
             chief_socket: services.chief_socket.clone(),
+            computer_use: Some(Arc::clone(&pairing.computer_use)),
         }),
     }))
 }

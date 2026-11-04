@@ -1,5 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
-import { base64Decode, isValidDeviceKey, keyFingerprint, lowSHex } from "./crypto";
+import { APPROVAL_DECISIONS, APPROVAL_RETENTION_MS, type ApprovalDecision, type ApprovalState, clean, decisionMessage, validateRequest } from "./approvals";
+import { type ApnsEnvironment, apnsConfig, apnsTopics, sendAlert } from "./apns";
+import { base64Decode, isValidDeviceKey, keyFingerprint, lowSHex, verifyDeviceSignature } from "./crypto";
 import { DEVICE_ID, REPLAY_WINDOW_MS, checkDeviceSignature, readDeviceHeaders } from "./deviceAuth";
 import { relayEntitlement } from "./billing";
 import { HOST_RELAY_HEADER, ORIGIN_HEADER, SCOPE_HEADER, SESSION_DEVICE_HEADER, STACK_TOKEN_HEADER, USER_HEADER, type Env } from "./env";
@@ -26,10 +28,24 @@ export const ANCHOR_RELAY_TTL_MS = 24 * 3600 * 1000;
 export type PermissionScope = "none" | "ask" | "view" | "full";
 type SessionState = "pending" | "approved" | "live" | "ended";
 
+export type Platform = "macos" | "ios" | "windows" | "linux";
+const PLATFORMS: Platform[] = ["macos", "ios", "windows", "linux"];
+/** Where a device keeps its keys (PROTOCOL.md, Identity). */
+export type Assurance = "hardware" | "keystore" | "file";
+const ASSURANCES: Assurance[] = ["hardware", "keystore", "file"];
+/** Devices that answer Computer Use approvals: the ones with a protected collector. */
+const APPROVER_PLATFORMS: Platform[] = ["macos", "ios"];
+const APNS_TOKEN = /^[0-9a-fA-F]{64,200}$/;
+const BUNDLE_ID = /^[A-Za-z0-9.-]{1,155}$/;
+
 interface DeviceRow {
   id: string;
   name: string;
-  platform: "macos" | "ios";
+  platform: Platform;
+  assurance: Assurance;
+  push_token: string | null;
+  push_topic: string | null;
+  push_env: ApnsEnvironment | null;
   signing_key: string;
   agreement_key: string;
   created_at: number;
@@ -51,6 +67,22 @@ interface SessionRow {
   path: string | null;
 }
 
+interface ApprovalRow {
+  id: string;
+  asker_id: string;
+  nonce: string;
+  digest: string;
+  request: string;
+  allow_always: number;
+  state: ApprovalState;
+  decision: ApprovalDecision | null;
+  decider_id: string | null;
+  sig: string | null;
+  created_at: number;
+  answerable_until: number;
+  decided_at: number | null;
+}
+
 interface RelayRow {
   id: string;
   owner_kind: string;
@@ -65,6 +97,8 @@ interface RelayRow {
 }
 
 export const PENDING_TTL_MS = 5 * 60 * 1000;
+/** Open Computer Use questions one machine may have at once. */
+export const MAX_PENDING_APPROVALS = 32;
 /** How long a device may stay disconnected before its sessions end (reason peer_offline). */
 export const OFFLINE_GRACE_MS = 30_000;
 /**
@@ -114,6 +148,14 @@ CREATE TABLE IF NOT EXISTS replay_msg(
   device_id TEXT NOT NULL, digest TEXT NOT NULL,
   expires_at INTEGER NOT NULL, PRIMARY KEY(device_id, digest));
 CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS approvals(
+  id TEXT PRIMARY KEY, asker_id TEXT NOT NULL, nonce TEXT NOT NULL, digest TEXT NOT NULL,
+  request TEXT NOT NULL, allow_always INTEGER NOT NULL, state TEXT NOT NULL,
+  decision TEXT, decider_id TEXT, sig TEXT, created_at INTEGER NOT NULL,
+  answerable_until INTEGER NOT NULL, decided_at INTEGER,
+  owner_kind TEXT NOT NULL DEFAULT 'user', owner_id TEXT NOT NULL DEFAULT '',
+  UNIQUE(asker_id, nonce));
+CREATE INDEX IF NOT EXISTS approvals_until ON approvals(state, answerable_until);
 CREATE TABLE IF NOT EXISTS anchors(device_id TEXT PRIMARY KEY, anchored_at INTEGER NOT NULL, relay_paid INTEGER NOT NULL DEFAULT 0);
 DROP TABLE IF EXISTS replay;
 `;
@@ -123,6 +165,10 @@ const ADDED_COLUMNS: [string, string, string][] = [
   ["devices", "name_pinned", "INTEGER NOT NULL DEFAULT 0"],
   ["devices", "owner_kind", "TEXT NOT NULL DEFAULT 'user'"],
   ["devices", "owner_id", "TEXT NOT NULL DEFAULT ''"],
+  ["devices", "assurance", "TEXT NOT NULL DEFAULT 'hardware'"],
+  ["devices", "push_token", "TEXT"],
+  ["devices", "push_topic", "TEXT"],
+  ["devices", "push_env", "TEXT"],
   ["permissions", "owner_kind", "TEXT NOT NULL DEFAULT 'user'"],
   ["permissions", "owner_id", "TEXT NOT NULL DEFAULT ''"],
   ["sessions", "owner_kind", "TEXT NOT NULL DEFAULT 'user'"],
@@ -131,7 +177,7 @@ const ADDED_COLUMNS: [string, string, string][] = [
   ["audit", "owner_kind", "TEXT NOT NULL DEFAULT 'user'"],
   ["audit", "owner_id", "TEXT NOT NULL DEFAULT ''"],
 ];
-const OWNED_TABLES = ["devices", "permissions", "sessions", "audit"];
+const OWNED_TABLES = ["devices", "permissions", "sessions", "audit", "approvals"];
 
 function rank(scope: string): number {
   return scope === "full" ? 2 : scope === "view" ? 1 : 0;
@@ -148,6 +194,24 @@ function publicDevice(d: DeviceRow, online: boolean) {
     lastSeenAt: d.last_seen_at,
     macScreenShared: d.mac_screen_shared === 1,
     online,
+    assurance: d.assurance,
+  };
+}
+
+function publicApproval(a: ApprovalRow, askerName: string | null) {
+  return {
+    id: a.id,
+    deviceId: a.asker_id,
+    deviceName: askerName,
+    request: JSON.parse(a.request) as Record<string, unknown>,
+    allowAlways: a.allow_always === 1,
+    state: a.state,
+    decision: a.decision,
+    deciderId: a.decider_id,
+    sig: a.sig,
+    createdAt: a.created_at,
+    answerableUntil: a.answerable_until,
+    decidedAt: a.decided_at,
   };
 }
 
@@ -343,7 +407,10 @@ export class UserDO extends DurableObject<Env> {
     const body = this.parse(raw);
     if (body.id !== h.id) throw badRequest("id must equal X-Device-Id");
     const name = str(body.name, "name", 100);
-    if (body.platform !== "macos" && body.platform !== "ios") throw badRequest("platform must be macos or ios");
+    const platform = body.platform as Platform;
+    if (!PLATFORMS.includes(platform)) throw badRequest("platform must be macos, ios, windows or linux");
+    const assurance = (body.assurance ?? (platform === "macos" || platform === "ios" ? "hardware" : "file")) as Assurance;
+    if (!ASSURANCES.includes(assurance)) throw badRequest("assurance must be hardware, keystore or file");
     if (!(await isValidDeviceKey(body.signingKey))) throw badRequest("signingKey must be a base64 X9.63 P-256 key");
     if (!(await isValidDeviceKey(body.agreementKey))) throw badRequest("agreementKey must be a base64 X9.63 P-256 key");
     const signingKey = body.signingKey as string;
@@ -352,22 +419,30 @@ export class UserDO extends DurableObject<Env> {
     const existing = this.device(h.id);
     if (existing?.removed_at != null) throw new ApiError(403, "device_removed", "this device was removed; register a new device id");
     if (existing && existing.signing_key !== signingKey) throw new ApiError(409, "device_key_mismatch", "device id is registered with another signing key");
+    // What a device is decides whether it answers Computer Use questions: it never changes, and its key
+    // assurance only goes down (a box that lost its keyring), never up.
+    if (existing && existing.platform !== platform) throw new ApiError(409, "device_platform_mismatch", "device id is registered as another platform");
+    if (existing && ASSURANCES.indexOf(assurance) < ASSURANCES.indexOf(existing.assurance)) {
+      throw new ApiError(409, "device_platform_mismatch", "a device's key assurance never goes up");
+    }
     this.burnSignature(h.id, h.ts, h.sig, now);
     if (existing) {
       this.sql.exec(
-        "UPDATE devices SET name = CASE WHEN name_pinned = 1 THEN name ELSE ? END, platform = ?, agreement_key = ?, last_seen_at = ? WHERE id = ?",
+        "UPDATE devices SET name = CASE WHEN name_pinned = 1 THEN name ELSE ? END, platform = ?, assurance = ?, agreement_key = ?, last_seen_at = ? WHERE id = ?",
         name,
-        body.platform,
+        platform,
+        assurance,
         agreementKey,
         now,
         h.id,
       );
     } else {
       this.sql.exec(
-        "INSERT INTO devices(id, name, platform, signing_key, agreement_key, created_at, last_seen_at, removed_at, mac_screen_shared, owner_kind, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, 'user', ?)",
+        "INSERT INTO devices(id, name, platform, assurance, signing_key, agreement_key, created_at, last_seen_at, removed_at, mac_screen_shared, owner_kind, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, 'user', ?)",
         h.id,
         name,
-        body.platform,
+        platform,
+        assurance,
         signingKey,
         agreementKey,
         now,
@@ -404,6 +479,15 @@ export class UserDO extends DurableObject<Env> {
       if (n === 2 && m === "DELETE") return this.removeDevice(b!);
       if (n === 3 && d === "mac-screen" && m === "PUT") return this.setSharing(me, b!, this.parse(raw));
       if (n === 3 && d === "sign-out" && m === "POST") return this.signOut(me, b!);
+      if (n === 3 && d === "push" && m === "PUT") return this.setPush(me, b!, this.parse(raw));
+    }
+    if (a === "approvals") {
+      if (n === 1 && m === "POST") return this.createApproval(me, this.parse(raw), c);
+      if (n === 1 && m === "GET") return this.listApprovals(me);
+      if (n >= 2 && !SESSION_ID.test(b!)) throw notFound("approval not found");
+      if (n === 2 && m === "GET") return this.getApproval(b!);
+      if (n === 2 && m === "DELETE") return this.cancelApproval(me, b!);
+      if (n === 3 && d === "decision" && m === "POST") return this.decideApproval(me, b!, this.parse(raw));
     }
     if (a === "permissions") {
       if (n === 1 && m === "GET") return this.listPermissions(url.searchParams.get("host"));
@@ -482,10 +566,14 @@ export class UserDO extends DurableObject<Env> {
     const off = this.sql.exec("SELECT MIN(since) AS t FROM offline").one().t as number | null;
     const close = this.sql.exec("SELECT MIN(at) AS t FROM closing").one().t as number | null;
     const pending = this.sql.exec("SELECT MIN(created_at) AS t FROM sessions WHERE state = 'pending'").one().t as number | null;
+    const asking = this.sql.exec("SELECT MIN(answerable_until) AS t FROM approvals WHERE state = 'pending'").one().t as number | null;
+    const closed = this.sql.exec("SELECT MIN(answerable_until) AS t FROM approvals WHERE state != 'pending'").one().t as number | null;
     const times = [
       off === null ? null : off + OFFLINE_GRACE_MS,
       close === null ? null : close + this.closeGraceMs(),
       pending === null ? null : pending + PENDING_TTL_MS,
+      asking,
+      closed === null ? null : closed + APPROVAL_RETENTION_MS,
     ].filter((t): t is number => t !== null);
     if (times.length === 0) return;
     const at = Math.min(...times);
@@ -506,6 +594,9 @@ export class UserDO extends DurableObject<Env> {
       .exec("SELECT * FROM sessions WHERE state = 'pending' AND created_at + ? <= ?", PENDING_TTL_MS, now)
       .toArray() as unknown as SessionRow[];
     for (const s of expired) await this.endSession(s, "expired", "revoked", false);
+    const lapsed = this.sql.exec("SELECT * FROM approvals WHERE state = 'pending' AND answerable_until <= ?", now).toArray() as unknown as ApprovalRow[];
+    for (const a of lapsed) this.expireApproval(a);
+    this.sql.exec("DELETE FROM approvals WHERE state != 'pending' AND answerable_until + ? <= ?", APPROVAL_RETENTION_MS, now);
     const due = this.sql.exec("SELECT device_id FROM offline WHERE since + ? <= ?", OFFLINE_GRACE_MS, now).toArray();
     for (const r of due) {
       const deviceId = r.device_id as string;
@@ -529,7 +620,10 @@ export class UserDO extends DurableObject<Env> {
 
   private async removeDevice(id: string): Promise<Response> {
     const target = this.liveDevice(id);
-    this.sql.exec("UPDATE devices SET removed_at = ?, mac_screen_shared = 0 WHERE id = ?", Date.now(), id);
+    this.sql.exec("UPDATE devices SET removed_at = ?, mac_screen_shared = 0, push_token = NULL, push_topic = NULL, push_env = NULL WHERE id = ?", Date.now(), id);
+    // A removed machine's questions end with it.
+    const asked = this.sql.exec("SELECT * FROM approvals WHERE state = 'pending' AND asker_id = ?", id).toArray() as unknown as ApprovalRow[];
+    for (const a of asked) this.closeApproval(a, "cancelled");
     this.sql.exec("DELETE FROM anchors WHERE device_id = ?", id);
     // No permission outlives its device, as host or as viewer; the hosts that listed it hear so.
     const hosts = this.sql.exec("SELECT DISTINCT host_id FROM permissions WHERE viewer_id = ? AND host_id != ?", id, id).toArray().map((r) => r.host_id as string);
@@ -805,6 +899,207 @@ export class UserDO extends DurableObject<Env> {
     return json({ ice });
   }
 
+  // ---- push token (Computer Use approval pushes) ----
+
+  private setPush(me: DeviceRow, id: string, body: Record<string, unknown>): Response {
+    if (id !== me.id) {
+      this.liveDevice(id);
+      throw new ApiError(403, "not_self", "only the device itself sets its push token");
+    }
+    if (me.platform !== "ios") throw badRequest("only an iOS device registers a push token");
+    const configured = apnsConfig(this.env) !== null;
+    if (body.token === null) {
+      this.sql.exec("UPDATE devices SET push_token = NULL, push_topic = NULL, push_env = NULL WHERE id = ?", id);
+      return json({ push: { registered: false, configured } });
+    }
+    if (typeof body.token !== "string" || !APNS_TOKEN.test(body.token)) throw badRequest("token must be 64-200 hex digits, or null");
+    if (typeof body.topic !== "string" || !BUNDLE_ID.test(body.topic) || !apnsTopics(this.env).has(body.topic)) throw badRequest("topic must be a bundle id this hub pushes to");
+    if (body.environment !== "production" && body.environment !== "development") throw badRequest("environment must be production or development");
+    this.sql.exec("UPDATE devices SET push_token = ?, push_topic = ?, push_env = ? WHERE id = ?", body.token.toLowerCase(), body.topic, body.environment, id);
+    return json({ push: { registered: true, configured } });
+  }
+
+  // ---- Computer Use approvals (PROTOCOL.md, Computer Use approvals) ----
+
+  private approval(id: string): ApprovalRow | null {
+    return (this.sql.exec("SELECT * FROM approvals WHERE id = ?", id).toArray()[0] as unknown as ApprovalRow) ?? null;
+  }
+
+  private approvalJson(a: ApprovalRow) {
+    return publicApproval(a, this.device(a.asker_id)?.name ?? null);
+  }
+
+  /** The devices that may answer `askerId`'s questions. */
+  private approvers(askerId: string): DeviceRow[] {
+    return (this.sql.exec("SELECT * FROM devices WHERE removed_at IS NULL AND id != ? ORDER BY created_at", askerId).toArray() as unknown as DeviceRow[]).filter((d) =>
+      APPROVER_PLATFORMS.includes(d.platform),
+    );
+  }
+
+  private async createApproval(me: DeviceRow, body: Record<string, unknown>, c: CallContext): Promise<Response> {
+    const now = Date.now();
+    const v = await validateRequest(body.request, now);
+    const allowAlways = body.allowAlways === undefined ? false : body.allowAlways;
+    if (typeof allowAlways !== "boolean") throw badRequest("allowAlways must be a boolean");
+    const existing = this.sql.exec("SELECT * FROM approvals WHERE asker_id = ? AND nonce = ?", me.id, v.nonce).toArray()[0] as unknown as ApprovalRow | undefined;
+    if (existing) {
+      // A retry of the same question gets the stored one; the same nonce on another question is refused.
+      if (existing.digest !== v.digest || (existing.allow_always === 1) !== allowAlways) throw new ApiError(409, "approval_exists", "this nonce was used for another question");
+      return json({ approval: this.approvalJson(existing) });
+    }
+    if (this.sql.exec("SELECT 1 FROM approvals WHERE state = 'pending' AND digest = ? AND asker_id != ?", v.digest, me.id).toArray().length > 0) {
+      // A copy of another machine's question: an answer to it would verify for the original too.
+      throw new ApiError(409, "approval_exists", "another device asks this question");
+    }
+    const open = this.sql.exec("SELECT COUNT(*) AS n FROM approvals WHERE state = 'pending' AND asker_id = ?", me.id).one().n as number;
+    if (open >= MAX_PENDING_APPROVALS) throw new ApiError(429, "rate_limited", "this machine has too many open questions");
+    const id = crypto.randomUUID();
+    this.sql.exec(
+      "INSERT INTO approvals(id, asker_id, nonce, digest, request, allow_always, state, created_at, answerable_until, owner_kind, owner_id) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, 'user', ?)",
+      id,
+      me.id,
+      v.nonce,
+      v.digest,
+      JSON.stringify(v.request),
+      allowAlways ? 1 : 0,
+      now,
+      v.answerableUntil,
+      this.ownerId,
+    );
+    this.audit("cu_requested", { hostId: me.id, sessionId: id, detail: `${v.tool} ${v.targetName}`.slice(0, 300) });
+    await this.scheduleAlarm();
+    const row = this.approval(id)!;
+    const approvers = this.approvers(me.id);
+    const msg = {
+      type: "approval.request",
+      approval: { id, deviceId: me.id, deviceName: me.name, request: v.request, allowAlways, answerableUntil: v.answerableUntil },
+    };
+    for (const d of approvers) this.send(d.id, msg);
+    this.ctx.waitUntil(this.pushApproval(row, me, v, approvers, c.origin));
+    return json({ approval: this.approvalJson(row) });
+  }
+
+  /** APNs alerts to the approving phones with a push token; dead tokens are forgotten. */
+  private async pushApproval(
+    a: ApprovalRow,
+    asker: DeviceRow,
+    v: { agent: string; workspace: string; tool: string; targetName: string; answerableUntil: number },
+    approvers: DeviceRow[],
+    origin: string,
+  ) {
+    const config = apnsConfig(this.env);
+    if (!config) return;
+    const topics = apnsTopics(this.env);
+    const phones = approvers.filter((d) => d.platform === "ios" && d.push_token && d.push_topic && d.push_env && topics.has(d.push_topic));
+    const payload = {
+      aps: {
+        alert: {
+          title: `${clean(v.agent, 40)} wants to use ${clean(v.targetName, 60)}`,
+          subtitle: clean(asker.name, 60),
+          body: clean(`${v.workspace} · ${v.tool}`, 120),
+        },
+        sound: "default",
+        category: "CMUX_COMPUTER_USE_APPROVAL",
+        "interruption-level": "time-sensitive",
+        "thread-id": `cu:${asker.id}`,
+        "mutable-content": 1,
+      },
+      cmuxComputerUse: { v: 1, approvalId: a.id, deviceId: asker.id, hub: origin, allowAlways: a.allow_always === 1, answerableUntil: a.answerable_until },
+    };
+    const now = Date.now();
+    await Promise.all(
+      phones.map(async (d) => {
+        const outcome = await sendAlert(config, { token: d.push_token!, topic: d.push_topic!, environment: d.push_env! }, { payload, collapseId: `cu-${a.id}`, expiration: Math.floor(a.answerable_until / 1000) }, now);
+        if (outcome === "gone") this.sql.exec("UPDATE devices SET push_token = NULL, push_topic = NULL, push_env = NULL WHERE id = ? AND push_token = ?", d.id, d.push_token);
+      }),
+    );
+  }
+
+  private listApprovals(me: DeviceRow): Response {
+    const now = Date.now();
+    const rows = this.sql
+      .exec("SELECT * FROM approvals WHERE state = 'pending' AND answerable_until > ? AND asker_id != ? ORDER BY created_at", now, me.id)
+      .toArray() as unknown as ApprovalRow[];
+    return json({ approvals: APPROVER_PLATFORMS.includes(me.platform) ? rows.map((a) => this.approvalJson(a)) : [] });
+  }
+
+  private getApproval(id: string): Response {
+    const a = this.approval(id);
+    if (!a) throw notFound("approval not found");
+    if (a.state === "pending" && a.answerable_until <= Date.now()) return json({ approval: this.approvalJson(this.expireApproval(a)) });
+    return json({ approval: this.approvalJson(a) });
+  }
+
+  private cancelApproval(me: DeviceRow, id: string): Response {
+    const a = this.approval(id);
+    if (!a) throw notFound("approval not found");
+    if (a.asker_id !== me.id) throw new ApiError(403, "not_asker", "only the asking device cancels its question");
+    if (a.state !== "pending") return json({ approval: this.approvalJson(a) });
+    return json({ approval: this.approvalJson(this.closeApproval(a, "cancelled")) });
+  }
+
+  private decideApproval(me: DeviceRow, id: string, body: Record<string, unknown>): Promise<Response> | Response {
+    const a = this.approval(id);
+    if (!a) throw notFound("approval not found");
+    if (a.asker_id === me.id) throw new ApiError(403, "self_approval", "a device never answers its own question");
+    if (!APPROVER_PLATFORMS.includes(me.platform)) throw new ApiError(403, "not_approver", "only a Mac or an iPhone answers Computer Use questions");
+    const decision = body.decision as ApprovalDecision;
+    if (!APPROVAL_DECISIONS.includes(decision)) throw badRequest("decision must be once, session, always or deny");
+    if (typeof body.digest !== "string") throw badRequest("digest is required");
+    if (typeof body.sig !== "string") throw badRequest("sig is required");
+    if (a.state !== "pending") throw new ApiError(409, "approval_not_pending", "this question was already answered or cancelled");
+    if (a.answerable_until <= Date.now()) {
+      this.expireApproval(a);
+      throw new ApiError(409, "approval_expired", "this question can no longer be answered");
+    }
+    if (body.digest !== a.digest) throw new ApiError(400, "digest_mismatch", "the answer is for another question");
+    if (decision === "always" && a.allow_always !== 1) throw new ApiError(403, "always_not_allowed", "the asking machine does not take Always Allow from another device");
+    const sig = body.sig;
+    return (async () => {
+      if (!(await verifyDeviceSignature(me.signing_key, sig, decisionMessage(a.digest, decision)))) {
+        throw new ApiError(400, "bad_decision_signature", "sig does not verify with this device's key");
+      }
+      // Another answer may have landed while the signature was checked.
+      const current = this.approval(id)!;
+      if (current.state !== "pending") throw new ApiError(409, "approval_not_pending", "this question was already answered or cancelled");
+      const now = Date.now();
+      if (current.answerable_until <= now) {
+        this.expireApproval(current);
+        throw new ApiError(409, "approval_expired", "this question can no longer be answered");
+      }
+      this.sql.exec("UPDATE approvals SET state = 'decided', decision = ?, decider_id = ?, sig = ?, decided_at = ? WHERE id = ?", decision, me.id, sig, now, id);
+      this.audit("cu_decided", { hostId: a.asker_id, viewerId: me.id, sessionId: id, detail: decision });
+      this.send(a.asker_id, { type: "approval.decided", id, decision, digest: a.digest, deciderId: me.id, sig });
+      this.broadcastClosed(id, "decided", decision, [a.asker_id, me.id]);
+      return json({ approval: this.approvalJson(this.approval(id)!) });
+    })();
+  }
+
+  /** Ends a pending question without a decision: audit, then `approval.closed` to every other device. */
+  private closeApproval(a: ApprovalRow, state: "expired" | "cancelled"): ApprovalRow {
+    this.sql.exec("UPDATE approvals SET state = ? WHERE id = ? AND state = 'pending'", state, a.id);
+    this.audit(state === "expired" ? "cu_expired" : "cu_cancelled", { hostId: a.asker_id, sessionId: a.id });
+    // The asker hears an expiry too (its own clock may differ); a cancel is its own act.
+    this.broadcastClosed(a.id, state, null, state === "cancelled" ? [a.asker_id] : []);
+    return this.approval(a.id)!;
+  }
+
+  private expireApproval(a: ApprovalRow): ApprovalRow {
+    return this.closeApproval(a, "expired");
+  }
+
+  private broadcastClosed(id: string, state: ApprovalState, decision: ApprovalDecision | null, except: string[]) {
+    const text = JSON.stringify({ type: "approval.closed", id, state, decision });
+    for (const ws of this.ctx.getWebSockets()) {
+      if (this.ctx.getTags(ws).some((t) => except.includes(t))) continue;
+      try {
+        ws.send(text);
+      } catch {
+        // closing socket
+      }
+    }
+  }
+
   // ---- relays ----
 
   private publicRelay(r: RelayRow, deviceId: string) {
@@ -941,6 +1236,17 @@ export class UserDO extends DurableObject<Env> {
   private hostAllowed(m: string, parts: string[], me: DeviceRow, raw: Uint8Array): boolean {
     const [a, b, d] = parts;
     const n = parts.length;
+    // Computer Use on this Mac may ask its own questions, read and cancel them; other machines' questions
+    // and deciding need the signed-in app.
+    const ownApproval = () => {
+      const row = this.approval(b!);
+      return !row || row.asker_id === me.id;
+    };
+    if (a === "approvals") {
+      if (n === 1 && m === "POST") return true;
+      if (n === 2 && (m === "GET" || m === "DELETE")) return ownApproval();
+      return false;
+    }
     if (m === "GET") return (a === "me" && n === 1) || (a === "user" && b === "ws" && n === 2) || (a === "devices" && n === 1) || (a === "permissions" && n === 1) || (a === "relays" && n === 1) || (a === "audit" && n === 1);
     if (a === "devices" && n === 3 && d === "mac-screen" && m === "PUT" && b === me.id) {
       try {

@@ -70,6 +70,31 @@ public struct MailboxReply: Sendable, Equatable {
         plaintext = .object(object)
     }
 
+    /// A Computer Use answer (docs/computer-use-approvals.md, "Phone wire (macOS)"):
+    /// `kind` `computer_use`, `target` `{digest}`, `action` `{type: allow|deny, optionId: <decision>}`
+    /// and, for an Allow, `approval` `{approver, expiresAt, signature}`. The reply expires
+    /// with the approval's signature (`expiresAt`), never later than `MailboxReply.lifetime`.
+    public init(computerUse digest: String, decision: String, mac: String, id: String, phone: String, nonce: String, now: Date,
+                approval: PushJSON?, expiresAt: Int?) throws {
+        let allow = decision != "deny"
+        if allow, approval == nil { throw Failure.unsigned }
+        let issued = Int64(now.timeIntervalSince1970)
+        let latest = issued + Int64(Self.lifetime)
+        let expires = expiresAt.map { min(Int64($0), latest) } ?? latest
+        guard expires > issued else { throw Failure.unsigned }
+        var object: [String: PushJSON] = [
+            "v": .int(1), "id": .string(id), "mac": .string(mac), "phone": .string(phone), "kind": .string(PushKind.computerUse.rawValue),
+            "target": .object(["digest": .string(digest)]),
+            "action": .object(["type": .string(allow ? "allow" : "deny"), "optionId": .string(decision)]),
+            "nonce": .string(nonce), "issuedAt": .int(issued), "expiresAt": .int(expires),
+        ]
+        if let approval { object["approval"] = approval }
+        self.id = id
+        self.mac = mac
+        self.phone = phone
+        plaintext = .object(object)
+    }
+
     /// What the phone's identity key signs: the domain, the Mac, the phone
     /// and the SHA-256 (lowercase hex) of the canonical plaintext without `sig`.
     public var signedMessage: Data {

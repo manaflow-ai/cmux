@@ -96,6 +96,7 @@ members = [
     "crates/cmux-palette-ranker",
     "crates/cmux-chats-mirror",
     "crates/cmux-kitty-media",
+    "crates/cmux-device-hub-client",
 ]
 default-members = [
     "crates/acpmux",

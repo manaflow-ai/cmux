@@ -510,8 +510,15 @@ pub async fn run(
     acpmux: AcpmuxTarget,
     daemon_socket: Option<std::path::PathBuf>,
     sealer: Option<Arc<crate::sealed_notify::Sealer>>,
+    computer_use: Option<Arc<crate::computer_use::ComputerUse>>,
 ) {
     let reporter = Reporter::new(base_url, device_id, tokens).with_sealer(sealer);
+    // Computer Use questions go out as they come, one push each, never held
+    // or coalesced like turns (`computer_use.rs`).
+    if let Some(questions) = computer_use {
+        let pusher = reporter.clone();
+        questions.attach_pusher(Arc::new(move |event| pusher.send(event)));
+    }
     let places = Arc::new(Places::default());
     if let Some(socket) = daemon_socket {
         tokio::spawn(crate::notify_terminal::run(socket, Arc::clone(&places), reporter.clone()));
