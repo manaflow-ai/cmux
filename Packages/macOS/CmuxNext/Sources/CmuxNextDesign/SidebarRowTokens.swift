@@ -71,15 +71,16 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
 
     /// This density's size against Normal.
     public var scale: CGFloat { CGFloat(density.scale) }
-    /// A length at this density, in whole points. Normal returns `value` exactly.
+    /// A length at this density, in whole points.
     public func scaled(_ value: CGFloat) -> CGFloat { Self.length(value, density: density) }
-    /// A length at `density`, in whole points.
+    /// A length at `density`, in whole points. Normal returns `value` exactly.
     public static func length(_ value: CGFloat, density: SidebarDensity) -> CGFloat {
-        (value * CGFloat(density.scale)).rounded()
+        density.scale == 1 ? value : (value * CGFloat(density.scale)).rounded()
     }
-    /// A text size at `density`, in half points.
+    /// A text size at `density`, in half points. Normal returns `value` exactly, so a size the Interface
+    /// Size or chrome font scaled off the half-point grid stays as it is.
     public static func text(_ value: CGFloat, density: SidebarDensity) -> CGFloat {
-        (value * CGFloat(density.scale) * 2).rounded() / 2
+        density.scale == 1 ? value : (value * CGFloat(density.scale) * 2).rounded() / 2
     }
     /// The text size's steps over this density's sizes.
     public var textSteps: SidebarTextSize.Steps { textSize.steps }
