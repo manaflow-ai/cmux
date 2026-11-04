@@ -160,6 +160,14 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                     SettingChoice("right", SettingsText.keyed("settings.choice.right", "Right")),
                 ]),
                 .string("left"), ["rail", "minimap", "prompts", "ticks", "scroll", "side", "left", "right"]),
+            // How the chat's running tray names background commands no built-in rule knows
+            // (``CommandLabelsSetting``; webviews session-info/commandLabelSettings.ts): preset names
+            // and rules of one's own, edited as JSON.
+            row(["commandLabels"], SettingsText.keyed("settings.agentPane.display.commandLabels", "Command Labels"),
+                help: SettingsText.keyed("settings.agentPane.display.commandLabels.help",
+                                         "How the chat names background commands: preset names such as cmux-fleet, and rules with a program or pattern and a label."),
+                .text, .array([]), ["command", "label", "rule", "preset", "background", "tray", "shell"])
+                .hiddenFromSettingsPage("a list of preset names and rule objects, edited in cmux-next.json"),
         ]
     }
 }
