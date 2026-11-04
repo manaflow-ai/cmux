@@ -5,8 +5,6 @@
 //! holds the connection, the host socket is full, a frame is ahead of the key), the key goes to the port as before,
 //! so it never waits for another writer or for a host that stopped reading, and the order holds.
 
-use std::os::fd::AsRawFd as _;
-
 use super::hosted::{hosted_typing_surface, wait_until};
 use super::*;
 
@@ -81,57 +79,51 @@ fn a_key_while_another_writer_holds_the_connection_goes_to_the_port() {
     );
 }
 
-/// The host stopped reading and its socket is full: the key does not block in the send. It goes to the port,
-/// returns at once, and reaches the host, once, after everything written before it, when the host reads again.
+/// A host that stopped reading while the person keeps typing: no key's request waits for it, on any platform. While
+/// the host socket has room the keys are written inline; once it has none they go to the port, whose writer then
+/// waits on its own thread. When the host reads again, every key arrives once, in order. (#35872: the first version
+/// of this test filled the socket with MSG_DONTWAIT sends and hung on macOS, where such a send still waits for room
+/// on a stream socket; the inline write's send was the same.)
 #[test]
-fn a_key_to_a_full_host_socket_goes_to_the_port() {
-    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-inline-full", true);
-    let pty = surface.as_pty().expect("a terminal");
-    // Fill the socket with whole frames, as a host that reads nothing would leave it.
-    // `Frame::new` writes the current protocol version, the fixture connection's.
-    let filler = Frame::new(MessageKind::Input, vec![b'f'; 1000]);
-    let filler = crate::terminal_host_protocol::encode_frame(&filler).unwrap();
-    let mut filled = 0usize;
-    {
-        let writer = connection_writer(pty);
-        let stream = writer.lock().unwrap();
-        loop {
-            // SAFETY: the stream's descriptor is open while the guard lives; `filler` is a live buffer.
-            let sent = unsafe {
-                libc::send(
-                    stream.as_raw_fd(),
-                    filler.as_ptr().cast(),
-                    filler.len(),
-                    libc::MSG_DONTWAIT,
-                )
-            };
-            if sent < 0 {
-                break;
+fn keys_to_a_host_that_stopped_reading_never_block_their_requests() {
+    const KEYS: usize = 1000;
+    let (_mux, surface, mut host) =
+        hosted_typing_surface("hosted-input-port-inline-stalled-host", true);
+    let typed: Vec<Vec<u8>> = (0..KEYS).map(|key| format!("{key:04}").into_bytes()).collect();
+    std::thread::scope(|scope| {
+        let typing = scope.spawn(|| {
+            let mut slowest = Duration::ZERO;
+            for key in &typed {
+                let started = Instant::now();
+                surface
+                    .write_bytes_replying(key, InputReply::Accepted)
+                    .expect("the port took the key");
+                slowest = slowest.max(started.elapsed());
             }
-            assert_eq!(sent as usize, filler.len(), "the socket took part of a filler frame");
-            filled += 1;
+            slowest
+        });
+        // The host reads nothing meanwhile: a key whose request waits for it never returns.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !typing.is_finished() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
         }
-    }
-    assert!(filled > 0, "the host socket took no filler frame");
-    let started = Instant::now();
-    surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
-    let took = started.elapsed();
-    assert!(
-        took < Duration::from_millis(100),
-        "the key waited {took:?} for a host that reads nothing"
-    );
-    let read = input_frames(&mut host, Duration::from_millis(500));
-    assert_eq!(
-        read.len(),
-        filled + 1,
-        "the host read {} frames, not {filled} fillers and the key",
-        read.len()
-    );
-    assert_eq!(
-        read.last().map(Vec::as_slice),
-        Some(&b"k"[..]),
-        "the key came before what was written first"
-    );
+        let finished = typing.is_finished();
+        // The host reads again: what was written, and what a blocked request was writing.
+        let read = input_frames(&mut host, Duration::from_secs(1));
+        let slowest = typing.join().unwrap();
+        assert!(
+            finished,
+            "a key's request waited for a host that stopped reading: {KEYS} keys did not return in 10 s"
+        );
+        assert!(
+            slowest < Duration::from_secs(2),
+            "a key's request took {slowest:?} while the host read nothing"
+        );
+        assert_eq!(
+            read, typed,
+            "the keys reached the host in another order, more than once, or not at all"
+        );
+    });
 }
 
 /// Order across the two paths: a key written inline, a write the port's writer holds, a key queued behind it, then
