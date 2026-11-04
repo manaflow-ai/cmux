@@ -8,7 +8,8 @@ extension NewFrontendBrowserTabRequest {
 
     /// Sends the create on `connection`. cmux-tui answers it after the tab's
     /// record is durable on disk (a full device flush). Under heavy disk load
-    /// that took longer than the 2 s request deadline: the request failed, the
+    /// that took longer than the request deadline (2 s then; 30 s since #35075,
+    /// ``DaemonConnection/defaultRequestTimeout``): the request failed, the
     /// late reply was dropped, and the app never opened the page of the tab
     /// the daemon made. A daemon with `frontend-browser-tab-keys-v1` gets an
     /// idempotency key (derived from the action's key when it has one), and a

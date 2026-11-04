@@ -3,7 +3,8 @@ import Foundation
 import os
 
 /// A change the person already sees (Cmd-N's workspace shows at the press) must not be taken back
-/// because the daemon answered it after the 2 s control deadline: a busy daemon still commits it
+/// because the daemon answered it after the request deadline (``DaemonConnection/defaultRequestTimeout``,
+/// 30 s since #35075; it was 2 s when this was written): a busy daemon still commits it
 /// (cx-tzlqb), and taking it back closed a workspace the person was looking at. Sent again with the
 /// same mutation identity, a committed change replays its result instead of committing twice (as
 /// ``NewFrontendBrowserTabRequest/send(on:)`` does for keyed browser tabs).
