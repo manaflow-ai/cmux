@@ -1146,7 +1146,7 @@ extension ChatRow {
     }
 
     static let hostedReuseKeys = ["prompt", "block", "thought", "tool", "toolGroup", "edit", "plan", "permission", "question",
-                                  "subagents", "working", "editedFiles", "stopped", "failed", "actions", "other"]
+                                  "subagents", "working", "editedFiles", "stopped", "failed", "actions", "nextStep", "other"]
 
     /// The SwiftUI reuse pool: one per kind, so a reused cell keeps its view structure.
     var hostedReuseKey: String {
@@ -1167,6 +1167,7 @@ extension ChatRow {
         case .stopped: "stopped"
         case .failed: "failed"
         case .actions: "actions"
+        case .nextStep: "nextStep"
         }
     }
 
@@ -1227,6 +1228,7 @@ extension ChatRow {
         case .stopped: return 18
         case .failed: return 170
         case .actions: return 44
+        case .nextStep(let ask, let answer, _): return answer == nil ? 96 + CGFloat(ask.options.count) * 50 : 64
         }
     }
 }

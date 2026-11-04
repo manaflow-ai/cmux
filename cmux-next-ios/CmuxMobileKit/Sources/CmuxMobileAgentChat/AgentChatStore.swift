@@ -41,6 +41,13 @@ public struct AgentTurn: Identifiable, Hashable, Sendable {
         }
     }
 
+    /// A failed turn's error card leads with Continue when the turn had done work (a reply, a
+    /// thought, a tool call) or had no prompt of its own (a turn a notice started), else Retry
+    /// (the Mac's `errorRecovery.ts`). Both send acpmux's turn retry, which picks up where it stopped.
+    public var continuesAfterFailure: Bool {
+        status == .failed && (!items.isEmpty || prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
     public var duration: TimeInterval? {
         guard let startedAt else { return nil }
         return (endedAt ?? Date()).timeIntervalSince(startedAt)
