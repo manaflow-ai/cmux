@@ -276,8 +276,8 @@ public final class DesignSettings {
     public var effectiveFocusIndicator: FocusIndicator { FocusIndicatorTunables.indicator.override ?? focusIndicator }
     /// `inactiveTabStyle` unless Debug Settings overrides it.
     public var effectiveInactiveTabStyle: InactiveTabStyle { FocusIndicatorTunables.inactiveTabStyle.override ?? inactiveTabStyle }
-    /// `window.titlebar`: minimal (no titlebar strip) or standard.
-    public var titlebar: TitlebarStyle = .minimal
+    /// `window.titlebar`: standard (the default titlebar strip) or minimal.
+    public var titlebar: TitlebarStyle = .standard
     /// `window.titlebarButtons`.
     public var titlebarButtons: TitlebarButtonsMode = .hover
     /// `tabs.plusButton`.

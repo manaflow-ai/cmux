@@ -46,6 +46,8 @@ public final class HomeNativeFixture {
     #if DEBUG
     /// DEBUG Agent Messages Playground: the header style, folds open, and the team chat (nil: not a playground).
     private var playground: (style: HomeAgentFoldStyle, expanded: Bool, team: Bool)?
+    /// The playground's click on an agent's pill (the agent's id and its row's message id).
+    var onPill: (@MainActor @Sendable (String, String) -> Void)?
 
     /// The Agent Messages Playground's fixture: it shows `playground`'s header style, folds and chat, with the
     /// playground's run, once it loads (``debugPlayground(style:expanded:team:)`` changes them later).
@@ -80,7 +82,7 @@ public final class HomeNativeFixture {
         if attachments { await addAttachments(in: id) }
         #if DEBUG
         if let playground {
-            view?.transcript.debugSetAgentFoldStyle(playground.style)
+            view?.transcript.debugSetAgentFoldStyle(playground.style, onPill: onPill)
             _ = postAgentRun(Self.agentPlayground, notes: false, team: playground.team, step: 0, expanded: playground.expanded)
         }
         #endif
@@ -303,7 +305,7 @@ public final class HomeNativeFixture {
         let was = playground
         playground = (style, expanded, team)
         guard shown != nil else { return }
-        if was?.style != style { view?.transcript.debugSetAgentFoldStyle(style) }
+        if was?.style != style { view?.transcript.debugSetAgentFoldStyle(style, onPill: onPill) }
         if was?.team != team || lastAgentRun == nil {
             _ = postAgentRun(Self.agentPlayground, notes: false, team: team, step: 0, expanded: expanded)
         } else if was?.expanded != expanded {
@@ -312,14 +314,7 @@ public final class HomeNativeFixture {
     }
 
     /// The playground's run: three agents told, one of them reporting back, and two that stopped with no report.
-    private static let agentPlayground: [(peer: String, outgoing: Bool, text: String)] = [
-        ("a959", true, "Fix the sidebar alignment: the header and the New Workspace row share one left edge."),
-        ("a931", true, "Rebuild the nightly appcast on an owned Mac mini, then plain push."),
-        ("a940", true, "Audit every button for first-click response, active and inactive window."),
-        ("a959", false, "Done: both rows now start at 12 pt. [631d310](https://github.com/manaflow-ai/cmux/commit/631d310)"),
-        ("a933", false, "(stopped without a report: its session is Disconnected)"),
-        ("a936", false, "(stopped without a report: its session is Disconnected)"),
-    ]
+    private static var agentPlayground: [(peer: String, outgoing: Bool, text: String)] { HomeAgentPlaygroundAgent.run }
     #endif
 
     /// The notes fixture run: five status notes in the Chief producer's words, a real report.
