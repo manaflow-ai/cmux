@@ -4,7 +4,7 @@
 //! then done after `feed.adopt` (or `feed.adopt.cancel` answered `cancelled:
 //! false`), or abort after `feed.adopt.cancel` answered `cancelled: true`.
 
-use cmux_feed_core::{ItemState, ListFilter};
+use cmux_feed_core::{Item, ItemState, ListFilter};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -32,13 +32,13 @@ pub(super) fn dispatch(mux: &Mux, actor: &Actor, cmd: Command) -> anyhow::Result
         Command::FeedLocalList(params) => list(mux, params),
         Command::FeedLocalRead(params) => read(mux, params),
         Command::FeedLocalHandoffBegin(params) => {
-            Ok(json!({"item": mux.feed_local_handoff_begin(&params.item)?}))
+            Ok(json!({"item": item_json(mux, &mux.feed_local_handoff_begin(&params.item)?)}))
         }
         Command::FeedLocalHandoffAbort(params) => {
-            Ok(json!({"item": mux.feed_local_handoff_abort(&params.item)?}))
+            Ok(json!({"item": item_json(mux, &mux.feed_local_handoff_abort(&params.item)?)}))
         }
         Command::FeedLocalHandoffDone(params) => {
-            Ok(json!({"item": mux.feed_local_handoff_done(&params.item, &params.home)?}))
+            Ok(json!({"item": item_json(mux, &mux.feed_local_handoff_done(&params.item, &params.home)?)}))
         }
         _ => anyhow::bail!("not a feed-local command"),
     }
@@ -82,10 +82,25 @@ fn list(mux: &Mux, params: ListParams) -> anyhow::Result<Value> {
         .map(|state| ItemState::parse(state).ok_or_else(|| anyhow::anyhow!("bad state {state}")))
         .transpose()?;
     let filter = ListFilter { state, terminal: params.terminal_id, unread_only: params.unread };
-    Ok(json!({"items": mux.feed_local_list(&filter)}))
+    Ok(json!({"items": items_json(mux, &mux.feed_local_list(&filter))}))
 }
 
 fn read(mux: &Mux, params: ReadParams) -> anyhow::Result<Value> {
     anyhow::ensure!(params.items.len() <= 500, "at most 500 items per read");
-    Ok(json!({"items": mux.feed_local_read(&params.items)?}))
+    Ok(json!({"items": items_json(mux, &mux.feed_local_read(&params.items)?)}))
+}
+
+/// `item` on the wire, with `detail`: what its agent said (a reply, an error, an approval's
+/// command, a question and its options), while this daemon keeps it in memory. The app hands it
+/// to the Feed as the body; the durable row never holds it.
+fn item_json(mux: &Mux, item: &Item) -> Value {
+    let mut value = serde_json::to_value(item).unwrap_or(Value::Null);
+    if let (Some(texts), Some(object)) = (mux.agent_feed_texts(&item.id), value.as_object_mut()) {
+        object.insert("detail".into(), Value::String(texts.detail.to_string()));
+    }
+    value
+}
+
+fn items_json(mux: &Mux, items: &[Item]) -> Vec<Value> {
+    items.iter().map(|item| item_json(mux, item)).collect()
 }
