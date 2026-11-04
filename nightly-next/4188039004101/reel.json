@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "build": "4188039004101",
+  "notes": "notes/4188039004101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 35704,
+      "title": "ci(backend-migrations): list a PR's changed files 100 a page on feat-cmux-next",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35675,
+      "title": "base red: agent pane may send _acpmux/resolve, so agent session links open (from #33027)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34313,
+      "title": "Unify transcript icons on the cmux pack (#33867)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35687,
+      "title": "risk tier: take the merge base from git, not compare, when the base history has it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35525,
+      "title": "cmux-vm: configurable receiving-policy lease, 120 s on staging",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35667,
+      "title": "ci(risk tier): five fewer REST calls per run (labels only on failure, PR from the event)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35638,
+      "title": "base red: graphics_pointer motion rollback tests run a quiet program, as every other mouse test (Linux)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35657,
+      "title": "ci(cloud-chat-proof): keep a failed kill's raw output; pass --confirm last",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35601,
+      "title": "ci: enforce the short-timeout ratchet on the tree and shrink its allowlist",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35400,
+      "title": "acpmux: replies and events wait until what they show is durable; the daemon stops for a restart when the journal cannot go on (R-DURABILITY S2c)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35630,
+      "title": "ci: delete the orphaned nightly-next control runner and rescue helpers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34604,
+      "title": "cmux link sync: push through a per-user content-addressed blob store",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35285,
+      "title": "Agent pane: an opened running tray never covers the live Thinking line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34881,
+      "title": "Gallery notes: the reply footer's buttons are 24 (#34678)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35656,
+      "title": "ci: pin bun 1.4.4 for the iOS streamed run's Mac app build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35683,
+      "title": "cmux-vm production: approve cloud-native-b1f8fc4 (receiver lease renewal, #35467)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35631,
+      "title": "cloud journey and chat proof: say why a Native link did not connect",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35628,
+      "title": "cmux NEXT: NIGHTLY's session handoff reads its token pair as one pair",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35580,
+      "title": "fix(agent pane): the pane may send _meta.acpmux.promptSuggestion, so a taken suggestion's prompt is accepted (#34496)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35589,
+      "title": "base red: GalleryStageView's deinit cancels its scale task directly, no MainActor.assumeIsolated (arch assume_isolated +1 from #35404)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35648,
+      "title": "ci(base-red): excuse a jobless commit status red only when the base has it the same",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
