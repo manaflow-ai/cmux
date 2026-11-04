@@ -270,15 +270,22 @@ fn routed(home: &Home, line: &str, body: &[u8]) -> (Option<()>, Vec<u8>) {
     let mut sent = home.map(line).into_bytes();
     sent.push(b'\n');
     sent.extend_from_slice(body);
-    match client.write_all(&sent) {
-        Ok(()) => client.shutdown(std::net::Shutdown::Write).unwrap(),
-        Err(error) => assert!(
-            matches!(
-                error.kind(),
-                std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
-            ),
+    // A daemon that answers a short body at once can also be gone before
+    // the shutdown (macOS then says NotConnected).
+    let closed = |error: &std::io::Error| {
+        matches!(
+            error.kind(),
+            std::io::ErrorKind::BrokenPipe
+                | std::io::ErrorKind::ConnectionReset
+                | std::io::ErrorKind::NotConnected
+        )
+    };
+    let sent = client.write_all(&sent).and_then(|()| client.shutdown(std::net::Shutdown::Write));
+    if let Err(error) = sent {
+        assert!(
+            closed(&error),
             "only a daemon that already answered and closed stops the body: {error}"
-        ),
+        );
     }
     let mut output = Vec::new();
     let _ = client.read_to_end(&mut output);
