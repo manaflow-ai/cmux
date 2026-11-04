@@ -94,7 +94,7 @@ export default componentEntry<Props>({
       props: { names: [LONG, SHORT], pane: 320 },
     },
     "failed-long-error": {
-      note: "A failure with a long error: the error is cut first, the name chip keeps its words.",
+      note: "A failure with a long error, on the failed-line grid: the reason is cut first, the title keeps its words.",
       props: { names: ["Push relay for GCP lane bundles"], failed: true },
     },
     "cap-60": {
