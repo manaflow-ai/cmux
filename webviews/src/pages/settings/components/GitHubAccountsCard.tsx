@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Button } from "../../../ui/Button";
 import { useSettingsState, useStore } from "../context";
 
 /** The host owns GitHub App authentication; this card never receives a credential. */
@@ -17,21 +18,21 @@ export function GitHubAccountsCard() {
           </div>
           <div className="accounts-body">
             <div className="accounts-buttons">
-              <button
+              <Button
                 className="button"
                 data-github-action="connect"
                 disabled={!github.canConnect}
                 onClick={() => void store.runAccounts({ action: "githubConnect" })}
               >
                 {github.connect}
-              </button>
-              <button
+              </Button>
+              <Button
                 className="button"
                 disabled={github.busy}
                 onClick={() => void store.runAccounts({ action: "githubRefresh" })}
               >
                 {github.refresh}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -47,7 +48,7 @@ export function GitHubAccountsCard() {
               <div className="accounts-buttons">
                 {confirming === connection.id ? (
                   <>
-                    <button
+                    <Button
                       className="button"
                       disabled={github.busy}
                       onClick={() => {
@@ -59,20 +60,21 @@ export function GitHubAccountsCard() {
                       }}
                     >
                       {github.disconnect}
-                    </button>
-                    <button className="button" onClick={() => setConfirming(null)}>
+                    </Button>
+                    <Button className="button" onClick={() => setConfirming(null)}>
                       {github.cancel}
-                    </button>
+                    </Button>
                   </>
                 ) : (
-                  <button
+                  <Button
+                    danger
                     className="button danger"
                     data-github-action="disconnect"
                     disabled={github.busy || !connection.canDisconnect}
                     onClick={() => setConfirming(connection.id)}
                   >
                     {github.disconnect}
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>
