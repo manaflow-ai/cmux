@@ -85,18 +85,39 @@ def rds_journey(arm):
     """R-DAEMON-STATE stage S1 typing A/B (STATUS 10117): typing-load-l6 with a NEW daemon at the probe relaunch,
     the input lane switch on (CMUX_NEXT_TUI_RDS_INPUT=1, which the app hands its daemon as CMUX_TUI_RDS_INPUT=1) or
     absent, and the arm proven from the daemon's environment before and after the typing. P1: run with --journey
-    (as P0 the dogfood gate would ask every build for it)."""
+    (as P0 the dogfood gate would ask every build for it).
+
+    The typed terminal is a NEW tab (Ctrl-`) in the typing pane, made after the relaunch: its terminal host is
+    spawned by the new daemon, so it has the reopen's CMUX_TRACE_FLOWS (R-DAEMON-STATE STATUS 10740: the set-up
+    terminal's host is an old host the new daemon adopts, with no flow trace). The set-up terminal stays as the
+    first tab, so the relaunch still settles on a shown terminal. server-stats with the lock holds by code site is
+    kept right after load_start and right after the last typist_play."""
     spec = journey("L6", True)
     spec.update(id=f"typing-load-l6-rds-{arm}", priority="P1",
                 title=f"Typing under load L6, R-DAEMON-STATE S1 input lane {arm.upper()} (new daemon, arm proven)",
-                source="REWRITE R-DAEMON-STATE S1 typing A/B (STATUS 10117)")
-    out = []
-    for step in spec["steps"]:
-        if step["do"] == "probe_relaunch":
+                source="REWRITE R-DAEMON-STATE S1 typing A/B (STATUS 10117, 10740)")
+    steps, out = spec["steps"], []
+    relaunch = next(i for i, step in enumerate(steps) if step["do"] == "probe_relaunch")
+    last_play = max(i for i, step in enumerate(steps) if step["do"] == "typist_play")
+    for i, step in enumerate(steps):
+        if i == relaunch:
             step = dict(step, new_daemon=True, env={"CMUX_NEXT_TUI_RDS_INPUT": "1"} if arm == "on" else {})
+        if step["do"] == "echo_start":
+            # The set-up terminal is adopted (above) so the key window and its pane are the typing pane's; the
+            # typed terminal is a new tab there, from the new daemon.
+            out += [{"do": "smoke_key", "key": "`", "modifiers": ["control"], "mark": "term2"},
+                    {"do": "outwait_hold"},
+                    {"do": "smoke_type", "text": "echo rds-${nonce}", "enter": True},
+                    {"do": "expect", "title": "set-up: the new daemon's typing terminal runs its line", "since": "term2",
+                     "timeout": 30, "all": [{"smoke_daemon_lines": {"lines": ["rds-${nonce}"]}}]},
+                    {"do": "smoke_adopt_line", "line": "rds-${nonce}", "as": "typing"}]
         out.append(step)
         if step["do"] == "echo_start":
             out.append({"do": "daemon_arm", "as": "before", "want": arm})
+        if step["do"] == "load_start":
+            out.append({"do": "server_stats", "as": "before", "include": ["locks"]})
+        if i == last_play:
+            out.append({"do": "server_stats", "as": "after", "include": ["locks"]})
         if step["do"] == "probe_mark" and step["as"] == "after":
             out.append({"do": "daemon_arm", "as": "after", "want": arm})
     spec["steps"] = out

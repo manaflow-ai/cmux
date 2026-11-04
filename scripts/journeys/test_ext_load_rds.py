@@ -35,8 +35,12 @@ class FakeApp:
 
 
 class FakeJourney:
-    def __init__(self, out, app):
+    def __init__(self, out, app, pane=None, host_pid=None):
         self.out, self.app, self.seen = out, app, {}
+        self.pane, self.term, self.host_pid = pane, "term_x" if pane else None, host_pid
+
+    def view_of_pane(self, pane_id):
+        return {"pane": pane_id, "host_pid": self.host_pid} if pane_id == self.pane else None
 
     def step_relaunch(self, step):
         # As driver.py: launch variables read first, the hook between the quit and the reopen.
@@ -95,9 +99,9 @@ class RdsArms(unittest.TestCase):
             with self.assertRaises(self.load.D.NotRun):
                 self.load.step_probe_relaunch(j, {"new_daemon": True})
 
-    def arm(self, ps_text, want):
+    def arm(self, ps_text, want, j=None):
         app = FakeApp()
-        j = FakeJourney(self.out, app)
+        j = j or FakeJourney(self.out, app)
         done = subprocess.CompletedProcess([], 0, ps_text, "")
         # host_now reads CLOCK_UPTIME_RAW, which only macOS has; the arm proof does not depend on it.
         with mock.patch.object(self.load.subprocess, "run", return_value=done), \
@@ -119,6 +123,86 @@ class RdsArms(unittest.TestCase):
             self.arm(self.PS_OFF, "on")
         with self.assertRaises(self.load.D.NotRun):
             self.arm(self.PS_ON, "off")
+
+    def test_arm_proof_names_the_typing_host_and_its_flow_trace(self):
+        host_ps = ("  PID   TT  STAT      TIME COMMAND\n  300   ??  Ss   0:01.00 /x/cmux-tui host "
+                   "CMUX_TRACE_FLOWS=/o/flows TOKEN=abc\n")
+        j = FakeJourney(self.out, FakeApp(), pane="pane_t", host_pid=300)
+        with mock.patch.object(self.load.subprocess, "run",
+                               side_effect=[subprocess.CompletedProcess([], 0, self.PS_ON, ""),
+                                            subprocess.CompletedProcess([], 0, host_ps, "")]), \
+                mock.patch.object(self.load, "host_now", return_value=1.0):
+            rec = self.load.step_daemon_arm(j, {"as": "before", "want": "on"})
+        self.assertEqual(rec["host"]["pid"], 300)
+        self.assertTrue(rec["host"]["trace_flows"])
+        self.assertEqual(rec["host"]["words"], ["CMUX_TRACE_FLOWS=/o/flows"])
+        self.assertNotIn("TOKEN", (self.out / "daemon-arm-before.json").read_text())
+
+    def test_server_stats_sends_the_raw_line_and_keeps_the_reply(self):
+        app = FakeApp()
+        j = FakeJourney(self.out, app)
+        sent = []
+        reply = {"id": 1, "ok": True, "result": {"locks": {"registry": {}, "state": {"by_hold_p99": []}}}}
+
+        def ask(path, message, timeout=5.0):
+            sent.append((path, message))
+            return reply
+        with mock.patch.object(self.load.D, "unix_request", side_effect=ask), \
+                mock.patch.object(self.load, "host_now", return_value=2.0):
+            rec = self.load.step_server_stats(j, {"as": "after", "include": ["locks"]})
+        self.assertEqual(sent, [("/fake/daemon.sock", {"id": 1, "cmd": "server-stats", "include": ["locks"]})])
+        kept = json.loads((self.out / "server-stats-after.json").read_text())
+        self.assertEqual(kept["reply"], reply)
+        self.assertEqual(kept["daemon_pid"], 200)
+        self.assertEqual(rec["locks"], ["registry", "state"])
+
+    def test_server_stats_without_an_answer_is_kept_as_missing(self):
+        j = FakeJourney(self.out, FakeApp())
+        with mock.patch.object(self.load.D, "unix_request", return_value={}), \
+                mock.patch.object(self.load, "host_now", return_value=2.0):
+            rec = self.load.step_server_stats(j, {"as": "before"})
+        self.assertFalse(rec["answered"])
+        self.assertIn("missing", json.loads((self.out / "server-stats-before.json").read_text())["reply"])
+
+
+class ResultFetch(unittest.TestCase):
+    """run.py take_results: a flow file has its own cap, and a dropped member is logged with its size."""
+
+    def setUp(self):
+        sys.argv = ["run.py"]
+        import run
+        self.run = run
+        self.tmp = tempfile.TemporaryDirectory()
+        self.out = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def tar(self, members):
+        import io
+        import tarfile
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+            for name, data in members:
+                info = tarfile.TarInfo(name)
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
+        return buf.getvalue()
+
+    def test_flow_file_over_the_result_cap_is_kept_and_drops_are_logged(self):
+        j = "typing-load-l6-rds-on"
+        big = b"x" * 2048
+        files = self.tar([(f"{j}/flows/flows-22491.jsonl", big), (f"{j}/server-stats-after.json", b"{}"),
+                          (f"{j}/probe.csv", big), (f"{j}/flows/other.bin", b"y")])
+        logged = []
+        with mock.patch.object(self.run, "RESULT_MAX_BYTES", 1024), \
+                mock.patch.object(self.run, "log", side_effect=logged.append):
+            self.run.take_results(files, self.out, {j})
+        kept = sorted(str(p.relative_to(self.out)) for p in self.out.rglob("*") if p.is_file())
+        self.assertEqual(kept, [f"{j}/flows/flows-22491.jsonl", f"{j}/server-stats-after.json"])
+        self.assertEqual((self.out / j / "flows" / "flows-22491.jsonl").read_bytes(), big)
+        self.assertTrue(any("probe.csv" in line and "2048 bytes" in line for line in logged), logged)
+        self.assertTrue(any("other.bin" in line for line in logged), logged)
 
 
 if __name__ == "__main__":

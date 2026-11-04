@@ -3,7 +3,7 @@
   "priority": "P1",
   "title": "Typing under load L6, R-DAEMON-STATE S1 input lane OFF (new daemon, arm proven)",
   "why": "Lawrence 2026-11-02: 'video + metric evidence that typing into terminals is never laggy, even when there's a lot of CLI/mcp commands and browser use and browser tabs etc going on in the background'. Rule: key-to-photon <= 1 refresh p95, <= 2 max; no lost or merged key; exact order.",
-  "source": "REWRITE R-DAEMON-STATE S1 typing A/B (STATUS 10117)",
+  "source": "REWRITE R-DAEMON-STATE S1 typing A/B (STATUS 10117, 10740)",
   "budget_seconds": 260,
   "options": {
     "key_path": "real"
@@ -118,6 +118,42 @@
       "as": "typing"
     },
     {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "term2"
+    },
+    {
+      "do": "outwait_hold"
+    },
+    {
+      "do": "smoke_type",
+      "text": "echo rds-${nonce}",
+      "enter": true
+    },
+    {
+      "do": "expect",
+      "title": "set-up: the new daemon's typing terminal runs its line",
+      "since": "term2",
+      "timeout": 30,
+      "all": [
+        {
+          "smoke_daemon_lines": {
+            "lines": [
+              "rds-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_adopt_line",
+      "line": "rds-${nonce}",
+      "as": "typing"
+    },
+    {
       "do": "echo_start"
     },
     {
@@ -136,6 +172,13 @@
         "--rate",
         "120",
         "--devtools"
+      ]
+    },
+    {
+      "do": "server_stats",
+      "as": "before",
+      "include": [
+        "locks"
       ]
     },
     {
@@ -180,6 +223,13 @@
       "from": 60,
       "to": 120,
       "label": "typing-load-l6-part2"
+    },
+    {
+      "do": "server_stats",
+      "as": "after",
+      "include": [
+        "locks"
+      ]
     },
     {
       "do": "video_stop",

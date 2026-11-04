@@ -75,7 +75,7 @@ JOURNEY_SECONDS = LEASE_SECONDS - SETUP_RESERVE - 40
 RESULT_FILE = re.compile(r"(?:\./)?((?:[a-z0-9][a-z0-9-]*/)?(?:result\.json|check-\d{2,3}\.png|clip/frame-\d{5}\.png"
                          r"|restore-trace\.json|diag-[a-z]+\.(?:json|png|txt)|diag-app-sample\.txt"
                          # TYPING UNDER LOAD (ext_load.py): the echo log, the in-app probe, the flow trace and the load
-                         r"|echo\.jsonl|probe\.csv|probe-[a-z]+\.json|daemon-arm-[a-z]+\.json|flows/(?:flows-\d+\.jsonl|[a-z0-9_-]+-\d+\.(?:blackbox|recording)\.cmxtrace)"
+                         r"|echo\.jsonl|probe\.csv|probe-[a-z]+\.json|daemon-arm-[a-z]+\.json|server-stats-[a-z]+\.json|flows/(?:flows-\d+\.jsonl|[a-z0-9_-]+-\d+\.(?:blackbox|recording)\.cmxtrace)"
                          r"|load/L[0-9](?:\.stdout|\.stderr|/(?:[A-Za-z0-9_-]+/)?[a-z_-]+\.(?:json|jsonl)))"
                          r"|host\.json|summary\.json)")
 RESULT_MAX_BYTES = 64 << 20
@@ -83,7 +83,10 @@ RESULT_TAR_MAX_BYTES = 768 << 20
 # The flow traces (out/<journey>/flows/): with a new daemon per run (typing-load-l6-rds-*) the daemon and its terminal
 # hosts write them too, and in the result tar they made the fetch miss its 150 s (round s1ab-v3a-1-off-21, 2026-11-04:
 # the journey passed and every result was lost). They come last, compressed, best effort: never at the results' cost.
-FLOWS_TAR_MAX_BYTES = 512 << 20
+FLOWS_TAR_MAX_BYTES = 2 << 30
+# One flow file may be far larger than any other result: the daemon's records the output of every terminal of the
+# load (run s1ab-v3b-3-off, 2026-11-04: over RESULT_MAX_BYTES, so take_results dropped it without a word).
+FLOW_FILE_MAX_BYTES = 4 << 30
 STEP_NAMES = {name[len("step_"):] for name in dir(driver.Journey) if name.startswith("step_")}
 # The files of a run in its OUT folder: a folder that holds one of them was used by an earlier run.
 EARLIER_RUN_FILES = ("run.json", "results.jsonl", "host.json", "summary.json", "acquire.log")
@@ -634,24 +637,29 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
 
 def fetch_parked(host, parked, out, ids):
     """The movies and flow traces run_lease moved to PARKED on the mini, fetched after the lease (no lease bound),
-    then removed there. Best effort: a failed fetch is logged, never a changed result."""
+    then removed there. The mini may run another owner's job by then, so its tar and gzip run at nice 19. Each fetch
+    is best effort on its own: a failed fetch is logged, never a changed result."""
     try:
-        videos = remote(host, f"cd {parked} && ls -d */video >/dev/null 2>&1 && tar c */video || true",
+        videos = remote(host, f"cd {parked} && ls -d */video >/dev/null 2>&1 && nice -n 19 tar c */video || true",
                         timeout=900, check=False).stdout
         take_videos(videos, out, ids)
         log(f"movies: {len(videos or b'')} bytes fetched after the release")
-        flows = remote(host, f"cd {parked} && ls -d */flows >/dev/null 2>&1 && tar cz */flows | "
-                             f"head -c {FLOWS_TAR_MAX_BYTES} || true", timeout=300, check=False).stdout
+    except (RuntimeError, subprocess.TimeoutExpired, OSError, EOFError, tarfile.TarError) as error:
+        log(f"parked movies not fetched: {str(error)[-200:]}")
+    try:
+        flows = remote(host, f"cd {parked} && ls -d */flows >/dev/null 2>&1 && nice -n 19 tar c */flows | "
+                             f"nice -n 19 gzip -1 | head -c {FLOWS_TAR_MAX_BYTES} || true",
+                       timeout=900, check=False).stdout
+        log(f"flow traces: {len(flows or b'')} bytes (gzip) fetched after the release"
+            + (f"; CUT at the cap {FLOWS_TAR_MAX_BYTES}: the files after the cut are lost" if len(flows or b"") >= FLOWS_TAR_MAX_BYTES else ""))
         if flows:
             take_results(flows, out, ids)
-        log(f"flow traces: {len(flows or b'')} bytes (gzip) fetched after the release")
     except (RuntimeError, subprocess.TimeoutExpired, OSError, EOFError, tarfile.TarError) as error:
-        log(f"parked movies or flow traces not fetched: {str(error)[-200:]}")
-    finally:
-        try:
-            remote(host, f"rm -rf {parked}", timeout=60, check=False)
-        except (RuntimeError, subprocess.TimeoutExpired, OSError):
-            log(f"{parked} on {host} not removed (removed after 6 h by the next run)")
+        log(f"parked flow traces not fetched (or cut; the files before the error are kept): {str(error)[-200:]}")
+    try:
+        remote(host, f"rm -rf {parked}", timeout=60, check=False)
+    except (RuntimeError, subprocess.TimeoutExpired, OSError):
+        log(f"{parked} on {host} not removed (removed after 6 h by the next run)")
 
 
 VIDEO_FILE = re.compile(r"(?:\./)?([a-z0-9][a-z0-9-]*/video/[a-z0-9][a-z0-9-]*\.(?:mov|mov\.frames\.json|mov\.scan|trace\.json|events\.json|meta\.json))")
@@ -676,20 +684,34 @@ def take_videos(files, out, ids):
 
 
 def take_results(files, out, ids):
-    """Keeps only the expected regular files of the mini's tarball: the app there could plant links or paths."""
+    """Keeps only the expected regular files of the mini's tarball: the app there could plant links or paths.
+    A flow file (<journey>/flows/) has its own cap (FLOW_FILE_MAX_BYTES), and every member dropped for its size, or a
+    flows/ file of an unknown name, is logged with its size: a drop is never silent. Each file is written to a
+    temporary name and renamed when complete, so a tar cut short leaves no half file."""
     if not files:
         return
     with tarfile.open(fileobj=io.BytesIO(files)) as tar:
         for member in tar:
             match = RESULT_FILE.fullmatch(member.name)
-            if not match or not member.isreg() or member.size > RESULT_MAX_BYTES:
+            if not match:
+                if member.isreg() and "/flows/" in "/" + member.name:
+                    log(f"result {member.name}: not a known flow file name ({member.size} bytes): not kept")
+                continue
+            if not member.isreg():
                 continue
             name = match.group(1)
+            cap = FLOW_FILE_MAX_BYTES if "/flows/" in "/" + name else RESULT_MAX_BYTES
+            if member.size > cap:
+                log(f"result {name}: {member.size} bytes, over its cap {cap}: not kept")
+                continue
             if "/" in name and name.split("/", 1)[0] not in ids:
                 continue
             target = out / name
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(tar.extractfile(member).read())
+            part = target.with_name(target.name + ".part")
+            with tar.extractfile(member) as src, open(part, "wb") as dst:
+                shutil.copyfileobj(src, dst, 1 << 20)
+            os.replace(part, target)
 
 
 def set_aside_old_results(out, ids):

@@ -19,7 +19,11 @@ Steps (`do`):
                    marks on (see the function); `env` adds launch variables (an A/B arm's CMUX_NEXT_* switch);
                    `new_daemon` stops the app's daemon while no app runs, so the reopen starts a new one with them.
   daemon_arm  {as, want: on|off, name?: CMUX_TUI_RDS_INPUT}  proves the arm: `ps -wwE -p <daemon pid>` shows
-                   NAME=1 (on) or not (off); kept as OUT/daemon-arm-<as>.json. A mismatch: not run.
+                   NAME=1 (on) or not (off); kept as OUT/daemon-arm-<as>.json. A mismatch: not run. It also
+                   records whether the current terminal's host has CMUX_TRACE_FLOWS (its flow trace is on).
+  server_stats {as, include?: ["locks"]}  the raw line {"id":1,"cmd":"server-stats","include":[...]} on the app's
+                   daemon socket; the reply as OUT/server-stats-<as>.json (the lock holds by code site). No
+                   answer: recorded as missing, never a failure.
   probe_mark  {as}  keeps debug.hangs and debug.wakeups as OUT/probe-<as>.json.
   typist_play {seed?: 7, seconds?: 120, from?: 0, to?, label?}
                    plays typing/typist.py's seeded plan with real HID keys (ext_realkey press: CuaDriver, desktop
@@ -303,12 +307,46 @@ def step_daemon_arm(j, step):
     rows = text.strip().splitlines()
     exe = rows[1].split()[4] if len(rows) > 1 and len(rows[1].split()) > 4 else None
     rec = {"as": step["as"], "pid": int(pid), "exe": exe, "words": words, "on": (name + "=1") in words,
-           "want": step.get("want"), "t": round(host_now(), 6)}
+           "want": step.get("want"), "t": round(host_now(), 6), "host": _host_trace(j, name)}
     (j.out / f"daemon-arm-{step['as']}.json").write_text(json.dumps(rec))
     want = step.get("want")
     if want in ("on", "off") and rec["on"] != (want == "on"):
         raise D.NotRun(f"daemon_arm {step['as']}: want {want}, daemon pid {pid} has {words or 'no ' + name}")
     return rec
+
+
+def _host_trace(j, name):
+    """The current terminal's host process (its pane's view: host_pid) and whether its environment has
+    CMUX_TRACE_FLOWS (the host writes its flow trace) and NAME. Only those words are kept."""
+    try:
+        view = j.view_of_pane(j.pane) if j.pane else None
+    except (D.StepError, OSError, ValueError) as error:
+        return {"error": str(error)[:200]}
+    host = (view or {}).get("host_pid")
+    if not host:
+        return {"pid": None, "terminal": j.term, "pane": j.pane}
+    text = subprocess.run(["ps", "-wwE", "-p", str(int(host))], capture_output=True, text=True, timeout=10).stdout
+    keep = [w for w in text.split() if w.startswith(("CMUX_TRACE_FLOWS=", name + "="))]
+    return {"pid": int(host), "terminal": j.term, "pane": j.pane, "words": keep,
+            "trace_flows": any(w.startswith("CMUX_TRACE_FLOWS=") and len(w) > len("CMUX_TRACE_FLOWS=") for w in keep)}
+
+
+def step_server_stats(j, step):
+    """`server-stats` with the asked sections (default the locks: the registry and state lock holds by code site)
+    on the daemon socket the app is connected to, as one raw line; the reply as OUT/server-stats-<as>.json with the
+    daemon pid and the host clock of the ask. No answer within 20 s: kept as missing, never a failure."""
+    include = list(step.get("include", ["locks"]))
+    sock = j.app.daemon_socket()
+    pid = (getattr(j.app, "daemon_state", None) or {}).get("pid")
+    rec = {"as": step["as"], "daemon_pid": pid, "socket": sock, "include": include, "t_ask": round(host_now(), 6)}
+    reply = D.unix_request(sock, {"id": 1, "cmd": "server-stats", "include": include}, timeout=20.0) if sock else {}
+    rec["t_reply"] = round(host_now(), 6)
+    rec["reply"] = reply or {"missing": "no answer within 20 s" if sock else "no daemon socket"}
+    (j.out / f"server-stats-{step['as']}.json").write_text(json.dumps(rec))
+    body = (reply.get("result") or reply.get("data") or {}) if isinstance(reply, dict) else {}
+    return {"as": step["as"], "file": f"server-stats-{step['as']}.json", "answered": bool(reply),
+            "locks": sorted(body.get("locks") or {}) if isinstance(body, dict) else None,
+            "ask_ms": round((rec["t_reply"] - rec["t_ask"]) * 1000, 1)}
 
 
 def step_probe_mark(j, step):
@@ -326,6 +364,6 @@ def step_probe_mark(j, step):
     return {"as": step["as"], "hangs": len(hangs) if isinstance(hangs, list) else None, "file": f"probe-{step['as']}.json"}
 
 
-STEPS = {"probe_relaunch": step_probe_relaunch, "daemon_arm": step_daemon_arm, "probe_mark": step_probe_mark, "echo_start": step_echo_start, "load_start": step_load_start, "load_stop": step_load_stop,
+STEPS = {"probe_relaunch": step_probe_relaunch, "daemon_arm": step_daemon_arm, "server_stats": step_server_stats, "probe_mark": step_probe_mark, "echo_start": step_echo_start, "load_start": step_load_start, "load_stop": step_load_stop,
          "typist_play": step_typist_play}
 CONDITIONS = {}
