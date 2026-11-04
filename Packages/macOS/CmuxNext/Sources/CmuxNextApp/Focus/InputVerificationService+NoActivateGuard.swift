@@ -105,7 +105,7 @@ extension InputVerificationService {
             case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown:
                 guard application?.currentEventIsSynthetic != true else { break }
                 if !relaunchOnly {
-                    guardian.userInput()
+                    guardian.userInput(pointer: event.type != .keyDown)
                 } else if event.type != .keyDown {
                     self?.endRelaunchBehind("user click")
                 }

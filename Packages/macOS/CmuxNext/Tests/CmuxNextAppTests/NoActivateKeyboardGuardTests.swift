@@ -10,14 +10,11 @@ struct NoActivateKeyboardGuardTests {
         var isAppActive = true
         var now: ContinuousClock.Instant = .now
         var handedBackTo: NSRunningApplication?
-        var clickOnAppOrDock = false
         var scheduled: [(delay: Duration, body: @MainActor @Sendable () -> Void)] = []
 
         func giveActivationBack(to app: NSRunningApplication?) {
             handedBackTo = app
         }
-
-        func recentClickOnAppOrDock(within window: Duration) -> Bool { clickOnAppOrDock }
 
         func schedule(after delay: Duration, _ body: @escaping @MainActor @Sendable () -> Void) {
             scheduled.append((delay, body))
@@ -150,15 +147,37 @@ struct NoActivateKeyboardGuardTests {
         #expect(host.handedBackTo == nil)
     }
 
-    /// The click was released and its event is late, but the pointer is on the app's window (or the
-    /// Dock) right after a real mouse-down: that is the click that activated it.
-    @Test func aRecentClickOnTheAppOrDockIsIntent() {
+    /// A key typed while an activation waits belongs to the app the person is in: it neither ends
+    /// the wait nor keeps the front once the wait runs out. A key typed in cmux just before is intent.
+    @Test func aKeyTypedDuringTheWaitIsNotIntent() {
+        let host = Host()
+        let previous = NSRunningApplication.current
+        let guardian = NoActivateKeyboardGuard(host: host, frontmost: previous, frontmostPID: 7)
+        guardian.appDidBecomeActive()
+        host.now = host.now + .milliseconds(50)
+        guardian.userInput(pointer: false)
+        #expect(host.scheduled.count == 1, "the key does not end the wait")
+        host.elapse(NoActivateKeyboardGuard.intentArrivalWindow)
+        #expect(host.handedBackTo === previous)
+        #expect(guardian.giveBacks.count == 1)
+
+        guardian.appDidResignActive()
+        host.handedBackTo = nil
+        guardian.userInput(pointer: false)
+        guardian.appDidBecomeActive()
+        #expect(host.scheduled.isEmpty, "a key just before the activation is intent")
+        #expect(host.handedBackTo == nil)
+    }
+
+    /// A reopen is intent only around its own activation: one that comes later goes back.
+    @Test func anOldReopenIsNotIntent() {
         let host = Host()
         let guardian = NoActivateKeyboardGuard(host: host, frontmost: NSRunningApplication.current, frontmostPID: 7)
-        host.clickOnAppOrDock = true
-        guardian.windowDidBecomeKey()
-        #expect(host.scheduled.isEmpty)
-        #expect(guardian.giveBacks.isEmpty)
+        guardian.reopenRequested()
+        host.now = host.now + NoActivateKeyboardGuard.intentArrivalWindow + .milliseconds(100)
+        guardian.appDidBecomeActive()
+        host.elapse(NoActivateKeyboardGuard.intentArrivalWindow)
+        #expect(guardian.giveBacks.count == 1)
     }
 
     /// An activation nothing the person did caused still goes back, once the wait ends, and only once
@@ -182,23 +201,24 @@ struct NoActivateKeyboardGuardTests {
         #expect(guardian.giveBacks.count == 1)
     }
 
-    /// The launch check never waits: an agent run's launch activation goes back at once.
-    @Test func theLaunchActivationGoesBackWithoutWaiting() {
+    /// The launch check never waits, nor does an activation that arrives in the launch's grace
+    /// (macOS activating the agent-launched app as it starts): both go back at once.
+    @Test func launchActivationsGoBackWithoutWaiting() {
         let host = Host()
         let guardian = NoActivateKeyboardGuard(host: host, frontmost: NSRunningApplication.current, frontmostPID: 7)
         guardian.start()
         #expect(host.scheduled.isEmpty)
         #expect(guardian.giveBacks.count == 1)
-    }
 
-    /// Held input right after an update relaunch is not intent, and neither is a recent click under
-    /// the pointer then (the relaunched window may have appeared under the person's click).
-    @Test func aRecentClickRightAfterAnUpdateRelaunchIsNotIntent() {
-        let host = Host()
-        let guardian = NoActivateKeyboardGuard(host: host, frontmost: NSRunningApplication.current, frontmostPID: 7)
-        guardian.ignoresHeldInputUntil = host.now + NoActivateKeyboardGuard.launchActivationGrace
-        host.clickOnAppOrDock = true
-        guardian.start()
-        #expect(guardian.giveBacks.count == 1)
+        guardian.appDidResignActive()
+        host.now = host.now + .milliseconds(500)
+        guardian.appDidBecomeActive()
+        #expect(host.scheduled.isEmpty)
+        #expect(guardian.giveBacks.count == 2)
+
+        guardian.appDidResignActive()
+        host.now = host.now + NoActivateKeyboardGuard.launchActivationGrace
+        guardian.appDidBecomeActive()
+        #expect(host.scheduled.count == 1, "after the launch an activation waits for its click")
     }
 }

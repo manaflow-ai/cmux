@@ -26,22 +26,6 @@ final class AppKitKeyboardGuardHost: NoActivateKeyboardGuard.Host {
     var now: ContinuousClock.Instant { .now }
     private let intentWait = DemandTimer(owner: "NoActivateKeyboardGuard.intentArrival")
 
-    func recentClickOnAppOrDock(within window: Duration) -> Bool {
-        // Real input only (`hidSystemState`): an automation driver posting to the app's pid is not
-        // the person, and does not show here.
-        let limit = Double(window.components.seconds) + Double(window.components.attoseconds) * 1e-18
-        let sinceDown = [CGEventType.leftMouseDown, .rightMouseDown, .otherMouseDown]
-            .map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }.min() ?? .infinity
-        guard sinceDown <= limit else { return false }
-        let number = NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0)
-        guard number > 0 else { return false }
-        if NSApp.window(withWindowNumber: number) != nil { return true }
-        guard let info = CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(number)) as? [[String: Any]],
-              let owner = info.first else { return false }
-        if let pid = owner[kCGWindowOwnerPID as String] as? Int, pid == Int(getpid()) { return true }
-        return owner[kCGWindowOwnerName as String] as? String == "Dock"
-    }
-
     func schedule(after delay: Duration, _ body: @escaping @MainActor @Sendable () -> Void) {
         intentWait.schedule(after: delay) { @MainActor in body() }
     }
