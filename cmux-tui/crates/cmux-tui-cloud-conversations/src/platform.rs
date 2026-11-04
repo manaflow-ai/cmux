@@ -1,8 +1,8 @@
 //! Platform deployments shared by the room resolver and credential-bearing environment calls.
 
 pub use cmux_cloud_environment::DEVELOPMENT_PLATFORM as DEVELOPMENT;
-pub use cmux_cloud_environment::STAGING_PLATFORM as STAGING;
 pub use cmux_cloud_environment::PRODUCTION_PLATFORM as PRODUCTION;
+pub use cmux_cloud_environment::STAGING_PLATFORM as STAGING;
 
 /// Only a declared platform deployment or explicit local development may receive an install token.
 pub(crate) fn accepts_environment_origin(base: &url::Url) -> bool {
