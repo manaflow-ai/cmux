@@ -34,23 +34,25 @@ have changed the real action row.
 
 Coverage counts **neko-specific semantic drawings**, not ordinary default fallbacks. Required sample:
 copy, retry, speak, bookmark, pin, more (6); working spinner (1); success/error (2).
+Spinner/status counts identify shared fallbacks, not a requirement to decorate status or error marks.
+The icon spec keeps those marks semantic. A working mark must remain a true spinner.
 
-| Candidate | Actions | Spinner | Status | Visual score | Release decision |
-| --- | ---: | ---: | ---: | --- | --- |
-| Noto Emoji cat | 0/6 | 0/1 | 0/2 | 2/8 (0, 0, 2, 0) | Gallery only |
-| Fluent Emoji flat cat | 0/6 | 0/1 | 0/2 | 1/8 (0, 0, 1, 0) | Gallery only |
-| Lucide cat | 0/6 | 0/1 | 0/2 | 4/8 (0, 1, 2, 1) | Gallery only |
-| cmux Cat + copy/pin fill-ins | 2/6 | 0/1 | 0/2 | 5/8 (2, 1, 2, 0) | Gallery only |
+| Candidate | Actions | Spinner | Status | Visual fit | Action recognition | Release decision |
+| --- | ---: | ---: | ---: | --- | --- | --- |
+| Noto Emoji cat | 0/6 | 0/1 | 0/2 | 2/6 (0, 2, 0) | N/A | Gallery only |
+| Fluent Emoji flat cat | 0/6 | 0/1 | 0/2 | 1/6 (0, 1, 0) | N/A | Gallery only |
+| Lucide cat | 0/6 | 0/1 | 0/2 | 4/6 (1, 2, 1) | N/A | Gallery only |
+| cmux Cat + copy/pin fill-ins | 2/6 | 0/1 | 0/2 | 3/6 (1, 2, 0) | 2/2 | Gallery only |
 
 The previous draft's numeric taste ratings were not backed by reviewed 1x/2x captures and are withdrawn.
-A visual round rates action recognition, stroke/size consistency, light/dark contrast, and the restrained
-cat treatment above (0–2 each, /8 total). Coverage remains a separate score; a high visual score for a
-cat mascot cannot compensate for missing semantic actions.
+A visual round rates stroke/size consistency, light/dark contrast, and the restrained cat treatment
+above (0–2 each, /6 total). Action recognition is separate (0–2), or N/A when no action artwork exists.
+Coverage is also separate; a high visual score for a cat mascot cannot supply missing semantic actions.
 
 All 16 captures from [run 41780806887](https://github.com/manaflow-ai/cmux/actions/runs/41780806887)
 at `7f35260a7a7a7691090fa1e8bb74684ddecf1e76` were inspected at their native device scale.
 The scores above are subjective comparison judgments, not measured usability results. Tuple order is
-recognition, stroke/size consistency, contrast, restrained cat treatment. The authored score applies
+stroke/size consistency, contrast, restrained cat treatment. The authored score applies
 only to its two changed action drawings, not the unchanged fallbacks.
 
 - Noto reads clearly as a cat in both themes, but its filled colored face is much heavier than the
@@ -64,8 +66,11 @@ only to its two changed action drawings, not the unchanged fallbacks.
   treatment. They fail the small-size clarity inferred from Idlesse.
 
 **Round decision:** release none. Preserve the default icons and hide the reserved setting. Next art
-round should explore noun-specific, monochrome line treatments based on the licensed Lucide geometry,
-with copy/retry/speak and a true working spinner developed together before expanding the pack.
+round should explore monochrome, noun-specific cues integrated into the existing copy/retry/speak
+silhouettes at 16px, using Lucide as a restraint reference rather than transplanting its cat head.
+Keep More and status marks shared. The working mark remains a true spinner throughout. A second
+independent visual reader inspected all 16 captures and agreed that no candidate improves on the
+default row; its critique prompted the separate action-recognition and visual-fit scores above.
 
 ## License survey
 
