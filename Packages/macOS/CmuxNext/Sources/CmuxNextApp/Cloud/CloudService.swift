@@ -346,7 +346,8 @@ final class CloudService {
             for await accountScope in ObservationStream({ self.auth.isSignedIn ? "\(self.auth.user?.id ?? "")\u{0}\(self.auth.teamID ?? "")" : nil }) {
                 if accountScope != nil {
                     self.machineWire.stop()
-                    if !self.policyDisabled { self.machineWire.start { [weak self] change in self?.portChanged(change) } }
+                    // mayCallCloud also fences a managed team that is missing: no socket without its team scope.
+                    if self.mayCallCloud { self.machineWire.start { [weak self] change in self?.portChanged(change) } }
                     AgentPaneTailCache.shared.resume()
                     await self.hub?.resume() // sign-out revoked the WireGuard peer and parked the hub
                     // Another account's machines, connections and share installs end first (its next share binds this one).
@@ -427,7 +428,7 @@ final class CloudService {
             // So does this Mac's link (the session stays).
             link.policyTurnedOff()
         } else {
-            if auth.isSignedIn { machineWire.start { [weak self] change in self?.portChanged(change) } }
+            if auth.isSignedIn, mayCallCloud { machineWire.start { [weak self] change in self?.portChanged(change) } }
             changes.start()
             dropAllMachines()
             // task-owner: one list fetch after the policy lifted
