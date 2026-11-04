@@ -262,7 +262,14 @@ jobs:
           mkdir -m 0700 "$dir"
           nohup python3 tests/fixtures/model-stub/model_stub.py --script tests/fixtures/model-stub/machine-vault-e2e.json \
             --log "$dir/log.jsonl" --ready-file "$dir/ready.json" >"$dir/out.txt" 2>&1 &
-          for _ in $(seq 50); do [ -s "$dir/ready.json" ] && break; sleep 0.2; done
+          # A fresh macOS VM's first python3 start can take well over 10 s (run 41830168353 timed out at 10 s
+          # with the stub still starting); give it two minutes, and show its output if it never listens.
+          for _ in $(seq 600); do [ -s "$dir/ready.json" ] && break; sleep 0.2; done
+          if [ ! -s "$dir/ready.json" ]; then
+            echo "::error::the model stub did not listen within 120 s ($(command -v python3 || echo no python3))"
+            cat "$dir/out.txt" || true
+            exit 1
+          fi
           port="$(jq -r '.port' "$dir/ready.json")"
           echo "url=http://127.0.0.1:$port" >> "$GITHUB_OUTPUT"
           echo "log=$dir/log.jsonl" >> "$GITHUB_OUTPUT"
