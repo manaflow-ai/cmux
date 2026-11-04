@@ -35,7 +35,7 @@ struct HibernationSnapshotsTests {
         return store
     }
 
-    /// A larger decoded picture (feature `compressedSnapshots` off): its pixels are its cost.
+    /// A larger decoded picture (`HibernationTunables.compressedSnapshots` off): its pixels are its cost.
     private func decoded() throws -> PurgeablePicture {
         try #require(PurgeablePicture(decoding: try Self.image(width: 32, height: 32), allocator: .resident))
     }

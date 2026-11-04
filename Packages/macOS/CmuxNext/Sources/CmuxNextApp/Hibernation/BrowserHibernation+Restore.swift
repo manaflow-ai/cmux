@@ -255,7 +255,7 @@ extension BrowserHibernation {
         }
     }
 
-    /// The picture a hibernated tab shows, compressed or decoded (feature `compressedSnapshots` off).
+    /// The picture a hibernated tab shows, compressed or decoded (`HibernationTunables.compressedSnapshots` off).
     func snapshotImage(_ key: String) -> CGImage? {
         snapshots.image(for: key)
     }
@@ -266,12 +266,12 @@ extension BrowserHibernation {
     }
 
     /// A fresh picture (never one from an earlier sleep), kept in `snapshots`: compressed whole by
-    /// default; with feature `compressedSnapshots` off (`snapshots.keepsCompressed`), decoded and
-    /// scaled so that four fit the store. None, and no capture, when the store would not keep it (the
+    /// default; with `HibernationTunables.compressedSnapshots` off, decoded and scaled so that four fit
+    /// the store. None, and no capture, when the store would not keep it (the
     /// critical memory limit, for a tab beside no shown tab).
     func snapshot(_ tab: any BrowserTab, key: String) async -> PurgeablePicture? {
         guard snapshots.keeps(key), let image = await capture(tab) else { return nil }
-        if snapshots.keepsCompressed { return await HibernationSnapshots.compress(image, allocator: snapshots.allocator) }
+        if HibernationTunables.compressedSnapshots.value { return await HibernationSnapshots.compress(image, allocator: snapshots.allocator) }
         // A quarter of the store, less a margin for row padding; same aspect and color space, off the main actor.
         let bytes = Double(snapshots.fullCapacityBytes / 4) * 0.98
         let scale = min(1, (bytes / Double(max(image.width * image.height * 4, 1))).squareRoot())

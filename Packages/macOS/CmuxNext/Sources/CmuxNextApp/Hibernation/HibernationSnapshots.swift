@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 /// own budget, least recently used first out, so every hibernated tab wakes to its picture
 /// (PR 23083). They used to share the decoded `previews` LRU with terminal previews at up
 /// to a quarter of it each: four hibernated pages kept a picture and the others woke to an empty
-/// pane. With feature `compressedSnapshots` off it keeps decoded pictures instead, under
+/// pane. With `HibernationTunables.compressedSnapshots` off it keeps decoded pictures instead, under
 /// the same budget and the same neighbor rule.
 ///
 /// Its full size is `ImageCacheShares.hibernationSnapshotBytes`: with `memoryImageCaches` on,
@@ -60,9 +60,6 @@ final class HibernationSnapshots {
     /// The tabs beside each shown tab now, whose pictures are kept at any limit (`BrowserHibernation`
     /// sets it; read once per trim).
     var neighbors: () -> Set<String> = { [] }
-    /// Whether a new picture is kept compressed: feature `compressedSnapshots` (on by default; the App sets it
-    /// from this launch's features).
-    var keepsCompressed = true
     private(set) var totalBytes = 0
     /// The pictures' locked bytes, which readers on any thread move in and out.
     private let ledger = PurgeableLedger()
@@ -168,7 +165,7 @@ final class HibernationSnapshots {
         compressed(image, quality: quality, allocator: allocator)
     }
 
-    /// `image` decoded (`compressedSnapshots` off): the image itself with `purgeableImageCaches` off, else its pixels
+    /// `image` decoded (`HibernationTunables.compressedSnapshots` off): the image itself with `purgeableImageCaches` off, else its pixels
     /// copied off the main actor into pages from `allocator` (``PurgeablePicture/keeping(_:allocator:)``).
     nonisolated static func decoded(_ image: CGImage, allocator: PurgeableAllocator) async -> PurgeablePicture? {
         await PurgeablePicture.keeping(image, allocator: allocator)

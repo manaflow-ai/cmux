@@ -46,7 +46,6 @@ extension AppServices {
         hibernation.openerLinks = { [weak self] in self?.scriptOpenerLinks() ?? [:] }
         hibernation.ranksUrgentDiscards = features.isEnabled(.memoryUrgentDiscardRanking)
         hibernation.admission = WakeAdmission(isEnabled: features.isEnabled(.memoryWakeAdmission), freeBytes: { HostSampler().freePhysicalBytes() })
-        hibernation.snapshots.keepsCompressed = features.isEnabled(.compressedSnapshots)
         let agentPages = AgentPageHibernation(services: self)
         memoryHistograms.follow(hibernation, agentPages: agentPages)
         hibernation.agentPages = agentPages

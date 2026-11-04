@@ -33,7 +33,6 @@ public nonisolated struct FeatureDogfoodSet: Sendable, Equatable {
         "chromiumTabVisibility",
         "cmuxPageRendererSharing",
         "coldScrollbackCompression",
-        "compressedSnapshots",
         "controlSocketEarlyBind",
         "daemonRequestQos",
         "directionalPrewarm",
