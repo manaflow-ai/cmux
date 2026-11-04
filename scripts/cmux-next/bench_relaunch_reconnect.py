@@ -278,6 +278,13 @@ def main(argv: list[str] | None = None):
         if scratch:
             for path in glob.glob(os.path.join(scratch, "tmp", "acpmux-bin", "*", "*")):
                 print(f"--- probe copy: {path}", file=sys.stderr)
+                for check in ([path, "--version"], ["/usr/bin/codesign", "-v", "-vv", path],
+                              ["/usr/bin/xattr", "-l", path], ["/usr/bin/otool", "-L", path], ["/bin/ls", "-l", path]):
+                    try:
+                        out = subprocess.run(check, capture_output=True, text=True, timeout=30)
+                        print(f"PROBE-CHECK {' '.join(check)} -> exit {out.returncode}: {(out.stdout + out.stderr).strip()[-1500:]}", file=sys.stderr)
+                    except Exception as error:  # noqa: BLE001 - probe diagnostics only
+                        print(f"PROBE-CHECK {' '.join(check)} -> {error!r}", file=sys.stderr)
             print(subprocess.run(["/usr/bin/log", "show", "--last", "5m", "--style", "compact", "--predicate",
                                   'subsystem == "com.cmuxterm.app.next" AND category == "agent-pane.acpmux"'],
                                  capture_output=True, text=True, timeout=120).stdout[-6000:], file=sys.stderr)
