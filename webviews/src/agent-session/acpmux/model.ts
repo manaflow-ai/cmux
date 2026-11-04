@@ -879,9 +879,16 @@ export type AcpmuxContextBreakdown = {
 };
 
 /// A Claude Code chat's plan usage limits as acpmux reports them (claude_stdio `usage_limits`):
-/// `id` is `session` (5 hours), `weekly`, `weekly_opus` or `weekly_sonnet`; `usedPercent` is 0-100;
-/// `resetsAt` is unix seconds, only when Claude Code said when the window resets.
-export type AcpmuxUsageLimits = { windows: { id: string; usedPercent: number; resetsAt?: number }[] };
+/// `id` is `session` (5 hours), `weekly`, `weekly_opus` or `weekly_sonnet` (Codex's other lengths are
+/// their minutes, `60m`, or their slot, `primary`); `usedPercent` is 0-100; `resetsAt` is unix
+/// seconds, only when the harness said when the window resets; `windowMins` is the window's length
+/// when Codex named it. `plan` (Codex's `planType`, such as `pro`) and `credits` (the balance, or
+/// unlimited) only when the harness reported them; Claude Code names neither.
+export type AcpmuxUsageLimits = {
+  windows: { id: string; usedPercent: number; resetsAt?: number; windowMins?: number }[];
+  plan?: string;
+  credits?: { balance?: string; unlimited?: boolean };
+};
 
 /// Optional Labs workflow payload. acpmux does not emit this field yet; keeping the wire shape
 /// here gives the future event a typed adapter seam without deriving workflow state from rows.
