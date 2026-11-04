@@ -25,11 +25,13 @@ const need = (name: string) => {
   return value;
 };
 
-const environment = parseEnvironment(need("CMUX_VM_ENVIRONMENT"));
-if (environment !== "staging" && environment !== "production") {
-  console.error(`::error title=sweep-orphans::only staging or production can be swept (got ${environment})`);
+// The raw value, before parseEnvironment: it reads any unknown value (a typo) as production.
+const rawEnvironment = need("CMUX_VM_ENVIRONMENT");
+if (rawEnvironment !== "staging" && rawEnvironment !== "production") {
+  console.error("::error title=sweep-orphans::CMUX_VM_ENVIRONMENT must be exactly staging or production");
   process.exit(1);
 }
+const environment = parseEnvironment(rawEnvironment);
 const config = { baseUrl: need("UPSTREAM_API_URL"), apiKey: Redacted.make(need("CMUX_VM_UPSTREAM_API_KEY")), environment };
 const sql = hyperdriveSqlLayer(need("CMUX_VM_DATABASE_URL"));
 const remove = process.argv.includes("--delete");
@@ -73,7 +75,8 @@ if (remove && listing.orphans.length > 0) {
   const swept = await run(false);
   print("delete run", swept);
   for (const id of swept.deleted) console.log(`  deleted ${id}`);
-  for (const id of swept.failed) console.log(`::warning title=sweep-orphans::delete failed for ${id}`);
+  // Failed deletes are counted, not named: the next cron run retries them.
+  if (swept.failed.length > 0) console.log(`::warning title=sweep-orphans::${swept.failed.length} deletes failed; the Worker's cron retries them`);
   console.log(`deleted ${swept.deleted.length}, failed ${swept.failed.length}`);
   if (swept.failed.length > 0) process.exitCode = 1;
 } else if (!remove) {
