@@ -135,6 +135,10 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
 
       # The sticky report lives in an HQ issue. The routing App may not be
       # installed there; then the report stays in this job's summary.
