@@ -10893,10 +10893,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // asks again itself when it ends. A timer queued before it, or set while it runs, asks nothing.
       if (connecting || !restartGate.mayAsk()) return;
       connecting = true;
-      // Do not let a stale Cloud identity from the previous handshake wake a different chat while
-      // this one is reconnecting. A successful reply below installs the new account-scoped identity.
-      setCloudChatIdentity(undefined);
-      setCloudMachineID(undefined);
+      // Keep the existing Cloud route alive for wake-and-send recovery while reconnecting. The
+      // handshaken gate below blocks typing hints until the new handshake installs its identity,
+      // so the stale machine can never receive a fresh prewarm request.
+      setHandshaken(false);
+      handshakenRef.current = false;
       cloudDraftMachineID.current = undefined;
       cloudTypingPrewarm.reset();
       try {

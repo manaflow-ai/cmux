@@ -556,6 +556,7 @@ export function ComposerContext({
   // A folder pick is always the folder (the page's project, which Cloud sends and recent projects
   // record), then the saved environment that is only that folder, if there is one.
   const pickFolder = (cwd: string) => {
+    onCloudMachinePicked?.(undefined);
     onProject?.(cwd);
     const environment = savedRows && savedFolders.find((candidate) => normalizeCwd(candidate.folder) === cwd);
     if (environment) savedRows.onPick(environment.id);
