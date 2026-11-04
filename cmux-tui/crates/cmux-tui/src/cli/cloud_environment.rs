@@ -106,19 +106,22 @@ fn run(command: Command, global: &GlobalArgs) -> Result<Value, String> {
     let identity =
         crate::app_identity::AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref())
             .ok_or("Run the cmux CLI bundled with the NEXT DEV or nightly app.")?;
-    let bundle = identity.bundle_id.as_deref().ok_or("This app has no bundle identifier.")?;
+    let build = identity.build();
+    let bundle = build.bundle_id().ok_or("This app has no bundle identifier.")?;
     let home = std::env::var_os("HOME").map(PathBuf::from).ok_or("HOME is unavailable.")?;
     let resolver = Resolver::new(bundle, &home)?;
     let switching = matches!(command, Command::Set(_));
-    let previous = switching.then(|| resolver.resolve(None)).transpose()?;
+    // A failed read cannot prevent an explicit set from repairing malformed
+    // state. set() independently enforces permissions and I/O failures.
+    let previous = switching.then(|| resolver.resolve(None).ok()).flatten();
     let selection = match command {
         Command::Get => resolver.resolve(std::env::var("CMUX_NEXT_CLOUD_ENV").ok().as_deref())?,
         Command::Set(environment) => resolver.set(environment)?,
         Command::Help | Command::Relaunch { .. } => return Err("expected get or set".into()),
     };
     let scheduled = if switching { apply(global, &selection)? } else { false };
-    let changed =
-        previous.is_some_and(|previous| previous.auth_namespace != selection.auth_namespace);
+    let changed = switching
+        && previous.is_none_or(|previous| previous.auth_namespace != selection.auth_namespace);
     let mut value = serde_json::to_value(selection).map_err(|error| error.to_string())?;
     value["restart_required"] = Value::Bool(scheduled || changed);
     value["sign_in_required"] = Value::Bool(scheduled || changed);
@@ -163,6 +166,11 @@ fn apply(
             .map_err(|error| saved(error.to_string()))?;
     if identified.get("bundle_id").and_then(Value::as_str) != Some(selection.bundle_id.as_str()) {
         return Err(saved("the selected socket belongs to another app bundle".into()));
+    }
+    if !identified.get("methods").and_then(Value::as_array).is_some_and(|methods| {
+        methods.iter().any(|method| method.as_str() == Some("cloud.environment.apply"))
+    }) {
+        return Ok(false);
     }
     let response = super::app::exchange(
         &mut stream,

@@ -9,11 +9,12 @@ pub(crate) fn current() -> Result<Option<Selection>, String> {
     else {
         return Ok(None);
     };
-    let Some(bundle) = identity.bundle_id else { return Ok(None) };
+    let build = identity.build();
+    let Some(bundle) = build.bundle_id() else { return Ok(None) };
     // Classic callers retain their existing deployment and override behavior.
     // NEXT sets this marker on its own daemon, even for locked Release/RC.
     if bundle != "com.cmuxterm.app.nightly.cmux-next"
-        && std::env::var_os("CMUX_NEXT_CLOUD_ENV").is_none()
+        && std::env::var("CMUX_NEXT_CLOUD_RUNTIME").as_deref() != Ok("1")
     {
         return Ok(None);
     }

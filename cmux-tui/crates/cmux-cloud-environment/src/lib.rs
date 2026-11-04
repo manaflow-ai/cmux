@@ -254,9 +254,19 @@ impl Resolver {
                 self.bundle_id
             ));
         }
-        let current = self.resolve(None)?;
-        if current.configuration.name == environment.name() {
-            return Ok(current);
+        // An explicit set is also the recovery path for invalid persisted
+        // JSON. Unreadable state still fails; never hide permissions/I/O errors.
+        let path = self.state_path();
+        match fs::read_to_string(&path) {
+            Ok(text) => {
+                if let Ok(current) = serde_json::from_str::<Persisted>(&text) {
+                    if Environment::parse(&current.name).ok().as_ref() == Some(&environment) {
+                        return self.selection(environment, current.revision.unwrap_or(0));
+                    }
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("read {}: {error}", path.display())),
         }
         let revision = next_revision();
         self.persist_replace(&environment, revision)?;
@@ -320,7 +330,8 @@ impl Resolver {
                 } else {
                     format!("publish {}: {error}", path.display())
                 }
-            })
+            })?;
+            sync_directory(parent)
         })();
         let _ = fs::remove_file(&tmp);
         result
@@ -346,11 +357,23 @@ impl Resolver {
             file.write_all(&body).map_err(|error| format!("write {}: {error}", tmp.display()))?;
             file.sync_all().map_err(|error| format!("sync {}: {error}", tmp.display()))?;
             drop(file);
-            fs::rename(&tmp, &path).map_err(|error| format!("replace {}: {error}", path.display()))
+            fs::rename(&tmp, &path)
+                .map_err(|error| format!("replace {}: {error}", path.display()))?;
+            sync_directory(parent)
         })();
         let _ = fs::remove_file(&tmp);
         result
     }
+}
+
+fn sync_directory(path: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    fs::File::open(path)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| format!("sync {}: {error}", path.display()))?;
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
 }
 
 #[derive(Deserialize, Serialize)]
@@ -460,7 +483,8 @@ mod tests {
         resolver.resolve(None).unwrap();
         fs::write(resolver.state_path(), "{bad").unwrap();
         assert!(resolver.resolve(Some("prod")).is_err());
-        assert!(resolver.set(Environment::Prod).is_err());
+        assert_eq!(resolver.set(Environment::Prod).unwrap().name, "prod");
+        assert_eq!(resolver.resolve(None).unwrap().name, "prod");
     }
 
     #[cfg(unix)]

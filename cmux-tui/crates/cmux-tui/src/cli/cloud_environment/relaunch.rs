@@ -7,7 +7,6 @@ use std::path::Path;
 #[cfg(target_os = "macos")]
 pub(super) fn after_exit(pid: i32, bundle: &Path) -> Result<(), String> {
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-    use std::time::{Duration, Instant};
 
     // SAFETY: kqueue returns a new descriptor with no Rust owner.
     let queue = unsafe { libc::kqueue() };
@@ -24,18 +23,12 @@ pub(super) fn after_exit(pid: i32, bundle: &Path) -> Result<(), String> {
         data: 0,
         udata: std::ptr::null_mut(),
     };
-    let deadline = Instant::now() + Duration::from_secs(60);
     loop {
-        let left = deadline.saturating_duration_since(Instant::now());
-        if left.is_zero() {
-            return Err("the app did not finish quitting within 60 seconds".into());
-        }
-        let timeout =
-            libc::timespec { tv_sec: left.as_secs() as _, tv_nsec: left.subsec_nanos() as _ };
         let mut event = libc::kevent { udata: std::ptr::null_mut(), ..change };
-        // SAFETY: both event pointers and the timeout remain valid for this
-        // call. kevent waits on a process event; it does not poll the process.
-        let found = unsafe { libc::kevent(queue.as_raw_fd(), &change, 1, &mut event, 1, &timeout) };
+        // SAFETY: both event pointers remain valid for this call. The helper
+        // waits for this exact live process, including slow native teardown.
+        let found =
+            unsafe { libc::kevent(queue.as_raw_fd(), &change, 1, &mut event, 1, std::ptr::null()) };
         if found < 0 {
             let error = std::io::Error::last_os_error();
             match error.raw_os_error() {
@@ -43,9 +36,6 @@ pub(super) fn after_exit(pid: i32, bundle: &Path) -> Result<(), String> {
                 Some(libc::ESRCH) => break,
                 _ => return Err(error.to_string()),
             }
-        }
-        if found == 0 {
-            return Err("the app did not finish quitting within 60 seconds".into());
         }
         if event.flags & libc::EV_ERROR != 0 {
             if event.data == libc::ESRCH as _ {

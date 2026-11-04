@@ -33,6 +33,11 @@ platform services. Share links use development install tokens because the
 development share room verifies that issuer. A preview does not redirect those
 tokens to another Worker.
 
+NEXT nightly sharing follows its selected environment (production by default),
+including the matching production issuer. A nonempty `CMUX_SHARE_ROOM_URL`
+does not override NEXT's selection; an empty value still disables sharing.
+Classic builds retain their existing override and deployment behavior.
+
 Local development uses explicit loopback ports: API `8787`, platform `8788`,
 VM `8789`, mobile `8790`, device hub `8791`, and auth web `3777`. Start the
 corresponding local services on these ports before selecting `local`; the

@@ -2,7 +2,8 @@
 //! chat-multiplayer.md 4.3). `CMUX_SHARE_ROOM_URL` in the daemon's environment wins (empty turns
 //! share links off); otherwise each build uses the room of the cmux API it signs in to: DEV the
 //! development room, staging and classic NIGHTLY the staging room, release and RC production.
-//! NEXT app bundles use the runtime selection before these legacy defaults.
+//! NEXT app bundles use the runtime selection before these legacy defaults;
+//! an empty override still disables sharing, but a URL cannot mix environments.
 //! A standalone daemon (no app bundle) has none: its share links have no URL, as before the
 //! bridge. The room ships inert: until an environment enables it, its `PUT` answers 404 and
 //! create answers `share.room_refused`.
@@ -17,6 +18,9 @@ pub(crate) const ENV: &str = "CMUX_SHARE_ROOM_URL";
 
 /// The room of this daemon's build.
 pub(crate) fn url() -> Option<String> {
+    if std::env::var(ENV).is_ok_and(|url| url.trim().is_empty()) {
+        return Some(String::new());
+    }
     // An app bundle resolves the same persisted selection as the native client.
     // A corrupt selection disables sharing rather than sending its credentials
     // to a room chosen from another environment.
