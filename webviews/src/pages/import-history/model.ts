@@ -245,7 +245,7 @@ export class ImportHistoryStore {
       this.row(row.id, { phase: "planning", error: undefined });
       try {
         const origin = row.kind === "text" ? (row.id as Origin) : undefined;
-        const source = origin && !(row.source && !row.text?.trim())
+        const source = origin
           ? (await client.call<{ source: string }>(OPS.prepareText, { origin, text: row.text ?? "" })).source
           : row.source;
         if (this.stopped) return;
