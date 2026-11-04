@@ -99,7 +99,6 @@ public nonisolated struct FeatureDogfoodSet: Sendable, Equatable {
         "resampledDrags",
         "savedWindowPicture",
         "sentryHandlersFirst",
-        "sharedGlyphMasks",
         "sidebarRowsNearViewport",
         "sidebarSlideHoldsContent",
         "sleepWakeKeepalives",

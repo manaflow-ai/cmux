@@ -70,8 +70,6 @@ public final class ThemeScope {
     /// `Palette.fill(for:)`.
     public var surfaceBackgrounds: SurfaceBackgrounds { selectedSurfaceBackgrounds ?? parent?.surfaceBackgrounds ?? .none }
     private var selectedSurfaceBackgrounds: SurfaceBackgrounds?
-    /// The glyph images the labels of this scope and its descendants share; nil: the parent's (``glyphMasks``).
-    public var sharedGlyphMasks: GlyphMaskCache?
 
     /// Changes the per-surface backgrounds and repaints this scope and its
     /// descendants (every owner re-reads its fill in its theme hook).

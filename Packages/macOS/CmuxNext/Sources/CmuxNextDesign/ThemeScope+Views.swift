@@ -72,10 +72,6 @@ extension ThemeScope {
         while scope.emphasis != .full, let parent = scope.parent { scope = parent }
         return scope
     }
-
-    /// The glyph images a ``ChromeLabel`` of this scope draws through: the nearest scope's
-    /// ``sharedGlyphMasks`` (nil: each label keeps its own).
-    public var glyphMasks: GlyphMaskCache? { sharedGlyphMasks ?? parent?.glyphMasks }
 }
 
 extension NSView {

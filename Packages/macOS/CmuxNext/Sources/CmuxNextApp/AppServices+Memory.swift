@@ -90,7 +90,6 @@ struct AppMemoryConsumers {
         followDaemonMemoryLimit()  // CmuxNextDaemon (p07-memory-109)
         registerDesignCaches()  // CmuxNextDesign (p07-memory-053)
         registerSmallAppStores()  // CmuxNextDesign, CmuxNextTerminal (p07-memory-083)
-        registerGlyphMasks()  // CmuxNextDesign (p03-rendering-075)
         registerConversationDiscards()  // CmuxNextHibernation, CmuxNextHome
         registerHiddenFrames()  // CmuxNextHibernation, CmuxNextTerminal
         registerPageLifecycle()  // CmuxNextPages
@@ -155,15 +154,6 @@ struct AppMemoryConsumers {
     func registerDesignCaches(backdrops: BackdropImageStore = .shared) {
         guard services.features.isEnabled(.memoryBackdropImages) else { return }
         backdrops.registerMemoryConsumer(with: services.memoryCoordinator)
-    }
-
-    /// `sharedGlyphMasks` (default off): the chrome labels of `scope`'s tree (the app's) draw their glyphs
-    /// through one byte-capped cache, so equal labels draw once; one lossless consumer (p03-rendering-075).
-    func registerGlyphMasks(in scope: ThemeScope = .app) {
-        guard services.features.isEnabled(.sharedGlyphMasks) else { return }
-        let masks = GlyphMaskCache()
-        masks.registerMemoryConsumer(with: services.memoryCoordinator)
-        scope.sharedGlyphMasks = masks
     }
 
     /// `memoryHomeLabCaches` (default off): the Home transcript's shared pixel caches and the Home lists' row
