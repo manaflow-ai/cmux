@@ -14,6 +14,15 @@ struct HomeAgentChatContent: Equatable, Sendable {
         /// The person, through the pane's composer.
         case you
 
+        /// The pane's sender for a thread's ``HomeAgentSender``.
+        init(_ sender: HomeAgentSender) {
+            switch sender {
+            case .agent: self = .agent
+            case .chief: self = .chief
+            case .you: self = .you
+            }
+        }
+
         /// The label over the message; nil for the agent's own.
         var label: String? {
             switch self {
@@ -67,7 +76,7 @@ extension HomeAgentChatContent {
                 ? String(format: String(localized: "home.agentPane.workingFor", defaultValue: "Working for %@", bundle: .module), duration)
                 : String(format: String(localized: "home.agentPane.workedFor", defaultValue: "Worked for %@", bundle: .module), duration),
             details: details,
-            messages: thread.entries.map { Message(sender: $0.outgoing ? .chief : .agent, text: $0.text) },
+            messages: thread.entries.map { Message(sender: Sender($0.sender), text: $0.text) },
             workspaceLink: thread.workspaceLink)
     }
 

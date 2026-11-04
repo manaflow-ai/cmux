@@ -121,19 +121,40 @@ def main():
             if time.monotonic() - t0 > 180 or proc.poll() is not None:
                 raise SystemExit(f"no socket {sock} (exit {proc.poll()})")
             time.sleep(0.2)
-        time.sleep(3)
-        reply = Client(sock).call("action.run", {"action": "openBrowser.chromium", "args": {"url": PAGE},
-                                                 "origin": "script"})
-        tab = ((reply.get("result") or {}).get("created") or [None])[0]
-        res["tab"] = tab
-        title, t1 = None, time.monotonic()
-        while time.monotonic() - t1 < 30:
-            r = Client(sock).call("browser.page.eval", {"tab": tab, "script": "document.title"})
-            v = (r.get("result") or {}).get("value") if isinstance(r, dict) else None
-            if isinstance(v, str) and v.startswith("js-ran-"):
-                title = v
-                break
-            time.sleep(0.5)
+        def rpc(method, params=None):
+            try:
+                reply = Client(sock).call(method, params or {})
+            except (OSError, ValueError):
+                return {}
+            return (reply.get("result") or {}) if isinstance(reply, dict) and reply.get("ok") else {}
+
+        def focused_tab():
+            windows = rpc("debug.focus").get("windows") or []
+            return (windows[0].get("model") or {}).get("resolved_tab") if windows else None
+
+        def wait_for(predicate, seconds):
+            deadline = time.monotonic() + seconds
+            while time.monotonic() < deadline:
+                value = predicate()
+                if value:
+                    return value
+                time.sleep(0.5)
+            return None
+
+        # A fresh profile opens on Home (first-run import), which has no pane: a terminal tab gives
+        # the Chromium tab a pane to open in, as the live browser tests do.
+        if not wait_for(focused_tab, 15):
+            rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
+        res["first_tab"] = wait_for(focused_tab, 60)
+        res["open_reply"] = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": PAGE},
+                                               "origin": "script", "focus": True})
+
+        def title_ran():
+            value = rpc("browser.page.eval", {"script": "document.title"}).get("value")
+            return value if isinstance(value, str) and value.startswith("js-ran-") else None
+
+        title = wait_for(title_ran, 60)
+        res["tab"] = focused_tab()
         res["title"] = title
         time.sleep(opts.settle)  # renderers that die do so ~0.6 s after launch; let any crash loop show
         rows = [(pid, kind_of(cmd), cmd) for pid, cmd in children(proc.pid)]
