@@ -1,6 +1,13 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.agentPane.display.statusVerbs": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Working Status Verbs"}}}},
+    "settings.agentPane.display.statusVerbs.help": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Choose whether the live status line rotates through verbs or stays on Thinking."}}}},
+    "settings.choice.agentChatStatusVerbsRotate": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Rotate"}}}},
+    "settings.choice.agentChatStatusVerbsThinking": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Thinking only"}}}},
+    "settings.choice.agentChatStatusVerbsCustom": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Custom"}}}},
+    "settings.agentPane.display.statusVerbs.custom": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Custom Working Verbs"}}}},
+    "settings.agentPane.display.statusVerbs.custom.help": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Comma-separated -ing verbs for the live status line."}}}},
     "settings.imessage.enabled": {
       "extractionState": "manual",
       "localizations": {

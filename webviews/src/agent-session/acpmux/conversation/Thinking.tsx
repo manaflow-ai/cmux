@@ -22,6 +22,7 @@ import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 import { compactTokens, hasTokens, tokenDetail, TurnTokens } from "./TurnTokens";
 import { verbLeads } from "./ToolVerb";
 import { useTicking, WorkingCountsContext, workingParts } from "./WorkingFor";
+import { statusVerbLabel, useStatusVerbConfig } from "../statusVerbs";
 import type { AcpmuxTurnRetry } from "../model";
 import type { Translate } from "../i18n";
 
@@ -178,6 +179,7 @@ export function Thinking({
   const from = untimed ? undefined : since;
   const timed = !waiting && from !== undefined;
   const time = useTicking(timed, now);
+  const statusVerbConfig = useStatusVerbConfig();
   const quiet = useQuiet(waiting || doing !== undefined ? undefined : quietKey);
   // A reply that paused only a moment is still being written; one silent for longer is the agent
   // thinking before its next step, which reads "Thinking" (Leo, 2026-11-03).
@@ -185,13 +187,14 @@ export function Thinking({
   const sendName = useSubsessionInfo(sendSession)?.name ?? sendTo;
   const waitsOnAgents = liveState === "subagents" && liveAgents > 0;
   const writing = liveState === "writing" && stillWriting;
+  const elapsedMs = timed ? Math.max(0, time - from) : 0;
   const label =
     doing === undefined
       ? waitsOnAgents
         ? t("turn.live.waitingOnSubagents", { n: liveAgents })
         : writing
           ? t("turn.live.writing")
-          : t("thinking")
+          : statusVerbLabel(t, elapsedMs, statusVerbConfig)
       : sendName !== undefined
         ? t("send.sending", { target: sendName })
         : doingShell
