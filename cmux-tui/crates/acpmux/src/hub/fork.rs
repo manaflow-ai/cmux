@@ -307,6 +307,12 @@ impl Hub {
         let now = now_ms();
         let fork_dirs =
             super::additional_dirs::without_cwd(parent_meta.additional_directories.clone(), &cwd);
+        let cmux_context = if empty && !parent_meta.remote_origin {
+            let cfg = self.config.read().await;
+            Some(crate::context_inventory::snapshot(&cfg, &cwd))
+        } else {
+            parent_meta.cmux_context.clone()
+        };
         let meta = SessionMeta {
             schema: META_SCHEMA.into(),
             id: id.clone(),
@@ -377,6 +383,7 @@ impl Hub {
             turn_count,
             usage: None,
             context_breakdown: None,
+            cmux_context,
             // The account's limits, which the fork shares.
             usage_limits: parent_meta.usage_limits.clone(),
             available_commands: parent_meta.available_commands.clone(),

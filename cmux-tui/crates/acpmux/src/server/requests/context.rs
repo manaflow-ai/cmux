@@ -28,7 +28,6 @@ pub(super) async fn handle(
         let text = match params.get("text") {
             None | Some(Value::Null) => None,
             Some(Value::String(text)) => {
-                crate::context_inventory::validate_override(text).map_err(RpcError::invalid_params)?;
                 Some(text.clone())
             }
             Some(_) => return Err(RpcError::invalid_params("text must be a string or null")),
@@ -37,8 +36,12 @@ pub(super) async fn handle(
             Some(project_path(params.get("cwd"), &session.meta().cwd)?)
         } else { None };
         let mut cfg = hub.config.write().await;
+        let previous = cfg.context_overrides.clone();
         cfg.context_overrides.set(scope, cwd.as_deref(), text).map_err(RpcError::invalid_params)?;
-        cfg.save().map_err(|e| RpcError::internal(format!("save context override: {e}")))?;
+        if let Err(e) = cfg.save() {
+            cfg.context_overrides = previous;
+            return Err(RpcError::internal(format!("save context override: {e}")));
+        }
     }
     let meta = session.meta();
     let cfg = hub.config.read().await;
@@ -49,6 +52,7 @@ pub(super) async fn handle(
         for part in &mut inventory.parts {
             part.text = None;
         }
+        inventory.overrides.project_key.clear();
         inventory.overrides.user = None;
         inventory.overrides.project = None;
     }

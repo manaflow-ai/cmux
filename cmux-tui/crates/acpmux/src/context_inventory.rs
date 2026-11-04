@@ -4,7 +4,7 @@
 //! inventory honest: token counts reported by a harness are retained, while text is
 //! returned only for cmux-owned additions (or a verified local preset file).
 
-use crate::config::{Config, ContextOverrides};
+use crate::config::Config;
 use crate::store::SessionMeta;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -34,7 +34,11 @@ pub struct ContextPart {
 #[serde(rename_all = "camelCase")]
 pub struct ContextInventory {
     pub parts: Vec<ContextPart>,
+    /// Provider total when reported; otherwise the cmux-only estimate. Detail rows overlap.
     pub total_tokens: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_total_tokens: Option<u64>,
+    pub cmux_tokens: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u64>,
     pub overrides: ContextOverrideView,
@@ -128,8 +132,7 @@ fn push_breakdown(parts: &mut Vec<ContextPart>, breakdown: &Value) {
     }
     if let Some(skills) = breakdown.get("skills") {
         for (index, skill) in skills
-            .get("skillFrontmatter")
-            .and_then(Value::as_array)
+            .as_array()
             .into_iter()
             .flatten()
             .enumerate()
@@ -166,40 +169,12 @@ pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
     if let Some(breakdown) = breakdown {
         push_breakdown(&mut parts, breakdown);
     }
-    if let Some(text) = verified_prompt_text(meta, cfg) {
-        parts.push(ContextPart {
-            id: "cmux-system-prompt".into(),
-            source: "cmux-preset".into(),
-            label: "Preset system prompt".into(),
-            tokens: estimated_tokens(&text),
-            included: true,
-            editable: true,
-            measurement: "estimated".into(),
-            source_bytes: Some(text.len() as u64),
-            text: Some(text),
-        });
-    }
     let project_key = meta.cwd.to_string_lossy().into_owned();
-    let (user, project) = match cfg.context_overrides.for_project(&meta.cwd) {
-        Some(("project", text)) => (cfg.context_overrides.user.clone(), Some(text.to_owned())),
-        Some(("user", text)) => (Some(text.to_owned()), None),
-        _ => (cfg.context_overrides.user.clone(), None),
-    };
-    if let Some(text) = user.as_deref() {
-        parts.push(ContextPart {
-            id: "cmux-user-override".into(), source: "cmux-user".into(),
-            label: "User override".into(), tokens: estimated_tokens(text), included: true,
-            editable: true, measurement: "estimated".into(),
-            source_bytes: Some(text.len() as u64), text: Some(text.into()),
-        });
-    }
-    if let Some(text) = project.as_deref() {
-        parts.push(ContextPart {
-            id: "cmux-project-override".into(), source: "cmux-project".into(),
-            label: "Project override".into(), tokens: estimated_tokens(text), included: true,
-            editable: true, measurement: "estimated".into(),
-            source_bytes: Some(text.len() as u64), text: Some(text.into()),
-        });
+    let user = cfg.context_overrides.user.clone();
+    let project = cfg.context_overrides.projects.get(&project_key).cloned();
+    // These are the additions captured at creation, not settings edited since then.
+    if let Some(snapshot) = &meta.cmux_context {
+        parts.extend(snapshot.iter().cloned());
     }
     if breakdown.is_none() {
         parts.push(ContextPart {
@@ -214,13 +189,17 @@ pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
             text: None,
         });
     }
-    let total_tokens = breakdown
-        .and_then(|v| v.get("totalTokens").and_then(Value::as_u64))
-        .unwrap_or_else(|| parts.iter().filter(|p| p.included).map(|p| p.tokens).sum());
+    let provider_total_tokens = breakdown
+        .and_then(|v| v.get("totalTokens").and_then(Value::as_u64));
+    // Category rows and their memory/tool/skill detail rows overlap. Never sum them.
+    let cmux_tokens = parts.iter().filter(|p| p.included && p.source.starts_with("cmux-")).map(|p| p.tokens).sum();
+    let total_tokens = provider_total_tokens.unwrap_or(cmux_tokens);
     let max_tokens = breakdown.and_then(|v| v.get("maxTokens").and_then(Value::as_u64));
     ContextInventory {
         parts,
         total_tokens,
+        provider_total_tokens,
+        cmux_tokens,
         max_tokens,
         overrides: ContextOverrideView { user, project, project_key },
     }
@@ -232,32 +211,99 @@ pub fn override_block(text: &str, scope: &str) -> Value {
         "_meta":{"acpmux":{"context":true,"contextSource":format!("cmux-{scope}")}}})
 }
 
-pub fn validate_override(text: &str) -> Result<(), String> {
-    if text.trim().is_empty() || text.len() > crate::prompt_context::MAX_BYTES {
-        Err(format!("override must be 1 to {} bytes of text", crate::prompt_context::MAX_BYTES))
-    } else { Ok(()) }
+/// Capture preset bytes as well as the injected addition so later config edits do not
+/// change the effective text reported for an existing chat.
+pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
+    let mut parts = snapshot(cfg, &meta.cwd);
+    if let Some(text) = verified_prompt_text(meta, cfg) {
+        parts.push(ContextPart {
+            id: "cmux-system-prompt".into(),
+            source: "cmux-preset".into(),
+            label: "Preset system prompt".into(),
+            tokens: estimated_tokens(&text),
+            included: true,
+            editable: false,
+            measurement: "estimated".into(),
+            source_bytes: Some(text.len() as u64),
+            text: Some(text),
+        });
+    }
+    parts
+}
+
+/// Append the captured additions on the first dispatched turn, never at queue time.
+pub fn append_snapshot(parts: Option<&[ContextPart]>, blocks: &mut Vec<Value>) {
+    for part in parts.into_iter().flatten().filter(|p| p.included && p.source != "cmux-preset") {
+        if let Some(text) = part.text.as_deref() {
+            let scope = part.source.strip_prefix("cmux-").unwrap_or("user");
+            blocks.push(override_block(text, scope));
+        }
+    }
+}
+
+/// Capture settings once when the session is created. Project text replaces user text.
+pub fn snapshot(cfg: &Config, cwd: &Path) -> Vec<ContextPart> {
+    let Some((scope, text)) = cfg.context_overrides.for_project(cwd) else { return Vec::new() };
+    vec![ContextPart {
+        id: format!("cmux-{scope}-override"),
+        source: format!("cmux-{scope}"),
+        label: format!("{} override", if scope == "project" { "Project" } else { "User" }),
+        tokens: estimated_tokens(text),
+        included: !text.is_empty(),
+        editable: true,
+        measurement: "estimated".into(),
+        source_bytes: Some(text.len() as u64),
+        text: Some(text.to_owned()),
+    }]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use crate::config::ContextOverrides;
 
     #[test]
     fn inventory_preserves_harness_counts_and_marks_cmux_text_editable() {
-        let mut meta: SessionMeta = serde_json::from_value(json!({"schema":"acpmux.session.v1","id":"s","name":"s","harness":"claude","cwd":"/repo","status":"ready","createdAt":0,"updatedAt":0})).unwrap();
+        let mut meta: SessionMeta = serde_json::from_value(json!({"schema":"acpmux.session.v1","id":"s","name":"s","harness":"claude","cwd":"/repo","status":"idle","createdAt":0,"updatedAt":0})).unwrap();
         meta.context_breakdown = Some(json!({"categories":[{"id":"system_prompt","name":"System prompt","tokens":20,"kind":"used"}],"totalTokens":20,"maxTokens":100}));
         let mut cfg = Config::default();
         cfg.context_overrides.user = Some("read concurrently".into());
+        meta.cmux_context = Some(snapshot(&cfg, &meta.cwd));
         let got = inventory(&meta, &cfg);
         assert_eq!(got.total_tokens, 20);
+        assert_eq!(got.provider_total_tokens, Some(20));
         assert!(got.parts.iter().any(|p| p.source == "harness" && p.tokens == 20 && !p.editable));
         assert!(got.parts.iter().any(|p| p.source == "cmux-user" && p.editable));
     }
 
     #[test]
+    fn inventory_keeps_snapshot_and_does_not_sum_overlapping_details() {
+        let mut meta: SessionMeta = serde_json::from_value(json!({"schema":"acpmux.session.v1","id":"s","name":"s","harness":"codex","cwd":"/repo","status":"idle","createdAt":0,"updatedAt":0})).unwrap();
+        let mut cfg = Config::default();
+        cfg.context_overrides.user = Some("user text".into());
+        cfg.context_overrides.set("project", Some(&meta.cwd), Some("project text".into())).unwrap();
+        meta.cmux_context = Some(snapshot(&cfg, &meta.cwd));
+        cfg.context_overrides.set("project", Some(&meta.cwd), Some("future text".into())).unwrap();
+        meta.context_breakdown = Some(json!({"categories":[{"id":"skills","name":"Skills","tokens":10}],"skills":[{"name":"reading","tokens":10}],"totalTokens":10}));
+        let got = inventory(&meta, &cfg);
+        assert_eq!(got.total_tokens, 10);
+        assert_eq!(got.provider_total_tokens, Some(10));
+        assert_eq!(got.cmux_tokens, estimated_tokens("project text"));
+        assert!(got.parts.iter().any(|p| p.source == "skill" && p.tokens == 10));
+        assert!(!got.parts.iter().any(|p| p.source == "cmux-user"));
+        assert!(got.parts.iter().any(|p| p.text.as_deref() == Some("project text")));
+        assert_eq!(got.overrides.project.as_deref(), Some("future text"));
+    }
+
+    #[test]
     fn override_block_is_hidden_context_and_has_approximate_tokens() {
-        let block = override_block("read concurrently", "project");
+        let mut cfg = Config::default();
+        cfg.context_overrides.user = Some("read concurrently".into());
+        let captured = snapshot(&cfg, Path::new("/repo"));
+        let mut blocks = vec![json!({"type":"text", "text":"user words"})];
+        append_snapshot(Some(&captured), &mut blocks);
+        assert_eq!(blocks.len(), 2);
+        let block = &blocks[1];
         assert!(crate::prompt_context::is_context(&block));
         assert!(crate::prompt_context::is_context_text(block["text"].as_str().unwrap()));
         assert_eq!(estimated_tokens("12345678"), 2);

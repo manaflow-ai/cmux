@@ -807,6 +807,11 @@ impl Hub {
             {
                 m.delegator = Some(from);
             }
+            // One shared turn path applies the creation snapshot exactly once, including
+            // queued/CLI prompts. A settings edit never changes an already-created chat.
+            if m.turn_count == 0 && control != Control::Web {
+                crate::context_inventory::append_snapshot(m.cmux_context.as_deref(), &mut blocks);
+            }
             m.turn_count += 1;
         }
         // A turn on lane reports only reports nothing (`lane_reports.rs`).

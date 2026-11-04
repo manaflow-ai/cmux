@@ -248,6 +248,9 @@ impl Hub {
         });
         (meta.session_env, meta.chat_store, meta.adopted_cwd, meta.git_branch, meta.git_head) =
             (session_env, chat_store, adopted_cwd, git.branch, git.head);
+        if !remote && adopt.is_none() {
+            meta.cmux_context = Some(crate::context_inventory::snapshot_session(&meta, &*self.config.read().await));
+        }
         meta.workspace_id = workspace_id;
         meta.additional_directories =
             super::additional_dirs::without_cwd(additional_directories, &meta.cwd);

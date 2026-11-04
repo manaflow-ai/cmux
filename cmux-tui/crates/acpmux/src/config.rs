@@ -1150,7 +1150,7 @@ impl ArtifactsSyncConfig {
 }
 
 /// Persisted cmux-added prompt overrides. The `user` value applies to every new
-/// prompt on this daemon; project entries are keyed by a canonical working directory.
+/// session on this daemon; project entries are keyed by a canonical working directory.
 /// Harness-owned prompts never live here: this store contains only text the user explicitly
 /// added through the Context viewer.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -1208,7 +1208,7 @@ pub struct Config {
     pub machine_wake: Option<MachineWakeConfig>,
     #[serde(default, alias = "defaultAgent")]
     pub default_harness: Option<String>,
-    /// User and project cmux-added context shown in the Context viewer and applied to new prompts.
+    /// User and project cmux-added context shown in the Context viewer and captured for new sessions.
     #[serde(default, skip_serializing_if = "ContextOverrides::is_empty")]
     pub context_overrides: ContextOverrides,
     /// More login-shell variables agents get, beyond the allow-list
