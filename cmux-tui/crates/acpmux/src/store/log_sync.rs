@@ -17,6 +17,25 @@ thread_local! {
     /// Tests: a log's close on this thread whose sync failed stops right before it notes the
     /// failure in `sync_failed`.
     pub(crate) static HOLD_BEFORE_CLOSE_NOTE: Hold = const { std::cell::RefCell::new(None) };
+    /// Tests: this thread says so, once, right before it waits for the syncs of the store's
+    /// files under way on other threads (`SyncsUnderWay::wait_for_those_under_way`).
+    pub(crate) static NOTE_BEFORE_SYNCS_WAIT: Note = const { std::cell::RefCell::new(None) };
+    /// Tests: this thread says so, once, right before it takes the writers' lock to read the log
+    /// closes' note (`LocalStore::close_sync_failed`).
+    pub(crate) static NOTE_BEFORE_CLOSE_NOTE_READ: Note = const { std::cell::RefCell::new(None) };
+}
+
+/// Tests: a note a thread sends once, when it reaches a point of the code: a test knows from it
+/// that the thread is at that point, with no timer.
+#[cfg(test)]
+pub(crate) type Note = std::cell::RefCell<Option<std::sync::mpsc::Sender<&'static str>>>;
+
+/// Tests: sends `what` on the note in `slot`, if this thread has one, and drops the note.
+#[cfg(test)]
+pub(super) fn note(slot: &'static std::thread::LocalKey<Note>, what: &'static str) {
+    if let Some(note) = slot.with(|note| note.borrow_mut().take()) {
+        let _ = note.send(what);
+    }
 }
 
 /// Tests: a stop on one thread: it says so on the first channel and waits for the second.
@@ -84,6 +103,8 @@ impl LocalStore {
     /// lock, which every close holds from its sync to its note: a close whose sync failed before
     /// this call has noted it when this reads (review of #35895, finding 1).
     pub(super) fn close_sync_failed(&self) -> bool {
+        #[cfg(test)]
+        note(&NOTE_BEFORE_CLOSE_NOTE_READ, "takes the writers' lock");
         let _writers = self.writers.lock_or_recover();
         self.sync_failed.load(std::sync::atomic::Ordering::SeqCst)
     }

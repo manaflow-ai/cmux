@@ -99,6 +99,15 @@ thread_local! {
     /// Tests: the next sync of the store's files on this thread (`Inner::counted_sync`) stops
     /// once it is under way, before it syncs.
     pub(crate) static HOLD_IN_SYNC: log_sync::Hold = const { std::cell::RefCell::new(None) };
+    /// Tests: a checkpoint on this thread stops right after its start, where it read `frozen`,
+    /// the LSN and the chats to sync.
+    pub(crate) static HOLD_AFTER_START: log_sync::Hold = const { std::cell::RefCell::new(None) };
+}
+
+/// Tests: the stop of [`HOLD_AFTER_START`].
+#[cfg(test)]
+fn hold_after_start() {
+    log_sync::hold(&HOLD_AFTER_START);
 }
 
 /// Tests: the stop of [`HOLD_BEFORE_FREEZE`].
