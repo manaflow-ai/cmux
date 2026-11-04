@@ -23,7 +23,7 @@ fn folder(dir: Option<PathBuf>) -> Result<PathBuf> {
 
 pub async fn run(cmd: DepsCmd, json_out: bool) -> Result<()> {
     match cmd {
-        DepsCmd::Warm { dir, no_upload, no_install, if_joined } => {
+        DepsCmd::Warm { dir, no_upload, no_install, if_joined, if_missing } => {
             let dir = folder(dir)?;
             if if_joined && !matches!(crate::deps::remote::Remote::joined(), Ok(Some(_))) {
                 if json_out {
@@ -32,7 +32,8 @@ pub async fn run(cmd: DepsCmd, json_out: bool) -> Result<()> {
                 return Ok(());
             }
             let reports =
-                warm::warm(&dir, Options { install: !no_install, upload: !no_upload }).await;
+                warm::warm(&dir, Options { install: !no_install, upload: !no_upload, if_missing })
+                    .await;
             if json_out {
                 print_json(&json!({"dir": dir, "projects": reports}));
             } else if reports.is_empty() {

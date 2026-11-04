@@ -278,6 +278,10 @@ pub enum DepsCmd {
         /// Do nothing unless this machine is joined (what runs after a seed).
         #[arg(long)]
         if_joined: bool,
+        /// Skip a project whose dependencies are already installed (its
+        /// `node_modules` or `.venv`), so an install never replaces a tree in use.
+        #[arg(long)]
+        if_missing: bool,
     },
     /// Print each project's cache key and what its archive holds, without asking the hub.
     Key {

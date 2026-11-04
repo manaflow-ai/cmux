@@ -272,6 +272,7 @@ pub fn unpack(
     codec: Codec,
     dest: &Path,
     allowed: &[PathBuf],
+    links: bool,
 ) -> io::Result<Unpacked> {
     let file = File::open(archive)?;
     let mut source = match codec {
@@ -311,6 +312,12 @@ pub fn unpack(
             // all of `dest`, so `registry/cache -> ../bin` followed by
             // `registry/cache/cargo` would write `~/.cargo/bin/cargo`.
             if let Some(target) = entry.link_name()? {
+                // Merging into a folder that holds more than the archive: a
+                // chain of links that each stay inside could still leave it.
+                if !links {
+                    out.outside += 1;
+                    continue;
+                }
                 let kind = entry.header().entry_type();
                 let resolved = if kind.is_symlink() {
                     path.parent().and_then(|dir| within(dir, &target))
@@ -387,7 +394,8 @@ mod tests {
         assert_eq!(denied, ["node_modules/left-pad/.npmrc", "node_modules/pkg/.env.local"]);
 
         let dest = tempfile::tempdir().unwrap();
-        let unpacked = unpack(&archive, codec, dest.path(), &["node_modules".into()]).unwrap();
+        let unpacked =
+            unpack(&archive, codec, dest.path(), &["node_modules".into()], true).unwrap();
         assert_eq!(unpacked.denied, 0);
         assert_eq!(unpacked.outside, 0);
         let got = dest.path().join("node_modules");
@@ -469,12 +477,20 @@ mod tests {
         let allowed =
             ["registry/index".into(), "registry/cache".into(), "registry/cache-ok".into()];
         // The file entry then lands in a real registry/cache folder, never in bin/.
-        let unpacked = unpack(&archive, Codec::Gzip, dest.path(), &allowed).unwrap();
+        // Into a fresh folder, a link that stays inside is kept.
+        let unpacked = unpack(&archive, Codec::Gzip, dest.path(), &allowed, true).unwrap();
         assert_eq!(unpacked.outside, 3, "{unpacked:?}");
         assert!(!dest.path().join("bin/cargo").exists());
         assert!(!dest.path().join("registry/cache").is_symlink());
         assert!(!dest.path().join("registry/index/abs").exists());
         assert!(dest.path().join("registry/index/ok").is_symlink());
+        // Merged into a shared cache, no link is written at all, so no chain of
+        // them (a/b -> ../../cache, escape -> a/b/../../bin) can leave it.
+        let shared = tempfile::tempdir().unwrap();
+        let unpacked = unpack(&archive, Codec::Gzip, shared.path(), &allowed, false).unwrap();
+        assert_eq!(unpacked.outside, 4, "{unpacked:?}");
+        assert!(!shared.path().join("registry/index/ok").exists());
+        assert!(shared.path().join("registry/cache/cargo").is_file());
     }
 
     #[test]
@@ -498,7 +514,7 @@ mod tests {
         }
         let dest = tempfile::tempdir().unwrap();
         let unpacked =
-            unpack(&archive, Codec::Gzip, dest.path(), &["node_modules".into()]).unwrap();
+            unpack(&archive, Codec::Gzip, dest.path(), &["node_modules".into()], true).unwrap();
         assert_eq!(unpacked, Unpacked { entries: 1, denied: 1, outside: 1 });
         assert!(!dest.path().join("bin/cargo").exists());
         assert!(!dest.path().join("node_modules/x/.npmrc").exists());

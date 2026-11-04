@@ -15,6 +15,8 @@ use super::remote::{Fetched, Remote, Stored};
 pub struct Options {
     pub install: bool,
     pub upload: bool,
+    /// Skip a project whose dependencies are already installed.
+    pub if_missing: bool,
 }
 
 /// One project's result. Times are milliseconds; names and sizes only.
@@ -23,7 +25,8 @@ pub struct Options {
 pub struct Report {
     pub ecosystem: &'static str,
     pub key: String,
-    /// `restored`, `miss`, `present` (already installed here), `off` (the hub
+    /// `restored`, `miss`, `present` (already installed here), `installed`
+    /// (skipped under `--if-missing`), `off` (the hub
     /// has no dependency caches), `not_joined`, `skipped` (the tool is not
     /// installed) or `error`.
     pub restore: &'static str,
@@ -65,11 +68,12 @@ async fn blocking<T: Send + 'static>(
 /// one rename, so an interrupted restore never leaves a half-filled one.
 fn restore_into(plan: &Plan, archive_path: &Path, codec: Codec) -> std::io::Result<()> {
     if !plan.replaces {
-        archive::unpack(archive_path, codec, &plan.root, &plan.include)?;
+        // A shared cache sits beside a tool's binaries and config: no links at all.
+        archive::unpack(archive_path, codec, &plan.root, &plan.include, false)?;
         return Ok(());
     }
     let stage = tempfile::Builder::new().prefix(".acpmux-deps-").tempdir_in(&plan.root)?;
-    archive::unpack(archive_path, codec, stage.path(), &plan.include)?;
+    archive::unpack(archive_path, codec, stage.path(), &plan.include, true)?;
     for rel in &plan.include {
         let from = stage.path().join(rel);
         let to = plan.root.join(rel);
@@ -121,6 +125,10 @@ async fn one(
         report.restore = "skipped";
         return Ok(());
     };
+    if options.if_missing && detect::installed(project) {
+        report.restore = "installed";
+        return Ok(());
+    }
     report.key = detect::key(project, codec.name())?;
     let remote = match remote {
         Ok(Some(remote)) => Some(remote),

@@ -1725,7 +1725,7 @@ fn warm_seeded_deps(folder: &Path) {
     let err = out.as_ref().and_then(|f| f.try_clone().ok());
     let mut command = cmux_process::Command::new(exe);
     command
-        .args(["acp", "machine", "deps", "warm", "--if-joined", "--json"])
+        .args(["acp", "machine", "deps", "warm", "--if-joined", "--if-missing", "--json"])
         .arg(folder)
         .current_dir(folder)
         .stdin(cmux_process::Stdio::null())

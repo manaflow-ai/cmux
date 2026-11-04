@@ -270,6 +270,9 @@ impl GitSeedService {
             key: params.retry_key(),
             status: Mutex::new(Status::running(Phase::Clone)),
         });
+        // A delta only applies source changes to a folder already in use: its
+        // dependencies are left alone.
+        let first = params.since.is_none();
         let credentials =
             self.config.credentials.clone().unwrap_or_else(super::git::machine_credentials);
         let seed = run::Seed::new(
@@ -288,7 +291,7 @@ impl GitSeedService {
                 let result = seed.run();
                 let ok = result.is_ok();
                 worker.finish(result);
-                if ok {
+                if ok && first {
                     super::seeded(&worker.folder);
                 }
             })

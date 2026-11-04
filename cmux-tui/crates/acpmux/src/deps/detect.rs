@@ -78,6 +78,17 @@ pub fn detect(dir: &Path) -> Vec<Project> {
     out
 }
 
+/// Whether the project's own installed tree is already there: its
+/// `node_modules` (JavaScript) or `.venv` (uv). Cargo's fetch replaces nothing.
+pub fn installed(project: &Project) -> bool {
+    let tree = match project.ecosystem {
+        Ecosystem::Bun | Ecosystem::Npm | Ecosystem::Pnpm | Ecosystem::Yarn => "node_modules",
+        Ecosystem::Uv => ".venv",
+        Ecosystem::Cargo => return false,
+    };
+    std::fs::read_dir(project.dir.join(tree)).is_ok_and(|mut entries| entries.next().is_some())
+}
+
 /// What one project's archive holds and how it installs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Plan {
