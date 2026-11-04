@@ -104,7 +104,9 @@ coding agents refuse to run as root, and `claude
 --dangerously-skip-permissions` exits before it starts there. Its remote state
 dir is the HOME-derived default `~/.local/state/cmux/remote`, on the machine's
 durable disk, which is what lets daemon identity and enrolled devices survive
-resurrection. Session state (`--state`) lives there too, so workspace layout
+resurrection. On an image with a state reservation, `cmux-tui-state-mount
+ensure` bind-mounts that path from the reserved filesystem, so the daemon can
+still start when the root filesystem is full. Session state (`--state`) lives there too, so workspace layout
 restores from the journal checkpoint after a daemon restart. Running processes
 do not survive a restart, and clients see the generation change instead of a
 silent new shell.

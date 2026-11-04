@@ -382,6 +382,14 @@ deferred daemon leaves the machine unreachable ("connection refused"), so the
 supervisor retries `ensure` on every tick and starts the daemon as soon as
 the free space reads as a plain count of at least 16 MiB. The
 Cloud sidebar warns on a machine whose root disk is nearly full.
+`ensure` also bind-mounts `.cmux-remote` from that filesystem over
+`~/.local/state/cmux/remote`, once the daemon is stopped. The daemon writes its
+lifecycle records there on every start and exits when it cannot, so on the root
+filesystem a full disk would stop it however much room the state filesystem has.
+The bind is lost on reboot and returns at the next `ensure`, which also applies
+the supervisor's reboot recovery and clone identity reset to the reserved copy,
+since those boot steps run first and only see the unused copy underneath.
+Bake parking unmounts it and wipes the reserved copy with the rest of the state.
 The image consumes space from the existing root disk; it does not change the
 Freestyle VM size or the image ladder. The bake writes a reservation marker
 only after the image is fully created and seeded. The boot supervisor reads

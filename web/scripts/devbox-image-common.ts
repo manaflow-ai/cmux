@@ -951,7 +951,11 @@ export function devboxParkDaemonCommand(): string {
     "for i in $(seq 1 30); do pgrep -f 'cmux-tui server [s]tart' >/dev/null || break; sleep 1; done",
     "! pgrep -f 'cmux-tui server [s]tart' >/dev/null",
     "systemctl is-active cmux-tui-daemon >/dev/null",
+    // The state-mount helper keeps remote state on the reserved filesystem;
+    // the wipe below takes that copy, and a clone must never inherit it.
+    '{ ! mountpoint -q "$CMUX_TUI_HOME/.local/state/cmux/remote" || umount "$CMUX_TUI_HOME/.local/state/cmux/remote"; }',
     devboxWipeDaemonStateKeepingTemplateCommand('"$CMUX_TUI_HOME/.local/state/cmux-tui"'),
+    'test ! -e "$CMUX_TUI_HOME/.local/state/cmux-tui/.cmux-remote"',
     'rm -rf "$CMUX_TUI_HOME/.local/state/cmux/remote" /etc/cmux/daemon-instance-id /etc/cmux/daemon-boot-id /etc/cmux/first-terminal.json',
     `rm -f ${TEMPLATE_RUN_DIR}/bound ${TEMPLATE_RUN_DIR}/clone-started ${TEMPLATE_RUN_DIR}/first-prompt-named`,
     `test "$(ls "$cmux_keep" | grep -c '\\.json$')" = 1`,

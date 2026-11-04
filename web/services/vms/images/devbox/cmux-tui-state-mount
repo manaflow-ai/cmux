@@ -7,6 +7,11 @@
 # unchanged. Growth is best effort: when the root disk is full or the cap is
 # reached, the daemon keeps running on the room the state filesystem still has,
 # because a deferred daemon leaves the machine unreachable.
+#
+# `ensure` also bind-mounts the daemon's remote state (its lifecycle records,
+# Noise identity and sockets) from this filesystem over its usual path. The
+# daemon writes those records on every start and exits if it cannot, so on the
+# root filesystem a full disk stops it no matter how much room this one has.
 
 set -eu
 
@@ -19,6 +24,9 @@ STATE_MIN_FREE_KB=131072
 # Below this the daemon cannot make progress, so startup is deferred.
 STATE_CRITICAL_FREE_KB=16384
 ROOT_MIN_FREE_KB=1048576
+# The supervisor's BOUND_INSTANCE_FILE and REMOTE_SESSION_COMPONENT.
+REMOTE_INSTANCE_FILE=/etc/cmux/daemon-instance-id
+REMOTE_SESSION_COMPONENT=Y2xvdWQ
 
 usage() {
   echo "usage: $0 ensure|create HOME USER" >&2
@@ -50,6 +58,122 @@ free_kb() {
 # df output that is not a plain count must never pass a headroom comparison.
 is_count() {
   case "$1" in ""|*[!0-9]*) return 1 ;; esac
+}
+
+# True when a shutdown record says the previous daemon finished cleanly. Must
+# match the check in cmux-devbox-boot's recover_rebooted_daemon_state: a failed
+# or malformed record stays behind as an acknowledgement fence.
+shutdown_record_succeeded() {
+  python3 - "$1" <<'PY'
+import json
+import sys
+
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate object key")
+        result[key] = value
+    return result
+
+def reject_constant(value):
+    raise ValueError("non-standard JSON constant")
+
+def contains_surrogate(value):
+    if isinstance(value, str):
+        return any(0xD800 <= ord(character) <= 0xDFFF for character in value)
+    if isinstance(value, dict):
+        return any(contains_surrogate(key) or contains_surrogate(item) for key, item in value.items())
+    if isinstance(value, list):
+        return any(contains_surrogate(item) for item in value)
+    return False
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as stream:
+        value = json.load(
+            stream,
+            object_pairs_hook=unique_object,
+            parse_constant=reject_constant,
+        )
+except (OSError, TypeError, ValueError):
+    raise SystemExit(1)
+
+if (
+    contains_surrogate(value)
+    or type(value) is not dict
+    or type(value.get("version")) is not int
+    or value["version"] != 1
+    or type(value.get("lifecycle_id")) is not str
+    or not value["lifecycle_id"]
+    or value.get("status") != "succeeded"
+):
+    raise SystemExit(1)
+PY
+}
+
+# Remembers which machine the reserved remote state belongs to. A short write
+# must not look like another machine's record, so it lands whole or not at all.
+record_remote_instance() {
+  [ -s "$REMOTE_INSTANCE_FILE" ] || return 0
+  cmp -s "$REMOTE_INSTANCE_FILE" "$reserved/.instance-id" && return 0
+  cp "$REMOTE_INSTANCE_FILE" "$reserved/.instance-id.new" && mv -f "$reserved/.instance-id.new" "$reserved/.instance-id" || {
+    rm -f "$reserved/.instance-id.new"
+    echo "cmux-tui-state-mount: could not record the remote state's machine" >&2
+  }
+}
+
+# The bind does not survive a reboot, and the supervisor's own boot steps run
+# before it comes back, so they only reach the unused copy underneath. Apply the
+# two that matter to the reserved copy here.
+prepare_reserved_remote_state() {
+  # A kernel reboot leaves no live predecessor: drop its stale runtime marker,
+  # exactly as recover_rebooted_daemon_state does.
+  session_state="$reserved/sessions/$REMOTE_SESSION_COMPONENT"
+  if [ ! -e "$session_state/shutdown.json" ] || shutdown_record_succeeded "$session_state/shutdown.json"; then
+    rm -f "$session_state/runtime.json" "$session_state/shutdown.json"
+  fi
+  # A clone booted from this disk must not keep its parent's Noise identity.
+  if [ -s "$REMOTE_INSTANCE_FILE" ] && [ -s "$reserved/.instance-id" ] && ! cmp -s "$REMOTE_INSTANCE_FILE" "$reserved/.instance-id"; then
+    find "$reserved/sessions" -mindepth 2 -maxdepth 2 -type d -name auth -prune -exec rm -rf {} + 2>/dev/null || true
+    rm -rf "$reserved/connections"
+  fi
+}
+
+# Best effort: a daemon on the root filesystem still runs while that has room.
+bind_remote_state() {
+  [ -f "$STATE_RESERVATION_MARKER" ] || return 0
+  remote="$home/.local/state/cmux/remote"
+  reserved="$state/.cmux-remote"
+  if mountpoint -q "$remote" 2>/dev/null; then
+    record_remote_instance
+    return 0
+  fi
+  # The daemon holds files in the current directory; it binds at the next start.
+  if pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1; then
+    echo "cmux-tui-state-mount: daemon is running; remote state moves at its next start" >&2
+    return 0
+  fi
+  if [ ! -d "$remote" ]; then
+    mkdir -p "$remote" && chown "$user:$user" "$(dirname "$remote")" "$remote" || return 1
+  fi
+  if [ -d "$reserved" ]; then
+    prepare_reserved_remote_state
+  else
+    # The old copy stays underneath, hidden by the bind, so a helper rollback
+    # still finds an identity after its next reboot.
+    rm -rf "$reserved.new"
+    if ! { mkdir "$reserved.new" && cp -a "$remote/." "$reserved.new/" && chown "$user:$user" "$reserved.new" && chmod 0700 "$reserved.new" && mv "$reserved.new" "$reserved"; }; then
+      rm -rf "$reserved.new"
+      return 1
+    fi
+  fi
+  mount --bind "$reserved" "$remote" || return 1
+  record_remote_instance
+}
+
+ensure_and_bind_locked() {
+  ensure_locked || return 1
+  bind_remote_state || echo "cmux-tui-state-mount: remote state stays on the root filesystem" >&2
 }
 
 grow_if_needed() {
@@ -193,7 +317,7 @@ with_state_lock() {
   "$@"
 }
 
-ensure() { with_state_lock ensure_locked; }
+ensure() { with_state_lock ensure_and_bind_locked; }
 create() { with_state_lock create_locked; }
 
 case "$action" in
