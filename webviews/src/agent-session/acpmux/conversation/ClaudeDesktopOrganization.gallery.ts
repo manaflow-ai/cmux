@@ -158,7 +158,7 @@ export default agentPaneEntry({
     zebra: variant("zebra", "Alternative: no ring or hairlines; every other step on the cards' fill."),
     "lead-edge": variant(
       "shared",
-      'Replaced (cmux#27896): the opened lead thought has no label; its chevron sits alone at the top of the row\'s far edge, beside the text.',
+      "Replaced (cmux#27896): the opened lead thought has no label; its chevron sits alone at the top of the row's far edge, beside the text.",
       { lead: "edge" },
     ),
     "lead-bare": variant(

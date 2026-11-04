@@ -49,7 +49,11 @@ function TaskLine({ task }: { task: StartedTask }) {
   return (
     <TranscriptActivityRow
       icon={
-        <AgentIdentity harness={live?.harness ?? task.harness} tone={agentTone(task.sessionId)} size={TASK_LOGO_SIZE} />
+        <AgentIdentity
+          harness={live?.harness ?? task.harness}
+          tone={agentTone(task.sessionId)}
+          size={TASK_LOGO_SIZE}
+        />
       }
       name={title}
       after={
