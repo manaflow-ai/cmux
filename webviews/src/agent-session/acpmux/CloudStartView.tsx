@@ -292,11 +292,6 @@ export function CloudStartView({
   const [expanded, setExpanded] = useState(failed);
   const signInRequired = failed && start.code === "not_signed_in" && onSignIn;
   const [signingIn, setSigningIn] = useState(false);
-  // A fresh startup opens its checklist; failures stay expanded so their details remain visible.
-  useEffect(() => {
-    if (failed || !start.initialized) setExpanded(true);
-    else setExpanded(false);
-  }, [failed, start.initialized]);
   const now = usePageNow(!start.initialized && start.state !== "failed");
   useEffect(() => {
     if (failed) setExpanded(true);
