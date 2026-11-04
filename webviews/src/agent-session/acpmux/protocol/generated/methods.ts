@@ -27,6 +27,8 @@ export interface AcpmuxRequests {
   "_acpmux/tailnet/start": { params: unknown; result: unknown };
   "_acpmux/tailnet/state": { params: unknown; result: unknown };
   "_acpmux/status": { params: unknown; result: unknown };
+  "_acpmux/context": { params: unknown; result: unknown };
+  "_acpmux/context_override": { params: unknown; result: unknown };
   "agent-session-turn-prepare": { params: unknown; result: unknown };
   "agent-session-turn-abandon": { params: unknown; result: unknown };
   "trigger/chat.ensure": { params: unknown; result: unknown };
@@ -54,6 +56,7 @@ export interface AcpmuxRequests {
   "_acpmux/forum/announce": { params: unknown; result: unknown };
   "_acpmux/forum/rules": { params: unknown; result: unknown };
   "_acpmux/set_tools": { params: unknown; result: unknown };
+  "_acpmux/set_directories": { params: unknown; result: unknown };
   "_acpmux/mcp/reconnect": { params: unknown; result: unknown };
   "_acpmux/subagent_stop": { params: unknown; result: unknown };
   "_acpmux/subagent_transcript": { params: unknown; result: unknown };
@@ -336,6 +339,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/tailnet/start", kind: "request", acp: false, typed: false },
   { name: "_acpmux/tailnet/state", kind: "request", acp: false, typed: false },
   { name: "_acpmux/status", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/context", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/context_override", kind: "request", acp: false, typed: false },
   { name: "agent-session-turn-prepare", kind: "request", acp: false, typed: false },
   { name: "agent-session-turn-abandon", kind: "request", acp: false, typed: false },
   { name: "trigger/chat.ensure", kind: "request", acp: false, typed: false },
@@ -363,6 +368,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/forum/announce", kind: "request", acp: false, typed: false },
   { name: "_acpmux/forum/rules", kind: "request", acp: false, typed: false },
   { name: "_acpmux/set_tools", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/set_directories", kind: "request", acp: false, typed: false },
   { name: "_acpmux/mcp/reconnect", kind: "request", acp: false, typed: false },
   { name: "_acpmux/subagent_stop", kind: "request", acp: false, typed: false },
   { name: "_acpmux/subagent_transcript", kind: "request", acp: false, typed: false },

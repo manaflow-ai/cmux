@@ -1,5 +1,5 @@
 /* The chat header's tools (header/ChatHeaderTools.tsx), as Claude Code desktop's top strip draws them (Leo 2026-10-21:
-   "why do you still have this spacing and these separators"): 24px square buttons on a 26px pitch with no separators,
+   "why do you still have this spacing and these separators"): square buttons (24px, on a 26px pitch) with no separators,
    one 16px glyph size (HEADER_GLYPH). At rest they are plain glyphs on the header with nothing behind them: no fill,
    border, shadow or band of the page's color (Leo 2026-10-25: "why do the icons have their own background border
    situation instead of just being, you know, good"; 2026-11-02: "FOR THE FUCKING STUPID BACKGROUND ON THE FUCKING TOP
@@ -7,18 +7,23 @@
    open (or a button whose menu is open) shows the filled rounded square, as in his reference; the 24px square is the
    hit target. test/chat-header-tab-row-surface.test.ts keeps it so. The "..." menu (src/ui Menu) sits on the menu
    surface. */
-.acpmux-header-tools{flex:none;display:flex;align-items:center;gap:2px}
-.acpmux-header-tool-group{display:flex;align-items:center;gap:2px;min-width:0}
+.acpmux-header-tools{flex:none;display:flex;align-items:center;gap:var(--acpmux-header-tool-gap,var(--grid-half-step))}
+.acpmux-header-tool-group{display:flex;align-items:center;gap:var(--acpmux-header-tool-gap,var(--grid-half-step));min-width:0}
 .acpmux-header-symbol{display:inline-block;flex:none;background:currentColor;pointer-events:none}
-.acpmux-header-tool{flex:none;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:6px;background:none;color:inherit;font:inherit;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+/* HeaderIcon's glyph, SF Symbol mask or pack svg alike: the compact icon box (16px at the default interface size), so
+   it scales with the interface as the tool square does. */
+.acpmux-header-glyph{width:var(--grid-icon-box,16px);height:var(--grid-icon-box,16px)}
+/* Every tool is one square from the layout grid (Leo 2026-11-04: "at least give our button square padding. so all those
+   things are proportional"): the compact highlight's side (--grid-pill, 24px at the default interface size), its
+   HEADER_GLYPH icon centred with equal padding on every side, the hover pill that same square with the controls'
+   radius, and one even gap between tools. A density sets --acpmux-header-tool-size and --acpmux-header-tool-gap
+   (gallery agent-pane.header-tools/density-*); test/chat-header-more-spacing.test.ts keeps it so. */
+.acpmux-header-tool{flex:none;display:inline-flex;align-items:center;justify-content:center;width:var(--acpmux-header-tool-size,var(--grid-pill,24px));height:var(--acpmux-header-tool-size,var(--grid-pill,24px));padding:0;border:0;border-radius:var(--ds-radius-md,6px);background:none;color:inherit;font:inherit;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-header-tool:disabled{color:var(--agent-muted)}
-/* The chat menu's ⋮ is a thin glyph: in a 24px box it showed about 18px of empty space before it where every other tool
-   shows about 13px, so it read as set apart from the row and pushed to the window's edge (Leo 2026-11-03: "i don't like
-   how this vertical ellipsis looks spaced next to everything else"). Its box is as wide as its 16px glyph box and as
-   tall as the others, and the 8px it gives up stays at its trailing side: the space before it matches the other tools',
-   it sits 4px further from the edge, and the row keeps its width. Gallery agent-pane.header-tools/more-optical (chosen
-   over more-even-box, more-optical-20, more-tight-12); test/chat-header-more-spacing.test.ts keeps it so. */
-.acpmux-header-tool.acpmux-header-more{width:16px;margin-inline-end:8px}
+/* The chat menu's trigger is the app's horizontal ellipsis (the pack's action.more, SF Symbol ellipsis), as the
+   transcript's and the queue's more buttons are (Leo 2026-11-04: "i guess we ought to just make this a horizontal
+   ellipsis?"). Its dots span the glyph box like the other glyphs, so it takes the same square as every tool; the 16px
+   box and 8px trailing margin #33010 gave the thin vertical ⋮ are gone. */
 .acpmux-header-tool:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 .acpmux-header-tools .acpmux-header-tool{color:var(--agent-muted);transition:color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-header-tools .acpmux-header-tool:disabled{color:var(--agent-soft)}

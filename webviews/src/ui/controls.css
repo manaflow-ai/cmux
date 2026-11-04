@@ -16,6 +16,10 @@
 /* BUTTON. The base rules carry `.ui-button` too, so they outrank ui.css's later `.ui-button` reset
    (`font: inherit`, `color: inherit`). */
 .ui-button.ui-btn {
+  /* The agent pane imports this sheet without ui.css; reset the native bezel here too. */
+  appearance: none;
+  border: 0;
+  background: transparent;
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -23,6 +27,7 @@
   gap: var(--ds-space-2);
   height: var(--ds-control-row);
   padding-inline: var(--ds-space-3);
+  border: 0;
   border-radius: var(--ds-radius-md);
   color: var(--ds-color-fg);
   font-size: var(--text-control);
