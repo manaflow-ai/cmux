@@ -299,6 +299,9 @@ mod stop_spares_background_tests;
 mod subagent_route;
 #[cfg(test)]
 mod subagent_tests;
+mod task_plan;
+#[cfg(test)]
+mod task_plan_tests;
 #[cfg(test)]
 mod tests;
 mod usage_limits;
@@ -603,6 +606,9 @@ pub struct Translator {
     /// The plan usage limit windows Claude Code reported, newest each, by id
     /// (`usage_limits.rs`).
     usage_limits: Mutex<std::collections::BTreeMap<&'static str, Value>>,
+    /// Claude Code's task list, from its TaskCreate and TaskUpdate calls
+    /// (`task_plan.rs`), sent whole as the turn's ACP plan.
+    task_plan: Mutex<task_plan::TaskPlan>,
 }
 
 /// A running shell: the session its Bash call ran in, its command, Claude's
@@ -707,6 +713,7 @@ impl Translator {
             failed_agents: Mutex::new(Default::default()),
             workflows: Mutex::new(HashMap::new()),
             background_shells: Mutex::new(HashMap::new()),
+            task_plan: Mutex::new(Default::default()),
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
             context_from_compaction: AtomicBool::new(false),

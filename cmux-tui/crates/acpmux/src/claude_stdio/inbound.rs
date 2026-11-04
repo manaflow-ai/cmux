@@ -255,6 +255,13 @@ impl Translator {
                         {
                             out.push(upd(plan));
                         }
+                        // Claude Code 2.1 keeps it with TaskCreate and TaskUpdate
+                        // instead: each call lands on its result (`task_plan.rs`).
+                        if super::task_plan::TaskPlan::follows(name)
+                            && let Some(id) = c.get("id").and_then(Value::as_str)
+                        {
+                            self.task_plan.lock().await.call(name, id, &input);
+                        }
                         // Every shell, so one moved to the background later
                         // keeps its command (cx-ncc.84).
                         if name == "Bash"
@@ -416,6 +423,12 @@ impl Translator {
                             "status": if is_err { "failed" } else { "completed" },
                             "content": content,
                         })));
+                        // A task call's result redraws the task list (`task_plan.rs`).
+                        if let Some(plan) =
+                            self.task_plan.lock().await.result(tool, is_err, line.get("tool_use_result"))
+                        {
+                            out.push(upd(plan));
+                        }
                         if let Some(update) = self.workflow_launched(tool, is_err, line).await {
                             out.push(upd(update));
                         }
