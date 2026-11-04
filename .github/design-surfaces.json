@@ -68,6 +68,9 @@
       "aliases": ["model menu", "model picker", "harness rail", "harness tabs", "effort picker", "effort"],
       "paths": [
         "webviews/src/agent-session/acpmux/QuickModelMenu.tsx",
+        "webviews/src/agent-session/acpmux/QuickModelColumns.tsx",
+        "webviews/src/agent-session/acpmux/quickModelColumns.css",
+        "webviews/src/agent-session/acpmux/quickMenuNative.ts",
         "webviews/src/agent-session/acpmux/ModelPicker.tsx",
         "webviews/src/agent-session/acpmux/modelPicker.css",
         "webviews/src/agent-session/acpmux/modelPickerLayout.ts",

@@ -26,6 +26,15 @@ import { CHAT_COLUMN } from "./modelPickerLayout";
 import { useOpenSide } from "../../ui/openSide";
 import { OnNewTab } from "./newTabComposer";
 import { useScrollEdges } from "../../ui/scrollEdges";
+import { usePopupHost } from "../../ui/UiProvider";
+import {
+  nativePopupRefused,
+  useNativePopup,
+  type NativePopupDescription,
+  type NativePopupEvent,
+  type NativePopupRow,
+} from "../../ui/nativePopup";
+import { QuickNativeRows, quickMenuWidth, railColumn, tidySeparators } from "./quickMenuNative";
 import {
   Menu,
   MenuButton,
@@ -390,6 +399,15 @@ export function QuickModelMenu({
   // session's option. It holds the family tab it was turned on for: only that tab's picks take it.
   const [heldFast, setHeldFast] = useState<string | undefined>();
   const moreListId = useId();
+  // The native menu: its host (the app's WebPopupHost), the stable ids of its rows, and Add
+  // harness when Left and Right reached it.
+  // A host with no native popup (the gallery's stand-in bridge) leaves the menu to the page.
+  const pageHost = usePopupHost()?.native;
+  const [webOnly, setWebOnly] = useState(() => nativePopupRefused(pageHost));
+  const nativeHost = webOnly || nativePopupRefused(pageHost) ? undefined : pageHost;
+  const nativeRows = useRef<QuickNativeRows | null>(null);
+  nativeRows.current ??= new QuickNativeRows();
+  const [nativeHighlight, setNativeHighlight] = useState<string | undefined>();
   // Reset as the menu opens, in render: the composer re-renders while it is open (a streaming
   // reply), and an effect on the families would throw away the tab and the typed filter.
   const [wasOpen, setWasOpen] = useState(open);
@@ -400,6 +418,7 @@ export function QuickModelMenu({
       setQuery("");
       setMoreFor(undefined);
       setHeldFast(undefined);
+      setNativeHighlight(undefined);
     }
   }
   // Typing can unmount the focused row (Effort, Account, a model it filters out); keyboard focus
@@ -1296,6 +1315,420 @@ export function QuickModelMenu({
       )}
     </>
   );
+  // The native popup host draws this menu wherever the page has one (the app): the page describes
+  // the same rows, rail and choices as the web menu below, in the placement Settings chose, and
+  // every pick lands through the same paths. A page with no native host (the browser gallery)
+  // draws the web menu.
+  const describeNative = (): NativePopupDescription => {
+    const out = nativeRows.current!;
+    out.begin();
+    const close = (run?: () => void) => () => {
+      onOpenChange(false);
+      run?.();
+    };
+    const modelRow = (choice: QuickModel, index: number | undefined): NativePopupRow => {
+      const value = valueOf(choice);
+      const detail =
+        [groups ? undefined : choice.harness, choice.hint ?? choice.provider].filter(Boolean).join(" · ") || undefined;
+      const twin = twins.has(choice);
+      const name = [choice.name, choice.tag].filter(Boolean).join(" ");
+      const description = [twin ? choice.id : undefined, detail].filter(Boolean).join(" · ") || undefined;
+      const running = (!families || choice.family === families.current) && choice.id === current;
+      const choices = effortChoices(choice);
+      const look = menu.effortLook ?? "list";
+      const landEffort = (level: string) => {
+        if (running && effort?.onPick) {
+          onOpenChange(false);
+          effort.onPick(level);
+          if (choice.fast) pickRow({ ...choice, effort: undefined });
+          return;
+        }
+        pickRow({ ...choice, effort: level });
+      };
+      const shownLevel = running
+        ? choices.find((option) => option.id === effort?.current)
+        : choices.find((option) => option.recommended);
+      const levelRows = choices.map((option) =>
+        out.action(`effort\u0000${value}\u0000${option.id}`, option.name, () => landEffort(option.id), {
+          checked: running && effort?.current === option.id,
+          ...(look === "list" && option.recommended ? { description: t("picker.modeRecommended") } : {}),
+        }),
+      );
+      const stars = families?.stars;
+      const starred = stars?.has(choice) ?? false;
+      const starId = out.id(`star\u0000${value}`);
+      if (stars) out.handlers.set(starId, () => stars.toggle(choice));
+      return out.action(`model\u0000${value}`, name, () => pickRow(choice), {
+        ...(description ? { description } : {}),
+        checked: value === currentValue,
+        ...(choice.disabled ? { disabled: true } : {}),
+        ...(index !== undefined && !newTab && !query && index < FILTER_ROWS && value !== currentValue
+          ? { shortcut: `${placement === "symbols" ? "⌘" : ""}${index + 1}` }
+          : {}),
+        ...(levelRows.length > 0 ? { children: levelRows, sideLabel: shownLevel?.name ?? "" } : {}),
+        ...(stars
+          ? {
+              actions: [
+                {
+                  id: starId,
+                  label: starred ? "★" : "☆",
+                  keepOpen: true,
+                },
+              ],
+            }
+          : {}),
+      });
+    };
+    const offerRows = (offers: (QuickModel & { provider: string })[]) =>
+      offers.map((offer) =>
+        out.action(`offer\u0000${valueOf(offer)}`, offer.provider, () => pickRow(offer), {
+          checked: valueOf(offer) === currentValue,
+          ...(offer.disabled ? { disabled: true } : {}),
+        }),
+      );
+    const items: NativePopupRow[] = [];
+    if (forkTab) {
+      items.push(out.section("fork-head", forkTab.name));
+      items.push(
+        out.action(
+          "fork",
+          t("picker.forkTo", { harness: forkTab.name }),
+          () => families?.onFork?.(forkTab.id),
+          families?.forkReady ? {} : { disabled: true },
+        ),
+      );
+    } else {
+      if (query && !groups) items.push(out.section("query-head", `“${query}”`));
+      let index = 0;
+      for (const group of groups ?? [{ id: "", name: "", rows }]) {
+        if (groups) items.push(out.section(`group\u0000${group.id}`, group.name));
+        for (const choice of group.rows) {
+          const at = index++;
+          if (choice.offers && providerLook === "submenu")
+            items.push({
+              ...out.action(`model\u0000${valueOf(choice)}`, choice.name, undefined),
+              kind: "submenu",
+              children: offerRows(choice.offers),
+            });
+          else if (choice.offers && providerLook === "expanded") {
+            items.push(out.section(`head\u0000${valueOf(choice)}`, choice.name));
+            items.push(...offerRows(choice.offers));
+          } else items.push(modelRow(choice, at));
+        }
+      }
+      if (rows.length === 0)
+        items.push(
+          out.text(
+            "note",
+            query
+              ? t(families ? "picker.noMatchesFor" : "picker.noMatchesForQuery", { query })
+              : (shown?.note ?? (ownModel ? t("picker.chiefOwnModel") : t("picker.noModels"))),
+          ),
+        );
+      else if (!query && shown?.note && shown.setUp) items.push(out.text("note", shown.note));
+      if (!query && shown?.note && shown.logIn)
+        items.push(out.action("log-in", t("harness.logIn"), () => shown.logIn?.()));
+      if (!query && shown?.note && shown.setUp)
+        items.push(out.action("set-up", t("harnesses.install"), () => shown.setUp?.()));
+      if (!query && inlineMore && shown && shown.more.length > 0) {
+        items.push(
+          out.action(
+            "more-inline",
+            placement === "symbols" ? t("picker.legacyModels") : t("picker.moreModels"),
+            () => setMoreFor(moreShown ? undefined : tab),
+            {
+              keepOpen: true,
+              ...(placement === "symbols" ? { description: t("picker.modelCount", { n: shown.more.length }) } : {}),
+            },
+          ),
+        );
+        if (moreShown) items.push(...shown.more.map((choice) => modelRow(choice, undefined)));
+      }
+    }
+    if (!query && onChatTab && effort && levels.length > 1) {
+      items.push(out.separator("effort-sep"));
+      const effortRow = out.action(
+        "effort",
+        t("effort.title"),
+        undefined,
+        level?.name ? { sideLabel: level.name } : {},
+      );
+      if (effort.slider) {
+        const at = (id: string | undefined) => levels.findIndex((choice) => choice.id === id);
+        const recommended = levels.find((choice) => choice.recommended);
+        const slider = out.action("effort-slider", t("effort.title"), undefined);
+        out.handlers.set(slider.id, (event) => {
+          const choice = levels[Number(event.value)];
+          if (choice && choice.id !== effort.current) effort.onPick(choice.id);
+        });
+        items.push({
+          ...effortRow,
+          kind: "submenu",
+          children: [
+            {
+              ...slider,
+              kind: "slider",
+              value: String(Math.max(0, at(effort.current) >= 0 ? at(effort.current) : at(recommended?.id))),
+              minimum: 0,
+              maximum: levels.length - 1,
+              step: 1,
+              slider: {
+                stops: levels.map((choice) => ({ value: choice.id, label: choice.name })),
+                ...(effort.current ? { selectedValue: effort.current } : {}),
+                ...(recommended ? { recommendedValue: recommended.id } : {}),
+                ...(effort.sliderStyle === "minimal" ? { style: "minimal" as const } : {}),
+              },
+            },
+          ],
+        });
+      } else
+        items.push({
+          ...effortRow,
+          kind: "submenu",
+          children: levels.map((choice) =>
+            out.action(
+              `level\u0000${choice.id}`,
+              choice.name,
+              close(() => effort.onPick(choice.id)),
+              {
+                checked: effort.current === choice.id,
+              },
+            ),
+          ),
+        });
+    }
+    if (!query && runningRow?.offers && providerLook === "row")
+      items.push(out.separator("provider-sep"), {
+        ...out.action(
+          "provider",
+          t("picker.provider"),
+          undefined,
+          runningProvider ? { sideLabel: runningProvider } : {},
+        ),
+        kind: "submenu",
+        children: offerRows(runningRow.offers),
+      });
+    if (!query) items.push(out.separator("more-sep"));
+    if (!query && !ownModel && !inlineMore && families && shown && shown.more.length > 0)
+      items.push({
+        ...out.action(
+          "more",
+          placement === "symbols" ? t("picker.legacyModels") : t("picker.moreModels"),
+          undefined,
+          placement === "symbols" ? { sideLabel: t("picker.modelCount", { n: shown.more.length }) } : {},
+        ),
+        kind: "submenu",
+        children: shown.more.map((choice) => modelRow(choice, undefined)),
+      });
+    if (!query && !families && !ownModel) items.push(out.action("more-full", t("picker.moreModels"), close(onMore)));
+    const authNote = auth && authText(auth.verdict, t);
+    if (auth && authNote) {
+      items.push(out.separator("auth-sep"), out.text("auth", authNote));
+      if (canSessionLogin(auth.verdict) && auth.onLogin)
+        items.push(out.action("auth-login", authLoginText(auth.verdict, t), () => auth.onLogin?.()));
+      if (auth.onRefresh) items.push(out.action("auth-refresh", t("harnesses.checkAgain"), () => auth.onRefresh?.()));
+    }
+    if (!query && accountShown) {
+      const accountRows: NativePopupRow[] = [];
+      if (routes.length > 1)
+        for (const route of routes) {
+          const blocked = route.launch && families?.forkReady === false;
+          accountRows.push(
+            out.action(
+              `route\u0000${route.id}`,
+              route.name,
+              () => {
+                if (route.launch && !route.note) {
+                  onOpenChange(false);
+                  families?.onLaunch?.(route.id);
+                  return;
+                }
+                setTab(route.id);
+              },
+              {
+                checked: route.id === tab,
+                keepOpen: !(route.launch && !route.note),
+                ...(route.note ? { description: route.note } : {}),
+                ...(blocked ? { disabled: true } : {}),
+              },
+            ),
+          );
+        }
+      if (chatRouteAccounts) {
+        if (accountRows.length) accountRows.push(out.separator("account-sep"));
+        const accountList = accounts.list;
+        if (accounts.switchFailed) accountRows.push(out.text("account-refused", t("picker.accountSwitchFailed")));
+        if (!accountList) accountRows.push(out.text("account-wait", accounts.failed ? t("picker.accountFailed") : "…"));
+        else {
+          const value = accountList.active ?? "";
+          const choose = (next: string) =>
+            close(() => {
+              if (next !== value) accounts.pick(next || null);
+            });
+          accountRows.push(
+            out.action("account-login", t("picker.harnessLogin"), choose(""), {
+              checked: value === "",
+              ...(accountList.scope !== "chat" && !!accountList.active ? { disabled: true } : {}),
+            }),
+          );
+          const choices = accountList.accounts.filter(
+            (choice) =>
+              choice.kind === "direct-subscription" ||
+              choice.kind === "direct-api-key" ||
+              isModelRouterKind(choice.kind) ||
+              choice.id === accountList.active,
+          );
+          const row = (choice: (typeof choices)[number]) =>
+            out.action(`account\u0000${choice.id}`, choice.name, choose(choice.id), { checked: choice.id === value });
+          const grouped = menu.routeLayout !== "inline";
+          const routers = choices.filter((choice) => isModelRouterKind(choice.kind));
+          accountRows.push(
+            ...(grouped ? choices.filter((choice) => !isModelRouterKind(choice.kind)) : choices).map(row),
+          );
+          if (grouped && routers.length)
+            accountRows.push(out.section("account-routers", t("picker.provider")), ...routers.map(row));
+          if (account?.accounts.add && accountList.family)
+            accountRows.push(
+              out.action("account-add", t("picker.addAccount"), () => {
+                onOpenChange(false);
+                setAddingAccount(true);
+              }),
+            );
+        }
+      }
+      if (menu.routeLayout === "inline") items.push(out.section("account-head", t("picker.account")), ...accountRows);
+      else
+        items.push({
+          ...out.action("account", t("picker.account"), undefined, accountLabel ? { sideLabel: accountLabel } : {}),
+          kind: "submenu",
+          children: accountRows,
+        });
+    }
+    if ((!query && onChatTab && fast) || tabFast) {
+      const fastId = out.id("fast");
+      out.handlers.set(fastId, (event) => {
+        const on = event.value === "true";
+        if (tabFast) setHeldFast(on ? shownTab?.key : undefined);
+        else fast?.onChange(on);
+      });
+      items.push(out.separator("fast-sep"), {
+        id: fastId,
+        kind: "toggle",
+        label: t("picker.fastMode"),
+        checked: tabFast ? heldFast !== undefined && heldFast === shownTab?.key : !!fast?.checked,
+      });
+    }
+    const rail: NativePopupRow[] | undefined = families
+      ? tabs.map((entry) => {
+          const family = entry === shownTab ? shown! : leadRoute(entry, families.current);
+          const blocked = entry.routes.every((route) => route.launch) && families.forkReady === false;
+          const brand = !family.starred && symbolOf(family) ? (family.mark ?? undefined) : undefined;
+          return out.action(
+            `tab\u0000${entry.key}`,
+            entry.name,
+            () => {
+              setNativeHighlight(undefined);
+              if (entry.routes.length === 1 && family.launch && !family.note) {
+                onOpenChange(false);
+                families.onLaunch?.(family.id);
+                return;
+              }
+              setTab(family.id);
+              setQuery("");
+            },
+            {
+              keepOpen: !(entry.routes.length === 1 && family.launch && !family.note),
+              checked: !query && entry === shownTab,
+              ...(family.note ? { description: family.note } : {}),
+              ...(blocked ? { disabled: true } : {}),
+              ...(family.starred
+                ? { icon: "browser.omnibox.star" }
+                : brand
+                  ? { mark: brand }
+                  : placement === "symbols"
+                    ? { monogram: initialOf(entry.name) }
+                    : {}),
+            },
+          );
+        })
+      : undefined;
+    if (rail && families?.onAddHarness)
+      rail.push(
+        out.action("add-harness", t("modelPicker.addHarness"), close(families.onAddHarness), { icon: "action.add" }),
+      );
+    const effortColumn = menu.inlineEffort === true;
+    const sized: readonly { name: string }[] = families
+      ? (shownTab?.routes ?? []).flatMap((route) => route.models)
+      : models;
+    const width = quickMenuWidth(
+      sized.map((model) => model.name),
+      placement,
+      { effortColumn, stars: !!families?.stars, railed: !!rail },
+    );
+    const column = rail ? railColumn(placement, width, effortColumn) : undefined;
+    return {
+      side,
+      align: "start",
+      width,
+      rows: tidySeparators(items),
+      ...(search ? { search: { id: "query", value: query, placeholder: t("picker.search") } } : {}),
+      ...(nativeHighlight ? { highlighted: out.id(nativeHighlight) } : {}),
+      ...(rail ? { rail, railPlacement: placement, ...(column ? { railWidth: column } : {}) } : {}),
+      ...(menu.update
+        ? {
+            footer: [
+              out.separator("update-sep"),
+              out.text("update-text", menu.update.text),
+              out.action("update", t("harness.update"), close(menu.update.run)),
+            ],
+          }
+        : {}),
+    };
+  };
+  const nativeModel: NativePopupDescription =
+    open && nativeHost ? describeNative() : { side, align: "start", width: 240, rows: [] };
+  const onNativeEvent = (event: NativePopupEvent) => {
+    const out = nativeRows.current!;
+    if (event.type === "search" && event.id === "query") {
+      const value = event.value ?? "";
+      // A digit typed into the empty field picks its numbered row, as 1 to 9 do on the list.
+      if (!query && /^[1-9]$/.test(value) && !newTab) {
+        const choice = rows[Number(value) - 1];
+        if (choice) pickRow(choice);
+        return;
+      }
+      setNativeHighlight(undefined);
+      setQuery(value);
+      return;
+    }
+    if (event.type === "navigate" && families && !query) {
+      // Left and Right step the rail, as on the web menu: Add harness is its last stop, and a stop
+      // only highlights it.
+      const stops = tabs.filter(
+        (entry) => !entry.routes.every((route) => route.launch) || families.forkReady !== false,
+      );
+      const add = families.onAddHarness ? 1 : 0;
+      const count = stops.length + add;
+      if (!count) return;
+      const at = nativeHighlight === "add-harness" ? stops.length : stops.findIndex((entry) => entry === shownTab);
+      const index = (at + (event.value === "next" ? 1 : -1) + count) % count;
+      if (index === stops.length) setNativeHighlight("add-harness");
+      else {
+        setNativeHighlight(undefined);
+        setTab(leadRoute(stops[index]!, families.current).id);
+      }
+      return;
+    }
+    if (event.type === "pick" || event.type === "change") out.dispatch(event);
+  };
+  useNativePopup({
+    open: open && !!nativeHost,
+    model: nativeModel,
+    anchor: () => trigger.current,
+    onEvent: onNativeEvent,
+    onDismiss: () => onOpenChange(false),
+    onUnavailable: () => setWebOnly(true),
+  });
   // Keep the compact surface's intrinsic width stable while switching harness tabs. The probe is
   // zero-height and hidden, but its widest model plus inline effort segments still participates in
   // the popup's max-content measurement. This prevents a tab change from moving the rail or
@@ -1319,6 +1752,43 @@ export function QuickModelMenu({
         ))}
     </div>
   ) : null;
+  const addAccountDialog = addingAccount && account?.accounts.add && accounts.list?.family && (
+    <AddAccountDialog
+      add={account.accounts.add}
+      family={accounts.list.family}
+      onClose={() => setAddingAccount(false)}
+      onAdded={() => {
+        setAddingAccount(false);
+        onOpenChange(true);
+      }}
+    />
+  );
+  if (nativeHost)
+    return (
+      <>
+        <button
+          type="button"
+          ref={trigger}
+          className="acpmux-picker-button"
+          data-menu={chip["data-menu"]}
+          aria-label={chip.label}
+          // tooltip-allow: the chip's title is the model picker's own (ModelPicker), as on the web menu's button.
+          title={chip.title}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => onOpenChange(!open)}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              onOpenChange(true);
+            }
+          }}
+        >
+          {children}
+        </button>
+        {addAccountDialog}
+      </>
+    );
   return (
     <>
       <Menu open={open} onOpenChange={onOpenChange}>
@@ -1455,17 +1925,7 @@ export function QuickModelMenu({
           )}
         </MenuPopup>
       </Menu>
-      {addingAccount && account?.accounts.add && accounts.list?.family && (
-        <AddAccountDialog
-          add={account.accounts.add}
-          family={accounts.list.family}
-          onClose={() => setAddingAccount(false)}
-          onAdded={() => {
-            setAddingAccount(false);
-            onOpenChange(true);
-          }}
-        />
-      )}
+      {addAccountDialog}
     </>
   );
 }
