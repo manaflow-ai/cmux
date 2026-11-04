@@ -402,7 +402,8 @@ fn a_permission_question_and_a_timeout_say_what_to_do() {
     assert_eq!((error["code"].as_str(), exit), (Some("chat.permission_waiting"), 2));
     assert_eq!(error["details"]["answer"]["session_id"], "sess-1");
 
-    let mut answers = vec![signed_in(), made(), no_relay(), started(), sent()];
+    // A --timeout shorter than the relay's answer window goes the link way.
+    let mut answers = vec![signed_in(), made(), started(), sent()];
     answers.extend((0..3).map(|_| exec_out(&format!("@@wait 3\n{running}"))));
     let mut fake = Fake::new(answers);
     let asked = request(&["--prompt", "x", "--wait", "--timeout", "10"]);
@@ -459,7 +460,6 @@ fn each_wait_is_bounded_by_the_time_left() {
     let mut fake = Fake::new(vec![
         signed_in(),
         made(),
-        no_relay(),
         started(),
         exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
         exec_out(running),
@@ -468,8 +468,8 @@ fn each_wait_is_bounded_by_the_time_left() {
     let asked = request(&["--prompt", "x", "--wait", "--timeout", "7"]);
     let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!() };
     assert_eq!(error["code"], "chat.wait_timeout");
-    assert!(fake.ran[5][5].contains("acp wait sess-1 --timeout 7 "), "{:?}", fake.ran[5]);
-    assert!(fake.ran[6][5].contains("acp wait sess-1 --timeout 2 "), "{:?}", fake.ran[6]);
+    assert!(fake.ran[4][5].contains("acp wait sess-1 --timeout 7 "), "{:?}", fake.ran[4]);
+    assert!(fake.ran[5][5].contains("acp wait sess-1 --timeout 2 "), "{:?}", fake.ran[5]);
 }
 
 #[test]
@@ -712,8 +712,7 @@ fn a_send_with_no_answer_keeps_the_prompt_file_for_a_send_still_reading_it() {
 
 /// The relay chat's answer for `cloud relay-chat --json`.
 fn relayed(fields: Value) -> Ran {
-    let mut answer =
-        json!({"machine_id": "vm-1", "reply": "", "queued": false, "ended": true, "delivered": true});
+    let mut answer = json!({"machine_id": "vm-1", "reply": "", "queued": false, "ended": true, "delivered": true});
     for (key, value) in fields.as_object().unwrap() {
         answer[key] = value.clone();
     }
@@ -812,7 +811,8 @@ fn a_chat_the_machine_never_took_goes_the_link_path_once() {
     assert!(answer.get("path").is_none());
     assert_eq!(fake.ran[2][1], "start-session");
     // Cancelled by the app before the platform sent it: the same.
-    let not_taken = json!({"error_code": "cloud.relay.not_taken", "delivered": false, "queued": true});
+    let not_taken =
+        json!({"error_code": "cloud.relay.not_taken", "delivered": false, "queued": true});
     let mut fake = Fake::new(vec![signed_in(), relayed(not_taken), no_relay()]);
     let _ = run(&mut fake, &asked);
     assert_eq!(fake.ran[2][1], "start-session");
@@ -872,15 +872,29 @@ fn a_relay_chat_that_may_have_reached_the_machine_is_never_sent_again() {
 #[test]
 fn the_relay_time_counts_against_the_timeout() {
     let running = "@@wait 3\n@@history\n{\"turns\":[{\"seq\":1,\"status\":\"running\"}]}\n";
-    let mut fake = Fake::new(vec![
-        signed_in(),
-        relayed(json!({"session_id": "relay-1", "ended": false})),
-        exec_out(running),
-        exec_out(running),
-    ]);
-    // The relay step took 5 s of the 12: one wait of 7 s, then one of 2 s.
-    let asked = request(&["--prompt", "x", "--target", "machine:vm-1", "--wait", "--timeout", "12"]);
+    let mut answers = vec![signed_in(), relayed(json!({"session_id": "relay-1", "ended": false}))];
+    answers.extend((0..9).map(|_| exec_out(running)));
+    let mut fake = Fake::new(answers);
+    // The relay step took 5 s of the 47: waits of 20 s while 20 s are left, then the rest, down to 2 s.
+    let asked =
+        request(&["--prompt", "x", "--target", "machine:vm-1", "--wait", "--timeout", "47"]);
     let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!() };
     assert_eq!((error["code"].as_str(), exit), (Some("chat.wait_timeout"), 3));
-    assert!(fake.ran[2][5].contains("acp wait relay-1 --timeout 7 "), "{:?}", fake.ran[2]);
+    assert!(fake.ran[2][5].contains("acp wait relay-1 --timeout 20 "), "{:?}", fake.ran[2]);
+    assert!(fake.ran[10][5].contains("acp wait relay-1 --timeout 2 "), "{:?}", fake.ran[10]);
+    assert_eq!(fake.ran.len(), 11);
+}
+
+#[test]
+fn a_timeout_shorter_than_the_relay_window_goes_the_link_way() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+    ]);
+    let asked =
+        request(&["--prompt", "x", "--target", "machine:vm-1", "--wait", "--timeout", "30"]);
+    let _ = run(&mut fake, &asked);
+    assert_eq!(fake.ran[1][1], "start-session", "{:?}", fake.ran);
+    assert!(fake.ran.iter().all(|step| step.get(1).map(String::as_str) != Some("relay-chat")));
 }

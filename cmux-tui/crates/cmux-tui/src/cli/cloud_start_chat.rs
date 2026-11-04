@@ -33,6 +33,8 @@ use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
 
+/// The longest the app's `cloud relay-chat` may take to answer: `action.run`'s result deadline.
+const RELAY_ANSWER_WINDOW: Duration = Duration::from_secs(40);
 /// The longest `--wait` takes by default, and at most.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(900);
 const MAX_TIMEOUT: Duration = Duration::from_secs(4 * 60 * 60);
@@ -771,6 +773,8 @@ enum Relayed {
 const RELAY_PROMPT_BYTES: usize = 96 * 1024;
 
 fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Relayed {
+    // `--timeout` counts from here, a new machine included.
+    let started_at = runner.now();
     if request.prompt.len() > RELAY_PROMPT_BYTES {
         return Relayed::Fallback(None);
     }
@@ -817,7 +821,13 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
     }
     args.extend(["--prompt-id".to_owned(), runner.prompt_id()]);
     args.push("--json".to_owned());
-    let started_at = runner.now();
+    // The app may take its whole answer window: with less of `--timeout` left, the link path keeps to it.
+    let left = started_at
+        .checked_add(request.timeout)
+        .map(|end| end.saturating_duration_since(runner.now()));
+    if left.is_none_or(|left| left < RELAY_ANSWER_WINDOW) {
+        return Relayed::Fallback(Some(machine_id));
+    }
     let relayed = match step_result(&runner.cmux(&args)) {
         Ok(relayed) => relayed,
         Err(error) if signed_out(&error) => return Relayed::Answered(app_failure(error)),
@@ -863,7 +873,12 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
                 75,
             ),
         };
-        return Relayed::Answered(failed(&code, message, json!({"machine_id": machine_id, "relay": relayed}), exit));
+        return Relayed::Answered(failed(
+            &code,
+            message,
+            json!({"machine_id": machine_id, "relay": relayed}),
+            exit,
+        ));
     };
     let mut answer = json!({
         "machine_id": machine_id,
@@ -878,7 +893,15 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
     });
     if at(&relayed, "ended").as_bool() != Some(true) {
         // Still running after the app's answer: the link path waits on the session (a new one, so no turn before).
-        return Relayed::Answered(wait_turn(runner, request, &machine_id, session, 0, answer, started_at));
+        return Relayed::Answered(wait_turn(
+            runner,
+            request,
+            &machine_id,
+            session,
+            0,
+            answer,
+            started_at,
+        ));
     }
     answer.set("reply", at(&relayed, "reply").clone());
     answer.set("total_ms", at(&relayed, "total_ms").clone());
