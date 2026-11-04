@@ -21,7 +21,8 @@
  */
 import { must, roleUrl, type RoleJson } from "./branches.ts"
 import { contractReason, readMigrations } from "./lint.ts"
-import { connectUrl, trackingState, withLock, type Sql } from "./runner.ts"
+import { connectUrl, requirementsOf, schemaProblems, trackingState, withLock, type Sql } from "./runner.ts"
+import type { Requirement } from "../../../workers/cmux-vm/src/db/schema-requirements.ts"
 import { REPO_ROOT, TREES } from "./trees.ts"
 
 const tree = TREES["cmux-vm"]
@@ -159,6 +160,48 @@ export const productionUrl = (url: string | undefined, name: string): string => 
   return url
 }
 
+/** `url` on PlanetScale's direct Postgres port 5432 (the same host serves PgBouncer on 6432). */
+export const directUrl = (url: string): string => {
+  const u = new URL(url)
+  u.port = "5432"
+  return u.toString()
+}
+
+/**
+ * The Worker's grants (workers/cmux-vm/src/db/schema-requirements.ts): migrations carry no GRANT, so the owner
+ * issues USAGE on cmux_vm and each required table privilege to the Worker's role, then the Worker's own schema
+ * check must find no missing privilege. Only tables in cmux_vm; GRANT is idempotent.
+ */
+export const grantStatements = (requirements: ReadonlyArray<Requirement>, workerRole: string): Array<string> => {
+  const role = `"${workerRole.replace(/"/g, '""')}"`
+  const out = [`GRANT USAGE ON SCHEMA ${tree.schema} TO ${role}`]
+  for (const r of requirements) {
+    if (!r.privileges?.length) continue
+    const [schema, table] = r.table.split(".")
+    if (schema !== tree.schema || !table || !/^[a-z_][a-z0-9_]*$/.test(table)) throw new Refusal(`requirement ${r.table} is not a plain table in ${tree.schema}; refusing to grant on it`)
+    for (const p of r.privileges) if (!["SELECT", "INSERT", "UPDATE", "DELETE"].includes(p)) throw new Refusal(`requirement ${r.table} asks for ${p}; only SELECT, INSERT, UPDATE and DELETE are granted here`)
+    out.push(`GRANT ${r.privileges.join(", ")} ON TABLE ${tree.schema}.${table} TO ${role}`)
+  }
+  return out
+}
+
+const grantWorker = async (ownerUrl: string, log: (l: string) => void): Promise<void> => {
+  const worker = (await listRoles()).find((r) => r.name === tree.workerRole)
+  if (!worker) throw new Refusal(`${DB}/${BRANCH} has no PlanetScale role ${tree.workerRole}; the Worker grants were not issued`)
+  const requirements = await requirementsOf(tree, REPO_ROOT)
+  const owner = await connectUrl(ownerUrl)
+  try {
+    const statements = grantStatements(requirements, worker.pgUser)
+    for (const statement of statements) await owner.query(statement)
+    log(`granted the Worker role ${tree.workerRole} (${worker.pgUser}) USAGE on ${tree.schema} and ${statements.length - 1} table privilege set(s)`)
+    const missing = (await schemaProblems(owner, requirements, worker.pgUser)).filter((p) => p.includes(" privilege"))
+    if (missing.length) throw new Refusal(`after the grants, the Worker still lacks: ${missing.join("; ")}`)
+    log(`Worker schema check: no missing privilege for ${worker.pgUser}`)
+  } finally {
+    await owner.end()
+  }
+}
+
 /** Read-only, on `sql` (the Worker's login): roles, cmux_vm's owners and what they own elsewhere, the tracking table. */
 const inspect = async (sql: Sql, log: (l: string) => void): Promise<Inspection> => {
   const roles = await listRoles()
@@ -204,7 +247,8 @@ export const run = async (command: string | undefined, log = (l: string) => cons
   let sql: Sql | undefined
   try {
     if (command !== "inspect" && command !== "dry-run" && command !== "migrate") throw new Refusal("usage: prod-owner.ts inspect|dry-run|migrate")
-    sql = await connectUrl(productionUrl(process.env[WORKER_URL_ENV], WORKER_URL_ENV))
+    // The direct port: the release lock is a session advisory lock, which a transaction pooler (6432) would not keep.
+    sql = await connectUrl(directUrl(productionUrl(process.env[WORKER_URL_ENV], WORKER_URL_ENV)))
     const allow = contractFiles().flatMap((f) => ["--allow-contract", f])
 
     if (command !== "migrate") {
@@ -249,8 +293,15 @@ export const run = async (command: string | undefined, log = (l: string) => cons
       await sleep(PITR_WAIT_MS)
     }
     // 3. Track the hand-applied files, then apply the rest (the apply rehearses this exact set on a copy first).
-    if (owned.through) await releaseMain(["adopt", ...base, "--url-env", OWNER_URL_ENV, "--through", owned.through, "--confirm-production"], log, owned.login.url)
+    if (owned.through) {
+      await releaseMain(["adopt", ...base, "--url-env", OWNER_URL_ENV, "--through", owned.through, "--confirm-production"], log, owned.login.url)
+      // The apply's rehearsal copies main 6 minutes back: it must see the adopted tracking rows.
+      log(`waiting ${PITR_WAIT_MS / 60_000} min so the rehearsal's point-in-time copy has the adopted rows`)
+      await sleep(PITR_WAIT_MS)
+    }
     await releaseMain(["apply", ...base, "--url-env", OWNER_URL_ENV, "--confirm-production", ...allow], log, owned.login.url)
+    // 4. The Worker's privileges on what the apply added (the deploy gate refuses without them).
+    await grantWorker(owned.login.url, log)
     return 0
   } catch (e) {
     err((e as Error).message)
