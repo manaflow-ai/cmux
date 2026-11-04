@@ -61,6 +61,9 @@ public final class HostBrowserSignInFlow {
     @ObservationIgnored private var issuedCallbackStates = HostBrowserIssuedCallbackStates()
     @ObservationIgnored private var isAwaitingCallbackApproval = false
     @ObservationIgnored private var signOutGeneration: UInt64 = 0
+    /// Reports when the quiet period after a sign-out has ended; nil before
+    /// any sign-out. See ``recordStaleCallbackFailure()``.
+    @ObservationIgnored private var signOutQuietPeriodEnded: (@Sendable () -> Bool)?
     /// Pending waits before rate-limited completions retry, keyed by epoch.
     /// Sign-out and a replacing attempt cancel every one, so no stale wait
     /// lingers or retries beside the new attempt.
@@ -218,6 +221,7 @@ public final class HostBrowserSignInFlow {
             }
             guard issuedCallbackStates.consume(state) else {
                 log.log("auth.callback.external.reject reason=unknownOrExpiredState")
+                recordStaleCallbackFailure()
                 return false
             }
             log.log("auth.callback.external.routeToIssuedState")
@@ -273,6 +277,7 @@ public final class HostBrowserSignInFlow {
         signOutGeneration &+= 1
         lastFailure = nil
         cancelActiveAttempt()
+        signOutQuietPeriodEnded = HostBrowserIssuedCallbackStates.deadlineCheck(clock: clock, after: callbackStateLifetime)
         await signOutCoordinator.run()
         log.log("auth.browser.signOut.end generation=\(signOutGeneration)")
     }
@@ -692,11 +697,31 @@ public final class HostBrowserSignInFlow {
         return true
     }
 
-    /// Register an app-issued state for use after the popup ends. It lives
-    /// as long as an abandoned attempt would.
+    /// A browser tab finished a sign-in the app no longer knows: its attempt
+    /// expired, or the app relaunched since. The tokens stay rejected, but a
+    /// signed-out user who just finished in the browser must be told, or the
+    /// app looks like it ignored them.
+    ///
+    /// Stays silent while signed in (an older tab), during an attempt or an
+    /// earlier failure (those decide what the user sees), and for as long as
+    /// a pre-sign-out state could live: that tab is the user backing out.
+    private func recordStaleCallbackFailure() {
+        guard !coordinator.isAuthenticated, activeAttemptID == nil, lastFailure == nil else { return }
+        if let quietPeriodEnded = signOutQuietPeriodEnded {
+            guard quietPeriodEnded() else { return }
+            signOutQuietPeriodEnded = nil
+        }
+        lastFailure = .invalidCallback
+    }
+
+    /// How long an app-issued state lives: as long as an abandoned attempt.
+    private var callbackStateLifetime: Duration {
+        .seconds(browserAttemptTimeout > 0 ? browserAttemptTimeout : 10 * 60)
+    }
+
+    /// Register an app-issued state for use after the popup ends.
     private func issueCallbackState(_ state: String) {
-        let lifetime = browserAttemptTimeout > 0 ? browserAttemptTimeout : 10 * 60
-        issuedCallbackStates.issue(state, clock: clock, lifetime: .seconds(lifetime))
+        issuedCallbackStates.issue(state, clock: clock, lifetime: callbackStateLifetime)
     }
 
     /// Detach the session continuation so later session completions, attempt
