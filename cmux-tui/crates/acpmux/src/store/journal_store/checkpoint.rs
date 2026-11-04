@@ -132,11 +132,14 @@ impl Inner {
             }
             // A failed checkpoint waits for the timer or another `CHECKPOINT_BYTES`.
             order.bytes = 0;
+            // The segments the open read stay listed until their sync succeeds below: a
+            // checkpoint that fails before it (a journal sync slower than its wait, an image
+            // that cannot be written) leaves them for the next one (review of #35866, P1-1).
             (
                 order.applied,
                 std::mem::take(&mut order.dirty),
                 order.metas.clone(),
-                std::mem::take(&mut order.read_segments),
+                order.read_segments.clone(),
             )
         };
         // Every record up to `lsn` durable first (one group commit, on this background thread):
@@ -158,11 +161,12 @@ impl Inner {
         // be in the page cache only (review 3 of #34901, finding 1a), so they are synced before
         // their records are retired.
         if let Err(error) = self.sync_read_segments(&read) {
-            let mut order = self.order.lock_or_recover();
-            order.dirty.extend(dirty);
-            order.read_segments.extend(read);
+            self.order.lock_or_recover().dirty.extend(dirty);
             return Err(error);
         }
+        // Synced: no later checkpoint needs to sync them again (the list only shrinks after the
+        // open, so these are exactly the ones the sync covered).
+        self.order.lock_or_recover().read_segments.retain(|path| !read.contains(path));
         if let Err(error) = self.sync_logs(&dirty) {
             self.order.lock_or_recover().dirty.extend(dirty);
             return Err(error);
