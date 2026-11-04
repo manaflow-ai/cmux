@@ -118,6 +118,45 @@ import Testing
         #expect(fixture.connection.queuedPaneSeedIDs.isEmpty)
     }
 
+    /// A pane that mounts while the stream is down is queued but cannot start. The reconnect's
+    /// reseed covers it, so the queue must not seed it a second time afterwards.
+    @Test func aPaneQueuedWhileReconnectingIsSeededOnceByTheReseed() {
+        let fixture = Self.attachedConnection()
+        defer { fixture.close() }
+        fixture.connection.pendingAttachRedrawKick = false
+        fixture.connection.windowsByID = [
+            1: RemoteTmuxWindow(
+                id: 1, width: 80, height: 24,
+                layout: RemoteTmuxLayoutNode(width: 80, height: 24, x: 0, y: 0, content: .pane(7))),
+        ]
+
+        fixture.connection.beginReconnecting()
+        fixture.connection.queuePaneSeed(paneId: 7)
+        #expect(fixture.connection.queuedPaneSeedPaneIDs == [7])
+
+        let reconnectPipe = Pipe()
+        reconnectPipe.fileHandleForReading.readabilityHandler = { _ = $0.availableData }
+        let reconnectWriter = RemoteTmuxControlPipeWriter(
+            handle: reconnectPipe.fileHandleForWriting,
+            label: "remote-tmux-queued-seed-reconnect-test",
+            maxPendingBytes: Self.stdinBudget,
+            onFailure: {})
+        fixture.connection.installStdinWriterForTesting(reconnectWriter)
+        defer {
+            reconnectWriter.close()
+            reconnectPipe.fileHandleForReading.readabilityHandler = nil
+            try? reconnectPipe.fileHandleForReading.close()
+        }
+        fixture.connection.handleMessageForTesting(.enter)
+        fixture.connection.reseedAfterReconnect()
+
+        #expect(fixture.connection.pendingPaneSeeds[7]?.count == 1)
+        #expect(!fixture.connection.queuedPaneSeedPaneIDs.contains(7))
+        // Another pane mounting pumps the queue; pane 7 must not be seeded again.
+        fixture.connection.queuePaneSeed(paneId: 8)
+        #expect(fixture.connection.pendingPaneSeeds[7]?.count == 1)
+    }
+
     /// A seed outside the queue (a repaint or a reconnect reseed) holds the whole seed budget.
     /// When the queue pops a pane the budget refuses, that pane goes to the budget recovery and
     /// the pop stops, leaving the panes behind it waiting. If no queued seed is in flight then,

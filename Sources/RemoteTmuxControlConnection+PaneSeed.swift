@@ -425,6 +425,7 @@ extension RemoteTmuxControlConnection {
         failPendingNewWindowRequests()
         failPendingNewPaneRequests()
         failPendingWindowReorderVerifications()
+        abandonAgentHookInstallForReset()
         failPendingTrackedSends()
     }
 

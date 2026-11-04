@@ -488,6 +488,9 @@ extension RemoteTmuxControlConnection {
                 seenPaneIDs.insert($0).inserted
             }
         }
+        // A pane that mounted while the stream was down was queued but not started. The
+        // reseed covers it, so drop it from the queue rather than seed it a second time.
+        queuedPaneSeedPaneIDs.removeAll { seenPaneIDs.contains($0) }
         pumpReconnectPaneSeeds()
         // A batch rejection synchronously begins another reconnect and discards
         // its seeds. Never resurrect those IDs or announce readiness for the dead

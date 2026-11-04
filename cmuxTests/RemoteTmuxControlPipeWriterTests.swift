@@ -459,4 +459,30 @@ import Testing
         channels.forEach { $0.detach() }
         wire.connection.stop()
     }
+
+    /// A stream reset fails the install that is out while the stream still looks connected.
+    /// Its completion must not write the waiting sessions into the dying stream (or re-enter
+    /// the reconnect when the dying writer refuses them); the sessions stay waiting for the
+    /// reconnect's republish.
+    @Test func aResetLeavesWaitingAgentHookInstallsForTheReconnect() throws {
+        let wire = connectedWire()
+        let channels = makeChannels(wire.connection, count: 16)
+        for channel in channels {
+            channel.setMirrorEnvironment(["CMUX_WORKSPACE_ID": "workspace"])
+        }
+        #expect(wire.connection.agentHookInstalls.inFlight)
+        #expect(wire.connection.agentHookInstalls.waiting.count == 15)
+
+        wire.connection.beginReconnecting()
+
+        #expect(!wire.connection.agentHookInstalls.inFlight)
+        #expect(wire.connection.agentHookInstalls.waiting.count == 15, "the waiting sessions wait for the republish")
+        let reconnects = wire.connection.snapshot().recentEvents.filter { $0.hasPrefix("reconnecting") }
+        #expect(reconnects.count == 1, "the reset runs its teardown once")
+        let installs = try collect(wire).filter { $0.contains("'\\''--install'\\''") }
+        // The view session's own install and the first session's; nothing after the reset.
+        #expect(installs.count == 2)
+        channels.forEach { $0.detach() }
+        wire.connection.stop()
+    }
 }

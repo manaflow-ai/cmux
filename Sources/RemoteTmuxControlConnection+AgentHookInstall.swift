@@ -4,6 +4,9 @@ import Foundation
 struct RemoteTmuxAgentHookInstallBatch {
     var inFlight = false
     var waiting: [String] = []
+    /// Bumped when the stream resets, so the dying stream's install completion does not
+    /// send the waiting sessions into the stream being torn down.
+    var generation: UInt64 = 0
 }
 
 /// Agent hook installs, one payload for many sessions.
@@ -33,14 +36,27 @@ extension RemoteTmuxControlConnection {
             agentHookInstalls.waiting.removeAll()
             return
         }
-        // The completion fires once: on tmux's answer, or on a stream reset.
+        // The completion fires once: on tmux's answer, or on a stream reset. A reset has
+        // already moved the generation on (``abandonAgentHookInstallForReset()``), so its
+        // completion leaves the waiting sessions for the reconnect's republish.
+        let generation = agentHookInstalls.generation
         let sent = sendTracked(command) { [weak self] _ in
-            guard let self else { return }
+            guard let self, self.agentHookInstalls.generation == generation else { return }
             self.agentHookInstalls.inFlight = false
             self.sendWaitingAgentHookInstalls()
         }
         guard sent else { return }
         agentHookInstalls.waiting.removeAll()
         agentHookInstalls.inFlight = true
+    }
+
+    /// Forgets the install that is out, for a stream that is going away. Runs before the
+    /// tracked sends are failed: the stream still looks connected then, and the install's
+    /// completion would otherwise write the waiting sessions into it, or re-enter
+    /// `beginReconnecting()` when the dying writer refuses them. The sessions stay waiting;
+    /// the reconnect republishes every session and that request sends them.
+    func abandonAgentHookInstallForReset() {
+        agentHookInstalls.generation &+= 1
+        agentHookInstalls.inFlight = false
     }
 }
