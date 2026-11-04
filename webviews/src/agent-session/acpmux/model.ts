@@ -879,9 +879,16 @@ export type AcpmuxContextBreakdown = {
 };
 
 /// A Claude Code chat's plan usage limits as acpmux reports them (claude_stdio `usage_limits`):
-/// `id` is `session` (5 hours), `weekly`, `weekly_opus` or `weekly_sonnet`; `usedPercent` is 0-100;
-/// `resetsAt` is unix seconds, only when Claude Code said when the window resets.
-export type AcpmuxUsageLimits = { windows: { id: string; usedPercent: number; resetsAt?: number }[] };
+/// `id` is `session` (5 hours), `weekly`, `weekly_opus` or `weekly_sonnet` (Codex's other lengths are
+/// their minutes, `60m`, or their slot, `primary`); `usedPercent` is 0-100; `resetsAt` is unix
+/// seconds, only when the harness said when the window resets; `windowMins` is the window's length
+/// when Codex named it. `plan` (Codex's `planType`, such as `pro`) and `credits` (the balance, or
+/// unlimited) only when the harness reported them; Claude Code names neither.
+export type AcpmuxUsageLimits = {
+  windows: { id: string; usedPercent: number; resetsAt?: number; windowMins?: number }[];
+  plan?: string;
+  credits?: { balance?: string; unlimited?: boolean };
+};
 
 /// Optional Labs workflow payload. acpmux does not emit this field yet; keeping the wire shape
 /// here gives the future event a typed adapter seam without deriving workflow state from rows.
@@ -1381,6 +1388,17 @@ function activityStepHeight(item: AcpmuxActivity, width: number): number {
       return 26;
   }
 }
+/// Whether a call sends another agent a message (toolGroups.ts `SentEntry`): cheap checks first.
+const sendsMessage = (tool: NonNullable<AcpmuxActivity["tool"]>): boolean =>
+  Boolean(
+    agentMessage(tool) ||
+    acpmuxSendCalls(tool) ||
+    acpmuxMcpSends(tool) ||
+    (() => {
+      const mcp = mcpCall(tool);
+      return mcp !== undefined && subsessionCall(tool, mcp)?.tool === "send";
+    })(),
+  );
 /// A folded run's lines as ToolRows draws them (TurnRows.tsx, toolGroups.ts `runStretches`): the
 /// work between coordination cards folds under one summary line per stretch, and every card the run
 /// keeps in sight is its own row. A run of agent-to-agent messages ("Sent to lane-a", a command,
@@ -1406,6 +1424,9 @@ function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[], width: num
 function foldedGroupHeight(group: ToolGroup, width: number): number {
   if (group.type === "send")
     return messageRowHeight(group.send.state !== "failed" && Boolean(group.send.text?.trim() || group.send.file));
+  // A group of sends starts closed: its head, a message row naming the recipients
+  // (SentMessageLine.tsx `SentMessageGroup`, MessageGroupHead.tsx).
+  if (group.type === "sendGroup") return messageRowHeight(true);
   if (group.type === "group") return toolRowHeight();
   // `.cv-tool-group` lists its calls flush too.
   const items = "items" in group ? group.items : [group.item];
@@ -1831,9 +1852,16 @@ function fallbackRowHeight(
       if (isFoldedRun(row.items)) return finish(TOOL_RUN_TOP + toolRowHeight() + TOOL_RUN_BOTTOM);
     }
     const items = row.items ?? [];
-    const steps = items.length
+    let steps = items.length
       ? items.reduce((height, item) => height + activityStepHeight(item, width), 0)
       : toolRowHeight();
+    // Adjacent calls that each sent a message draw as one closed group's line (toolGroups.ts
+    // `sendGroup`), not a line per call. One call's batch is one step already.
+    if (items.filter((item) => item.tool && sendsMessage(item.tool)).length > 1)
+      for (const group of toolGroups(items))
+        if (group.type === "sendGroup" && group.items.length > 1)
+          steps +=
+            messageRowHeight(true) - group.items.reduce((height, item) => height + activityStepHeight(item, width), 0);
     return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + steps);
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
@@ -2744,6 +2772,8 @@ export function scrollLeadRanges(
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
 import { runStretches, staysInSight, toolGroups, type ToolGroup } from "./conversation/toolGroups";
+import { acpmuxSendCalls } from "./conversation/acpmuxSends";
+import { acpmuxMcpSends } from "./conversation/acpmuxMcpSends";
 import { isFoldedRun } from "./conversation/toolRunSummary";
 import { isQuietThought, isThought, mergeThoughts } from "./conversation/thoughts";
 import { previewCardHeight } from "./conversation/previewUrl";

@@ -270,6 +270,9 @@ impl GitSeedService {
             key: params.retry_key(),
             status: Mutex::new(Status::running(Phase::Clone)),
         });
+        // A delta only applies source changes to a folder already in use: its
+        // dependencies are left alone.
+        let first = params.since.is_none();
         // Clone-only refuses a nonempty folder without touching it. Do not
         // replace an existing ready barrier with an incomplete one for that
         // no-op refusal (the worker repeats this check before cloning).
@@ -313,7 +316,11 @@ impl GitSeedService {
                         install_url: None,
                     })
                 });
+                let ok = result.is_ok();
                 worker.finish(result);
+                if ok && first {
+                    super::seeded(&worker.folder);
+                }
             })
             .map_err(|error| SeedRefusal::bad_request(format!("cannot start the seed: {error}")))?;
         jobs.order.push_back(job.id.clone());
