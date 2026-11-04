@@ -544,23 +544,72 @@ fn workspace_changes_after(mux: &Mux, revision: u64) -> (Vec<String>, Vec<String
     (upserts, deletes)
 }
 
-/// The journal, folded from revision 0, states every live workspace as the session snapshot shows it (name, index,
-/// focus, and the decorations: title, color, icon), and no other.
-fn assert_journal_states_the_session(mux: &Mux) {
+/// The workspace values the journal states, folded from revision 0 over every page, by workspace public id.
+fn journal_workspaces(mux: &Mux) -> std::collections::BTreeMap<String, Value> {
     let mut stated = std::collections::BTreeMap::<String, Value>::new();
-    for batch in mux.resource_events_after(0).unwrap().batches {
-        for change in batch.changes.as_array().cloned().unwrap_or_default() {
-            if change["resource"] != "workspace" {
-                continue;
-            }
-            let id = change["id"].as_str().unwrap().to_string();
-            if change["kind"] == "delete" {
-                stated.remove(&id);
-            } else if change["kind"] == "upsert" {
-                stated.insert(id, change["value"].clone());
+    let mut revision = 0;
+    loop {
+        let page = mux.resource_events_after(revision).unwrap();
+        if page.batches.is_empty() {
+            return stated;
+        }
+        for batch in page.batches {
+            revision = batch.revision;
+            for change in batch.changes.as_array().cloned().unwrap_or_default() {
+                if change["resource"] != "workspace" {
+                    continue;
+                }
+                let id = change["id"].as_str().unwrap().to_string();
+                if change["kind"] == "delete" {
+                    stated.remove(&id);
+                } else if change["kind"] == "upsert" {
+                    stated.insert(id, change["value"].clone());
+                }
             }
         }
     }
+}
+
+/// The journal, folded from revision 0, states each live workspace's whole value as its rows give it now
+/// (`workspace_value`: name, index, focus, session, name provenance, decorations and key), and no other.
+fn assert_journal_states_the_rows(mux: &Mux) {
+    let stated = journal_workspaces(mux);
+    let registry = mux.workspace_registry.lock().unwrap();
+    let db = registry.connection.get();
+    let live = db
+        .prepare(
+            "SELECT rw.public_id FROM resource_workspaces AS rw
+             JOIN workspaces AS w ON w.workspace_key = rw.workspace_key
+             WHERE w.tombstoned = 0 AND rw.deleted_revision IS NULL
+             ORDER BY w.position",
+        )
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    for id in &live {
+        let rows = crate::state::values::workspace_value(&db, id).unwrap().unwrap();
+        assert_eq!(
+            stated.get(id),
+            Some(&rows),
+            "workspace {id}: the journal states {:?}, its rows {rows}",
+            stated.get(id)
+        );
+    }
+    assert_eq!(
+        stated.len(),
+        live.len(),
+        "the journal states {} workspaces, the rows hold {}",
+        stated.len(),
+        live.len()
+    );
+}
+
+/// The journal, folded from revision 0, states every live workspace as the session snapshot shows it (name, index,
+/// focus, and the decorations: title, color, icon), and no other; and each whole value as its rows give it.
+fn assert_journal_states_the_session(mux: &Mux) {
+    let stated = journal_workspaces(mux);
     let snapshot = crate::resource_api::public_session_snapshot(mux).unwrap();
     let live = snapshot["workspaces"].as_array().unwrap();
     assert_eq!(
@@ -588,6 +637,7 @@ fn assert_journal_states_the_session(mux: &Mux) {
             );
         }
     }
+    assert_journal_states_the_rows(mux);
 }
 
 /// `count` workspaces, then one full resource effect projection (as a session's first terminal create runs when the
@@ -730,4 +780,98 @@ fn a_create_after_a_resource_move_keeps_the_journal_equal_to_the_session() {
     )
     .unwrap();
     assert_journal_states_the_session(&mux);
+}
+
+/// A close in the middle shifts every later workspace down by one: each of those is stated again with its new
+/// index, the closed one is deleted, and no other workspace is stated.
+#[test]
+fn a_workspace_close_journals_every_workspace_it_shifts() {
+    let mux = mux_with_workspaces(40);
+    let (closed, closed_id) = mux
+        .with_state(|state| (state.workspaces[10].id, state.workspaces[10].public_id.to_string()));
+    let before = mux.with_state(|state| state.resource_revision);
+    assert!(mux.close_workspace_as(&Actor::Daemon, closed));
+    let (upserts, deletes) = workspace_changes_after(&mux, before);
+    // Indexes 11..=39 shift to 10..=38: 29 workspaces, plus at most one focus change.
+    assert!(
+        (29..=30).contains(&upserts.len()),
+        "a close at index 10 of 40 journaled {} workspace upserts",
+        upserts.len()
+    );
+    assert_eq!(deletes, vec![closed_id], "a close at index 10 of 40 journaled these deletes");
+    assert_journal_states_the_session(&mux);
+}
+
+/// A pin changes no field of the workspace's public value (`pinned` is presentation state the value does not
+/// carry). The commit's extra rows ran, so its own workspace is still stated, and only that one: a journal reader
+/// still sees which workspace a metadata commit changed.
+#[test]
+fn a_workspace_pin_journals_its_workspace() {
+    let mux = mux_with_workspaces(40);
+    let (key, id) = mux.with_state(|state| {
+        (state.workspaces[5].key.clone(), state.workspaces[5].public_id.to_string())
+    });
+    let before = mux.with_state(|state| state.resource_revision);
+    let update = crate::workspace_registry::WorkspacePresentationUpdate {
+        pinned: Some(true),
+        ..Default::default()
+    };
+    mux.set_workspace_metadata(
+        None,
+        Some(&key),
+        update,
+        None,
+        None,
+        &WorkspaceMutation::daemon_local("cmux-tui"),
+    )
+    .unwrap();
+    let (upserts, _) = workspace_changes_after(&mux, before);
+    assert_eq!(upserts, vec![id], "a pin at 40 workspaces journaled these workspace upserts");
+    assert_journal_states_the_session(&mux);
+}
+
+/// A workspace commit prepared before another one lands holds a fold copy at an older revision, so it states every
+/// workspace, as before #32408. Here the late commit writes workspace 5's earlier name back over the early commit's
+/// rename: pruning against the old copy would drop that upsert and leave the journal stating the early name.
+#[test]
+fn a_workspace_commit_prepared_before_another_lands_states_every_workspace() {
+    let mux = mux_with_workspaces(40);
+    let (desired, active) = mux.with_state(|state| {
+        (
+            mux.registry_projection(state),
+            state
+                .workspaces
+                .get(state.active_workspace)
+                .map(|workspace| workspace.public_id.clone()),
+        )
+    });
+    let mut registry = mux.workspace_registry.lock().unwrap();
+    let mut prepare = |index: usize, name: &str| {
+        let mut workspaces = desired.clone();
+        workspaces[index].name = name.into();
+        let key = workspaces[index].key.clone();
+        registry
+            .prepare_workspace_commit(
+                &WorkspaceMutation::daemon_local("cmux-tui"),
+                &serde_json::json!({"op": "test-rename", "index": index, "name": name}),
+                None,
+                None,
+                "workspace-renamed",
+                &key,
+                &workspaces,
+                active.as_ref(),
+                &serde_json::json!({"changed": true}),
+                true,
+            )
+            .unwrap()
+    };
+    let late = prepare(17, "late");
+    let early = prepare(5, "early");
+    for intent in [early, late] {
+        registry
+            .commit_registry_intent(crate::workspace_registry::RegistryIntent::Workspace(intent))
+            .unwrap();
+    }
+    drop(registry);
+    assert_journal_states_the_rows(&mux);
 }
