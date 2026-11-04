@@ -253,6 +253,8 @@ class GitHub:
 
         self.etags: dict[str, tuple[str, Any]] = {}
         self.history: Any = None
+        self._forbidden_cooldown_until = 0.0
+        self._forbidden_cooldown_error: GitHubHTTPError | None = None
         # The token's pool as the last response reported it: None until a response carries it.
         self.remaining: int | None = None
         self.reset: float = 0.0
@@ -272,8 +274,6 @@ class GitHub:
     def spare(self, now: dt.datetime) -> bool:
         """The pool is above POOL_RESERVE, unknown, or past its reset: a pass may read."""
         return self.remaining is None or self.remaining > POOL_RESERVE or now.timestamp() >= self.reset
-        self._forbidden_cooldown_until = 0.0
-        self._forbidden_cooldown_error: GitHubHTTPError | None = None
 
     def pending_cancellations(self, now: dt.datetime) -> set[int]:
         """Restore only this worker's confirmed cancellations from the existing durable rescue log journal.
@@ -636,7 +636,6 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
             lines.append(f"the workflow token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); "
                          f"{len(runs) - read} job reads left to a later pass")
             break
-    for run in runs:
         created = parse_time(run.get("created_at"))
         if created is None or created > exact_end:
             # Retained fresh metadata is kept for the next pass, but it cannot spend a job read until it enters the
