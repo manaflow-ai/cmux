@@ -155,3 +155,18 @@ test("a start this Mac's pane refused says why by its code, never the generic co
   // The App's own failure keeps the host's words and its checklist step.
   expect(cloudStartEnded(begun(), "k-1", { ok: false, code: "cloud_start_failed", message: "No machine" })?.refusedHere).toBeUndefined();
 });
+
+test("the pane's other refusals before Cloud (attachments, a busy pane) mark no step failed, as Swift counts them", () => {
+  const attachment = "This attachment needs a local file. Run this chat on This Mac, or paste an image or text to send it to Cloud.";
+  expect(cloudStartEnded(begun(), "k-1", { ok: false, code: "cloud_attachments", message: attachment })).toEqual({
+    ...begun(),
+    state: "failed",
+    message: attachment,
+    refusedHere: true,
+  });
+  for (const code of ["unsupported", "unavailable_now", "sandbox_busy", "sandbox_spent"]) {
+    const ended = cloudStartEnded(begun(), "k-1", { ok: false, code, message: code });
+    expect(ended?.refusedHere).toBe(true);
+    expect(ended?.message).not.toBe(code);
+  }
+});
