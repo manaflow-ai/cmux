@@ -363,7 +363,9 @@ export function CloudStartView({
                       )}
                     </span>
                   ) : step.detail ? (
-                    <span className={`acpmux-cloud-start__detail${step.logTail ? " acpmux-cloud-start__log-tail" : ""}`}>
+                    <span
+                      className={`acpmux-cloud-start__detail${step.logTail ? " acpmux-cloud-start__log-tail" : ""}`}
+                    >
                       {step.detail}
                     </span>
                   ) : null}

@@ -93,9 +93,7 @@ test("every arm shows the message and compact preparing status", () => {
 
 test("a failed start opens the details disclosure with the host facts", () => {
   const html = renderToStaticMarkup(
-    <CloudStartView
-      start={{ ...start, state: "failed", message: "No machine free" }}
-    />,
+    <CloudStartView start={{ ...start, state: "failed", message: "No machine free" }} />,
   );
   expect(html).toContain('aria-expanded="true"');
   expect(html).toContain('data-step-id="machine"');
