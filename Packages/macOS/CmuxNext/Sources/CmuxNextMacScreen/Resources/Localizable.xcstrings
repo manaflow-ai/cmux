@@ -16644,127 +16644,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يربط Mac Screen الآن أجهزة Mac المسجّل دخولها إلى حساب cmux الخاص بك. افتح Mac Screen لرؤيتها."
+            "value": "تربط مشاركة الشاشة الآن أجهزة Mac المسجّل دخولها إلى حساب cmux الخاص بك. افتح مشاركة الشاشة لرؤيتها."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen sada povezuje Mac računare prijavljene na vaš cmux račun. Otvorite Mac Screen da ih vidite."
+            "value": "Dijeljenje ekrana sada povezuje Mac računare prijavljene na vaš cmux račun. Otvorite Dijeljenje ekrana da ih vidite."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen forbinder nu de Mac-computere, der er logget ind på din cmux-konto. Åbn Mac Screen for at se dem."
+            "value": "Skærmdeling forbinder nu de Mac-computere, der er logget ind på din cmux-konto. Åbn Skærmdeling for at se dem."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen verbindet jetzt die Macs, die bei deinem cmux-Konto angemeldet sind. Öffne Mac Screen, um sie zu sehen."
+            "value": "Bildschirmfreigabe verbindet jetzt die Macs, die bei deinem cmux-Konto angemeldet sind. Öffne Bildschirmfreigabe, um sie zu sehen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen now connects the Macs signed in to your cmux account. Open Mac Screen to see them."
+            "value": "Screen Sharing now connects the Macs signed in to your cmux account. Open Screen Sharing to see them."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen ahora conecta los Mac con sesión iniciada en tu cuenta de cmux. Abre Mac Screen para verlos."
+            "value": "Compartir pantalla ahora conecta los Mac con sesión iniciada en tu cuenta de cmux. Abre Compartir pantalla para verlos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen connecte désormais les Mac connectés à votre compte cmux. Ouvrez Mac Screen pour les voir."
+            "value": "Partage d’écran connecte désormais les Mac connectés à votre compte cmux. Ouvrez Partage d’écran pour les voir."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen ora collega i Mac che hanno eseguito l’accesso al tuo account cmux. Apri Mac Screen per vederli."
+            "value": "Condivisione schermo ora collega i Mac che hanno eseguito l’accesso al tuo account cmux. Apri Condivisione schermo per vederli."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen は、cmux アカウントにサインインしている Mac を接続するようになりました。Mac Screen を開いて確認してください。"
+            "value": "画面共有は、cmux アカウントにサインインしている Mac を接続するようになりました。画面共有を開いて確認してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ឥឡូវ Mac Screen ភ្ជាប់ Mac ដែលបានចូលគណនី cmux របស់អ្នក។ បើក Mac Screen ដើម្បីមើលពួកវា។"
+            "value": "ឥឡូវ ការចែករំលែកអេក្រង់ ភ្ជាប់ Mac ដែលបានចូលគណនី cmux របស់អ្នក។ បើក ការចែករំលែកអេក្រង់ ដើម្បីមើលពួកវា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이제 Mac Screen은 cmux 계정에 로그인된 Mac을 연결합니다. Mac Screen을 열어 확인하십시오."
+            "value": "이제 화면 공유는 cmux 계정에 로그인된 Mac을 연결합니다. 화면 공유를 열어 확인하십시오."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen kobler nå sammen Mac-maskinene som er logget på cmux-kontoen din. Åpne Mac Screen for å se dem."
+            "value": "Skjermdeling kobler nå sammen Mac-maskinene som er logget på cmux-kontoen din. Åpne Skjermdeling for å se dem."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen łączy teraz komputery Mac zalogowane na Twoje konto cmux. Otwórz Mac Screen, aby je zobaczyć."
+            "value": "Udostępnianie ekranu łączy teraz komputery Mac zalogowane na Twoje konto cmux. Otwórz Udostępnianie ekranu, aby je zobaczyć."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agora o Mac Screen conecta os Macs com sessão iniciada na sua conta do cmux. Abra o Mac Screen para vê-los."
+            "value": "Agora o Compartilhamento de Tela conecta os Macs com sessão iniciada na sua conta do cmux. Abra o Compartilhamento de Tela para vê-los."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Теперь Mac Screen соединяет компьютеры Mac, на которых выполнен вход в вашу учетную запись cmux. Откройте Mac Screen, чтобы увидеть их."
+            "value": "Теперь «Общий экран» соединяет компьютеры Mac, на которых выполнен вход в вашу учетную запись cmux. Откройте «Общий экран», чтобы увидеть их."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ตอนนี้ Mac Screen เชื่อมต่อ Mac ที่ลงชื่อเข้าใช้บัญชี cmux ของคุณ เปิด Mac Screen เพื่อดู"
+            "value": "ตอนนี้การแชร์หน้าจอเชื่อมต่อ Mac ที่ลงชื่อเข้าใช้บัญชี cmux ของคุณ เปิดการแชร์หน้าจอเพื่อดู"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen artık cmux hesabınıza giriş yapmış Mac’leri bağlıyor. Görmek için Mac Screen’i açın."
+            "value": "Ekran Paylaşma artık cmux hesabınıza giriş yapmış Mac’leri bağlıyor. Görmek için Ekran Paylaşma’yı açın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Тепер Mac Screen з’єднує комп’ютери Mac, на яких виконано вхід у ваш обліковий запис cmux. Відкрийте Mac Screen, щоб побачити їх."
+            "value": "Тепер «Спільний екран» з’єднує комп’ютери Mac, на яких виконано вхід у ваш обліковий запис cmux. Відкрийте «Спільний екран», щоб побачити їх."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Giờ đây Mac Screen kết nối các máy Mac đã đăng nhập tài khoản cmux của bạn. Mở Mac Screen để xem."
+            "value": "Giờ đây Chia sẻ màn hình kết nối các máy Mac đã đăng nhập tài khoản cmux của bạn. Mở Chia sẻ màn hình để xem."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen 现在连接已登录你的 cmux 账户的 Mac。打开 Mac Screen 查看。"
+            "value": "屏幕共享现在连接已登录你的 cmux 账户的 Mac。打开“屏幕共享”查看。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen 現在會連接已登入你 cmux 帳號的 Mac。開啟 Mac Screen 即可查看。"
+            "value": "螢幕共享現在會連接已登入你 cmux 帳號的 Mac。開啟「螢幕共享」即可查看。"
           }
         }
       }
@@ -16906,127 +16906,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "فتح شاشة Mac"
+            "value": "فتح مشاركة الشاشة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Otvori Ekran Maca"
+            "value": "Otvori Dijeljenje ekrana"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Åbn Mac-skærm"
+            "value": "Åbn Skærmdeling"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac-Bildschirm öffnen"
+            "value": "Bildschirmfreigabe öffnen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Mac Screen"
+            "value": "Open Screen Sharing"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Abrir Pantalla del Mac"
+            "value": "Abrir Compartir pantalla"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ouvrir Écran Mac"
+            "value": "Ouvrir Partage d’écran"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Apri Schermo Mac"
+            "value": "Apri Condivisione schermo"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "「Macの画面」を開く"
+            "value": "「画面共有」を開く"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បើក អេក្រង់ Mac"
+            "value": "បើក ការចែករំលែកអេក្រង់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac 화면 열기"
+            "value": "화면 공유 열기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Åpne Mac-skjerm"
+            "value": "Åpne Skjermdeling"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Otwórz Ekran Maca"
+            "value": "Otwórz Udostępnianie ekranu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Abrir Tela do Mac"
+            "value": "Abrir Compartilhamento de Tela"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Открыть «Экран Mac»"
+            "value": "Открыть «Общий экран»"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เปิดหน้าจอ Mac"
+            "value": "เปิดการแชร์หน้าจอ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac Ekranı’nı Aç"
+            "value": "Ekran Paylaşma’yı Aç"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Відкрити «Екран Mac»"
+            "value": "Відкрити «Спільний екран»"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mở Màn hình Mac"
+            "value": "Mở Chia sẻ màn hình"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "打开“Mac 屏幕”"
+            "value": "打开“屏幕共享”"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "打開「Mac 螢幕」"
+            "value": "打開「螢幕共享」"
           }
         }
       }
@@ -21753,127 +21753,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "شاشة Mac"
+            "value": "مشاركة الشاشة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ekran Maca"
+            "value": "Dijeljenje ekrana"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac-skærm"
+            "value": "Skærmdeling"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac-Bildschirm"
+            "value": "Bildschirmfreigabe"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen"
+            "value": "Screen Sharing"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pantalla del Mac"
+            "value": "Compartir pantalla"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Écran Mac"
+            "value": "Partage d’écran"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Schermo Mac"
+            "value": "Condivisione schermo"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Macの画面"
+            "value": "画面共有"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អេក្រង់ Mac"
+            "value": "ការចែករំលែកអេក្រង់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac 화면"
+            "value": "화면 공유"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac-skjerm"
+            "value": "Skjermdeling"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ekran Maca"
+            "value": "Udostępnianie ekranu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tela do Mac"
+            "value": "Compartilhamento de Tela"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Экран Mac"
+            "value": "Общий экран"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "หน้าจอ Mac"
+            "value": "การแชร์หน้าจอ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac Ekranı"
+            "value": "Ekran Paylaşma"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Екран Mac"
+            "value": "Спільний екран"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Màn hình Mac"
+            "value": "Chia sẻ màn hình"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac 屏幕"
+            "value": "屏幕共享"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac 螢幕"
+            "value": "螢幕共享"
           }
         }
       }
@@ -30923,127 +30923,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "شاشة Mac"
+            "value": "مشاركة الشاشة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ekran Maca"
+            "value": "Dijeljenje ekrana"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac-skærm"
+            "value": "Skærmdeling"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac-Bildschirm"
+            "value": "Bildschirmfreigabe"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen"
+            "value": "Screen Sharing"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pantalla del Mac"
+            "value": "Compartir pantalla"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Écran Mac"
+            "value": "Partage d’écran"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Schermo Mac"
+            "value": "Condivisione schermo"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Macの画面"
+            "value": "画面共有"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អេក្រង់ Mac"
+            "value": "ការចែករំលែកអេក្រង់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac 화면"
+            "value": "화면 공유"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac-skjerm"
+            "value": "Skjermdeling"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ekran Maca"
+            "value": "Udostępnianie ekranu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tela do Mac"
+            "value": "Compartilhamento de Tela"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Экран Mac"
+            "value": "Общий экран"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "หน้าจอ Mac"
+            "value": "การแชร์หน้าจอ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac Ekranı"
+            "value": "Ekran Paylaşma"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Екран Mac"
+            "value": "Спільний екран"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Màn hình Mac"
+            "value": "Chia sẻ màn hình"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac 屏幕"
+            "value": "屏幕共享"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac 螢幕"
+            "value": "螢幕共享"
           }
         }
       }
@@ -33009,6 +33009,1131 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "沒有裝置正在檢視或控制這台 Mac。"
+          }
+        }
+      }
+    },
+    "macScreen.rd.hostEnded": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أنهى جهاز Mac الآخر الجلسة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Drugi Mac je završio sesiju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den anden Mac afsluttede sessionen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der andere Mac hat die Sitzung beendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The other Mac ended the session."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El otro Mac finalizó la sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’autre Mac a mis fin à la session."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’altro Mac ha terminato la sessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "もう一方の Mac がセッションを終了しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac ផ្សេងទៀតបានបញ្ចប់វគ្គ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 Mac이 세션을 종료했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den andre Macen avsluttet økten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Drugi Mac zakończył sesję."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O outro Mac encerrou a sessão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Другой Mac завершил сеанс."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac อีกเครื่องสิ้นสุดเซสชันแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diğer Mac oturumu sonlandırdı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Інший Mac завершив сеанс."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy Mac kia đã kết thúc phiên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "另一台 Mac 结束了会话。"
+          }
+        }
+      }
+    },
+    "macScreen.rd.lost": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "انقطع الاتصال بجهاز Mac الآخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Veza s drugim Macom je izgubljena."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forbindelsen til den anden Mac blev afbrudt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Verbindung zum anderen Mac wurde unterbrochen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The connection to the other Mac was lost."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se perdió la conexión con el otro Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La connexion à l’autre Mac a été perdue."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La connessione all’altro Mac è stata persa."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "もう一方の Mac との接続が切れました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការតភ្ជាប់ទៅ Mac ផ្សេងទៀតបានបាត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 Mac과의 연결이 끊어졌습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forbindelsen til den andre Macen ble brutt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utracono połączenie z drugim Macem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A conexão com o outro Mac foi perdida."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Соединение с другим Mac потеряно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การเชื่อมต่อกับ Mac อีกเครื่องขาดหาย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diğer Mac ile bağlantı kesildi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "З’єднання з іншим Mac втрачено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã mất kết nối tới máy Mac kia."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "与另一台 Mac 的连接已断开。"
+          }
+        }
+      }
+    },
+    "macScreen.rd.noBinary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر على cmux تشغيل عارض الشاشة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nije mogao pokrenuti preglednik ekrana."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kunne ikke starte sin skærmviser."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux konnte seine Bildschirmanzeige nicht starten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not start its screen viewer."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux no pudo iniciar su visor de pantalla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux n’a pas pu démarrer son visualiseur d’écran."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux non è riuscito ad avviare il visualizzatore dello schermo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux は画面ビューアを起動できませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux មិនអាចចាប់ផ្ដើមកម្មវិធីមើលអេក្រង់បានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 화면 뷰어를 시작할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kunne ikke starte skjermviseren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nie mógł uruchomić podglądu ekranu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux não conseguiu iniciar o visualizador de tela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не удалось запустить просмотр экрана."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ไม่สามารถเริ่มตัวดูหน้าจอได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ekran görüntüleyicisini başlatamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не вдалося запустити перегляд екрана."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux không thể khởi động trình xem màn hình."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 无法启动屏幕查看器。"
+          }
+        }
+      }
+    },
+    "macScreen.rd.noTicket": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يوافق جهاز Mac الآخر على جلسة بعد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Drugi Mac još nije odobrio sesiju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den anden Mac har ikke godkendt en session endnu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der andere Mac hat noch keine Sitzung genehmigt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The other Mac did not approve a session yet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El otro Mac aún no ha aprobado una sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’autre Mac n’a pas encore approuvé de session."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’altro Mac non ha ancora approvato una sessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "もう一方の Mac はまだセッションを承認していません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac ផ្សេងទៀតមិនទាន់អនុម័តវគ្គនៅឡើយទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 Mac이 아직 세션을 승인하지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den andre Macen har ikke godkjent en økt ennå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Drugi Mac nie zatwierdził jeszcze sesji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O outro Mac ainda não aprovou uma sessão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Другой Mac ещё не одобрил сеанс."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac อีกเครื่องยังไม่ได้อนุมัติเซสชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diğer Mac henüz bir oturumu onaylamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Інший Mac ще не схвалив сеанс."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy Mac kia chưa phê duyệt phiên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "另一台 Mac 尚未批准会话。"
+          }
+        }
+      }
+    },
+    "macScreen.rd.pathDirect": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مباشر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direktno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direkte"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direkt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Directo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direct"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diretto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "直接"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "직접"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direkte"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bezpośrednio"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Напрямую"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โดยตรง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Doğrudan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Напряму"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trực tiếp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "直连"
+          }
+        }
+      }
+    },
+    "macScreen.rd.pathLan": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مباشر (شبكة محلية)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direktno (lokalna mreža)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direkte (lokalt netværk)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direkt (lokales Netzwerk)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct (local network)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Directo (red local)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direct (réseau local)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diretto (rete locale)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "直接（ローカルネットワーク）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាល់ (បណ្ដាញមូលដ្ឋាន)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "직접(로컬 네트워크)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direkte (lokalt nettverk)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bezpośrednio (sieć lokalna)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direto (rede local)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Напрямую (локальная сеть)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โดยตรง (เครือข่ายท้องถิ่น)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Doğrudan (yerel ağ)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Напряму (локальна мережа)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trực tiếp (mạng cục bộ)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "直连（本地网络）"
+          }
+        }
+      }
+    },
+    "macScreen.rd.pathRelayed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عبر مرحّل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preko releja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Via relæ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Über Relay"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relayed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Retransmitido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Relayé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tramite relay"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "リレー経由"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តាមរយៈ relay"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "릴레이 경유"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Via relé"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przez przekaźnik"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Retransmitido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Через ретранслятор"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ผ่านรีเลย์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktarıcı üzerinden"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Через ретранслятор"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Qua máy chuyển tiếp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "中继"
+          }
+        }
+      }
+    },
+    "macScreen.rd.signalingFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر على الجلسة الوصول إلى جهاز Mac الآخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sesija nije mogla doći do drugog Maca."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sessionen kunne ikke nå den anden Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Sitzung konnte den anderen Mac nicht erreichen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The session could not reach the other Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La sesión no pudo llegar al otro Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La session n’a pas pu joindre l’autre Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La sessione non è riuscita a raggiungere l’altro Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "セッションがもう一方の Mac に到達できませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វគ្គមិនអាចទៅដល់ Mac ផ្សេងទៀតបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "세션이 다른 Mac에 연결할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Økten kunne ikke nå den andre Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sesja nie mogła połączyć się z drugim Macem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A sessão não conseguiu alcançar o outro Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сеанс не смог связаться с другим Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เซสชันไม่สามารถเข้าถึง Mac อีกเครื่องได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oturum diğer Mac’e ulaşamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сеанс не зміг з’єднатися з іншим Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phiên không thể kết nối tới máy Mac kia."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "会话无法连接到另一台 Mac。"
+          }
+        }
+      }
+    },
+    "macScreen.rd.viewerStopped": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "توقّف عارض الشاشة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preglednik ekrana se zaustavio."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skærmviseren stoppede."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Bildschirmanzeige wurde beendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The screen viewer stopped."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El visor de pantalla se detuvo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le visualiseur d’écran s’est arrêté."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il visualizzatore dello schermo si è fermato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "画面ビューアが停止しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីមើលអេក្រង់បានឈប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "화면 뷰어가 중지되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjermviseren stoppet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podgląd ekranu został zatrzymany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O visualizador de tela parou."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Просмотр экрана остановлен."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวดูหน้าจอหยุดทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekran görüntüleyici durdu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перегляд екрана зупинився."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trình xem màn hình đã dừng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "屏幕查看器已停止。"
           }
         }
       }

@@ -1,0 +1,124 @@
+{
+  "densities": [
+    "compact",
+    "comfortable"
+  ],
+  "states": [
+    {
+      "name": "rest"
+    },
+    {
+      "name": "hover-working-row",
+      "hoveredRow": "workspace:tc-busy",
+      "requiredControls": [
+        "close"
+      ]
+    },
+    {
+      "name": "hover-selected-row",
+      "hoveredRow": "workspace:tc-selected",
+      "requiredControls": [
+        "close"
+      ]
+    },
+    {
+      "name": "hover-loading-header",
+      "hoveredRow": "group:tc-folded",
+      "requiredControls": [
+        "more"
+      ],
+      "requiredMarks": [
+        "chevron"
+      ]
+    }
+  ],
+  "requiredRows": [
+    {
+      "key": "group:tc-pinned",
+      "kind": "groupHeader",
+      "depth": 0
+    },
+    {
+      "key": "workspace:tc-selected",
+      "kind": "workspace",
+      "depth": 0
+    },
+    {
+      "key": "tab:tc-selected/tc-tab-1",
+      "kind": "innerTab",
+      "parent": "workspace:tc-selected",
+      "depth": 1
+    },
+    {
+      "key": "tab:tc-selected/tc-tab-2",
+      "kind": "innerTab",
+      "parent": "workspace:tc-selected",
+      "depth": 1
+    },
+    {
+      "key": "group:tc-open",
+      "kind": "groupHeader",
+      "depth": 0
+    },
+    {
+      "key": "workspace:tc-member",
+      "kind": "workspace",
+      "parent": "group:tc-open",
+      "depth": 1
+    },
+    {
+      "key": "group:tc-sub",
+      "kind": "groupHeader",
+      "parent": "group:tc-open",
+      "depth": 1
+    },
+    {
+      "key": "workspace:tc-nested",
+      "kind": "workspace",
+      "parent": "group:tc-sub",
+      "depth": 2
+    },
+    {
+      "key": "tab:tc-nested/tc-nested-tab-1",
+      "kind": "innerTab",
+      "parent": "workspace:tc-nested",
+      "depth": 3
+    },
+    {
+      "key": "tab:tc-nested/tc-nested-tab-2",
+      "kind": "innerTab",
+      "parent": "workspace:tc-nested",
+      "depth": 3
+    },
+    {
+      "key": "group:tc-deep",
+      "kind": "groupHeader",
+      "parent": "group:tc-sub",
+      "depth": 2
+    },
+    {
+      "key": "group:tc-folded",
+      "kind": "groupHeader",
+      "depth": 0
+    },
+    {
+      "key": "workspace:tc-busy",
+      "kind": "workspace",
+      "depth": 0
+    },
+    {
+      "key": "workspace:tc-unread",
+      "kind": "workspace",
+      "depth": 0
+    },
+    {
+      "key": "workspace:tc-waiting",
+      "kind": "workspace",
+      "depth": 0
+    }
+  ],
+  "tolerancePoints": 0.5,
+  "endSpotControls": [
+    "close"
+  ]
+}

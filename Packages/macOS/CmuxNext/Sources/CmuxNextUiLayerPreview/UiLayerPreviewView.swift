@@ -7,22 +7,26 @@ import CmuxNextIcons
 ///
 /// The host owns the projection adapter. This type keeps the real cmux NEXT
 /// SwiftUI view independent from daemon models and therefore cheap to rebuild.
-public struct UiLayerPreviewData: Sendable {
+public struct UiLayerPreviewData: Equatable, Sendable {
     public var workspaceName: String
     public var tabTitle: String
     public var tabSubtitle: String?
     public var composerPlaceholder: String
+    /// The workspace row's unread dot.
+    public var unread: Bool
 
     public init(
         workspaceName: String,
         tabTitle: String,
         tabSubtitle: String? = nil,
-        composerPlaceholder: String = "Write a message…"
+        composerPlaceholder: String = "Write a message…",
+        unread: Bool = true
     ) {
         self.workspaceName = workspaceName
         self.tabTitle = tabTitle
         self.tabSubtitle = tabSubtitle
         self.composerPlaceholder = composerPlaceholder
+        self.unread = unread
     }
 }
 
@@ -49,7 +53,9 @@ public struct UiLayerPreviewView: View {
                 composer
             }
         }
-        .background(.windowBackground)
+        // No background of its own: the window kit's backdrop (theme tint, material and picture)
+        // shows through, as panes paint nothing over the main window's backdrop.
+        .animation(Motion.panes.animation(.crossfade), value: data)
     }
 
     private var sidebar: some View {
@@ -62,6 +68,7 @@ public struct UiLayerPreviewView: View {
                 Text(data.workspaceName).lineLimit(1)
                 Spacer()
                 Circle().fill(Color.accentColor).frame(width: 6, height: 6)
+                    .opacity(data.unread ? 1 : 0)
             }
             .padding(.horizontal, Metrics.space2)
             .padding(.vertical, Metrics.space2)

@@ -50,9 +50,9 @@ import "./newtab/noEntry.css";
 import "./threadMinimap/threadMinimap.css";
 import "./turnChanges/turnChanges.css";
 import "./Inspector.css";
-import "./inspector/inspector.css";
-import "./inspector/ContextSection.css";
-import "./inspector/WorkflowTasks.css";
+import "./session-info/sessionInfo.css";
+import "./session-info/ContextSection.css";
+import "./session-info/WorkflowTasks.css";
 import "./dictation.css";
 import "./composerFooterShared.css";
 import "./addProject.css";
@@ -68,6 +68,7 @@ import "./harnessStatus.css";
 import "../../markdown-task-checkbox.css";
 import { devHostParams, installDevHost } from "../../dev-host/host";
 import { seedDevRecents } from "./devRecents";
+import { prepareMockTransport } from "./mockTransport";
 
 // `?mock` runs the page in a plain browser against the in-page mock daemon (no cmux host), the
 // way the screenshot harness stubs the bridge; `?recents=demo` seeds a few recent models so the
@@ -75,9 +76,22 @@ import { seedDevRecents } from "./devRecents";
 // standalone acpmux daemon instead (devHost.ts, scripts/agent-pane/dev-slot.sh).
 const params = new URLSearchParams(location.search);
 const devHost = devHostParams(location.hash);
+if (params.has("mock") && params.has("slowDaemon")) {
+  const fixture = globalThis as {
+    cmuxAcpmuxMockSlowMethod?: string;
+    cmuxAcpmuxMockSlowMs?: number;
+  };
+  fixture.cmuxAcpmuxMockSlowMethod = params.get("slowMethod") ?? "session/new";
+  fixture.cmuxAcpmuxMockSlowMs = Number(params.get("slowMs") ?? 6_000);
+}
 if (devHost) installDevHost(devHost);
 else if (params.has("mock") && !window.webkit?.messageHandlers?.agentSession)
   window.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };
+if (!devHost && params.has("mock")) {
+  const { installAppPanelsDevClient } = await import("../../apps/scene/panelsClient");
+  const { MockAppPanelsClient } = await import("../../apps/scene/panelsMock");
+  installAppPanelsDevClient(new MockAppPanelsClient());
+}
 if (params.get("recents") === "demo") seedDevRecents();
 // A standalone daemon has no cmux host to send the `display` event: the frame-cost bench
 // (bench/thread-minimap-frame-cost.bench.ts) turns the chat minimap on through this instead.
@@ -87,4 +101,9 @@ if (devHost) {
 }
 // The dev server has no locales/<code>.js: install the whole string table before the pane loads.
 globalThis.__cmuxPaneStrings ??= (await import("./generated/strings.json")).default;
-await import("./main");
+// Prepare the standalone mock daemon before the pane can paint its first handshake.
+// Keep main's import first in source order: the shipped stylesheet order is derived from it.
+const mountPane = () => import("./main");
+if (!devHost && params.has("mock") && !window.webkit?.messageHandlers?.agentSession)
+  prepareMockTransport(await import("./mock"));
+await mountPane();

@@ -33,7 +33,7 @@ Sources compared:
 | | Classic | cmux NEXT (before) |
 | --- | --- | --- |
 | Container | No bar: each key is its own glass capsule, 28 pt tall, on a clear strip | One 44 pt glass capsule holding 34 pt keys |
-| Pinned (left) | Keyboard toggle (keyboard / keyboard.chevron.compact.down, cross-dissolve), arrow nub, compose toggle (square.and.pencil) | esc, ctrl, ^C |
+| Pinned (left) | Keyboard toggle (keyboard / keyboard.chevron.compact.down, cross-dissolve), arrow nub, text field toggle (character.textbox, 13 pt like its neighbors) | esc, ctrl, ^C |
 | Pinned (right) | None (the row scrolls to the screen edge) | Joystick, hide keyboard |
 | Scrolling keys | ⌃ ⌥ ⌘ ⇧ paste, Tab, Esc, ⏎, ^C, ^D, Claude, Codex, Ollama, ↑ ↓ ← →, Clear, ~ $ / @ \|, ^Z, Home, End, PgUp, PgDn, zoom out, zoom in, then Hide Toolbar and Customize | tab, ⇧tab, ↑ ↓ ← →, ^D ^Z ^L, alt, \| ~ / -, paste, ` { } [ ], ^R, ^B |
 | Key size | Hugs its label, min 32 pt wide (glyph keys exactly 32), 4 pt gaps, 14 pt medium text | Fixed 44 pt wide, 6 pt gaps, snaps to whole keys, 15 pt monospaced |
@@ -51,7 +51,7 @@ Sources compared:
 | --- | --- | --- |
 | Structure | Paperclip button (40 pt glass circle), mic button (40 pt glass circle), then the field in a rounded glass container (radius 20, min 40 pt) with a 28 pt send circle inside it, riding the last line | One glass card (radius 24) holding a 36 pt `+` circle, the field, and a 36 pt send circle |
 | Attach menu | Photo Library, Choose Files, Paste | Paste (only for an image or file, first), Camera, Photos, Files |
-| Dictation | Mic toggles on-device dictation into the field (pulsing red mic while listening; the field locks while it listens) | None (the keyboard's own mic) |
+| Dictation | Mic toggles on-device dictation into the field (pulsing red mic while listening; the field locks while it listens) | Replaced by voice mode (waveform): a GPT Realtime line to the agent, its replies read aloud without code or diffs, speech sent as prompts; the keyboard's own mic still dictates |
 | Placeholder | "Message" | "Send to <program>", or "Typing into terminal" with a keyboard glyph while keys go to the terminal |
 | Return key | Inserts a new line; only Send sends | Sends (Shift-Return or the edit menu's New Line inserts one) |
 | Lines | Grows 1 to 14 lines, then scrolls | 1 to 6 lines |

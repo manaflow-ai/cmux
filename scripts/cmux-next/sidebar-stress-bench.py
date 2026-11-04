@@ -24,7 +24,7 @@ Traces go to OUT/traces/*.trace; OUT/results.json holds every number and the top
 Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
   sidebar-stress-bench.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS/stress" [--sizes 100,500,1000]
 """
-import argparse, glob, json, os, shutil, socket, statistics, subprocess, sys, tempfile, time
+import argparse, glob, json, math, os, shutil, socket, statistics, subprocess, sys, tempfile, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -37,9 +37,12 @@ parser.add_argument("--tickers", type=int, default=0, help="exact number of tick
 parser.add_argument("--scenarios", default="ticks,scroll,scroll_ticking,switch,drag,hitches",
                     help="which scenarios to run per size; add switch_matrix for the workspace switch matrix")
 parser.add_argument("--switches", type=int, default=16, help="switch_matrix: switches per input and kind")
+parser.add_argument("--target-hz", type=float, help="count lost refresh slots against this target instead of display cadence")
 parser.add_argument("--no-trace", action="store_true")
 parser.add_argument("--stop", action="store_true", help="quit the launched app at the end (jobs without $NX_APP_STOP)")
 opts = parser.parse_args()
+if opts.target_hz is not None and (not math.isfinite(opts.target_hz) or opts.target_hz <= 0):
+    parser.error("--target-hz must be positive and finite")
 OUT = os.path.abspath(opts.out)
 os.makedirs(os.path.join(OUT, "traces"), exist_ok=True)
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -369,8 +372,57 @@ def ticking(on):
 
 
 # ---------------------------------------------------------------- scenarios
+def sidebar_frame_metrics(stats, target_hz=None):
+    """A stop reply is captured before deactivation: running=false means the probe expired."""
+    intervals = stats.get("intervals_ms")
+    valid = bool(isinstance(intervals, list) and intervals
+                 and all(type(ms) in (int, float) and math.isfinite(ms) and ms >= 0 for ms in intervals))
+    refresh = stats.get("refresh_ms")
+    has_refresh = type(refresh) in (int, float) and math.isfinite(refresh) and refresh > 0
+    duration = sum(intervals) if valid else None
+    complete = bool(valid and has_refresh and not stats.get("error") and stats.get("running") is True
+                    and type(stats.get("frames")) is int and len(intervals) == stats["frames"] and duration > 0)
+    nominal = 1000 / target_hz if target_hz else refresh
+    # `missed` counts long intervals: one 4-refresh interval is one there, but loses
+    # three refresh slots. Match the web recorder's positive-number rounding rule.
+    dropped = sum(max(0, math.floor(ms / nominal + 0.5) - 1) for ms in intervals) if complete else None
+    return {
+        "source": "debug.frames(raw=true); app display-link timestamps, not compositor presentation",
+        "duration_precision": "sum of intervals rounded by the API to 0.01 ms",
+        "complete": complete,
+        "target_hz": target_hz,
+        "nominal_ms": nominal,
+        "measured_refresh_ms": refresh,
+        "sampled_duration_ms": duration,
+        "observed_duration_ms": duration if complete else None,
+        "dropped_slots": dropped,
+        "dropped_slots_per_s": dropped * 1000 / duration if dropped is not None and duration > 0 else None,
+        "blank_frames": None,
+        "blank_ms": None,
+        "blank_source": "unavailable: debug.frames does not observe row coverage",
+    }
+
+
 def frames(action_name):
-    return rpc("debug.frames", {"action": action_name})
+    stats = rpc("debug.frames", {"action": action_name, "raw": action_name == "stop"})
+    if action_name != "stop":
+        return stats
+    if not isinstance(stats, dict):
+        stats = {"error": "invalid frame reply", "raw_reply": stats}
+    stats["frame_metrics"] = sidebar_frame_metrics(stats, opts.target_hz)
+    return stats
+
+
+def scrolls_complete(entry, requested):
+    scenarios = {"scroll": "scroll", "scroll_ticking": "scroll_while_ticking"}
+    for name in requested:
+        if name not in scenarios:
+            continue
+        scenario = entry.get(scenarios[name]) or {}
+        metrics = ((scenario.get("frames") or {}).get("frame_metrics") or {})
+        if metrics.get("complete") is not True:
+            return False
+    return True
 
 
 def noop_ms(count=30):
@@ -716,6 +768,7 @@ def main():
             if "hitches" in want:
                 entry["hitches"] = scenario_hitches(app.pid, size)
             entry["hangs"] = rpc("debug.hangs", {})
+            entry["measurement_complete"] = scrolls_complete(entry, want)
             results["sizes"][str(size)] = entry
             with open(os.path.join(OUT, "results.json"), "w") as f:
                 json.dump(results, f, indent=1, default=str)
@@ -736,6 +789,8 @@ def main():
         results["cleanup_closed"] = close_scratch("after")
     finally:
         ticking(False)
+        results["measurement_complete"] = all((results["sizes"].get(str(size)) or {}).get("measurement_complete") is True for size in sizes)
+        results["target_hz"] = opts.target_hz
         results["made"] = {k: len(v) for k, v in made.items()}
         with open(os.path.join(OUT, "results.json"), "w") as f:
             json.dump(results, f, indent=1, default=str)
@@ -746,6 +801,7 @@ def main():
                 app.wait(timeout=30)
             except subprocess.TimeoutExpired:
                 app.terminate()
+    return results["measurement_complete"]
 
 
-main()
+sys.exit(0 if main() else 1)

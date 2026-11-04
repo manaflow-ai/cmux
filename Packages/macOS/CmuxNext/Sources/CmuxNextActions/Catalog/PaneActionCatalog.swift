@@ -11,8 +11,8 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional], targets: [.pane], cliName: "pane split-right", mainMenu: .view, startsTerminal: true
             ),
             // A PNG of the pane as on screen, never changing focus or selection
-            // (ScreenshotHandlers): Copy menu, palette and automation. An automation run's
-            // image has every web page the app does not own painted over (ScreenshotPrivacyMask).
+            // (ScreenshotHandlers): Copy menu, palette and automation. An agent's or a
+            // script's capture comes back with every browser page and agent chat masked.
             ActionDescriptor(
                 id: "pane.screenshot",
                 title: String(localized: "action.pane.screenshot", defaultValue: "Screenshot Pane", bundle: .module),
@@ -21,19 +21,31 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 cliName: "pane screenshot",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.pane, .inspect, 510, folder: .copy)])
             ),
+            // New Column Right keeps the `newColumn` id (cmux.json bindings, scripts); New Column
+            // Left opens before the pane's column (`column-left-v1`). Both search as "new column".
+            // New Column Ctrl-Cmd-X and New Row Ctrl-Shift-Cmd-X: X is the second D: Ctrl adds a column / row,
+            // Option a browser, Shift means below (PaneCreateKeySetTests). Not Ctrl-Cmd-D: macOS's Look Up (system
+            // hot key 70, on by default) takes it before cmux (MacOSSystemShortcutsTests).
             ActionDescriptor(
                 id: "newColumn",
-                title: String(localized: "action.newColumn", defaultValue: "New Column", bundle: .module),
-                keywords: ["scroll", "column", "pane"],
-                defaultShortcut: Shortcut("d", modifiers: [.control, .command]), category: .pane,
+                title: String(localized: "action.newColumn", defaultValue: "New Column Right", bundle: .module),
+                keywords: ["new column", "scroll", "column", "pane", "right", "add"],
+                defaultShortcut: Shortcut("x", modifiers: [.control, .command]), category: .pane,
                 symbol: "rectangle.split.3x1", surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane],
                 cliName: "pane new-column", mainMenu: .view, startsTerminal: true
+            ),
+            ActionDescriptor(
+                id: "newColumnLeft",
+                title: String(localized: "action.newColumnLeft", defaultValue: "New Column Left", bundle: .module),
+                keywords: ["new column", "scroll", "column", "pane", "left", "add", "before"],
+                category: .pane, symbol: "rectangle.lefthalf.inset.filled", surfaces: [.palette, .keyboard, .menu, .contextMenu],
+                targets: [.pane], cliName: "pane new-column-left", mainMenu: .view, startsTerminal: true
             ),
             ActionDescriptor(
                 id: "newRow",
                 title: String(localized: "action.newRow", defaultValue: "New Row", bundle: .module),
                 keywords: ["scroll", "row", "pane"],
-                defaultShortcut: Shortcut("d", modifiers: [.control, .shift, .command]), category: .pane,
+                defaultShortcut: Shortcut("x", modifiers: [.control, .shift, .command]), category: .pane,
                 symbol: "rectangle.grid.1x2", surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane],
                 cliName: "pane new-row", mainMenu: .view, startsTerminal: true
             ),
@@ -366,14 +378,22 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .menu], targets: [.pane], cliName: "pane open-cloud-as", mainMenu: .window,
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            ActionDescriptor(
+                id: "artifacts.show",
+                title: String(localized: "action.artifacts.show", defaultValue: "Show Artifacts", bundle: .module),
+                keywords: ["artifacts", "memory", "memories", "notes", "history", "saved"], category: .pane, symbol: "shippingbox",
+                surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
             // A file in a tab of the pane or in the text editor: the agent pane's changed
             // files (#16723), the palette and the File menu (no path: the cmux
-            // picker at the pane's folder, R89), and `cmux file open`.
+            // picker at the pane's folder, R89), and `cmux file open`. `asText` (`--as-text`):
+            // HTML, SVG or Markdown opens as its source in the code editor (u18462).
             ActionDescriptor(
                 id: "file.open",
                 title: String(localized: "action.file.open", defaultValue: "Open File…", bundle: .module),
                 keywords: ["file", "editor", "preview", "path"], category: .pane, symbol: "doc",
-                surfaces: [.palette, .menu], arguments: [CatalogArgument.optionalPathString, CatalogArgument.whereChoice],
+                surfaces: [.palette, .menu], arguments: [CatalogArgument.optionalPathString, CatalogArgument.whereChoice, CatalogArgument.asTextBool],
                 targets: [.pane], cliName: "file open", mainMenu: .file
             ),
         ]

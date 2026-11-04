@@ -591,12 +591,17 @@ pub fn codex_servers(packs: &[Pack], bin: &Path) -> toml::Table {
     out
 }
 
-fn secret_of(mux_home: &Path, packs: &[Pack], name: &str) -> Result<String, String> {
+/// Where the launchers read a pack's secret. The composition root (`main`) passes
+/// [`store`] of the Chief home (the macOS login keychain, else a 0600 file); a
+/// test passes the store it wrote the secret into.
+pub type StoreOf<'a> = &'a dyn Fn(&Pack) -> Box<dyn Store>;
+
+fn secret_of(store_of: StoreOf<'_>, packs: &[Pack], name: &str) -> Result<String, String> {
     let p = packs
         .iter()
         .find(|p| p.name == name)
         .ok_or_else(|| format!("secret:{name}: no such pack is on"))?;
-    store(mux_home, p).get().ok_or_else(|| {
+    store_of(p).get().ok_or_else(|| {
         format!(
             "secret:{name}: this Chief has no {} token (chief pack status {name})",
             p.title
@@ -613,7 +618,12 @@ fn find_server<'a>(packs: &'a [Pack], pack: &str, server: &str) -> Result<&'a Mc
 }
 
 /// `pack mcp-headers PACK SERVER`: Claude Code's headersHelper answer.
-pub fn mcp_headers(mux_home: &Path, pack: &str, server: &str) -> Result<String, String> {
+pub fn mcp_headers(
+    mux_home: &Path,
+    pack: &str,
+    server: &str,
+    store_of: StoreOf<'_>,
+) -> Result<String, String> {
     let packs = load(mux_home);
     let m = find_server(&packs, pack, server)?;
     let r = m
@@ -621,13 +631,22 @@ pub fn mcp_headers(mux_home: &Path, pack: &str, server: &str) -> Result<String, 
         .as_deref()
         .and_then(|b| b.strip_prefix("secret:"))
         .ok_or("no bearer")?;
-    Ok(json!({"Authorization": format!("Bearer {}", secret_of(mux_home, &packs, r)?)}).to_string())
+    Ok(json!({"Authorization": format!("Bearer {}", secret_of(store_of, &packs, r)?)}).to_string())
 }
 
 /// `pack mcp PACK SERVER`: runs a stdio server with its secrets in its env
 /// (never in a file or argv), and keeps only the pack's allowed tools: a
 /// `tools/list` answer is filtered, a `tools/call` of another tool refused.
-pub fn serve_mcp(mux_home: &Path, pack: &str, server: &str) -> Result<i32, String> {
+/// It speaks over `input` and `output` (`main` passes the process's stdin and
+/// stdout) and reads secrets from `store_of`.
+pub fn serve_mcp(
+    mux_home: &Path,
+    pack: &str,
+    server: &str,
+    store_of: StoreOf<'_>,
+    input: Box<dyn std::io::BufRead + Send>,
+    output: Box<dyn Write + Send>,
+) -> Result<i32, String> {
     use std::io::BufRead;
     let packs = load(mux_home);
     let m = find_server(&packs, pack, server)?.clone();
@@ -635,7 +654,7 @@ pub fn serve_mcp(mux_home: &Path, pack: &str, server: &str) -> Result<i32, Strin
     cmd.args(&m.args);
     for (k, v) in &m.env {
         match v.strip_prefix("secret:") {
-            Some(r) => cmd.env(k, secret_of(mux_home, &packs, r)?),
+            Some(r) => cmd.env(k, secret_of(store_of, &packs, r)?),
             None => cmd.env(k, v),
         };
     }
@@ -648,14 +667,14 @@ pub fn serve_mcp(mux_home: &Path, pack: &str, server: &str) -> Result<i32, Strin
         .stdout(Stdio::piped())
         .spawn()
         .map_err(|e| format!("{}: {e}", m.name))?;
-    let out = std::sync::Arc::new(std::sync::Mutex::new(std::io::stdout()));
+    let out = std::sync::Arc::new(std::sync::Mutex::new(output));
     let lists = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
     let mut to_child = child.stdin.take().ok_or("no stdin")?;
     let from_child = child.stdout.take().ok_or("no stdout")?;
     let allowed = m.tools.clone();
     let (out2, lists2) = (out.clone(), lists.clone());
     let reader = std::thread::spawn(move || {
-        for line in std::io::stdin().lock().lines() {
+        for line in input.lines() {
             let Ok(line) = line else { break };
             let msg: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
             match msg["method"].as_str() {

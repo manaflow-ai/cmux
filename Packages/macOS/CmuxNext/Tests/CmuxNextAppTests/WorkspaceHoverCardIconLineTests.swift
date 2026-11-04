@@ -15,6 +15,7 @@ import Testing
         workspace.taskStatus = .done
         let card = WorkspaceHoverCardView()
         card.configure(.make(workspace, machine: nil, now: Date()))
+        card.detailsToggle.performClick(nil)
         card.frame = NSRect(origin: .zero, size: card.fittingSize)
         card.layoutSubtreeIfNeeded()
         return card

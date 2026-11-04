@@ -175,7 +175,8 @@ typedef enum {
   CMUX_SHIM_BEFORE_UNLOAD_DISMISSED = 45,
   // A cmux-page:// page asks for one of its dynamic paths
   // (cmux_shim_page_scheme_add_first_party_dynamic). request = token,
-  // s1 = the full URL. Chromium waits for cmux_shim_page_resource_respond
+  // s1 = the full URL, s2 = the request's Range header (empty when none).
+  // Chromium waits for cmux_shim_page_resource_respond (or _respond_ranged)
   // (during the event or later); a request the page cancels drops it.
   CMUX_SHIM_PAGE_RESOURCE = 46,
   // A drag of files from outside the app entered a page (CefDragHandler::
@@ -188,6 +189,12 @@ typedef enum {
   // line (MIME types and ".ext"); s2 = the default path or file name. Chromium
   // shows no panel; a closed or crashed browser cancels it.
   CMUX_SHIM_FILE_DIALOG = 48,
+  // 49 (PAGE_MESSAGE) and 50 (EVALUATE_RESULT) come from the fork (API 29).
+  // The text Chromium shows for the hovered link (CefDisplayHandler::
+  // OnStatusMessage): s1 = the text, "" when the pointer left the link. The
+  // shim turns Chrome's own status bubble off (chrome_status_bubble), so the
+  // host draws this inside the tab's pane.
+  CMUX_SHIM_STATUS_MESSAGE = 51,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -293,6 +300,12 @@ CMUX_SHIM_EXPORT int cmux_shim_tab_set_transparent_background(int browser_id, in
 // 1: file choosers come to the host as CMUX_SHIM_FILE_DIALOG (it must answer
 // each); 0 (the default): Chromium shows its own panel. UI thread.
 CMUX_SHIM_EXPORT void cmux_shim_set_file_dialogs(int enabled);
+// 1: browser_id's file choosers come to the host (as above) whatever
+// cmux_shim_set_file_dialogs says; 0 (the default) leaves them to it. Only
+// the cmux pages that record the person's pick ask for it; every other page
+// keeps Chromium's own panel and its accept filters. Forgotten when the
+// browser closes. UI thread.
+CMUX_SHIM_EXPORT void cmux_shim_browser_set_file_dialogs(int browser_id, int enabled);
 // Answers a CMUX_SHIM_FILE_DIALOG: `paths` are absolute paths, one per line
 // (NULL or "" cancels); `multiple` 0 keeps only the first (open one, save).
 // Returns 0 when the id is unknown or already answered. UI thread.
@@ -416,6 +429,8 @@ CMUX_SHIM_EXPORT void cmux_shim_load_url(int browser_id, const char* url);
 CMUX_SHIM_EXPORT void cmux_shim_go_back(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_go_forward(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_reload(int browser_id);
+// Chrome's Hard Reload: the current entry again, every resource fetched past the cache.
+CMUX_SHIM_EXPORT void cmux_shim_reload_ignore_cache(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_stop(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_set_focus(int browser_id, int focus);
 // Without a handler every focus request wins (CEF's default).
@@ -479,8 +494,17 @@ CMUX_SHIM_EXPORT void cmux_shim_devtools_set_key_handler(cmux_shim_key_fn key);
 // (NSView*, width x height), or, with parent_view NULL, its own window at
 // (x, y, width, height) in screen coordinates (0 size = Chromium's default).
 CMUX_SHIM_EXPORT void cmux_shim_devtools_set_placement(int browser_id, void* parent_view, int x, int y, int width, int height);
+// The background (ARGB) the next DevTools of browser_id starts with, before
+// its frontend draws: the theme color of the pane it docks in. 0 = the
+// process default (cmux_shim_set_background_color).
+CMUX_SHIM_EXPORT void cmux_shim_devtools_set_background(int browser_id, unsigned int argb);
 // cmux_shim_devtools_command_t; returns 0 when browser_id is gone.
 CMUX_SHIM_EXPORT int cmux_shim_devtools_command(int browser_id, int command, int x, int y);
+// Writes the host's dock side (0 undocked, 1 left, 2 bottom, 3 right) into
+// browser_id's DevTools frontend setting, which the frontend applies when it
+// loads. Returns 1 when set (or already so), 0 when it cannot be set, -1 when
+// Chromium refused it.
+CMUX_SHIM_EXPORT int cmux_shim_devtools_set_frontend_dock_side(int browser_id, int side);
 // The DevTools browser id of browser_id, or 0 when DevTools is closed.
 CMUX_SHIM_EXPORT int cmux_shim_devtools_browser(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_devtools_set_focus(int browser_id, int focus);
@@ -603,6 +627,12 @@ CMUX_SHIM_EXPORT void cmux_shim_close_all(void);
 CMUX_SHIM_EXPORT int cmux_shim_live_browser_count(void);
 CMUX_SHIM_EXPORT int cmux_shim_window_count(void);  // -1 when the fork API is missing
 CMUX_SHIM_EXPORT void cmux_shim_shutdown(void);
+// Quit, before cmux_shim_shutdown: commits every request context's cookie
+// store to disk (CefCookieManager::FlushStore), so CefShutdown has no cookie
+// write left and a quit its deadline ends inside CefShutdown keeps them. REPLY
+// with `reply` and browser 0 follows once every store answered (at once when
+// there is none): a = stores flushed. Returns 1 when started.
+CMUX_SHIM_EXPORT int cmux_shim_flush_cookie_stores(int reply);
 
 // Site state for Page Info (ABI 3). Content types are named as
 // SitePermissionKind raw values ("location", "popups", "thirdPartySignIn",
@@ -878,6 +908,12 @@ CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add_first_party_dynamic(const char* i
 // Returns 1 when the request was waiting, 0 when it ended or was answered.
 CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond(int token, int status, const char* mime, const void* body,
                                                      size_t length);
+// The same for a byte range of a video or audio file: status (200, 206, 416,
+// 404) and range_headers, newline-separated `Name: value` lines of which only
+// Content-Range and Accept-Ranges are kept (NULL = none).
+CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond_ranged(int token, int status, const char* mime,
+                                                            const char* range_headers, const void* body,
+                                                            size_t length);
 
 #ifdef __cplusplus
 }

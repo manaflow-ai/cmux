@@ -31,6 +31,8 @@ public nonisolated enum BrowserNavigationEvent: Hashable, Sendable {
     case mediaChanged(BrowserMediaState?, frame: String = "")
     /// The tab was muted (true) or unmuted (`BrowserAudioMuting`).
     case audioMutedChanged(Bool)
+    /// The shown page's scrolling settled at `y` CSS pixels (``BrowserScrollReportScript``).
+    case pageScrolled(Double)
 }
 
 /// Pure reducer from engine events to `BrowserTabState`.
@@ -200,6 +202,10 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
 
         case .audioMutedChanged(let muted):
             state.isAudioMuted = muted
+
+        case .pageScrolled(let y):
+            guard let url = state.url else { return }
+            state.scrollReport = BrowserScrollReport(url: url, y: y)
         }
     }
 

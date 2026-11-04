@@ -5,36 +5,36 @@
     "snapshot": "freestyle/ubuntu-sm",
     "fingerprint": {
       "kernelRelease": "6.1.102",
-      "dpkgListSha256": "2fd3f30960da22ba41487d43cc79add2f5f74131c8e805320b97a369a7a36243",
-      "dpkgPackageCount": 416,
-      "recordedAt": "2026-10-21T20:06:51Z"
+      "dpkgListSha256": "815053cdba81366878fda45596bf3ce5f4d095c334848513be2517d817857b22",
+      "dpkgPackageCount": 419,
+      "recordedAt": "2026-10-31T10:51:59Z"
     },
     "runtimes": {
-      "node": "v24.21.0",
-      "npm": "11.19.0",
-      "bun": "1.3.14",
+      "node": "v26.13.0",
+      "npm": "11.20.0",
+      "bun": "1.4.4",
       "python3": "Python 3.12.3",
       "uv": "uv 0.12.5",
       "docker": "Docker version 29.1.3, build 29.1.3-0ubuntu3~24.04.2"
     },
     "basePackages": {
       "docker.io": "29.1.3-0ubuntu3~24.04.2",
-      "containerd": "2.2.1-0ubuntu1~24.04.3",
+      "containerd": "2.2.1-0ubuntu1~24.04.4",
       "runc": "1.3.4-0ubuntu1~24.04.1",
-      "git": "1:2.43.0-1ubuntu7.3",
-      "curl": "8.5.0-2ubuntu10.15",
+      "git": "1:2.43.0-1ubuntu7.4",
+      "curl": "8.5.0-2ubuntu10.16",
       "jq": "1.7.1-3ubuntu0.24.04.2",
-      "ca-certificates": "20260601~24.04.1",
+      "ca-certificates": "20260816ubuntu0.24.04.1",
       "wireguard-tools": "1.0.20210914-1ubuntu4",
-      "openssh-server": "1:9.6p1-3ubuntu13.19",
-      "tmux": "3.4-1ubuntu0.1",
+      "openssh-server": "1:9.6p1-3ubuntu13.20",
+      "tmux": "3.4-1ubuntu0.2",
       "perl": "5.38.2-3.2ubuntu0.6"
     },
     "npmGlobals": {
       "keep": {
         "corepack": "0.36.0",
-        "npm": "11.19.0",
-        "typescript-language-server": "5.3.0"
+        "npm": "11.20.0",
+        "typescript-language-server": "6.0.2"
       },
       "strip": [
         "openclaw",
@@ -43,7 +43,8 @@
         "ts-node",
         "@anthropic-ai/claude-code",
         "@openai/codex",
-        "opencode-ai"
+        "opencode-ai",
+        "freestyle"
       ]
     }
   },
@@ -382,27 +383,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "9b1c22e8f18e7023db444ede49b0d58d3dc408d7",
-      "url": "https://files.cmux.com/cmux-tui/9b1c22e8f18e7023db444ede49b0d58d3dc408d7/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "e2f589eacc5cd492424757dee8738eff354231af31de45743407bfa1bf6d0b16",
-      "size": 99229440,
+      "version": "f7b9c57198dcea5e5949e81c23ef09b000a247ce",
+      "url": "https://files.cmux.com/cmux-tui/f7b9c57198dcea5e5949e81c23ef09b000a247ce/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "c4ee3b1954a6de2398fafc29dfb46cbca97d2370194a4fb47b64e4119f9a57a3",
+      "size": 154107456,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "acpmux": "cmux-tui", "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/9b1c22e8f18e7023db444ede49b0d58d3dc408d7/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/40652584140; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/f7b9c57198dcea5e5949e81c23ef09b000a247ce/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/41809039490; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "9b1c22e8f18e7023db444ede49b0d58d3dc408d7",
-      "url": "https://files.cmux.com/cmux-tui/9b1c22e8f18e7023db444ede49b0d58d3dc408d7/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "7135a7999dcbbee3532ba275a53b66545969f7e4488064c10dff319772ef6545",
-      "size": 4063824,
+      "version": "f7b9c57198dcea5e5949e81c23ef09b000a247ce",
+      "url": "https://files.cmux.com/cmux-tui/f7b9c57198dcea5e5949e81c23ef09b000a247ce/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "97c6e4dca9660e1354195004fc5dd2e00e6dec736cd4027645a95c434161a6e1",
+      "size": 4255400,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/9b1c22e8f18e7023db444ede49b0d58d3dc408d7/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/40652584140; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/f7b9c57198dcea5e5949e81c23ef09b000a247ce/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/41809039490; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "coderouter",
@@ -420,15 +421,15 @@
     },
     {
       "name": "claude",
-      "version": "2.1.267",
-      "url": "https://downloads.claude.ai/claude-code-releases/2.1.267/linux-x64/claude",
-      "sha256": "0399c793ff571d5946ef923d80b4f330d05ac4b6842a6b0775468f5d389403c0",
-      "size": 217013744,
+      "version": "2.1.299",
+      "url": "https://downloads.claude.ai/claude-code-releases/2.1.299/linux-x64/claude",
+      "sha256": "2d894a4b1bfaaa9aab72aeff7803e3c73bc2510f279a171f6b8f59f72d17d077",
+      "size": 265342136,
       "format": "raw",
       "fileName": "claude",
       "bin": { "claude": "claude" },
       "versionArgs": ["--version"],
-      "expect": "2.1.267"
+      "expect": "2.1.299"
     },
     {
       "name": "codex",
@@ -549,6 +550,29 @@
         }
       },
       "source": "manaflow-ai/cmux release cmux-browser-host-v1.0.0-r1 (2026-10-24; tag on 4cf5c4ccc7c5, a feat-cmux-next commit; tag run 40082002418). A host-only release ([package.metadata.cmux-release] revision 1): the binary prints the one cmux-next version, 1.0.0. Adds to 1.0.0: goto after a router hash change, new-document snapshot diffs, the host world at once, headless clicks without the human pointer path. sha256 and size of both archives from the release SHA256SUMS and downloads. Archive: LICENSE, THIRD_PARTY_LICENSES.md, bin/cmux-browser-host (glibc floor 2.31)."
+    },
+    {
+      "name": "agent-desktop",
+      "version": "1.0.2",
+      "url": "https://github.com/vercel-labs/agent-desktop/releases/download/v1.0.2/agent-desktop-v1.0.2-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "ad661b7a3fd8f990a769243f4889a240ca0e2c8dab3ef5bddd6019086c71e0b4",
+      "size": 3359127,
+      "format": "tar.gz",
+      "bin": { "agent-desktop": "agent-desktop" },
+      "versionArgs": ["--version"],
+      "expect": "agent-desktop 1.0.2",
+      "checksumsUrl": "https://github.com/vercel-labs/agent-desktop/releases/download/v1.0.2/checksums.txt",
+      "checksumsName": "agent-desktop-v1.0.2-x86_64-unknown-linux-gnu.tar.gz",
+      "roles": ["cua"],
+      "otherArches": {
+        "aarch64": {
+          "url": "https://github.com/vercel-labs/agent-desktop/releases/download/v1.0.2/agent-desktop-v1.0.2-aarch64-unknown-linux-gnu.tar.gz",
+          "sha256": "864cb782e0afc8bf0df19622016b24bdbd1a83fc7749f784ee82aa49a7f845eb",
+          "size": 3245284,
+          "checksumsName": "agent-desktop-v1.0.2-aarch64-unknown-linux-gnu.tar.gz"
+        }
+      },
+      "source": "vercel-labs/agent-desktop release v1.0.2 (2026-10-30, Apache-2.0; docs/install.md: a native archive with its platform helper kept beside the executable). Computer use through the AT-SPI accessibility tree (at-spi2-core is in the base set; X11 input needs libxtst6, display role). Archive: agent-desktop and agent-desktop-linux-clipboard-owner (its helper, found beside the binary through the store link), linked only against libc and libgcc_s. sha256 and size from the release asset digests and checksums.txt; gh attestation verify --repo vercel-labs/agent-desktop passed on the x86_64 archive."
     }
   ],
   "roles": {

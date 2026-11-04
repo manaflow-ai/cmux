@@ -49,6 +49,27 @@ impl<'de> Deserialize<'de> for WireNumber {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct BoolLit<const V: bool>;
 
+/// A catalog integer literal: decode only the declared value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct IntLit<const V: i64>;
+
+impl<const V: i64> Serialize for IntLit<V> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_i64(V)
+    }
+}
+
+impl<'de, const V: i64> Deserialize<'de> for IntLit<V> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = i64::deserialize(deserializer)?;
+        if value == V {
+            Ok(Self)
+        } else {
+            Err(D::Error::invalid_value(Unexpected::Signed(value), &"the declared integer literal"))
+        }
+    }
+}
+
 impl<const V: bool> Serialize for BoolLit<V> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_bool(V)

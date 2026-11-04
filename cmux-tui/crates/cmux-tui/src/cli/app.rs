@@ -33,14 +33,18 @@ mod batch;
 mod call;
 mod classic;
 mod events;
+mod group_create;
 mod keybinding;
+mod nightly;
 mod open;
 mod open_link;
 mod page;
+mod renderers;
 mod right;
 mod run;
 mod settings;
 mod skew;
+mod space;
 mod version;
 pub(super) mod wait;
 
@@ -60,6 +64,11 @@ pub(super) const APP_SCOPES: &[&str] = &[
     "keybinding",
     "ghostty",
     "errors",
+    "home",
+    "team",
+    // Space aliases keep the intuitive `cmux space …` CLI alongside the
+    // app action catalog's historical `space create|delete` names.
+    "space",
 ];
 
 /// Control-plane requests answer within the app's own 2 s deadline. A run
@@ -71,20 +80,44 @@ pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
 /// `errors.list` reads the app's logs first (the app bounds it at 12 s).
 const ERRORS_TIMEOUT: Duration = Duration::from_secs(15);
 /// A run that waits for a person's answer in the app (an agent's cookie
-/// import shows a consent panel, then macOS asks for a password): the app
+/// import shows a consent panel, then macOS asks for a password; Invite to
+/// Team waits for Send in its dialog; an agent's or script's Share Chat with
+/// Guest or Invite People waits for the owner's Make Link or Invite, #30263): the app
 /// bounds it at 200 s (`ActionDescriptor.personDeadline`).
 pub(super) const PERSON_RUN_TIMEOUT: Duration = Duration::from_secs(210);
-/// The CLI names of the actions that wait for a person (`waits_for_person`).
-const PERSON_ACTIONS: &[&str] = &["browser import-cookies", "browser.importCookies"];
+/// The CLI names and ids of the actions the app marks `waitsForPerson` (the
+/// control socket gives them `personDeadline`). One missing here makes the CLI
+/// give up at 45 s on a run the app still finishes: `cloud start-session`
+/// waits for a new Cloud machine to come up, and answered
+/// `mutation.outcome_unknown` with no chat opened.
+const PERSON_ACTIONS: &[&str] = &[
+    "browser import-cookies",
+    "browser.importCookies",
+    "home invite-to-team",
+    "home.inviteToTeam",
+    "cloud start-session",
+    "cloudStartSession",
+    "apps install",
+    "app.install",
+    "apps remove",
+    "app.remove",
+    "workspace import-classic",
+    "workspace.importClassic",
+    "share chat",
+    "agent.share",
+    "share invite",
+    "agent.share.invite",
+];
 
 /// How long the CLI or `cmux mcp` waits for a waiting `action.run` of `action`.
 pub(in crate::cli) fn waiting_run_timeout(action: &str) -> Duration {
     if PERSON_ACTIONS.contains(&action) { PERSON_RUN_TIMEOUT } else { WAITING_RUN_TIMEOUT }
 }
 const MAX_RESPONSE_BYTES: u64 = 16 << 20;
-/// A `busy` app that says the run never started is asked again this many
-/// times, after the delay it names (`retry_after_ms`, else this default).
-const BUSY_RETRIES: u32 = 3;
+/// An app that says the run never started (`busy`, an early `timeout`, a
+/// reconnecting daemon) is asked again this many times, after the delay it
+/// names (`retry_after_ms`, else this default, doubled each time).
+const BUSY_RETRIES: u32 = 5;
 const BUSY_RETRY_DELAY: Duration = Duration::from_millis(100);
 const MAX_BUSY_RETRY_DELAY: Duration = Duration::from_secs(1);
 
@@ -127,7 +160,11 @@ pub(super) enum AppCommand {
         params: Value,
         out: Option<String>,
     },
-    /// `settings list|schema|validate` (app/settings.rs).
+    /// `app renderers`: `renderers.list`, joined into one row per renderer pid (app/renderers.rs).
+    Renderers {
+        params: Value,
+    },
+    /// Local settings completion/schema/validation (`app/settings.rs`).
     Settings(settings::Command),
     /// `browser right <verb>` (app/right.rs): `browser.page.right` names the
     /// tab right of the Home chat, then `then` runs on it.
@@ -138,6 +175,8 @@ pub(super) enum AppCommand {
     /// `cmux version`: the CLI, the app behind the socket, its updater and
     /// bundled helpers in one report (app/version.rs).
     Version,
+    /// `cmux nightly list|install`: another recent nightly build (app/nightly.rs).
+    Nightly(nightly::Command),
 }
 
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
@@ -163,6 +202,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     if let Some(command) = agent_open::parse(args)? {
         return Ok(Some(command));
     }
+    if let Some(command) = group_create::parse(args)? {
+        return Ok(Some(command));
+    }
     if scope == "version" {
         if let Some(extra) = args.get(1) {
             let messages = &crate::localization::catalog().app_control;
@@ -170,10 +212,23 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         }
         return Ok(Some(AppCommand::Version));
     }
+    if scope == "nightly" {
+        return nightly::parse(args.get(1..).unwrap_or_default())
+            .map(|command| Some(AppCommand::Nightly(command)));
+    }
     if !APP_SCOPES.contains(&scope.as_str()) {
         return Ok(None);
     }
     let rest = &args[1..];
+    // Spaces have a small noun-first CLI of their own (app/space.rs).
+    if scope == "space" {
+        if let Some(command) = space::parse(rest)? {
+            return Ok(Some(command));
+        }
+        if rest.first().map(String::as_str) == Some("list") {
+            return Ok(None);
+        }
+    }
     // The session host owns history reads and edits (`history.*`), so they
     // work with the app quit; the other `history` words are app actions.
     if scope == "history"
@@ -205,11 +260,10 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                         }))
             });
             if rest.iter().any(|argument| argument == "--") || !has_command {
-                return Err(UsageError::new(
-                    "usage: cmux cloud exec --target machine:MACHINE_ID --command COMMAND",
-                ));
+                let usage = super::cloud_help::usage("exec").unwrap_or_default();
+                return Err(UsageError::new(format!("usage: {usage}")));
             }
-            run_action("cloud exec", &rest[1..], ActionName::Cli)?
+            run_action("cloud exec", rest.get(1..).unwrap_or_default(), ActionName::Cli)?
         }
         ("open", _) => parse_open(rest)?,
         ("keybinding", _) => keybinding::parse(rest)?,
@@ -217,6 +271,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("ping")) => call("system.ping", json!({})),
         ("app", Some("identify")) => call("system.identify", json!({})),
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
+        ("app", Some("renderers")) => renderers::parse(rest)?,
         ("window", Some("list")) => AppCommand::Call {
             method: "snapshot.get",
             params: json!({}),
@@ -239,7 +294,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("action", Some("describe")) => {
             // CLI names contain spaces (for example `cloud exec`), so the
             // shell's natural unquoted spelling remains one action name.
-            let words = &rest[1..];
+            let words = rest.get(1..).unwrap_or_default();
             if words.is_empty() || words.iter().any(|word| word.starts_with('-')) {
                 return Err(UsageError::new(messages.action_describe_usage));
             }
@@ -255,6 +310,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             } else {
                 run_action(id, tail, ActionName::Any)?
             }
+        }
+        ("settings" | "config", Some("list")) => {
+            return settings::parse_list(rest.get(1..).unwrap_or_default());
         }
         ("settings" | "config", Some(verb)) if settings::VERBS.contains(&verb) => {
             settings::parse(rest)?
@@ -351,6 +409,10 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                 params.insert("include_heartbeats".into(), json!(false));
             }
             AppCommand::Events { params: Value::Object(params) }
+        }
+        // `team invite` is Invite to Team's other name (`home invite-to-team`): one action, one dialog.
+        ("team", Some("invite")) => {
+            run_action("home invite-to-team", rest.get(1..).unwrap_or_default(), ActionName::Cli)?
         }
         // Any other words name an action by its CLI name (`app new-window`).
         _ => {
@@ -593,8 +655,18 @@ pub(super) fn run_cli_action(global: &GlobalArgs, name: &str, args: &[String]) -
         return Some(super::wire::print_operation_error(&refusal, global.output));
     }
     // A named socket that is missing or not an app (a daemon's `--socket`)
-    // has no CLI action; the caller reports its own usage error.
-    let mut stream = connect_command(global).ok()?;
+    // has no CLI action; the caller reports its own usage error. An action the
+    // app's catalog offers says it needs the app, where "unknown action" sent
+    // agents hunting for another way (tests/tool-evals r13d: `cmux pane screenshot`
+    // headless took GPT 6.1 Sol 25 steps and 550k tokens).
+    let mut stream = match connect_command(global) {
+        Ok(stream) => stream,
+        Err(error) if super::action_hint::offered_app_action(name) => {
+            let message = error.get("message").and_then(Value::as_str).unwrap_or_default();
+            return Some(failure("app.unreachable", message, global.output, 3));
+        }
+        Err(_) => return None,
+    };
     match call(global, &mut stream, command) {
         Ran::Done(code) => Some(code),
         Ran::NoSuchCliAction { .. } => None,
@@ -620,6 +692,9 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
     }
     if matches!(command, AppCommand::Version) {
         return Ran::Done(version::run(global));
+    }
+    if let AppCommand::Nightly(command) = &command {
+        return Ran::Done(nightly::run(global, command));
     }
     let mut stream = match connect_command(global) {
         Ok(stream) => stream,
@@ -710,9 +785,13 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::DebugCall { method, params } => {
             return Ran::Done(call::run(global, stream, &method, params));
         }
-        AppCommand::Settings(command) => return Ran::Done(command.run_on(global, stream)),
+        AppCommand::Renderers { params } => {
+            return Ran::Done(renderers::run(global, stream, params));
+        }
+        AppCommand::Settings(command) => return Ran::Done(command.run(global)),
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
         AppCommand::Version => return Ran::Done(version::run(global)),
+        AppCommand::Nightly(command) => return Ran::Done(nightly::run(global, &command)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {
@@ -798,9 +877,20 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             }
             .unwrap_or(result);
             warn_unstable_handles(method, &value, global.output);
+            if global.output == OutputMode::Human
+                && let Some(line) = super::share_cli::human_line(&params, &value)
+                    .or_else(|| super::vm::created_line(&params, &value, global))
+            {
+                print!("{line}");
+                return Ran::Done(0);
+            }
             Ran::Done(super::wire::print_local_success(&value, global.output))
         }
-        Err(error) if cli_name && error_code(&error) == Some("not_found") => {
+        // `not_found` with no `reason` is the app saying it has no such CLI action; with one, the
+        // action ran and its target names nothing, which goes to the caller as an error.
+        Err(error)
+            if cli_name && error_code(&error) == Some("not_found") && !names_a_target(&error) =>
+        {
             let name = params["action"].as_str().unwrap_or_default().to_owned();
             let scope = name.split(' ').next().unwrap_or_default().to_owned();
             Ran::NoSuchCliAction { scope, name }
@@ -831,10 +921,18 @@ fn error_code(error: &Value) -> Option<&str> {
     error.get("code").and_then(Value::as_str)
 }
 
-/// A `busy` answer is safe to retry only when the app says the request
-/// never ran; one that may have started (`in_progress`) is reported.
-fn busy_before_running(error: &Value) -> bool {
-    error_code(error) == Some("busy") && refused_before_running(error)
+/// Whether a `not_found` is an action's missing target (it gives a `reason`), not a missing action.
+fn names_a_target(error: &Value) -> bool {
+    error.get("data").and_then(|data| data.get("reason")).is_some()
+}
+
+/// A refusal the CLI asks again for instead of showing it: the app says nothing ran
+/// (`not_run`) and the cause passes (`busy`, a `timeout` before the work started, or an
+/// `unavailable` read barrier on a daemon connection that was reconnecting, #32724). One that
+/// may have started (`in_progress`) is reported.
+fn retry_before_running(error: &Value) -> bool {
+    matches!(error_code(error), Some("busy" | "timeout" | "unavailable"))
+        && refused_before_running(error)
 }
 
 /// The app says nothing ran (`data.not_run`): it refused before the
@@ -982,10 +1080,11 @@ fn connect_for_uid(socket: &Path, expected_uid: u32) -> std::io::Result<UnixStre
 /// Every app request first lets the app catch up with the daemon
 /// (`after: "sync"`, one daemon round trip), so it sees what an earlier
 /// `cmux` call wrote to the daemon (plans/cmux-next/state-ownership.md 4).
-/// The liveness probes skip it: they read no session state, and a busy
-/// daemon must not make a live app look dead.
+/// [`NO_DAEMON_STATE`] skips it. A caller that passes its own
+/// `after` keeps it (the `focused` overlay reads the window with `after: 0`,
+/// app_focus.rs).
 fn with_read_barrier(method: &str, mut params: Value) -> Value {
-    if matches!(method, "system.ping" | "system.capabilities") {
+    if NO_DAEMON_STATE.contains(&method) {
         return params;
     }
     if let Some(object) = params.as_object_mut() {
@@ -993,6 +1092,19 @@ fn with_read_barrier(method: &str, mut params: Value) -> Value {
     }
     params
 }
+
+/// The app methods that read nothing a `cmux` call writes to the daemon, so
+/// they skip the read barrier: the liveness probes (a busy daemon must not
+/// make a live app look dead), the action catalog (`action.list`,
+/// `action.describe`, built from the app's own registry), and the agent
+/// dialogs (`feed.list`, read from acpmux). The barrier is a round trip on
+/// the app's daemon connection and then a wait for the main actor to publish,
+/// inside the app's 2 s deadline; on a loaded app (2026-11-02, a Cloud
+/// `start-session` waiting on the person) it timed out `action describe` and
+/// `agents dialog list` ("timed out: identify (no reply within 2.0
+/// seconds)"), and the CLI's one retry doubled the wait.
+const NO_DAEMON_STATE: [&str; 5] =
+    ["system.ping", "system.capabilities", "action.list", "action.describe", "feed.list"];
 
 /// The app methods that place a new tab or report where the caller is: the
 /// app opens an agent's tabs in the column right of its chat
@@ -1097,7 +1209,7 @@ fn timed_out(response: &Result<Value, Value>) -> bool {
 }
 
 /// One request with exactly `params` (no read barrier) and its response.
-fn exchange(
+pub(super) fn exchange(
     stream: &mut UnixStream,
     method: &str,
     params: Value,
@@ -1106,13 +1218,73 @@ fn exchange(
     let timeout = timeout.into();
     let line = json!({ "id": 1, "method": method, "params": params });
     send_line(stream, &line)?;
+    read_reply(stream, method, timeout, app_answers_ping)
+}
+
+/// Reads one reply line. `timeout` is how long to wait before asking whether the app is still
+/// there, not how long it may take: a loaded app (load 300 on 15 cores, #32724) answers late,
+/// and failing the request then shows the caller a timeout for an app that was only busy. While
+/// `alive` says the app answers, the read goes on, with a note on stderr for a person; an app
+/// that does not answer ends it as before. The same request keeps waiting: nothing is resent.
+fn read_reply(
+    stream: &UnixStream,
+    method: &str,
+    timeout: Option<Duration>,
+    alive: impl Fn(&UnixStream, Duration) -> bool,
+) -> Result<Result<Value, Value>, String> {
     stream.set_read_timeout(timeout).map_err(|error| error.to_string())?;
     let mut reader = BufReader::new(
         stream.try_clone().map_err(|error| error.to_string())?.take(MAX_RESPONSE_BYTES),
     );
-    let mut response = String::new();
-    reader.read_line(&mut response).map_err(|error| read_error(&error, timeout))?;
-    parse_response(&response)
+    // Bytes, not a String: a read cut by the timeout keeps what it read, even half a character.
+    let mut response = Vec::new();
+    let started = std::time::Instant::now();
+    loop {
+        match reader.read_until(b'\n', &mut response) {
+            Ok(_) => break,
+            Err(error) => match timeout {
+                Some(window) if is_read_timeout(&error) && alive(stream, window) => {
+                    note_busy(method, started.elapsed());
+                }
+                _ => return Err(read_error(&error, timeout)),
+            },
+        }
+    }
+    parse_response(&String::from_utf8_lossy(&response))
+}
+
+fn is_read_timeout(error: &std::io::Error) -> bool {
+    matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut)
+}
+
+/// Whether the app at the other end of `stream` still answers: a plain `ping` on a new
+/// connection, which the app answers before any request work (`PONG`, no main actor, no daemon).
+/// It gets one read window; no answer, a refused connection or another answer is no.
+fn app_answers_ping(stream: &UnixStream, window: Duration) -> bool {
+    let Some(path) =
+        stream.peer_addr().ok().and_then(|address| address.as_pathname().map(Path::to_path_buf))
+    else {
+        return false;
+    };
+    let Ok(mut probe) = UnixStream::connect(path) else { return false };
+    if probe.set_read_timeout(Some(window)).is_err() || probe.write_all(b"ping\n").is_err() {
+        return false;
+    }
+    let mut answer = String::new();
+    BufReader::new(probe.take(64)).read_line(&mut answer).is_ok() && answer.trim() == "PONG"
+}
+
+/// A note for a person that the app is busy and the request still waits (stderr, only when it
+/// is a terminal, so piped and JSON output never mix it in).
+fn note_busy(method: &str, waited: Duration) {
+    use std::io::IsTerminal as _;
+    if std::io::stderr().is_terminal() {
+        let template = crate::localization::catalog().app_control.app_busy_waiting;
+        eprintln!(
+            "{}",
+            template.replace("{what}", method).replace("{elapsed}", &waited.as_secs().to_string())
+        );
+    }
 }
 
 pub(super) fn send_line(stream: &mut UnixStream, value: &Value) -> Result<(), String> {

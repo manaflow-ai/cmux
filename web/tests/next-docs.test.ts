@@ -63,6 +63,34 @@ describe("cmux-next docs", () => {
     expect(buildSettingsReference(schema)).toEqual(settingsGenerated as never);
   });
 
+  // docs/configuration.md is written by hand, while the settings schema is the
+  // app's own source of truth. #23844 widened cmux Classic Mode to Cmd-N, the
+  // sidebar's + and new windows and updated the schema's help, but not the page,
+  // which then told people a new workspace still starts on the New Tab page.
+  test("every shortcut a setting's schema help names is in its hand-written section", () => {
+    const configuration = readFileSync(join(repo, "docs/configuration.md"), "utf8");
+    const headings = [...configuration.matchAll(/^## `([^`]+)`$/gm)];
+    const sections = new Map(headings.map((heading, index) => [
+      heading[1],
+      configuration.slice(heading.index + heading[0].length, headings[index + 1]?.index ?? configuration.length),
+    ]));
+    expect(sections.size).toBe(headings.length);
+    const shortcut = /Cmd-(?:Shift-|Opt-|Ctrl-)*[A-Z0-9]/g;
+    const missing: string[] = [];
+    for (const section of settingsGenerated.sections) {
+      for (const row of section.rows) {
+        const written = sections.get(row.key);
+        if (!written) continue; // a setting the page does not cover at all
+        // The page writes Cmd+T where the schema writes Cmd-T; both read the same.
+        const has = new Set(written.replaceAll("Cmd+", "Cmd-").match(shortcut));
+        for (const key of new Set(row.help.match(shortcut))) {
+          if (!has.has(key)) missing.push(`${row.key}: ${key}`);
+        }
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
   test("every cmux command written in a hand-written page is a real CLI verb", () => {
     const verbs = new Set(buildCliReference(surfaces).nouns.flatMap((noun) => noun.verbs.map((verb) => verb.command)));
     // Commands of the Rust CLI itself, not app actions (cmux --help).

@@ -27,16 +27,7 @@ struct ChiefLiveBubble: View {
         VStack(alignment: .leading, spacing: 6) {
             if let live = session.shownLive {
                 if let text = Self.replyText(live) {
-                    Text(text)
-                        .font(.body)
-                        .foregroundStyle(.primary)
-                        // The newest text: the head is cut, not the tail.
-                        .lineLimit(8)
-                        .truncationMode(.head)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(Color(uiColor: .systemGray5), in: .rect(cornerRadius: 18, style: .continuous))
-                        .frame(maxWidth: 300, alignment: .leading)
+                    ChiefLiveReplyText(text: text)
                         .transition(.opacity)
                         .accessibilityIdentifier("chief.live.reply")
                 }
@@ -65,9 +56,9 @@ struct ChiefLiveBubble: View {
     }
 
     static func replyText(_ live: ChiefLive) -> String? {
-        let text = live.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = ChiefLive.liveTail(of: live.text).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
-        return live.truncated ? "…" + text : text
+        return live.truncated && !text.hasPrefix("…") ? "…" + text : text
     }
 
     /// The status line's text: the step the run is on, or "Thinking…".
@@ -82,6 +73,55 @@ struct ChiefLiveBubble: View {
         let seconds = max(0, Int(now.timeIntervalSince(since)))
         let elapsed = seconds < 60 ? "\(seconds)s" : "\(seconds / 60)m \(seconds % 60)s"
         return "\(line) · \(elapsed)"
+    }
+}
+
+/// Lay out only the bounded tail, then expose its bottom eight lines. SwiftUI's
+/// multiline head truncation can retain the first wrapped lines instead of the
+/// newest words, even when the source string already contains only the tail.
+struct ChiefLiveReplyText: View {
+    let text: String
+    var body: some View {
+        ChiefLiveReplyViewport {
+            Text(text)
+                .font(.body)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+            // Measure SwiftUI's actual eight-line height in this environment.
+            // Scaling UIKit's lineHeight can cut through the first visible row.
+            Text("Ag\nAg\nAg\nAg\nAg\nAg\nAg\nAg")
+                .font(.body)
+                .fixedSize(horizontal: false, vertical: true)
+                .hidden()
+                .accessibilityHidden(true)
+        }
+        .clipped()
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(Color(uiColor: .systemGray5), in: .rect(cornerRadius: 18, style: .continuous))
+        .frame(maxWidth: 300, alignment: .leading)
+    }
+}
+
+/// A short reply keeps its natural bubble size. A long reply lays out at
+/// the available width with unlimited height, then shows its bottom edge
+/// through a bounded viewport instead of asking Text to truncate it.
+private struct ChiefLiveReplyViewport: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard subviews.count == 2, let text = subviews.first else { return .zero }
+        let width = min(276, max(0, proposal.width ?? 276))
+        let textProposal = ProposedViewSize(width: width, height: nil)
+        let size = text.sizeThatFits(textProposal)
+        let maxHeight = subviews[1].sizeThatFits(textProposal).height
+        return CGSize(width: min(width, size.width), height: min(maxHeight, size.height))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(
+            at: CGPoint(x: bounds.minX, y: bounds.maxY),
+            anchor: .bottomLeading,
+            proposal: ProposedViewSize(width: bounds.width, height: nil)
+        )
     }
 }
 
@@ -195,49 +235,72 @@ struct ChiefShimmerText: View {
         if reduceMotion {
             label
         } else {
-            TimelineView(.animation) { context in
-                // -0.25...1.25: the band enters and leaves fully off the text.
-                let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.6) / 1.6 * 1.5 - 0.25
-                label.overlay {
-                    LinearGradient(
-                        stops: [
-                            .init(color: .clear, location: phase - 0.25),
-                            .init(color: .white.opacity(0.7), location: phase),
-                            .init(color: .clear, location: phase + 0.25),
-                        ],
-                        startPoint: .leading, endPoint: .trailing
-                    )
-                    .mask(label)
-                    .blendMode(.plusLighter)
+            label.overlay {
+                // A band half the text wide whose middle runs from -0.25 to 1.25 of the width:
+                // it enters and leaves fully off the text.
+                // A repeating keyframe animation of the band's offset: it starts over whenever the
+                // line appears, and only the band updates per frame.
+                GeometryReader { proxy in
+                    let width = proxy.size.width
+                    LinearGradient(colors: [.clear, .white.opacity(0.7), .clear], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: width * 0.5)
+                        .keyframeAnimator(initialValue: 0.0, repeating: true) { band, phase in
+                            band.offset(x: -width * 0.5 + width * 1.5 * phase)
+                        } keyframes: { _ in
+                            LinearKeyframe(1.0, duration: 1.6)
+                        }
                 }
+                .mask(label)
+                .blendMode(.plusLighter)
             }
         }
     }
 }
 
-/// The three-dot typing indicator of the status line.
+/// The three-dot typing indicator of the status line: a wave through the dots (each one's
+/// opacity follows `sin(4t)`, a beat later than the one before), from a repeating keyframe
+/// clock that starts over whenever the line appears. Still with Reduce Motion.
 struct ChiefTypingDots: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// One period of `sin(4t)`.
+    static let period = Double.pi / 2
 
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            HStack(spacing: 3) {
-                ForEach(0..<3) { index in
-                    Circle()
-                        .fill(Color.secondary)
-                        .frame(width: 6, height: 6)
-                        .opacity(reduceMotion ? 0.7 : 0.35 + 0.65 * max(0, sin((t * 4) - Double(index) * 0.8)))
+        Group {
+            if reduceMotion {
+                ChiefTypingDotsRow(t: nil)
+            } else {
+                ChiefTypingDotsRow(t: 0).keyframeAnimator(initialValue: 0.0, repeating: true) { _, t in
+                    ChiefTypingDotsRow(t: t)
+                } keyframes: { _ in
+                    LinearKeyframe(Self.period, duration: Self.period)
                 }
             }
-            .padding(.horizontal, 8)
-            .frame(height: 22)
-            .background(Color(uiColor: .systemGray5), in: .capsule)
         }
+        .padding(.horizontal, 8)
+        .frame(height: 22)
+        .background(Color(uiColor: .systemGray5), in: .capsule)
         .accessibilityHidden(true)
         .accessibilityIdentifier("chief.live.typing")
     }
 }
+
+/// The three dots at clock `t` (nil: still, Reduce Motion).
+struct ChiefTypingDotsRow: View {
+    let t: Double?
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(0..<3) { index in
+                Circle()
+                    .fill(Color.secondary)
+                    .frame(width: 6, height: 6)
+                    .opacity(t.map { 0.35 + 0.65 * max(0, sin($0 * 4 - Double(index) * 0.8)) } ?? 0.7)
+            }
+        }
+    }
+}
+
 /// The window frame of the live status line and its details (the only
 /// part of the overlay that takes touches).
 @MainActor

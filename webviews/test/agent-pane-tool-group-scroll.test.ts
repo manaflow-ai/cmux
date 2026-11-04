@@ -65,23 +65,41 @@ await requireBrowserLane("agent-pane-tool-group-scroll.test.ts", async () => {
     }));
     expect(inner.scrollHeight - inner.clientHeight).toBeLessThanOrEqual(1);
 
-    const trailing = await group.locator(".cv-tool.is-toggle .cv-tool__chevron").evaluateAll((nodes) => {
-      const values = nodes.map((node) => {
-        const button = node.closest<HTMLElement>(".cv-tool")!;
-        return button.getBoundingClientRect().right - node.getBoundingClientRect().right;
+    const inline = await group.locator(".cv-tool.is-toggle").evaluateAll((buttons) => {
+      const values = buttons.map((button) => {
+        const label = button.querySelector<HTMLElement>(".cv-tool__text, .cv-command__text")!;
+        const caret = button.querySelector<HTMLElement>(".cv-tool__chevron")!;
+        return caret.getBoundingClientRect().left - label.getBoundingClientRect().right;
       });
-      return { count: values.length, spread: Math.max(...values) - Math.min(...values) };
+      return { count: values.length, max: Math.max(...values), min: Math.min(...values) };
     });
-    expect(trailing.count).toBeGreaterThan(3);
-    expect(trailing.spread).toBeLessThanOrEqual(0.5);
+    expect(inline.count).toBeGreaterThan(3);
+    expect(inline.min).toBeGreaterThanOrEqual(-0.5);
+    expect(inline.max).toBeLessThanOrEqual(4.5);
 
     const transcript = page.locator(".acpmux-scroll");
+    // The gallery shell keeps its pane height independent of the browser viewport. Constrain the
+    // mounted transcript itself so this routing check always has a real scroll surface; this is a
+    // layout precondition, not a timing wait or a retry.
+    await transcript.evaluate((node) => {
+      node.style.flex = "none";
+      node.style.height = "360px";
+    });
+    const outer = await transcript.evaluate((node) => ({
+      scrollHeight: node.scrollHeight,
+      clientHeight: node.clientHeight,
+    }));
+    expect(outer.scrollHeight - outer.clientHeight).toBeGreaterThan(40);
     await transcript.evaluate((node) => {
       node.scrollTop = 0;
     });
     const before = await transcript.evaluate((node) => node.scrollTop);
     const box = (await group.boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + Math.min(box.height / 2, 200));
+    const transcriptBox = (await transcript.boundingBox())!;
+    const overlapTop = Math.max(box.y, transcriptBox.y);
+    const overlapBottom = Math.min(box.y + box.height, transcriptBox.y + transcriptBox.height);
+    expect(overlapBottom).toBeGreaterThan(overlapTop);
+    await page.mouse.move(box.x + box.width / 2, (overlapTop + overlapBottom) / 2);
     await page.mouse.wheel(0, 420);
     await page.waitForFunction(
       (start) => (document.querySelector<HTMLElement>(".acpmux-scroll")?.scrollTop ?? 0) > start + 2,

@@ -28,7 +28,7 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
     }
 
     func prepareRelay(targetID: String) async -> Bool {
-        guard let services, drivable?(targetID) == true, let (tab, _) = services.locateTab(targetID),
+        guard let services, drivable?(targetID) == true, let (tab, _) = services.locateTabOnAnyMachine(targetID),
               tab.browserEngine == BrowserEngineTag.cef.rawValue else { return false }
         marking?.agentWillDrive(targetID: targetID)
         guard let page = await agentReadyPage(tab) else { return false }
@@ -43,7 +43,7 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
     private func keepRendering(_ targetID: String) {
         guard let services, let renderWindows, let entry = services.cache.existingBrowser(targetID),
               let page = entry.tab as? CEFTab, page.agentRelay.needsRenderWindow else { return }
-        _ = renderWindows.keepRendering(tabID: targetID, chrome: entry.chrome, webView: nil)
+        _ = renderWindows.keepRendering(tabID: targetID, chrome: entry.chrome ?? entry.tab.contentView, webView: nil)
     }
 
     /// The tab's live Chromium page once it is agent-driven, starting it
@@ -66,7 +66,7 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
             case is DeferredBrowserTab:
                 cache.startDeferred(key, url: nil)
             case nil:
-                guard let model = services.locateTab(key)?.0 else { return nil }
+                guard let model = services.locateTabOnAnyMachine(key)?.0 else { return nil }
                 _ = cache.browser(for: model)
             default:
                 // A WebKit page for a Chromium record: CEF is not available.

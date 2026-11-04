@@ -87,6 +87,68 @@ fn git_diff_takes_bounds_a_patch_and_paths() {
 }
 
 #[test]
+fn git_diff_and_checkpoint_diff_read_the_next_page_of_files_and_of_a_patch() {
+    let revision = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    let pages =
+        ["--after-path", "src/a.rs", "--patch-offset", "65536", "--patch-revision", revision];
+    let mut diff = vec!["git", "diff", "--path", "/repo", "--patch"];
+    diff.extend(pages);
+    diff.push("src/big.rs");
+    assert_eq!(
+        sent(&diff),
+        (
+            "git.diff".into(),
+            json!({
+                "path": "/repo",
+                "scope": "uncommitted",
+                "include_patch": true,
+                "after_path": "src/a.rs",
+                "patch_offset": "65536",
+                "patch_revision": revision,
+                "paths": ["src/big.rs"],
+            })
+        )
+    );
+    let id = "ckpt_00000000000000000000000000000001";
+    let mut checkpoint = vec!["git", "checkpoint", "diff", id, "--path", "/repo", "--patch"];
+    checkpoint.extend(pages);
+    checkpoint.extend(["--only", "src/big.rs"]);
+    assert_eq!(
+        sent(&checkpoint),
+        (
+            "git.checkpoint.diff".into(),
+            json!({
+                "path": "/repo",
+                "from": id,
+                "include_patch": true,
+                "after_path": "src/a.rs",
+                "patch_offset": "65536",
+                "patch_revision": revision,
+                "paths": ["src/big.rs"],
+            })
+        )
+    );
+    // The first page starts at 0 and has no revision yet.
+    let (_, first) =
+        sent(&["git", "diff", "--path", "/repo", "--patch", "--patch-offset", "0", "f"]);
+    assert_eq!(first["patch_offset"], json!("0"));
+    let not_hex = "g".repeat(64);
+    for (flag, bad) in [
+        ("--patch-offset", "-1"),
+        ("--patch-offset", "007"),
+        ("--patch-revision", "abc"),
+        ("--patch-revision", not_hex.as_str()),
+        ("--after-path", ""),
+    ] {
+        assert!(rejects(&["git", "diff", flag, bad]).contains(flag), "git diff {flag} {bad:?}");
+        assert!(
+            rejects(&["git", "checkpoint", "diff", id, flag, bad]).contains(flag),
+            "git checkpoint diff {flag} {bad:?}"
+        );
+    }
+}
+
+#[test]
 fn git_refuses_two_targets_an_unknown_scope_and_bad_bounds() {
     assert!(
         rejects(&["git", "status", "--path", "/repo", "--terminal", TERM]).contains("at most one")

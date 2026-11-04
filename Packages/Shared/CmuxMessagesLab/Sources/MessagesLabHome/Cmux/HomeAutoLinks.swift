@@ -5,7 +5,8 @@ import Foundation
 /// a local root) as a path link (`URL.isHomePathLink`), a cmux id (`ws_…`, `pane_…`, `tab_…`,
 /// 32 hex digits) and a `cmux://` link as its app link (`URL.isCmuxAppLink`), and a bare
 /// `http(s)://` URL as itself (Lawrence 2026-10-23: a Chief's `**https://github.com/login/device**`
-/// was bold text no click opened; only a URL alone on its line became a card). Everything still
+/// was bold text no click opened; only a URL alone on its line became a card), a GitHub pull
+/// request, issue, commit or run URL shown by its short name. Everything still
 /// goes through `MarkdownLinkPolicy`, so `javascript:`, `data:` and the like never link. Bare
 /// GitHub numbers are not linked: the text names no repository (the Chief's prompt links them).
 extension HomeMarkdown {
@@ -41,8 +42,10 @@ extension HomeMarkdown {
     /// file name; a cmux link or id as its id, cut after 8 characters (`ws_9166682e…`). Short
     /// and without spaces, so the link wraps as one unit.
     static func shortLabel(_ raw: String) -> String {
-        // A web URL shows as written: the person may need to read or type it (a sign-in page).
-        if raw.hasPrefix("https://") || raw.hasPrefix("http://") { return raw }
+        // A GitHub pull request, issue, commit or run shows by its short name (cmux#25572: a reply
+        // never shows a raw URL); any other web URL as written: the person may need to read or
+        // type it (a sign-in page).
+        if raw.hasPrefix("https://") || raw.hasPrefix("http://") { return githubLabel(raw) ?? raw }
         if raw.hasPrefix("/") || raw.hasPrefix("~/") {
             let home = NSHomeDirectory()
             let path = raw.hasPrefix(home + "/") ? "~" + raw.dropFirst(home.count) : raw
@@ -53,6 +56,19 @@ extension HomeMarkdown {
             return String(id.prefix(id.distance(from: id.startIndex, to: underscore) + 9)) + "…"
         }
         return id.count > 16 ? String(id.prefix(12)) + "…" : id
+    }
+
+    /// The short name of a GitHub pull request or issue (`#123`), commit (`abc1234`) or Actions
+    /// run (`run 39221907733`) URL, the names a Chief writes them with; nil for any other URL.
+    static func githubLabel(_ raw: String) -> String? {
+        guard let url = URL(string: raw), let kind = HomeLinkChip.kind(for: raw) else { return nil }
+        let parts = url.path.split(separator: "/").map(String.init)
+        switch kind {
+        case .pullRequest, .issue: return "#" + parts[3]
+        case .commit: return String(parts[3].prefix(7))
+        case .run: return "run " + parts[4]
+        default: return nil
+        }
     }
 
     /// `raw` as the link Home opens: a path as a path link, a bare cmux id as its app link,

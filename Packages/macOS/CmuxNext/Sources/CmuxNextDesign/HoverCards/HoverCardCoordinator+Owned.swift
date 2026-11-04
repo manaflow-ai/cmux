@@ -42,7 +42,7 @@ extension HoverCardCoordinator {
         let panel = panel ?? HoverCardPanel()
         self.panel = panel
         panel.present(body: body.view, anchor: anchor, placement: body.placement, parent: parent, themeAnchor: body.themeAnchor,
-                      sliding: !again, interactive: interactive, applyTheme: body.applyTheme)
+                      sliding: !again, interactive: interactive, cornerRadius: body.cornerRadius, applyTheme: body.applyTheme)
     }
 
     /// The owner closes `id`'s card: it fades out, then its `ended` runs. No-op unless it shows.

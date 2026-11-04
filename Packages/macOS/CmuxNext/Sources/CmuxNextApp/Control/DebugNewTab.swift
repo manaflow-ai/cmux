@@ -32,7 +32,7 @@ enum DebugNewTab {
         guard let services else { return .null }
         switch params["action"]?.stringValue ?? "state" {
         case "state":
-            return state(services)
+            return await state(services)
         case "open_and_type":
             return openAndType(params, services: services)
         case "open_and_leave":
@@ -60,39 +60,50 @@ enum DebugNewTab {
         case "drop_spare":
             // The next opening loads cold, as after memory pressure (scripts/ci/frame-pacing/golden.py).
             services.newTabSpares.dropAll()
-            return state(services)
+            return await state(services)
+        case "capacity":
+            // How many spares the pool keeps (A/B of one against two on one build).
+            services.newTabSpares.capacity = params["count"]?.intValue ?? 1
+            return await state(services)
         case "retarget":
             // What a key-window change does, for no-activate runs whose windows never become key.
             guard let window = controller(params, services)?.window else { return .object(["error": .string("no such window")]) }
             services.newTabSpares.retarget(window)
-            return state(services)
+            return await state(services)
         default:
-            return .object(["error": .string("unknown action; use state, open_and_type, open_and_leave, field or open_tab")])
+            return .object(["error": .string("unknown action; use state, open_and_type, open_and_leave, field, open_tab, capacity")])
         }
     }
 
-    private static func state(_ services: AppServices) -> JSONValue {
+    /// Reads the main-actor state in one turn, then the spare's footprint (`proc_pid_rusage`, a system call) on a
+    /// ``BackgroundWork`` system lane: a diagnostic never runs one on the main thread.
+    private static func state(_ services: AppServices) async -> JSONValue {
         let pool = services.newTabSpares
         let omnibar = NewTabPage.omnibar(services, excluding: nil)
-        var spares: [JSONValue] = []
-        if let spare = pool.spare {
-            // Ready: the page asked for its handshake, so it is loaded and rendered.
-            var entry: [String: JSONValue] = ["window": .number(Double(spare.window)), "ready": .bool(spare.view.model.hasHandshake)]
-            if let pid = WebContentProcess.identifier(of: spare.view.webView) {
-                entry["pid"] = .number(Double(pid))
-                entry["footprint_mb"] = ProcessUsage.sample(pid).map { .number(Double($0.physFootprint) / 1_048_576) } ?? .null
-            }
-            spares.append(.object(entry))
-        }
-        return .object([
-            "spares": .array(spares), "openings": .array(pool.openings.map(opening)),
+        // Ready: the page asked for its handshake, so it is loaded and rendered.
+        let parked = pool.spares.map { (["window": $0.window.map { .number(Double($0.windowNumber)) } ?? .null, "ready": .bool($0.model.hasHandshake)] as [String: JSONValue], WebContentProcess.identifier(of: $0.webView)) }
+        var report: [String: JSONValue] = [
+            "openings": .array(pool.openings.map(opening)),
+            "capacity": .number(Double(pool.capacity)),
             "target_window": pool.target.map { .number(Double($0.windowNumber)) } ?? .null,
             "last_retarget_ms": pool.lastRetargetMilliseconds.map { .number($0) } ?? .null,
             "last_recycle_refusal": pool.lastRecycleRefusal.map { .string($0) } ?? .null,
             // What a New Tab page opened now would suggest: its open tabs and other workspaces.
             "omnibar_tabs": .array(omnibar.tabs.map { .object(["title": .string($0.title), "workspace": $0.workspace.map(JSONValue.string) ?? .null]) }),
             "omnibar_workspaces": .array(omnibar.workspaces.map { .object(["id": .string($0.id), "name": .string($0.name)]) }),
-        ])
+        ]
+        var spares: [JSONValue] = []
+        for (base, pid) in parked {
+            var entry = base
+            entry["pid"] = pid.map { .number(Double($0)) }
+            if let pid {
+                let bytes = try? await services.work.run(.bestEffort, mayBlock: .system) { ProcessUsage.sample(pid)?.physFootprint }
+                entry["footprint_mb"] = bytes.map { .number(Double($0) / 1_048_576) } ?? .null
+            }
+            spares.append(.object(entry))
+        }
+        report["spares"] = .array(spares)
+        return .object(report)
     }
 
     private static func opening(_ opening: NewTabSparePool.Opening) -> JSONValue {
@@ -139,7 +150,8 @@ enum DebugNewTab {
             \(before)
             const field = document.querySelector('.nt-field, .acpmux-newtab-field');
             const openTabs = [...document.querySelectorAll('.nt-open-tab .nt-row-title')].map((title) => title.textContent);
-            return JSON.stringify({ text: field ? field.value : null, focused: !!field && document.activeElement === field,
+            return JSON.stringify({ text: field ? (field.acpmuxMarkdownField?.plainText() ?? field.value) : null,
+                                    focused: !!field && field.contains(document.activeElement),
                                     open_tabs: openTabs });
             """
         guard let text = try? await view.callPageScript(script) as? String,

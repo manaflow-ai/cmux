@@ -21,6 +21,18 @@ on:
 permissions:
   contents: read
 
+#
+# Coalesced (2026-11-03, cmuxterm-hq build-fleet data for 2026-11-02: 919 push runs, about $4.1k of Blacksmith a
+# day, nearly all for a commit a newer push already held): the web checks run at most once every 30 minutes, on
+# the newest push that waited, routed from the commit the last run tested, so each run checks everything since.
+# The `coalesce` job waits (scripts/ci/web_coalesce.py wait); a newer push's coalesce job replaces one that is
+# still pending, never one that started, and that run ends cancelled with no job run. A job that slept and finds the
+# branch moved on yields: its checks are skipped, and the newest push's job, pending behind it, runs at once. When a
+# coalesced run's webview tests go red, `web bisect` re-runs only the new red files on the commits it covered and
+# names the first red commit and its pull request (test_reds.py bisect_report). Pull requests are unchanged.
+# `web lint (fast)` keeps one run per push in cmux-next-web-lint.yml. vars.NEXT_WEB_COALESCE = '0' runs every push
+# at once. The window was 15 minutes until 2026-11-04 (about 96 runs a day); 30 halves that.
+
 # One run per pushed commit: a later push must not cancel the verdict that
 # base-aware excusal reads.
 concurrency:
@@ -28,30 +40,133 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  coalesce:
+    name: coalesce
+    # A sleep of at most 30 minutes, then a few seconds of work: the reconciled Linux pool's small member, as the
+    # base tier kick does.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 35
+    # One coalesce job waits at a time; a newer push's replaces a pending one (never a started one). One that slept
+    # yields to a newer push when it wakes (#33872), so no push waits two windows. A dispatch (next_batch's web lane),
+    # a re-run and the off switch get a group of their own and run at once: a re-run never waits behind or is
+    # replaced by a new push's coalesce job (#34158).
+    concurrency:
+      group: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('{0}', vars.NEXT_WEB_COALESCE) != '0' && github.run_attempt == '1' && 'cmux-next-web-coalesce' || format('cmux-next-web-coalesce-{0}-{1}', github.run_id, github.run_attempt) }}
+      cancel-in-progress: false
+    outputs:
+      base: ${{ steps.wait.outputs.base }}
+      run: ${{ steps.wait.outputs.run }}
+    env:
+      COALESCE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('{0}', vars.NEXT_WEB_COALESCE) != '0' && '1' || '0' }}
+    steps:
+      - name: Checkout the coalesce helper
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/ci/web_coalesce.py
+          sparse-checkout-cone-mode: false
+
+      # The last push that ran the web checks: the newest entry by its prefix. Missing (the first run, an eviction)
+      # means no wait, and every web check runs (an empty push base): the range this push covers is unknown.
+      - name: Restore the last covered push
+        if: ${{ env.COALESCE == '1' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/web-coalesce/last.json
+          key: cmux-next-web-coalesce-${{ github.ref_name }}-none
+          restore-keys: cmux-next-web-coalesce-${{ github.ref_name }}-
+
+      - name: Wait for the 30-minute window
+        id: wait
+        env:
+          PUSH_BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
+        run: |
+          off=(--ref "$GITHUB_REF"); [ "$COALESCE" = 1 ] || off=(--off)
+          python3 -I scripts/ci/web_coalesce.py wait "${off[@]}" --last "$RUNNER_TEMP/web-coalesce/last.json" \
+            --sha "$GITHUB_SHA" --before "$PUSH_BEFORE" --attempt "$GITHUB_RUN_ATTEMPT" --hold-minutes 30 --out "$RUNNER_TEMP/web-coalesce/last.json"
+
+      # A re-run records nothing new (its marker is the one it read), and in its own group a late save could roll the
+      # newest marker back: only a first attempt saves.
+      - name: Record this push as the last covered one
+        if: ${{ env.COALESCE == '1' && steps.wait.outputs.run == 'true' && github.run_attempt == '1' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/web-coalesce/last.json
+          key: cmux-next-web-coalesce-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+
   web:
+    needs: coalesce
+    # A yielded coalesce job (a newer push's run checks these commits) runs no checks.
+    if: ${{ needs.coalesce.outputs.run != 'false' }}
     uses: ./.github/workflows/ci-web.yml
     with:
       web: ${{ 'true' }}
       macos: ${{ 'false' }}
       agent_session_web: ${{ 'true' }}
-      push_base: ${{ github.event_name == 'push' && github.event.before || '' }}
+      push_base: ${{ github.event_name == 'push' && needs.coalesce.outputs.base || '' }}
 
-  # The pre-push hook's check (scripts/web_lint_prepush.py) as a fast job of its
-  # own: a skipped hook (--no-verify, CMUX_WEB_LINT_SKIP_REASON, a clone without
-  # scripts/install-git-hooks.sh, or a push that changed the check's own code)
-  # shows a red here within minutes, not after the long web build and test jobs.
-  # Same script as the hook, so the two cannot drift.
-  web-lint:
-    name: web lint (fast)
-    # Blacksmith 4 vCPU, never GitHub-hosted (Leo, 2026-10-27: "just put it on blacksmith").
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+  # A coalesced run covers every commit since the last one. When its webview tests go red, the first red commit of
+  # each new red file is found by re-running only those files, only on the commits the run covered whose webview
+  # inputs changed (scripts/ci/web_coalesce.py bisect, a binary search of at most 6 probes). It reports and never
+  # fails: its lines are what base-red-watch names the first red commit and its pull request from.
+  web-bisect:
+    name: web bisect
+    needs: [coalesce, web]
+    if: ${{ always() && github.event_name == 'push' && needs.coalesce.result == 'success' && needs.web.result == 'failure' && needs.coalesce.outputs.base != '' && needs.coalesce.outputs.base != 'all' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_LINUX_GATE_OWNED_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_32 || fromJSON(vars.RUNNER_POOLS).linux_16 }}
+    timeout-minutes: 75
     steps:
-      - name: Checkout
+      - name: Checkout with history
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 1
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
+          # The bisector reads the reconciler's read-only last-known-green ref below.
+          # Credentials stay disabled; the read step scopes its token to one fetch.
           persist-credentials: false
+
+      - name: Read last-known-green
+        id: lkg
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          auth=$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')
+          git -c "http.extraheader=AUTHORIZATION: basic $auth" fetch --no-tags origin refs/heads/last-known-green:refs/remotes/origin/last-known-green >/dev/null 2>&1
+          unset auth GITHUB_TOKEN
+          sha=$(git rev-parse refs/remotes/origin/last-known-green 2>/dev/null || true)
+          case "$sha" in
+            [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) echo "sha=$sha" >> "$GITHUB_OUTPUT" ;;
+            *) echo "sha=" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Download this run's webview results
+        id: results
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: webviews-test-history-shard*
+          path: ${{ runner.temp }}/web-bisect-results
+
+      # The base's push verdicts: whether a red was already red at the run before, or flips by itself.
+      - name: Restore the base's webview test history
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/webviews-test-history/history.json
+          key: webviews-test-history-${{ github.ref_name }}-none
+          restore-keys: webviews-test-history-${{ github.ref_name }}-
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -62,28 +177,46 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
+          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
 
-      # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
+      - name: Cache Playwright browsers
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
 
-      - name: Hook tests
-        run: python3 tests/test_web_lint_prepush.py
-
-      # Lints what the push brought (event.before..sha). An unknown or unfetchable
-      # base (a new branch, a force push, a dispatch) lints every package.
-      - name: Web lint on the pushed range
+      - name: Bisect the new webview reds
+        continue-on-error: true
         env:
-          PUSH_BASE: ${{ github.event_name == 'push' && github.event.before || '' }}
+          BASE: ${{ needs.coalesce.outputs.base }}
+          WEB_BISECT_RUNNER: ${{ runner.temp }}/web-bisect-runner/ci
         run: |
-          set -euo pipefail
-          if [ -n "$PUSH_BASE" ] && [ "$PUSH_BASE" != "0000000000000000000000000000000000000000" ] \
-              && git fetch --no-tags --depth=1 origin "$PUSH_BASE"; then
-            python3 scripts/web_lint_prepush.py --base "$PUSH_BASE" --head "$GITHUB_SHA" --timings
-          else
-            echo "::notice title=web lint::push base unknown; linting every package"
-            python3 scripts/web_lint_prepush.py --all --base "$GITHUB_SHA" --head "$GITHUB_SHA" --timings
-          fi
+          # The head's runner, bisect and probe for every probe, whatever commit is checked out. The copy keeps the
+          # scripts/ layout one level up, so web_subareas.py finds ../cmux-next/web-bundle-key.py as in the repo.
+          mkdir -p "$WEB_BISECT_RUNNER" "$WEB_BISECT_RUNNER/../cmux-next"
+          cp scripts/ci/run-webviews-tests.sh scripts/ci/webviews_test_results.py scripts/ci/webviews_test_shards.py \
+            scripts/ci/webviews_test_history.py scripts/ci/web_subareas.py scripts/ci/web_coalesce.py \
+            scripts/ci/web-bisect-probe.sh scripts/ci/ensure-system-chrome.sh "$WEB_BISECT_RUNNER/"
+          cp scripts/cmux-next/web-bundle-key.py "$WEB_BISECT_RUNNER/../cmux-next/"
+          shopt -s nullglob
+          results=("$RUNNER_TEMP"/web-bisect-results/webviews-test-history-shard*/webviews-head-results.json)
+          python3 -I "$WEB_BISECT_RUNNER/web_coalesce.py" bisect --base "$BASE" --head "$GITHUB_SHA" \
+            --last-known-green "${{ steps.lkg.outputs.sha }}" \
+            --results "${results[@]}" --history "$RUNNER_TEMP/webviews-test-history/history.json" \
+            --probe "$WEB_BISECT_RUNNER/web-bisect-probe.sh" --report "$RUNNER_TEMP/web-bisect/report.json"
+          git checkout -q --force --detach "$GITHUB_SHA"
+
+      - name: Upload the bisect report
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-bisect
+          path: ${{ runner.temp }}/web-bisect/report.json
+          if-no-files-found: ignore
+          retention-days: 3

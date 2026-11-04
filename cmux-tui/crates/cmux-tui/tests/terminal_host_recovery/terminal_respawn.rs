@@ -8,7 +8,7 @@
 
 use std::io::Write as _;
 
-use super::pty_custody::{kill_shell_then_host, send_line, wait_for_dead_host};
+use super::pty_custody::{kill_shell_then_host, send_line, signal_pid, wait_for_dead_host};
 use super::*;
 
 const MARKER: &str = "session restored (previous process ended)";
@@ -249,6 +249,52 @@ fn a_terminated_daemon_keeps_the_screen_for_a_respawn_after_a_reboot() {
     assert!(text.contains("shutdown-marker"), "the screen at shutdown is gone: {text}");
 }
 
+/// Rename the only tab of workspace `workspace` to `name`.
+fn rename_tab(harness: &RecoveryHarness, surface: u64, workspace: &str, name: &str) {
+    request(
+        &harness.socket,
+        serde_json::json!({"cmd":"rename-surface","surface":surface,"name":name}),
+    );
+    assert_eq!(tab_named(harness, workspace)["name"], name, "the rename did not take");
+}
+
+/// b3. A renamed tab whose host died with the daemon (a reboot) keeps its
+/// name: the respawn makes a new runtime, and the name is the tab's, not
+/// the dead runtime's (the reboot journey's `rj-split` row).
+#[test]
+fn a_renamed_tab_keeps_its_name_when_its_terminal_respawns_after_a_reboot() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start("respawn-reboot-name");
+    let (terminal_id, incarnation, surface) = start_default_shell(&harness, "renamed-reboot");
+    rename_tab(&harness, surface, "renamed-reboot", "rj-renamed");
+    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    harness.sigkill();
+    // SAFETY: the record PID is the harness-owned terminal host.
+    assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
+    harness.restart();
+
+    wait_for_respawn(&harness, &terminal_id, &incarnation);
+    let tab = tab_named(&harness, "renamed-reboot");
+    assert_eq!(tab["dead"], false, "{tab}");
+    assert_eq!(tab["name"], "rj-renamed", "the respawned tab lost its name: {tab}");
+}
+
+/// b4. A renamed tab whose shell and host die under a running daemon keeps
+/// its name through the respawn.
+#[test]
+fn a_renamed_tab_keeps_its_name_when_its_terminal_respawns_in_place() {
+    let _exclusive = exclusive_process_test();
+    let harness = RecoveryHarness::start("respawn-live-name");
+    let (terminal_id, incarnation, surface) = start_default_shell(&harness, "renamed-live");
+    rename_tab(&harness, surface, "renamed-live", "rj-renamed");
+
+    kill_current_shell_and_host(&harness, &terminal_id);
+    wait_for_respawn(&harness, &terminal_id, &incarnation);
+    let tab = tab_named(&harness, "renamed-live");
+    assert_eq!(tab["dead"], false, "{tab}");
+    assert_eq!(tab["name"], "rj-renamed", "the respawned tab lost its name: {tab}");
+}
+
 /// The process exists and is not a zombie.
 fn host_running(pid: u32) -> bool {
     // SAFETY: signal 0 only checks that the PID exists.
@@ -317,10 +363,19 @@ fn an_unadoptable_host_that_dies_without_a_record_is_respawned() {
     );
     assert_ne!(resolved["lifecycle"], "exited", "{resolved}");
 
-    // The host and its shell die with no exit record.
+    // The host and its shell die with no exit record. The host is stopped
+    // first, as `kill_shell_then_host` does: a host that still ran when its
+    // shell died could record that end (SIGKILL), and a recorded end is a
+    // process end, which never respawns.
+    // The stop must take before the shell is killed: `signal_pid` fails the
+    // test if the signal is refused, and every host thread is stopped once
+    // `wait_until_stopped` returns (a kill can return before that).
     let host_pid = record.host_pid as libc::pid_t;
+    signal_pid(record.host_pid, libc::SIGSTOP);
+    wait_until_stopped(host_pid);
     let _ = Command::new("/usr/bin/pkill").args(["-KILL", "-P", &host_pid.to_string()]).status();
-    // SAFETY: the record PID is the harness-owned terminal host.
+    // SAFETY: the record PID is the harness-owned terminal host; SIGKILL also
+    // ends a stopped process.
     unsafe { libc::kill(host_pid, libc::SIGKILL) };
     wait_for_process_and_group_absent(host_pid);
 

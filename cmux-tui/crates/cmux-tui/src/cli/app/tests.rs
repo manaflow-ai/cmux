@@ -16,7 +16,9 @@ fn call(command: AppCommand) -> (&'static str, Value) {
         | AppCommand::DebugCall { .. }
         | AppCommand::Screenshot { .. }
         | AppCommand::Right { .. }
+        | AppCommand::Renderers { .. }
         | AppCommand::Settings(_)
+        | AppCommand::Nightly(_)
         | AppCommand::Version => {
             panic!("expected a call")
         }
@@ -39,6 +41,109 @@ fn screenshot_out_is_made_absolute_except_stdout() {
     assert_eq!(out("shot.png"), cwd.join("shot.png").to_string_lossy());
     assert_eq!(out("-"), "-");
     assert_eq!(out("/tmp/shot.png"), "/tmp/shot.png");
+}
+
+#[test]
+fn space_mutations_use_the_catalog_actions_and_name_targets() {
+    for (words, action, target, action_args) in [
+        (&["space", "new", "Work"][..], "space.new", None, json!({"name": "Work"})),
+        (&["space", "switch", "Work"][..], "space switch", Some("room:Work"), json!({})),
+        (
+            &["space", "rename", "Work", "Office"][..],
+            "space rename",
+            Some("room:Work"),
+            json!({"name": "Office"}),
+        ),
+        (
+            &["space", "close", "Work"][..],
+            "space delete",
+            Some("room:Work"),
+            json!({"confirm": true}),
+        ),
+        (
+            &["space", "move", "workspace", "ws_1", "Work"][..],
+            "workspace move-to-space",
+            Some("workspace:ws_1"),
+            json!({"space": "Work"}),
+        ),
+        (
+            &["space", "move", "tab", "tab_1", "Work"][..],
+            "tab move-to-space",
+            Some("tab:tab_1"),
+            json!({"space": "Work"}),
+        ),
+    ] {
+        let Some(command) = parse(&args(words)).unwrap() else { panic!("{words:?}") };
+        let (method, params) = call(command);
+        assert_eq!(method, "action.run");
+        assert_eq!(params["action"], action);
+        assert_eq!(params.get("target").and_then(Value::as_str), target);
+        // `run_action` leaves `args` out when the action takes none.
+        assert_eq!(params.get("args").cloned().unwrap_or_else(|| json!({})), action_args);
+    }
+}
+
+#[test]
+fn space_catalog_actions_keep_their_generic_cli_routes() {
+    let (method, params) = call(parse(&args(&["space", "new-window"])).unwrap().unwrap());
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "space new-window");
+    assert_eq!(params["cli"], true);
+}
+
+/// A flag is never a positional space name: `space rename --name Office`
+/// renames the current space through the catalog action, as it did before the
+/// positional forms, instead of targeting a space called `--name`.
+#[test]
+fn space_flags_are_not_positional_names() {
+    for (words, action, target, action_args) in [
+        (
+            &["space", "rename", "--name", "Office"][..],
+            "space rename",
+            None,
+            json!({"name": "Office"}),
+        ),
+        (
+            &["space", "rename", "--target", "room:Work", "--name", "Office"][..],
+            "space rename",
+            Some("room:Work"),
+            json!({"name": "Office"}),
+        ),
+        (
+            &["space", "delete", "--target", "room:Work", "--confirm"][..],
+            "space delete",
+            Some("room:Work"),
+            json!({"confirm": true}),
+        ),
+        (
+            &["space", "switch", "--target", "room:Work"][..],
+            "space switch",
+            Some("room:Work"),
+            json!({}),
+        ),
+    ] {
+        let Some(command) = parse(&args(words)).unwrap() else { panic!("{words:?}") };
+        let (method, params) = call(command);
+        assert_eq!(method, "action.run", "{words:?}");
+        assert_eq!(params["action"], action, "{words:?}");
+        assert_eq!(params.get("target").and_then(Value::as_str), target, "{words:?}");
+        assert_eq!(
+            params.get("args").cloned().unwrap_or_else(|| json!({})),
+            action_args,
+            "{words:?}"
+        );
+    }
+}
+
+/// Options after a positional form still reach the action.
+#[test]
+fn space_positional_forms_keep_trailing_options() {
+    let (_, params) =
+        call(parse(&args(&["space", "rename", "Work", "Office", "--no-wait"])).unwrap().unwrap());
+    assert_eq!(params["action"], "space rename");
+    assert_eq!(params["target"], "room:Work");
+    assert_eq!(params["args"], json!({"name": "Office"}));
+    assert_eq!(params["wait"], false);
 }
 
 /// `cmux space set-defaults --cwd DIR` (and every other action's `--cwd`) names
@@ -175,6 +280,26 @@ fn action_flags_name_camel_case_arguments_and_bare_flags_are_true() {
 }
 
 #[test]
+fn app_settings_forwards_section_and_setting_arguments() {
+    let (method, params) = call(
+        parse(&args(&[
+            "app",
+            "settings",
+            "--section",
+            "accounts",
+            "--setting",
+            "accounts.provider",
+        ]))
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "app settings");
+    assert_eq!(params["cli"], true);
+    assert_eq!(params["args"], json!({ "section": "accounts", "setting": "accounts.provider" }));
+}
+
+#[test]
 fn unknown_words_run_the_action_with_that_cli_name() {
     let (method, params) = call(parse(&args(&["app", "new-window"])).unwrap().unwrap());
     assert_eq!(method, "action.run");
@@ -182,6 +307,116 @@ fn unknown_words_run_the_action_with_that_cli_name() {
         params,
         json!({ "action": "app new-window", "cli": true, "wait": true, "origin": "script" })
     );
+}
+
+#[test]
+fn action_describe_accepts_an_unquoted_cli_name() {
+    let (_, params) =
+        call(parse(&args(&["action", "describe", "cloud", "exec"])).unwrap().unwrap());
+    assert_eq!(params["action"], "cloud exec");
+}
+
+#[test]
+fn cloud_is_an_app_scope() {
+    assert!(APP_SCOPES.contains(&"cloud"));
+}
+
+/// `cmux home invite-to-team --email …` (and its alias `cmux team invite`) runs
+/// the app's `home.inviteToTeam`, whose dialog waits for the person's Send, so
+/// the CLI (and `cmux mcp`) wait as long as the app's person deadline.
+#[test]
+fn invite_to_team_runs_the_home_action_and_waits_for_the_person() {
+    for words in [
+        &["home", "invite-to-team", "--email", "leo@cmux.com"][..],
+        &["team", "invite", "--email", "leo@cmux.com"][..],
+    ] {
+        let sent = match parse(&args(words)) {
+            Ok(Some(AppCommand::Call { method, params, timeout, .. })) => {
+                Some((method, params, timeout))
+            }
+            _ => None,
+        };
+        assert!(sent.is_some(), "{words:?}: expected one action.run call");
+        if let Some((method, params, timeout)) = sent {
+            assert_eq!(timeout, Some(PERSON_RUN_TIMEOUT), "{words:?}");
+            assert_eq!(method, "action.run");
+            assert_eq!(params["action"], "home invite-to-team", "{words:?}");
+            assert_eq!(params["args"], json!({ "email": "leo@cmux.com" }), "{words:?}");
+        }
+    }
+    assert_eq!(waiting_run_timeout("home.inviteToTeam"), PERSON_RUN_TIMEOUT);
+}
+
+/// Every action the app's catalog marks `waitsForPerson = true` gets the
+/// person deadline here too: the CLI must not give up before the app does.
+#[test]
+fn every_app_action_that_waits_for_a_person_gets_the_person_timeout() {
+    let catalog = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog");
+    let Ok(entries) = std::fs::read_dir(&catalog) else { return };
+    let mut checked = 0;
+    for entry in entries.flatten() {
+        let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
+        for line in text.lines().filter(|line| line.contains(".waitsForPerson = true")) {
+            // `start.waitsForPerson = true`: the descriptor variable's `id:` and `cliName:`.
+            let variable = line.trim().split('.').next().unwrap_or_default();
+            let declared = format!("var {variable} = ActionDescriptor(");
+            let Some(start) = text.find(&declared) else { continue };
+            let body = &text[start..];
+            let body = &body[..body.find("\n        )").unwrap_or(body.len())];
+            for key in ["id: \"", "cliName: \""] {
+                if let Some(at) = body.find(key) {
+                    let name = &body[at + key.len()..];
+                    let name = &name[..name.find('"').unwrap_or(0)];
+                    assert_eq!(
+                        waiting_run_timeout(name),
+                        PERSON_RUN_TIMEOUT,
+                        "{name} waits for a person in the app"
+                    );
+                    checked += 1;
+                }
+            }
+        }
+    }
+    assert!(checked > 0, "no waitsForPerson descriptor found under {}", catalog.display());
+}
+
+/// `cmux share chat` (and its MCP tool, `agent.share`) waits for the owner's answer in the app
+/// when an agent or script asks (#30263), so the CLI waits as long as the app's person deadline:
+/// a late Make Link still reaches the caller instead of a link nobody receives.
+///
+/// `share` is not an app scope ([`parse`] answers None for it): the CLI reaches the action through
+/// `run_app_action_fallback` in `cli.rs`, which leaves `share chat` to the generic path (only
+/// `share revoke|kick` are rewritten, `share_cli::action`) and runs [`run_action`] with the words
+/// before the first flag as the CLI name. This test takes that same path.
+#[test]
+fn share_chat_waits_for_the_owners_answer() {
+    let words = args(&["share", "chat", "--surface", "1"]);
+    assert!(matches!(parse(&words), Ok(None)), "share is not an app scope");
+    assert_eq!(super::super::share_cli::action(&words), None, "share chat goes on as typed");
+    let sent = match run_action("share chat", &words[2..], ActionName::Cli) {
+        Ok(AppCommand::Call { method, params, timeout, .. }) => Some((method, params, timeout)),
+        _ => None,
+    };
+    assert!(sent.is_some(), "expected one action.run call");
+    if let Some((method, params, timeout)) = sent {
+        assert_eq!(method, "action.run");
+        assert_eq!(params["action"], "share chat");
+        assert_eq!(params["args"], json!({ "surface": "1" }), "{params}");
+        assert_eq!(timeout, Some(PERSON_RUN_TIMEOUT));
+    }
+    assert_eq!(waiting_run_timeout("share chat"), PERSON_RUN_TIMEOUT);
+    assert_eq!(waiting_run_timeout("agent.share"), PERSON_RUN_TIMEOUT);
+    assert_eq!(waiting_run_timeout("share list"), WAITING_RUN_TIMEOUT);
+}
+
+/// A bare `cmux team invite` (nothing after the verb) still runs Invite to Team, with no arguments.
+#[test]
+fn a_bare_team_invite_runs_the_home_action_with_no_arguments() {
+    let (method, params) = call(parse(&args(&["team", "invite"])).unwrap().unwrap());
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "home invite-to-team");
+    assert!(params.get("args").is_none_or(|a| a == &json!({})), "{params}");
 }
 
 #[test]
@@ -200,11 +435,18 @@ fn action_runs_wait_by_default_and_no_wait_opts_out() {
 #[test]
 fn busy_is_retried_only_when_the_app_says_nothing_ran() {
     let not_run = json!({ "code": "busy", "data": { "state": "not_run" } });
-    assert!(busy_before_running(&not_run));
-    assert!(busy_before_running(&json!({ "code": "busy", "data": { "not_run": true } })));
-    assert!(!busy_before_running(&json!({ "code": "busy", "data": { "state": "in_progress" } })));
-    assert!(!busy_before_running(&json!({ "code": "busy" })));
-    assert!(!busy_before_running(&json!({ "code": "timeout", "data": { "state": "not_run" } })));
+    assert!(retry_before_running(&not_run));
+    assert!(retry_before_running(&json!({ "code": "busy", "data": { "not_run": true } })));
+    assert!(!retry_before_running(&json!({ "code": "busy", "data": { "state": "in_progress" } })));
+    assert!(!retry_before_running(&json!({ "code": "busy" })));
+    // #32724: a timeout before the work started, and a read barrier on a reconnecting daemon,
+    // are asked again too; one that may have started is not.
+    assert!(retry_before_running(&json!({ "code": "timeout", "data": { "state": "not_run" } })));
+    assert!(retry_before_running(&json!({ "code": "unavailable", "data": { "not_run": true } })));
+    assert!(!retry_before_running(
+        &json!({ "code": "timeout", "data": { "state": "in_progress" } })
+    ));
+    assert!(!retry_before_running(&json!({ "code": "not_found", "data": { "not_run": true } })));
     assert_eq!(busy_retry_delay(&not_run), BUSY_RETRY_DELAY);
     let later = json!({ "code": "busy", "data": { "state": "not_run", "retry_after_ms": 60_000 } });
     assert_eq!(busy_retry_delay(&later), MAX_BUSY_RETRY_DELAY);
@@ -387,6 +629,19 @@ fn liveness_probes_do_not_wait_for_the_daemon() {
     assert_eq!(with_read_barrier("system.ping", json!({})), json!({}));
     assert_eq!(with_read_barrier("system.capabilities", json!({})), json!({}));
     assert_eq!(with_read_barrier("system.identify", json!({})), json!({ "after": "sync" }));
+}
+
+/// The action catalog and the agent dialogs read nothing a `cmux` call writes
+/// to the daemon: a busy daemon round trip timed them out on a loaded app.
+#[test]
+fn catalog_and_dialog_reads_do_not_wait_for_the_daemon() {
+    assert_eq!(with_read_barrier("action.list", json!({})), json!({}));
+    let describe = json!({ "action": "cloud start-session" });
+    assert_eq!(with_read_barrier("action.describe", describe.clone()), describe);
+    let dialogs = json!({ "pending_only": false });
+    assert_eq!(with_read_barrier("feed.list", dialogs.clone()), dialogs);
+    // A dialog answer changes the app: it keeps the barrier.
+    assert_eq!(with_read_barrier("feed.permission.reply", json!({})), json!({ "after": "sync" }));
 }
 
 #[test]
@@ -876,7 +1131,9 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::DebugCall { .. }
         | AppCommand::Screenshot { .. }
         | AppCommand::Right { .. }
+        | AppCommand::Renderers { .. }
         | AppCommand::Settings(_)
+        | AppCommand::Nightly(_)
         | AppCommand::Version => {
             panic!("expected a call")
         }
@@ -1213,6 +1470,11 @@ fn config_is_the_settings_scope() {
 #[test]
 fn settings_list_keys_and_schema_answer_without_the_app() {
     let keys = local(parse(&args(&["settings", "list", "--keys"])).unwrap().unwrap()).unwrap();
+    assert_eq!(
+        local(parse(&args(&["settings", "list", "--keys", "--keys"])).unwrap().unwrap()).unwrap(),
+        keys,
+        "repeated completion flag remains harmless",
+    );
     let keys: Vec<&str> =
         keys.as_array().unwrap().iter().map(|key| key.as_str().unwrap()).collect();
     assert!(keys.contains(&"sidebar.side") && keys.contains(&"appearance.theme"), "{keys:?}");
@@ -1241,35 +1503,11 @@ fn settings_list_keys_and_schema_answer_without_the_app() {
 }
 
 #[test]
-fn settings_list_shows_the_app_settings_as_schema_rows() {
-    let answer = json!({ "id": 1, "ok": true, "result": {
-        "path": [], "exists": true, "file": "/tmp/cmux-next.json",
-        "value": { "sidebar": { "side": "right", "density": "not-a-density" } },
-    } });
-    let (socket, app) = fake_app(vec![answer.clone()]);
-    let command = parse(&args(&["settings", "list", "--section", "appearance"])).unwrap().unwrap();
-    assert_eq!(run(&global_for(&socket), command), 0);
-    let connections = app.join().unwrap();
-    let [request] = connections[0].as_slice() else { panic!("{connections:?}") };
-    let mut sent = request["params"].clone();
-    sent.as_object_mut().unwrap().remove("after");
-    assert_eq!((&request["method"], &sent), (&json!("settings.get"), &json!({})));
-
-    let rows = settings::list_rows(&answer["result"], Some("appearance"));
-    let row =
-        |key: &str| rows.as_array().unwrap().iter().find(|row| row["key"] == key).cloned().unwrap();
-    let side = row("sidebar.side");
-    assert_eq!((&side["value"], &side["default"]), (&json!("right"), &json!("left")));
-    // The app reports the effective settings: whether the file sets a key or
-    // a policy manages it is not known here, so the rows do not claim it.
-    assert!(side.get("customized").is_none() && side.get("managed").is_none(), "{side}");
-    // A refused value applies its default, as in the app.
-    let density = row("sidebar.density");
-    assert_eq!(density["value"], density["default"]);
-    assert!(rows.as_array().unwrap().iter().all(|row| row["section"] == "appearance"));
-    let shown = settings::human_rows(&rows);
-    assert_eq!(shown[0].as_object().unwrap().len(), 3, "key, value, default");
-    // A section no row is in names the sections.
+fn settings_list_leaves_value_reads_to_the_daemon() {
+    for scope in ["settings", "config"] {
+        assert!(parse(&args(&[scope, "list"])).unwrap().is_none());
+        assert!(parse(&args(&[scope, "list", "--section", "appearance"])).unwrap().is_none());
+    }
     let error = parse(&args(&["settings", "list", "--section", "nope"])).err().unwrap();
     assert!(error.to_string().contains("appearance"), "{error}");
     assert!(
@@ -1374,20 +1612,27 @@ fn a_chief_turn_names_the_home_chat_as_its_caller() {
     assert_eq!(caller_from(env(&[("CMUX_CALLER_HOME_CHAT", "0")])), None);
 }
 
-/// The agent cursor's tag says who drives and where, and goes there on a click
-/// (user, 2026-10-20): every page input verb sends its caller, so the app knows
-/// the agent's terminal or chat. Reads and navigation do not need it.
+/// Every page verb sends its caller: the app runs a verb without a tab on the
+/// browser nearest the caller, not the person's focused tab in another window
+/// (#26648), and an input verb's agent cursor tag says who drives and where
+/// (user, 2026-10-20).
 #[test]
-fn page_input_verbs_send_the_caller() {
-    for method in
-        ["browser.page.click", "browser.page.fill", "browser.page.press", "browser.page.drag"]
-    {
+fn page_verbs_send_the_caller() {
+    for method in [
+        "browser.page.click",
+        "browser.page.fill",
+        "browser.page.press",
+        "browser.page.drag",
+        "browser.page.text",
+        "browser.page.navigate",
+        "browser.page.screenshot",
+        "browser.page.snapshot",
+        "browser.page.tabs",
+    ] {
         assert!(takes_caller(method), "{method}");
     }
-    for method in ["browser.page.text", "browser.page.navigate", "browser.page.screenshot"] {
-        assert!(!takes_caller(method), "{method}");
-    }
     assert!(takes_caller("action.run"));
+    assert!(!takes_caller("settings.get"));
 }
 
 #[path = "right_tests.rs"]
@@ -1469,4 +1714,262 @@ fn open_link_refuses_files_workspaces_and_stray_flags_without_echoing_urls() {
             "{stray:?} needs --link"
         );
     }
+}
+
+/// The app's `not_found` for an unknown CLI action has no reason; an action whose target names
+/// nothing gives one, and that reaches the caller instead of reading as a missing command.
+#[test]
+fn a_missing_target_is_not_a_missing_action() {
+    let unknown =
+        serde_json::json!({"code": "not_found", "message": "Unknown action 'share chat'"});
+    assert!(!names_a_target(&unknown));
+    let missing = serde_json::json!({"code": "not_found", "message": "No agent chat is on surface 99.",
+        "data": {"action": "share chat", "reason": "No agent chat is on surface 99."}});
+    assert!(names_a_target(&missing));
+}
+
+/// `cmux workspace group create --remote HOST` is the app's New Remote Group
+/// (plans/cmux-next/remote-groups-DESIGN.md): the sidebar document holds remote
+/// groups, so the app makes it, with the group's name when one is given.
+#[test]
+fn workspace_group_create_remote_runs_new_remote_group() {
+    let (method, params) = call(
+        parse(&args(&["workspace", "group", "create", "--remote", "mini", "--name", "Mini"]))
+            .unwrap()
+            .expect("an app command"),
+    );
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "remote.newGroup");
+    assert_eq!(params["args"], json!({ "destination": "mini", "name": "Mini" }));
+    assert_eq!(params["wait"], true);
+    let (_, params) =
+        call(parse(&args(&["workspace", "group", "create", "--remote=box"])).unwrap().unwrap());
+    assert_eq!(params["args"], json!({ "destination": "box" }));
+}
+
+/// `--parent GROUP` makes a nested group (New Subgroup) inside GROUP, named.
+#[test]
+fn workspace_group_create_parent_runs_new_subgroup() {
+    let (method, params) = call(
+        parse(&args(&["workspace", "group", "create", "--parent", "grp_1", "--name", "API"]))
+            .unwrap()
+            .expect("an app command"),
+    );
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "workspaceGroup.newSubgroup");
+    assert_eq!(params["args"], json!({ "group": "grp_1", "name": "API" }));
+}
+
+/// A plain group stays the daemon's (`workspace_group.create`); a flag with no
+/// value, or a remote group inside a parent, is a usage error.
+#[test]
+fn workspace_group_create_without_remote_or_parent_stays_with_the_daemon() {
+    assert_eq!(parse(&args(&["workspace", "group", "create", "--name", "Work"])).unwrap(), None);
+    assert_eq!(parse(&args(&["workspace", "group", "list"])).unwrap(), None);
+    assert!(parse(&args(&["workspace", "group", "create", "--remote"])).is_err());
+    assert!(parse(&args(&["workspace", "group", "create", "--parent", "grp_1"])).is_err());
+    assert!(
+        parse(&args(&["workspace", "group", "create", "--remote", "a", "--parent", "grp_1"]))
+            .is_err()
+    );
+    assert!(
+        parse(&args(&["workspace", "group", "create", "--remote", "a", "--color", "red"])).is_err()
+    );
+}
+
+/// u18462: `cmux open --as-text FILE` (alias `--source`) asks the app to open
+/// HTML, SVG and Markdown as their source in the code editor; a plain open
+/// sends no `as_text`, and the flag never applies to URLs from stdin or --link.
+#[test]
+fn open_as_text_sends_as_text_with_the_files() {
+    let environment = std::collections::HashMap::new();
+    for flag in ["--as-text", "--source"] {
+        let AppCommand::Open { requests, .. } = parse_open_with(
+            &args(&[flag, "/tmp/site/index.html", "/tmp/site/README.md"]),
+            false,
+            &environment,
+            &mut std::io::empty(),
+        )
+        .unwrap() else {
+            panic!("expected open command")
+        };
+        assert_eq!(requests.len(), 1, "{flag}");
+        assert_eq!(requests[0].method, "file.open");
+        assert_eq!(requests[0].params["as_text"], json!(true), "{flag}");
+        assert_eq!(
+            requests[0].params["paths"],
+            json!(["/tmp/site/index.html", "/tmp/site/README.md"])
+        );
+    }
+    let AppCommand::Open { requests, .. } = parse_open_with(
+        &args(&["/tmp/site/index.html"]),
+        false,
+        &environment,
+        &mut std::io::empty(),
+    )
+    .unwrap() else {
+        panic!("expected open command")
+    };
+    assert!(requests[0].params.get("as_text").is_none());
+    assert!(
+        parse_open_with(
+            &args(&["--as-text", "-"]),
+            false,
+            &environment,
+            &mut "https://a.example/\n".as_bytes()
+        )
+        .is_err()
+    );
+    assert!(
+        parse_open_with(
+            &args(&["--as-text", "--link", "https://a.example/"]),
+            false,
+            &environment,
+            &mut std::io::empty()
+        )
+        .is_err()
+    );
+    assert!(
+        parse_open_with(
+            &args(&["--as-text=yes", "/tmp/a.html"]),
+            false,
+            &environment,
+            &mut std::io::empty()
+        )
+        .is_err()
+    );
+}
+
+/// A fake app that serves every connection at once, like the app's control socket: a plain
+/// `ping` gets `PONG`, `slow.get` answers after `slow`, any other method at once (its result
+/// names the method). Returns the socket and a guard that keeps it.
+fn concurrent_fake_app(slow: Duration) -> (PathBuf, cmux_unix_socket::TestDir) {
+    use std::os::unix::net::UnixListener;
+    let dir = cmux_unix_socket::short_test_dir("cmux-app-busy");
+    let socket = dir.path().join("app.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            std::thread::spawn(move || {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut writer = stream;
+                let mut line = String::new();
+                while reader.read_line(&mut line).unwrap_or(0) > 0 {
+                    if line.trim() == "ping" {
+                        let _ = writeln!(writer, "PONG");
+                    } else {
+                        let request: Value = serde_json::from_str(&line).unwrap();
+                        let method = request["method"].as_str().unwrap_or_default().to_owned();
+                        if method == "slow.get" {
+                            std::thread::sleep(slow);
+                        }
+                        let reply = json!({ "id": 1, "ok": true, "result": { "method": method } });
+                        let _ = writeln!(writer, "{reply}");
+                    }
+                    line.clear();
+                }
+            });
+        }
+    });
+    (socket, dir)
+}
+
+/// #32724: a request the app answers after several read windows still gets its answer while
+/// the app is alive (it answers `ping`), and `identify` and the dialog list (`feed.list`) sent
+/// meanwhile complete at once instead of failing or waiting behind it.
+#[test]
+fn a_slow_request_waits_for_a_live_app_while_identify_and_dialog_list_complete() {
+    const WINDOW: Duration = Duration::from_millis(150);
+    const SLOW: Duration = Duration::from_millis(1500);
+    let (socket, _dir) = concurrent_fake_app(SLOW);
+    let slow_socket = socket.clone();
+    let (done, finished) = std::sync::mpsc::channel();
+    let slow = std::thread::spawn(move || {
+        let mut stream = connect(&slow_socket).unwrap();
+        let answer = request(&mut stream, "slow.get", json!({}), WINDOW);
+        done.send("slow").unwrap();
+        answer
+    });
+    // The slow request is on the wire before the quick ones.
+    std::thread::sleep(WINDOW);
+    for method in ["system.identify", "feed.list"] {
+        let mut stream = connect(&socket).unwrap();
+        let answer = request(&mut stream, method, json!({}), WINDOW).unwrap().unwrap();
+        assert_eq!(answer["method"], method);
+        done_before(&finished, method);
+    }
+    let answer = slow.join().unwrap();
+    assert_eq!(answer.unwrap().unwrap()["method"], "slow.get", "a live app's slow request failed");
+}
+
+fn done_before(finished: &std::sync::mpsc::Receiver<&str>, method: &str) {
+    assert!(finished.try_recv().is_err(), "{method} waited for the slow request");
+}
+
+/// #32724, under artificial CPU starvation (four spinning threads per core): a request whose
+/// answer comes long after its read window is answered, not failed, while the app answers `ping`.
+#[test]
+fn a_request_is_answered_not_failed_under_cpu_starvation() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let (socket, _dir) = concurrent_fake_app(Duration::from_millis(1200));
+    let stop = std::sync::Arc::new(AtomicBool::new(false));
+    let cores = std::thread::available_parallelism().map_or(4, |count| count.get());
+    let spinners: Vec<_> = (0..cores * 4)
+        .map(|_| {
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                let mut spins = 0u64;
+                while !stop.load(Ordering::Relaxed) {
+                    spins = std::hint::black_box(spins.wrapping_add(1));
+                }
+            })
+        })
+        .collect();
+    let mut stream = connect(&socket).unwrap();
+    let slow = request(&mut stream, "slow.get", json!({}), Duration::from_millis(100));
+    let mut stream = connect(&socket).unwrap();
+    let identify = request(&mut stream, "system.identify", json!({}), Duration::from_millis(100));
+    stop.store(true, Ordering::Relaxed);
+    for spinner in spinners {
+        spinner.join().unwrap();
+    }
+
+    assert_eq!(slow.unwrap().unwrap()["method"], "slow.get");
+    assert_eq!(identify.unwrap().unwrap()["method"], "system.identify");
+}
+
+/// An app that does not answer `ping` either is gone or wedged: the read still ends at its window.
+#[test]
+fn a_request_to_an_app_that_does_not_answer_ping_ends_at_its_window() {
+    let dir = cmux_unix_socket::short_test_dir("cmux-app-silent");
+    let socket = dir.path().join("app.sock");
+    // Never accepted: the request and the `ping` wait in the backlog and nothing answers.
+    let _listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let mut stream = UnixStream::connect(&socket).unwrap();
+    let started = std::time::Instant::now();
+    let answer = request(&mut stream, "system.identify", json!({}), Duration::from_millis(200));
+    assert_eq!(answer, Err(wait::timeout_message(Duration::from_millis(200))));
+    assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
+}
+
+/// #32724: an app that says nothing ran because its daemon connection was reconnecting
+/// (`unavailable`, `not_run`) is asked again by the CLI; the caller sees only the answer.
+#[test]
+fn a_not_run_refusal_is_retried_inside_the_cli() {
+    let refused = json!({ "id": 1, "ok": false, "error": { "code": "unavailable",
+        "message": "the daemon connection closed", "data": { "not_run": true, "retry_after_ms": 1 } } });
+    let answered = json!({ "id": 1, "ok": true, "result": { "machines": [] } });
+    let (socket, app) = fake_app(vec![refused.clone(), refused, answered]);
+    let mut stream = connect(&socket).unwrap();
+    let answer = request_with_retry(
+        &mut stream,
+        "action.run",
+        &json!({ "action": "cloud.list" }),
+        READ_TIMEOUT,
+    );
+    drop(stream);
+    let connections = app.join().unwrap();
+    assert_eq!(answer.unwrap().unwrap()["machines"], json!([]));
+    assert_eq!(connections[0].len(), 3, "{connections:?}");
 }

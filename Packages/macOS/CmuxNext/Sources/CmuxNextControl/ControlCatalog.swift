@@ -289,11 +289,29 @@ public struct ControlCatalog: Sendable {
     }
 
     /// Availability for a run with an explicit target, which stands in for
-    /// the facts it implies (`ActionContext.implied(byTargetKind:)`).
+    /// the facts it implies (`ActionContext.implied(byTargetKind:)`) and
+    /// leaves the facts only the App can read to the registry
+    /// (`deferredToRegistry(byTargetKind:)`).
     func isAvailable(_ action: ControlActionInfo, target: ControlTargetRef?) -> Bool {
         let kind = target.flatMap { ActionTargetKind(rawValue: $0.kind) }
         let mask = contextMask | ActionContext.implied(byTargetKind: kind).rawValue
+            | Self.deferredToRegistry(byTargetKind: kind).rawValue
         return action.isAvailable(contextMask: mask, debugActionsAvailable: debugActionsAvailable)
+    }
+
+    /// The facts a pane or tab target may bring that only the App knows live:
+    /// whether it shows an agent chat (`agentPaneFocused`, so `cmux agent
+    /// set-model --target pane:<id>` runs with no chat focused) and whether it
+    /// sits on a canvas screen (`canvasLayout`). This snapshot can lag the
+    /// App's tabs (at startup, or just after a chat opened), so `action.run`
+    /// does not decide them here. The registry reads them on the main actor
+    /// (`ActionRegistry.targetContext`) and refuses a target without them as
+    /// `unavailable` before the handler runs.
+    static func deferredToRegistry(byTargetKind kind: ActionTargetKind?) -> ActionContext {
+        switch kind {
+        case .pane, .tab: .decidedByPaneOrTabTarget
+        default: []
+        }
     }
 
     func json(_ action: ControlActionInfo) -> JSONValue {

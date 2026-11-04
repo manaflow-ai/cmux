@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import importlib.util
 import os
 import re
 import subprocess
@@ -174,6 +175,9 @@ CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
 # that tree can execute cannot change what a pull request's lanes do.
 _LOCAL_WORKFLOW_CALL_RE = re.compile(r"""uses:\s*["']?\./(\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml)""")
 _DOCUMENTATION_SUFFIXES = (".md", ".mdx", ".txt")
+# Data files that name helpers without running them: git attributes and the
+# warm-source table, whose entries describe a source in prose (#28568).
+_NON_RUNNING_FILES = frozenset({".gitattributes", ".github/warm-sources.json"})
 
 
 def routed_workflows(root: Path) -> Optional[frozenset[str]]:
@@ -258,10 +262,25 @@ _CI_GUARD_PROFILE_MARKER = "scripts/ci/cmux_workload_profile.py run cmux.ci.guar
 _CI_GUARD_ENTRYPOINT = "scripts/ci/workloads/ci-guard.sh"
 
 
+# ci-guards.yml's guard tests take a free mini from portable placement
+# (scripts/ci/portable_job_placement.py) only when cmux-next-guards.yml passes
+# one. That job runs the same Linux guard tests, not the app's macOS lanes, so
+# the term does not make the tests it names macOS-relevant.
+_PORTABLE_RUNNER_TERM = "inputs.guard_tests_runner != '' && inputs.guard_tests_runner ||"
+# The credentialed `changes` router accepts only the current attempt's
+# validated Linux placement. Its test-path references still run on Linux;
+# an unknown needs expression must continue to fail open below.
+_PORTABLE_ROUTER_LINUX_TERM = (
+    "needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && "
+    "contains(needs.portable-placement.outputs.linux_jobs, ' changes ') && "
+    "needs.portable-placement.outputs.linux_runner ||"
+)
+
+
 def is_plainly_linux_runner(runs_on: str) -> bool:
     # Anything else counts as macOS: a matrix or needs expression, a list or
     # group on the following lines, or a label this does not recognize.
-    value = runs_on.strip()
+    value = runs_on.strip().replace(_PORTABLE_RUNNER_TERM, "").replace(_PORTABLE_ROUTER_LINUX_TERM, "")
     if not value or re.search(r"macos|matrix\.|needs\.|inputs\.", value, re.IGNORECASE):
         return False
     return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu", value))
@@ -522,10 +541,14 @@ _ROUTING_TABLES = frozenset({
     "scripts/ci/detect_linux_guard_changes.py",
     "scripts/ci/workflow_guard_groups.py",
 })
-# Files that list test paths without running them: the routing tables and
-# cmux-next.yml's path router.
+# Files that list test paths without running them: the routing tables,
+# cmux-next.yml's path router, the guard wiring test's manual-lane list, and
+# base_red_excuse.py's guard-test input table with its test's fixtures (#30467).
 _TEST_PATH_LISTS = _ROUTING_TABLES | frozenset({
+    "scripts/ci/base_red_excuse.py",
     "scripts/ci/cmux_next_route.py",
+    "tests/test_base_red_excuse.py",
+    "tests/test_ci_workflow_guards_are_wired.py",
 })
 # The execution registry runs its entries: ci-macos.yml's
 # `run_python_test_lane.py --lane ...` step executes every test in the lanes it
@@ -577,6 +600,44 @@ def _python_names(text: str, token: str, *, imports_only: bool = False) -> Optio
                 and id(node) not in docstrings and whole_name.search(node.value)):
             return True
     return False
+
+
+def _python_runner_names(root: Path, runner: str, test: str) -> Optional[bool]:
+    """Whether the Python file `runner` names `test` outside comments and
+    docstrings, or None when it cannot be read or parsed (fail open)."""
+    try:
+        text = (root / runner).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return _python_names(text, test)
+
+
+def _nothing_imports_test(root: Path, test: str) -> bool:
+    """True when no tracked file but the test, its inert registry entry, the
+    test path lists and documentation names its module, outside a Python file
+    that names it only as a string (a path) rather than importing it."""
+    # Only a test the registry declares in a lane no job runs (manual, say)
+    # counts; an unregistered test nothing names still fails open.
+    if not _registry_lane_is_inert(root, test):
+        return False
+    stem = Path(test).stem
+    namers = _files_naming(root, stem)
+    if namers is None:
+        return False
+    for namer in namers:
+        if namer == test or namer in _TEST_PATH_LISTS or namer.endswith(_DOCUMENTATION_SUFFIXES):
+            continue
+        if namer == _TEST_REGISTRY_PATH and _registry_lane_is_inert(root, test):
+            continue
+        if namer.endswith(".py"):
+            try:
+                text = (root / namer).read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                return False
+            if _python_names(text, stem, imports_only=True) is False:
+                continue
+        return False
+    return True
 
 
 def _jobs_naming(jobs: dict[str, str], token: str) -> frozenset[str]:
@@ -704,7 +765,7 @@ def ci_helper_areas(
             referenced = True
             if referrer.endswith(_DOCUMENTATION_SUFFIXES) or referrer.startswith(".github/workflows/"):
                 continue
-            if referrer == ".gitattributes":
+            if referrer in _NON_RUNNING_FILES:
                 continue
             if referrer.startswith(("scripts/", ".github/actions/")):
                 try:
@@ -729,18 +790,44 @@ def ci_helper_areas(
                     runners = _files_naming(root, referrer)
                     if runners is None:
                         return every_area(f"could not search for {referrer}")
+                    # The test itself, documentation and a Python test that
+                    # names it only in a comment or docstring do not run it
+                    # (docs/ci/cmux-next-tiers.md and a route test naming its
+                    # own path as a routing input made these fail open).
                     runners = [
                         runner for runner in runners
-                        if runner not in _TEST_PATH_LISTS
+                        if runner != referrer
+                        and runner not in _TEST_PATH_LISTS
+                        and not runner.endswith(_DOCUMENTATION_SUFFIXES)
                         and not (runner == _TEST_REGISTRY_PATH and _registry_lane_is_inert(root, referrer))
+                        and not (runner.startswith("tests/") and runner.endswith(".py")
+                                 and _python_runner_names(root, runner, referrer) is False)
                     ]
+                    if not runners and _nothing_imports_test(root, referrer):
+                        # Nothing runs it or imports it: a manual-lane test
+                        # people run by hand, which no pull request job reaches.
+                        continue
                     if runners and all(
-                        runner.startswith(".github/workflows/") and runner not in routed for runner in runners
+                        (runner.startswith(".github/workflows/") and runner not in routed)
+                        or runner.startswith("scripts/")
+                        for runner in runners
                     ):
                         # Only workflows outside ci.yml's call tree run this test
                         # (feat-cmux-next's cmux-next.yml and nightly.yml run a
                         # checks-job test and the nightly strip test): a dead end,
-                        # like those workflows themselves.
+                        # like those workflows themselves. A script that runs it
+                        # (a nightly step moved out of nightly.yml) is walked in
+                        # turn, so a routed job that runs the script still counts;
+                        # a script nothing names fails open.
+                        for runner in runners:
+                            if not runner.startswith("scripts/") or runner in visited_files:
+                                continue
+                            namers = _files_naming(root, Path(runner).stem)
+                            if namers is None:
+                                return every_area(f"could not search for {Path(runner).stem}")
+                            if not [namer for namer in namers if namer != runner]:
+                                return every_area(f"{runner} runs {referrer} and nothing names it")
+                            tokens.append(Path(runner).stem)
                         continue
                 return every_area(f"{referrer} names {token} and runs outside the Linux guards")
             if referrer.startswith("scripts/"):
@@ -990,6 +1077,44 @@ def swift_package_test_selection(paths: Iterable[str]) -> tuple[str, ...]:
         return ()
 
 
+# The web bundles' inputs outside webviews/ (the settings schema, the What's New
+# highlights, the model catalog, the string catalogs gen-strings.mjs reads, the
+# font the gallery frame imports...) run the web checks too, derived by
+# web-bundle-key.py from what webviews sources import (`--routed`), not listed
+# here by hand: #31238 changed only schemas/settings/settings-schema.json, Swift
+# and a catalog, skipped every web check, and turned the webview suite red on
+# base. The key script sits beside this one (ci.yml copies it into the trusted
+# router's root) and reads the pull request's tree as data.
+WEB_BUNDLE_KEY = Path(__file__).resolve().parents[1] / "cmux-next" / "web-bundle-key.py"
+
+
+@lru_cache(maxsize=None)
+def web_bundle_input_matcher(root: str):
+    """A predicate for paths web-bundle-key.py routes the web checks on, for the
+    tree at `root`. Without the derivation (no key script, no git tree) the
+    key's declared inputs; without the script, None."""
+    try:
+        spec = importlib.util.spec_from_file_location("cmux_web_bundle_key", WEB_BUNDLE_KEY)
+        if spec is None or spec.loader is None:
+            return None
+        key = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(key)
+    except (OSError, SyntaxError, ImportError) as error:
+        print(f"web bundle inputs unavailable ({error}); web routes on its own list only.", file=sys.stderr)
+        return None
+    try:
+        return key.pathspec_matcher(key.routed_inputs(root))
+    except (Exception, SystemExit) as error:  # noqa: BLE001  (fall back, never fail the router)
+        print(f"web bundle inputs not derived ({error}); using the key's declared inputs.", file=sys.stderr)
+        return key.pathspec_matcher(key.INPUTS)
+
+
+def is_web_bundle_input(path: str) -> bool:
+    root = os.environ.get(HEAD_TEST_REFERENCE_ROOT_ENV) or "."
+    matcher = web_bundle_input_matcher(str(Path(root).resolve()))
+    return matcher is not None and matcher(path)
+
+
 def is_web_change(path: str) -> bool:
     # The diff-sidecar validation lives in ci-web.yml even for native-only
     # inputs. Mark those inputs web-routed explicitly so ordinary macOS changes
@@ -1008,6 +1133,8 @@ def is_web_change(path: str) -> bool:
         return True
     if path == "CHANGELOG.md":
         return True
+    if is_web_bundle_input(path):
+        return True
     return path in {
         "package.json",
         "bun.lock",
@@ -1023,6 +1150,8 @@ def is_web_change(path: str) -> bool:
         "scripts/build-webviews-app.sh",
         # react-apps-check runs the webviews tests through it.
         "scripts/ci/run-webviews-tests.sh",
+        # and splits and orders its files by recorded duration through this.
+        "scripts/ci/webviews_test_shards.py",
         # and compares its reds with the base's through these.
         "scripts/ci/webviews-tests-new-reds.sh",
         "scripts/ci/webviews_test_results.py",

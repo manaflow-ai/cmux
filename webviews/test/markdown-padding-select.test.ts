@@ -73,6 +73,10 @@ await requireBrowserLane("markdown-padding-select.test.ts", async () => {
         if (attempt === 3 || !/context was destroyed|navigat/i.test(String(error))) throw error;
       }
     }
+    // The page's text in its own font before any point is read: in 5 of 8 WebKit opens the fonts
+    // were still loading here, and a line read before Inter swapped in moved under the press (the
+    // right-gutter drag and the Shift-click selected another line or nothing, CI's WebKit).
+    await page.evaluate(() => document.fonts.ready);
     await rest(page);
     return page;
   };

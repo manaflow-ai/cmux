@@ -245,6 +245,11 @@ public struct MotionPath {
 
     /// A spring's progress from its from value (0) to its to value (1) at `time` seconds: the damped
     /// harmonic oscillator Core Animation runs (`initialVelocity` in units of the whole travel).
+    public static func springProgress(_ spring: CASpringAnimation, at time: CFTimeInterval) -> CGFloat {
+        springProgress(Spring(mass: Double(max(spring.mass, .ulpOfOne)), stiffness: Double(spring.stiffness),
+                              damping: Double(spring.damping), velocity: Double(spring.initialVelocity)), at: time)
+    }
+
     static func springProgress(_ spring: Spring, at time: CFTimeInterval) -> CGFloat {
         let mass = spring.mass, stiffness = spring.stiffness, damping = spring.damping
         let omega = (stiffness / mass).squareRoot()

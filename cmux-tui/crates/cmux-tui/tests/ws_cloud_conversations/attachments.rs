@@ -17,8 +17,10 @@ fn hex(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// Larger than one streamed read of the staged file (1 MiB), so the
+/// upload to the slot spans several body chunks with one Content-Length.
 fn video() -> Vec<u8> {
-    (0..200_000_u32).map(|i| (i.wrapping_mul(2_246_822_519) >> 11) as u8).collect()
+    (0..2_500_000_u32).map(|i| (i.wrapping_mul(2_246_822_519) >> 11) as u8).collect()
 }
 
 const POSTER: &[u8] = b"\xff\xd8\xff\xe0 the cloud clip's first frame";

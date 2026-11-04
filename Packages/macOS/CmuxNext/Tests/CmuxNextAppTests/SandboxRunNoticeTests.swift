@@ -1,3 +1,4 @@
+import AppKit
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 @testable import CmuxNextCloud
@@ -226,9 +227,11 @@ struct SandboxRunNoticeTests {
     @Test func aBodyThatIsNoRunSnapshotIsNeverAnEnd() {
         func read(_ body: String) -> String {
             switch SandboxRunFollower.read(Data(body.utf8)) {
-            case .running: "running"
+            case .going: "running"
             case .unreadable: "unreadable"
             case .ended(let outcome, _): outcome.rawValue
+            // A Run's read never closes (only a hand-off does).
+            case .closed: "closed"
             }
         }
         #expect(read(#"{"run":{}}"#) == "unreadable")
@@ -315,6 +318,29 @@ struct SandboxRunNoticeTests {
         #expect(ends.all.isEmpty)
     }
 
+    private static var kept: [AppServices] = []
+
+    /// Issue #31040: a normal tab closed while its Run was being created is gone when the create
+    /// answers. Whether the Run is incognito is read when the send starts, while the pane holds its
+    /// key, so that Run keeps its banner's click and its record across a quit.
+    @Test func aRunsIncognitoIsReadWhenItsSendStartsNotWhenItsCreateAnswers() async throws {
+        let server = Server()
+        await server.script("r1", [.success(Self.succeeded)])
+        await server.script("r2", [.success(Self.succeeded)])
+        let (follower, ends) = follower(server, defaults: try defaults())
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        Self.kept.append(services) // SandboxRunNotices holds its services weakly
+        let notices = SandboxRunNotices(services: services, follower: follower, user: { "u1" })
+        follower.onEnd = { ends.add($0) } // the banner itself is not under test
+        // No tab holds either key any more: both tabs closed while their Runs were created.
+        _ = try await notices.follow(id: "r1", task: "Fix it", key: "key-r1", team: "t1", incognito: false)
+        _ = try await notices.follow(id: "r2", task: "Fix it", key: "key-r2", team: "t1", incognito: true)
+        #expect(follower.endedRun("r1")?.record.incognito == nil, "a normal tab's Run became incognito because its tab closed")
+        #expect(follower.endedRun("r2")?.record.incognito == true)
+        #expect(ends.all.map(\.record.incognito) == [nil, true])
+    }
+
     @Test func theBannerReadsTheTasksFirstLineAndTheOutcome() {
         func end(_ task: String, _ outcome: SandboxRunEnd.Outcome) -> SandboxRunEnd {
             SandboxRunEnd(record: SandboxRunRecord(id: "r", task: task, key: "k", user: "u", team: nil, started: Date()),
@@ -330,6 +356,8 @@ struct SandboxRunNoticeTests {
 
     @Test func aRestoredPageShowsTheEndedSendAsItsOwn() async throws {
         #expect(AgentPaneSeedSource(AgentPaneSeed()).holdsOnlyFolder)
+        #expect(!AgentPaneSeedSource(AgentPaneSeed(model: "model-x")).holdsOnlyFolder)
+        #expect(!AgentPaneSeedSource(AgentPaneSeed(host: "peer-1")).holdsOnlyFolder)
         var value = AgentPaneSeed()
         value.sandboxResult = .init(task: "Fix it", key: "key-r1", card: SandboxRunFollower.card(Data(Self.succeeded.utf8)))
         // The seed a banner's click opens a workspace with (WorkspaceSpawn.firstChat) carries it to the page.
@@ -348,7 +376,7 @@ struct SandboxRunNoticeTests {
 }
 
 /// A clock whose sleeps end at once (the follower's Backoff after a failed wait).
-private struct ImmediateRunClock: Clock {
+struct ImmediateRunClock: Clock {
     struct Instant: InstantProtocol {
         var offset: Duration = .zero
         func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,6 +10,7 @@ import Testing
 /// a new column or a pane move that a script makes there causes no layout apply, no view sync and
 /// no focus topology. When it shows, one apply takes it straight to the final state (CLAUDE.md
 /// "Go past Chrome where cmux is scripted": background workspaces cost nothing until shown).
+@Suite(.closesItsWindows)
 @MainActor struct ParkedWorkspaceApplyTests {
     private static func tree(panes: Int) -> DaemonTree {
         let snapshots = (1...panes).map { id in

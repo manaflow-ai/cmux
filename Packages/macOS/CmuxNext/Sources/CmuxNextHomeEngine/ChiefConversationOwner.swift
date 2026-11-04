@@ -18,8 +18,11 @@ import os
 ///
 /// The owner process is detached and outlives the app; the next launch
 /// ensures it and attaches. It is never handed off to the connecting
-/// binary (an older build that still shares NIGHTLY's home would restart it
-/// in turn). Only `local-conversations-v1` is required of it.
+/// binary only for being another build (an older build that still shares
+/// NIGHTLY's home would restart it in turn). One whose executable an update
+/// deleted is no live build's own: it is handed off to this build once it is
+/// idle (`restartIfReplaced`, ChiefConversationOwner+Update.swift). Only
+/// `local-conversations-v1` is required of it.
 @Observable @MainActor
 public final class ChiefConversationOwner {
     public let home: ChiefHome
@@ -55,10 +58,15 @@ public final class ChiefConversationOwner {
     /// values the owner needs to run the other Chiefs' brains
     /// (`brainsValue`). An owner that another build already started keeps
     /// its environment until it restarts.
-    static func ownerEnvironment(home: ChiefHome, process: [String: String], bundle: Bundle = .main) -> [String: String] {
+    ///
+    /// Off the main actor, and only when `server ensure` spawns an owner (``start(bundle:environment:)``):
+    /// `brainsValue` resolves acpmux, whose team-signature check reads the whole executable (2.86 s
+    /// on the main thread at launch, cmuxterm-hq#6338). A refused acpmux still gives no `acpmux_bin`.
+    @concurrent nonisolated static func ownerEnvironment(home: ChiefHome, process: [String: String],
+                                                         resources: URL?) async -> [String: String] {
         var environment = process
         environment["CMUX_TUI_CHIEF_TOOLS_SOCKET"] = home.muxHome.appendingPathComponent("optchat/tools.sock").path
-        environment["CMUX_TUI_CHIEF_BRAINS"] = brainsValue(home: home, process: process, bundle: bundle)
+        environment["CMUX_TUI_CHIEF_BRAINS"] = brainsValue(home: home, process: process, resources: resources)
         return environment
     }
 
@@ -78,9 +86,15 @@ public final class ChiefConversationOwner {
     public func start(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment) {
         guard runTask == nil else { return }
         let launcher: DaemonLauncher
+        let ownerHome = home
+        let resources = bundle.resourceURL
         do {
             launcher = try DaemonLauncher.forChief(session: home.session, stateDirectory: home.daemonStateDirectory,
-                                                   bundle: bundle, processEnvironment: Self.ownerEnvironment(home: home, process: environment, bundle: bundle))
+                                                   bundle: bundle, processEnvironment: environment,
+                                                   ownerEnvironment: {
+                                                       await Self.ownerEnvironment(home: ownerHome, process: environment,
+                                                                                   resources: resources)
+                                                   })
         } catch {
             lastError = String(describing: error)
             logger.error("chief owner: \(String(describing: error), privacy: .public)")
@@ -123,8 +137,16 @@ public final class ChiefConversationOwner {
             self.noteHandshakeAccepted()
             // Before anything uses the connection: an owner without this home's key (DEV only) restarts once while
             // idle; a busy one (a Chief turn, an open `cmux chief` chat, another app or page) on a later owner event.
-            let restart = await Self.restartIfUnverified(home: self.home, launcher: launcher, connection: connection,
+            // An owner an update replaced hands off to this build first (its successor starts with the
+            // install key too, so no second restart is needed).
+            let restart: IdleOwnerRestart?
+            if let replaced = await Self.restartIfReplaced(launcher: launcher, connection: connection,
+                                                           identity: identity, logger: logger) {
+                restart = replaced
+            } else {
+                restart = await Self.restartIfUnverified(home: self.home, launcher: launcher, connection: connection,
                                                          identity: identity, logger: logger)
+            }
             if let prepare = self.prepare { await prepare(connection) }
             self.attach(connection, identity: identity)
             // The waiting restart probes off this loop, so Home's events never wait for it; the newest
