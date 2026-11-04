@@ -14579,12 +14579,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   // One host line at a time, the newest state winning: a long wait replaces the line of an
   // earlier failed handshake (HostWaitingLine's `otherwise`).
+  const daemonWaitingSince = clientSnapshot.daemonWaitingSince;
+  const hostWaitingSince = waitingSince ?? daemonWaitingSince;
   const hostLine =
-    waitingSince !== undefined ? (
+    hostWaitingSince !== undefined ? (
       <HostWaitingLine
-        since={waitingSince}
+        since={hostWaitingSince}
         restarting={restartingAcpmux}
-        onRestart={restartUnavailable ? undefined : restartStuck}
+        onRestart={
+          waitingSince !== undefined && !restartUnavailable ? restartStuck : undefined
+        }
         otherwise={hostErrorCard}
       />
     ) : (
