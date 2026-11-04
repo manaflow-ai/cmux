@@ -242,3 +242,29 @@ extension AppControl {
         }
     }
 }
+
+extension AppControl {
+    /// The CLI has persisted Rust's validated selection; this only tears down native resources and relaunches.
+    func registerCloudEnvironmentMethods(_ services: AppServices) {
+        service?.router.register([
+            .mainActor("cloud.environment.apply") { call in
+                guard let selected = services.cloud.configuration.runtimeSelection, selected.mutable,
+                      call.params["bundle_id"]?.stringValue == Bundle.main.bundleIdentifier,
+                      call.params["bundle_id"]?.stringValue == selected.bundleId,
+                      let name = call.params["name"]?.stringValue,
+                      let namespace = call.params["auth_namespace"]?.stringValue else {
+                    throw ControlError.invalidParams("The Cloud environment does not belong to this mutable app bundle.")
+                }
+                let task = try services.cloudEnvironmentSwitch.apply(selected: selected, name: name, namespace: namespace,
+                    bootstrap: CloudEnvironmentBootstrap(work: services.work), signOut: { await services.cloud.signOut() },
+                    stopServices: { services.cloud.stop(); services.feed.stop(); services.iphone.stop() },
+                    stopDaemon: { try await services.daemon.stopKeepingHosts() }, quit: { services.quit.requestQuit(.signal) })
+                return .followUp { [task] in
+                    let scheduled = try await task.value
+                    return .object(["restart_scheduled": .bool(scheduled), "name": .string(name)])
+                }
+            // timeout: remote sign-out/revocation may hang; report a saved selection that needs restart.
+            }.withDeadline(.fixed(.seconds(120))),
+        ])
+    }
+}

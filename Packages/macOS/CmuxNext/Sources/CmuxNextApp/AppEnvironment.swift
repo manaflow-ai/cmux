@@ -45,7 +45,7 @@ struct AppEnvironment: Sendable {
     /// per-terminal `env` match. Resolved once per launch.
     var terminalEnvironment: [String: String]
     /// Resolved by the Rust CLI before any credential-bearing service or daemon starts.
-    var cloudConfiguration: CloudConfiguration? = nil
+    var cloudConfiguration: CloudConfiguration?
     /// Ghostty resources directory and bundled CLI helper for shell
     /// integration (`GhosttyShellIntegration`). Resolved once per launch.
     var ghosttyResources: String?

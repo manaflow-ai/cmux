@@ -34,7 +34,7 @@ public struct CloudConfiguration: Sendable, Equatable {
     /// Where a Cloud machine's link socket comes from.
     public var linkSource: LinkSource = .legacy
     /// The bundled CLI's selection for this launch; nil in legacy configuration fixtures.
-    public var runtimeSelection: CloudRuntimeSelection? = nil
+    public var runtimeSelection: CloudRuntimeSelection?
 
     public enum LinkSource: Sendable, Equatable {
         /// `/api/vm` list, create and attach endpoint and a `cmux-tui remote
