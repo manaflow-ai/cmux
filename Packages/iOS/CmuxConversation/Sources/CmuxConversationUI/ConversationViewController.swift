@@ -41,6 +41,13 @@ public final class ConversationViewController: UIViewController {
     /// Runs only in the normal header state. Reply/edit/select still dismiss
     /// through their own close action. The view anchors a host's popover.
     public var onHeaderAction: ((UIView) -> Void)?
+    /// A page menu on the header's trailing control: set, a tap there opens
+    /// it (in the normal state; reply, edit and select still close through
+    /// their X) and `onHeaderAction` is not called. For items that change
+    /// (a disabled Zoom In), give it a `UIDeferredMenuElement.uncached`.
+    public var headerActionMenu: UIMenu? {
+        didSet { header.actionMenu = headerActionMenu }
+    }
     /// Select mode's Forward button. The host presents New Message prefilled
     /// with the draft; when unset, a minimal placeholder sheet stands in.
     public var onForward: ((ConversationForwardDraft) -> Void)?
@@ -289,6 +296,7 @@ public final class ConversationViewController: UIViewController {
         header.translatesAutoresizingMaskIntoConstraints = false
         header.trailingSymbol = options.trailingSymbol
         header.presentation = options.header
+        header.actionMenu = headerActionMenu
         header.setTrailingMode(.action, animated: false)
         header.onBack = { [weak self] in self?.handleBack() }
         header.onInfo = { [weak self] in self?.openInfo() }

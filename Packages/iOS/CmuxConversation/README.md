@@ -15,6 +15,11 @@ and selection still close first. Accessibility labels come from the presentation
 options. Hosts do not need to inspect private header subviews or replace button
 handlers. cmux NEXT's Chief uses these hooks through its path dependency.
 
+`headerActionMenu` turns that trailing control into a page menu: a tap opens
+the menu in the normal state (reply, edit and select still close through
+their X), and `onHeaderAction` is not called. Unset, the control is the plain
+button above.
+
 ## Reply with Selection and text size
 
 `onReplyWithSelection` adds "Reply with Selection" to the edit menu of a

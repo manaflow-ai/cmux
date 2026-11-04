@@ -58,6 +58,18 @@ final class ConversationHeaderView: UIView {
         }
     }
     private(set) var trailingMode: TrailingMode = .action
+    /// The host's page menu: the trailing control opens it in the normal
+    /// state instead of `onTrailing`; the X of edit, reply and select still
+    /// closes. nil keeps the plain button.
+    var actionMenu: UIMenu? {
+        didSet { applyTrailingMenu() }
+    }
+
+    private func applyTrailingMenu() {
+        let menu = trailingMode == .action ? actionMenu : nil
+        trailingButton.menu = menu
+        trailingButton.showsMenuAsPrimaryAction = menu != nil
+    }
 
     static let contentHeight: CGFloat = 92
     /// Above the name capsule (z 0), so the avatar occludes it.
@@ -171,6 +183,7 @@ final class ConversationHeaderView: UIView {
 
     func setTrailingMode(_ mode: TrailingMode, animated: Bool, delay: TimeInterval = 0, duration: TimeInterval = 0.2) {
         trailingMode = mode
+        applyTrailingMenu()
         let isX = mode != .action
         let symbol = isX ? "xmark" : trailingSymbol
         let apply = {
