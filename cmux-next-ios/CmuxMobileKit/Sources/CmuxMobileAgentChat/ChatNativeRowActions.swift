@@ -26,6 +26,7 @@ enum ChatNativeRowActions {
                     items.append(UIAction(title: "Edit and Resend", image: UIImage(systemName: "pencil")) { _ in context.editEarlier(turnID: turnID) })
                 }
                 items.append(UIAction(title: "Share", image: UIImage(systemName: "square.and.arrow.up")) { _ in ChatShare.present(text) })
+                items += ChatPolishMenus.promptItems(turnID: turnID, text: text, store: store)
                 return UIMenu(children: [UIMenu(title: AgentTurn.menuTimestamp(at), options: .displayInline, children: items)])
             }
         case .tool(let call):
@@ -94,6 +95,7 @@ enum ChatNativeRowActions {
                     }
                     items.append(UIMenu(title: RetryModelChoice.title, image: UIImage(systemName: "arrow.triangle.2.circlepath"), children: models))
                 }
+                items += ChatPolishMenus.answerItems(turn: turn, store: store)
                 return UIMenu(children: [UIMenu(title: AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt), options: .displayInline, children: items)])
             }
             actions.hit = { hit in
@@ -127,6 +129,43 @@ enum ChatNativeRowActions {
     /// (`DiffFile.contentHash`), so the key follows every change and needs no cache here.
     static func viewedKey(_ file: DiffFile, in changeSetID: String) -> String {
         DiffViewedStore.key(for: file)
+    }
+}
+
+/// The chat polish rows of the prompt and answer menus: Bookmark (a prompt), Pin (an
+/// answer) and Read Aloud, read when the menu opens.
+@MainActor
+enum ChatPolishMenus {
+    static func promptItems(turnID: String, text: String, store: AgentChatStore) -> [UIMenuElement] {
+        var items: [UIMenuElement] = []
+        if let turn = store.turns.first(where: { $0.id == turnID }), store.canBookmark(turn) {
+            let marked = store.isBookmarked(turn)
+            items.append(UIAction(title: marked ? String(localized: "Remove Bookmark") : String(localized: "Bookmark"),
+                                  image: UIImage(systemName: marked ? "bookmark.slash" : "bookmark")) { _ in store.toggleBookmark(turn) })
+        }
+        items.append(readAloud(ChatReadAloud.id(chat: store.summary.id, turn: turnID, prompt: true), markdown: text))
+        return items
+    }
+
+    static func answerItems(turn: AgentTurn, store: AgentChatStore) -> [UIMenuElement] {
+        var items: [UIMenuElement] = []
+        if store.canPin(turn) {
+            let pinned = store.isPinned(turn)
+            items.append(UIAction(title: pinned ? String(localized: "Unpin") : String(localized: "Pin"),
+                                  image: UIImage(systemName: pinned ? "pin.slash" : "pin")) { _ in store.togglePin(turn) })
+        }
+        if !turn.answerMarkdown.isEmpty {
+            items.append(readAloud(ChatReadAloud.id(chat: store.summary.id, turn: turn.id, prompt: false), markdown: turn.answerMarkdown))
+        }
+        return items
+    }
+
+    private static func readAloud(_ id: String, markdown: String) -> UIAction {
+        let reading = ChatReadAloud.shared.isReading(id)
+        return UIAction(title: reading ? String(localized: "Stop Reading") : String(localized: "Read Aloud"),
+                        image: UIImage(systemName: reading ? "stop.circle" : "speaker.wave.2")) { _ in
+            ChatReadAloud.shared.toggle(id, markdown: markdown)
+        }
     }
 }
 

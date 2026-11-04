@@ -19,7 +19,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
+import { SUPERSEDED, turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000c1";
 const history = readFileSync(new URL("./fixtures/claude-turn-groups.ndjson", import.meta.url), "utf8")
@@ -174,12 +174,26 @@ test("a steered Claude turn folds as Codex's does; opened, each run is on its ow
     "u",
     `${WORKED}-u`,
     "r1",
+    `${SUPERSEDED}-s1`,
     "s1",
     "answer",
     "sum",
   ]);
+  // The stretch the person came in on ends on its own footer, right over the steer (turns.ts
+  // supersededFooters).
   const view = turnView(steered(), new Set([`${WORKED}-u`]), options);
-  expect(view.map((row) => row.id)).toEqual(["u", `${WORKED}-u`, "b1", "r1", "b3", "s1", "b4", "answer", "sum"]);
+  expect(view.map((row) => row.id)).toEqual([
+    "u",
+    `${WORKED}-u`,
+    "b1",
+    "r1",
+    "b3",
+    `${SUPERSEDED}-s1`,
+    "s1",
+    "b4",
+    "answer",
+    "sum",
+  ]);
   // The notes inside a run draw as its quiet lines; the reply before the steer is never one.
   const notes = (id: string) =>
     (view.find((row) => row.id === id)?.items ?? []).filter((item) => item.kind === "note").map((item) => item.text);
@@ -190,5 +204,5 @@ test("a steered Claude turn folds as Codex's does; opened, each run is on its ow
 
 test("a steered Codex turn still folds everything but the steer, the reply before it and the answer", () => {
   const view = turnView(steered(), new Set(), { now: Date.UTC(2026, 10, 1, 10), liveRuns: true, agentFamily: "codex" });
-  expect(view.map((row) => row.id)).toEqual(["u", `${WORKED}-u`, "r1", "s1", "answer", "sum"]);
+  expect(view.map((row) => row.id)).toEqual(["u", `${WORKED}-u`, "r1", `${SUPERSEDED}-s1`, "s1", "answer", "sum"]);
 });

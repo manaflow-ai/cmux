@@ -54,6 +54,8 @@ describe.skipIf(!built)("agent pane page", () => {
       expect(bundle.status, bundle.stderr).toBe(0);
       const sheets = fs.readFileSync(list, "utf8").split("\n").filter(Boolean);
       expect(sheets).toContain("src/ui/ghost.css");
+      // Shared Button chrome must ship in the real pane, not only the gallery's ui.css.
+      expect(sheets).toContain("src/ui/controls.css");
       const style = normalize(fs.readFileSync(page, "utf8"));
       const missing = sheets.filter(
         (sheet) => !style.includes(normalize(fs.readFileSync(path.join(webviews, sheet), "utf8"))),

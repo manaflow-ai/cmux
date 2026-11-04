@@ -768,6 +768,7 @@ pub fn process_state(params: &Value) -> bool {
     params
         .pointer("/update/_meta/acpmux")
         .is_some_and(|m| m.get("contextBreakdown").is_some() || m.get("usageLimits").is_some())
+        || params.pointer("/update/_meta/codexAppServer/rateLimits").is_some()
 }
 
 impl ChildAgent {
