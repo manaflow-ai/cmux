@@ -462,7 +462,7 @@ extension CloudStartSession {
                 let code = isAgent(invocation) ? "cloud.relay.agent_run" : "cloud.relay.refused"
                 return CloudHandlers.result("cloud relay chat", context) { notSent(code, refusal.message) }
             }
-            let promptID = invocation["prompt-id"]?.stringValue?.trimmingCharacters(in: .whitespaces).flatMap { $0.isEmpty ? nil : $0 }
+            let promptID = (invocation["prompt-id"]?.stringValue?.trimmingCharacters(in: .whitespaces)).flatMap { $0.isEmpty ? nil : $0 }
             // A person's run waits for the whole turn and shows the reply, or why there is none.
             guard CloudHandlers.origin(of: invocation) != .user else {
                 return CloudHandlers.runTracked("cloud relay chat", context) {
