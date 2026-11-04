@@ -6404,7 +6404,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A fresh composer can select a paused Cloud machine before it has a session. Keep only that
   // explicit picker choice; never guess a machine from the account inventory. Null records a
   // non-Cloud destination and suppresses the previous identity while its handshake catches up.
-  const cloudDraftMachineID = useRef<string | null | undefined>();
+  const cloudDraftMachineID = useRef<string | null | undefined>(undefined);
   const [cloudCredentialRecoveryAvailable, setCloudCredentialRecoveryAvailable] = useState(false);
   // A team Cloud machine its start passed no personal login to (handshake `cloudTeamMachine`): a
   // sign-in failure says so (failureCopy.ts isTeamMachineSignIn) and offers no login transfer.
@@ -12355,6 +12355,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     earlyNewTab,
     restartGate,
     sandbox,
+    cloudTypingPrewarm,
   ]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
