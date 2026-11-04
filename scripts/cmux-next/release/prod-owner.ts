@@ -92,6 +92,20 @@ const OUTSIDE_SQL = `SELECT (
   + (SELECT count(*) FROM pg_catalog.pg_database d WHERE d.datdba = r.oid)
 )::int AS n FROM pg_catalog.pg_roles r WHERE r.rolname = $2`
 
+/**
+ * Everything `REASSIGN OWNED BY role` would move (pg_shdepend owner entries in this database, plus shared
+ * objects), minus the relations, functions, types and the schema inside cmux_vm. Any other class (large
+ * objects, default ACLs, extensions, event triggers, publications, ...) counts as outside: refused.
+ */
+const SHDEPEND_OUTSIDE_SQL = `SELECT count(*)::int AS n FROM pg_catalog.pg_shdepend d JOIN pg_catalog.pg_roles r ON r.oid = d.refobjid
+WHERE r.rolname = $2 AND d.refclassid = 'pg_catalog.pg_authid'::regclass AND d.deptype = 'o'
+  AND (d.dbid = 0 OR d.dbid = (SELECT oid FROM pg_catalog.pg_database WHERE datname = pg_catalog.current_database()))
+  AND NOT (
+       (d.classid = 'pg_catalog.pg_class'::regclass AND EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = d.objid AND n.nspname = $1))
+    OR (d.classid = 'pg_catalog.pg_proc'::regclass AND EXISTS (SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace WHERE p.oid = d.objid AND n.nspname = $1))
+    OR (d.classid = 'pg_catalog.pg_type'::regclass AND EXISTS (SELECT 1 FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace WHERE t.oid = d.objid AND n.nspname = $1))
+    OR (d.classid = 'pg_catalog.pg_namespace'::regclass AND EXISTS (SELECT 1 FROM pg_catalog.pg_namespace n WHERE n.oid = d.objid AND n.nspname = $1)))`
+
 export const readOwnership = async (sql: Sql): Promise<Ownership> => {
   const objects = await sql.query<{ kind: string; owner: string; n: number }>(OWNERSHIP_SQL, [tree.schema])
   const { tracking } = await trackingState(sql, tree)
@@ -100,7 +114,11 @@ export const readOwnership = async (sql: Sql): Promise<Ownership> => {
 
 const outsideCounts = async (sql: Sql, roles: ReadonlyArray<string>): Promise<Map<string, number>> => {
   const out = new Map<string, number>()
-  for (const r of roles) out.set(r, Number((await sql.query<{ n: number }>(OUTSIDE_SQL, [tree.schema, r]))[0]?.n ?? 0))
+  for (const r of roles) {
+    const byCatalog = Number((await sql.query<{ n: number }>(OUTSIDE_SQL, [tree.schema, r]))[0]?.n ?? 0)
+    const byShdepend = Number((await sql.query<{ n: number }>(SHDEPEND_OUTSIDE_SQL, [tree.schema, r]))[0]?.n ?? 0)
+    out.set(r, Math.max(byCatalog, byShdepend))
+  }
   return out
 }
 
@@ -125,6 +143,20 @@ interface Inspection {
   readonly roles: Array<PsRole>
   readonly ownership: Ownership
   readonly outside: Map<string, number>
+}
+
+/** `url` if its user belongs to cmux-prod main (`<role>.<main's branch id>`), as db-release.ts requires; else refused before any read. */
+export const productionUrl = (url: string | undefined, name: string): string => {
+  if (!url) throw new Refusal(`${name} is empty`)
+  let user: string
+  try {
+    user = decodeURIComponent(new URL(url).username)
+  } catch {
+    throw new Refusal(`${name} is not a URL`)
+  }
+  const want = tree.branchIds.production
+  if (!user.endsWith(`.${want}`)) throw new Refusal(`${name} is not for ${DB}/${BRANCH} (branch ${user.split(".").pop() || "?"}, want ${want}); refusing before any read or role change`)
+  return url
 }
 
 /** Read-only, on `sql` (the Worker's login): roles, cmux_vm's owners and what they own elsewhere, the tracking table. */
@@ -172,9 +204,7 @@ export const run = async (command: string | undefined, log = (l: string) => cons
   let sql: Sql | undefined
   try {
     if (command !== "inspect" && command !== "dry-run" && command !== "migrate") throw new Refusal("usage: prod-owner.ts inspect|dry-run|migrate")
-    const workerUrl = process.env[WORKER_URL_ENV]
-    if (!workerUrl) throw new Refusal(`${WORKER_URL_ENV} is empty`)
-    sql = await connectUrl(workerUrl)
+    sql = await connectUrl(productionUrl(process.env[WORKER_URL_ENV], WORKER_URL_ENV))
     const allow = contractFiles().flatMap((f) => ["--allow-contract", f])
 
     if (command !== "migrate") {
