@@ -46,6 +46,30 @@
    "shot": false
   },
   {
+   "title": "Trust the folder, as the person does on the trust question",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".acpmux-trust-ask-primary"
+    }
+   },
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Send the prompt again now that the folder is trusted",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "Connect the DeepWiki MCP server so you can read a repo's docs"
+    }
+   },
+   "wait": 6,
+   "shot": false
+  },
+  {
    "title": "Before: the chat, no MCP server connected",
    "rpc": {
     "method": "debug.agent_pane",
@@ -92,6 +116,17 @@
    },
    "wait": 1,
    "shot": true
+  },
+  {
+   "title": "What the agent's ask got back (connected, its tools)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "mcp_connect_ask",
+     "read": true
+    }
+   },
+   "shot": false
   }
  ]
 }
