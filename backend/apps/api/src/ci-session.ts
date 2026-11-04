@@ -1,0 +1,176 @@
+import { createLocalJWKSet, createRemoteJWKSet, decodeJwt, errors as joseErrors, jwtVerify, type JWK, type JWTVerifyGetKey } from "jose"
+import type { Env } from "./env.ts"
+import { stackServer, type StackServer } from "./stack-server.ts"
+
+/**
+ * POST /v1/auth/github-actions: a GitHub Actions job signs in as one test account with the OIDC token
+ * GitHub mints for it, so no Stack password is stored anywhere (hq#7076). The production Cloud journey
+ * (.github/workflows/cloud-journey-prod.yml on main) uses it.
+ *
+ * The rows come from the plain Worker var CI_SESSION_TRUST (they hold no secret), a JSON array:
+ *
+ *   [{ "id": "ci-cloud-journey-prod", "audience": "https://cloud-api.cmux.dev",
+ *      "repository": "manaflow-ai/cmux", "repositoryId": "1144115288", "ref": "refs/heads/main",
+ *      "workflowRef": "manaflow-ai/cmux/.github/workflows/cloud-journey-prod.yml@refs/heads/main",
+ *      "stackUser": "<the test account's Stack user id>", "ttlSeconds": 2400 }]
+ *
+ * A token matches a row only when GitHub signed it (RS256, GitHub's own JWKS), it is unexpired and at
+ * most 15 minutes old, and its audience, repository (and repository_id when the row names one), ref,
+ * workflow_ref and job_workflow_ref all equal the row's. A token from another repository, ref or
+ * workflow (a fork, a branch's copy of the file, a reusable workflow called from elsewhere) matches
+ * nothing. The answer is a Stack session for the row's one user that Stack ends after `ttlSeconds`
+ * (at most an hour), so it dies with the run; only the access token is returned, never the refresh token.
+ * Every refusal is the same 401: a caller learns nothing about the rows.
+ *
+ * This is not the cmux-vm `ci-product-smoke` principal (workers/cmux-vm/src/auth/ci-trust.ts): that one is
+ * a VM-scoped service principal of the cmux-vm Worker and cannot open a Stack session. The verification
+ * follows it, minus the `environment` claim (the journey's job runs without an environment).
+ */
+
+export const GITHUB_ACTIONS_ISSUER = "https://token.actions.githubusercontent.com"
+export const CI_SESSION_PATH = "/v1/auth/github-actions"
+/** GitHub's job tokens live about five minutes; anything older is refused even if unexpired. */
+const MAX_TOKEN_AGE = "15m"
+const MAX_TTL_SECONDS = 3600
+
+export interface CiSessionRow {
+  readonly id: string
+  readonly audience: string
+  readonly repository: string
+  readonly repositoryId?: string
+  readonly ref: string
+  readonly workflowRef: string
+  readonly stackUser: string
+  readonly ttlSeconds: number
+}
+
+const ID = /^ci-[a-z0-9-]{1,37}$/
+const AUDIENCE = /^https:\/\/[a-z0-9.-]+$/
+const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
+const REF = /^refs\/(heads|tags)\/[A-Za-z0-9_./-]+$/
+const WORKFLOW_REF = /^([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml@(refs\/[A-Za-z0-9_./-]+)$/
+const STACK_USER = /^[A-Za-z0-9_-]{1,64}$/
+
+const validRow = (value: unknown): value is CiSessionRow => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false
+  const r = value as Record<string, unknown>
+  const known = new Set(["id", "audience", "repository", "repositoryId", "ref", "workflowRef", "stackUser", "ttlSeconds"])
+  if (Object.keys(r).some((k) => !known.has(k))) return false
+  const str = (k: string, re: RegExp) => typeof r[k] === "string" && re.test(r[k] as string)
+  if (!str("id", ID) || !str("audience", AUDIENCE) || !str("repository", REPOSITORY) || !str("ref", REF) || !str("stackUser", STACK_USER)) return false
+  if (r.repositoryId !== undefined && !(typeof r.repositoryId === "string" && /^[0-9]{1,20}$/.test(r.repositoryId))) return false
+  // The workflow file must live in the row's repository and run from the row's ref.
+  const wf = typeof r.workflowRef === "string" ? WORKFLOW_REF.exec(r.workflowRef) : null
+  if (!wf || wf[1] !== r.repository || wf[2] !== r.ref) return false
+  return typeof r.ttlSeconds === "number" && Number.isInteger(r.ttlSeconds) && r.ttlSeconds >= 60 && r.ttlSeconds <= MAX_TTL_SECONDS
+}
+
+/** Parses CI_SESSION_TRUST. Absent or blank: no rows. Invalid (any row): none, and `ok` is false. */
+export const parseCiSessionTrust = (raw: string | undefined): { readonly ok: boolean; readonly rows: ReadonlyArray<CiSessionRow> } => {
+  if (raw === undefined || raw.trim().length === 0) return { ok: true, rows: [] }
+  let json: unknown
+  try {
+    json = JSON.parse(raw)
+  } catch {
+    return { ok: false, rows: [] }
+  }
+  if (!Array.isArray(json) || !json.every(validRow) || new Set(json.map((r) => r.id)).size !== json.length) return { ok: false, rows: [] }
+  return { ok: true, rows: json }
+}
+
+export type CiSessionRefusal = "not-github" | "no-trust" | "invalid" | "no-match"
+
+/** The row a GitHub Actions token matches, or why it matches none. Claims come from jwtVerify only. */
+export const matchCiSessionToken = async (
+  raw: string,
+  rows: ReadonlyArray<CiSessionRow>,
+  getKey: JWTVerifyGetKey,
+  now: Date = new Date()
+): Promise<{ ok: true; row: CiSessionRow; runId?: string } | { ok: false; reason: CiSessionRefusal }> => {
+  try {
+    if (decodeJwt(raw).iss !== GITHUB_ACTIONS_ISSUER) return { ok: false, reason: "not-github" }
+  } catch {
+    return { ok: false, reason: "not-github" }
+  }
+  if (rows.length === 0) return { ok: false, reason: "no-trust" }
+  let payload: Record<string, unknown>
+  try {
+    ;({ payload } = await jwtVerify(raw, getKey, {
+      algorithms: ["RS256"],
+      issuer: GITHUB_ACTIONS_ISSUER,
+      audience: [...new Set(rows.map((r) => r.audience))],
+      clockTolerance: 60,
+      maxTokenAge: MAX_TOKEN_AGE,
+      currentDate: now,
+      requiredClaims: ["exp", "iat", "repository", "ref", "workflow_ref", "job_workflow_ref"]
+    }))
+  } catch (error) {
+    if (error instanceof joseErrors.JOSEError) return { ok: false, reason: "invalid" }
+    throw error
+  }
+  const aud = typeof payload.aud === "string" ? [payload.aud] : Array.isArray(payload.aud) ? payload.aud : []
+  const row = rows.find(
+    (r) =>
+      aud.includes(r.audience) &&
+      payload.repository === r.repository &&
+      (r.repositoryId === undefined || payload.repository_id === r.repositoryId) &&
+      payload.ref === r.ref &&
+      payload.workflow_ref === r.workflowRef &&
+      // The job itself must be defined in the row's file: a reusable workflow names its own file here.
+      payload.job_workflow_ref === r.workflowRef
+  )
+  if (!row) return { ok: false, reason: "no-match" }
+  return { ok: true, row, ...(typeof payload.run_id === "string" ? { runId: payload.run_id } : {}) }
+}
+
+let githubKeys: JWTVerifyGetKey | undefined
+const githubJwks = (env: Env): JWTVerifyGetKey => {
+  if (env.ENVIRONMENT === "test" && env.GITHUB_ACTIONS_TEST_JWKS) return createLocalJWKSet(JSON.parse(env.GITHUB_ACTIONS_TEST_JWKS) as { keys: Array<JWK> })
+  // jose refetches on an unknown kid (rotation), at most once per cooldown.
+  githubKeys ??= createRemoteJWKSet(new URL(`${GITHUB_ACTIONS_ISSUER}/.well-known/jwks`), { cacheMaxAge: 60 * 60_000, cooldownDuration: 30_000 })
+  return githubKeys
+}
+
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } })
+
+export interface CiSessionDeps {
+  readonly getKey?: JWTVerifyGetKey
+  readonly stack?: StackServer
+  readonly now?: () => Date
+}
+
+export const handleCiSession = async (request: Request, env: Env, deps: CiSessionDeps = {}): Promise<Response> => {
+  if (request.method !== "POST") return json({ error: "method not allowed" }, 405)
+  const token = request.headers.get("authorization")?.match(/^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/)?.[1]
+  if (!token) return json({ error: "a GitHub Actions OIDC token is required" }, 401)
+  const parsed = parseCiSessionTrust(env.CI_SESSION_TRUST)
+  if (!parsed.ok) console.error("cmux-api CI_SESSION_TRUST is invalid; no CI job is trusted")
+  let match: Awaited<ReturnType<typeof matchCiSessionToken>>
+  try {
+    match = await matchCiSessionToken(token, parsed.rows, deps.getKey ?? githubJwks(env), deps.now?.() ?? new Date())
+  } catch {
+    // GitHub's JWKS could not be read: says nothing about the caller.
+    return json({ error: "GitHub's signing keys are unavailable; try again" }, 503)
+  }
+  if (!match.ok) {
+    console.warn(JSON.stringify({ event: "ci_session.refused", reason: match.reason }))
+    return json({ error: "this token is not trusted to sign in" }, 401)
+  }
+  const stack = deps.stack ?? stackServer(env)
+  if (!stack) return json({ error: "Stack server access is not configured on this deployment" }, 503)
+  const session = await stack.createSession(match.row.stackUser, match.row.ttlSeconds * 1000)
+  const sessionEnds = (deps.now?.() ?? new Date()).getTime() + match.row.ttlSeconds * 1000
+  let accessExp: number | undefined
+  try {
+    accessExp = decodeJwt(session.access_token).exp
+  } catch {
+    accessExp = undefined
+  }
+  console.log(JSON.stringify({ event: "ci_session.opened", row: match.row.id, run_id: match.runId ?? null, ttl_s: match.row.ttlSeconds }))
+  return json({
+    access_token: session.access_token,
+    user: match.row.stackUser,
+    expires_at: new Date(Math.min(sessionEnds, accessExp ? accessExp * 1000 : sessionEnds)).toISOString(),
+    session_expires_at: new Date(sessionEnds).toISOString()
+  })
+}
