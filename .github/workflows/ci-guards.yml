@@ -212,7 +212,9 @@ jobs:
       # existing hits ratchet down in tests/short-timeout-allowlist.json.
       - name: Validate short timeout ratchet
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_short_timeout_guard.py
+        run: |
+          python3 tests/test_short_timeout_guard.py
+          python3 scripts/ci/check_short_timeouts.py
 
       # NEXT code adds no call to classic Cloud (/api/vm, /api/runs, a cmux.com
       # or cmux-staging API base), as a shrink-only ratchet
