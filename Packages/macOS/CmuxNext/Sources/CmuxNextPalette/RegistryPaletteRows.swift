@@ -15,6 +15,8 @@ final class RegistryPaletteRows {
         var subtitle: String?
         var accessory: String?
         var symbol: String?
+        /// Whether an on/off command is on now (`ActionTargetTitles.setPaletteState`); nil for any other row.
+        var isOn: Bool?
         var keycaps: [String]?
         var keywords: [String]
         var isEnabled: Bool
