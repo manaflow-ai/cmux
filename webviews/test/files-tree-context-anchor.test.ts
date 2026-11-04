@@ -67,15 +67,28 @@ await requireBrowserLane("files-tree-context-anchor.test.ts", async () => {
           return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
         });
         expect(point).not.toBeNull();
-        const sidebar = await page.evaluate(() => document.querySelector("#files-sidebar")!.getBoundingClientRect().left);
+        const sidebar = await page.evaluate(
+          () => document.querySelector("#files-sidebar")!.getBoundingClientRect().left,
+        );
         // The panel sits at the right, so a viewport-placed anchor would land a sidebar offset away.
         expect(sidebar).toBeGreaterThan(100);
-        await page.mouse.click(point!.x, point!.y, { button: "right" });
-        await page.waitForSelector(".file-tree-context-anchor", { state: "attached", timeout: 10_000 });
-        const anchor = await page.evaluate(() => {
-          const rect = document.querySelector(".file-tree-context-anchor")!.getBoundingClientRect();
-          return { x: Math.round(rect.left), y: Math.round(rect.top) };
+        // The anchor's place is read as it mounts: the page fallback may close the menu right after.
+        await page.evaluate(() => {
+          const record = window as unknown as { anchorAt?: { x: number; y: number } };
+          const observer = new MutationObserver(() => {
+            const anchor = document.querySelector(".file-tree-context-anchor");
+            if (!anchor) return;
+            const rect = anchor.getBoundingClientRect();
+            record.anchorAt = { x: Math.round(rect.left), y: Math.round(rect.top) };
+            observer.disconnect();
+          });
+          observer.observe(document.body, { childList: true, subtree: true });
         });
+        await page.mouse.click(point!.x, point!.y, { button: "right" });
+        await page.waitForFunction(() => (window as unknown as { anchorAt?: unknown }).anchorAt, undefined, {
+          timeout: 10_000,
+        });
+        const anchor = await page.evaluate(() => (window as unknown as { anchorAt?: unknown }).anchorAt);
         expect(anchor).toEqual(point!);
       } finally {
         await browser.close();
