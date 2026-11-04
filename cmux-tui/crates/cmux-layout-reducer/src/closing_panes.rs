@@ -758,6 +758,28 @@ mod tests {
         (closing, panes)
     }
 
+    /// Swift skips a row travel with `guard abs(target - now) >= 0.5 else { continue }`, so a NaN travel (no finite
+    /// distance) is no travel. Rust must skip it too, or the pane rides a NaN scroll.
+    #[test]
+    fn a_nan_row_travel_is_no_travel_as_in_swift() {
+        let top = PaneFact { row_column: 7, ..pane(1, e(0.0, 300.0, 0.0, 100.0)) };
+        let closing_pane = PaneFact { row_column: 7, ..pane(2, e(0.0, 300.0, 104.0, 200.0)) };
+        let panes = [top, closing_pane];
+        let mut closing = ClosingPanes::new();
+        assert!(closing.begin(2, closing_pane.edges, &panes, &[], 9.0, None));
+        let entry = &closing.entries()[&2];
+        assert!(
+            !entry.min_y.neighbours.is_empty() && entry.max_y.neighbours.is_empty(),
+            "one row side only"
+        );
+        let frames = [live(1, top.edges, top.edges)];
+        let nan = [RowTravel { column: 7, now: f64::NAN, target: 50.0 }];
+        closing.settle(&frames, &nan);
+        if let Some(entry) = closing.entries().get(&2) {
+            assert_eq!(entry.row_travel, None);
+        }
+    }
+
     #[test]
     fn a_side_keeps_the_gap_of_a_kept_handle_and_covers_a_gone_one() {
         let (closing, _) = three();
