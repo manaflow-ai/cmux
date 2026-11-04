@@ -1863,3 +1863,17 @@ button.cv-subagent > :last-child {
 .cv-subagent-result__report > :last-child {
   margin-bottom: 0;
 }
+
+/* The panel and split transcript are flex columns: the head yields space before it can crowd the
+   transcript, while its report keeps its own scroll for long results. */
+.cv-subagent-result {
+  flex: 0 1 35%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.cv-subagent-result__report {
+  max-height: none;
+  min-height: 0;
+  overflow: auto;
+}
