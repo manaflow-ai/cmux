@@ -20,14 +20,14 @@ struct LayoutPassGuardInstancesTests {
         holder.addSubview(quiet)
 
         busy.layout()
-        #expect(!guardian.instancesByCalls(limit: 10).contains { $0.viewClass == String(describing: Leaf.self) },
-                "views counted before any reset: \(guardian.instancesByCalls(limit: 10))")
+        let beforeReset = guardian.instancesByCalls(limit: 10).filter { $0.viewClass == String(describing: Leaf.self) }
+        #expect(beforeReset.isEmpty, "views counted before any reset: \(beforeReset)")
 
         guardian.reset()
         for _ in 0..<3 { busy.layout() }
         quiet.layout()
         let leaves = guardian.instancesByCalls(limit: 10).filter { $0.viewClass == String(describing: Leaf.self) }
-        #expect(leaves.map(\.calls) == [3, 1], "per-view layout calls after the reset: \(leaves)")
+        #expect(leaves.map { $0.calls } == [3, 1], "per-view layout calls after the reset: \(leaves)")
         #expect(leaves.first?.ancestry.first == String(describing: Holder.self), "the busy view's superview chain: \(leaves)")
         #expect(guardian.instancesByCalls(limit: 1).count == 1, "the limit")
     }

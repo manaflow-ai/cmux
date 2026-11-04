@@ -122,22 +122,20 @@ public final class LayoutPassGuard {
     /// caught (view class, window, ancestry), the busiest view classes since launch or the last reset, and the busiest
     /// views since the last reset (``instancesByCalls(limit:)``).
     public var report: [String: Any] {
-        [
-            "installed": isInstalled,
-            "bound": Self.bound,
-            "max_in_one_turn": maxPassesInOneTurn,
-            "max_view_class": maxPassesClass ?? NSNull(),
-            "max_window_class": maxPassesWindowClass ?? NSNull(),
-            "max_window_limit": maxPassesWindowLimit ?? NSNull(),
-            "loops": reports.map { report -> [String: Any] in
-                ["view_class": report.viewClass, "window_class": report.windowClass ?? NSNull(), "ancestry": report.ancestry,
-                 "passes": report.passes, "limit": report.limit]
-            },
-            "top_classes": passesByClass.prefix(20).map { ["view_class": $0.viewClass, "passes": $0.passes] as [String: Any] },
-            "top_instances": instancesByCalls(limit: 20).map {
-                ["view_class": $0.viewClass, "ancestry": $0.ancestry, "calls": $0.calls] as [String: Any]
-            },
-        ]
+        let loops: [[String: Any]] = reports.map { report in
+            ["view_class": report.viewClass, "window_class": report.windowClass as Any? ?? NSNull(), "ancestry": report.ancestry,
+             "passes": report.passes, "limit": report.limit]
+        }
+        let classes: [[String: Any]] = passesByClass.prefix(20).map { ["view_class": $0.viewClass, "passes": $0.passes] }
+        let instances: [[String: Any]] = instancesByCalls(limit: 20).map { ["view_class": $0.viewClass, "ancestry": $0.ancestry, "calls": $0.calls] }
+        var report: [String: Any] = ["installed": isInstalled, "bound": Self.bound, "max_in_one_turn": maxPassesInOneTurn]
+        report["max_view_class"] = maxPassesClass as Any? ?? NSNull()
+        report["max_window_class"] = maxPassesWindowClass as Any? ?? NSNull()
+        report["max_window_limit"] = maxPassesWindowLimit as Any? ?? NSNull()
+        report["loops"] = loops
+        report["top_classes"] = classes
+        report["top_instances"] = instances
+        return report
     }
 
     /// Clears the counts and reports (`debug.layers` `reset`, stress runs).
