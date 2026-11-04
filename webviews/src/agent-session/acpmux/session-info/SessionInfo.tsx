@@ -283,7 +283,7 @@ export const pushKeepsColumn = (paneWidth: number, room: number, column?: ChatCo
     (allowGridRounding
       ? paneWidth - room >= transcriptColumn(paneWidth, column).width + 2 * transcriptColumn(0, column).inset
       : transcriptColumn(paneWidth - room, column).width === transcriptColumn(paneWidth, column).width) &&
-    // The column itself too, not only its drawn width: the 4 grid's 0-7 px leftover can make up a
+    // The column itself too, not only its drawn width: the inset's rounding can make up a pixel of a
     // column the narrower chat shrank, and that push is one a narrower column would need (Leo,
     // 2026-11-03: "if it would need to be then session info should be an overlay").
     transcriptColumnSpan(paneWidth - room, column) === transcriptColumnSpan(paneWidth, column));
@@ -302,8 +302,8 @@ export const sessionInfoPushes = (
 /// moves right as the chat widens.
 const columnEnd = (chatWidth: number, column?: ChatColumn) => chatWidth - transcriptColumn(chatWidth, column).inset;
 
-/// A room stepped in 8px increments while the column needs only part of the panel: the column's inset is
-/// on the 4 grid (model.ts transcriptColumn, design/grid.md 5.5), so the centered column keeps its width.
+/// A room stepped in 8px increments while the column needs only part of the panel: an even room keeps the
+/// centered column's inset on a whole pixel (model.ts transcriptColumn), so the column keeps its width.
 /// The room a pushed panel `panel` wide (pushedWidth) takes from the chat's right end: by default only
 /// what the gutter lacks, so the chat narrows gradually from the pane width where the gutter stops
 /// holding the panel (0 there) to the panel and its margin (Leo, 2026-11-03: "gradually pushing into the
@@ -318,8 +318,8 @@ export const pushedRoom = (paneWidth: number, panel: number, column?: ChatColumn
   const end = paneWidth - panel - 2 * FLOAT_MARGIN - Math.max(0, overflow);
   if (columnEnd(paneWidth, column) <= end) return 0;
   if (paneWidth - all <= 0 || columnEnd(paneWidth - all, column) > end) return all;
-  // The least room, in steps of 8 (the column's inset is on the 4 grid, so each step moves the column's
-  // end in by about 4), whose column still ends by `end`. Rounding a pixel search up to 8 instead could
+  // The least room, in steps of 8 (each step moves the column's end in by about 4), whose column still
+  // ends by `end`. Rounding a pixel search up to 8 instead could
   // land 1-3 px past it: columnEnd does not grow steadily with the chat's width. At most about 70 steps,
   // run once per layout of the panel.
   let room = 8;

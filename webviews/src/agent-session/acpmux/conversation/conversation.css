@@ -41,10 +41,9 @@
   --cv-ui-scale: var(--cmux-ui-scale, 1);
   --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 62.5%, calc(800px / var(--cv-ui-scale)));
   --cv-edge: var(--grid-icon-box);
-  /* Resolved where it is used: 100% is the pane's width there. Rounded down to the 4 grid
-     (design/grid.md 5.5: max(16, 4 * floor((pane - column) / 8))), so both column edges sit on it
-     and the column takes the 0-7 px left over. */
-  --cv-inset: max(var(--cv-edge), round(down, (100% - var(--cv-column)) / 2, 4px));
+  /* Resolved where it is used: 100% is the pane's width there. Rounded to a whole pixel only, so the
+     default column stays --cv-column's width. */
+  --cv-inset: max(var(--cv-edge), round(nearest, (100% - var(--cv-column)) / 2, 1px));
   --cv-font: var(--font-ui);
   /* Code follows the terminal font; a chat or Markdown viewer code font (chatDisplay.ts) sets
      --cv-mono in front of it. */

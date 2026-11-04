@@ -639,7 +639,7 @@ test("three stages by the pane's width: in the gutter, pushing gradually, over t
 test("pushing, the column moves left and keeps its width at every pushing pane width", () => {
   const gutterFits = firstAt("push") + 1;
   // Just inside the push range it takes almost nothing: the chat does not jump. The room comes in 8s,
-  // so the column's 4-grid inset moves a step of 4 (design/grid.md 5.5).
+  // so the column's inset moves a step of 4.
   expect(pushedRoom(gutterFits, 320)).toBe(0);
   expect(pushedRoom(gutterFits - 1, 320)).toBeLessThanOrEqual(8);
   let pushed = 0;
