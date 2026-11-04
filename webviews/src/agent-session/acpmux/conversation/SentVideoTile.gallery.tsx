@@ -3,10 +3,12 @@
 // videos we should"): the real UserBubble with acpmux's record of it, its text and parts holding the
 // frames note and labels the agent read (composer/videoPrompt.ts) and its images the frames. The
 // bubble shows the video's poster with its length and a play glyph beside the prompt's screenshot;
-// a click plays it in Quick Look. Before this change the same record drew no video at all.
+// a click plays it in place, with the player's controls (video-playing). Before #31527 the same
+// record drew no video at all.
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { SCREEN_RECORDING_POSTER_JPEG } from "../../../gallery/fixtures/videoPoster";
+import { LOGIN_TESTS_MP4 } from "../../../gallery/fixtures/toolImages";
 import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { frameName, framesNote } from "../composer/videoPrompt";
 import { ImageViewerContext } from "./imageViewerContext";
@@ -80,13 +82,44 @@ export default componentEntry<Props>({
   title: "Sent prompt video",
   area: "Agent pane",
   pane: true,
-  height: 260,
+  height: 420,
   covers: ["agent-session/acpmux/conversation/SentVideoTile.tsx", "agent-session/acpmux/conversation/sentVideos.ts"],
   load: async () => GallerySentVideo,
   variants: {
     "video-and-screenshot": {
       note: "A screenshot and a screen recording with a question. The recording is its poster with its length and a play glyph; its frames note and frames, which the agent read, are not drawn.",
       props: { typed: "Why does the sidebar jump when I open this?", screenshot: true },
+    },
+    "video-playing": {
+      note: "Leo, 2026-11-02: \"this i can't play a video preview inside cmux next? i feel like i should be able to\". A click on the poster's ▶ plays the recording in place: the tile becomes the reply's player, playing with sound and its scrub, mute and pause, with Expand and Open in tab, on the URL the host streams the file by in byte ranges (`media.load`). Held still at 1 s for the capture.",
+      props: { typed: "Why does the sidebar jump when I open this?", screenshot: true },
+      chipHost: { media: { [PATH]: `data:video/mp4;base64,${LOGIN_TESTS_MP4}` } },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__video img"));
+        await ctx.click({ selector: ".cv-user__video" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__video-player .cv-media__frame.is-playing"));
+        const video = ctx.document.querySelector<HTMLVideoElement>(".cv-user__video-player video")!;
+        video.pause();
+        video.currentTime = 1;
+        await ctx.waitFor(() => !video.seeking && video.readyState >= 2);
+      },
+    },
+    "video-expanded": {
+      note: 'Leo, 2026-11-03: "i can neither preview a vid in place nor have it pop up anymore". A double-click on the poster opens the recording large over the pane, playing with its controls, as a sent image opens in its viewer; Close brings the tile back. Held still at 1 s for the capture.',
+      props: { typed: "Why does the sidebar jump when I open this?", screenshot: true },
+      chipHost: { media: { [PATH]: `data:video/mp4;base64,${LOGIN_TESTS_MP4}` } },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__video img"));
+        const tile = ctx.document.querySelector<HTMLElement>(".cv-user__video")!;
+        const view = ctx.document.defaultView!;
+        tile.dispatchEvent(new view.MouseEvent("dblclick", { bubbles: true }));
+        const playing = ".acpmux-image-viewer .cv-media__frame.is-playing video";
+        await ctx.waitFor(() => ctx.document.querySelector(playing));
+        const video = ctx.document.querySelector<HTMLVideoElement>(playing)!;
+        video.pause();
+        video.currentTime = 1;
+        await ctx.waitFor(() => !video.seeking && video.readyState >= 2);
+      },
     },
     "video-only": {
       note: "A recording sent alone: no empty bubble under it.",

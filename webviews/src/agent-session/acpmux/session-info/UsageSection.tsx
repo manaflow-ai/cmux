@@ -13,7 +13,18 @@ import { TonedIcon } from "../subagents/TonedIcon";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { AcpmuxSessionEntry } from "../sessionList";
-import { byUsage, type SessionUsageStats, UNKNOWN, type UsageSort, usageCost, usageTokens } from "../usageStats";
+import {
+  byUsage,
+  cacheUsageRows,
+  type SessionUsageStats,
+  UNKNOWN,
+  type UsageCacheLayout,
+  type UsageSort,
+  usageCost,
+  usageTokens,
+} from "../usageStats";
+import type { AcpmuxUsageLimits } from "../model";
+import { planLimitRows } from "../usageLimits";
 import "./UsageSection.css";
 
 const ROW_ICON = rowIconSize(12);
@@ -46,7 +57,7 @@ const known = <T,>(value: T | undefined, format: (value: T) => string) =>
   value === undefined ? UNKNOWN : format(value);
 
 /// This chat's numbers, as name and value rows.
-function ownRows(t: Translate, stats: SessionUsageStats, locale?: string): OwnRow[] {
+function ownRows(t: Translate, stats: SessionUsageStats, locale?: string, cacheLayout?: UsageCacheLayout): OwnRow[] {
   const tokens = (value: number) => usageTokens(value, locale);
   const subagents = [stats.subagentsLive, stats.subagents1h, stats.subagents24h];
   const rows: OwnRow[] = [
@@ -55,6 +66,8 @@ function ownRows(t: Translate, stats: SessionUsageStats, locale?: string): OwnRo
       name: t("sessionInfo.usage.cost24h"),
       value: known(stats.costUsd24h, (cost) => usageCost(cost, locale)),
     },
+    // The prompt cache's share and the cost of one call, right after the cost they explain.
+    ...cacheUsageRows(t, stats, locale, cacheLayout),
     { id: "tokens", name: t("sessionInfo.usage.tokens24h"), value: known(stats.tokens24h, tokens) },
     {
       id: "context",
@@ -115,6 +128,9 @@ export const UsageSection = memo(function UsageSection({
   sort: initialSort = "cost",
   expanded: initialExpanded = false,
   ownRowLayout = "slot",
+  cacheLayout = "rows",
+  planLimits,
+  now,
 }: {
   /// This chat's (`summary.usageStats`).
   own?: SessionUsageStats;
@@ -134,6 +150,13 @@ export const UsageSection = memo(function UsageSection({
   expanded?: boolean;
   /// Gallery-only alternatives for the own-metrics leading column.
   ownRowLayout?: UsageOwnRowLayout;
+  /// Gallery-only alternatives for the prompt cache's numbers: two rows (shipped) or one.
+  cacheLayout?: UsageCacheLayout;
+  /// The account's plan usage limits this chat's harness reported (acpmux `usageLimits`): the
+  /// Plan limits rows, the same the composer ring's plan usage popover shows. None: no rows.
+  planLimits?: AcpmuxUsageLimits;
+  /// The clock the reset times read (the gallery pins it).
+  now?: () => number;
 }) {
   const t = useT();
   const [sort, setSort] = useState<UsageSort>(initialSort);
@@ -141,11 +164,12 @@ export const UsageSection = memo(function UsageSection({
   const ranked = useMemo(() => byUsage(sessions, sort), [sessions, sort]);
   const folds = ranked.length > USAGE_SHOWN;
   const shown = folds && !expanded ? ranked.slice(0, USAGE_SHOWN) : ranked;
+  const planRows = planLimitRows(planLimits, t, now?.(), locale);
   return (
     <div className="acpmux-session-info-usage" data-section="usage" data-own-row-layout={ownRowLayout}>
       {own && (
         <ul className="acpmux-session-info-list">
-          {ownRows(t, own, locale).map(({ id, name, value, action }) => (
+          {ownRows(t, own, locale, cacheLayout).map(({ id, name, value, action }) => (
             <li key={id} className="acpmux-session-info-row" data-usage={id}>
               {ownRowLayout === "slot" && <span className="acpmux-session-info-usage__lead-slot" aria-hidden="true" />}
               {ownRowLayout === "icon" && <Icon name="agent.activity" size={ROW_ICON} row />}
@@ -175,6 +199,24 @@ export const UsageSection = memo(function UsageSection({
             </li>
           ))}
         </ul>
+      )}
+      {planRows.length > 0 && (
+        <>
+          <div className="acpmux-session-info-usage__head" data-usage-head="plan">
+            <span className="acpmux-session-info-usage__title">{t("sessionInfo.usage.planLimits")}</span>
+          </div>
+          <ul className="acpmux-session-info-list" data-usage-list="plan">
+            {planRows.map(({ id, name, value }) => (
+              <li key={id} className="acpmux-session-info-row" data-plan-limit={id}>
+                {ownRowLayout === "slot" && (
+                  <span className="acpmux-session-info-usage__lead-slot" aria-hidden="true" />
+                )}
+                <span className="acpmux-session-info-row__name">{name}</span>
+                <span className="acpmux-session-info-row__end acpmux-session-info-usage__value">{value}</span>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
       {ranked.length > 0 && (
         <>

@@ -93,6 +93,7 @@ final class AgentTabStore {
     var cloudRepositoryLocal: @MainActor () async throws -> Data = {
         throw DaemonError.notConnected
     }
+    var imessage: (@MainActor (AgentPaneIMessageAction, AgentPaneView) async -> [String: Any])?
     /// The daemon whose tree lists `tab`, by the record's identity (MachineRegistry.daemon(forTab:)):
     /// it reads no tab list, so a pane snapshot that asks hears no other pane's tabs. Nil in tests.
     var daemonListing: @MainActor (TabModel) -> DaemonService? = { _ in nil }
@@ -158,6 +159,8 @@ final class AgentTabStore {
     var sessions: [String: String] = [:]
     /// A tab's page now shows another acpmux session (its first, or a `chat.select` switch).
     var onTabSession: @MainActor () -> Void = {}
+    /// The daemon created a remote chat, including its effective seed folder and harness.
+    var onRemoteChatStarted: (@MainActor (String, String, String?, String?) -> Void)?
     /// A new chat's seed on another machine (its folder and harness start it there, its draft and
     /// prompt reach the page), by tab (``startRemoteChat(_:machine:endpoint:)``).
     var remoteSeeds: [String: AgentPaneSeedSource] = [:]
@@ -617,6 +620,10 @@ final class AgentTabStore {
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value, shared: paneShared) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
+        model.onIMessage = { [weak self, weak view] action in
+            guard let view, let handler = self?.imessage else { return AgentPaneReply.failure(code: "unavailable", message: "unavailable") }
+            return await handler(action, view)
+        }
         view.shortcuts = shortcuts
         pageSettings.apply(to: view)
         // A New Tab page draws its own first frame: no native loading mark (Lawrence 2026-10-10,

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import JavaScriptCore
 import Testing
@@ -10,7 +11,7 @@ import Testing
 /// Session Info drawn by the App (AgentPaneSessionInfo.swift, AgentPaneView+SessionInfo.swift): the
 /// page's model makes, updates and removes the floating panel, the panel runs the pane's full height,
 /// and its clicks go back to the page.
-@Suite(.serialized)
+@Suite(.serialized, .closesItsWindows)
 @MainActor
 struct AgentPaneNativeSessionInfoTests {
     private actor NoHost: AgentPaneHostProviding {
@@ -58,6 +59,20 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(AgentPaneSessionInfoModel.decode(Self.info(width: .infinity)) == nil)
         #expect(AgentPaneSessionInfoModel.decode(Self.info(width: 9000)) == nil)
         #expect(AgentPaneSessionInfoModel.decode(["open": true]) == nil)
+    }
+
+    /// A short pane's popover lies over the transcript and sends no `foot`: it still gets the glass,
+    /// so the chat and the panel's sections never show through each other (the faint copy of Session
+    /// Info over the transcript). Over the gutter it stands on nothing, as before.
+    @Test func aPanelOverTheChatGetsItsGlassEvenWithoutAFoot() throws {
+        var popover = Self.info()
+        popover["overChat"] = true
+        #expect(AgentPaneSessionInfoPanel.liesOverChat(try Self.model(popover)))
+        var aboveComposer = Self.info()
+        aboveComposer["foot"] = 120
+        #expect(AgentPaneSessionInfoPanel.liesOverChat(try Self.model(aboveComposer)))
+        #expect(!AgentPaneSessionInfoPanel.liesOverChat(try Self.model(Self.info())))
+        #expect(!AgentPaneSessionInfoPanel.liesOverChat(nil))
     }
 
     @Test func fractionalRowIndentAndRevealRevisionAreAcceptedAndRounded() throws {
@@ -251,6 +266,30 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(relayouts > 0)
     }
 
+    /// Leo (2026-11-03): "i mean there's literally no scrollbar in claude code it's just scrollable". The
+    /// list's scroll view draws no scroller and keeps no width for one, and still scrolls: a list taller
+    /// than the panel moves when the clip view is scrolled.
+    @Test func panelScrollsWithNoScrollbar() throws {
+        func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
+        let store = AgentPaneSessionInfoStore()
+        let panel = AgentPaneSessionInfoPanel(store: store)
+        panel.frame = CGRect(x: 0, y: 0, width: 320, height: 60)
+        var info = Self.info()
+        var section = (info["sections"] as? [[String: Any]])?.first ?? [:]
+        section["rows"] = (0..<40).map { ["id": "r\($0)", "title": "row \($0)", "tone": "running"] }
+        info["sections"] = [section]
+        store.update(try Self.model(info))
+        panel.layoutSubtreeIfNeeded()
+        let scroll = try #require(all(panel).compactMap { $0 as? NSScrollView }.first)
+        #expect(!scroll.hasVerticalScroller)
+        #expect(!scroll.hasHorizontalScroller)
+        #expect(scroll.contentSize.width == scroll.frame.width)
+        let document = try #require(scroll.documentView)
+        #expect(document.frame.height > scroll.contentSize.height)
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: 40))
+        #expect(scroll.contentView.bounds.minY == 40)
+    }
+
     /// Over the gutter the content stands on the pane (no card). Over the chat's column (`foot`) the
     /// transcript runs under it, so there it lies on the overlay glass, which follows Reduce
     /// Transparency (the solid surface), and loses it again back over the gutter.
@@ -276,6 +315,28 @@ struct AgentPaneNativeSessionInfoTests {
         store.update(try Self.model(Self.info()))
         #expect(panel.backing == nil)
         #expect(!all(panel).contains { $0 is OverlaySurfaceView })
+    }
+
+    /// Leo (2026-11-03): "maybe it's ok...? to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a
+    /// border for it might be better". The panel paints no fill of its own and draws a hairline edge in the
+    /// separator color on its rounded corners, over the gutter and over the chat's glass alike.
+    @Test func panelHasAHairlineEdgeAndNoFill() throws {
+        let store = AgentPaneSessionInfoStore()
+        let panel = AgentPaneSessionInfoPanel(store: store)
+        panel.frame = CGRect(x: 0, y: 0, width: 320, height: 300)
+        var colors = AgentPaneSessionInfoColors()
+        colors.separator = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 0.5)
+        store.colors = colors
+        for foot in [nil, 120.0] as [Double?] {
+            store.update(try Self.model(Self.info(foot: foot)))
+            panel.layoutSubtreeIfNeeded()
+            let layer = try #require(panel.layer)
+            #expect(layer.backgroundColor == nil, "the panel paints a fill of its own")
+            #expect(layer.borderWidth > 0 && layer.borderWidth <= 1, "no hairline edge (width \(layer.borderWidth))")
+            #expect(layer.cornerRadius > 0)
+            let edge = try #require(layer.borderColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) })
+            #expect(abs(edge.blueComponent - 0.6) < 0.01 && abs(edge.alphaComponent - 0.5) < 0.01)
+        }
     }
 
     /// cmuxterm-hq#6137: pushed in a narrow pane, the page narrows the panel below 260px and keeps that
@@ -430,6 +491,7 @@ struct AgentPaneNativeSessionInfoTests {
         store.send = { sent.append($0) }
         let panel = AgentPaneSessionInfoPanel(store: store)
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         let host = try #require(window.contentView)
         let page = NSTextView(frame: CGRect(x: 0, y: 0, width: 80, height: 600))
         host.addSubview(page)
@@ -695,6 +757,7 @@ struct AgentPaneNativeSessionInfoTests {
         let enter = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0,
                                                         windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 320, height: 200), styleMask: [.borderless], backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         let host = try #require(window.contentView)
         for line in [
             SessionInfoLine(id: "changes", kind: .header, title: "Changes", unfolded: true, reorderable: true, action: "fold:changes:0"),
@@ -937,5 +1000,19 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(toggle.controlSize == .small || toggle.controlSize == .mini)
         #expect(toggle.frame.height <= remote.frame.height - 2 * LayoutGrid.pillInset)
         #expect(abs(remote.frame.minX + toggle.frame.maxX - right) < 0.5)
+    }
+
+    /// Changes' rows name cmux pack icons (`cmux:git.pullrequest.merged`, native/changes.ts): the panel draws the pack's template
+    /// glyph for them, at 1.2 x the label, and keeps SF Symbols for every other name.
+    @Test func changesGlyphsDrawFromTheIconPack() throws {
+        for name in ["cmux:git.pullrequest", "cmux:git.pullrequest.merged", "cmux:git.pullrequest.draft", "cmux:git.pullrequest.closed"] {
+            let image = try #require(SessionInfoLineView.packIcon(name, font: Typography.body))
+            #expect(image.isTemplate)
+            #expect(image.size.width == (Typography.body.pointSize * 1.2).rounded())
+        }
+        #expect(SessionInfoLineView.packIcon("arrow.triangle.merge", font: Typography.body) == nil)
+        // A bare name stays an SF Symbol even where the pack has one (Environment's `folder`).
+        #expect(SessionInfoLineView.packIcon("folder", font: Typography.body) == nil)
+        #expect(SessionInfoLineView.packIcon("cmux:no.such.icon", font: Typography.body) == nil)
     }
 }

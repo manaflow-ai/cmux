@@ -1,0 +1,36 @@
+/* A task's title is the line's words, so its tag takes the row's width, not the 40% a sender's
+   name gets beside a sentence (TranscriptActivityRow.tsx). */
+.cv-task-line .cv-agent-tag {
+  max-width: 100%;
+}
+/* The done mark follows the title, before the chevron, never at the row's far edge. */
+.cv-task-line__state {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--cv-text-muted);
+}
+/* A task still working: its title rests dim and the shimmer's lit copy (RowShimmer) crosses it,
+   as a running tool row's words (conversation.css `.cv-row-shimmer`). The copy lies over the title;
+   its chip keeps no second wash. */
+.cv-task-line.is-live > .cv-agent-activity__sentence {
+  position: relative;
+}
+.cv-task-line.is-live:not(:focus-within) > .cv-agent-activity__sentence > .cv-agent-tag {
+  color: var(--cv-text-dim);
+}
+.cv-task-line .cv-row-shimmer .cv-agent-tag {
+  max-width: 100%;
+  background: none;
+}
+/* The line opens another chat, not a fold, so its chevron points right after its words, as a
+   finished subagent's line does (subagents.css, cmux#32867), never down like "Worked for". */
+.acpmux-row .cv-task-line .cv-rotor {
+  transform: none;
+}
+/* The lit copy centres its chip on the line as the sentence centres the title, so the two coincide. */
+.cv-tool.cv-task-line.is-live .cv-row-shimmer__lit {
+  display: flex;
+  height: 100%;
+  align-items: center;
+}

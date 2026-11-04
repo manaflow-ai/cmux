@@ -8,9 +8,19 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("find-import-pressed.test.tsx", async () => {
+  // Reduce Motion (desktop.css) gives every property a 0.01 ms transition, so a frame can still hold
+  // the hover or press change mid-transition, read as its oklab interpolation (0.1 on its way to
+  // 0.15). Feedback stays immediate: no transition may last 1 ms or more. Read once they settle.
   const paint = (button: Locator) =>
     button.evaluate(async (element) => {
       await window.cmuxPaintFrame();
+      const running = element.getAnimations();
+      for (const animation of running) {
+        const duration = Number(animation.effect?.getComputedTiming().duration ?? 0);
+        if (!(duration < 1)) throw new Error(`press or hover feedback animates for ${duration} ms`);
+      }
+      await Promise.allSettled(running.map((animation) => animation.finished));
+      if (running.length) await window.cmuxPaintFrame();
       const style = getComputedStyle(element);
       return { background: style.backgroundColor, color: style.color, opacity: style.opacity };
     });

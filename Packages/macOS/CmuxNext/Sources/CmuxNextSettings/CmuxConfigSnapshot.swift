@@ -227,6 +227,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var verticalTabs: Bool = VerticalTabsSetting.fallback
     /// `tabs.verticalTabsExpandOnHover`; on when unset or invalid.
     public var verticalTabsExpandOnHover: Bool = VerticalTabsSetting.expandOnHoverFallback
+    /// `tabs.hideLoneChatTab`; off when unset or invalid.
+    public var hideLoneChatTab: Bool = LoneChatTabSetting.fallback
     /// `tabs.swapCmdTAndCmdN`; off when unset or invalid.
     public var swapCmdTAndCmdN: Bool = SwapCmdTAndCmdNSetting.fallback
     /// `tabs.commandDigits`; workspaces when unset or invalid.
@@ -318,7 +320,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
             return snapshot
         }
         snapshot.retiredKeys = SettingsSchema.retiredKeys.keys.filter { root.value(at: $0.split(separator: ".").map(String.init)) != nil }.sorted()
-        snapshot.diagnostics += Self.chatDiagnostics(root)
+        snapshot.diagnostics += Self.chatDiagnostics(root) + Self.imessageDiagnostics(root)
         let tabBar = SurfaceTabBarParser.parse(root, configDirectory: configDirectory)
         snapshot.tabBar = tabBar.tabBar
         snapshot.commandActions = tabBar.actions
@@ -434,6 +436,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(TabOverflowSetting.parse(root), \.tabOverflow)
         snapshot.take(VerticalTabsSetting.parse(root), \.verticalTabs)
         snapshot.take(VerticalTabsSetting.parseExpandOnHover(root), \.verticalTabsExpandOnHover)
+        snapshot.take(LoneChatTabSetting.parse(root), \.hideLoneChatTab)
         let (swapCmdTAndCmdN, swapCmdTAndCmdNDiagnostic) = SwapCmdTAndCmdNSetting.parse(root)
         snapshot.swapCmdTAndCmdN = swapCmdTAndCmdN
         if let swapCmdTAndCmdNDiagnostic { snapshot.diagnostics.append(swapCmdTAndCmdNDiagnostic) }

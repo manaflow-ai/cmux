@@ -67,6 +67,10 @@ extension AgentPaneRequest {
             return
         }
         let params = object["params"] as? [String: Any]
+        if method.hasPrefix("imessage.") {
+            self = AgentPaneIMessageAction(rawValue: String(method.dropFirst("imessage.".count))).map(Self.imessage) ?? .unsupported(method)
+            return
+        }
         if AgentPaneCloudEnvironmentRequest.methods.contains(method) {
             self = AgentPaneCloudEnvironmentRequest(method: method, params: params).map(Self.cloudEnvironment) ?? .unsupported(method)
             return
@@ -161,6 +165,13 @@ extension AgentPaneRequest {
             // The composer's Inline, Strip or Inline and Strip choice; the page writes only this key with it.
             if let view = (params?["view"] as? String).flatMap(AgentPaneAttachmentView.init(rawValue:)) {
                 self = .displaySetting(path: AgentPaneComposerSetting.attachmentViewPath, value: .string(view.rawValue))
+            } else {
+                self = .unsupported(method)
+            }
+        case "pane.setComposerRing":
+            // The composer ring's Context or Plan Usage choice; the page writes only this key with it.
+            if let ring = (params?["ring"] as? String).flatMap(AgentPaneComposerRing.init(rawValue:)) {
+                self = .displaySetting(path: AgentPaneComposerSetting.composerRingPath, value: .string(ring.rawValue))
             } else {
                 self = .unsupported(method)
             }
@@ -352,7 +363,7 @@ extension AgentPaneRequest {
         case "chat.attach.choose": self = .chooseAttachments
         case "chat.attach.dropped":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)),
-               let names = params?["names"] as? [String], (1...AgentPaneDroppedPaths.maximumNames).contains(names.count),
+               let names = params?["names"] as? [String], !names.isEmpty,
                names.allSatisfy(AgentPaneDroppedPaths.isAskedName) {
                 self = .attachDropped(kind, names: names)
             } else {
@@ -360,7 +371,7 @@ extension AgentPaneRequest {
             }
         case "chat.attach.source":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)),
-               let names = params?["names"] as? [String], (1...AgentPaneDroppedPaths.maximumNames).contains(names.count),
+               let names = params?["names"] as? [String], !names.isEmpty,
                names.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 1024 }) {
                 // The page's `Date.now()` when it took the gesture (ms); absent from an older page.
                 let gestureAt = (params?["gestureAt"] as? NSNumber).map { $0.doubleValue / 1000 }.flatMap { $0.isFinite ? $0 : nil }
@@ -420,6 +431,8 @@ extension AgentPaneRequest {
                 let toggle = params?["mode"] as? String == "toggle"
                 if id == AgentPaneModel.diffAction, let turn = AgentPaneDiffTurn(params: params?["turn"]) {
                     self = .diffTurn(turn, cwd: cwd, toggle: toggle)
+                } else if id == AgentPaneModel.diffAction, let patch = AgentPaneDiffPatch(params: params?["patch"]) {
+                    self = .diffPatch(patch, cwd: cwd, toggle: toggle)
                 } else {
                     self = .paneAction(id, cwd: cwd, toggle: toggle)
                 }

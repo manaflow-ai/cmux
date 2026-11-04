@@ -41,6 +41,7 @@
 // (composerStates.css), so the chat above moves one row at most, and scrolls freely: a scroll rests
 // where it stops, its end too. It stays open for its chat until closed (not across reloads);
 // prompts sent now always show.
+import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
 import { QueuedImages } from "./QueuedImages";
@@ -206,7 +207,11 @@ export function ComposerQueue({
   readImage,
   onSideChat,
   commands,
+  wakeNoteDelayMs = RESUME_NOTE_DELAY_MS,
 }: {
+  /// How long a prompt held for a waking Cloud machine waits before its note says so (afterDelay.ts);
+  /// the gallery's settled variants pass 0.
+  wakeNoteDelayMs?: number;
   queue: AcpmuxSnapshot["queue"];
   /// The chat the queue belongs to: a long queue opened stays open for it.
   chat?: string;
@@ -614,6 +619,13 @@ export function ComposerQueue({
     drawnOwners.current = owners(shown);
     drawnRows.current = shown;
   });
+  // A waking machine stays out of sight at first (cloudWake.ts, afterDelay.ts): the held prompt shows
+  // at once, as a sent one does, and its note's line is there from the same frame, empty, until the
+  // wake has taken longer than the threshold; then "Waking the machine…" fades into it.
+  const wakeNoteShown = useAfterDelay(
+    shown.some((entry) => entry.waking),
+    wakeNoteDelayMs,
+  );
   if (shown.length === 0 && !(paused && queue.length > 0)) return null;
   // Prompts sent now come first: queued prompts count from after them.
   const steering = shown.filter((entry) => entry.next).length;
@@ -960,7 +972,9 @@ export function ComposerQueue({
   const cells = (entry: QueuedEntry, index: number) => (
     <>
       {!entry.next && (
-        <span className="acpmux-hidden-label">{t(entry.held ? "composer.heldForTrust" : "composer.queued")}</span>
+        <span className="acpmux-hidden-label">
+          {t(entry.waking ? "composer.heldForWake" : entry.held ? "composer.heldForTrust" : "composer.queued")}
+        </span>
       )}
       {editing === entry.id ? (
         <QueuedEdit
@@ -1095,10 +1109,20 @@ export function ComposerQueue({
         )}
         {/* One flat keyed list: a row keeps its element (and focus) when a row before it leaves. */}
         {visible.flatMap((entry, index) => [
-          // The prompts the folder's trust holds follow one note that says so (trustHeld.ts).
-          entry.held && !visible[index - 1]?.held && (
-            <li key="held-for-trust" className="acpmux-queue-paused acpmux-queue-held" aria-hidden="true">
-              <span>{t("composer.heldForTrust")}</span>
+          // The prompts the folder's trust holds follow one note that says so (trustHeld.ts); those
+          // a waking Cloud machine holds, one that says it wakes (cloudWake.ts).
+          entry.held && (!visible[index - 1]?.held || !visible[index - 1]?.waking !== !entry.waking) && (
+            <li
+              key={entry.waking ? "held-for-wake" : "held-for-trust"}
+              className="acpmux-queue-paused acpmux-queue-held"
+              data-held-for={entry.waking ? "wake" : "trust"}
+              aria-hidden="true"
+            >
+              {entry.waking ? (
+                wakeNoteShown && <span data-enter="fade">{t("composer.heldForWake")}</span>
+              ) : (
+                <span>{t("composer.heldForTrust")}</span>
+              )}
             </li>
           ),
           // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- A row takes focus from ↑ on the prompt and has its keys (edit, move, send now, remove); its buttons do the same by pointer.

@@ -49,8 +49,9 @@ the person can read it. Without `--wait` it answers once the prompt is sent.
 - Errors say what to do next: `cloud.signed_out` (run `cmux cloud sign-in`),
   `cloud.start_pending` (the machine is still coming up: run the same command again,
   its `details.again`, to keep waiting), `chat.permission_waiting`, `chat.wait_timeout`.
-  Run from an agent chat, the app first asks the person with a card in that chat
-  (Start, Not now); `cmux agents dialog list` lists it.
+  Run from an agent chat, it starts at once, as from a terminal: nothing asks the
+  person. Only when they turned off `cloud.agentsStartWithoutAsking` does the app
+  ask first with a card in that chat (Start, Not now); `cmux agents dialog list` lists it.
 
 `cmux cloud start-chat --help` has every flag.
 
@@ -65,7 +66,7 @@ cmux app capabilities
 `action describe` prints the action's targets and arguments. Actions drive the app
 the same way its palette and sidebar do. Run from the CLI or MCP, read actions answer
 in the action result (`--json` prints it): `cloud exec` returns `exit_code`, `stdout`
-and `stderr`, `cloud new-machine` the new `machine_id`, `machine-status` and the file
+and `stderr`, `cmux machine new` (the `cloud new-machine` action) the new `machine_id`, `machine-status` and the file
 and listing actions their facts. They need the app, sign-in and its private tunnel.
 
 ## Machine lifecycle from the Mac

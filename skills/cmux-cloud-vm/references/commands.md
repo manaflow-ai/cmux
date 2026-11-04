@@ -20,7 +20,7 @@ API key and no app; see [headless.md](headless.md).
   are menu-only: the CLI never writes the clipboard.
 - **Results** come back in the action result's `result` object (`--json` prints it);
   nothing opens on the person's screen. `cloud exec` returns `exit_code`, `stdout` and
-  `stderr`; `new-machine` returns `machine_id` and `target` (or `pending: true` while
+  `stderr`; `cmux machine new` (the `new-machine` action) returns `machine_id` and `target` (or `pending: true` while
   the server still provisions); `ssh` and `new-terminal-on-machine` return `machine_id`,
   `workspace_id` and, when known, the new terminal's `surface_id` (see [Terminals](#terminals));
   `machine-status`, `machine-ports`, `machine-tools`, `hand-off-machine`,
@@ -40,7 +40,7 @@ API key and no app; see [headless.md](headless.md).
 
 `cmux cloud list-machines` is read only: it answers the app's own Cloud machine list,
 the one the sidebar's Cloud machines show, so an agent can check whether its machine
-already exists before it runs `new-machine`. It takes no target. Run by a person from
+already exists before it runs `cmux machine new`. It takes no target. Run by a person from
 the palette, it shows the Cloud sidebar instead.
 
 ```bash
@@ -238,10 +238,12 @@ that chat in the machine's own acpmux (`cmux-tui acp send|wait|last SESSION_ID`)
 `start-session` answers `machine_id`, `session_id` and `host` (the machine's
 `registry:` host), plus the chat's `workspace_id` and `surface_id`. The chat's
 tab opens in the machine's first workspace. Without `--cwd` the session starts
-in that workspace's folder. An agent's run asks the person first with a card in
-its own chat (Start, Not now), like an agent's `cloud move`. It waits up to 2
-minutes for an answer and then refuses. Each refusal names the machine and gives
-the command to run again.
+in that workspace's folder. An agent's run starts at once, as the person's own
+would; only the Cloud plan's limits refuse it. When the person turned off
+`cloud.agentsStartWithoutAsking`, an agent's run asks them first with a card in
+its own chat (Start, Not now), like an agent's `cloud move`, and waits up to 2
+minutes for an answer. Each refusal names the machine and gives the command to
+run again.
 
 ## Account and diagnostics
 

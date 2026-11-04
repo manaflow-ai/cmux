@@ -33,10 +33,56 @@ import Testing
         theirs.createdBy = "bob"
         var paused = CloudMachine(id: "vm_paused", status: .paused)
         paused.createdBy = "alice"
-        let cap = CloudMachineCap.plan(freePlan: false, machines: [mine, theirs, paused], user: "alice")
+        let cap = CloudMachineCap.plan(freePlan: false, pauseFrees: true, machines: [mine, theirs, paused], user: "alice")
         #expect(cap.busy.map(\.machine) == ["vm_mine"], "never a teammate's machine, nor one not running")
         #expect(CloudMachineCap.busy(machines: [mine], user: nil).isEmpty)
-        #expect(CloudMachineCap.plan(freePlan: true, machines: [mine], user: "alice") == CloudMachineCap(freePlan: true))
+        #expect(CloudMachineCap.plan(freePlan: true, pauseFrees: true, machines: [mine], user: "alice") == CloudMachineCap(freePlan: true))
+    }
+
+    /// cmux#32710: the classic allowance counts paused machines, so a Pause there would free nothing: its card offers
+    /// Upgrade and Run on This Mac only. Its vCPU and memory pool counts running machines alone, so that refusal keeps Pause.
+    @Test func theClassicCardOffersPauseOnlyWherePausingFreesRoom() {
+        var mine = CloudMachine(id: "vm_mine", status: .running, displayName: "paint")
+        mine.createdBy = "alice"
+        let full = CloudMachineCap.plan(freePlan: false, pauseFrees: false, machines: [mine], user: "alice")
+        #expect(full == CloudMachineCap(), "a Pause that frees no slot was offered")
+        #expect(!full.freePlan)
+        #expect(CloudMachineCap.plan(freePlan: false, pauseFrees: true, machines: [mine], user: "alice").busy.map(\.machine) == ["vm_mine"])
+    }
+
+    /// cmux#32708: the app-server link pauses through `cloud.machine.pause`, never `/api/vm`; CloudDO answers once the
+    /// slot is free, and a pause longer than its wait (`mutation.indeterminate`) is asked again with the same key.
+    @Test func theAppServerPauseAsksCloudDOWithOneKeyUntilItLands() async throws {
+        let sent = SentOps()
+        let ops: CloudAppOp = { op, args, key, origin in
+            let count = await sent.record(op: op, machine: args["machine"]?.stringValue, key: key, origin: origin)
+            if count < 3 { throw CloudAppOpFailure(code: CloudMachinePower.indeterminate, message: "cut off") }
+            return .object(["machine": .object(["id": .string("vm_a"), "status": .string("pausing")])])
+        }
+        try await CloudMachinePower.run("cloud.machine.pause", machine: "vm_a", ops: ops)
+        let calls = await sent.calls
+        #expect(calls.map(\.op) == Array(repeating: "cloud.machine.pause", count: 3))
+        #expect(calls.allSatisfy { $0.machine == "vm_a" && $0.origin == .user })
+        #expect(Set(calls.compactMap(\.key)).count == 1 && calls.allSatisfy { $0.key != nil }, "a retry made a new key")
+    }
+
+    @Test func theAppServerPauseStopsAfterItsAttemptsAndOnAnyOtherError() async {
+        let sent = SentOps()
+        await #expect(throws: CloudAppOpFailure(code: CloudMachinePower.indeterminate, message: "")) {
+            try await CloudMachinePower.run("cloud.machine.pause", machine: "vm_a", ops: { op, args, key, origin in
+                _ = await sent.record(op: op, machine: args["machine"]?.stringValue, key: key, origin: origin)
+                throw CloudAppOpFailure(code: CloudMachinePower.indeterminate, message: "")
+            })
+        }
+        #expect(await sent.calls.count == 3)
+        let other = SentOps()
+        await #expect(throws: CloudAppOpFailure(code: "cmux.cloud.not_running", message: "")) {
+            try await CloudMachinePower.run("cloud.machine.pause", machine: "vm_a", ops: { op, args, key, origin in
+                _ = await other.record(op: op, machine: args["machine"]?.stringValue, key: key, origin: origin)
+                throw CloudAppOpFailure(code: "cmux.cloud.not_running", message: "")
+            })
+        }
+        #expect(await other.calls.count == 1)
     }
 
     /// Red/green for the app side: at the cap, the person's Pause pauses that machine, then the create goes again.
@@ -82,5 +128,14 @@ import Testing
                                          "made_room": .object(["machine": .object(["id": .string("vm_old"), "name": .string("paint")])])])
         #expect(CloudMachineCap.madeRoom(answer)?["id"]?.stringValue == "vm_old")
         #expect(CloudMachineCap.madeRoom(.object(["machine": .object([:])])) == nil)
+    }
+}
+
+private actor SentOps {
+    struct Call { var op: String; var machine: String?; var key: String?; var origin: AppsRunRequest.Origin }
+    var calls: [Call] = []
+    func record(op: String, machine: String?, key: String?, origin: AppsRunRequest.Origin) -> Int {
+        calls.append(Call(op: op, machine: machine, key: key, origin: origin))
+        return calls.count
     }
 }

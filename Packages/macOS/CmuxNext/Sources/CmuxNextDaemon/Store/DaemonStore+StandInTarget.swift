@@ -30,6 +30,9 @@ struct StandInWait {
 
     /// Where stand-in `handle` (made by `origin`) stands in `store` now.
     @MainActor static func state(of handle: PaneID, origin: StandInOrigin?, in store: DaemonStore) -> State {
+        // The daemon's pane a pending close of this stand-in hides (``Intent/closeStandInPane(pane:paneID:workspace:)``)
+        // is out of the visible records, yet it is what that close must name.
+        if let hidden = CancelledCreation.hiddenDaemonPane(closing: handle, in: store) { return .adopted(hidden) }
         guard let origin else { return .notCreated }
         if let pane = ProvisionalSplit.daemonPane(of: origin, showing: handle, in: store), pane.rawValue < ProvisionalPane.firstHandle {
             return .adopted(pane)

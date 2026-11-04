@@ -105,6 +105,7 @@ nonisolated extension ActionSurfaceCatalog {
         // rows are top-level, Options ▸ holds icon, read state, collapse-all and config, and Move ▸
         // holds the other moves and the group-only sorts (at most 12 top-level rows).
         "workspaceGroup.collapseOthers": [p(.workspaceGroup, .identity, 122, folder: .options, label: ObjectMenuLabels.collapseOtherGroups)],
+        "workspaceGroup.setSort": [p(.workspaceGroup, .move, 319, .choices, folder: .move, label: ObjectMenuLabels.sortOrder)],
         "workspaceGroup.sortByName": [p(.workspaceGroup, .move, 320, folder: .move, label: ObjectMenuLabels.sortByName)],
         "workspaceGroup.sortByLastUsed": [p(.workspaceGroup, .move, 321, folder: .move, label: ObjectMenuLabels.sortByLastUsed)],
         "workspaceGroup.sortByDirectory": [p(.workspaceGroup, .move, 322, folder: .move, label: ObjectMenuLabels.sortByDirectory)],

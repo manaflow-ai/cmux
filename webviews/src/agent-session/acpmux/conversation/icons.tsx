@@ -95,10 +95,13 @@ export const ImageIcon = (p: CvIconProps) => (
   </Svg>
 );
 
+/** Two squares, as Claude Code desktop's Copy (Leo, 2026-11-04: "symbol shape bad"): the front one
+ * top left, whole; the one behind lower right, its corner under the front one hidden. 12 of ink in
+ * the 16 box with a small radius, so it reads as squares rather than two rounded blobs. */
 export const Copy = (p: CvIconProps) => (
   <Svg {...p}>
-    <rect x="5.25" y="5.25" width="8.25" height="8.25" rx="2" />
-    <path d="M10.75 5.25V4.5a2 2 0 0 0-2-2H4.5a2 2 0 0 0-2 2v4.25a2 2 0 0 0 2 2h.75" />
+    <rect x="2.25" y="2.25" width="8.25" height="8.25" rx="1.5" />
+    <path d="M10.5 5.5h1.75c.69 0 1.25.56 1.25 1.25v5.5c0 .69-.56 1.25-1.25 1.25h-5.5c-.69 0-1.25-.56-1.25-1.25V10.5" />
   </Svg>
 );
 
@@ -208,11 +211,12 @@ export const Pin = ({ filled, ...p }: CvIconProps & { filled?: boolean }) => (
   </Svg>
 );
 
-/** A speaker with sound waves: Read aloud. */
+/** A speaker with one sound wave, as Claude Code desktop's Read aloud (Leo, 2026-11-04: "symbol
+ * shape bad"): a short box, a cone the full 12 of ink tall, one shallow wave beside it. */
 export const Speaker = (p: CvIconProps) => (
   <Svg {...p}>
-    <path d="M2.75 6.25h2l3-2.5v8.5l-3-2.5h-2Z" />
-    <path d="M10.25 6.1a2.6 2.6 0 0 1 0 3.8M12 4.4a5 5 0 0 1 0 7.2" />
+    <path d="M2 6.5c0-.41.34-.75.75-.75H5L10.25 2.5v11L5 10.25H2.75A.75.75 0 0 1 2 9.5Z" />
+    <path d="M12.75 5.25a4 4 0 0 1 0 5.5" />
   </Svg>
 );
 
@@ -266,42 +270,21 @@ export const GitHubMark = ({ size = 16, className, style }: CvIconProps) => (
   </svg>
 );
 
-/** The working track's strength: the faint part of the ring the gap shows (ChatGPT's reads about a
- * quarter of its ink; the native `StatusIndicatorTunables.trackOpacity` is the same mark's). */
-export const WORKING_TRACK_OPACITY = 0.22;
-/** The share of the ring the working arc covers, from 12 o'clock clockwise: ChatGPT's measures 0.72
- * (a gap of about 100°). The native `StatusIndicatorPlan.workingArcLength`. */
-export const WORKING_ARC_LENGTH = 0.72;
-/** The working ring's stroke on the 16 viewBox: ChatGPT's is about a sixth of the ring's width, a
- * third heavier than the 1.5 loading arc. The native `StatusIndicatorPlan.workingStrokeScale`. */
-export const WORKING_STROKE_WIDTH = 2;
-const WORKING_RADIUS = 5.25;
-
-/** The path of `share` of the r 5.25 ring from 12 o'clock clockwise. */
-export function workingArcPath(share: number): string {
-  const angle = 2 * Math.PI * share;
-  const x = +(8 + WORKING_RADIUS * Math.sin(angle)).toFixed(2);
-  const y = +(8 - WORKING_RADIUS * Math.cos(angle)).toFixed(2);
-  return `M8 2.75a5.25 5.25 0 ${share > 0.5 ? 1 : 0} 1 ${x} ${y}`;
-}
-const WORKING_ARC_PATH = workingArcPath(WORKING_ARC_LENGTH);
-
 /** The running mark of a transcript row. Agent work (the default) draws the working look the
- * app picks (`data-working-look` on the root, conversation.css): a breathing dot, the turning
- * ring, or a still dot while the row's words shimmer. Agent work's spinner is ChatGPT's: a ring
- * with one gap turning slowly (Leo 2026-11-02, on ChatGPT's beside ours: "THIS IS CHATGPT", "IT
- * GOES SLOWER"), a bright arc (`cv-spinner__sweep`, 0.72 of the ring, round caps, stroke 2) over a
- * faint track (`cv-spinner__track`, 22%) that shows in the gap, one turn per `--cmux-spinner-period`
- * (1400ms). It replaces #31455's faint ring with a short 80° sweep, which read too faint, and is
- * never the macOS activity indicator's spokes (#29903; Leo 2026-11-01: "why the f*** did you make
- * the spinner into this????"). As the native rows draw it (CmuxNextDesign
- * `StatusIndicatorPlan.workingGlyph`). `loading` (a check or a page loading, not agent work) keeps
- * its thin arc. `cv-spinner` turns either on the shared clock. */
+ * app picks (`data-working-look` on the root, conversation.css): a breathing dot, the turning arc,
+ * or a still dot while the row's words shimmer. `loading` (a check or a page loading, not agent
+ * work) always draws the turning arc. Agent work's spinner is the settled thin arc, never the macOS
+ * activity indicator's segmented spokes (#29903 swapped them in; Leo 2026-11-01: "why the f*** did
+ * you make the spinner into this????"). `cv-spinner` turns it on the shared clock. It is the one
+ * spinner every page draws (Leo 2026-11-02: "WHY THE F*** ARE YOU GUYS POSSIBLY DIFFERING THE
+ * F***ING SPINNERS ACROSS THE SIDEBAR AND THE F***ING RUNNING"): transcript rows, Session Info's
+ * Running and Subagents, the todo list and the pickers draw this component, never their own
+ * (test/one-spinner.test.ts). */
 export const Spinner = ({
   size = 16,
   className,
   style,
-  strokeWidth,
+  strokeWidth = 1.5,
   loading = false,
 }: CvIconProps & { loading?: boolean }) => (
   <svg
@@ -314,35 +297,14 @@ export const Spinner = ({
     aria-hidden="true"
     data-working={loading ? undefined : ""}
   >
-    {loading ? (
-      <path
-        className="cv-spinner__arc"
-        d="M8 2.75a5.25 5.25 0 1 1-4.55 2.63"
-        stroke="currentColor"
-        strokeWidth={strokeWidth ?? 1.5}
-        strokeLinecap="round"
-      />
-    ) : (
-      <>
-        <circle
-          className="cv-spinner__track"
-          cx="8"
-          cy="8"
-          r={WORKING_RADIUS}
-          stroke="currentColor"
-          strokeWidth={strokeWidth ?? WORKING_STROKE_WIDTH}
-          opacity={WORKING_TRACK_OPACITY}
-        />
-        <path
-          className="cv-spinner__sweep"
-          d={WORKING_ARC_PATH}
-          stroke="currentColor"
-          strokeWidth={strokeWidth ?? WORKING_STROKE_WIDTH}
-          strokeLinecap="round"
-        />
-        <circle className="cv-spinner__dot" cx="8" cy="8" r="3" />
-      </>
-    )}
+    <path
+      className="cv-spinner__arc"
+      d="M8 2.75a5.25 5.25 0 1 1-4.55 2.63"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+    />
+    {!loading && <circle className="cv-spinner__dot" cx="8" cy="8" r="3" />}
   </svg>
 );
 
@@ -357,14 +319,6 @@ export const StopSquare = ({ size = 16, className, style }: CvIconProps) => (
     aria-hidden="true"
   >
     <rect x="3.75" y="3.5" width="8.5" height="9" rx="1.6" fill="currentColor" />
-  </svg>
-);
-
-/** The composer's dim busy ring (12px) with a brighter leading arc. */
-export const ComposerSpinner = ({ className, style }: CvIconProps) => (
-  <svg className={className} style={style} width={12} height={12} viewBox="0 0 12 12" fill="none" aria-hidden="true">
-    <circle cx="6" cy="6" r="5.1" stroke="#51524c" strokeWidth="1.5" />
-    <path d="M6 .9a5.1 5.1 0 0 1 4.4 2.5" stroke="#7d7e78" strokeWidth="1.5" strokeLinecap="round" />
   </svg>
 );
 

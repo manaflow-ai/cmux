@@ -66,13 +66,17 @@ public nonisolated enum MotionTunables {
         help: "Bounce of tab, row, pane and divider springs when Animations Bounce is Subtle (0 is critically damped).",
         default: 0.15, range: 0...0.5, step: 0.01, unit: .multiplier, code: "MotionTunables.subtleBounce")
 
-    /// How far ahead a released divider's velocity is projected to find a
-    /// snap (halves, thirds) it is flung onto; it then springs there from
-    /// that velocity.
-    public static let dividerReleaseProjection = Tunable<Double>.number(
-        "motion.divider.releaseProjection", .springs, "Divider fling projection",
-        help: "Seconds of release velocity a divider looks ahead for a snap point.",
-        default: 0.05, range: 0...0.3, step: 0.01, unit: .seconds, code: "MotionTunables.dividerReleaseProjection")
+    /// FRAME OWNER REFACTOR stage S2B, a kill switch (default on), latched when a divider, column-edge or row-edge drag
+    /// starts: a flip applies from the next drag. It goes once S2B's films and the first dogfood gate after it pass.
+    /// On (rule C, an animation is interruptible from its current value): a drag that starts while a spring runs takes
+    /// over where its edge shows (the dragged pane's size spring stops there, the press moves nothing), then moves each
+    /// pane and divider edge it changes by as much as its target and keeps that edge on its spring; every other edge
+    /// stays on its spring (a shared edge moves the same for both of its panes), and a release's fling seeds only the
+    /// edges it moved. Off: as before S2B, a drag snaps every frame it retargets (all four edges) to its rest place.
+    public static let frameOwnerSharedEdges = Tunable<Bool>.toggle(
+        "motion.frameOwner.sharedEdges", .springs, "Shared edges (frame owner S2B)",
+        help: "On: a drag that starts while panes spring takes over where the edge shows and moves only the edges it changes, which keep springing, so two panes that share an edge show it at one place in every frame. Off: a drag snaps every pane it touches to its rest place.",
+        default: true, code: "MotionTunables.frameOwnerSharedEdges")
 
     // MARK: Fades and loops
 
@@ -109,7 +113,7 @@ public nonisolated enum MotionTunables {
     })
 
     package static let loopDefaults: [MotionLoop: (TimeInterval, String)] = [
-        .spinner: (1.4, "One turn of the busy spinner (ChatGPT turns slower than our old 0.9 s)."),
+        .spinner: (0.9, "One turn of the busy spinner."),
         .pulse: (1.8, "One cycle of the agent-waiting pulse."),
         .flash: (1, "Pane attention flash (two blinks; at least 1 s, the 2 Hz cap)."),
         .sweep: (1.3, "One pass of an unmeasured progress bar's segment (the update card while checking)."),
@@ -205,7 +209,7 @@ public nonisolated enum MotionTunables {
 
     /// Every Motion tunable, for the catalog.
     public static var all: [TunableDescriptor] {
-        MotionSpring.allCases.compactMap { springs[$0]?.descriptor } + [subtleBounce.descriptor, dividerReleaseProjection.descriptor]
+        MotionSpring.allCases.compactMap { springs[$0]?.descriptor } + [subtleBounce.descriptor, frameOwnerSharedEdges.descriptor]
             + MotionFade.allCases.compactMap { fades[$0]?.descriptor }
             + MotionLoop.allCases.compactMap { loops[$0]?.descriptor }
             + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel,
