@@ -92,6 +92,12 @@
       "title" : "Chat Minimap",
       "type" : "string"
     },
+    "agentPane.display.pinnedPlan" : {
+      "default" : false,
+      "description" : "While the agent works, its task list stays under the latest message instead of in the bar over the composer.",
+      "title" : "Pin Task List in Chat",
+      "type" : "boolean"
+    },
     "agentPane.display.presentation" : {
       "default" : "transcript",
       "description" : "agentPane.display.presentation",
@@ -5198,7 +5204,7 @@
       "type" : "string"
     },
     "window.titlebar" : {
-      "default" : "minimal",
+      "default" : "standard",
       "description" : "Minimal has no titlebar strip; the top row moves the window.",
       "enum" : [
         "minimal",

@@ -313,7 +313,7 @@ mod usage_limits_tests;
 #[cfg(test)]
 mod workflow_tests;
 mod workflows;
-pub use usage_limits::merge_usage_limits;
+pub use usage_limits::{merge_usage_limits, usage_limit_reached};
 
 /// Longest failure text a failed subagent's end carries, in characters.
 const MAX_FAILURE_CHARS: usize = 600;
@@ -622,6 +622,9 @@ pub struct Translator {
 struct BackgroundShell {
     sid: String,
     command: String,
+    /// What the Bash call says it does (its `description`): the tray names
+    /// the process by it (webviews `session-info/commandRules.ts`).
+    description: Option<String>,
     task: Option<String>,
     background: bool,
     /// Started in the background (`run_in_background`), not moved there.
