@@ -188,7 +188,6 @@ export function Thinking({
       )),
     [verbs],
   );
-  const quiet = useQuiet(waiting || doing !== undefined ? undefined : quietKey);
   // A reply that paused only a moment is still being written; one silent for longer is the agent
   // thinking before its next step, which reads "Thinking" (Leo, 2026-11-03).
   const stillWriting = !useQuiet(liveState === "writing" ? quietKey : undefined, WRITING_MS, quietAt, now);
