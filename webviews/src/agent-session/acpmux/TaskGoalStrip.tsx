@@ -55,13 +55,7 @@ function LoopStrip({ goal, now }: { goal: TaskGoal; now: () => number }) {
   const objective = goal.autonomous ? t("goal.loopAutonomous") : goal.objective;
   const hasDetails = Boolean(goal.steps?.length || goal.detail);
   return (
-    <section
-      className="acpmux-goal"
-      data-state={goal.status}
-      data-kind="loop"
-      aria-label={t("goal.label")}
-      aria-expanded={hasDetails ? expanded : undefined}
-    >
+    <section className="acpmux-goal" data-state={goal.status} data-kind="loop" aria-label={t("goal.label")}>
       <span className="acpmux-goal-copy">
         <span className="acpmux-goal-state">{t("goal.loop")}</span>
         <span className="acpmux-goal-objective" title={goal.reason ?? objective}>
