@@ -4,9 +4,11 @@
 // reply that opened pull requests draws the same row as one that did not, and no PR link joins it.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { ReplyActions } from "./MessageActions";
 import { TurnFooter } from "./TurnRows";
+import { TurnActionsContext } from "./turnActions";
 
 const summary: AcpmuxRow = { id: "summary", version: 1, at: 1_000, kind: "turnSummary", status: "completed" };
 const reply = (text: string) => ({ id: "reply", version: 1, at: 1_000, kind: "assistant", text }) as AcpmuxRow;
@@ -27,4 +29,72 @@ test("a reply's action row starts with its buttons and draws the same whatever t
   expect(named).not.toContain("/pull/");
   expect(named).not.toContain("acpmux-pr");
   expect(named.replace(/>[^<]*</g, "><")).toBe(plain.replace(/>[^<]*</g, "><"));
+});
+
+test("the latest completed turn keeps Retry beside its reply", () => {
+  const row: AcpmuxRow = {
+    ...summary,
+    text: "Done.",
+    prompt: "Finish the task",
+    retryRowId: "prompt-1",
+    retryable: true,
+  };
+  const markup = renderToStaticMarkup(
+    <TurnActionsContext.Provider value={{ retry: () => undefined }}>
+      <TurnFooter row={row} />
+    </TurnActionsContext.Provider>,
+  );
+  expect(markup).toContain(`aria-label="${translate("turn.retry")}"`);
+});
+
+test("Retry calls out a known file change without changing the action", () => {
+  const row: AcpmuxRow = {
+    ...summary,
+    text: "Done.",
+    prompt: "Finish the task",
+    retryRowId: "prompt-1",
+    retryable: true,
+    changedFiles: true,
+  };
+  const markup = renderToStaticMarkup(
+    <TurnActionsContext.Provider value={{ retry: () => undefined }}>
+      <TurnFooter row={row} />
+    </TurnActionsContext.Provider>,
+  );
+  expect(markup).toContain(`title="${translate("turn.retryChangedFiles")}"`);
+});
+
+test("an earlier completed turn does not gain the latest-turn Retry", () => {
+  const row: AcpmuxRow = { ...summary, text: "Done.", prompt: "Finish the task", retryRowId: "prompt-1" };
+  const markup = renderToStaticMarkup(
+    <TurnActionsContext.Provider value={{ retry: () => undefined }}>
+      <TurnFooter row={row} />
+    </TurnActionsContext.Provider>,
+  );
+  expect(markup).not.toContain(`aria-label="${translate("turn.retry")}"`);
+});
+
+test("a failed turn keeps its Retry and Retry with model actions", () => {
+  const retryWith = {
+    models: [
+      { id: "claude-sonnet", name: "Claude Sonnet" },
+      { id: "claude-opus", name: "Claude Opus" },
+    ],
+    retry: () => undefined,
+  };
+  const row: AcpmuxRow = {
+    ...summary,
+    status: "failed",
+    error: "The request failed",
+    prompt: "Finish the task",
+    retryRowId: "prompt-1",
+    retryable: true,
+  };
+  const markup = renderToStaticMarkup(
+    <TurnActionsContext.Provider value={{ retry: () => undefined, retryWith }}>
+      <TurnFooter row={row} />
+    </TurnActionsContext.Provider>,
+  );
+  expect(markup).toContain(`aria-label="${translate("turn.retry")}"`);
+  expect(markup).toContain(`aria-label="${translate("turn.retryWith")}"`);
 });
