@@ -261,7 +261,7 @@ def raw_output(text: str, limit: int = 2048) -> dict:
         for prompt in (BROWSER_PROOF_PROMPT, args.prompt):
             if prompt:
                 line = line.replace(prompt, "[prompt]")
-        line = clean(line, limit)
+        line = clean(line, len(line) + 1024)  # whole: `truncated` must see a long line
         if EVIDENCE_SCAN.search(line):
             left_out += 1
         elif line:

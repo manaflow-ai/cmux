@@ -132,7 +132,7 @@ elif verb == "cloud kill-machine":
     calls = int(state.read_text()) if state.exists() else 0
     state.write_text(str(calls + 1))
     if os.environ.get("FAKE_KILL") == "human":
-        print("progress: asking the app")
+        print("progress: asking the app " + "y" * 3000)
         sys.stderr.write("Couldn't delete machine vm_abc123: paused machines can't be deleted\n"
                          "token=abcdef123456\n" + "x" * 3000 + "\n")
         sys.exit(1)
@@ -199,7 +199,9 @@ class CloudChatProofCleanupTests(unittest.TestCase):
                 self.assertEqual(step["stderr"], "kill-machine returned no JSON error")
                 raw = step["raw"]
                 self.assertEqual(raw["exit"], 1)
-                self.assertEqual(raw["stdout"]["text"], "progress: asking the app")
+                self.assertTrue(raw["stdout"]["text"].startswith("progress: asking the app y"))
+                self.assertTrue(raw["stdout"]["truncated"])  # one long line is still marked cut
+                self.assertEqual(len(raw["stdout"]["text"]), 2048)
                 self.assertTrue(raw["stderr"]["text"].startswith(
                     "Couldn't delete machine vm_abc123: paused machines can't be deleted\n"))
                 self.assertEqual(raw["stderr"]["left_out"], 1)
