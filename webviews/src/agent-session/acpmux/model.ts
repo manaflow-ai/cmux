@@ -3,6 +3,7 @@ import {
   footerAfter,
   gridLength,
   MARK_FOOTER,
+  MARK_INDICATOR,
   MARK_STATUS,
   MARK_STEP,
   rowMark,
@@ -176,6 +177,10 @@ export type AcpmuxBackgroundReaction = {
   weight: AcpmuxBackgroundWeight;
   text?: string;
   fresh?: true;
+  /// The task's end was interim (acpmux's cause status `interim`: Claude Code said the agent "is
+  /// waiting on its own background work"): it has not given its final report yet. A later end of
+  /// the same call replaces the reaction, which clears it.
+  interim?: true;
 };
 
 /// What a run of background-task notifications' line counts (conversation/backgroundRuns.ts): quiet
@@ -485,6 +490,10 @@ export type AcpmuxRow = {
   /// A turn footer's whole turn for its Copy (conversation/turnCopy.ts): the agent's replies and each
   /// run of tool calls between them, in order; undefined when the agent said nothing.
   turnCopy?: TurnCopyPart[];
+  /// A footer turns.ts `supersededFooters` added where the person came in on a stretch of a turn (a
+  /// steer that landed in it, or a new prompt over a turn with no summary): the stretch counts as
+  /// ended, and the footer offers its Copy.
+  superseded?: boolean;
   retryAttachments?: ComposerAttachment[];
   status?: string;
   error?: string;
@@ -563,7 +572,7 @@ export type AcpmuxRow = {
   /// With the line reading "Thinking" past the first step: how long the turn's thoughts streamed,
   /// summed (conversation/turns.ts `thoughtTime`), the time it shows beside the word.
   thoughtMs?: number;
-  /// The live line's clock is the turn's whole time, past its first step: it reads "4m total", so
+  /// The live line's clock is the turn's whole time, past its first step: it reads "4m" beside the label, or "2s · 4m" after a step's own time, so
   /// the time never reads as what the line names (conversation/Thinking.tsx).
   turnTotal?: boolean;
   /// The call in flight sends another agent a message (conversation/turns.ts `sendingTo`: a shell
@@ -573,6 +582,9 @@ export type AcpmuxRow = {
   doingSendSession?: string;
   doingDraft?: boolean;
   untimed?: boolean;
+  /// The live line's turn, by its prompt's row id (conversation/thinkingVerbs.ts): kept from send to
+  /// the echo, so the line's verb stays one word for the whole turn.
+  verbKey?: string;
   quietKey?: string;
   /// When the reply `quietKey` names was written, on this page's clock (conversation/turns.ts).
   quietAt?: number;
@@ -875,9 +887,16 @@ export type AcpmuxContextBreakdown = {
 };
 
 /// A Claude Code chat's plan usage limits as acpmux reports them (claude_stdio `usage_limits`):
-/// `id` is `session` (5 hours), `weekly`, `weekly_opus` or `weekly_sonnet`; `usedPercent` is 0-100;
-/// `resetsAt` is unix seconds, only when Claude Code said when the window resets.
-export type AcpmuxUsageLimits = { windows: { id: string; usedPercent: number; resetsAt?: number }[] };
+/// `id` is `session` (5 hours), `weekly`, `weekly_opus` or `weekly_sonnet` (Codex's other lengths are
+/// their minutes, `60m`, or their slot, `primary`); `usedPercent` is 0-100; `resetsAt` is unix
+/// seconds, only when the harness said when the window resets; `windowMins` is the window's length
+/// when Codex named it. `plan` (Codex's `planType`, such as `pro`) and `credits` (the balance, or
+/// unlimited) only when the harness reported them; Claude Code names neither.
+export type AcpmuxUsageLimits = {
+  windows: { id: string; usedPercent: number; resetsAt?: number; windowMins?: number }[];
+  plan?: string;
+  credits?: { balance?: string; unlimited?: boolean };
+};
 
 /// Optional Labs workflow payload. acpmux does not emit this field yet; keeping the wire shape
 /// here gives the future event a typed adapter seam without deriving workflow state from rows.
@@ -1037,6 +1056,8 @@ export type AcpmuxSnapshot = {
     toolsMutable?: boolean;
   };
   connection: string;
+  /** The first request that crossed its progress threshold while the socket stayed open. */
+  daemonWaitingSince?: number;
   /// The origin acpmux names for this connection in `initialize` (`_meta.acpmux.origin`):
   /// `remote` gets its Web rules (no Codex or opencode, remoteEditing.ts); `unknown` is an older
   /// acpmux that names none. Unset in a snapshot no client built (fixtures).
@@ -1282,12 +1303,12 @@ const TOOL_RUN_TOP = 0;
 /// A step row: a tool run, the live run line over its work, or a one-line row (transcriptGrid.ts
 /// MARK_STEP).
 const isStepRow = (row: AcpmuxRow) =>
-  row.kind === "activity" || (row.kind === ACTIVITY_LINE && !row.below) || isLineRow(row);
+  row.kind === "activity" || row.kind === WORKED || (row.kind === ACTIVITY_LINE && !row.below) || isLineRow(row);
 /// The running turn's live line, drawn as its last row (`below`, conversation/turns.ts).
 export const isLiveLine = (row: AcpmuxRow) =>
   row.below === true && (row.kind === WORKING || row.kind === THINKING || row.kind === ACTIVITY_LINE);
 /// The running turn's line as its last row (`below`) right under a step row or a status row ("Subagent
-/// finished", "Scheduled check", a compaction): one more line of the run, 22 under it and 22 tall
+/// finished", "Scheduled check", a compaction): 22 tall, with the run gap above it
 /// (`.acpmux-row--below.acpmux-row--after-step`), not the footer's 32 slot (#29965); the waiting
 /// messages' head draws over it (pendingMessages.ts `withWaitingRows`). Under a status row it took the footer's
 /// slot a block gap away, 55 and 70 from its neighbours (Leo, 2026-11-03: "this is pretty bad
@@ -1377,6 +1398,17 @@ function activityStepHeight(item: AcpmuxActivity, width: number): number {
       return 26;
   }
 }
+/// Whether a call sends another agent a message (toolGroups.ts `SentEntry`): cheap checks first.
+const sendsMessage = (tool: NonNullable<AcpmuxActivity["tool"]>): boolean =>
+  Boolean(
+    agentMessage(tool) ||
+    acpmuxSendCalls(tool) ||
+    acpmuxMcpSends(tool) ||
+    (() => {
+      const mcp = mcpCall(tool);
+      return mcp !== undefined && subsessionCall(tool, mcp)?.tool === "send";
+    })(),
+  );
 /// A folded run's lines as ToolRows draws them (TurnRows.tsx, toolGroups.ts `runStretches`): the
 /// work between coordination cards folds under one summary line per stretch, and every card the run
 /// keeps in sight is its own row. A run of agent-to-agent messages ("Sent to lane-a", a command,
@@ -1402,6 +1434,9 @@ function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[], width: num
 function foldedGroupHeight(group: ToolGroup, width: number): number {
   if (group.type === "send")
     return messageRowHeight(group.send.state !== "failed" && Boolean(group.send.text?.trim() || group.send.file));
+  // A group of sends starts closed: its head, a message row naming the recipients
+  // (SentMessageLine.tsx `SentMessageGroup`, MessageGroupHead.tsx).
+  if (group.type === "sendGroup") return messageRowHeight(true);
   if (group.type === "group") return toolRowHeight();
   // `.cv-tool-group` lists its calls flush too.
   const items = "items" in group ? group.items : [group.item];
@@ -1726,6 +1761,39 @@ export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
         next.incoming?.kind === "message" ||
         next.incoming?.kind === "notice" ||
         next.incoming?.kind === "inbox")));
+/// The footer whose actions show at rest (App.tsx `acpmux-row--final-footer`): the chat's last
+/// ended turn, as ChatGPT's and Claude's last reply keep Copy in sight, until the person's next
+/// prompt opens a turn. Another agent's message, a notice, a recap or a background line drawn under
+/// it leaves it shown (Leo, 2026-11-04: "we don't have ... the thing always showing at hte bottom").
+export function finalFooterId(rows: readonly AcpmuxRow[]): string | undefined {
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!;
+    // An empty footer (turns.ts isEmptyFooter: a turn of bookkeeping with no answer) draws nothing
+    // at rest, so the answer above it keeps its row in sight.
+    if (row.kind === "turnSummary" && !isBlankFooter(row)) return row.id;
+    if (row.kind === "turnSummary") continue;
+    // A later turn's own work (one another agent's message started, or one with no summary yet)
+    // or the person's own prompt: that turn's footer, not this one, is the chat's last.
+    if (row.lastTurn || isTurnWork(row)) return undefined;
+    if (row.kind === "user" && !row.incoming && row.received === undefined) return undefined;
+  }
+  return undefined;
+}
+/// turns.ts isEmptyFooter, which this module cannot import.
+const isBlankFooter = (row: AcpmuxRow) =>
+  row.status !== "failed" &&
+  row.status !== "error" &&
+  !row.text &&
+  !row.resumable &&
+  !(row.retryable === true && (row.turnCopy?.length ?? 0) > 0);
+const isTurnWork = (row: AcpmuxRow) =>
+  row.kind === "assistant" ||
+  row.kind === "activity" ||
+  row.kind === "plan" ||
+  row.kind === WORKED ||
+  row.kind === WORKING ||
+  row.kind === THINKING ||
+  row.kind === ACTIVITY_LINE;
 /// A completed turn followed by more of this chat's assistant. Incoming agents are user rows,
 /// so a user/agent speaker change keeps the full turn gap. Check only the next drawn row.
 export const isContinuationFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
@@ -1794,9 +1862,16 @@ function fallbackRowHeight(
       if (isFoldedRun(row.items)) return finish(TOOL_RUN_TOP + toolRowHeight() + TOOL_RUN_BOTTOM);
     }
     const items = row.items ?? [];
-    const steps = items.length
+    let steps = items.length
       ? items.reduce((height, item) => height + activityStepHeight(item, width), 0)
       : toolRowHeight();
+    // Adjacent calls that each sent a message draw as one closed group's line (toolGroups.ts
+    // `sendGroup`), not a line per call. One call's batch is one step already.
+    if (items.filter((item) => item.tool && sendsMessage(item.tool)).length > 1)
+      for (const group of toolGroups(items))
+        if (group.type === "sendGroup" && group.items.length > 1)
+          steps +=
+            messageRowHeight(true) - group.items.reduce((height, item) => height + activityStepHeight(item, width), 0);
     return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + steps);
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
@@ -1821,7 +1896,10 @@ function fallbackRowHeight(
   // The running turn's line as its last row is the footer's slot (footerRow(), conversation.css
   // `.cv-worked.is-below`; transcriptGrid.ts MARK_FOOTER_SLOT), so the end-of-turn swap keeps its place.
   if ((row.kind === WORKING || row.kind === THINKING) && row.below) return finish(footerRow());
-  if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return finish(metaRow());
+  // A finished work disclosure is one activity line, including when opened. Its estimate and
+  // MARK_STEP use the same 22px rhythm as the calls it reveals (transcript-spacing.md rule 3).
+  if (row.kind === WORKED) return finish(toolRowHeight());
+  if (row.kind === WORKING || row.kind === THINKING) return finish(metaRow());
   // The activity line under a plan is the live footer. It reserves the finished footer's 24px
   // line and turn gap so swapping in `turnSummary` never changes the transcript geometry.
   if (row.kind === ACTIVITY_LINE) return finish(row.below ? footerRow() : metaRow());
@@ -1874,7 +1952,11 @@ function fallbackRowHeight(
   // below when asked.
   if (row.kind === "sessionStart") return finish(toolRowHeight());
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
-  if (row.kind === "plan" && row.plan) return finish(40 + row.plan.length * 24);
+  // Ended, it folds to its one 24px progress line unless the reader opened it, which adds the items.
+  if (row.kind === "plan" && row.plan) {
+    const items = row.plan.length * 24;
+    return finish(40 + (row.turnEnded ? 24 + (planOpen(row.id) ? items : 0) : items));
+  }
   // A turn's footer: its line of buttons (the stack gives the gaps). An empty footer (only hover
   // controls, conversation/turns.ts isEmptyFooter) takes no extra line; its gap fits the controls.
   if (row.kind === "turnSummary") return finish(isEmptyFooter(row) ? Math.max(metaRow(), TURN_GAP) : footerRow());
@@ -2382,9 +2464,15 @@ export function layoutConversation(
   let prevDrawn = prevDrawnRow(rows, start);
   for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
-    // A step row (a tool run or a one-line row) joins the step row before it flush (transcriptGap).
-    marks[index] =
-      isStepRow(row) || isLiveStep(row, prevDrawn) ? MARK_STEP : isStatusRow(row) ? MARK_STATUS : rowMark(row);
+    // A compact live line keeps its 22px height and composer gap, but is a live indicator for
+    // spacing: classifying it as another step would swallow the run gap before Thinking.
+    marks[index] = isStepRow(row)
+      ? MARK_STEP
+      : isLiveStep(row, prevDrawn)
+        ? MARK_INDICATOR
+        : isStatusRow(row)
+          ? MARK_STATUS
+          : rowMark(row);
     messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
@@ -2700,6 +2788,8 @@ export function scrollLeadRanges(
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
 import { runStretches, staysInSight, toolGroups, type ToolGroup } from "./conversation/toolGroups";
+import { acpmuxSendCalls } from "./conversation/acpmuxSends";
+import { acpmuxMcpSends } from "./conversation/acpmuxMcpSends";
 import { isFoldedRun } from "./conversation/toolRunSummary";
 import { isQuietThought, isThought, mergeThoughts } from "./conversation/thoughts";
 import { previewCardHeight } from "./conversation/previewUrl";
@@ -2728,6 +2818,7 @@ import { inboxThreadKey } from "./conversation/inboxNotice";
 import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";
 import { MESSAGE_PREVIEW_LINE_PT, messageLineLook } from "./conversation/messageLineLook";
 import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
+import { planOpen } from "./conversation/planOpen";
 
 /// The pane's fallback accessible name and problem-only header status. A handshake that is
 /// retrying (`connecting:`) says nothing here: the pane's retries are quiet, and a failure that

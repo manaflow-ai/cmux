@@ -401,11 +401,13 @@ class WorkflowTests(unittest.TestCase):
 
     def test_the_attestation_reserves_budget_and_its_retry_shares_the_ledger(self) -> None:
         job = self.jobs["attest-nightly-remote-daemon"]
-        # The all-nightly reservation (an owned nightly-only mini) first, then the Linux runner set,
-        # as route-visual-gate-nightly (test_nightly_trusted_routing); never a hosted or pooled Mac.
+        # The all-nightly reservation, then our nightly-only pool, never Blacksmith (nightlies run only on our runners; run 41717500642
+        # attested on cmux7s-mac-mini-glaeda-nightly-only-3).
         self.assertNotIn("macos", job["runs-on"])
         self.assertIn("vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro'", job["runs-on"])
-        self.assertIn("blacksmith-32vcpu-ubuntu-2404", job["runs-on"])
+        self.assertTrue(job["runs-on"].endswith("|| vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"))
+        self.assertNotIn("blacksmith", job["runs-on"])
+        self.assertNotIn("RUNNER_POOLS", job["runs-on"])
         self.assertEqual(job["needs"], ["build-nightly-remote-daemon"])
         self.assertGreaterEqual(int(job["timeout-minutes"]), 65)
         # No consumer can put this advisory job back on the publication path,

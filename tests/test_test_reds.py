@@ -1185,6 +1185,78 @@ LOST_NOTES = FIXTURES / "lost-runner-annotations-126154996598.json"
 LOST_LOG = FIXTURES / "lost-runner-log-126154996598.txt"
 
 
+class VolatileTokens(unittest.TestCase):
+    """The same error on two runs names each run's own temp dir, checkout root and times (2026-11-04: the
+    release-notary red on #34660 and on feat-cmux-next printed /tmp/tmp.Pw5bL0wmeb and /tmp/tmp9j12s3ib-style
+    names); those tokens are masked before two errors are compared, and nothing else is."""
+
+    # Lines as the release-notary job printed them on cmux#34660's head run 41808383454 (job 126501169622).
+    HEAD = [
+        "check_bundle_notices: every Mach-O in /tmp/tmp.Pw5bL0wmeb/cmux.app has its notices",
+        "6 media DerivedData dir(s) in /tmp/tmp9j12s3ib outside this tour's and the 0 warm slots'; keeping at most 4",
+        '  File "/tmp/tmpckvlipun/workspace/scripts/ci/media_app_cache.py", line 294, in <module>',
+        "AssertionError: publish-nightly at /home/runner/work/cmux/cmux/tests/test_nightly_delivery_concurrency.py",
+    ]
+    BASE = [
+        "check_bundle_notices: every Mach-O in /tmp/tmp.Zq81xKcd0A/cmux.app has its notices",
+        "6 media DerivedData dir(s) in /tmp/tmpa_yfgwgq outside this tour's and the 0 warm slots'; keeping at most 4",
+        '  File "/tmp/tmp_n8aiuq4/workspace/scripts/ci/media_app_cache.py", line 294, in <module>',
+        "AssertionError: publish-nightly at /Users/ci/actions-runner/_work/cmux/cmux/tests/"
+        "test_nightly_delivery_concurrency.py",
+    ]
+
+    def test_each_runs_own_temp_dirs_and_checkout_root_compare_equal(self):
+        for head, base in zip(self.HEAD, self.BASE):
+            with self.subTest(head=head):
+                self.assertNotEqual(head, base)
+                self.assertTrue(reds.same_error(head, base), (reds.volatile(head), reds.volatile(base)))
+
+    def test_runner_temp_macos_temp_and_times_are_masked(self):
+        pairs = [
+            ("wrote /home/runner/work/_temp/4b1c0e2a-9f7d-4d3e-8a55-0c1f2e3d4b5a.sh", "wrote /home/runner/work/_temp/"
+             "8e2f1a3b-1c2d-4e5f-9a8b-7c6d5e4f3a2b.sh"),
+            ("no such file: /private/var/folders/x1/abc_123/T/cmux-AbC/f.json",
+             "no such file: /var/folders/q9/zz_987/T/cmux-AbC/f.json"),
+            ("stale since 2026-11-04T09:35:26.94Z", "stale since 2026-11-03T22:01:02Z"),
+        ]
+        for head, base in pairs:
+            with self.subTest(head=head):
+                self.assertTrue(reds.same_error(head, base), (reds.volatile(head), reds.volatile(base)))
+
+    def test_a_different_error_still_differs(self):
+        pairs = [
+            ("AssertionError: publish-nightly", "AssertionError: publish-nightly-next"),
+            ("no such file: /tmp/tmpab12cd34/a.json", "permission denied: /tmp/tmpzz99yy88/a.json"),
+            ("expected stable to be in Sources/App/Feature.swift", "expected stable to be in Sources/App/Other.swift"),
+            ("TypeError: undefined is not a function", "expect(received).toBe(expected)"),
+            # Only run-named temp dirs are masked: two plain files in /tmp or $RUNNER_TEMP stay two errors.
+            ("missing /tmp/release-notes.md", "missing /tmp/appcast.xml"),
+            ("missing /home/runner/work/_temp/notary-key.p8", "missing /home/runner/work/_temp/signing.keychain"),
+            ("no such file: /var/folders/x1/abc/T/a.json", "no such file: /var/folders/x1/abc/T/b.json"),
+            # A test's message keeps its numbers: a timing or count that changed is another failure.
+            ("render took 1200ms, budget 16ms", "render took 20ms, budget 16ms"),
+            ("expected 3m rows", "expected 5m rows"),
+            # Ids outside a temp dir are compared as they are.
+            ("session 0f3e2d1c-aaaa-4bbb-8ccc-1234567890ab expired", "session 9a8b7c6d-1111-4222-8333-abcdefabcdef expired"),
+            ("error: artifact deadbeef1 missing", "error: artifact abcdef12 missing"),
+        ]
+        for head, base in pairs:
+            with self.subTest(head=head):
+                self.assertFalse(reds.same_error(head, base))
+        self.assertFalse(reds.same_error("", ""))
+        self.assertFalse(reds.same_error("boom", None))
+
+    def test_a_bun_failure_with_another_temp_dir_fails_the_same_way(self):
+        head = bun_run(("test/a.test.ts", [("a > b", "ENOENT: no such file, open '/tmp/tmp.Pw5bL0wmeb/state.json'")]))
+        base = bun_run(("test/a.test.ts", [("a > b", "ENOENT: no such file, open '/tmp/tmp.Zq81xKcd0A/state.json'")]))
+        verdict = reds.classify(head, base, "react-apps-check (1)")
+        self.assertFalse(verdict.own, verdict.reasons)
+        other = bun_run(("test/a.test.ts", [("a > b", "EACCES: permission denied, open '/tmp/tmp.Zq81xKcd0A/state.json'")]))
+        verdict = reds.classify(head, other, "react-apps-check (1)")
+        self.assertTrue(verdict.own)
+        self.assertIn("fail differently", verdict.reasons[0])
+
+
 class LostRunner(unittest.TestCase):
     """A job whose runner was lost is infra, not a verdict: never the PR's own red, it needs a re-run."""
 

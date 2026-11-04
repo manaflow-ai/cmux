@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 
-/// FRAME OWNER REFACTOR S3 (`motion.frameOwner.contentPolicy`): in a keyboard resize the terminal host is a container
+/// FRAME OWNER REFACTOR S3: in a keyboard resize the terminal host is a container
 /// that follows its pane in every frame: the pane's content area gives it its bounds each frame, so the terminal's own
 /// ground, padding, scroller and overlays cover the whole pane and the window's shell never shows inside it. Only the
 /// surface (the producer: Ghostty draws it on its renderer thread) keeps its size: the final size the press asked for

@@ -96,11 +96,12 @@ await requireBrowserLane("composer-emoji.browser.test.ts", async () => {
         }
   });
 
-  test(":tedd lists the teddy bear first, chosen, in a compact menu inside the composer", async () => {
+  test(":tedd lists the teddy bear first, none chosen, in a compact menu inside the composer", async () => {
     const page = await stage("tedd");
     const state = await read(page);
     expect(state.rows[0]).toBe("🧸 :teddy_bear:");
-    expect(state.active).toBe("acpmux-emoji-0");
+    // No row chosen until the arrows choose one, so Return sends the text as typed.
+    expect(state.active).toBeNull();
     expect(state.menu!.width).toBeLessThan(260);
     expect(state.menu!.left).toBeGreaterThanOrEqual(state.box!.left - 1);
     expect(state.menu!.right).toBeLessThanOrEqual(state.box!.right + 1);
@@ -119,14 +120,16 @@ await requireBrowserLane("composer-emoji.browser.test.ts", async () => {
     await page.close();
   });
 
-  for (const variant of ["pick-return", "emoticon-tab", "arrows-escape", "no-trigger", "heart"])
+  for (const variant of ["arrow-return", "return-sends", "emoticon-tab", "arrows-escape", "no-trigger", "heart"])
     test(`play ${variant} passes`, async () => {
       const page = await stage(variant);
       const play = await page.evaluate(() => document.documentElement.dataset.galleryPlay ?? "");
-      if (play === "fail") console.log(variant, JSON.stringify(await page.evaluate(() => window.cmuxGalleryPlayReport)));
+      if (play === "fail")
+        console.log(variant, JSON.stringify(await page.evaluate(() => window.cmuxGalleryPlayReport)));
       expect(play).not.toBe("fail");
       expect(await page.evaluate(() => document.documentElement.dataset.galleryReady)).not.toBe("error");
-      if (variant === "pick-return") expect((await read(page)).text).toContain("Ship it 🧸");
+      if (variant === "arrow-return") expect((await read(page)).text).toContain("Ship it 🧸");
+      if (variant === "return-sends") expect((await read(page)).text).not.toContain("🧸");
       if (variant === "heart") expect((await read(page)).rows[0]).toBe("❤️ :heart:");
       await page.close();
     });

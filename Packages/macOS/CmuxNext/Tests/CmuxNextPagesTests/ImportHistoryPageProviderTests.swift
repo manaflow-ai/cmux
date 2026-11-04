@@ -27,21 +27,33 @@ import Testing
     }
     #endif
 
-    @Test func detectionNeverScansExportFoldersAndOnlyAdmitsAgentSources() async throws {
-        var arguments: [String] = []
+    @Test func passiveDetectionRejectsArchivesAndExplicitDetectionAdmitsThem() async throws {
+        var arguments: [[String]] = []
         let provider = ImportHistoryPageProvider(muxHome: "/test/mux", personOnlyMessage: "Click Import") { args, _ in
-            arguments = args
+            arguments.append(args)
             return ["sources": [["source": "codex", "count": 3, "bytes": 42],
                                 ["source": "zip:/not-picked.zip", "count": 1]]]
         }
-        let reply = try await provider.call("cmux.importHistory.detect", params: [:], context: passive)
-        #expect(!arguments.contains("--exports"))
-        #expect(reply["sources"]?.arrayValue?.count == 1)
-        #expect(reply["sources"]?.arrayValue?.first?["items"] == 3)
+        let passiveReply = try await provider.call("cmux.importHistory.detect", params: [:], context: passive)
+        #expect(!arguments[0].contains("--exports"))
+        #expect(passiveReply["sources"]?.arrayValue?.count == 1)
+        #expect(passiveReply["sources"]?.arrayValue?.first?["items"] == 3)
         _ = try await provider.call("cmux.importHistory.begin", params: ["batch": "b1"], context: click(1))
         await #expect(throws: PageError.self) {
             _ = try await provider.call("cmux.importHistory.dryRun", params: ["source": "zip:/not-picked.zip", "batch": "b1"], context: passive)
         }
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.importHistory.detect", params: ["exports": .bool(true)], context: passive)
+        }
+        let explicitReply = try await provider.call(
+            "cmux.importHistory.detect",
+            params: ["exports": .bool(true)],
+            context: click(2)
+        )
+        #expect(arguments[1].contains("--exports"))
+        #expect(explicitReply["sources"]?.arrayValue?.count == 2)
+        _ = try await provider.call("cmux.importHistory.dryRun", params: ["source": "zip:/not-picked.zip", "batch": "b1"], context: passive)
+        #expect(arguments[2].contains("zip:/not-picked.zip"))
     }
 
     @Test func pageScriptCannotBeginOrImportWithoutARealClick() async throws {

@@ -119,7 +119,7 @@ struct TerminalKeyResizeFrameTests {
     }
 
     /// p1 | p2 in a window on screen, each pane the app's `PaneContentView` with a terminal in its content area; the
-    /// switch on, Reduce Motion off, S3's content policy on, the spring stepped by the test.
+    /// switch on, Reduce Motion off, the spring stepped by the test.
     final class PaneScreen {
         final class Panes: LayoutPaneContentProvider {
             let reveal: LaunchReveal = {
@@ -155,7 +155,6 @@ struct TerminalKeyResizeFrameTests {
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))], activeScreenID: "s", focusedPane: "p2")
             root = LayoutRootView(model: model, contentProvider: provider)
             root.context.reduceMotionOverride = false
-            root.context.contentPolicyOverride = true
             window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 1000, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false

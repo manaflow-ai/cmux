@@ -87,6 +87,8 @@ test.serial("Resume uses native attach, then rereads the missing chat; disposal 
       <ChatUnavailableState
         unavailable={cloudChatUnavailable({ reason: "offline" }, recovery.state, "Demo machine")}
         onResumeMachine={recovery.resume}
+        // The settled card: no RESUME_NOTE_DELAY_MS wait (afterDelay.ts).
+        noteDelayMs={0}
         onRemove={noop}
         onReconnect={recovery.refresh}
         resuming={recovery.resuming}
@@ -527,6 +529,8 @@ async function attachFixture() {
         <ChatUnavailableState
           unavailable={cloudChatUnavailable({ reason: "offline" }, recovery.state, "Demo machine")}
           onResumeMachine={recovery.resume}
+          // The settled card: no RESUME_NOTE_DELAY_MS wait (afterDelay.ts).
+          noteDelayMs={0}
           onRemove={noop}
           onReconnect={recovery.refresh}
           resuming={recovery.resuming}
