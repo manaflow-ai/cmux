@@ -193,7 +193,7 @@ struct ProvisionalDockTests {
     /// records in the close's turn, the daemon's dock pane that takes it over never shows, and the close's intent
     /// leaves once the daemon's records drop that pane. Before, the close named the stand-in and was refused with
     /// "This pane is still opening; try again in a moment." (Leo 2026-11-03: "i should be able to just close immedeiately").
-    @Test func closingTheDocksStandInPaneTakesItOutAtOnceAndItsDaemonPaneNeverShows() throws {
+    @Test func closingTheDocksStandInPaneTakesItOutAtOnceAndItsDaemonPaneNeverShows() async throws {
         let store = Self.store()
         let provisional = ProvisionalPane(columnWidth: 0.5, left: true)
         let terminal = TerminalID.generate()
@@ -219,8 +219,12 @@ struct ProvisionalDockTests {
         #expect(store.workspace(id: Self.key.rawValue)?.screens.first?.panes.map(\.handle) == [Self.pane])
         #expect(store.tabsBySurface[Self.chat] == nil)
 
-        // Both replies come; the close still waits for the records to drop the daemon's pane.
+        // Both replies come; the close still waits for the records to drop the daemon's pane. The close's own wait
+        // for its daemon pane finds the hidden one, after the dock settled too (review of #34367, P1: it threw
+        // PendingPaneNotCreated, and the refused close brought the pane back without sending `close-pane`).
+        #expect(try await store.daemonTarget(provisional.handle) == docked)
         store.noteSettled(dockTransaction, at: 0)
+        #expect(try await store.daemonTarget(provisional.handle) == docked, "the close lost its daemon pane once the dock settled")
         store.noteSettled(closing, at: 0)
         #expect(store.panesByHandle[docked] == nil, "the daemon's dock pane came back when the replies settled")
 

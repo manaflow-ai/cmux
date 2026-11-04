@@ -119,6 +119,16 @@ import Foundation
         return nil
     }
 
+    /// The daemon's pane that a pending close of stand-in `handle` hides, once the daemon made it.
+    static func hiddenDaemonPane(closing handle: PaneID, in store: DaemonStore) -> PaneID? {
+        for entry in store.intentLog.entries {
+            guard case .closeStandInPane(let pane, _, _) = entry.kind, pane == handle,
+                  case .hiddenPane(let hidden)? = entry.undo, hidden.pane.handle.rawValue < ProvisionalPane.firstHandle else { continue }
+            return hidden.pane.handle
+        }
+        return nil
+    }
+
     /// Takes `pane` out of the visible records with its screen's trees (its split collapses; a column or row that is
     /// only this pane goes with it). Nil when it is its tree's only pane (it would leave no pane): it stays shown.
     static func hidePane(_ pane: PaneModel, in store: DaemonStore) -> HiddenPane? {
