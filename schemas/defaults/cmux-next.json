@@ -856,7 +856,7 @@
     "setting.updates.showFeatureTips": true,
     "setting.updates.showWhatsNew": true,
     "setting.updates.web": "every-merge",
-    "setting.window.titlebar": "minimal",
+    "setting.window.titlebar": "standard",
     "setting.window.titlebarButtons": "hover",
     "setting.window.trafficLightClearance": 72,
     "setting.workspaceColors.indicatorStyle": "dot",
