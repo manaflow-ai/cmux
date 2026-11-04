@@ -215,7 +215,8 @@ jobs:
           sudo install -o root -g root -m 0755 "$(command -v bun)" "$JOIN_BASE/bin/bun"
           sudo install -o root -g root -m 0755 scripts/cmux-next/deps-bench.sh "$JOIN_BASE/bin/deps-bench.sh"
           sudo install -d -o "$JOIN_USER" -g "$JOIN_USER" -m 0700 "$JOIN_BASE/bench" "$JOIN_BASE/bench/webviews"
-          git archive HEAD cmux-tui | sudo -n -u "$JOIN_USER" -- tar -x -C "$JOIN_BASE/bench"
+          # cmux-tui's workspace and the one path dependency outside it (crates/cmux-tui -> workers/cmux-vm/cli).
+          git archive HEAD cmux-tui workers/cmux-vm/cli | sudo -n -u "$JOIN_USER" -- tar -x -C "$JOIN_BASE/bench"
           # The manifest without its scripts (the postinstall reads the app's catalogs, not part of the bench).
           jq 'del(.scripts)' webviews/package.json | sudo -n -u "$JOIN_USER" -- tee "$JOIN_BASE/bench/webviews/package.json" >/dev/null
           sudo -n -u "$JOIN_USER" -- cp -- webviews/bun.lock "$JOIN_BASE/bench/webviews/bun.lock"

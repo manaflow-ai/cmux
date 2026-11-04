@@ -54,6 +54,8 @@ export function benchResult(stdout: string): Record<string, unknown> | null {
   }
   return null
 }
+/** A CI machine older than this is an interrupted run's: longer than any run lives (12 min, plus the bench). */
+export const STALE_MS = 12 * 60_000 + BENCH_LIMIT_MS + 13 * 60_000
 /** After a cancel: the whole cleanup's deadline, and the part of it kept for the revoke request. */
 export const CANCEL_BUDGET_MS = 7_500
 export const REVOKE_RESERVE_MS = 2_500
@@ -466,7 +468,7 @@ export async function runE2E(
   }
 
   // Self-healing for a run that was killed before its revoke (a runner lost, SIGKILL): revoke this
-  // account's own CI machines (label ci-join-<digits>, minted by this user) still joined 30 minutes
+  // account's own CI machines (label ci-join-<digits>, minted by this user) still joined STALE_MS
   // after they were made. Never fails the run.
   const sweepStale = async () => {
     try {
@@ -477,7 +479,7 @@ export async function runE2E(
         const made = Date.parse(String(m?.createdAt ?? ""))
         if (m?.revoked !== false || m?.mintedBy !== user || !/^ci-join-\d+(?:-\d+)?$/.test(String(m?.label ?? ""))) continue
         const stale = safeId(m.machineId)
-        if (!Number.isFinite(made) || deps.now() - made < 30 * 60_000 || !stale) continue
+        if (!Number.isFinite(made) || deps.now() - made < STALE_MS || !stale) continue
         const done = await platform("POST", `/v1/machines/credentials/${encodeURIComponent(stale)}/revoke`)
         if (done.status >= 200 && done.status < 300) swept += 1
       }

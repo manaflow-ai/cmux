@@ -5,6 +5,7 @@ import {
   CHILD_PATH,
   KILL_GRACE_MS,
   REVOKE_RESERVE_MS,
+  STALE_MS,
   DEV_API,
   DEV_PLATFORM,
   type ChildResult,
@@ -937,6 +938,13 @@ describe("cancellation, the sweep, masking and the scan", () => {
     expect(w.revokedIds).toEqual(["m_stale"])
     expect(w.lines).toContain("revoked 1 machine(s) an earlier interrupted run left joined")
     expect(e.result).toBe("pass")
+  })
+
+  test("the sweep leaves a CI machine younger than the longest run (a bench still running)", async () => {
+    const w = world({ others: [{ machineId: "m_bench", joinTokenId: "jt_b", label: "ci-join-40003", mintedBy: "user_1", createdAt: "2026-10-29T11:15:00Z", revoked: false }] })
+    await runE2E(opts, env, w.deps)
+    expect(w.revokedIds).not.toContain("m_bench")
+    expect(STALE_MS).toBeGreaterThan(12 * 60_000 + BENCH_LIMIT_MS)
   })
 
   test("a password with a newline and a percent sign is masked escaped, line by line", async () => {

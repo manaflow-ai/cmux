@@ -92,6 +92,11 @@ for eco in cargo bun; do
   wipe "$eco"
   warm "${eco}Warm" "$eco" "$dir"
   echo "$eco warm: ${out[${eco}WarmS]}s (${out[${eco}WarmRestore]:-?})"
+  # The CLI exits 0 when the cache is off or a restore fails; a warm number that was not a restore is no number.
+  if [ "${out[${eco}WarmRestore]:-}" != restored ]; then
+    echo "$eco warm did not restore from the cache (${out[${eco}WarmRestore]:-no report}): $(tail -n 5 -- "$bench/logs/${eco}Warm.log" | tr -cd 'A-Za-z0-9 ._:/-' | cut -c1-300)"
+    exit 1
+  fi
 done
 
 # Numbers stay numbers; everything else is a string.
