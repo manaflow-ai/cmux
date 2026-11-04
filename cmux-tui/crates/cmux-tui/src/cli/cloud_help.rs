@@ -313,6 +313,24 @@ const GROUPS: &[Group] = &[
                 "Replace this Mac's tunnel key",
                 "この Mac のトンネル鍵を置き換え",
             ),
+            verb(
+                "tunnel on",
+                "",
+                "Turn on this Mac's Cloud tunnel",
+                "この Mac の Cloud トンネルをオンにする",
+            ),
+            verb(
+                "tunnel off",
+                "",
+                "Turn off this Mac's Cloud tunnel",
+                "この Mac の Cloud トンネルをオフにする",
+            ),
+            verb(
+                "tunnel status",
+                "",
+                "Show this Mac's Cloud tunnel state",
+                "この Mac の Cloud トンネルの状態を表示",
+            ),
             verb("firewall-list", "", "List firewall rules", "ファイアウォールルールを一覧表示"),
             verb(
                 "firewall-get",

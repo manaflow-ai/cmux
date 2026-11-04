@@ -114,7 +114,11 @@ fn sidebar_requires_open(summary: &Value) -> bool {
 /// - `working` again: work the session started runs on past its last turn
 ///   (`subagentsWorkingSince`: a background subagent or a working
 ///   sub-session, `work_below.rs`), except on a peer gone unreachable. A
-///   task is not done until its subagents are (manaflow-ai/cmux#25230).
+///   task is not done until its subagents are (manaflow-ai/cmux#25230). So
+///   is a background command its turn left running (`commandsRunning`, a
+///   Claude background shell): the chat shows it running, and its row spun
+///   for none (manaflow-ai/cmux#32727). Only the dot: the turn's unread mark
+///   and its end notice do not wait for the command.
 /// - `done`: the last turn answered. Whether the person saw it is each
 ///   client's own record.
 /// - null: nothing to show (no turn yet, a cancelled turn, closed).
@@ -144,6 +148,7 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         // (`disconnected`) still works while a sub-session it started runs.
         "unreachable" => answered.then_some("done"),
         _ if summary["subagentsWorkingSince"].is_u64() => Some("working"),
+        _ if summary["commandsRunning"].as_u64().unwrap_or(0) > 0 => Some("working"),
         _ if answered => Some("done"),
         _ => None,
     }
