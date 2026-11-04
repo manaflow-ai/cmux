@@ -84,9 +84,9 @@ impl Env {
     /// The only API origin each environment may bind to.
     pub fn api_origin(self) -> &'static str {
         match self {
-            Env::Dev => "https://cmux-api-development.debussy.workers.dev",
-            Env::Stg => "https://cloud-api-staging.cmux.dev",
-            Env::Prod => "https://cloud-api.cmux.dev",
+            Env::Dev => cmux_cloud_environment::DEVELOPMENT_API,
+            Env::Stg => cmux_cloud_environment::STAGING_API,
+            Env::Prod => cmux_cloud_environment::PRODUCTION_API,
         }
     }
 
@@ -94,9 +94,9 @@ impl Env {
     /// choose an origin and redirect the machine's bearer elsewhere.
     pub fn platform_origin(self) -> &'static str {
         match self {
-            Env::Dev => "https://cmux-platform-development.debussy.workers.dev",
-            Env::Stg => "https://cmux-platform-staging.debussy.workers.dev",
-            Env::Prod => "https://cmux-platform-production.debussy.workers.dev",
+            Env::Dev => cmux_cloud_environment::DEVELOPMENT_PLATFORM,
+            Env::Stg => cmux_cloud_environment::STAGING_PLATFORM,
+            Env::Prod => cmux_cloud_environment::PRODUCTION_PLATFORM,
         }
     }
 
