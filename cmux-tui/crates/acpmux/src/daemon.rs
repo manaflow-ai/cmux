@@ -55,6 +55,8 @@ mod stop_causes;
 use stop_causes::next_signal;
 use stop_causes::{AbortOnDrop, store_asks_to_stop};
 pub use stop_causes::{EXIT_REPAIR, exit_status};
+#[cfg(unix)]
+pub(crate) mod term_sender;
 pub(crate) mod unused_exit;
 #[cfg(windows)]
 mod windows;
@@ -594,7 +596,14 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     #[cfg(unix)]
     let mut stop_signals = {
         use tokio::signal::unix::{SignalKind, signal};
-        (signal(SignalKind::terminate()).ok(), signal(SignalKind::interrupt()).ok())
+        let term = signal(SignalKind::terminate()).ok();
+        // Who sends SIGTERM is named on the stop line (`daemon/term_sender.rs`). Only once tokio's
+        // own stream is registered: an action of ours alone would replace SIGTERM's default
+        // action, and a daemon whose stream failed would then never stop on SIGTERM.
+        if term.is_some() {
+            term_sender::record();
+        }
+        (term, signal(SignalKind::interrupt()).ok())
     };
     #[cfg(not(unix))]
     let ctrl_c = tokio::signal::ctrl_c();
@@ -691,9 +700,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             // a revoke the previous daemon saved may not have reached it (`crate::pairing`).
             hub.hold_policies_again().await;
             hub.finish_startup().await;
-            // An agent the previous daemon left, started from a profile changed since, restarts
-            // on the new one between turns (`hub/profile_respawn.rs`).
-            hub.spawn_profile_respawns();
+            // An agent the previous daemon left, started from a profile changed since or running
+            // from a binary that an update moved, restarts on the profile and binary installed now,
+            // between turns (`hub/profile_respawn.rs`, `hub/stale_host_respawn.rs`).
+            hub.spawn_startup_respawns();
             // Until shutdown aborts this task, on every path (a signal too).
             hub.run_after_startup().await;
         })
@@ -722,7 +732,13 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 // Supervisors use SIGTERM for updates and permanent stops alike. Advertise
                 // handoff: a stopped service causes one immediate retry, then normal backoff.
                 _ = next_signal(term.as_mut()) => {
-                    tracing::warn!("stopping: SIGTERM (a restart handoff)");
+                    match term_sender::settled().await {
+                        Some(pid) => tracing::warn!(
+                            "stopping: SIGTERM from {} (a restart handoff)",
+                            term_sender::describe(pid)
+                        ),
+                        None => tracing::warn!("stopping: SIGTERM (a restart handoff)"),
+                    }
                     hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
                 },
                 _ = next_signal(int.as_mut()) => tracing::warn!("stopping: SIGINT"),

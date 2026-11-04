@@ -331,6 +331,25 @@ pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
     Ok(file)
 }
 
+/// Create an owner-only state file without following a pre-positioned final
+/// symlink. Callers can distinguish an existing incident archive through the
+/// `AlreadyExists` error, so this deliberately does not open existing files.
+#[cfg(unix)]
+pub(crate) fn private_state_create_new(path: &Path) -> Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    refuse_lost_home(path)?;
+
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .with_context(|| format!("create private state file {}", path.display()))?;
+    validate_private_state_file(&file, path)?;
+    Ok(file)
+}
+
 /// Open or create an owner-only regular state file for append without
 /// following a pre-positioned final symlink (daemon.log).
 #[cfg(unix)]
@@ -453,6 +472,11 @@ pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
 #[cfg(windows)]
 pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
     Ok(crate::owner_only::open_rw(path)?)
+}
+
+#[cfg(windows)]
+pub(crate) fn private_state_create_new(path: &Path) -> Result<std::fs::File> {
+    Ok(crate::owner_only::create_new(path)?)
 }
 
 #[cfg(windows)]
@@ -1101,6 +1125,111 @@ impl ArtifactsSyncConfig {
     }
 }
 
+/// Persisted cmux-added prompt overrides. The `user` value applies to every new
+/// session on this daemon; project entries are keyed by a canonical working directory.
+/// Harness-owned prompts never live here: this store contains only text the user explicitly
+/// added through the Context viewer.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextOverrides {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub projects: BTreeMap<String, String>,
+    /// Overrides of a verified preset prompt, kept separate for each preset name.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub preset_prompts: BTreeMap<String, ContextPromptOverrides>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextPromptOverrides {
+    pub user: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub projects: BTreeMap<String, String>,
+}
+
+impl ContextPromptOverrides {
+    pub fn for_project(&self, cwd: &Path) -> Option<&str> {
+        self.projects
+            .get(&ContextOverrides::project_key(cwd))
+            .map(String::as_str)
+            .or(self.user.as_deref())
+    }
+}
+
+impl ContextOverrides {
+    pub fn is_empty(&self) -> bool {
+        self.user.is_none() && self.projects.is_empty() && self.preset_prompts.is_empty()
+    }
+
+    pub fn project_key(cwd: &Path) -> String {
+        std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned()).to_string_lossy().into_owned()
+    }
+
+    pub fn for_project(&self, cwd: &Path) -> Option<(&str, &str)> {
+        let key = Self::project_key(cwd);
+        self.projects
+            .get(&key)
+            .map(|text| ("project", text.as_str()))
+            .or_else(|| self.user.as_deref().map(|text| ("user", text)))
+    }
+
+    pub fn set(
+        &mut self,
+        scope: &str,
+        cwd: Option<&Path>,
+        text: Option<String>,
+    ) -> Result<(), String> {
+        match scope {
+            "user" => self.user = text,
+            "project" => {
+                let cwd = cwd.ok_or("cwd is required for a project override")?;
+                let key = Self::project_key(cwd);
+                if let Some(text) = text {
+                    self.projects.insert(key, text);
+                } else {
+                    self.projects.remove(&key);
+                }
+            }
+            _ => return Err("scope must be user or project".into()),
+        }
+        Ok(())
+    }
+
+    pub fn set_preset(
+        &mut self,
+        preset: &str,
+        scope: &str,
+        cwd: Option<&Path>,
+        text: Option<String>,
+    ) -> Result<(), String> {
+        if scope != "user" && scope != "project" {
+            return Err("scope must be user or project".into());
+        }
+        if scope == "project" && cwd.is_none() {
+            return Err("cwd is required for a project override".into());
+        }
+        let values = self.preset_prompts.entry(preset.into()).or_default();
+        match scope {
+            "user" => values.user = text,
+            "project" => {
+                let key = Self::project_key(cwd.ok_or("cwd is required for a project override")?);
+                if let Some(text) = text {
+                    values.projects.insert(key, text);
+                } else {
+                    values.projects.remove(&key);
+                }
+            }
+            _ => return Err("scope must be user or project".into()),
+        }
+        if values.user.is_none() && values.projects.is_empty() {
+            self.preset_prompts.remove(preset);
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -1122,6 +1251,9 @@ pub struct Config {
     pub write_journal: WriteJournalConfig,
     #[serde(default, alias = "defaultAgent")]
     pub default_harness: Option<String>,
+    /// User and project cmux-added context shown in the Context viewer and captured for new sessions.
+    #[serde(default, skip_serializing_if = "ContextOverrides::is_empty")]
+    pub context_overrides: ContextOverrides,
     /// More login-shell variables agents get, beyond the allow-list
     /// (`login_env::allowed`): exact names or `PREFIX_*`. Default empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

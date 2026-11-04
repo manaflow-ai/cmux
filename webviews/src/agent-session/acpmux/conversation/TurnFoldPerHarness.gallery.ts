@@ -25,12 +25,14 @@ function turn() {
       ],
       19,
     ),
-    assistant("The loop retries any response that isn't ok, so I'm adding a status check there.", 15),
+    // Longer than a short note (SHORT_NOTE_CHARS), so it stays between the runs instead of joining one.
+    assistant(
+      "The loop retries any response that isn't ok, so a 404 waits through three backoffs before it fails. " +
+        "I'm adding a status check there that fails a client error at once and keeps retrying 408 and 429.",
+      15,
+    ),
     activity(
-      [
-        run("Ran the retry tests", "bun test src/net"),
-        run("Checked the branch is clean", "git status --short"),
-      ],
+      [run("Ran the retry tests", "bun test src/net"), run("Checked the branch is clean", "git status --short")],
       10,
     ),
     assistant(

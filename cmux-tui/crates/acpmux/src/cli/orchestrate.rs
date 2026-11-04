@@ -549,7 +549,7 @@ pub(crate) async fn ensure(
     if let (Some(h), Some(from)) = (&host, &harness_from) {
         return Err(AppError::usage(format!(
             "--harness-from copies a session on this machine only: run \
-             `ssh {h} acpmux ensure {name} --harness-from {from}` there instead of --host {h}"
+             `ssh {h} acpmux ensure {name} --harness-from {from}` there instead of --machine {h}"
         ))
         .into());
     }
@@ -595,10 +595,13 @@ pub(crate) async fn ensure(
             }
             meta["argv"] = json!(crate::cli::entry::original_args());
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
-            match (&host, cwd) {
-                (Some(_), Some(c)) => p["cwd"] = json!(c),
-                (Some(_), None) => {}
-                (None, c) => p["cwd"] = json!(c.unwrap_or(std::env::current_dir()?)),
+            let cwd = match (&host, cwd) {
+                (_, Some(c)) => Some(c),
+                (Some(_), None) => None,
+                (None, None) => Some(default_ensure_cwd(std::env::current_dir()?)),
+            };
+            if let Some(c) = cwd {
+                p.set("cwd", json!(c));
             }
             let v = client.request(method::SESSION_NEW, p).await?;
             crate::cli::run::launch::print_new_warnings(&v);
@@ -619,6 +622,56 @@ pub(crate) async fn ensure(
         );
     }
     Ok(())
+}
+
+/// The folder `ensure` starts a session in when none is named: the current
+/// one, or the home folder when this user cannot read the current one (run from
+/// `/root` through a root exec that switched user, the harness's start failed
+/// as `spawn harness process …: Permission denied`). Said on stderr.
+fn default_ensure_cwd(current: std::path::PathBuf) -> std::path::PathBuf {
+    match unreadable_fallback(&current, dirs::home_dir()) {
+        Some(home) => {
+            eprintln!(
+                "note: {} is not readable by this user; the session starts in {} (--cwd names another)",
+                current.display(),
+                home.display()
+            );
+            home
+        }
+        None => current,
+    }
+}
+
+/// `home` when `current` cannot be listed and `home` can.
+fn unreadable_fallback(
+    current: &std::path::Path,
+    home: Option<std::path::PathBuf>,
+) -> Option<std::path::PathBuf> {
+    let denied = matches!(std::fs::read_dir(current), Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied);
+    home.filter(|h| denied && std::fs::read_dir(h).is_ok())
+}
+
+#[cfg(all(test, unix))]
+mod ensure_cwd_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn an_unreadable_current_folder_falls_back_to_home() {
+        let root = std::env::temp_dir().join(format!("acpmux-ensure-cwd-{}", uuid::Uuid::now_v7()));
+        let (shut, home) = (root.join("shut"), root.join("home"));
+        std::fs::create_dir_all(&shut).unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+        assert_eq!(unreadable_fallback(&shut, Some(home.clone())), None, "a readable folder stays");
+        std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o000)).unwrap();
+        // root reads every folder: nothing to fall back from there.
+        if std::fs::read_dir(&shut).is_err() {
+            assert_eq!(unreadable_fallback(&shut, Some(home.clone())), Some(home.clone()));
+            assert_eq!(unreadable_fallback(&shut, None), None);
+        }
+        std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
 
 /// `acpmux history NAME`.
