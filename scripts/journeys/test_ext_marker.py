@@ -206,9 +206,8 @@ class EncodingTests(unittest.TestCase):
         code, out = run_in_terminal(["733287-42"], 80)
         self.assertEqual(code, 0, out)
         lines = out.split("\n")
-        self.assertEqual(lines[0], "733287-42")
-        self.assertEqual((lines[1], lines[3]), ("", ""))
         cells = lines[2]
+        self.assertEqual(lines, ["733287-42", "", cells, "", ""], "the token, a blank line, the cells, a blank line")
         got = [tuple(int(v) for v in m) for m in re.findall(r"\x1b\[48;2;(\d+);(\d+);(\d+)m ", cells)]
         self.assertEqual(got, M.marker_cells("733287-42"))
         self.assertTrue(cells.endswith("\x1b[0m"))
@@ -314,6 +313,8 @@ class PngReaderTests(unittest.TestCase):
                 "cut inside the next length field": good[:ihdr_end + 2],
                 "an IHDR of 12 bytes": good[:8] + struct.pack(">I", 12) + good[12:],
                 "no IHDR (its type changed)": good[:12] + b"IHDx" + good[16:],
+                "an IHDR one row taller than its data": good[:20] + struct.pack(">I", 9) + good[24:],
+                "an IHDR one column wider than its data": good[:16] + struct.pack(">I", 17) + good[20:],
             }
             for name, data in cases.items():
                 with self.subTest(case=name):
@@ -484,6 +485,17 @@ class ReadRuleTests(unittest.TestCase):
         got = self.scan(frame)
         self.assertEqual([m["digest"] for m in got if m["ok"]], [M.token_digest("ok-234567-42")])
 
+    def test_a_marker_right_after_runs_of_its_start_colors_is_read(self):
+        # Magenta 2 px, yellow 3 px and blue 5 px just left of the marker: a false start there must not hide the
+        # real START that follows (the search goes on from that false start's last run, not past it).
+        frame = self.frame()
+        frame.rect(28, 10, 2, 17, M.SAFE_COLORS["M"])
+        frame.rect(30, 10, 3, 17, M.SAFE_COLORS["Y"])
+        frame.rect(33, 10, 5, 17, M.SAFE_COLORS["B"])
+        draw_marker(frame, "ok-234567-42", 38, 10, 8, 17)
+        got = self.scan(frame)
+        self.assertEqual([(m["x"], m["digest"]) for m in got if m["ok"]], [(38, M.token_digest("ok-234567-42"))])
+
     def test_start_runs_of_unequal_width_are_no_marker(self):
         frame = self.frame()
         cells = M.marker_cells("ok-234567-42")
@@ -545,6 +557,63 @@ class ConditionTests(unittest.TestCase):
         self.assertFalse(self.holds(M.cond_frame_marker_lacks, want, (W, 10), (X, 50, self.one_cell_wrong(X))),
                          "an unreadable marker")
         self.assertFalse(self.holds(M.cond_frame_marker_lacks, want, (X, 50)), "the token without the proof")
+        for bad in ("a b", "", "x" * 65):
+            self.assertFalse(self.holds(M.cond_frame_marker_lacks, {"token": bad, "with": W}, (W, 10)),
+                             f"a token it cannot mark: {bad!r}")
+
+
+class NegativeFrameTests(unittest.TestCase):
+    """frame_marker_lacks in a journey: a frame that shows T fails the check at once; a later frame without T does
+    not undo it (review 3 of #34071, finding 2: the frame loop tried a failed frame condition again until one frame
+    held, so a T marker on the first snapshot only, or a false read of T, was retried away)."""
+
+    W, X = "with-234567-42", "gone-234567-42"
+
+    def run_journey(self, frames_with_x):
+        sys.path.insert(0, str(HERE.parent / "cmux-next"))
+        import driver as D
+        W, X = self.W, self.X
+
+        class App:
+            snapshot_window = None
+            shots = 0
+
+            def snapshot(self, path):
+                # Only the check's own snapshots (check-NN.png) count; the driver's clip recorder takes others.
+                frame = Frame(400, 120, (30, 30, 30))
+                draw_marker(frame, W, 8, 10, 8, 17)
+                if Path(path).name.startswith("check-"):
+                    App.shots += 1
+                    if App.shots in frames_with_x:
+                        draw_marker(frame, X, 8, 50, 8, 17)
+                return frame.png(path)
+
+            def panes(self):
+                return []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            spec = {"id": "negative", "steps": [{"do": "expect", "timeout": 0.1,
+                                                 "all": [{"frame_marker_lacks": {"token": X, "with": W}}]}]}
+            saved, D.FRAME_GRACE = D.FRAME_GRACE, 0.6
+            try:
+                journey = D.Journey(spec, App(), tmp, D.now() + 60, 1.0)
+                journey.clip_frames = lambda: 0  # the clip scales frames with macOS sips; this test runs anywhere
+                return journey.run(), App.shots
+            finally:
+                D.FRAME_GRACE = saved
+
+    def test_a_token_on_the_first_snapshot_only_fails_the_check(self):
+        # (The journey itself fails for want of app and daemon evidence; the check is what is judged here.)
+        result, shots = self.run_journey(frames_with_x={1})
+        check = next(e for e in result["evidence"] if e["check"] == "frame_marker_lacks")
+        self.assertFalse(check["pass"], check)
+        self.assertTrue(check["detail"]["seen"], check)
+        self.assertEqual(shots, 1, "no later snapshot is read once T showed")
+
+    def test_no_token_on_any_snapshot_passes(self):
+        result, _ = self.run_journey(frames_with_x=set())
+        check = next(e for e in result["evidence"] if e["check"] == "frame_marker_lacks")
+        self.assertTrue(check["pass"], check)
 
 
 class LimitTests(unittest.TestCase):
