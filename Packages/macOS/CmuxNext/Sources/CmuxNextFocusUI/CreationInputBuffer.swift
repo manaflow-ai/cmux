@@ -42,6 +42,10 @@ public final class CreationInputBuffer {
     public let began: ContinuousClock.Instant
     /// When the last pending creation got its reply: the hold's limit counts from here.
     private var repliedAt: ContinuousClock.Instant?
+    /// When the last pending creation got its reply (``holds(_:limit:expiring:closes:replyLimit:)``).
+    var lastReplyAt: ContinuousClock.Instant? { repliedAt }
+    /// When the newest creation of this hold began: the reply bound (``replyWaitBound``) counts from here.
+    private var newestOpenedAt: ContinuousClock.Instant?
 
     public init(began: ContinuousClock.Instant) { self.began = began }
 
@@ -62,8 +66,11 @@ public final class CreationInputBuffer {
     /// shows that workspace with its terminal, also after the person left it (``shownWorkspaceToWaitFor``,
     /// ``leftWorkspaceWithKeys``), and are dropped when it fails or has not shown by the hold's limit
     /// (``resolve(_:awaitsFocus:workspace:)``, ``dropKeys(ofWorkspacesOtherThan:)``).
-    public func open(generation: UInt64, earlyTab: String? = nil, tab: String? = nil, machine: String? = nil, newWorkspace: Bool = false) -> Ticket {
+    /// `at`: when the creation began (tests pass an earlier time).
+    public func open(generation: UInt64, earlyTab: String? = nil, tab: String? = nil, machine: String? = nil, newWorkspace: Bool = false,
+                     at start: ContinuousClock.Instant = .now) -> Ticket {
         nextID += 1
+        newestOpenedAt = start
         pending[nextID] = generation
         newestGeneration = generation
         if newWorkspace { workspaceTickets.insert(nextID) }
@@ -156,12 +163,6 @@ public final class CreationInputBuffer {
         everyKeyCloses.remove(ticket.id)
         answering[ticket.id] = closing
         resolve(ticket, awaitsFocus: false)
-    }
-
-    /// A close whose question asks the person (``parkClose(_:)``); nil `ticket`: it holds no keys.
-    public struct ParkedClose {
-        public let ticket: Ticket?
-        public init(ticket: Ticket?) { self.ticket = ticket }
     }
 
     /// Whether a creation of this hold still waits for its reply and shows `tab`.
@@ -357,38 +358,6 @@ public final class CreationInputBuffer {
         return events.map(\.event)
     }
 
-    /// The terminal a lane's keys are for: its tab, and the machine it is on when that was known.
-    public struct HeldLane: Hashable, Sendable {
-        public let tab: String
-        public let machine: String?
-        public init(tab: String, machine: String?) { self.tab = tab; self.machine = machine }
-    }
-
-    /// Held keys at the hold's end, in typing order (``take(focused:)``).
-    public enum HeldKey {
-        /// Keys of a lane whose terminal is not the focused one, in order, typed as one run (one daemon send when its
-        /// view is gone, so no key passes another): that terminal's own key encoding, never the focused terminal (a held
-        /// Ctrl-C must not stop another process). Chords that are no app shortcut (Ctrl-C, Ctrl-U) stay in the run.
-        case type([NSEvent], lane: HeldLane)
-        /// An app shortcut (Cmd-D, Ctrl-`, Ctrl-Tab) typed for a lane whose terminal is not the focused one: it runs with
-        /// that terminal's tab as its target, as a key press there.
-        case command(NSEvent, lane: HeldLane)
-        /// A key that runs again as typed: the focused lane's (`lane`), or a key typed for no creation (nil).
-        case run(NSEvent, lane: HeldLane?)
-
-        /// Each key with the terminal it was typed for, in order (to hold them again, ``prepend(_:issuer:)``).
-        public var keys: [(event: NSEvent, lane: HeldLane?)] {
-            switch self {
-            case .type(let events, let lane): events.map { ($0, lane) }
-            case .command(let event, let lane): [(event, lane)]
-            case .run(let event, let lane): [(event, lane)]
-            }
-        }
-
-        /// The terminal the first key was typed for.
-        public var lane: HeldLane? { keys.first?.lane }
-    }
-
     /// Takes the keys of lane `lane` only, in typing order, to run again as typed (its early view has the keyboard);
     /// the others keep waiting.
     public func take(lane: Int) -> [HeldKey] {
@@ -418,34 +387,4 @@ public final class CreationInputBuffer {
         return keys
     }
 
-    /// Calls `expired` after `limit` unless a creation of this hold still waits for its reply then
-    /// (its reply arms the bound again: the coordinator calls this from `resolve`).
-    public func expire(after limit: Duration, _ expired: @escaping @MainActor (CreationInputBuffer) -> Void) {
-        // task-owner: one-shot bound on this hold; a hold that ended first makes it a no-op
-        Task { @MainActor [weak self] in
-            // wakeup-allow: one-shot bound on a key hold, so a hold whose terminal never shows ends
-            try? await Task.sleep(for: limit)
-            guard let self, !hasPendingCreation else { return }
-            expired(self)
-        }
-    }
-
-    /// Whether this hold keeps `event`.
-    ///
-    /// - A close key (`closes`: its binding is a close action, Cmd-W) never waits: it acts at once on
-    ///   what it closes, a pending creation included (TabLifecycle cancels it). Held, it ran later
-    ///   with the other held keys and closed the next tab, then the window (macOS 15 tester,
-    ///   2026-10-19: Cmd-D then Cmd-W from Settings).
-    /// - A creation waiting for its reply keeps every other key.
-    /// - After the reply the hold ends `limit` later (`expiring`), even when the focus it asked for
-    ///   never lands (a split from a page tab shows a New Tab page, not a terminal).
-    /// - A hold that only waits for a selected terminal's surface ends `limit` after it began, and
-    ///   lets a chord through while it holds nothing (held Ctrl-Tab makes no surface for a tab it passed).
-    public func holds(_ event: NSEvent, limit: Duration, expiring: Bool, closes: Bool = false) -> Bool {
-        if closes { return false }
-        guard !hasPendingCreation else { return true }
-        if expiring, ContinuousClock.now - (repliedAt ?? began) >= limit { return false }
-        if holdsCreation { return true }
-        return !(isEmpty && !event.modifierFlags.intersection([.command, .control]).isEmpty)
-    }
 }

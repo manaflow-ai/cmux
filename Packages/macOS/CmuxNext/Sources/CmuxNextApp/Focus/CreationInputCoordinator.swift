@@ -33,6 +33,7 @@ final class CreationInputCoordinator {
     private var replaying: (on: Bool, lane: Bool) = (false, false)
     /// The longest a key waits for a selected terminal's surface (the slowest takes about 350 ms).
     var holdLimit: Duration = .seconds(2)
+    var replyWaitLimit: Duration = CreationInputBuffer.replyWaitBound // a creation's reply keeps the keys at most this (tests: short)
     private let replay: HeldKeyReplay // a held key runs again (``HeldKeyReplay``)
 
     /// How each window's creation holds ended (``CreationHoldEnd``, R-L5: its end is a signal).
@@ -387,10 +388,7 @@ final class CreationInputCoordinator {
         if buffer.awaitedWorkspace == shown, let daemon { buffer.bindNewWorkspaceKeys(to: shown.flatMap(daemon.store.firstTerminalTab(ofWorkspace:))?.id, machine: daemon.machineID) }
         let end = holdEnds.end(in: window.windowNumber, forced: force ? forcedEnd : nil, pageTab: buffer.awaitsPage ? buffer.awaitedTab : nil)
         let pending = buffer.take(focused: Self.keyboardTerminal(controller, window)) { self.shortcut($0, tab: $1, in: window) != nil }
-        if end == .limitReached {
-            // The person's keys for a new terminal waited the whole bound and go on now, each to the terminal it was typed for.
-            Self.logger.notice("creation hold of window \(window.windowNumber, privacy: .public) ended at its limit, not on focus: \(pending.count, privacy: .public) held key(s) go on now; last action \(router.lastInterception?.action.rawValue ?? "-", privacy: .public)")
-        }
+        CreationHoldLog.noteEnded(end, window: window.windowNumber, keys: pending.count, lastAction: router.lastInterception?.action.rawValue)
         _ = runAgain(pending, from: buffer, in: window)
     }
 }
