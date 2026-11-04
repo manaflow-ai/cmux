@@ -576,6 +576,8 @@ class Wiring(unittest.TestCase):
         config = bootstrap["steps"][-1]["env"]
         self.assertNotIn("ROUTE_TOKEN", config)
         self.assertNotIn("ROUTE_TOKEN_FALLBACK", config)
+        runners = json.loads((ROOT / ".github/runners.json").read_text())
+        self.assertNotIn("allowed_secrets", runners["hosted_light_jobs"]["cmux-next.yml#portable-placement"])
 
     def test_next_secretless_bootstrap_uses_only_fresh_registered_capacity(self):
         bootstrap = jobs("cmux-next.yml")["portable-placement"]
