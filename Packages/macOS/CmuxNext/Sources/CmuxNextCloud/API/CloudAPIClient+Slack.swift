@@ -18,7 +18,12 @@ extension CloudAPIClient {
     /// The Slack bridge uses the signed-in person's cmux bearer against cmux-platform.
     /// Like the owner API, this transport never caches credentials or follows redirects.
     public static func slack(baseURL: URL, accessToken: @escaping @Sendable () async throws -> String,
-                             teamID: String? = nil, session: URLSession = CloudOwnerAPIClient.transport) -> CloudAPIClient {
+                             teamID: String? = nil) -> CloudAPIClient {
+        slack(baseURL: baseURL, accessToken: accessToken, teamID: teamID, session: CloudOwnerAPIClient.transport)
+    }
+
+    static func slack(baseURL: URL, accessToken: @escaping @Sendable () async throws -> String,
+                      teamID: String?, session: URLSession) -> CloudAPIClient {
         workerMachines(baseURL: baseURL, accessToken: accessToken, teamID: { teamID }, session: session)
     }
 
