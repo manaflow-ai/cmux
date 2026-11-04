@@ -23,6 +23,19 @@ import Testing
         return try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
     }
 
+    /// Waits until the main run loop's pass has committed, so work after a frame's commit has run (the signal
+    /// `AfterFrameCommit` uses: a one-shot before-waiting observer after every other observer of the pass).
+    private static func nextCommittedPass() async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue,
+                                                              false, CFIndex.max) { _, _ in
+                done.resume()
+                CFRunLoopWakeUp(CFRunLoopGetMain())
+            }
+            CFRunLoopAddObserver(CFRunLoopGetMain(), observer, CFRunLoopMode.commonModes)
+        }
+    }
+
     @Test func theKeysTurnSelectsTheStandInAndMakesItsTerminalRightAfterTheKeysFrame() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -45,7 +58,7 @@ import Testing
         state.selection.select(shell.id, in: pane.paneKey)
         pane.syncStripFromStore()
         pane.view.layoutSubtreeIfNeeded()
-        try await Task.sleep(for: .milliseconds(200))
+        for _ in 0..<12 where services.cache.existingTerminal(shell.id) == nil { await Self.nextCommittedPass() }
         try #require(services.cache.existingTerminal(shell.id) != nil, "the shown terminal has no view: the test no longer reaches the case")
 
         // The key's turn, as `PaneController.newTerminalTabNow` runs it: the stand-in in the store, then selected.
@@ -61,11 +74,8 @@ import Testing
                 "the key's turn made the stand-in's Ghostty surface, host view and session (15-20 ms of the 10 ms budget)")
         #expect(pane.view.content == nil, "the key's frame shows another view in the pane than its themed pane")
 
-        // The key's frame commits; the terminal is made in the pass right after it, and the pane shows it.
-        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
-        while services.cache.existingTerminal(standIn.id) == nil || pane.view.content == nil, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        // The key's frame commits; the terminal is made right after it, and the pane shows it in the next pass.
+        for _ in 0..<2 { await Self.nextCommittedPass() }
         let entry = try #require(services.cache.existingTerminal(standIn.id), "no terminal for the stand-in after its key's frame")
         #expect(pane.view.content === entry.session.view, "the pane does not show the stand-in's terminal after its key's frame")
         #expect(pane.currentTabKey == standIn.id)
