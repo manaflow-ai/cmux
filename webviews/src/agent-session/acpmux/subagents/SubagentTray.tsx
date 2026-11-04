@@ -94,7 +94,8 @@ import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, SubagentHarnessContext, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
-import { toolDetail } from "./trayDetail";
+import { latestLine, toolDetail } from "./trayDetail";
+import { trayLatestLook } from "./trayLatest.experiment";
 import { trayPanelLook, trayRowLook, trayStopLook } from "./trayPanel.experiment";
 import { trayMotionLook } from "./trayMotion.experiment";
 import { trayHeadLook } from "./trayHead.experiment";
@@ -107,7 +108,7 @@ import { KIND_LINE_SEPARATOR, trayKindLineLook } from "./trayKindLine.experiment
 import { traySurfaceLook } from "./traySurface.experiment";
 import { Tick, useTrayMotion } from "./trayMotion";
 import type { StartedSession } from "../started/startedSessions";
-import type { Subagent } from "./subagentFold";
+import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
 import { PlanList } from "../conversation/PlanList";
@@ -217,6 +218,7 @@ export const SubagentTray = memo(function SubagentTray({
   const [surface] = useState(() => experimentArm(traySurfaceLook));
   const [foldHead] = useState(() => experimentArm(trayFoldHeadLook));
   const [stopLook] = useState(() => experimentArm(trayStopLook));
+  const [latestAt] = useState(() => experimentArm(trayLatestLook));
   const [opensArm] = useState(() => experimentArm(trayOpenLook));
   const [kindsArm] = useState(() => experimentArm(trayHeadKindsLook));
   const [kindLine] = useState(() => experimentArm(trayKindLineLook));
@@ -627,6 +629,9 @@ export const SubagentTray = memo(function SubagentTray({
           trayColumns
           // A narrow tray's second line is its time and controls: the stats wrap under the title.
           progressAt={row === "below" || narrow ? "below" : "meta"}
+          // What it did last, on its own quiet line (Leo, 2026-11-03: "Tray only, richer").
+          latest={latestAt === "tooltip" ? undefined : latestLine(t, item.agent, awaitsOwnWork(item.agent))}
+          latestAt={latestAt === "inline" ? "inline" : "below"}
           onOpen={() => onOpen(item.agent.id)}
           after={
             stop &&

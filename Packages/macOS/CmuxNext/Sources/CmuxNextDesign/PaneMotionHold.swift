@@ -9,15 +9,10 @@ public nonisolated struct PaneMotionHold: Equatable, Sendable {
     public var trailing: Bool
     /// Its bottom edge rides the pane's bottom edge (false: its top edge rides the top one).
     public var bottom: Bool
-    /// FRAME OWNER S3 (`motion.frameOwner.contentPolicy`, latched when the hold begins): the containers in the content
-    /// area (``PaneMotionHoldFollowing``: a terminal's host, a browser's chrome) follow the area in every frame too, and
-    /// only their producers keep their size. False: the area holds every view in it (S1).
-    public var containersFollow: Bool
 
-    public init(trailing: Bool, bottom: Bool, containersFollow: Bool = false) {
+    public init(trailing: Bool, bottom: Bool) {
         self.trailing = trailing
         self.bottom = bottom
-        self.containersFollow = containersFollow
     }
 
     /// The bounds origin of a container that is not flipped, `size` big, whose subviews keep the frames they had when it
