@@ -126,7 +126,12 @@ export function RacePanel({
                 ))}
               </select>
             </label>
-            {(candidates.length < 2 || !reviewerChoice) && <p>{t("race.empty")}</p>}
+            <p
+              aria-hidden={candidates.length >= 2 && !!reviewerChoice}
+              style={{ visibility: candidates.length >= 2 && reviewerChoice ? "hidden" : undefined }}
+            >
+              {t("race.empty")}
+            </p>
             <button type="submit" disabled={starting || candidates.length < 2 || !reviewerChoice || !prompt.trim()}>
               {t(starting ? "race.starting" : "race.start")}
             </button>

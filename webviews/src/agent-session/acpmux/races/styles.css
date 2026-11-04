@@ -77,7 +77,7 @@
 }
 .race-candidate {
   min-width: 0;
-  border-top: 1px solid var(--page-separator);
+  border-top: 2px solid var(--page-separator);
 }
 .race-candidate[data-winner="true"] {
   border-top: 2px solid currentColor;

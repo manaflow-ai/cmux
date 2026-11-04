@@ -1,6 +1,7 @@
 import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP } from "./transcriptGrid";
 import { composerHealthHarness } from "./composerPickerEntries";
 import { RacePanel } from "./races/RacePanel";
+import { raceToolsMenu } from "./races/menu";
 import { forkMenuRows } from "./header/forkMenu";
 import { openFork } from "./conversation/openFork";
 import { setSessionRefResolver } from "./conversation/sessionRefs";
@@ -6215,6 +6216,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The chat whose recorded history plays back read-only in place of it (chat menu Replay, cx-osmw).
   const [replaying, setReplaying] = useState<string | undefined>();
   const [raceParent, setRaceParent] = useState<string>();
+  const raceWake = useRef<ComposerWake | undefined>(undefined);
   /// The focused pane's rail visibility. The experiment still chooses compact/full when visible;
   /// this local switch is only the command-palette toggle and does not write shared experiment state.
   const [minimapVisible, setMinimapVisible] = useState(true);
@@ -8673,6 +8675,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     runModePicked.current = false;
     // Another chat shows here: a Cloud start's card belongs to the new chat it was sent from.
     setCloudStart(undefined);
+    raceWake.current = undefined;
+    setRaceParent(undefined);
   }, [snapshot.sessionId, newTabGeneration]);
   /// The person picked another place to run after a Cloud start failed: its card goes.
   useEffect(() => {
@@ -8685,6 +8689,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     composerHandle.current?.send();
   }, [sandbox.mode]);
   const viewedSandbox = sandboxViewing && snapshot.sessionId ? sandboxView : undefined;
+  const raceVisible = !!raceParent && raceParent === snapshot.sessionId && !!directClient.current;
   /// The chat view shows the tab's run as a card (SandboxRunView), which offers its own Check again.
   const sandboxCard =
     viewedSandbox !== undefined ||
@@ -12821,17 +12826,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...replay,
       ...(instructions ? [instructions] : []),
       ...(projectFiles ? [projectFiles] : []),
-      {
-        key: "inspector",
-        label: t("inspector.title"),
-        icon: "code",
-        onSelect: () => {
+      raceToolsMenu(
+        () => {
           inspectorOpener.current = Array.from(
             document.querySelectorAll<HTMLElement>(".acpmux-header-tools button"),
           ).find((button) => button.getAttribute("aria-label") === t("chatMenu.open"));
           toggleInspector(true);
         },
-      },
+        snapshot.sessionId && directClient.current
+          ? () => {
+              if (!raceVisible) raceWake.current = composerHandle.current?.wakeState();
+              setRaceParent(snapshot.sessionId);
+            }
+          : undefined,
+        t,
+      ),
       // Quick Chat's panel has no right column for it.
       ...(quick
         ? []
@@ -15046,7 +15055,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     parent={raceParent}
                     catalog={snapshot.catalog}
                     client={directClient.current}
-                    onClose={() => setRaceParent(undefined)}
+                    onClose={() => {
+                      pendingWake.current = raceWake.current ?? pendingWake.current;
+                      raceWake.current = undefined;
+                      setRaceParent(undefined);
+                    }}
                   />
                 ) : viewedSandbox ? (
                   // The person opened the tab's Sandboxed Run: it shows whatever the chat's state
@@ -15159,7 +15172,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   fallback={snapshot.presence}
                 />
                 {/* A draft a refusal put back stays in reach even once the tab's run shows. */}
-                {(!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && composer}
+                {(!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && !raceVisible && composer}
               </div>
             </>
           )}
