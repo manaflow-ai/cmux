@@ -1286,6 +1286,41 @@ class PushAttribution(unittest.TestCase):
             with mock.patch.object(attribution, "gh_api", return_value=payload):
                 self.assertNotIn(attribution.run_jobs("o/r", 1).get("job"), ("success", "failure"))
 
+    def test_release_compile_alternatives_preserve_the_active_failure_in_either_order(self):
+        import cmux_next_push_attribution as attribution
+        skipped = {"name": "Release compile", "status": "completed", "conclusion": "skipped"}
+        failed = {"name": "Release compile", "status": "completed", "conclusion": "failure",
+                  "steps": [{"name": "Release compile", "status": "completed", "conclusion": "failure"}]}
+        for jobs in ([skipped, failed], [failed, skipped]):
+            with mock.patch.object(attribution, "gh_api", return_value={"jobs": jobs}):
+                self.assertEqual(attribution.failed_jobs(attribution.run_jobs("o/r", 1)), ["Release compile"])
+
+    def test_current_head_conflicting_receipts_cannot_notify_an_exact_culprit(self):
+        import cmux_next_push_attribution as attribution
+        lower, head = "a" * 40, "b" * 40
+        jobs = {1: {"check": "success"}, 2: {"check": "success"}, 3: {"check": "failure"}}
+        runs = [{"id": 1, "head_sha": lower, "status": "completed"},
+                {"id": 2, "head_sha": head, "status": "completed"}]
+        writes = []
+        with mock.patch.object(attribution, "run_jobs", side_effect=lambda repo, run_id: jobs[run_id]), \
+             mock.patch.object(attribution, "gh_api", return_value={"workflow_runs": runs}), \
+             mock.patch.object(attribution, "compare_commits", return_value=[head]), \
+             mock.patch.object(attribution, "pull_requests", return_value=[]), \
+             mock.patch.object(attribution, "pull_requests_for_commit", return_value=[7]), \
+             mock.patch.object(attribution.pr_status, "upsert", side_effect=lambda *args, **kwargs: writes.append(args)):
+            self.assertEqual(attribution.main(["--repo", "o/r", "--run-id", "3", "--sha", head,
+                                               "--last-known-green", lower]), 0)
+        self.assertEqual(writes, [])
+
+    def test_checkout_only_failure_is_not_a_bisection_receipt(self):
+        import cmux_next_push_attribution as attribution
+        payload = {"jobs": [{"name": "job", "status": "completed", "conclusion": "failure", "steps": [
+            {"name": "Checkout", "status": "completed", "conclusion": "failure"},
+            {"name": "Run the tests", "status": "completed", "conclusion": "skipped"}]}]}
+        with mock.patch.object(attribution, "gh_api", return_value=payload):
+            self.assertEqual(attribution.run_jobs("o/r", 1).get("job"), "failure")
+            self.assertNotEqual(attribution.run_jobs("o/r", 1).proof.get("job"), "failure")
+
     def test_repeated_push_failures_edit_the_shared_status_comment(self):
         import cmux_next_push_attribution as attribution
         import pr_status
