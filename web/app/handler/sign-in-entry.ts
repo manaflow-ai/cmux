@@ -339,6 +339,17 @@ export function demoteRememberedMethod(history: RememberedAccount[], accountId: 
   return history.map((entry) => (entry.id === accountId ? { ...entry, signInMethod: null } : entry));
 }
 
+/**
+ * The generic sign-in error, naming the auth service's refusal code when there
+ * is one, so two different failures stop looking the same on screen. Only a
+ * code is shown: the service's and SDK's own messages can name vendors.
+ */
+export function withRefusalCode(message: string, error: unknown): string {
+  if (typeof error !== "object" || error === null) return message;
+  const { errorCode } = error as { errorCode?: unknown };
+  return typeof errorCode === "string" && /^[A-Z][A-Z0-9_]*$/.test(errorCode) ? `${message} (${errorCode})` : message;
+}
+
 export type EmailCodeRefusal = "unverified-account" | "sign-up-disabled" | "generic";
 
 /**

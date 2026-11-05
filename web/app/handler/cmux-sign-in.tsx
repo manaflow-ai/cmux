@@ -32,6 +32,7 @@ import {
   signInEntry,
   signInIsForApp,
   signUpPendingHref,
+  withRefusalCode,
   type EmailCodeRefusal,
   type RememberedAccount,
 } from "./sign-in-entry";
@@ -1118,14 +1119,14 @@ function EmailCode({ messages, email, onEmailChange, onUsePassword }: {
       const result = await app.sendMagicLinkEmail(email.trim());
       if (result.status === "error") {
         console.error("[cmux sign-in] sending the code was refused", result.error);
-        setError(messages.errorGeneric);
+        setError(withRefusalCode(messages.errorGeneric, result.error));
         return;
       }
       setStep({ kind: "code", email: email.trim(), nonce: result.data.nonce });
     } catch (caught) {
       const refusal = emailCodeRefusal(caught);
       setUnverified(refusal === "unverified-account");
-      setError(emailCodeRefusalMessage[refusal](messages));
+      setError(refusal === "generic" ? withRefusalCode(messages.errorGeneric, caught) : emailCodeRefusalMessage[refusal](messages));
       if (refusal === "generic") console.error("[cmux sign-in] sending the code failed", caught);
     } finally {
       setBusy(false);
@@ -1261,7 +1262,7 @@ function PasswordSignIn({ messages, returnTo, email, onEmailChange, focusPasswor
       }
     } catch (caught) {
       console.error("[cmux sign-in] password sign-in failed", caught);
-      setEmailError(messages.errorGeneric);
+      setEmailError(withRefusalCode(messages.errorGeneric, caught));
     } finally {
       setBusy(false);
     }
@@ -1343,10 +1344,15 @@ function PasswordSignUp({ messages, email, onEmailChange }: {
         window.location.assign(pending);
         return;
       }
-      setEmailError(messages.errorGeneric);
+      console.error("[cmux sign-in] password sign-up was refused", result.error);
+      setEmailError(
+        result.error.errorCode === "SIGN_UP_NOT_ENABLED"
+          ? messages.errorSignUpNotAllowed
+          : withRefusalCode(messages.errorGeneric, result.error),
+      );
     } catch (caught) {
       console.error("[cmux sign-in] password sign-up failed", caught);
-      setEmailError(messages.errorGeneric);
+      setEmailError(withRefusalCode(messages.errorGeneric, caught));
     } finally {
       setBusy(false);
     }
