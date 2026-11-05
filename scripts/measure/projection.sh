@@ -29,6 +29,7 @@ if [[ "$app" == build ]]; then
   # cmux-tui's libghostty-vt builds with ghostty-next's Zig (`ZIG`, ghostty-vt-sys); a worker whose own Zig is
   # another version gets that one installed in the step, never in place of the worker's.
   need="$(source scripts/ghostty-zig-version.sh && GHOSTTY_ZIG_SOURCE=ghostty-next ghostty_minimum_zig_version "$PWD")"
+  [[ -n "$need" ]] || { echo "L10 no Zig version in ghostty-next/build.zig.zon"; exit 3; }
   if [[ "$(zig version 2>/dev/null || true)" != "$need" ]]; then
     ZIG_FORCE_LOCAL_INSTALL=1 ZIG_REQUIRED="$need" ZIG_INSTALL_ROOT="$out/zig" RUNNER_TEMP="$out/zig-work" \
       ./scripts/install-zig-ci.sh >"$out/zig.log" 2>&1 || { echo "L10 zig $need did not install"; tail -n 20 "$out/zig.log"; exit 3; }
