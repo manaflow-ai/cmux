@@ -56,8 +56,8 @@ struct WriterState {
     /// pass when the total is over the trigger) is due now
     /// (`memory_budget.rs`), apart from `due`.
     memory_due: bool,
-    /// A day passed with no pass: the parked snapshots' trim (`parked_trim.rs`) is due with the next one.
-    trim_due: bool,
+    /// When the parked snapshots' trim (`parked_trim.rs`) last ran with a pass; `None`: not yet.
+    last_trim: Option<Instant>,
     stop: bool,
 }
 
@@ -71,6 +71,8 @@ pub(super) struct Writer {
 
 impl Writer {
     pub(super) fn start(&self, mux: Weak<Mux>) -> anyhow::Result<()> {
+        // The store's prune at start trims the parked snapshots: the day of the next trim starts now.
+        self.state.0.lock().unwrap_or_else(PoisonError::into_inner).last_trim = Some(Instant::now());
         let state = self.state.clone();
         let thread = std::thread::Builder::new()
             .name("mux-output-store-writer".into())
@@ -133,7 +135,7 @@ fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
                 if guard.due.is_some_and(|due| Instant::now() >= due) {
                     guard.due = None;
                     guard.memory_due = false;
-                    break (false, std::mem::take(&mut guard.trim_due));
+                    break (false, take_trim(&mut guard));
                 }
                 if std::mem::take(&mut guard.memory_due) {
                     break (true, false);
@@ -141,12 +143,13 @@ fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
                 match guard.due {
                     // An idle session wakes once a day, for the parked snapshots' trim.
                     None => {
-                        let (next, waited) = changed
-                            .wait_timeout(guard, super::parked_trim::PASS_EVERY)
-                            .unwrap_or_else(PoisonError::into_inner);
+                        let wait = guard.last_trim.map_or(super::parked_trim::PASS_EVERY, |last| {
+                            (last + super::parked_trim::PASS_EVERY).saturating_duration_since(Instant::now())
+                        });
+                        let (next, waited) =
+                            changed.wait_timeout(guard, wait).unwrap_or_else(PoisonError::into_inner);
                         guard = next;
                         if waited.timed_out() {
-                            guard.trim_due = true;
                             guard.due = Some(Instant::now());
                         }
                     }
@@ -154,7 +157,7 @@ fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
                         let now = Instant::now();
                         if now >= due {
                             guard.due = None;
-                            break (false, std::mem::take(&mut guard.trim_due));
+                            break (false, take_trim(&mut guard));
                         }
                         guard = changed
                             .wait_timeout(guard, due - now)
@@ -173,6 +176,24 @@ fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
         } else {
             write_pass(&mux, &mux.output_store);
         }
+    }
+}
+
+/// Whether this pass runs the parked snapshots' trim: once a day, however busy the session is. The store's prune
+/// at start runs it too, so the first day starts then.
+fn take_trim(state: &mut WriterState) -> bool {
+    let now = Instant::now();
+    match state.last_trim {
+        // The store's prune at start ran the first one: the day starts at the first pass.
+        None => {
+            state.last_trim = Some(now);
+            false
+        }
+        Some(last) if now.duration_since(last) >= super::parked_trim::PASS_EVERY => {
+            state.last_trim = Some(now);
+            true
+        }
+        Some(_) => false,
     }
 }
 
@@ -949,11 +970,8 @@ pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
     if policy.mode != PersistenceMode::Full {
         super::segments::remove_all(directory);
     }
-    // Parked: the tab stays and its shell ended. Unknown (not placed yet) is not parked.
-    let parked: std::collections::HashSet<TerminalPublicId> = live
-        .into_iter()
-        .filter(|id| mux.terminal_resource_surface(id).is_some_and(|surface| surface.is_dead()))
-        .collect();
+    // Parked: a kept tab and no running shell (after a daemon restart too).
+    let parked = mux.parked_terminal_ids(live);
     let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
     super::parked_trim::run(
         directory,

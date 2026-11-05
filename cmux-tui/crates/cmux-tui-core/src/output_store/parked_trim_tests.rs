@@ -3,7 +3,7 @@ use super::*;
 const MIB: u64 = 1024 * 1024;
 
 fn id(n: u8) -> TerminalPublicId {
-    TerminalPublicId::parse(&format!("term_{:032x}", n)).unwrap()
+    TerminalPublicId::parse(&format!("term_{n:032x}")).unwrap()
 }
 
 fn parked(n: u8, days_ago: u64, kept_lines: Option<usize>, bytes: u64) -> Parked {
@@ -86,7 +86,7 @@ fn a_trimmed_replay_keeps_the_newest_lines_and_the_screen() {
     let replay = replay_with_lines(2_000);
     let trimmed = trimmed_replay(&replay, 40, 5, 100).unwrap();
     let (history, text) = rows_of(&trimmed);
-    assert!(history <= 100 && history >= 90, "kept {history} history rows");
+    assert!((90..=100).contains(&history), "kept {history} history rows");
     assert!(text.contains("line 1999"), "the newest line stays");
     assert!(!text.contains("line 1000\n"), "old lines go");
     assert!(trimmed.len() < replay.len() / 2);

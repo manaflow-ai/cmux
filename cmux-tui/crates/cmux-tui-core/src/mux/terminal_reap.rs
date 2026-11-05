@@ -743,6 +743,21 @@ impl Mux {
         Ok(())
     }
 
+    /// Of `ids`, the parked terminals (`output_store/parked_trim.rs`): the workspace store keeps a tab of
+    /// each (`kept_tabs`) and no shell of it runs (no catalog surface, as after a daemon restart, or a dead one).
+    /// A terminal whose facts cannot be read is not parked.
+    pub(crate) fn parked_terminal_ids(
+        &self,
+        ids: impl IntoIterator<Item = TerminalPublicId>,
+    ) -> HashSet<TerminalPublicId> {
+        let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        ids.into_iter()
+            .filter(|id| state.terminal_catalog.get(id).is_none_or(|surface| surface.is_dead()))
+            .filter(|id| Self::terminal_tabs_kept_locked(&registry, &state, id).unwrap_or(false))
+            .collect()
+    }
+
     /// Whether the workspace store keeps any tab of `public_id`
     /// (`kept_tabs`). Callers hold the registry and state locks.
     pub(super) fn terminal_tabs_kept_locked(

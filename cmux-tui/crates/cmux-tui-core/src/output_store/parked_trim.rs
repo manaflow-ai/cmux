@@ -16,7 +16,9 @@
 //! records `kept_lines`) and keeps its `written_at_ms`, so a file is rewritten at most twice in its life. A running
 //! terminal's snapshot, or one the daemon has not placed yet, is never touched.
 //!
-//! The pass runs with the store's prune (daemon start, a mode change) and once a day from the writer.
+//! The pass runs with the store's prune (daemon start, a mode change) and once a day from the writer, busy or idle.
+//! A terminal is parked when the workspace store keeps a tab of it and no shell of it runs (`Mux::parked_terminal_ids`),
+//! so a file parked before a daemon restart still trims.
 
 use std::collections::HashSet;
 use std::fs;
@@ -40,7 +42,9 @@ pub(crate) const DEFAULT_PARKED_MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
 pub(crate) const DEFAULT_MIN_FREE_DISK_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 pub(crate) const PARKED_MAX_TOTAL_SETTING: &str = "terminal.persistence.parkedMaxTotalBytes";
 pub(crate) const MIN_FREE_DISK_SETTING: &str = "terminal.persistence.minFreeDiskBytes";
-/// How often the writer runs the pass while nothing else does.
+/// The most files one pass rewrites (removals are not capped: they only free disk).
+const MAX_REWRITES_PER_PASS: usize = 16;
+/// How often the writer runs the pass, busy or idle.
 pub(crate) const PASS_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// What a parked snapshot keeps.
@@ -205,11 +209,16 @@ pub(super) fn run_with(
     if parked.is_empty() {
         return;
     }
-    let (mut trimmed, mut removed) = (0_usize, 0_usize);
+    let (mut trimmed, mut removed, mut rewrites) = (0_usize, 0_usize, 0_usize);
     for (terminal_id, keep) in plan(&parked, now_ms, max_total_bytes, low) {
         let ok = match keep {
             Keep::RecordOnly => fs::remove_file(super::snapshot::path(directory, &terminal_id)).is_ok(),
-            Keep::Lines(lines) => trim(directory, &terminal_id, lines).is_ok_and(|done| done),
+            // Each rewrite replays its file a dozen times under the store's pass lock: a backlog spreads over passes.
+            Keep::Lines(_) if rewrites == MAX_REWRITES_PER_PASS => false,
+            Keep::Lines(lines) => {
+                rewrites += 1;
+                trim(directory, &terminal_id, lines).is_ok_and(|done| done)
+            }
             Keep::All => false,
         };
         match (ok, keep) {
