@@ -526,4 +526,21 @@ nonisolated final class AnnouncingTerminalIO: TerminalIO {
     }
 
     @MainActor func appliesViewGrid(reporting: Bool) -> Bool { true }
+
+    /// One grid the view reported to its PTY owner, and when (main thread, in the report's turn).
+    struct Report: Sendable {
+        var grid: TerminalGridSize
+        var at: ContinuousClock.Instant
+    }
+
+    /// Every grid the view reported, in order, with the main-thread time of the report
+    /// (``resizeOnMain(cols:rows:final:window:)``: the session calls it in the report's turn, before the ordered input
+    /// stream delivers ``resize(cols:rows:pixelWidth:pixelHeight:)``).
+    let reports = Mutex<[Report]>([])
+
+    /// Records the report and lets it go on through the ordered input stream (returns false).
+    @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool, window: NSWindow?) -> Bool {
+        reports.withLock { $0.append(Report(grid: TerminalGridSize(columns: cols, rows: rows), at: .now)) }
+        return false
+    }
 }
