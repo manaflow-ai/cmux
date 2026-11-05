@@ -94,6 +94,15 @@ const drawn = (container: HTMLElement) =>
   );
 const more = (container: HTMLElement) => container.querySelector<HTMLButtonElement>(".acpmux-session-info-more");
 
+test("opening Session Info shows machine details and collapsed section summaries", async () => {
+  const { container, root } = await mount();
+  expect(container.querySelector('[data-section="environment"] [data-machine]')).not.toBeNull();
+  const triggers = [...container.querySelectorAll(".ui-disclosure-trigger")];
+  expect(triggers.length).toBeGreaterThan(0);
+  expect(triggers.every((trigger) => trigger.getAttribute("aria-expanded") === "false")).toBe(true);
+  await act(async () => root.unmount());
+});
+
 test("the default view draws Leo's four and one Show more naming the rest", async () => {
   const { container, root } = await mount();
   expect(drawn(container)).toEqual(FOUR);

@@ -104,6 +104,16 @@ async function flushFrame() {
 
 const model = () => sent.at(-1)!;
 
+test("native expandable sections start collapsed while machine details stay visible", async () => {
+  await render(props());
+  await flushFrame();
+  const sections = model()!.sections;
+  expect(sections.find((section) => section.id === "environment")!.rows.length).toBeGreaterThan(0);
+  const expandable = sections.filter((section) => section.foldable);
+  expect(expandable.length).toBeGreaterThan(0);
+  expect(expandable.every((section) => !section.open)).toBe(true);
+});
+
 test("a panel over the chat says so, a popover with no foot too, so the App gives it its glass", async () => {
   const input = props();
   await render({ ...input, overChat: true });
