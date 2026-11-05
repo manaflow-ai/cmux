@@ -68,6 +68,8 @@ SELF_INPUTS = (
     RUST_SCRIPT, SWIFT_SCRIPT, WEB_SCRIPT, PYTHON_RUNNER, "tests/test-execution.toml",
 )
 MAX_FILES = 400
+# Tests that drive a phone or simulator rig; they run on their own hardware, never in a fast check.
+DEVICE_ONLY = ("cmux-next-ios/verify/",)
 DEFAULT_SHARDS = 4
 MAX_SHARDS = 16
 
@@ -101,6 +103,19 @@ def swift_packages(root: Path) -> list[str]:
 def web_tests(root: Path) -> list[str]:
     return sorted(p[len(focused_tests.WEB):] for p in focused_tests.tracked(root, focused_tests.WEB)
                   if focused_tests.WEB_TEST.search(p) and "/node_modules/" not in p)
+
+
+def unregistered_python_tests(root: Path) -> list[str]:
+    """test_*.py files outside the lane registry's directories (scripts/cmux-next/tests, cmux-tui/scripts,
+    cmux-tui/bindings, ...): their own workflows run them, so the lane runner cannot."""
+    registered = set(focused_tests.lanes(root))
+    return sorted(p for p in focused_tests.tracked(root, ".") if Path(p).name.startswith("test_") and p.endswith(".py")
+                  and p not in registered and not p.startswith(tuple(d + "/" for d in focused_tests.PYTHON_TEST_DIRS))
+                  and "/node_modules/" not in p and not p.startswith(DEVICE_ONLY) and (root / p).is_file())
+
+
+def area(path: str) -> str:
+    return "/".join(path.split("/")[:2])
 
 
 def python_lane_tests(root: Path) -> dict[str, str]:
@@ -178,6 +193,14 @@ class Planner:
             self.units.append({"name": name, "kind": "python", "why": f"{len(chosen)} Python tests ({LINUX_PYTHON_LANE})",
                                "argv": ["test", "--setup", "none", "--", *cmd]})
 
+    def python_extra(self, paths: list[str], why: str) -> None:
+        """Tests outside the lane registry run one process each, from the repository root."""
+        for i, part in enumerate(split(paths, max(1, min(self.shards, (len(paths) + 29) // 30))), 1):
+            script = 'rc=0; for t in "$@"; do echo "== python3 $t"; python3 "$t" || { echo "FAILED: $t"; rc=1; }; done; exit $rc'
+            name = "python-extra" + (f"-{i}" if len(paths) > 30 else "")
+            self.units.append({"name": name, "kind": "python", "why": why,
+                               "argv": ["test", "--setup", "none", "--", "bash", "-c", script, "affected", *part]})
+
     def native(self, manifests: list[str]) -> None:
         for manifest in manifests:
             label = manifest.rsplit("/", 2)[-2]
@@ -187,6 +210,24 @@ class Planner:
             else:
                 self.units.append({"name": f"native-{label}", "kind": "native", "why": manifest,
                                    "argv": ["test", "--setup", "rust", "--", "cargo", "test", "--locked", "--manifest-path", manifest]})
+
+
+def extra_python(root: Path, files: list[str]) -> list[str]:
+    """Unregistered Python tests a change can affect: a changed test itself, a test in the same
+    two-level area (cmux-tui/scripts, scripts/cmux-next) as a changed file, or one that names a
+    changed path or its distinctive basename."""
+    tests = unregistered_python_tests(root)
+    areas = {area(f) for f in files if "/" in f}
+    names = {f: focused_tests.distinctive(f) for f in files}
+    out = []
+    for test in tests:
+        if test in files or area(test) in areas:
+            out.append(test)
+            continue
+        text = (root / test).read_text(encoding="utf-8", errors="replace")
+        if any(f in text or (n and n in text) for f, n in names.items()):
+            out.append(test)
+    return out
 
 
 def everything_reasons(files: list[str], focused: dict) -> list[str]:
@@ -209,6 +250,7 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
         p.swift({pkg: swift_test_targets(root, pkg) for pkg in swift_packages(root)}, "every Swift package test target")
         p.web(None)
         p.python(None)
+        p.python_extra(unregistered_python_tests(root), "every Python test outside the lane registry")
         p.native(sorted({focused_tests.native_manifest(root, m.as_posix()) or "" for m in root.glob("Native/**/Cargo.lock")} - {""}))
     else:
         if focused["cargo"]["changed"]:
@@ -227,6 +269,9 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
         if focused["web"]:
             p.web(focused["web"])
         p.python([item["path"] for item in focused["python"]])
+        extra = extra_python(root, files)
+        if extra:
+            p.python_extra(extra, f"{len(extra)} Python tests outside the lane registry")
         p.native([item["manifest"] for item in focused["native"]])
     return {"base": base, "head": head, "all": bool(reasons), "reasons": reasons, "files": files,
             "units": p.units, "not_run": p.not_run, "docs": focused.get("docs", [])}
