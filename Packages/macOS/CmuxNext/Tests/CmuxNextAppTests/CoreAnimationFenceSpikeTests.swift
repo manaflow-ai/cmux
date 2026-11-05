@@ -292,7 +292,7 @@ private final class Scene {
             if let port { CoreAnimationFence.release(port) }
             released.value = Ticks.now
         }
-        thread.qos = .userInteractive
+        thread.qualityOfService = .userInteractive
         thread.start()
         try await Task.sleep(for: .milliseconds(2))
         let typedAt = typeUnjoined()
