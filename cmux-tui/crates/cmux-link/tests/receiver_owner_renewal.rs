@@ -128,3 +128,24 @@ fn a_failed_first_read_without_retention_still_closes() {
     assert!(owner.fail(owner.begin().unwrap()));
     assert!(stream.deadline().is_none());
 }
+
+#[test]
+fn a_superseded_renewal_cannot_install_late_and_keeps_the_lease() {
+    let (owner, clock) = leased();
+    let stream = owner.verifier().verify(&token(), &expected()).unwrap().lease.unwrap();
+    *clock.lock().unwrap() += Duration::from_secs(1);
+    // A renewal whose waiter gave up keeps running detached; the loop then
+    // supersedes it with a fresh retained intent that it drops at once.
+    let detached = renewal(&owner);
+    let start = detached.started();
+    drop(renewal(&owner));
+    assert!(stream.deadline().is_some(), "superseding a renewal closed a valid lease");
+    let late = owner.install(
+        detached,
+        keys(),
+        cmux_link::native_token::NativePolicy { checked_at_ms: NOW + 1_000, ..policy(start) },
+        ReceiverTime { unix_ms: NOW + 1_000, monotonic: start },
+    );
+    assert!(late.is_err(), "a detached renewal installed a policy the receiver never got");
+    assert!(stream.deadline().is_some());
+}

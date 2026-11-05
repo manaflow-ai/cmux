@@ -93,9 +93,15 @@ async fn refresh(source: &Arc<AgentReceiver>, renewal: bool) -> anyhow::Result<R
     };
     match result {
         Some(Ok(Ok(snapshot))) => Ok(snapshot),
-        _ => {
+        timed_out => {
             if !renewal {
                 source.invalidate();
+            } else if timed_out.is_none() {
+                // The blocking read is detached, not stopped: supersede its
+                // intent so a late reply can never install a policy this
+                // loop never sent to the receiver. The new intent retains
+                // the installed lease, so this closes nothing still valid.
+                drop(source.prepare_renewal());
             }
             bail!("cloud.receiver.policy_unavailable")
         }
