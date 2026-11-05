@@ -115,7 +115,7 @@ struct NewTabSuccession {
         }
         var snapshot = snapshot
         // The store's tab after a provisional one, the one made, else the tab being selected.
-        let tabs = pane.pane.tabs.filter { !succession.known.contains($0.id) }
+        let known = Set(succession.known), tabs = pane.pane.tabs.filter { !known.contains($0.id) } // a set: O(1) per tab
         let made = [handed, succession.surface, pane.pendingSelect.surface].lazy.compactMap { $0 }.first { surface in tabs.contains { $0.surface == surface } }
         guard let made, let tab = tabs.first(where: { $0.surface == made }), let item = snapshot.items.first(where: { $0.id.rawValue == tab.id }) else {
             // Not answered yet: a new daemon tab of this pane waits for the answer naming this one
