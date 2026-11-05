@@ -43,6 +43,7 @@ export function AgentIdentity({
   size = 14,
   fallback = "agent.session",
   fallbackNode,
+  glyphSize,
   className,
   style,
 }: {
@@ -51,6 +52,8 @@ export function AgentIdentity({
   size?: number;
   fallback?: string;
   fallbackNode?: ReactNode;
+  /// A badged sender's stroke glyph size (SenderIcon.tsx `glyphSize`).
+  glyphSize?: number;
   className?: string;
   style?: CSSProperties;
 }) {
@@ -63,6 +66,7 @@ export function AgentIdentity({
         size={size}
         fallback={fallback}
         fallbackNode={fallbackNode}
+        glyphSize={glyphSize}
         className={className}
         style={style}
       />

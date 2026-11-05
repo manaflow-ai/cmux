@@ -68,6 +68,7 @@ export function SenderIcon({
   fallback = "agent.session",
   fallbackNode,
   look: given,
+  glyphSize = size,
   row = true,
   className,
   style,
@@ -83,6 +84,9 @@ export function SenderIcon({
   fallbackNode?: ReactNode;
   /// A gallery's own look; the setting's otherwise.
   look?: SenderIconLook;
+  /// A stroke glyph's own size where the site sizes logos and stroke glyphs apart (a received line's
+  /// 12 px logo matches a 16 px stroke glyph's ink, IncomingMessageCard.tsx `SENDER_LOGO_SIZE`).
+  glyphSize?: number;
   /// The site's glyph sits on a label line (Icon's `row`); off for a free-standing avatar.
   row?: boolean;
   className?: string;
@@ -116,7 +120,7 @@ export function SenderIcon({
   }
   const big = (
     <Toned tone={tone}>
-      <Icon name={BIG_GLYPH[look.badge]} size={size} row={row} />
+      <Icon name={BIG_GLYPH[look.badge]} size={glyphSize} row={row} />
     </Toned>
   );
   // No family to show: the session's glyph alone, big, in its tone.

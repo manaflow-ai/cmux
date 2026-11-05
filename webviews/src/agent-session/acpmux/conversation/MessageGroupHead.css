@@ -5,8 +5,10 @@
    the chevron, shown and lit only while the row is hovered, focused or open, as an opened group's
    steps do. Never a bordered box; the group opens on the click, with no fade.
    design/chat-transcript.md "One icon column". */
+/* The whole row is the toggle and says so under the pointer (Leo, 2026-11-05, on the digest: "we
+   don't seem to be able to click it at the top level"). */
 .cv-message-group__head {
-  cursor: default;
+  cursor: pointer;
   user-select: none;
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);

@@ -18,9 +18,10 @@ import { SenderName } from "./IncomingMessageCard";
 import { groupSender, MessageGroupHead } from "./MessageGroupHead";
 import "./PendingMessagesCard.css";
 
-/// The ids a digest's lines open by: each message's row, and each message of a batch inside it.
+/// The ids a digest's lines open by: each message's row. A batch inside it ("Received N messages",
+/// reports) keeps its own fold: it reveals its lines, then each opens (Leo, 2026-11-02).
 export function digestMembers(rows: readonly AcpmuxRow[]): string[] {
-  return rows.flatMap((member) => [member.id, ...(member.laneNoticeBatch?.rows.map((inner) => inner.id) ?? [])]);
+  return rows.filter((member) => !member.laneNoticeBatch).map((member) => member.id);
 }
 
 export function PendingMessagesCard({

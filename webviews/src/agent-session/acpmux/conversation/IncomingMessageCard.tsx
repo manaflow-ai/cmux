@@ -124,6 +124,7 @@ export function SenderMark({ message }: { message: IncomingMessage }) {
       harness={harness}
       tone={agentTone(sender.sessionId ?? message.sessionId ?? message.name)}
       size={SENDER_LOGO_SIZE}
+      glyphSize={16}
       fallbackNode={<Bot size={16} />}
     />
   );
