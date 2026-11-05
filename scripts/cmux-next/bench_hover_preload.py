@@ -179,12 +179,10 @@ class Bench:
         return set(tabs) <= set(self.hibernation().get("hibernated") or [])
 
 
-def sweep(bench: Bench, args, report: dict):
-    height = float(bench.window().get("frame", {}).get("height") or 0)
-    points = [point for _, point in bench.hoverable(bench.rows(), height)] if height else []
-    if len(points) < 2 or not height:
-        report["sweep"] = {"error": f"rows={len(points)} height={height}"}
-        print(f"PERF-HOVER-SWEEP error rows={len(points)} height={height}", flush=True)
+def sweep(bench: Bench, args, report: dict, points: list[list[float]]):
+    if len(points) < 2:
+        report["sweep"] = {"error": f"rows={len(points)}"}
+        print(f"PERF-HOVER-SWEEP error rows={len(points)}", flush=True)
         return
     before = bench.hibernation()
     path, index, step = [], 0, 1
@@ -225,8 +223,8 @@ def sweep(bench: Bench, args, report: dict):
           f"move_rtt={json.dumps(result['move_rtt_ms'])}", flush=True)
 
 
-def click_trials(bench: Bench, args, report: dict, target: str, tabs: list[str], away: str):
-    height = float(bench.window().get("frame", {}).get("height") or 0)
+def click_trials(bench: Bench, args, report: dict, target: str, tabs: list[str], away: str,
+                 point: list[float] | None):
     trials = []
     for trial in range(args.trials):
         for mode in ("cold", "dwell"):
@@ -237,12 +235,11 @@ def click_trials(bench: Bench, args, report: dict, target: str, tabs: list[str],
                 print(f"PERF-HOVER-CLICK trial={trial} mode={mode} error=not_hibernated", flush=True)
                 continue
             if mode == "dwell":
-                row = bench.row_of(target)
-                if not row or not bench.hoverable([row], height):
+                if not point:
                     trials.append({"trial": trial, "mode": mode, "error": "row not hoverable"})
                     print(f"PERF-HOVER-CLICK trial={trial} mode={mode} error=row_not_hoverable", flush=True)
                     continue
-                bench.hover(bench.center(row, height))
+                bench.hover(point)
                 time.sleep(args.dwell_ms / 1000)  # test script: the pointer rests on the row
             started = time.perf_counter()
             bench.app.action("goToWorkspace", workspace=target)
@@ -265,8 +262,8 @@ def click_trials(bench: Bench, args, report: dict, target: str, tabs: list[str],
     print(f"PERF-HOVER-CLICK-SUMMARY cold={json.dumps(summary['cold'])} dwell={json.dumps(summary['dwell'])}", flush=True)
 
 
-def grace(bench: Bench, args, report: dict, pid: int, bundle: str, target: str, tabs: list[str], away: str):
-    height = float(bench.window().get("frame", {}).get("height") or 0)
+def grace(bench: Bench, args, report: dict, pid: int, bundle: str, tabs: list[str], away: str,
+          point: list[float] | None):
     bench.hover(None)
     bench.app.action("goToWorkspace", workspace=away)
     if not wait_for(lambda: bench.asleep(tabs), args.sleep_wait_s, 1):
@@ -275,12 +272,11 @@ def grace(bench: Bench, args, report: dict, pid: int, bundle: str, target: str, 
         return
     time.sleep(5)  # test script: renderers of the discarded pages exit
     asleep = bm.sample(pid, bundle, "asleep", 1)
-    row = bench.row_of(target)
-    if not row or not bench.hoverable([row], height):
+    if not point:
         report["grace"] = {"error": "row not hoverable"}
         print("PERF-HOVER-GRACE error=row_not_hoverable", flush=True)
         return
-    bench.hover(bench.center(row, height))
+    bench.hover(point)
     time.sleep(args.dwell_ms / 1000)  # test script: the pointer rests on the row
     bench.hover(None)
     woke = wait_for(lambda: not bench.asleep(tabs), 20, 0.1)
@@ -336,6 +332,15 @@ def main():
         bench.hover(None)
         bench.app.action("goToWorkspace", workspace=home)
         report["target"] = {"workspace": target, "tabs": target_tabs}
+        # Which row centers the pointer really hovers, found once now, while every page is still live: a probe
+        # step that rests past the dwell then wakes nothing, and any hover grace it starts (30 s) ends long before
+        # the settle wait below. Row positions do not change after this (the bench adds no row).
+        height = float(bench.window().get("frame", {}).get("height") or 0)
+        hoverable = bench.hoverable(bench.rows(), height) if height else []
+        points = [point for _, point in hoverable]
+        target_point = next((point for row, point in hoverable if target and target in str(row.get("key"))), None)
+        report["rows_hoverable"] = len(points)
+        report["target_row_hoverable"] = target_point is not None
         if "sweep" in phases:
             # Every swept page frozen or hibernated first, so a wake would count. The planner discards a few
             # pages per pass after the 30 s timeout: wait in proportion to the page count.
@@ -345,14 +350,14 @@ def main():
             wait_s = 30 + 2.5 * (len(sweep_tabs) + len(target_tabs)) + 30
             report["sweep_pages_settled"] = bool(wait_for(settled, wait_s, 1))
             if report["sweep_pages_settled"]:
-                sweep(bench, args, report)
+                sweep(bench, args, report, [p for p in points if p != target_point])
             else:
                 report["sweep"] = {"error": "invalid: the swept pages did not all freeze or hibernate first"}
                 print("PERF-HOVER-SWEEP invalid=not_settled", flush=True)
         if "click" in phases and target:
-            click_trials(bench, args, report, target, target_tabs, home)
+            click_trials(bench, args, report, target, target_tabs, home, target_point)
         if "grace" in phases and target:
-            grace(bench, args, report, pid, bundle, target, target_tabs, home)
+            grace(bench, args, report, pid, bundle, target_tabs, home, target_point)
     finally:
         app.run("quit")
         bm.wait_gone(pid, 20)
