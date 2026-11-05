@@ -27,6 +27,7 @@ public final class SingleArmedTracking {
         self.shape = shape
         armings += 1
         return withObservationTracking(apply) { [weak self] in
+            ObservationWakes.record()
             self?.armed.store(false, ordering: .releasing)
             onChange()
         }

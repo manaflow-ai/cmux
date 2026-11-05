@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import Observation
 
@@ -22,6 +23,7 @@ final class ObservationLoop {
         withObservationTracking {
             render()
         } onChange: { [weak self] in
+            ObservationWakes.record()
             Task { @MainActor in self?.arm() }
         }
     }

@@ -307,6 +307,7 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
             withObservationTracking {
                 emit()
             } onChange: { [state] in
+                ObservationWakes.record()
                 state.changed()
             }
         }

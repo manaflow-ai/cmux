@@ -1,0 +1,82 @@
+import AppKit
+import CmuxNextActions
+@testable import CmuxNextApp
+import CmuxNextCompat
+@testable import CmuxNextDaemon
+import Foundation
+import Testing
+
+/// TERMINAL CREATE COST (lead, STATUS 13444): a local change costs O(changed items), never O(session). Under STRESS
+/// (14 panes x 6 tabs) one New Terminal Tab woke about one observation per tab of the session, 9 ms of main-thread work
+/// before the frame on cmux19. This counts the observation trackings one New Terminal Tab wakes (``ObservationWakes``:
+/// `ObservationStream`, `SingleArmedTracking` and the Browser's `ObservationLoop`) in a whole window of 2 panes x 1 tab
+/// and in one of 14 panes x 6 tabs, through the registry's `newSurface` (the path the key, palette, menus, CLI and MCP
+/// share). The two counts must be equal: an observer that reads the whole session (the strip items, the sidebar, the
+/// browser badge, Home, the browser tab list, the app services' watches, the workspace namer) makes the second larger.
+@MainActor @Suite(.serialized)
+struct NewTabWakesDoNotGrowWithSessionTests {
+    private static func tree(panes: Int, tabs: Int) -> DaemonTree {
+        var surface: UInt64 = 0
+        let snapshots = (1...panes).map { pane in
+            PaneSnapshot(id: PaneID(rawValue: UInt64(pane)), tabs: (0..<tabs).map { _ in
+                surface += 1
+                return TabSnapshot(surface: SurfaceID(rawValue: surface), title: "~")
+            })
+        }
+        // A chain of splits to the right: every pane is shown on the one screen.
+        let layout = snapshots.dropLast().reversed().reduce(LayoutNode.leaf(snapshots[snapshots.count - 1].id)) { rest, pane in
+            .split(id: nil, resourceID: nil, direction: .right, ratio: 1.0 / Double(panes), a: .leaf(pane.id), b: rest)
+        }
+        let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: layout, panes: snapshots)
+        var tree = DaemonTree(registryID: "s-local", workspaces: [
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "wakes-ws"), name: "wakes", screens: [screen]),
+        ])
+        tree.personal = PersonalState(workspaces: [PersonalWorkspace(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: "wakes-ws"), index: 0)])
+        return tree
+    }
+
+    /// Lets the main actor run what is queued: a fixed number of yields, no wait for time to pass.
+    private static func drainMain() async {
+        for _ in 0..<80 { await Task.yield() }
+    }
+
+    /// The wakes of one New Terminal Tab in the first pane of a window showing `panes` panes of `tabs` tabs.
+    private static func wakesOfNewTab(panes: Int, tabs: Int) async throws -> Int {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        services.windows.ordersWindowsIn = false
+        let store = services.machines.local.store
+        let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#.utf8))
+        store.noteHandshake(identity)
+        store.connectionState = .connected(identity)
+        store.apply(snapshot: tree(panes: panes, tabs: tabs))
+        let controller = try #require(services.windows.openWindow(workspaces: ["wakes-ws"], frame: CGRect(x: 200, y: 200, width: 1600, height: 900)))
+        defer { controller.teardown(); controller.window?.close() }
+        for _ in 0..<50 where controller.workspaceContent?.panes.count != panes { await drainMain() }
+        let content = try #require(controller.workspaceContent)
+        try #require(content.panes.count == panes, "fixture: the window shows \(content.panes.count) of \(panes) panes")
+        content.contentView.layoutSubtreeIfNeeded()
+        await drainMain()
+        let pane = try #require(content.panes.values.first { $0.pane.handle == PaneID(rawValue: 1) })
+        let before = pane.pane.tabs.count
+
+        let wakes = ObservationWakes()
+        let refused = ObservationWakes.$current.withValue(wakes) {
+            services.registry.capturingRefusal {
+                _ = services.registry.perform("newSurface", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey), origin: .user))
+            }
+        }
+        try #require(refused == nil, "newSurface was refused: \(refused ?? "")")
+        try #require(pane.pane.tabs.count == before + 1, "fixture: New Terminal Tab made no tab in the first pane")
+        return wakes.count
+    }
+
+    @Test(.timeLimit(.minutes(2)))
+    func oneNewTabWakesAsManyObserversInAStressSessionAsInASmallOne() async throws {
+        let small = try await Self.wakesOfNewTab(panes: 2, tabs: 1)
+        let stress = try await Self.wakesOfNewTab(panes: 14, tabs: 6)
+        #expect(small > 0, "fixture: the new tab woke no observer (the counter is not wired)")
+        #expect(stress == small, "one New Terminal Tab woke \(small) observers with 2 panes x 1 tab and \(stress) with 14 panes x 6 tabs")
+    }
+}
