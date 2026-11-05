@@ -172,6 +172,8 @@ function MorphControl({
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  // Opened from the keyboard (a click with no pointer detail): the set's first icon takes focus.
+  const byKeyboard = useRef(false);
   const face = morphFace(tools, order);
   const openCount = openTools(tools, order).length;
   useEffect(() => {
@@ -181,15 +183,16 @@ function MorphControl({
       if (!root.current?.contains(event.target as Node)) setOpen(false);
     };
     doc?.addEventListener("pointerdown", away, true);
-    // The set's first icon takes the keyboard, as a toolbar's does.
-    root.current?.querySelector<HTMLButtonElement>(".acpmux-topright-morph-set button")?.focus({ preventScroll: true });
+    // From the keyboard, the set's first icon takes focus, as a toolbar's does.
+    if (byKeyboard.current)
+      root.current?.querySelector<HTMLButtonElement>(".acpmux-topright-morph-set button")?.focus({ preventScroll: true });
     return () => doc?.removeEventListener("pointerdown", away, true);
   }, [open]);
   const pick = (tool: HeaderQuickTool, button: HTMLButtonElement) => {
     runTool(tool);
     setOpen(false);
     glide(button, trigger.current);
-    trigger.current?.focus({ preventScroll: true });
+    if (byKeyboard.current) trigger.current?.focus({ preventScroll: true });
   };
   const label = t("header.topRight.panes");
   return (
@@ -226,7 +229,10 @@ function MorphControl({
         aria-pressed={face ? true : undefined}
         data-face={face?.id ?? "panes"}
         {...tooltipProps(face ? face.label : label, undefined)}
-        onClick={() => setOpen(!open)}
+        onClick={(event) => {
+          byKeyboard.current = event.detail === 0;
+          setOpen(!open);
+        }}
       >
         <span className="acpmux-topright-face" key={face?.id ?? "panes"}>
           <HeaderIcon name={face?.icon ?? "tunable.sidebar"} size={GLYPH} selected={face !== undefined} />
