@@ -23,12 +23,13 @@ import Observation
         sidebar.profileMenuProvider = { [weak model] in model.map { menu(workspace: $0.activeWorkspaceID?.rawValue) } }
         let control = self
         // The first value now, so the window's first frame draws the avatar at its size, never the account glyph it
-        // replaced a turn later (the relaunch bench's `SidebarAvatarView shown` in every window).
-        let (first, later) = ObservationStream.current({ [weak model] in Self.avatar(profile: control.avatar(workspace: model?.activeWorkspaceID?.rawValue), account: control.account) })
+        // replaced a turn later (the relaunch bench's `SidebarAvatarView shown` in every window). The window's shown
+        // workspace stands in for the sidebar's active one, which the selection pass sets later in this turn.
+        let first = Self.avatar(profile: avatar(workspace: model.activeWorkspaceID?.rawValue ?? state?.workspaceID), account: account)
         if model.profileAvatar != first { model.profileAvatar = first }
         // task-owner: ends with the model (the window's sidebar); event-driven (Observation)
         Task { [weak model] in
-            for await avatar in later {
+            for await avatar in ObservationStream({ [weak model] in Self.avatar(profile: control.avatar(workspace: model?.activeWorkspaceID?.rawValue), account: control.account) }) {
                 guard let model else { return }
                 if model.profileAvatar != avatar { model.profileAvatar = avatar }
             }
