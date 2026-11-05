@@ -726,6 +726,11 @@ mod tests {
     #[test]
     fn a_new_threads_permission_profile_comes_with_its_default() {
         let tr = translator();
+        // The handshake first: a session request waits for `initialize`. Codex 0.164.0's
+        // user agent, as Lucas's app-server answered it.
+        let init = split(tr.inner.start());
+        tr.inner.from_server(&json!({"id":init.server[0]["id"], "result":{
+            "userAgent":"acpmux/0.164.0 (Mac OS 26.1.0; arm64) unknown (acpmux; 0.1)"}}));
         let out = tr.inner.from_client(
             &json!({"id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}),
         );
