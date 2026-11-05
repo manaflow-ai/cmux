@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextSettings
+import CmuxNextControl
 
 private typealias JSON = CmuxNextSettings.JSONValue
 
@@ -18,6 +19,9 @@ private typealias JSON = CmuxNextSettings.JSONValue
 ///   window's focused pane is a new pane);
 /// - `confirmed_ms`: the first frame at which the daemon's object replaced the provisional one
 ///   (no `pending_tab_` id, no provisional pane handle), or null within 5 s;
+/// - `committed_ms`: the end of the first Core Animation commit after which the result shows (``BenchFrames/lastCommitted``):
+///   the render server shows it at its next refresh even while the main thread stays busy, so this bounds key-to-pixels from below;
+/// - `key_changes`: the cmux windows' key-window gains and losses (`key.become`, `key.resign`) up to the daemon's confirm;
 /// - `frames_to_visible`: display frames from the key to `visible_ms` (1 = the next frame);
 /// - `spans`: the main-thread spans and marks `BenchSpans` recorded (handler stages, daemon reply).
 ///
@@ -73,6 +77,7 @@ enum DebugInstantCreateBench {
         } else { _ = DebugKey.send(["key": .string(key), "modifiers": .array(modifiers.map(JSON.string)), "window": .string(controller.state.id)], services: services) }
         let keyMilliseconds = BenchSpans.ms(.now - start)
         let visible = await frames.settled(until: { before.changed(command, Probe(controller)) }, start: start, window: 0, deadline: 5_000)
+        let committed = frames.lastCommitted
         let chrome = visible == nil || command != .newBrowser ? nil : await frames.settled(until: { Probe(controller).browser != nil }, start: start, window: 0, deadline: 5_000)
         // A link or browser opened to the right: its new pane's page (any shown pane of the window), first paint or load end.
         let opensRight = command == .linkRight || command == .splitBrowser
@@ -90,6 +95,7 @@ enum DebugInstantCreateBench {
             "key_ms": .number(keyMilliseconds),
             "visible_ms": visible.map { .number($0) } ?? .null,
             "confirmed_ms": confirmed.map { .number($0) } ?? .null,
+            "committed_ms": committed.map { .number($0) } ?? .null, "key_changes": .number(Double(spans.count(where: { $0.name.hasPrefix("key.") }))),
             "page_ms": page.map { .number($0) } ?? .null, "chrome_ms": chrome.map { .number($0) } ?? .null,
             "engine": .string(Probe(controller).browser.map { $0.tab.engineKind == .cef ? "cef" : "webkit" } ?? "none"),
             "spare_window": .string(services.cache.cef.spareWindowState),
