@@ -515,12 +515,14 @@ class RegistryBlastRadiusTests(unittest.TestCase):
             'python3 scripts/ci/validate_test_execution_registry.py "${args[@]+"${args[@]}"}"',
             'printf "%s\\n" "${args[@]+"${args[@]}"}"',
         )
-        for base_ref, expected in (("main", ["--base-sha", main_tip]), ("", [""])):
-            with self.subTest(base_ref=base_ref):
+        # The event is set, never inherited: on a push run the runner's own GITHUB_EVENT_NAME=push adds --warn-only.
+        for base_ref, event, expected in (("main", "pull_request", ["--base-sha", main_tip]), ("", "pull_request", [""]),
+                                          ("", "push", ["--warn-only"])):
+            with self.subTest(base_ref=base_ref, event=event):
                 result = subprocess.run(
                     ["bash", "-c", script],
                     cwd=root,
-                    env={**os.environ, "CMUX_TEST_REGISTRY_BASE_REF": base_ref},
+                    env={**os.environ, "CMUX_TEST_REGISTRY_BASE_REF": base_ref, "GITHUB_EVENT_NAME": event},
                     check=True,
                     text=True,
                     capture_output=True,

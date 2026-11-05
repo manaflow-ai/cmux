@@ -118,4 +118,6 @@ jobs:
             artifacts/cu-driver-eval/vm.json
             artifacts/cu-driver-eval/eval.log
           if-no-files-found: ignore
-          retention-days: 90
+          # The next daily run compares with this one; past three days a run has no earlier results to
+          # compare (the earlier-results step is continue-on-error), as after any gap.
+          retention-days: 3
