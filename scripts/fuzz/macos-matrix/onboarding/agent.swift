@@ -163,6 +163,11 @@ final class Agent {
 
     @discardableResult
     func call(_ name: String, _ args: [String: Any], timeout: TimeInterval = 60) -> [String: Any] {
+        // Background delivery for every action (ON1 asks for a background app; foreground would be
+        // a focus steal). The helper refuses a background drag until its driver supports one (Cua
+        // Driver v0.38 adds it): textedit() then fails the drag check and records why.
+        var args = args
+        if args["delivery_mode"] == nil, props(name).contains("delivery_mode") { args["delivery_mode"] = "background" }
         let started = Date()
         let reply = mcp.request("tools/call", ["name": name, "arguments": args], timeout: timeout)
         // Keep the step, without image data.
@@ -233,10 +238,15 @@ final class Agent {
         if failed(call("type_text", args)) { throw Failure("type_text failed") }
         let after = state(pid, win)
         checks["type"] = find(after) { "\($0["value"] ?? "")".contains(typed) } != nil
-        // Drag across the typed line in window-local screenshot points: the text starts near the
-        // document's top-left, below the title bar and ruler.
-        let width = (after as? [String: Any])?["screenshot_width"] as? Int ?? 800
-        let (x0, y0, x1) = (24, 96, min(width - 24, 420))
+        // Drag across the typed line: the text starts near the document's top-left, below the title
+        // bar and ruler (window points). The drag takes screenshot pixels: scale by the screenshot's
+        // width over the window's (2 on a Retina guest).
+        let shot = after as? [String: Any]
+        let width = shot?["screenshot_width"] as? Double ?? 800
+        let frame = shot?["window_frame"]
+        let points = (frame as? [Double])?[safe: 2] ?? ((frame as? [String: Any])?["width"] as? Double) ?? width
+        let scale = points > 0 ? width / points : 1
+        let (x0, y0, x1) = (Int(24 * scale), Int(96 * scale), Int(min(points - 24, 420) * scale))
         let have = props("drag")
         var drag: [String: Any] = ["pid": pid, "window_id": win]
         if have.isSuperset(of: ["from_x", "from_y", "to_x", "to_y"]) {
@@ -246,17 +256,13 @@ final class Agent {
         } else {
             drag["path"] = [["x": x0, "y": y0], ["x": x1, "y": y0]]
         }
-        // Background delivery only (ON1 asks for a background app; foreground would be a focus steal).
-        // The helper refuses a background drag until its driver supports one (Cua Driver v0.38 adds
-        // it): the check then fails and says why, rather than fronting TextEdit.
-        if have.contains("delivery_mode") { drag["delivery_mode"] = "background" }
         let dragged = call("drag", drag)
         if failed(dragged) {
             checks["drag"] = false
             let result = dragged["result"] as? [String: Any]
             let message = ((result?["content"] as? [[String: Any]])?.first?["text"] as? String)
                 ?? ((dragged["error"] as? [String: Any])?["message"] as? String) ?? "drag failed"
-            checks["drag_refused"] = String(message.prefix(300))
+            checks["drag_error"] = String(message.prefix(300))
             return
         }
         try key(pid, "cmd+c")
@@ -339,4 +345,8 @@ while let line = readLine() {
     default:
         if let id { emit(["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "no such method \(method)"]]) }
     }
+}
+
+extension Array {
+    subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
 }
