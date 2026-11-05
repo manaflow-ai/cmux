@@ -371,15 +371,22 @@ impl Hub {
         // A fallback never names another account: the chat keeps its folder.
         let (_, env) = self.harness_env(&meta).await;
         let home = route_account::current_home(&meta, &family, &env);
-        let next = route.file.fallback.iter().filter(|f| **f != id).find_map(|f| {
+        let named = route.file.fallback.iter().filter(|f| **f != id).find_map(|f| {
             routes::find(dir.as_deref(), f).ok().filter(|r| {
                 r.serves(&family) && route_account::switch_allowed(home.as_deref(), r).is_ok()
             })
         });
+        // A codex chat on a router, proxy or key with no fallback of its own may always go back to
+        // the signed-in Codex login it would run on with no route at all, and does by itself.
+        let signed_in = named
+            .is_none()
+            .then(|| signed_in_fallback(&route, &family, home.as_deref(), dir.as_deref()))
+            .flatten();
+        let auto = route.file.auto_fallback || signed_in.is_some();
         let mut out = json!({"route": {"routeId": id, "name": route.name()}});
-        if let Some(next) = next {
+        if let Some(next) = named.or(signed_in) {
             out.set("fallback", json!({"routeId": next.id, "name": next.name()}));
-            if route.file.auto_fallback
+            if auto
                 && routes::set_binding(&state, &format!("chat:{}", session.id), Some(&next.id))
                     .is_ok()
             {
@@ -395,6 +402,27 @@ impl Hub {
         }
         Some(out)
     }
+}
+
+/// The signed-in Codex login (`routes::CODEX_LOGIN_ROUTE_ID`) as the fallback of a failed codex
+/// route that is not a login itself, when the chat's login folder has a sign-in and the chat may
+/// move there (a route file that replaces it may name another account).
+fn signed_in_fallback(
+    failed: &routes::Route,
+    family: &str,
+    home: Option<&std::path::Path>,
+    dir: Option<&std::path::Path>,
+) -> Option<routes::Route> {
+    if family != "codex"
+        || failed.id == routes::CODEX_LOGIN_ROUTE_ID
+        || failed.file.kind == routes::RouteKind::DirectSubscription
+        || !routes::codex_signed_in(home)
+    {
+        return None;
+    }
+    routes::find(dir, routes::CODEX_LOGIN_ROUTE_ID)
+        .ok()
+        .filter(|r| r.serves(family) && route_account::switch_allowed(home, r).is_ok())
 }
 
 pub(crate) fn route_error(e: &routes::RouteError) -> RpcError {
