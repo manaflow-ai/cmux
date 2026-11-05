@@ -136,6 +136,14 @@ fn a_send_by_host_and_name_reaches_another_machines_session_listed_and_audited_o
         })
         .collect();
     assert!(names.contains(&"hostb/lane-x".to_owned()), "{names:?}");
+    let lane_x = rows["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["peer"] == "hostb" && r["name"] == "lane-x")
+        .and_then(|r| r["sessionId"].as_str())
+        .expect("lane-x's id")
+        .to_owned();
     assert!(names.contains(&"lane-a".to_owned()), "{names:?}");
     let table = cli(&a, &["ls"]);
     assert!(String::from_utf8_lossy(&table.stdout).contains("lane-x"), "{}", text(&table));
@@ -175,12 +183,13 @@ fn a_send_by_host_and_name_reaches_another_machines_session_listed_and_audited_o
     );
     assert_eq!(line["exit"], 0);
     assert_eq!(line["bytes"], 12);
+    // B names the session it delivered to by its id.
     let receiver = audit(&b);
     let line =
         receiver.iter().find(|l| l["dir"] == "received").unwrap_or_else(|| panic!("{receiver:?}"));
     assert_eq!(
         (&line["from"], &line["fromHost"], &line["to"]),
-        (&json!("hosta/lane-a"), &json!("hosta"), &json!("lane-x"))
+        (&json!("hosta/lane-a"), &json!("hosta"), &json!(lane_x))
     );
     for dir in [&a, &b] {
         let raw = fs::read_to_string(dir.join("cross-host-audit.jsonl")).unwrap();
