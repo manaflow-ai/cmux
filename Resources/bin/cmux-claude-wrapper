@@ -2389,10 +2389,12 @@ if [[ "$cmux_claude_teams_wrapper_launch" != "1" ]]; then
         # file so the snapshot stays compact.
         cmux_restore_settings_args=()
         for cmux_user_settings_value in "${CMUX_USER_SETTINGS[@]}"; do
-            # Match the merge loader's trim(), which also drops a leading BOM.
+            # Match the merge loader's trim(), which drops BOMs mixed with leading whitespace.
             cmux_user_settings_trimmed="${cmux_user_settings_value#"${cmux_user_settings_value%%[![:space:]]*}"}"
-            cmux_user_settings_trimmed="${cmux_user_settings_trimmed#$'\xef\xbb\xbf'}"
-            cmux_user_settings_trimmed="${cmux_user_settings_trimmed#"${cmux_user_settings_trimmed%%[![:space:]]*}"}"
+            while [[ "$cmux_user_settings_trimmed" == $'\xef\xbb\xbf'* ]]; do
+                cmux_user_settings_trimmed="${cmux_user_settings_trimmed#$'\xef\xbb\xbf'}"
+                cmux_user_settings_trimmed="${cmux_user_settings_trimmed#"${cmux_user_settings_trimmed%%[![:space:]]*}"}"
+            done
             if [[ "$cmux_user_settings_trimmed" == \{* || "$cmux_user_settings_trimmed" == \[* ]]; then
                 if cmux_user_settings_durable="$(cmux_claude_wrapper_create_durable_settings_file "$cmux_user_settings_value")"; then
                     cmux_user_settings_value="$cmux_user_settings_durable"
