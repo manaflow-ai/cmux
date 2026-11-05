@@ -51,7 +51,7 @@ struct CloudBringBackTests {
             await connection.close()
             trip.machine.machine.status = .paused
             var resumed = 0
-            trip.machine.resumer = { id in
+            trip.machine.resumer = { id, _ in
                 #expect(id == trip.machine.machineID)
                 resumed += 1
                 trip.machine.machine.status = .running
@@ -258,6 +258,21 @@ struct CloudBringBackTests {
             #expect(calls.first == ["link", "machine", "update", "--socket", trip.vmSocket], "\(calls)")
             #expect(calls.dropFirst().map { Array($0.prefix(3)) } == [["link", "seed", "pull"], ["link", "agent", "move"]], "\(calls)")
             #expect(trip.localChat()?.agentSession?.session == "chat-live")
+        }
+    }
+
+    /// The person's own Bring Back from a machine too old for it updates the machine, then brings the
+    /// chat back, with no stop asking them to press "Update Machine".
+    @Test func thePersonsBringBackUpdatesAnOutdatedMachineFirst() async throws {
+        try await Self.withRoundTrip("updates") { trip in
+            let before = trip.calls().count
+            let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: trip.machineKey), arguments: [:], origin: .user)
+            #expect(trip.services.registry.perform(CloudBringBack.action, invocation: invocation))
+            try await trip.waitUntil { trip.localChat() != nil && trip.machineChat() == nil }
+            let calls = trip.calls().dropFirst(before).map { Array($0.prefix(3)) }
+            #expect(calls == [["link", "seed", "pull"], ["link", "machine", "update"], ["link", "seed", "pull"], ["link", "agent", "move"]], "\(calls)")
+            #expect(trip.localChat()?.agentSession?.session == "chat-live")
+            #expect(trip.services.cloud.bringBackRetries[trip.machineKey] == nil)
         }
     }
 

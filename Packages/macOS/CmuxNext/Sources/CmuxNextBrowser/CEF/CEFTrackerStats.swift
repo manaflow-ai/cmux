@@ -48,6 +48,20 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     /// The counters `debug.cef` reports as `tracker`, by key (milliseconds for the times). Per action = the change of
     /// each counter over it (scripts/cmux-next/pane-perf-terminal.py --browser).
     public var reportFields: [String: Double] {
+        perPageHosting.merging(fieldsWithoutPages) { _, counter in counter }
+    }
+
+    /// Per shown page window, hosted (1) or not (0), by `hosted.<tab id>[.devtools]` (`CEFEngine.hostedPageFields`).
+    var perPageHosting: [String: Double] = [:]
+
+    /// These counters with the shown pages' hosting state for `debug.cef`.
+    func with(hostedPages: [String: Double]) -> CEFTrackerStats {
+        var stats = self
+        stats.perPageHosting = hostedPages
+        return stats
+    }
+
+    private var fieldsWithoutPages: [String: Double] {
         ["clip_reads": Double(clipReads), "occlusion_reads": Double(occlusionReads), "clip_builds": Double(clipBuilds),
          "clip_hits": Double(clipHits), "clip_ms": clipSeconds * 1_000, "geometry_posts": Double(geometryPosts),
          "hosted_pages": Double(hostedPages), "hosting_refused": Double(hostingRefused), "geometry_skips": Double(geometrySkips),

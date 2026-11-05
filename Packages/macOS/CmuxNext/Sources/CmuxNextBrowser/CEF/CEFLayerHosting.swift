@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// Layer hosting (fork API 26) of the page window over one ``CEFHostView``:
 /// asks the fork for the page window's Core Animation context and shows it in
@@ -98,6 +99,8 @@ final class CEFLayerHosting {
     private(set) var browser: Int32?
     private var fork: Fork?
     private var pending = Pending.none
+    /// The runtime's switch observation this page window follows (``CEFHostingSwitch``); nil in tests that pass none.
+    private weak var hostingSwitch: CEFHostingSwitch?
     private let isEnabled: () -> Bool
     private let schedule: Scheduler
     private let makePage: (CGRect) -> CEFHostedPageView
@@ -120,18 +123,18 @@ final class CEFLayerHosting {
     typealias Scheduler = (_ block: @escaping @MainActor @Sendable () -> Void) -> Void
 
     /// - Parameters:
-    ///   - isEnabled: whether hosting is wanted; the tunable by default.
+    ///   - isEnabled: whether hosting is wanted; by default `browserResize.layerHosting` or S5 (`motion.frameOwner.pages`).
     ///   - schedule: runs a block at the end of this run-loop turn; tests run it when they choose.
     ///   - makePage: the hosted view for a frame; tests pass one whose layer host fails.
     ///   - resizeDeadlineMs: the upper bound of a hosted page's resize wait; the tunable by default.
     ///   - refreshIntervals: the shortest frame interval of each display, which cap the wait
     ///     (``CEFResizeSyncDeadline``); tests pass fixed rates.
-    init(isEnabled: @escaping () -> Bool = { BrowserResizeTunables.layerHosting.value },
+    init(isEnabled: @escaping () -> Bool = { CEFHostingSwitch.hostingWanted },
          schedule: @escaping Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
          makePage: @escaping (CGRect) -> CEFHostedPageView = { CEFHostedPageView(frame: $0) },
-         resizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.syncDeadline.value * 1_000).rounded()) },
-         liveResizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.liveResizeDeadline.value * 1_000).rounded()) },
-         dragResizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.dragResizeDeadline.value * 1_000).rounded()) },
+         resizeDeadlineMs: @escaping () -> Int32 = { CEFLayerHosting.waitMs(BrowserResizeTunables.syncDeadline) },
+         liveResizeDeadlineMs: @escaping () -> Int32 = { CEFLayerHosting.waitMs(BrowserResizeTunables.liveResizeDeadline) },
+         dragResizeDeadlineMs: @escaping () -> Int32 = { CEFLayerHosting.waitMs(BrowserResizeTunables.dragResizeDeadline) },
          refreshIntervals: @escaping () -> [Double] = { NSScreen.screens.map(\.minimumRefreshInterval) },
          holdsFocus: (() -> Bool)? = nil) {
         self.holdsFocus = holdsFocus ?? { false }
@@ -145,13 +148,20 @@ final class CEFLayerHosting {
         if holdsFocus == nil { self.holdsFocus = { [weak self] in Self.pageWindowIsKey(over: self?.view) } }
     }
 
+    /// A resize wait tunable in whole ms; with S5 on (`motion.frameOwner.pages`) `motion.frameOwner.pagesWait` instead, 0 by
+    /// default: the main thread never waits for a page in any resize (Chromium's wait runs on the main thread).
+    static func waitMs(_ tunable: Tunable<Double>) -> Int32 {
+        let seconds = BrowserResizeTunables.framesOwnedByCommit.value ? BrowserResizeTunables.pagesWait.value : tunable.value
+        return Int32((seconds * 1_000).rounded())
+    }
+
     /// Whether a refused request waits for the tracker's next read.
     var isRetryArmed: Bool { pending == .armed }
 
     /// A new page window over the view (a pane's Chromium window, or a docked
     /// DevTools): the old window's context went with it. Called inside
     /// Chromium's creation stack, so the request waits for the end of the turn.
-    func pageWindowCreated(browser: Int32, fork: Fork?) {
+    func pageWindowCreated(browser: Int32, fork: Fork?, follows hostingSwitch: CEFHostingSwitch? = nil) {
         dropPage()
         self.browser = browser
         self.fork = fork
@@ -160,6 +170,9 @@ final class CEFLayerHosting {
         pending = .none
         // The window may be in a live resize already.
         syncDeadline()
+        // A switch flipped while the page shows reaches it at once (CEFLayerHosting+Switch).
+        self.hostingSwitch = hostingSwitch
+        hostingSwitch?.follow(self)
         guard fork != nil, isEnabled() else { return }
         request(retry: false)
     }
@@ -240,7 +253,8 @@ final class CEFLayerHosting {
     }
 
     /// A person's divider or edge drag of the view's pane began (`true`) or its release landed (`false`), with
-    /// `browserResize.dragResize` at `resizeSync` (`CEFTabContentView.paneResizeGestureDidChange`). Every frame of the
+    /// `browserResize.dragResize` at `resizeSync` (`CEFTabContentView.paneResizeGestureDidChange`), or with S5 on
+    /// (`motion.frameOwner.pages`) a drag or a key resize's spring (`CEFTabContentView+PageSync`). Every frame of the
     /// drag and of its release's spring resizes the page window, so for that time every page over the view, hosted or
     /// not, waits up to `dragResizeDeadlineMs` (capped at half the shortest display frame, ``CEFResizeSyncDeadline``,
     /// so the app's frame still commits by its display link's target time) for its frame at the pane's new size, and
@@ -338,6 +352,7 @@ final class CEFLayerHosting {
     /// hosting off for the browser and drops the hosted view.
     func stop() {
         pending = .none
+        hostingSwitch?.unfollow(self)
         // The page window closed: a drag's wait does not pass to the next one (an end that comes later is ignored).
         paneDragHolders = 0
         motionHolders = 0

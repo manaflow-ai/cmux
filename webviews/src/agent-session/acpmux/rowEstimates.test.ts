@@ -22,7 +22,7 @@ import {
   type AcpmuxRow,
 } from "./model";
 import { turnView } from "./conversation/turns";
-import { COLLAPSED_PROMPT_LINES, PASTE_CHIP_HEIGHT, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
+import { COLLAPSED_PROMPT_LINES, pasteChipHeight, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
 import { gridLength, TRANSCRIPT_FOOTER_CONTROL } from "./transcriptGrid";
 import { BUBBLE } from "./transcriptSpacing";
@@ -359,15 +359,15 @@ test("a prompt of ten lines or fewer is estimated whole, with no Show more line"
   expect(short!).toBeLessThan(BUBBLE.oneLine - lineHeight + COLLAPSED_PROMPT_LINES * lineHeight + 28 + 8);
 });
 
-// A pasted block (`pasted` ranges, the chip in UserBubble.tsx) is one chip line, however long the
+// A pasted block (`pasted` ranges, the card in PromptText.tsx) is one closed card, however long the
 // paste, and the prompt's own words around it.
-test("a prompt with a 2,300-line paste is its typed line and one chip", () => {
+test("a prompt with a 2,300-line paste is its typed line and one card", () => {
   const typed = "Why does this fail?";
   const paste = Array.from({ length: 2300 }, (_, index) => `frame ${index}`).join("\n");
   const text = `${typed}\n${paste}`;
   const pasted = [{ start: typed.length + 1, end: text.length }];
   const [height] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text, pasted }]);
-  expect(height).toBeCloseTo(BUBBLE.oneLine + PASTE_CHIP_HEIGHT, 5);
+  expect(height).toBeCloseTo(BUBBLE.oneLine + pasteChipHeight(currentChatMetrics().lineHeight), 5);
 });
 
 // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx), so it is

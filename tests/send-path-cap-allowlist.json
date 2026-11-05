@@ -175,6 +175,7 @@
     "cmux-tui/crates/acpmux/src/config/folder_profiles.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/config/profiles.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/deps/remote.rs": {"count": 1, "reason": "safe: the most bytes read for a dependency-cache timing record (a few dozen bytes); a larger entry is not one and is skipped, nothing a person sends passes through it"},
+    "cmux-tui/crates/acpmux/src/folder_instructions.rs": {"count": 1, "reason": "safe: a derived context budget for a folder's own instruction file sent beside the first turn; a longer file is cut with a note to read the rest from disk, and nothing the person sends is refused or cut"},
     "cmux-tui/crates/acpmux/src/forum.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/hand/fsops.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/harness_health/channel/bun.rs": {"count": 2, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},

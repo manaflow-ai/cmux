@@ -75,6 +75,93 @@ if "write-feed --feed \"$feed\" --same-build" not in job("republish-nightly-delt
 if "publish-nightly.result == 'success'" not in notes_publish:
     failures.append("publish-release-notes must require a successful NEXT publication")
 
+# The PR comments run in their own dispatched run (nightly_next_post_publish), so they never hold the one
+# nightly-next push group (#36111) or the mini's whole-Mac publish jobs: run 41982716550 published at 08:42Z
+# and its comments (247 PRs, 40 min) kept the next push waiting. In that run decide skips, and the only job
+# that can start is published-in; every other job is skipped because a job it needs was.
+def post_publish_runnable() -> list[str]:
+    import yaml
+
+    jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+    status_check = re.compile(r"\b(?:always|cancelled|failure|success)\s*\(")
+
+    def conjuncts(cond: str) -> list[str]:
+        cond = cond.strip()
+        if cond.startswith("${{") and cond.endswith("}}"):
+            cond = cond[3:-2].strip()
+        parts, depth, start = [], 0, 0
+        for index, char in enumerate(cond):
+            depth += char == "("
+            depth -= char == ")"
+            if depth == 0 and cond.startswith("&&", index):
+                parts.append(cond[start:index])
+                start = index + 2
+        return [part.strip() for part in parts + [cond[start:]]]
+
+    def unwrap(term: str) -> str:
+        while term.startswith("(") and term.endswith(")") and conjuncts(term[1:-1]) == [term[1:-1].strip()]:
+            term = term[1:-1].strip()
+        return term
+
+    def requires_a_skipped_job(term: str, skipped: set[str]) -> bool:
+        """The term holds only if one of the skipped jobs ran: needs.<job>.result or an output equals a non-empty value."""
+        alternatives = [alt.strip() for alt in unwrap(term).split("||")]
+        found = [re.fullmatch(r"needs\.([A-Za-z0-9_-]+)\.(?:result|outputs\.[A-Za-z0-9_]+) == '[^']+'", alt)
+                 for alt in alternatives]
+        return all(found) and all(match.group(1) in skipped for match in found)
+
+    def requires_another_input(term: str) -> bool:
+        """A dispatch input other than nightly_next_post_publish must be set; the post-publish dispatch sets none."""
+        term = unwrap(term)
+        return bool(re.fullmatch(r"inputs\.(?!nightly_next_post_publish\b)[a-z_]+ != ''", term)
+                    or re.fullmatch(r"\(inputs\.[a-z_]+ \|\| '[a-z]+'\) != '[a-z]+'", term))
+
+    skipped: set[str] = set()
+    runnable: list[str] = []
+    pending = dict(jobs)
+    while pending:
+        progressed = False
+        for name, spec in list(pending.items()):
+            needed = spec.get("needs") or []
+            needed = [needed] if isinstance(needed, str) else needed
+            if any(need in pending for need in needed):
+                continue
+            del pending[name]
+            progressed = True
+            cond = str(spec.get("if", ""))
+            terms = conjuncts(cond) if cond else []
+            if name == "decide":
+                ok = "inputs.nightly_next_post_publish == ''" in cond
+            elif not needed:
+                ok = any(requires_another_input(term) for term in terms)
+            elif not status_check.search(cond):
+                ok = any(need in skipped for need in needed)  # GitHub's implicit success() skips it
+            else:
+                ok = any(requires_a_skipped_job(term, skipped) for term in terms)
+            if ok:
+                skipped.add(name)
+            else:
+                runnable.append(name)
+        if not progressed:
+            raise AssertionError(f"needs cycle among {sorted(pending)}")
+    return runnable
+
+
+runnable = post_publish_runnable()
+if runnable != ["published-in"]:
+    failures.append(f"a nightly_next_post_publish run must start only published-in, not {runnable}")
+published_in = job("published-in")
+if "inputs.nightly_next_post_publish != ''" not in published_in or "\n    needs:" in published_in:
+    failures.append("published-in must run only in the dispatched post-publish run, needing no push-run job")
+dispatch = job("dispatch-published-in")
+for trusted in ("publish-nightly-next-github", "publish-nightly-next-github-names", "generate-nightly-deltas",
+                "republish-nightly-deltas"):
+    if trusted not in needs(dispatch):
+        failures.append(f"dispatch-published-in must wait for {trusted}: the comments must not hold the mini "
+                        "while the push run's own whole-Mac publishing waits")
+if "-f nightly_next_post_publish=" not in dispatch or "actions: write" not in dispatch:
+    failures.append("dispatch-published-in must dispatch nightly.yml with nightly_next_post_publish")
+
 if failures:
     print("FAIL: NEXT post-publication dependency contract\n  " + "\n  ".join(failures))
     sys.exit(1)
