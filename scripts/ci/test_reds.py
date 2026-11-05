@@ -69,12 +69,18 @@ FAILED = (
     re.compile(r"^FAILED (\S+::\S+)"),  # pytest
 )
 # Where a display-named Swift Testing failure recorded its issue: `✘ Test "name" recorded an issue [with N
-# arguments ...] at <File>.swift:<line>:<col>`. A `@Test("...")` name prints with no suite, and suites run
-# interleaved (three were open at once in tests/fixtures/test_reds/26346-head-run-40620080851.log), so the
-# enclosing suite cannot be read from the line; the issue's file can, and two suites with the same display name
-# are in different files. Greedy up to the last ` at <file>.swift:`, since an argument value may hold one
-# (cmux#35902).
-ISSUE_SITE = re.compile(r'✘ Test ("[^"\n]*") recorded an issue\b.*\bat ([\w+.-]+\.swift):\d+')
+# arguments ...] at <File>.swift:<line>:<col>: <expectation text>`. A `@Test("...")` name prints with no suite,
+# and suites run interleaved (three were open at once in
+# tests/fixtures/test_reds/26346-head-run-40620080851.log), so the enclosing suite cannot be read from the line;
+# the issue's file can, and two suites with the same display name are in different files. The source location is
+# the FIRST ` at <file>.swift:<line>:<col>` after the optional `with N arguments ...` clause, which is where
+# Swift Testing prints it: the expectation text follows on the same line and can quote another location
+# ("raised at Other.swift:14:2"), so scanning greedily to the last one records the wrong file and a shared base
+# red then reads as the head's own. The arguments clause is skipped non-greedily, since an argument value may
+# hold a `.swift:` of its own (cmux#35902). The filename class takes `/` so a module-relative location
+# (`Package/CloudPlanTests.swift`) records its file instead of nothing (cmux#35961).
+ISSUE_SITE = re.compile(r'✘ Test ("[^"\n]*") recorded an issue(?: with \d+ argument.*?)? at '
+                        r'([\w/+.-]+\.swift):\d+:\d+')
 # Swift Testing emits type suites without quotes and custom suite names in quotes.
 SUITE_FAILED = re.compile(r'✘ Suite ("[^"]+"|\S+) (?:recorded an issue|failed)\b')
 # A failed test case read from an xcresult bundle (`xcresulttool get test-results tests`, as the iOS kit job prints
