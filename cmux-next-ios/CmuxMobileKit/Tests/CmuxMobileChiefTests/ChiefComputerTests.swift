@@ -55,6 +55,21 @@ import Testing
         await follow.value
     }
 
+    @Test func aFailedReadNeverShowsAnotherChiefsCard() async {
+        let source = Source(.init(used: true, machineID: "vm-a", state: "running"))
+        let computer = rig(source)
+        let first = Task { await computer.follow(chief: "agent_a", name: "Ada") }
+        await until { computer.shown?.machineID == "vm-a" }
+        first.cancel()
+        await first.value
+        source.status = nil
+        let second = Task { await computer.follow(chief: "agent_b", name: "Bea") }
+        await until { source.statuses >= 3 }
+        #expect(computer.shown == nil)
+        second.cancel()
+        await second.value
+    }
+
     @Test func noCloudChiefHidesTheCard() async {
         let source = Source(.init(used: true, machineID: "vm", state: "running"))
         let computer = rig(source)

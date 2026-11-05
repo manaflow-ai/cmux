@@ -92,6 +92,8 @@ public final class ChiefComputer {
     public private(set) var shown: Shown?
     /// The newest frame of the running computer.
     public private(set) var frame: CGImage?
+    /// The Cloud Chief the card last followed: a failed read keeps only that Chief's card.
+    @ObservationIgnored private var followed: String?
 
     public init() {}
 
@@ -110,6 +112,9 @@ public final class ChiefComputer {
             show(nil)
             return
         }
+        // Another Chief's card is not this one's, also on a failed first read.
+        if followed != chief { show(nil) }
+        followed = chief
         // A frame from an earlier look is not this one's: the screen shows only what this follow reads.
         frame = nil
         var sinceStatus = Self.statusInterval

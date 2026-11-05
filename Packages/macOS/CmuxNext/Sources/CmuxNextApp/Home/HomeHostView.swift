@@ -120,6 +120,7 @@ final class HomeHostView: NSView {
         computerPopup.section.source = computerSource
         computerPopup.isSuppressed = { [weak self] in self?.settings.isShown == true }
         computerPopup.onOpen = { [weak self] in _ = self?.toggleChiefSettings(openOnly: true) }
+        settings.onClose = { [weak self] in self?.computerPopup.update() }  // back at once, not at the next read
         computerPopup.onVisibility = { [weak self] in self?.transcript.needsLayout = true }
         transcript.setFloatingAccessory(computerPopup)
         settingsView.onAvatar = { [weak self, weak service] in

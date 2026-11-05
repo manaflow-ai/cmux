@@ -73,7 +73,8 @@ public final class HomeChiefComputerPopup: NSView {
     /// The popup is showing (tests).
     public var isShowing: Bool { !isHidden }
 
-    func update() {
+    /// Shows or hides the popup for the last read (the app calls it when what suppresses it changes).
+    public func update() {
         let show = working && !dismissed && !isSuppressed() && section.shown?.acting == true
         section.watchesScreen = show
         guard show == isHidden else { return }

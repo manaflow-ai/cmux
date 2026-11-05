@@ -15,6 +15,8 @@ public final class HomeChiefSettingsPopover {
     private let popup = NativePopupHost(panel: NativePopupPanel(identifier: "cmux.home.chiefSettings"))
     private let card: OverlaySurfaceView
     private weak var anchor: NSView?
+    /// The card closed (a click outside, Escape, the pill, or ``close()``).
+    public var onClose: () -> Void = {}
 
     public init(content: HomeChiefSettingsView) {
         self.content = content
@@ -29,6 +31,7 @@ public final class HomeChiefSettingsPopover {
         popup.onDismiss = { [weak self] in
             self?.content.commitEditing()
             self?.content.cardClosed()
+            self?.onClose()
         }
         content.onResize = { [weak self] in self?.resize() }
         // The open panel takes the keys from the popover, which closes; it runs over the window.
@@ -96,6 +99,7 @@ public final class HomeChiefSettingsPopover {
         content.commitEditing()
         content.cardClosed()
         popup.hide()
+        onClose()
     }
 
     /// The content's height changed: the card follows it while shown.

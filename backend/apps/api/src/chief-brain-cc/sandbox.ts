@@ -6,7 +6,7 @@ import { freestyleIdleSeconds } from "../auto-pause.ts"
 import type { Env } from "../env.ts"
 import { execAs, grant, LINUX_USERS, revokeGrant, revokeIdentity } from "./sandbox-access.ts"
 import { fileVerb, snapshotVerb, snapsOf, takeSnapshot } from "./sandbox-files.ts"
-import { computerActing, computerOf, computerUsedAt, computerVerb, forgetComputer, ownerShot, idleShot, SCREEN } from "./sandbox-computer.ts"
+import { computerActing, computerOf, computerUsedAt, computerVerb, forgetComputer, ownerShot, SCREEN } from "./sandbox-computer.ts"
 import { costOf, GROW_FS, GUEST_SIZE, guestOf, hasSize, planOf, resourcesOf, sizeOf, toFreestyle, type Guest, type Resources, type Size } from "./sandbox-size.ts"
 
 /**
@@ -470,16 +470,6 @@ export const ccComputerStatus = async (b: ChiefBrainDO, agent: string): Promise<
 export const ccComputerScreen = async (b: ChiefBrainDO, agent: string): Promise<{ status: 200; image: string } | { status: 404 | 409 | 502; error: string; state?: string }> => {
   const c = computerOf(b)
   if (!c) return { status: 404, error: "this Chief has no computer" }
-  // While the Chief is idle the view keeps its last frame, and that needs no VM lookup either: an open card polls
-  // about once a second for as long as it stays open, and the status read (every 8 s) still follows the VM's state.
-  const reused = idleShot(b, c.id)
-  if (reused) {
-    try {
-      return { status: 200, image: await reused }
-    } catch {
-      // The shot failed: look the VM up below.
-    }
-  }
   const o = await own(b, agent, c.id)
   if ("status" in o) return o.status === 404 ? (forgetComputer(b, c.id), { status: 404, error: "this Chief has no computer" }) : { status: 502, error: "Freestyle did not answer" }
   if (o.vm.state !== "running") return { status: 409, error: "the computer is asleep", state: o.vm.state }
