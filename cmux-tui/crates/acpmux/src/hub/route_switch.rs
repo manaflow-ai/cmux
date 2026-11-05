@@ -481,7 +481,13 @@ fn account_fallback(
                 && a.file.account_home.as_deref().map(std::path::Path::new) == Some(h)
         })
     });
-    builtin.into_iter().chain(accounts).find(|r| {
+    // The accounts after the one that failed come first, then the rest: with A and B both out of
+    // their limits, a chat moves A -> B -> C, never back and forth between A and B.
+    let mut candidates: Vec<_> = builtin.into_iter().chain(accounts).collect();
+    if let Some(at) = candidates.iter().position(|r| r.id == failed.id) {
+        candidates.rotate_left(at + 1);
+    }
+    candidates.into_iter().find(|r| {
         if r.id == failed.id || r.file.disabled || !r.serves(family) {
             return false;
         }
