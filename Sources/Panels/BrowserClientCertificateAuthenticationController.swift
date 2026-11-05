@@ -17,7 +17,13 @@ import WebKit
         }
     ) {
         authenticationHandler = BrowserClientCertificateAuthenticationHandler(
-            candidateProvider: candidateProvider
+            candidateProvider: candidateProvider,
+            selectionRecorder: { protectionSpace, candidate in
+                BrowserClientCertificateCredentialStore().rememberPreferredIdentity(
+                    candidate,
+                    for: protectionSpace
+                )
+            }
         )
     }
 

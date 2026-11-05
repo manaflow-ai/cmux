@@ -42,8 +42,29 @@ enum KeyboardShortcutSettings {
 
     static var settingsVisibleActions: [Action] {
         orderedSettingsVisibleActions(
-            from: publicShortcutActions.filter { $0 != .showHideAllWindows }
+            from: publicShortcutActions.filter { $0 != .showHideAllWindows && isOffered($0) }
         )
+    }
+
+    /// False for an action whose feature the build doesn't offer now: Open
+    /// Chief while Chief's release flag is off. Such an action is hidden from
+    /// settings and never reported as a conflict.
+    static func isOffered(_ action: Action, isChiefAvailable: Bool = ChiefSettings.isAvailable) -> Bool {
+        action != .openChief || isChiefAvailable
+    }
+
+    /// Tells the Settings package which shortcuts the build doesn't offer.
+    /// Runs before the Settings search index is built, so its text leaves
+    /// them out too.
+    static func installSettingsAvailabilityProvider() {
+        ShortcutAction.setHostUnavailableActionsProvider {
+            unavailableSettingsActions(isChiefAvailable: ChiefSettings.isAvailable)
+        }
+    }
+
+    /// The Settings package's view of ``isOffered(_:isChiefAvailable:)``.
+    static func unavailableSettingsActions(isChiefAvailable: Bool) -> Set<ShortcutAction> {
+        isChiefAvailable ? [] : [.openChief]
     }
 
     private static func orderedSettingsVisibleActions(from actions: [Action]) -> [Action] {
@@ -105,6 +126,7 @@ enum KeyboardShortcutSettings {
         case goToWorkspace
         case commandPalette
         case agentInbox
+        case openChief
         case commandPaletteNext
         case commandPalettePrevious
         case sendFeedback
@@ -264,6 +286,7 @@ enum KeyboardShortcutSettings {
             case .goToWorkspace: return String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…")
             case .commandPalette: return String(localized: "menu.file.commandPalette", defaultValue: "Command Palette…")
             case .agentInbox: return String(localized: "shortcut.agentInbox.label", defaultValue: "Show Agent Inbox")
+            case .openChief: return String(localized: "shortcut.openChief.label", defaultValue: "Open Chief")
             case .commandPaletteNext: return String(localized: "shortcut.commandPaletteNext.label", defaultValue: "Command Palette: Next")
             case .commandPalettePrevious: return String(localized: "shortcut.commandPalettePrevious.label", defaultValue: "Command Palette: Previous")
             case .sendFeedback: return String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback")
@@ -487,6 +510,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "p", command: true, shift: true, option: false, control: false)
             case .agentInbox:
                 return StoredShortcut(key: "i", command: true, shift: true, option: false, control: false)
+            case .openChief:
+                return StoredShortcut(key: "c", command: true, shift: true, option: false, control: false)
             case .commandPaletteNext:
                 return StoredShortcut(key: "n", command: false, shift: false, option: false, control: true)
             case .commandPalettePrevious:
@@ -929,11 +954,13 @@ enum KeyboardShortcutSettings {
         return normalized
     }
 
-    private static func conflictingAction(
+    static func conflictingAction(
         for proposedShortcut: StoredShortcut,
-        excluding currentAction: Action
+        excluding currentAction: Action,
+        isChiefAvailable: Bool = ChiefSettings.isAvailable
     ) -> Action? {
-        for action in Action.allCases where action != currentAction {
+        for action in Action.allCases
+        where action != currentAction && isOffered(action, isChiefAvailable: isChiefAvailable) {
             let configuredShortcut = shortcut(for: action)
             if action.conflicts(
                 with: proposedShortcut,

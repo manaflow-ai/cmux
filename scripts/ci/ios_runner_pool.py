@@ -19,7 +19,7 @@ take an owned Mac? Owned Macs are `glaeda-<class>-xcode-<version>` pools
     no `ios_version`               the minis carry one iOS 26.x runtime; another
                                      version would download a platform onto a
                                      shared machine
-    not an App Store upload        the upload writes the ASC key to $HOME
+    not an App Store upload        an upload capture stays on MACOS_RUNNER_IOS
     not a release call             release runs stay on Blacksmith
     no `seed_cache`                seeding runs in the ci-cache-writer
                                      environment with the R2 write keys
@@ -310,7 +310,7 @@ def owned_blocker(*, ios_version: str | None, upload: str | None, called: str | 
     if (ios_version or "").strip():
         return "an ios_version is requested; the minis carry one iOS 26.x runtime"
     if (upload or "").strip() == "true":
-        return "an App Store upload writes the ASC key to $HOME"
+        return "an App Store upload capture stays on MACOS_RUNNER_IOS"
     if (called or "").strip() == "true":
         return "a release call stays on Blacksmith"
     if (seed_cache or "").strip() == "true":

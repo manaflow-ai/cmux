@@ -1,7 +1,7 @@
 # Working across your own machines
 
-Status: Draft design, October 2026. Nothing here is implemented yet; the
-[next PRs](#next-prs) section lists the order.
+Status: Draft design, October 2026. The [next PRs](#next-prs) section lists
+the order and what's in review.
 
 A user with a personal Mac, a Linux dev VM and a second build box should be
 able to say "start Claude in `~/src/api` on cosmic-gray" from any of them and
@@ -357,7 +357,9 @@ authorization analysis and policy tests.
 3. **Trust records and audit log** (`cmux-remote`, surfaced in the Mac app).
    Local-only per-peer tier, folder and agent allowlist, expiry, and an
    append-only audit log with a Settings › Devices view. Paired peers
-   default to None. No new remote method yet.
+   default to None. No new remote method yet. The `cmux-remote` store and
+   `cmux remote trust` CLI are in review as manaflow-ai/cmux#22031; the
+   Mac view follows.
 4. **`machine.session.request` on a live connection.** The typed schema, the
    admission path through the trust record, and the receipt, behind a
    PostHog flag. First direction: client → host it's connected to.

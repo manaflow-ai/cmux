@@ -31,11 +31,22 @@ statically, so a reordered step fails in review and not on a release day:
    runs in a release environment) runs no bundle code at all, not only outside the keychain
    window: a process that bundle code leaves running survives into the later
    steps of the same job. Bundle code runs in jobs without secrets on literal
-   ephemeral runner labels. The notarization scripts run in such jobs only
+   ephemeral runner labels: a job without that material that runs bundle code
+   on what a release job made (it needs one, directly or through others) runs
+   on a literal label, alone or after the fork short-circuit. The one
+   exception is OWNED_VERIFY_JOBS: exactly the job and runs-on named there,
+   which may take an owned Mac free now, holding no secret, outside any
+   environment, not continue-on-error, in a fresh work directory it removes
+   in an always() step. PICKED_EPHEMERAL_VERIFY_JOBS lets a verify job read a
+   Blacksmith-only pick (exactly the runs-on named there).
+   The notarization scripts run in such jobs only
    with their launch smokes deferred (CMUX_DEFER_LAUNCH_SMOKES) or skipped.
    STEP_LEVEL_ONLY lists the jobs that still rely on rule 1 alone.
 7. A job that holds a signing secret runs on a literal runner label, not a
    repository variable that could move it onto a reused machine.
+8. A job that signs on Linux with rcodesign (LINUX_PEM_SIGNERS) makes no
+   keychain: it runs on a literal Linux label and hands the certificate only
+   to its signer script, which keeps the key in its own temporary directory.
 
 Not covered by rule 6: other environments and credentials (artifacts,
 package registries, CI cache, Sentry, Cloudflare, Vercel, CEF R2) and a job
@@ -99,6 +110,39 @@ SCRIPT_MADE_KEYCHAINS = {
     ("auto-resume-nightly-notarization.yml", "staple-outer"): "scripts/ci/resume-stapled-app-notarization.sh",
     ("resume-nightly-notarization.yml", "resume"): "scripts/ci/resume-stapled-app-notarization.sh",
 }
+# Jobs that sign on Linux (rule 8), each with the script that gets the certificate.
+LINUX_PEM_SIGNERS = {
+    ("cmux-next-dev-daily.yml", "sign"): "scripts/ci/rcodesign-sign-bundle-dev.sh",
+    ("cmux-next-dev-daily.yml", "tip-dmg"): "scripts/ci/rcodesign-notarize-dmg-dev.sh",
+    # The one-off proof that the nightly's Mac signing and Linux rcodesign agree.
+    ("rcodesign-parity-proof.yml", "sign-rcodesign"): "scripts/ci/rcodesign-sign-bundle-dev.sh",
+    ("rcodesign-parity-proof.yml", "notarize-dmg"): "scripts/ci/rcodesign-notarize-dmg-dev.sh",
+}
+# Rule 6's one exception: a secret-free verify job that attempt 1 (or a re-run while every Blacksmith macOS 26
+# label shows dead, on the owned label the same main-only placement step named) may run on the
+# owned Mac its placement job picked (Leo, 2026-10-24: owned Macs before
+# Blacksmith), with exactly this runs-on.
+OWNED_VERIFY_JOBS = {
+    ("cmux-next-dev-daily.yml", "verify"): "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+    "(github.run_attempt == 1 && needs.runner.outputs.label || github.run_attempt > 1 && "
+    "needs.runner.outputs.cloud_dead == 'true' && needs.runner.outputs.owned || github.run_attempt > 1 && "
+    "needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26') }}",
+}
+# Rule 6's other exception: a verify job whose runs-on reads only a Blacksmith pick (exactly this
+# runs-on), from a job that runs scripts/ci/classic_nightly_build_runner.py with ENABLED '0', which can
+# emit only its CANDIDATES (both blacksmith-*), never an owned label.
+PICKED_EPHEMERAL_VERIFY_JOBS = {
+    ("nightly.yml", "verify-signed-nightly"): (
+        "pick-classic-sign-runner",
+        "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && "
+        "needs.pick-classic-sign-runner.outputs.attempt != github.run_attempt && "
+        "needs.pick-classic-sign-runner.outputs.alternate || needs.pick-classic-sign-runner.outputs.runner || "
+        "'blacksmith-6vcpu-macos-26' }}"),
+}
+LITERAL_EPHEMERAL_RUNNER = re.compile(
+    r"(?:macos|ubuntu)-[0-9.]+(?:-arm)?|blacksmith-[0-9]+vcpu-(?:macos|ubuntu)-[0-9a-z]+"
+    r"|\$\{\{ github\.repository_owner != 'manaflow-ai' && '(?:macos|ubuntu)-[0-9.]+' "
+    r"\|\| '(?:blacksmith-[0-9]+vcpu-(?:macos|ubuntu)-[0-9a-z]+|(?:macos|ubuntu)-[0-9.]+)' \}\}")
 # Jobs that keep bundle code in the signing job, outside the keychain window
 # only (rule 1, not rule 6). Each entry names its follow-up.
 STEP_LEVEL_ONLY = {
@@ -178,7 +222,17 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
         failures.append(f"{name}: holds a signing secret but picks its runner from a repository variable; use a literal ephemeral label")
 
     text = json.dumps(job)
-    if "secrets.APPLE_CERTIFICATE_BASE64" in text and name not in {
+    pem_signer = LINUX_PEM_SIGNERS.get(tuple(name.split(" ", 1)))
+    if pem_signer:
+        runner = str(job.get("runs-on", ""))
+        if "keychain" in text or pem_signer not in text or "ubuntu" not in runner or "macos" in runner:
+            failures.append(f"{name}: a Linux signer runs on a literal Linux label, calls {pem_signer} and makes no keychain")
+        certificate_steps = [step for step in steps if isinstance(step, dict) and "secrets.APPLE_CERTIFICATE_BASE64" in json.dumps(step)]
+        if any(pem_signer not in str(step.get("run", "")) for step in certificate_steps):
+            failures.append(f"{name}: only the step that runs {pem_signer} may hold the Developer ID certificate")
+        if SECRET_OR_TOKEN.search(json.dumps(job.get("env") or {})):
+            failures.append(f"{name}: job-level env holds a secret or the job token; set it on the steps that use it")
+    elif "secrets.APPLE_CERTIFICATE_BASE64" in text and name not in {
         f"{workflow} {job_name}" for workflow, job_name in INLINE_DEVELOPER_ID_KEYCHAINS
     }:
         script = SCRIPT_MADE_KEYCHAINS.get(tuple(name.split(" ", 1)))
@@ -199,6 +253,147 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
                 f"{name}: keychain idle lock {seconds}s is longer than the job timeout "
                 f"({timeout_minutes} minutes); lock it sooner"
             )
+
+
+def holds_release_material(job: dict) -> bool:
+    return bool(RELEASE_SECRET_REFERENCE.search(json.dumps(job))) or bool(
+        RELEASE_ENVIRONMENT.search(json.dumps(job.get("environment") or "")))
+
+
+def runs_bundle_code(job: dict) -> bool:
+    return any(
+        any(pattern.search(command) for pattern in BUNDLE_CODE)
+        or (SMOKING_SCRIPTS.search(command) and not deferred_step(step))
+        for step in job.get("steps") or [] if isinstance(step, dict)
+        for command in commands(str(step.get("run", ""))))
+
+
+def check_verify_runners(workflow: str, jobs: dict, failures: list[str]) -> None:
+    """Rule 6: bundle code run on a release job's output stays on literal ephemeral labels."""
+    def upstream(name: str, seen: set[str]) -> set[str]:
+        needs = jobs.get(name, {}).get("needs") or []
+        for other in [needs] if isinstance(needs, str) else needs:
+            if other in jobs and other not in seen:
+                seen.add(other)
+                upstream(other, seen)
+        return seen
+
+    for name, job in jobs.items():
+        if not isinstance(job, dict) or holds_release_material(job) or not runs_bundle_code(job):
+            continue
+        if not any(holds_release_material(jobs[other]) for other in upstream(name, set())):
+            continue
+        runs_on = str(job.get("runs-on", ""))
+        allowed = OWNED_VERIFY_JOBS.get((workflow, name))
+        picked = PICKED_EPHEMERAL_VERIFY_JOBS.get((workflow, name))
+        if picked is not None:
+            picker, picked_runs_on = picked
+            if runs_on != picked_runs_on or not picks_only_blacksmith(jobs.get(picker)):
+                failures.append(f"{workflow} {name}: runs on exactly {picked_runs_on}, and {picker} runs "
+                                "classic_nightly_build_runner.py with ENABLED '0' (Blacksmith labels only)")
+            continue
+        if allowed is None:
+            if not LITERAL_EPHEMERAL_RUNNER.fullmatch(runs_on):
+                failures.append(f"{workflow} {name}: runs bundle code on a release job's output; "
+                                f"use a literal ephemeral runner label, not {runs_on}")
+            continue
+        steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
+        text = json.dumps(job)
+        fresh = [i for i, step in enumerate(steps) if 'rm -rf "$dir"' in str(step.get("run", ""))
+                 and '"$RUNNER_TEMP/' in str(step.get("run", ""))]
+        removed = [i for i, step in enumerate(steps) if "always()" in str(step.get("if", ""))
+                   and 'rm -rf "$VERIFY_DIR"' in str(step.get("run", ""))]
+        if (runs_on != allowed or "secrets." in text or "github.token" in text or "environment" in job
+                or not fresh or not removed or fresh[0] > removed[-1] or "continue-on-error" in text):
+            failures.append(f"{workflow} {name}: the owned verify job runs on exactly {allowed}, holds no secret, "
+                            "token or environment, works in a fresh $RUNNER_TEMP directory it removes in an "
+                            "always() step, and is not continue-on-error")
+
+
+def picks_only_blacksmith(job: object) -> bool:
+    """Whether `job` is a Blacksmith-only pick: classic_nightly_build_runner.py, ENABLED '0', and every
+    candidate it can print is a blacksmith-* label."""
+    sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+    import classic_nightly_build_runner as picker  # noqa: PLC0415
+
+    if not isinstance(job, dict):
+        return False
+    steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
+    # Exactly the helper, nothing appended that could write another label to the step's outputs.
+    pick = [step for step in steps if str(step.get("run", "")).strip() == "python3 scripts/ci/classic_nightly_build_runner.py"]
+    if any("classic_nightly_build_runner.py" in str(step.get("run", "")) for step in steps) and len(pick) != 1:
+        return False
+    outputs = job.get("outputs") or {}
+    return (len(pick) == 1 and str((pick[0].get("env") or {}).get("ENABLED")) == "0"
+            and outputs.get("runner") == f"${{{{ steps.{pick[0].get('id')}.outputs.cloud }}}}"
+            and outputs.get("alternate") == f"${{{{ steps.{pick[0].get('id')}.outputs.alternate }}}}"
+            and outputs.get("attempt") == f"${{{{ steps.{pick[0].get('id')}.outputs.attempt }}}}"
+            and all(label.startswith("blacksmith-") for label in picker.CANDIDATES)
+            and picker.SMALL in picker.CANDIDATES and picker.LARGE in picker.CANDIDATES)
+
+
+def self_test_verify_runners() -> list[str]:
+    """Mutations rule 6's exception must refuse: it allows one job and one runs-on, nothing wider."""
+    (workflow, name), allowed = next(iter(OWNED_VERIFY_JOBS.items()))
+    good = {
+        "sign": {"environment": "release", "steps": [{"run": "sign"}]},
+        name: {"needs": "sign", "runs-on": allowed, "steps": [
+            {"run": 'dir="$RUNNER_TEMP/v"\nrm -rf "$dir"'},
+            {"run": "./scripts/verify-diff-sidecar-artifact.sh app --require-signed"},
+            {"if": "always()", "run": 'rm -rf "$VERIFY_DIR"'}]},
+    }
+    problems = []
+    if failures_of(workflow, good):
+        problems.append(f"the owned verify job itself was refused: {failures_of(workflow, good)}")
+    owned = "${{ needs.runner.outputs.label || 'blacksmith-6vcpu-macos-26' }}"
+    mutations = {
+        "another runs-on for the allowed job": (workflow, {**good, name: {**good[name], "runs-on": owned}}),
+        "the allowed runs-on in another workflow": ("nightly.yml", good),
+        "the allowed runs-on on another job": (workflow, {"sign": good["sign"], "other": good[name]}),
+        "a secret in the allowed job": (workflow, {**good, name: {**good[name], "env": {"T": "${{ secrets.X }}"}}}),
+        "no always() removal": (workflow, {**good, name: {**good[name], "steps": good[name]["steps"][:2]}}),
+        "continue-on-error": (workflow, {**good, name: {**good[name], "continue-on-error": True}}),
+    }
+    for what, (where, jobs) in mutations.items():
+        if not failures_of(where, jobs):
+            problems.append(f"rule 6 self-test: {what} was allowed")
+    return problems
+
+
+def self_test_picked_runners() -> list[str]:
+    """Mutations the Blacksmith-pick exception must refuse."""
+    (workflow, name), (picker, allowed) = next(iter(PICKED_EPHEMERAL_VERIFY_JOBS.items()))
+    pick = {"outputs": {"runner": "${{ steps.pick.outputs.cloud }}", "alternate": "${{ steps.pick.outputs.alternate }}",
+                       "attempt": "${{ steps.pick.outputs.attempt }}"},
+            "steps": [{"id": "pick", "env": {"ENABLED": "0"}, "run": "python3 scripts/ci/classic_nightly_build_runner.py"}]}
+    good = {
+        "sign": {"environment": "release", "steps": [{"run": "sign"}]},
+        picker: pick,
+        name: {"needs": ["sign", picker], "runs-on": allowed,
+               "steps": [{"run": "./scripts/verify-diff-sidecar-artifact.sh app --require-signed"}]},
+    }
+    problems = []
+    if failures_of(workflow, good):
+        problems.append(f"the picked verify job itself was refused: {failures_of(workflow, good)}")
+    trusted = {**pick, "steps": [{**pick["steps"][0], "env": {"ENABLED": "1"}}]}
+    mutations = {
+        "another runs-on": {**good, name: {**good[name], "runs-on": allowed.replace("alternate", "owned")}},
+        "a pick that may name the trusted mini": {**good, picker: trusted},
+        "another output behind runner": {**good, picker: {**pick, "outputs": {**pick["outputs"], "runner": "${{ vars.X }}"}}},
+        "no picker job": {key: value for key, value in good.items() if key != picker},
+        "a label appended to the pick's outputs": {**good, picker: {**pick, "steps": [{**pick["steps"][0], "run":
+            pick["steps"][0]["run"] + '\necho cloud=glaeda-std-xcode-26.6 >> "$GITHUB_OUTPUT"'}]}},
+    }
+    for what, jobs in mutations.items():
+        if not failures_of(workflow, jobs):
+            problems.append(f"rule 6 self-test: {what} was allowed")
+    return problems
+
+
+def failures_of(workflow: str, jobs: dict) -> list[str]:
+    found: list[str] = []
+    check_verify_runners(workflow, jobs, found)
+    return found
 
 
 def read_lines(path: str, failures: list[str]) -> list[str]:
@@ -305,6 +500,13 @@ def main() -> int:
             if "keychain" in json.dumps(job):
                 signing_jobs += 1
             check_job(f"{path.name} {job_name}", job, failures)
+        check_verify_runners(path.name, document.get("jobs") or {}, failures)
+    for (workflow, name) in [*OWNED_VERIFY_JOBS, *PICKED_EPHEMERAL_VERIFY_JOBS]:
+        document = yaml.safe_load((WORKFLOWS / workflow).read_text(encoding="utf-8")) or {}
+        if name not in (document.get("jobs") or {}):
+            failures.append(f"{workflow} {name}: a rule 6 exception names a job that does not exist")
+    failures += self_test_verify_runners()
+    failures += self_test_picked_runners()
     check_scripts(failures)
     if signing_jobs < 5:
         failures.append(f"found only {signing_jobs} keychain jobs; this guard is reading the wrong tree")

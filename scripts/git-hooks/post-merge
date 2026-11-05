@@ -5,6 +5,13 @@ set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 HEAD_SHA="$(git rev-parse HEAD)"
 
+# Warn (never fail) when a remote fetches from a local mirror but pushes to GitHub:
+# this pull may then have read a stale copy.
+HOOK_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd -P)"
+if [[ -x "$HOOK_DIR/check-git-remotes.sh" ]]; then
+    "$HOOK_DIR/check-git-remotes.sh" || true
+fi
+
 # This hook is tracked, so never run its installer merely because an arbitrary
 # checked-out branch asks. The current commit must exactly equal main fetched
 # from the canonical manaflow-ai/cmux remote already configured by the user.
@@ -19,6 +26,8 @@ while IFS= read -r remote; do
                     scripts/install-git-hooks.sh
                     scripts/git-hooks/pre-commit
                     scripts/git-hooks/post-merge
+                    scripts/git-hooks/prepare-commit-msg
+                    scripts/git-hooks/check-git-remotes.sh
                     scripts/merge-xcstrings.py
                     scripts/merge-pbxproj.py
                     scripts/ci/merge_main_resolver.py

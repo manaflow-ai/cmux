@@ -6224,6 +6224,9 @@ mod unix {
                 break;
             }
         }
+        // The input worker may still be handling a PTY write. Shut down the shared socket
+        // before cleanup so EOF never depends on that worker dropping its socket clone.
+        tap.close();
         host.remove_client(client);
         Ok(())
     }
@@ -6802,6 +6805,7 @@ mod unix {
     mod tests {
         use super::*;
         use cmux_pty::Child;
+        use std::mem::size_of_val;
 
         fn test_kitty_state() -> KittyReplayState {
             KittyReplayState {
@@ -9436,7 +9440,8 @@ mod unix {
                 read_required_frame(&mut client_stream, "exit").unwrap().kind,
                 MessageKind::Exit
             );
-            let _ = client_stream.shutdown(std::net::Shutdown::Both);
+            let mut byte = [0];
+            assert_eq!(client_stream.read(&mut byte).unwrap(), 0);
             server.join().unwrap().unwrap();
         }
 
@@ -9532,6 +9537,113 @@ mod unix {
                 Err(RecvTimeoutError::Timeout)
             ));
             assert_eq!(host.smart.applied_cursor.load(Ordering::Acquire), 0);
+        }
+
+        #[test]
+        fn output_timeout_disconnects_client_and_allows_reattachment() {
+            assert_output_timeout_disconnects_and_allows_reattachment(false);
+        }
+
+        #[test]
+        fn output_timeout_disconnects_while_input_is_blocked_on_pty() {
+            assert_output_timeout_disconnects_and_allows_reattachment(true);
+        }
+
+        fn assert_output_timeout_disconnects_and_allows_reattachment(block_input: bool) {
+            let host = exited_host_fixture();
+            let blocked_input = block_input.then(|| {
+                let (write_started_tx, write_started_rx) = sync_channel(1);
+                let (write_release_tx, write_release_rx) = sync_channel(1);
+                let (flush_started_tx, flush_started_rx) = sync_channel(1);
+                let (flush_release_tx, flush_release_rx) = sync_channel(1);
+                flush_release_tx.send(()).unwrap();
+                *host.writer.lock().unwrap() = Box::new(GatedInputWriter {
+                    write_started: write_started_tx,
+                    write_release: write_release_rx,
+                    flush_started: flush_started_tx,
+                    flush_release: flush_release_rx,
+                    fail_flush: false,
+                });
+                (write_started_rx, write_release_tx, flush_started_rx)
+            });
+            let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+            // Force backpressure independently of the machine's default socket buffer size.
+            let send_buffer_bytes: libc::c_int = 4096;
+            assert_eq!(
+                unsafe {
+                    libc::setsockopt(
+                        server_stream.as_raw_fd(),
+                        libc::SOL_SOCKET,
+                        libc::SO_SNDBUF,
+                        (&send_buffer_bytes as *const libc::c_int).cast(),
+                        size_of_val(&send_buffer_bytes) as libc::socklen_t,
+                    )
+                },
+                0
+            );
+            client_stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+            let (done_tx, done_rx) = mpsc_channel();
+            let server_host = host.clone();
+            let server = thread::spawn(move || {
+                done_tx.send(serve_client(server_host, server_stream)).unwrap();
+            });
+            let mut hello = snapshot_boundary_client_hello(&host, false).unwrap();
+            hello.flags = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+            write_frame(&mut client_stream, &hello).unwrap();
+            for kind in [
+                MessageKind::HostHello,
+                MessageKind::Snapshot,
+                MessageKind::Colors,
+                MessageKind::Ready,
+            ] {
+                assert_eq!(
+                    read_required_frame(&mut client_stream, "handshake").unwrap().kind,
+                    kind
+                );
+            }
+
+            if let Some((write_started, _, _)) = &blocked_input {
+                write_frame(&mut client_stream, &Frame::new(MessageKind::Input, b"x".to_vec()))
+                    .unwrap();
+                write_started.recv_timeout(Duration::from_secs(1)).unwrap();
+            }
+
+            // Stop reading until the real socket write timeout ends the output thread.
+            let cursor =
+                host.smart.publish(Frame::new(MessageKind::Output, vec![b'x'; 4 * 1024 * 1024]));
+            host.smart.mark_applied(cursor);
+            done_rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap();
+            server.join().unwrap();
+            let mut buffered = Vec::new();
+            client_stream.read_to_end(&mut buffered).expect("timed-out writer must signal EOF");
+            assert!(!buffered.is_empty());
+            assert!(buffered.len() < 4 * 1024 * 1024);
+
+            let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+            client_stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+            let server_host = host.clone();
+            let server = thread::spawn(move || serve_client(server_host, server_stream));
+            write_frame(&mut client_stream, &hello).unwrap();
+            for kind in [
+                MessageKind::HostHello,
+                MessageKind::Snapshot,
+                MessageKind::Colors,
+                MessageKind::Ready,
+            ] {
+                assert_eq!(read_required_frame(&mut client_stream, "reattach").unwrap().kind, kind);
+            }
+            host.smart.publish(Frame::new(MessageKind::Output, b"still running".to_vec()));
+            let frame = read_required_frame(&mut client_stream, "live output").unwrap();
+            assert_eq!(frame.kind, MessageKind::Output);
+            assert_eq!(frame.payload, b"still running");
+            drop(client_stream);
+            server.join().unwrap().unwrap();
+
+            // EOF and reattachment must succeed before the blocked PTY write is released.
+            if let Some((_, write_release, flush_started)) = blocked_input {
+                write_release.send(()).unwrap();
+                flush_started.recv_timeout(Duration::from_secs(1)).unwrap();
+            }
         }
 
         #[test]

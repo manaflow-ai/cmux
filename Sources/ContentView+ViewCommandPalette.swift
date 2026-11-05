@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import CmuxCommandPalette
 import CmuxFoundation
+import CmuxPanes
 import Foundation
 
 extension ContentView {
@@ -52,6 +53,22 @@ extension ContentView {
                 subtitle: constant(String(localized: "agentInbox.command.subtitle", defaultValue: "Agents")),
                 keywords: ["agent", "inbox", "message", "question", "permission", "feed"],
                 when: { _ in CmuxFeatureFlags.shared.isAgentInboxQuickViewEnabled }
+            ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.openChief",
+                title: constant(String(localized: "command.openChief.title", defaultValue: "Open Chief")),
+                subtitle: constant(String(localized: "command.openChief.subtitle", defaultValue: "Chief")),
+                keywords: ["chief", "home", "agent", "assistant", "chat", "messages"],
+                when: { _ in ChiefSettings.isEnabled }
+            ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.newChiefSplit",
+                title: constant(String(localized: "command.newChiefSplit.title", defaultValue: "New Chief Pane in Split")),
+                subtitle: constant(String(localized: "command.openChief.subtitle", defaultValue: "Chief")),
+                keywords: ["chief", "agent", "assistant", "chat", "split", "pane", "new"],
+                when: { context in
+                    ChiefSettings.isEnabled && context.bool(CommandPaletteContextKeys.panelHasPane)
+                }
             ),
         ]
     }
@@ -154,6 +171,28 @@ extension ContentView {
         }
         registry.register(commandId: "palette.showAgentInbox") {
             AppDelegate.shared?.requestAgentInbox(source: "commandPalette.showAgentInbox")
+        }
+        registry.register(commandId: "palette.openChief") {
+            if AppDelegate.shared?.openChiefHome(preferredWindow: observedWindow, source: "commandPalette.openChief") != true {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.newChiefSplit") {
+            guard ChiefSettings.isEnabled,
+                  let workspace = tabManager.selectedWorkspace,
+                  let panelId = workspace.focusedPanelId else {
+                NSSound.beep()
+                return
+            }
+            workspace.clearSplitZoom()
+            let direction = SplitDirection.right
+            if workspace.newChiefSplit(
+                from: panelId,
+                orientation: direction.orientation,
+                insertFirst: direction.insertFirst
+            ) == nil {
+                NSSound.beep()
+            }
         }
     }
 }

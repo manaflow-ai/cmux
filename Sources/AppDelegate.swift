@@ -998,7 +998,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isDisabledByPolicy: { ManagedDevicePolicy().isEnforced(.disableAutoUpdate) }
     )
     private let titlebarControlsLayoutModel = TitlebarControlsLayoutModel()
-    private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(
+    private(set) lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(
         updateLog: updateLog,
         settingsRuntime: settingsRuntime,
         layoutModel: titlebarControlsLayoutModel
@@ -1429,6 +1429,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var lastVisibleFrameFitTopologySignature: [MainWindowVisibleFrameTopologySignatureEntry]?
     var didObserveUnknownVisibleFrameFitTopology = false
     var didObserveUnknownDisplayConfiguration = false
+    /// Set by a CoreGraphics display reconfiguration, cleared once a reconcile
+    /// has a trusted signature. Lets reconcile tell a display flap that settled
+    /// on the same configuration apart from a Dock resize.
+    var didObserveDisplayReconfigurationSinceReconcile = false
     var visibleFrameFitTopologyRetryBudget = 0
     var screenChangeReconcileRetryBudget = 0
     var isScreenChangeCaptureSuppressed = false
@@ -1689,6 +1693,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // menu mounts: it is lazy, and its consumers only observe its
         // notification, so nothing else would bring it up (#10866).
         BrowserAvailabilityMonitor.shared.activate()
+        startChiefIfEnabled()
         // Composition root for surfaces: this Mac's panes and every cloud machine's
         // cmux-tui session feed one catalog, and the sidebar, drag/drop, socket and CLI all
         // open through `SurfaceCatalog.project`.
@@ -1928,6 +1933,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // built-in defaults.
         if !isRunningUnderXCTest, !ManagedDevicePolicy().isEnforced(.disableTelemetry) {
             CmuxFeatureFlags.shared.start()
+        } else if !isRunningUnderXCTest {
+            // Still load local overrides into the off-main snapshot that
+            // `ChiefSettings.isAvailable` reads before session restore.
+            _ = CmuxFeatureFlags.shared
         }
 
         let forceDuplicateLaunchObserver = env["CMUX_UI_TEST_ENABLE_DUPLICATE_LAUNCH_OBSERVER"] == "1"
@@ -4326,6 +4335,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             deferBrowserPanels: true,
             workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache
         )
+        // A snapshot saved with Chief on carries its Home; with Chief off, drop it.
+        ChiefHomeNavigation.removeHome(in: context.tabManager)
         context.restoreWindowDockSessionSnapshot(
             snapshot,
             notificationStore: notificationStore,
@@ -4820,6 +4831,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     hasher.combine(0)
                 case .notifications:
                     hasher.combine(1)
+                case .home:
+                    hasher.combine(2)
                 }
 
                 if let window = liveRoute.window {
@@ -14531,6 +14544,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             switch sidebarSelection {
             case .tabs: return "tabs"
             case .notifications: return "notifications"
+            case .home: return "home"
             }
         }()
         writeMultiWindowNotificationTestData([
@@ -15420,6 +15434,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Open Chief: toggles Home, so the same keys return to the workspace.
+        // When chief.enabled is off the shortcut is not consumed, so the
+        // keystroke still reaches the focused surface.
+        if matchConfiguredShortcut(event: event, action: .openChief),
+           openChiefHome(
+               preferredWindow: preferredMainWindowContextForShortcutRouting(event: event)?.window,
+               toggle: true,
+               source: "shortcut.openChief"
+           ) {
+            return true
+        }
+
         if commandPaletteEffectiveInTargetWindow {
             if matchConfiguredShortcut(event: event, action: .commandPalette) {
                 let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
@@ -16231,10 +16257,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Numeric shortcuts for visible workspace rows (9 = last visible row).
-        // Always consume the event when the digit matches to prevent Ghostty's
-        // goto_tab fallback from creating a new window when the index is out of bounds.
+        // Numeric shortcuts for visible workspace rows (9 = last visible row). Always consume a matching
+        // digit so Ghostty's goto_tab fallback cannot create a new window for an out-of-bounds index.
         if let digit = routableNumberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
+            if openNotificationsPopoverRow(forDigit: digit, event: event) { return true }
             if let manager = tabManagerForNumberedShortcut(event: event),
                let targetIndex = manager.selectWorkspaceByNumber(digit) {
 #if DEBUG
@@ -17106,6 +17132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return nil
         }
+        leaveChiefHome(in: tabManager)
 
         let preferredProfileID =
             tabManager?.focusedBrowserPanel?.profileID
@@ -17599,6 +17626,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
         let terminalContext = focusedTerminalShortcutContext(preferredWindow: targetWindow)
         _ = synchronizeActiveMainWindowContext(preferredWindow: targetWindow)
+        leaveChiefHome(in: terminalContext?.tabManager ?? tabManager)
 
         let directionLabel: String
         switch direction {

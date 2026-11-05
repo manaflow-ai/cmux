@@ -115,6 +115,11 @@ const nextConfig: NextConfig = {
     }
     return {
       beforeFiles: [
+        // Universal links for the cmux iOS app (app/api/apple-app-site-association).
+        {
+          source: "/.well-known/apple-app-site-association",
+          destination: "/api/apple-app-site-association",
+        },
         {
           source: "/_docs-assets/release/:path*",
           destination: `${releaseDocsOrigin}/:path*`,

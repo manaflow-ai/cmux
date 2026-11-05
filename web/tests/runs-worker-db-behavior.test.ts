@@ -5,7 +5,7 @@ const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
 const NOW = new Date("2026-10-18T06:00:00.000Z");
 type TestSql = ((strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]>) & { end(options?: { timeout?: number }): Promise<void>; json(value: unknown): unknown };
-type WorkerModule = typeof import("../services/runs/worker");
+type WorkerModule = typeof import("../services/runs/legacy/worker");
 let sqlClient: TestSql | null = null;
 let worker: Pick<WorkerModule, "cancelClaimedRunAttempt" | "cancelRun" | "claimNextRunAttempt" | "finishRunAttempt"> | null = null;
 const cleanupRunIds: string[] = [];
@@ -45,7 +45,7 @@ beforeAll(async () => {
   if (!runDbTests) return;
   const url = process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is required when CMUX_DB_TEST=1");
-  const [postgresModule, workerModule] = await Promise.all([import("postgres"), import("../services/runs/worker")]);
+  const [postgresModule, workerModule] = await Promise.all([import("postgres"), import("../services/runs/legacy/worker")]);
   sqlClient = postgresModule.default(url, { max: 2 }) as unknown as TestSql;
   worker = workerModule;
 });
@@ -85,6 +85,20 @@ describe("Run attempt worker database protocol", () => {
     expect(await requiredWorker().claimNextRunAttempt({ workerId: "worker-d", runId, now: new Date(NOW.getTime() + 2_000), leaseMs: 60_000 })).toBeNull();
     expect(await requiredWorker().cancelClaimedRunAttempt({ runId, attemptId: claimed!.attemptId, leaseId: claimed!.leaseId, now: new Date(NOW.getTime() + 3_000) })).toBe(true);
     expect(await requiredWorker().cancelClaimedRunAttempt({ runId, attemptId: claimed!.attemptId, leaseId: claimed!.leaseId, now: new Date(NOW.getTime() + 3_000) })).toBe(false);
+  });
+
+  // The production worker passes retainedUntil as a Date. The postgres-js
+  // driver used to reject it at Bind, which failed every retained Run attempt.
+  dbTest("records a retained success with a Date retention deadline", async () => {
+    const { runId } = await fixture({ attempts: 1 });
+    const claimed = await requiredWorker().claimNextRunAttempt({ workerId: "worker-r", runId, now: NOW, leaseMs: 60_000 });
+    expect(claimed).not.toBeNull();
+    const retainedUntil = new Date(NOW.getTime() + 15 * 60_000);
+    expect(await requiredWorker().finishRunAttempt({ runId, attemptId: claimed!.attemptId, leaseId: claimed!.leaseId, status: "succeeded", providerVmId: "vm-retained", cleanupState: "retained", retainedUntil, now: new Date(NOW.getTime() + 1_000) })).toBe(true);
+    const [row] = await database()`select status, cleanup_state, retained_until from run_attempts where id = ${claimed!.attemptId}::uuid` as { status: string; cleanup_state: string; retained_until: Date }[];
+    expect(row?.status).toBe("succeeded");
+    expect(row?.cleanup_state).toBe("retained");
+    expect(new Date(row!.retained_until).toISOString()).toBe(retainedUntil.toISOString());
   });
 
   dbTest("allows two attempts when the run resource cap is two", async () => {

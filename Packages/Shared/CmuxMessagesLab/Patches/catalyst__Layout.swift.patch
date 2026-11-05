@@ -1,0 +1,88 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/Layout.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/Layout.swift
+@@ -94,9 +94,14 @@
+                 }
+             }
+             if r.mention != nil { traits.insert(.traitBold) }
+-            // The bold/italic face held for the process (HomeFonts, cx-qpqs); no font attribute when there is none.
++            // cmux: the bold/italic face held for the process (HomeFonts, cx-qpqs); no font attribute when there is none.
+             if !traits.isEmpty, let f = HomeFonts.font(Fixture.bodyFont, adding: traits) {
+                 a.addAttribute(.font, value: f, range: range)
++            }
++            // cmux: inline code and code blocks (HomeMarkdown) in the monospaced system font, one point smaller like Messages' body.
++            // One font for the process (HomeFonts.code): one made per run on RowBitmaps' threads came back nil.
++            if r.style?.contains("code") == true {
++                a.addAttribute(.font, value: HomeFonts.code, range: range)
+             }
+             if r.link != nil {
+                 a.addAttributes([.foregroundColor: linkColor, .underlineStyle: NSUnderlineStyle.single.rawValue], range: range)
+@@ -992,7 +997,8 @@
+                                         gap: 1, height: 14))
+                 }
+                 if case .failed = m.status {
+-                    rows.append(RowSpec(key: "failed:\(m.id)", kind: .label(text: Strings.notDelivered, outgoing: outgoing, color: .failure),
++                    // cmux: "May Not Have Been Delivered" for a send that reached the owner unanswered.
++                    rows.append(RowSpec(key: "failed:\(m.id)", kind: .label(text: CmuxStrings.failedLabel(m.status), outgoing: outgoing, color: .failure),
+                                         gap: 1, height: 14))
+                 }
+                 if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
+@@ -1004,6 +1010,11 @@
+                 }
+             }
+             prev = m; prevIndex = idx
++        }
++        // cmux: the host's notice, centered like the date row, under the newest message. Row key "notice" (the
++        // tail rows' paging rules); none while upstream's status line (ask 9, same key) is set.
++        if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.notice?.isEmpty ?? true, let notice = s.ui.cmuxNotice {
++            rows.append(RowSpec(key: "notice", kind: .separator(bold: "", rest: notice), gap: 0, height: 35.5))
+         }
+         if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.typing.contains(where: { $0 != me }) {
+             rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
+@@ -1011,7 +1022,8 @@
+         // The host's status line (ask 9), last, under the typing indicator: drawn like Messages' own notice in the
+         // transcript ("You unsent a message": 11 pt, secondary, centered) at the unsent row's gap and height.
+         if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice, !notice.isEmpty {
+-            rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: 16))
++            // cmux-classic: 4 pt gap, so RowDrawing's line sits 6 pt under the approval card it speaks for.
++            rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 4, height: 16))
+         }
+         rows = rows.map { var r = $0; r.width = width; return r } // no index writes
+         return rows
+@@ -1098,7 +1110,7 @@
+ enum Format {
+     private static let timeFormatter: DateFormatter = {
+         let f = DateFormatter()
+-        f.locale = Locale(identifier: "en_US")
++        f.locale = Instant.locale
+         f.timeZone = Instant.zone
+         f.dateFormat = "h:mm\u{202F}a"
+         return f
+@@ -1117,7 +1129,7 @@
+     private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
+     private static func formatter(_ f: String) -> DateFormatter {
+         let d = DateFormatter()
+-        d.locale = Locale(identifier: "en_US")
++        d.locale = Instant.locale
+         d.timeZone = Instant.zone
+         d.dateFormat = f
+         return d
+@@ -1167,7 +1179,8 @@
+ enum MessagesLabLocalization {
+     private final class Token {}
+     private static let lock = NSLock()
+-    private static var current = Bundle(for: Token.self)
++    // cmux: the package's bundle (Bundle(for:) of a class in a linked package is the app's).
++    private static var current = Bundle.module
+     static var bundle: Bundle {
+         get { lock.lock(); defer { lock.unlock() }; return current }
+         set { lock.lock(); current = newValue; lock.unlock() }
+@@ -1200,7 +1213,8 @@
+         default: return MessagesLabLocalization.string("file.kind.document", "Document")
+         }
+     }
+-    static var placeholder: String { MessagesLabLocalization.string("compose.placeholder", "iMessage") }
++    // cmux: not "iMessage" (Apple's service name).
++    static var placeholder: String { MessagesLabLocalization.string("compose.placeholder", "Message") }
+     static var replyPlaceholder: String { MessagesLabLocalization.string("compose.placeholder.reply", "Reply") }
+     static var menuReply: String { MessagesLabLocalization.string("menu.reply", "Reply") }
+     static var menuCopy: String { MessagesLabLocalization.string("menu.copy", "Copy") }
