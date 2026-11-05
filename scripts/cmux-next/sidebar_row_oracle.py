@@ -352,7 +352,8 @@ def judge_motion(frames, s, e, times, period, opts, scale, identity, hints):
                 worst_height = {"frame": i, "key": k, "px": err}
             if err > tol and (i not in height_errors or err > height_errors[i]["px"]):
                 height_errors[i] = {"frame": i, "key": k, "px": err}
-            if k in views and edge is not None:
+            # A zero-size view (made, not laid out) draws nothing: only its height is judged in that frame.
+            if k in views and edge is not None and views[k][2] * scale >= MOVER_PX and views[k][3] * scale >= MOVER_PX:
                 shown_edge = views[k][1] if top else views[k][1] + views[k][3]
                 err = abs(shown_edge - edge) * scale
                 if err > worst_row["px"]:
@@ -448,8 +449,9 @@ def judge_motion(frames, s, e, times, period, opts, scale, identity, hints):
             fails.append(f"the rows jumped: progress {j['from_p']:.2f} -> {j['to_p']:.2f} in one frame at frame {j['frame']} "
                          f"(nothing grows or moves on a curve)")
         if late:
+            first_key = min(k for k, f in started.items() if f == common)
             named = ", ".join("%s@%d" % (x["key"], x["frame"]) for x in late[:6])
-            fails.append(f"rows did not start on frame {common}: {named}")
+            fails.append(f"rows did not start on the same frame: {first_key} at frame {common}, later {len(late)} row(s): {named}")
     verdict = "FAIL" if fails else ("INCOMPLETE" if not complete else "PASS")
     return {
         "start_frame": s, "end_frame": e, "kind": kind, "inserted": inserted, "closed": closed,
