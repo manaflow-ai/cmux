@@ -42,6 +42,9 @@ final class TerminalFramePresenter {
         var groupWaits = 0
         /// Requests that took their bounds without their frame after ``keepLimit`` passes.
         var fallbacks = 0
+        /// Requests whose new bounds landed before Ghostty drew their frame: the layer shows its last frame (top-left,
+        /// not stretched) in them until that frame shows (``TerminalFramePresenter/isLate(_:)``).
+        var lateLandings = 0
         var longestPass: Duration = .zero
     }
 
@@ -57,6 +60,8 @@ final class TerminalFramePresenter {
     private struct Watch {
         weak var view: TerminalSurfaceView?
         var ticks = 0
+        /// Its bounds landed before its frame was drawn: it shows its last frame until the new one shows.
+        var late = false
     }
 
     private weak var window: NSWindow?
@@ -112,10 +117,21 @@ final class TerminalFramePresenter {
         requests[id] = nil
         watched[id] = nil
         commits[id] = nil
+        lateCounts[id] = nil
     }
 
     /// Whether `view` waits for a present here.
     func isWaiting(_ view: TerminalSurfaceView) -> Bool { requests[ObjectIdentifier(view)] != nil }
+
+    /// Whether `view`'s bounds landed before Ghostty drew their frame and that frame has not shown yet (counted in
+    /// ``Stats/lateLandings`` and ``lateLandings(of:)``).
+    func isLate(_ view: TerminalSurfaceView) -> Bool { watched[ObjectIdentifier(view)]?.late == true }
+
+    /// How many times `view`'s bounds landed before their frame was drawn, cumulative (films, bench and tests).
+    func lateLandings(of view: TerminalSurfaceView) -> Int { lateCounts[ObjectIdentifier(view)] ?? 0 }
+
+    /// Late landings per terminal (``lateLandings(of:)``); a terminal's entry goes with ``cancel(_:)``.
+    private var lateCounts: [ObjectIdentifier: Int] = [:]
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// What this presenter holds for `view` (`debug.motion` trace): "request" (a size waits for its frame), "watch"
@@ -220,7 +236,9 @@ final class TerminalFramePresenter {
                 stats.keeps += 1
                 if age > Self.keepLimit {
                     stats.fallbacks += 1
-                    land(view, id: id, watch: true)
+                    stats.lateLandings += 1
+                    lateCounts[id, default: 0] += 1
+                    land(view, id: id, watch: true, late: true)
                 }
             }
         }
@@ -230,14 +248,14 @@ final class TerminalFramePresenter {
 
     /// The view takes the size its shown frame has; one that wants another size since asks for it now (a new
     /// request, presented from the next turn).
-    private func land(_ view: TerminalSurfaceView, id: ObjectIdentifier, watch: Bool) {
+    private func land(_ view: TerminalSurfaceView, id: ObjectIdentifier, watch: Bool, late: Bool = false) {
         requests[id] = nil
-        landed(view, id: id, watch: watch, followUp: view.landRequestedFrame())
+        landed(view, id: id, watch: watch, late: late, followUp: view.landRequestedFrame())
     }
 
-    private func landed(_ view: TerminalSurfaceView, id: ObjectIdentifier, watch: Bool, followUp: Bool) {
+    private func landed(_ view: TerminalSurfaceView, id: ObjectIdentifier, watch: Bool, late: Bool = false, followUp: Bool) {
         // A request the landing made for this view owns it; it is not watched beside it.
-        if watch, requests[id] == nil { watched[id] = Watch(view: view) } else if !watch { commits[id] = Watch(view: view) }
+        if watch, requests[id] == nil { watched[id] = Watch(view: view, late: late) } else if !watch { commits[id] = Watch(view: view) }
         // Outside the lock span: what follows the new size and reads Ghostty under the terminal's lock.
         view.frameDidLand()
         if followUp { view.requestWantedFrame() }
