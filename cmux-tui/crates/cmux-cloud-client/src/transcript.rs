@@ -379,6 +379,7 @@ mod tests {
 
     /// One local HTTP server that answers `answers` in order, recording each request's `Range`.
     async fn server(answers: Vec<Reply>) -> (reqwest::Url, tokio::task::JoinHandle<Vec<String>>) {
+        crate::test_tls();
         use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
