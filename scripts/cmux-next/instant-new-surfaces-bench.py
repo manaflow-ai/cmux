@@ -217,13 +217,15 @@ def ensure_terminal(settle=True):
     return ok
 
 
-def timed(command, phase, index, arm=None):
-    """One timed `bench_create` of `command` (the key goes through the real key path in the app), printed."""
+def timed(command, phase, index, arm=None, url=None, extra=None):
+    """One timed `bench_create` of `command` (the key goes through the real key path in the app), printed.
+    `url`: link_right's address for this press (default LINK_URL); `extra`: more bench_create params."""
     # `link_home` is the app's `link_right` from Home's dock (LinkOpener reads the source, not the command).
     sent = "link_right" if command == "link_home" else command
     params = {"action": "bench_create", "command": sent}
     if sent == "link_right":
-        params["url"] = LINK_URL
+        params["url"] = url or LINK_URL
+    params.update(extra or {})
     result = rpc("debug.new_tab", params, timeout=20) or {}
     result.update({"phase": phase, "run": index, "command": command})
     if arm:
@@ -248,12 +250,19 @@ def arm_quick(window):
                 rows.append({"phase": "quick", "run": index, "command": command, "arm": "quick", "error": "no focused terminal"})
                 continue
             before = len(panes())
-            if command == "link_right":  # no key: the app opens the same link untimed and replies at once
-                rpc("debug.new_tab", {"action": "bench_create", "command": command, "url": LINK_URL, "untimed": True})
+            url = None
+            if command == "link_right":
+                # No key: the app opens a link untimed and replies at once with its source pane; the timed press opens
+                # from it (from_pane: the focus moved to the new browser pane, where a link is a tab, not a split).
+                # Each press has its own address, so the two never land on one page.
+                url = f"{LINK_URL}?quick-{index}"
+                first = rpc("debug.new_tab", {"action": "bench_create", "command": command, "url": f"{LINK_URL}?quick-{index}-first",
+                                              "untimed": True}) or {}
             else:
                 name, modifiers = KEYS[command]
                 rpc("debug.key", {"key": name, "modifiers": modifiers, "window": window})
-            rows.append(timed(command, "quick", index, arm="quick"))
+            rows.append(timed(command, "quick", index, arm="quick", url=url,
+                              extra={"from_pane": first.get("source_pane")} if command == "link_right" else None))
             time.sleep(0.4)  # test harness: let the creations' shells start before closing them
             # The first of the two results, then the second (undo waits for one terminal pane again).
             if command == "new_workspace":
