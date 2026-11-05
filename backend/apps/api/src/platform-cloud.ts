@@ -23,5 +23,13 @@ export interface PlatformCloud {
   clearAbandoned(entity: string, machine: string, who: { user: string; email: string | null }, reason: string): Promise<{ ok: boolean; code?: string; message?: string; audit?: unknown }>
 }
 
-/** The platform's CloudDO for one team. */
-export const platformCloud = (ns: DurableObjectNamespace, team: string): PlatformCloud => ns.get(ns.idFromName(team)) as unknown as PlatformCloud
+/** The refusal every RPC gets on a deployment with no CLOUD_DO binding (the local env): a retryable outage, never a TypeError. */
+export const CLOUD_UNBOUND = "owner.unreachable: this deployment has no CLOUD_DO binding (Cloud is served by cmux-platform)"
+
+const unbound: PlatformCloud = new Proxy({} as PlatformCloud, {
+  get: () => () => Promise.reject(new Error(CLOUD_UNBOUND)),
+})
+
+/** The platform's CloudDO for one team; with no binding, a client whose every call rejects with CLOUD_UNBOUND. */
+export const platformCloud = (ns: DurableObjectNamespace | undefined, team: string): PlatformCloud =>
+  ns ? (ns.get(ns.idFromName(team)) as unknown as PlatformCloud) : unbound
