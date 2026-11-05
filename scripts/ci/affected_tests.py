@@ -48,13 +48,14 @@ import os
 import re
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 # focused_tests caps its selection for a car's guard; a lane's own run takes all of it, whatever
 # cap the caller's environment holds (a capped Swift selection comes back empty).
 os.environ["FOCUSED_WEB_CAP"] = "100000"
 os.environ["FOCUSED_SWIFT_CAP"] = "100000"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import cargo_affected  # noqa: E402
 import focused_tests  # noqa: E402
 
 RUST_SCRIPT = "scripts/ci/cmux-tui-rust-check.sh"
@@ -311,13 +312,35 @@ def extra_python(root: Path, files: list[str]) -> list[str]:
     return out
 
 
-def rust_may_read(files: list[str], focused: dict) -> bool:
-    """cmux-tui crates also read files outside cmux-tui/ (include_str! targets, cmux-tui-tree-inputs.txt):
-    a changed path outside the docs, webviews, Swift packages and Native workspaces sends the Rust step,
-    whose own cargo_affected.py says which crates (none: it passes with a notice)."""
-    # Docs count too, except plans/ and docs/: a skill or README can be an include_str! target
-    # (acpmux embeds skills/cmux-cua/SKILL.md).
-    return any(not f.startswith((focused_tests.WEB, "Packages/", "Native/", "plans/", "docs/")) for f in files)
+def rust_references(root: Path) -> set[str]:
+    """Repo paths outside cmux-tui/ that a cmux-tui crate reads: a "../" literal in its Rust sources
+    (cargo_affected.py's crate_references; resolved against every folder up to cmux-tui/, since the
+    anchor is the file's folder or its crate's) and the tree inputs (cmux-tui-tree-inputs.txt)."""
+    refs = set(cargo_affected.tree_inputs(root, cargo_affected.WORKSPACE))
+    out = subprocess.run(["git", "-C", str(root), "grep", "-l", "-F", '"../', "--", f"{cargo_affected.WORKSPACE}/**/*.rs"],
+                         capture_output=True, text=True).stdout
+    found = [(path, literal.lstrip("/")) for path in out.split()
+             for literal in cargo_affected.RELATIVE_REF.findall((root / path).read_text(encoding="utf-8", errors="replace"))]
+    for path, literal in found:
+        folder = PurePosixPath(path).parent
+        while folder != PurePosixPath(".") and folder.as_posix() != cargo_affected.WORKSPACE:
+            target = os.path.normpath(os.path.join(folder.as_posix(), literal))
+            if not target.startswith(("..", cargo_affected.WORKSPACE + "/")) and (root / target).exists():
+                refs.add(target)
+            folder = folder.parent
+    return refs
+
+
+def rust_may_read(root: Path, files: list[str]) -> bool:
+    """A changed path the Rust step may need: anything outside the webviews, Swift packages, Native
+    workspaces, plans/ and docs/, or a path in those that a crate reads (an include_str! target, a
+    fixture a Rust test compares with). The step's own cargo_affected.py says which crates."""
+    skipped = (focused_tests.WEB, "Packages/", "Native/", "plans/", "docs/")
+    if any(not f.startswith(skipped) for f in files):
+        return True
+    refs = rust_references(root)
+    # "." is a test that walks the whole tree (cmux-tui-core's mux matrix): every path reaches it.
+    return bool(files) and "." in refs or any(f == ref or f.startswith(ref + "/") for f in files for ref in refs)
 
 
 def everything_reasons(files: list[str], focused: dict) -> list[str]:
@@ -346,7 +369,7 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
         p.python_extra(unregistered_python_tests(root), "every Python test outside the lane registry")
         p.native(sorted({focused_tests.native_manifest(root, m.as_posix()) or "" for m in root.glob("Native/**/Cargo.lock")} - {""}))
     else:
-        if focused["cargo"]["changed"] or rust_may_read(files, focused):
+        if focused["cargo"]["changed"] or rust_may_read(root, files):
             p.rust(everything=False)
         targets: dict[str, list[str]] = {}
         for item in focused["swift"]:

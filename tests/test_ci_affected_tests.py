@@ -48,10 +48,12 @@ class AffectedTests(unittest.TestCase):
         argv = next(u for u in units if u["kind"] == "rust")["argv"]
         self.assertNotIn("--shards", argv)
 
-    def test_docs_run_only_the_guards(self):
+    def test_docs_run_the_guards_and_the_rust_step(self):
+        # A cmux-tui-core test walks the whole tree (cargo_affected.py maps "." to it), so the Rust
+        # step goes with every change and picks the crates itself.
         result = plan(["plans/cmux-next/STATUS.md"])
         self.assertFalse(result["all"])
-        self.assertEqual(names(result), ["guards"])
+        self.assertEqual(names(result), ["guards", "rust"])
 
     def test_nothing_changed_runs_nothing(self):
         self.assertEqual(plan([])["units"], [])
@@ -104,7 +106,14 @@ class AffectedTests(unittest.TestCase):
     def test_a_skill_a_crate_embeds_sends_the_rust_step(self):
         # acpmux include_str!s skills/cmux-cua/SKILL.md.
         self.assertIn("rust", names(plan(["skills/cmux-cua/SKILL.md"])))
-        self.assertNotIn("rust", names(plan(["plans/cmux-next/STATUS.md"])))
+
+    def test_a_file_outside_cmux_tui_a_crate_reads_sends_the_rust_step(self):
+        # cmux-tui crates read these by "../" path; the planner used to skip Rust for every path
+        # under Packages/, webviews/, plans/ and docs/.
+        for path in ("plans/cmux-next/action-surfaces.json",
+                     "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json",
+                     "docs/remote-agents-and-cloud.md"):
+            self.assertIn("rust", names(plan([path])), path)
 
     def test_no_merge_base_runs_everything(self):
         out = subprocess.run([sys.executable, str(ROOT / "scripts/ci/affected_tests.py"), "--base", "no-such-ref-zz", "--head", "HEAD",
@@ -119,7 +128,6 @@ class AffectedTests(unittest.TestCase):
         web = [u for u in result["units"] if u["kind"] == "web"]
         self.assertEqual(len(web), 1)
         self.assertFalse(any(a.startswith("CMUX_WEB_TEST_FILES=") for a in web[0]["argv"]))
-        self.assertNotIn("rust", names(result))
 
     def test_unit_names_are_unique_and_web_plans_take_the_web_workflows_python_tests(self):
         for files in (["webviews/src/agent-session/acpmux/App.tsx"], ["cmux-tui/crates/cmux-config/src/lib.rs"], []):
@@ -244,7 +252,7 @@ class AffectedTests(unittest.TestCase):
         out = subprocess.run([sys.executable, str(ROOT / "scripts/ci/affected_tests.py"), "--base", "HEAD", "--head", "HEAD",
                               "--files", "plans/cmux-next/STATUS.md"], cwd=ROOT, check=True, capture_output=True, text=True).stdout
         data = json.loads(out)
-        self.assertEqual([u["name"] for u in data["units"]], ["guards"])
+        self.assertEqual([u["name"] for u in data["units"]], ["guards", "rust"])
         self.assertRegex(data["head"], r"^[0-9a-f]{40}$")
 
 
