@@ -284,26 +284,34 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     };
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await watchForUnavailable(page);
-    await withHostTail(page, "chat-on-box", "Kept chat-on-box");
+    // What the host kept is the start of the machine's own log, as a kept tail always is.
+    await withHostTail(page, "chat-on-box", "Opened chat-on-box");
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     const started = Date.now();
     await page.goto(
       `http://127.0.0.1:${port}/#${new URLSearchParams({ endpoint, token: "t", session: "chat-on-box", must: "" })}`,
     );
-    await page.getByText("Kept chat-on-box", { exact: true }).waitFor({ timeout: 25_000 });
+    await page.getByText("Opened chat-on-box", { exact: true }).waitFor({ timeout: 25_000 });
     const drawnMs = Date.now() - started;
     console.log(`chat-unavailable: kept rows of a chat whose machine is connecting drawn ${drawnMs} ms after open`);
     expect(drawnMs).toBeLessThan(3_000);
     // Still loading: no line over the rows, and no centered state in their place.
     expect(await page.locator("[data-unavailable]").count()).toBe(0);
-    // The machine connects and acpmux lists the chat: it opens live in place of the kept rows.
+    // The machine connects and acpmux lists the chat: it opens live, continuing the kept rows.
     scenario.peers = [{ name: "build-box", transport: "ssh", connected: true, state: "connected" }];
     const listed = summary("chat-on-box", { peer: "build-box" });
     scenario.sessions = [...scenario.sessions, listed];
     notify("_acpmux/session_changed", { kind: "created", session: listed });
-    await page.getByText("Opened chat-on-box", { exact: true }).waitFor({ timeout: 60_000 });
-    expect((await state(page)).sessionId).toBe("chat-on-box");
+    await page.waitForFunction(
+      () => {
+        const chat = (window as any).cmuxAcpmuxDebug.chatState() as Record<string, any>;
+        return chat.sessionId === "chat-on-box";
+      },
+      undefined,
+      { timeout: 60_000 },
+    );
+    expect(await page.getByText("Opened chat-on-box", { exact: true }).count()).toBe(1);
     expect(await page.evaluate(() => (window as any).__unavailableSeen)).toEqual([]);
     await page.close();
   });
