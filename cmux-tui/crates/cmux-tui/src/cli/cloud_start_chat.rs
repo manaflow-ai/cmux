@@ -806,10 +806,15 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
             match row.and_then(|row| at(row, "machine_id").as_str()) {
                 Some(id) => id.to_owned(),
                 // A name no machine has yet: made here under that name, so its first chat still goes the relay way.
-                None => match new_machine(runner, request, Some(name)) {
-                    Ok(id) => id,
-                    Err(outcome) => return Relayed::Answered(outcome),
-                },
+                None if name_is_free(listed, name) => {
+                    match new_machine(runner, request, Some(name)) {
+                        Ok(id) => id,
+                        Err(outcome) => return Relayed::Answered(outcome),
+                    }
+                }
+                // The list is not loaded yet, or a create of that name is on its way: `cloud start-session --name`
+                // waits on it, where another create would make a second machine.
+                None => return Relayed::Fallback(None),
             }
         }
         Machine::New => match new_machine(runner, request, None) {
@@ -921,6 +926,17 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
     };
     let message = at(&relayed, "error_message").as_str().unwrap_or("the turn failed").to_owned();
     Relayed::Answered(failed(code, message, json!({"answer": answer}), exit))
+}
+
+/// Whether `cloud list-machines` says for certain that no machine has `name`: the list is loaded, and no create on
+/// its way names it (a nameless create may be any name's).
+fn name_is_free(listed: &Value, name: &str) -> bool {
+    at(listed, "loaded").as_bool() != Some(false)
+        && !at(listed, "creating")
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|row| at(row, "name").as_str().is_none_or(|creating| creating == name))
 }
 
 /// `cloud new-machine` for the relay chat, under the command's name when it gave one: the machine's id, or the
