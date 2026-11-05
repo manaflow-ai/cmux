@@ -38,12 +38,14 @@ nonisolated struct UniformEdge: Hashable, Sendable {
     /// The camera's value after the anchored sync with every column `width` wide: the value now plus that shift.
     func presented(_ width: CGFloat) -> CGFloat { shown + cameraShift(width) }
 
-    /// Whether the shifted target is outside the new strip, so the sync clamps it and the camera springs back under a
-    /// still pointer: a shrink at the strip's end that moves the end further than the anchor's shift (as before the anchor
-    /// shift was bounded).
-    func springsBack(_ width: CGFloat) -> Bool {
-        let target = camera + cameraShift(width)
-        return target < -0.01 || target > maxOffset(width) + 0.01
+    /// Whether the anchored sync with every column `width` wide adds camera travel: after it the camera still has to go
+    /// from the value it shows to its clamped target, and that may only be part of what it had to go before (a camera
+    /// mid-spring keeps its own spring; a clamp that stops it is no harm). More, or the other way, moves the strip and the
+    /// edge under a still pointer after the frame (a shrink at the strip's end clamps the target back past the value).
+    func addsTravel(_ width: CGFloat) -> Bool {
+        let target = min(max(camera + cameraShift(width), 0), maxOffset(width))
+        let before = camera - shown, after = target - presented(width)
+        return after < min(0, before) - 0.01 || after > max(0, before) + 0.01
     }
 
     /// Where the dragged edge shows (strip space less the camera's value) with every column `width` wide.
@@ -54,13 +56,15 @@ nonisolated struct UniformEdge: Hashable, Sendable {
     /// there is the one, within the pointer's travel of the dragged column's width now: in the first, second and last the
     /// edge moves at least as far as the width, so a solution further away is another branch, and taking it would jump
     /// every width. Nil when none is: at the strip's end the content pins the edge (shrinking every column moves it right,
-    /// or not at all for the last column), and a width whose shifted target leaves the new strip would spring back.
+    /// or not at all for the last column), and a width that adds camera travel would slide the edge after the frame. There
+    /// the edge holds at its limit: the width it has now, while that adds no travel (nil only if it would).
     func width(restingEdgeAt place: CGFloat) -> CGFloat? {
         let k = CGFloat(index), n = CGFloat(widths.count)
         let before = widths.prefix(index).reduce(0, +), all = widths.reduce(0, +), base = place - left + before + shown
         var candidates = [place - left + shown, (base - camera) / (k + 1), base / (k + 1)]
         if k + 1 != n { candidates.append((base + content - all - viewport - camera) / (k + 1 - n)) }
         let current = widths[index], reach = abs(place - edge(current)) + 0.01
-        return candidates.first { $0 > 0 && abs($0 - current) <= reach && abs(edge($0) - place) < 0.01 && !springsBack($0) }
+        return candidates.first { $0 > 0 && abs($0 - current) <= reach && abs(edge($0) - place) < 0.01 && !addsTravel($0) }
+            ?? (addsTravel(current) ? nil : current)
     }
 }
