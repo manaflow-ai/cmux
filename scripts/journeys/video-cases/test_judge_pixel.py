@@ -457,6 +457,16 @@ def build_touch(root, name, variant):
 #     samples 10-29 and C's pane shrinks from the left; while it moves, C's page keeps 6 px more than its pane (anchored
 #     top-left, as with browserResize.keyResizeTopLeft): its ring 3 shows inside the window, rings 2 and 1 are past the
 #     window's edge (not drawn).
+#   pane-past: the same, but C's pane runs 20 px past the window's edge in every sample and its page is at its size (its
+#     right rings are past the window: C's right edge is not on screen).
+#   page-far: as page-clipped, but C's page keeps 16 px more than its pane: its fill runs into the window's edge (every
+#     ring past it), as in ab-btl-sw-dbf5c8b keyresizetopleft-on-s1 frames 161-165.
+#   tui-grid: page C | band | terminal A (A's right edge on the window's right edge). C shrinks and A GROWS 2 px per
+#     sample; while it grows, A's grid is the press's final one, wider than its view: its right edge shows fill, then
+#     12 px of ring 3 up to the window's edge, and no ring 2, ring 1 or ground (ab-s4pin-44ab81a
+#     px-keys-rk-3t-sw-terminals-on-s1 frame 158: one program grid per press).
+#   tui-view-wider: the same picture while A SHRINKS (C grows): the view kept its old, wider size anchored top-left, so
+#     its rings run past the window's edge.
 WE_W = 640                  # scan width (device px); the window is W (600) wide
 DESKTOP = [BLACK] * 17 + [(128, 128, 128)] + [RED] + [(128, 128, 128)] * 3 + [BLACK] * 2 + [(128, 128, 128)] * 16
 
@@ -466,41 +476,69 @@ def we_frame(k, variant):
     aw = a_width(s, "strip")
     img = np.zeros((H, WE_W, 3), np.uint8)
     img[:] = MAGENTA
-    draw_tui(img, 0, aw)
+    if variant in ("tui-grid", "tui-view-wider"):
+        if variant == "tui-grid":
+            aw = 2 * A_REST - a_width(s, "strip")  # C shrinks while A grows
+        draw_page(img, 0, int(round(aw)), y0=STRIP_PX)
+        t_x = int(round(aw)) + DIV_PX
+        draw_tui_at(img, t_x, W - t_x, BLUE, y0=STRIP_PX)
+        if MOVE[0] <= s < MOVE[1]:
+            img[STRIP_PX + PAD + CH:H - PAD - CH, W - 40:W - 12] = BLUE  # the final grid's inner cells, then its ring 3
+            img[STRIP_PX:, W - 12:W] = BLACK
+        draw_strip(img, 0, int(round(aw)), 0)
+        draw_strip(img, t_x, W, t_x)
+        img[:, W:] = np.array(DESKTOP, np.uint8)[None, :, :]
+        return img
+    draw_tui(img, 0, aw, y0=STRIP_PX)
     c_x = int(round(aw)) + DIV_PX
-    c_w = W - c_x
-    late = MOVE[0] <= s < MOVE[1]
-    draw_page(img, c_x, c_w + (6 if late else 0))
+    c_w = W - c_x + (20 if variant == "pane-past" else 0)
+    late = MOVE[0] <= s < MOVE[1] and variant in ("page-clipped", "page-far")
+    draw_page(img, c_x, c_w + ((16 if variant == "page-far" else 6) if late else 0), y0=STRIP_PX)
+    draw_strip(img, 0, int(round(aw)), 0)  # each pane's tab strip on its own pane edges: cmux's layer
+    draw_strip(img, c_x, c_x + c_w, c_x)
     img[:, W:] = np.array(DESKTOP, np.uint8)[None, :, :]  # past the window's edge: the desktop, never the app
     return img
 
 
 def build_window_edge(root, name, variant):
     base = Path(root) / name
-    header = {"width": WE_W, "height": H, "rows": ROWS, "columns": COLS, "format": "BGRA", "time": "float64-le host seconds"}
+    rows = [STRIP_ROW] + ROWS
+    header = {"width": WE_W, "height": H, "rows": rows, "columns": COLS, "format": "BGRA", "time": "float64-le host seconds"}
     with open(f"{base}.mov.scan", "wb") as out:
         out.write(json.dumps(header).encode() + b"\n")
         for k in range(N):
             px = bgra(we_frame(k, variant))
             out.write(struct.pack("<d", T0 + k * P))
-            for y in ROWS:
+            for y in rows:
                 out.write(px[y].tobytes())
             for x in COLS:
                 out.write(px[:, x].tobytes())
     samples = []
     for k in range(N):
-        aw = a_width(k, "strip") / SCALE
+        aw = (2 * A_REST - a_width(k, "strip") if variant == "tui-grid" else a_width(k, "strip")) / SCALE
         cx = aw + DIV_PX / SCALE
-        a = ["pa", 0, 0, aw, 150, 1, 0, 0, 0, aw, 150, aw, 150, 0, 0, 0, aw, 150]
-        c = ["pc", cx, 0, 300 - cx, 150, 1, 1, cx, 0, 300 - cx, 150, 300 - cx, 150, 0, cx, 0, 300 - cx, 150]
+        cy = STRIP_PX / SCALE
+        a = ["pa", 0, 0, aw, 150, 1, 0, 0, 0, aw, 150, aw, 150 - cy, 0, 0, cy, aw, 150 - cy]
+        cw = 300 - cx + (10 if variant == "pane-past" else 0)  # pane-past: C's pane runs 20 device px past the window
+        c = ["pc", cx, 0, cw, 150, 1, 1, cx, 0, cw, 150, cw, 150 - cy, 0, cx, cy, cw, 150 - cy]
+        if variant in ("tui-grid", "tui-view-wider"):  # the page on the left, the terminal on the right
+            a = ["pa", cx, 0, 300 - cx, 150, 1, 1, cx, 0, 300 - cx, 150, 300 - cx, 150 - cy, 0, cx, cy, 300 - cx, 150 - cy]
+            c = ["pc", 0, 0, aw, 150, 1, 0, 0, 0, aw, 150, aw, 150 - cy, 0, 0, cy, aw, 150 - cy]
         samples.append({"t": k * P * 1000, "window": [300, 150], "panes": [a, c],
                         "dividers": [["d0", aw, 0, DIV_PX / SCALE, 150, 1, 2]], "page": []})
     Path(f"{base}.trace.json").write_text(json.dumps({"t0_s": T0 - 0.001, "refresh_ms": P * 1000, "samples": samples}))
     note = {"scale": SCALE, "panes": {"pa": {"kind": "tui", "fill": "#FFFF00", "label": "p0"},
                                       "pc": {"kind": "page", "fill": "#00FF00", "label": "p1"}},
-            "speed": 1, "reduce": False, "input": "keys", "window_frame": [WINDOW_X, 50, 300, 150], "page_backdrop": False}
+            "speed": 1, "reduce": False, "input": "keys", "window_frame": [WINDOW_X, 50, 300, 150], "page_backdrop": False,
+            "lines": {"strip_rows": {"pa": STRIP_ROW, "pc": STRIP_ROW}}}
+    a0, c0 = A_REST / SCALE, (A_REST + DIV_PX) / SCALE
+    left, right = ("pc", "pa") if variant in ("tui-grid", "tui-view-wider") else ("pa", "pc")
+    note["chrome"] = [{"pane": left, "cell": [0, 0, a0, 150], "strip": [0, 0, a0, 12], "pill": [8, 2, 100, 8]},
+                      {"pane": right, "cell": [c0, 0, 300 - c0, 150], "strip": [c0, 0, 300 - c0, 12], "pill": [c0 + 8, 2, 100, 8]}]
+    if variant in ("tui-grid", "tui-view-wider"):
+        note["panes"]["pa"]["fill"] = "#0000FF"
     Path(f"{base}.events.json").write_text(json.dumps({"hid": [], "journal": []}))
-    meta = {"start": {"width": WE_W, "height": H, "scale": SCALE, "rows": ROWS, "columns": COLS}, "notes": {"pixel": note}}
+    meta = {"start": {"width": WE_W, "height": H, "scale": SCALE, "rows": rows, "columns": COLS}, "notes": {"pixel": note}}
     Path(f"{base}.meta.json").write_text(json.dumps(meta))
     return base
 
@@ -1627,13 +1665,19 @@ class WindowEdgeTests(unittest.TestCase):
     """3e.2 (pixel-perfect, 2026-11-04: ab-btl-sw-dbf5c8b px-keys-held-2-sw-keyresizetopleft-on-s1, 38 frames of page E5,
     rings read [1.0, 0.0, 17.5-23.5] against [2, 4, 6]): the scan runs past the window's right edge (2872 px of scan, a
     2722 px window), and the walk read the desktop's black beyond the window as the page's ring 3. Pixels past the window's
-    edge are not the app's: no reader takes them. A side whose rings run past the window's edge is clipped: not judged
-    (never a pass), never E5; a side whose rings end on the window's edge is judged as before."""
+    edge are not the app's: no reader takes them. A side on screen whose rings run past the window's edge shows content
+    past its pane edge (the pane ends at or inside the window): it fails (m6 E3 on a hi side; m14 class edge), with a
+    lower bound of its offset (the rest widths of the rings it does not show), never E5 (review of 2796367203bb). A pane
+    that itself runs past the window has that edge off screen: not judged. Rings that end on the window's edge pass."""
 
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp(prefix="judge-pixel-window-edge-")
         cls.report = jp.judge(build_window_edge(cls.tmp, "page-clipped", "page-clipped"), all_frames=True)
+        cls.past = jp.judge(build_window_edge(cls.tmp, "pane-past", "pane-past"), all_frames=True)
+        cls.far = jp.judge(build_window_edge(cls.tmp, "page-far", "page-far"), all_frames=True)
+        cls.grid = jp.judge(build_window_edge(cls.tmp, "tui-grid", "tui-grid"), all_frames=True)
+        cls.wider = jp.judge(build_window_edge(cls.tmp, "tui-view-wider", "tui-view-wider"), all_frames=True)
 
     @classmethod
     def tearDownClass(cls):
@@ -1644,11 +1688,54 @@ class WindowEdgeTests(unittest.TestCase):
         self.assertEqual(page["fail_by_rule"]["E5"], 0, page)
         self.assertEqual(self.report["m14"]["kinds"]["page"]["scaled"], 0)
 
-    def test_a_side_clipped_by_the_window_is_not_judged(self):
+    def test_content_past_its_pane_edge_at_the_window_edge_fails(self):
+        # C's page keeps 6 px more than its pane, which ends on the window's edge: rings 2 and 1 (4 + 2 px) are past it
         got = entries(self.report, "p1", "row@110", "hi")
         moving = range(MOVE[0] + 2, MOVE[1])
-        self.assertEqual({f: got.get(f, {}).get("status") for f in moving}, {f: "not found" for f in moving})
+        self.assertEqual({f: got.get(f, {}).get("status") for f in moving}, {f: "clipped" for f in moving})
         self.assertEqual({got[f].get("why") for f in moving}, {jp.WINDOW_CLIPPED})
+        page = self.report["m6"]["kinds"]["page"]
+        self.assertLessEqual(set(moving), jp_frames(page["fail_frames_by_rule"]["E3"]), page)
+        m14 = self.report["m14"]["kinds"]["page"]
+        self.assertLessEqual(set(moving), jp_frames(m14["edge_ranges"]), m14)
+        self.assertEqual(m14["worst_px"], 6.0)  # a lower bound: ring 2 (4 px) and ring 1 (2 px) are not shown
+        self.assertIn("clipped", m14["worst_edge"])
+
+    def test_a_page_whose_fill_runs_into_the_window_edge_fails(self):
+        # every ring is past the window's edge: no walk starts there, yet the content runs past its pane edge
+        got = entries(self.far, "p1", "row@110", "hi")
+        moving = range(MOVE[0] + 2, MOVE[1])
+        self.assertEqual({got[f]["status"] for f in moving}, {"clipped"})
+        m14 = self.far["m14"]["kinds"]["page"]
+        self.assertLessEqual(set(moving), jp_frames(m14["edge_ranges"]), m14)
+        self.assertEqual(m14["worst_px"], 12.0)  # a lower bound: rings 3, 2 and 1 (6 + 4 + 2 px) are not shown
+
+    def test_a_growing_terminal_whose_grid_the_window_cuts_is_not_judged_there(self):
+        # A terminal draws only inside its view: while its pane grows, the press's final grid is wider than the view and
+        # the view (on the window's edge) cuts it: one program grid per press, never content past its pane edge.
+        got = entries(self.grid, "p0", "row@180", "hi")  # row@110 crosses the terminal's ring rows: not judged there
+        moving = range(MOVE[0] + 2, MOVE[1])
+        self.assertEqual({got[f]["status"] for f in moving}, {"clipped"})
+        t = self.grid["m6"]["kinds"]["terminal"]
+        self.assertEqual((t["fail"], t["fail_by_rule"]["E5"]), (0, 0), t)
+        self.assertGreaterEqual(t["clipped_grid_not_judged"], len(moving), t)
+        self.assertEqual(self.grid["m14"]["kinds"]["terminal"]["fail"], 0)
+        self.assertEqual({got[f]["status"] for f in range(0, MOVE[0])}, {"found"})
+
+    def test_a_terminal_view_wider_than_its_pane_at_the_window_edge_fails(self):
+        # the same picture while the pane shrinks: the view kept its old, wider size; its rings run past the window
+        got = entries(self.wider, "p0", "row@180", "hi")
+        moving = range(MOVE[0] + 2, MOVE[1])
+        self.assertEqual({got[f]["status"] for f in moving}, {"clipped"})
+        t = self.wider["m6"]["kinds"]["terminal"]
+        self.assertLessEqual(set(moving), jp_frames(t["fail_frames_by_rule"]["E3"]), t)
+        self.assertEqual(t["clipped_grid_not_judged"], 0, t)
+        self.assertLessEqual(set(moving), jp_frames(self.wider["m14"]["kinds"]["terminal"]["edge_ranges"]))
+
+    def test_a_pane_past_the_window_is_not_judged_there(self):
+        page = self.past["m6"]["kinds"]["page"]
+        self.assertEqual((page["fail"], page["fail_by_rule"]["E5"]), (0, 0), page)
+        self.assertEqual(entries(self.past, "p1", "row@110", "hi"), {})
 
     def test_rings_that_end_on_the_window_edge_are_judged(self):
         got = entries(self.report, "p1", "row@110", "hi")
