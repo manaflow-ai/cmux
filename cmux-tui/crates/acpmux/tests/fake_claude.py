@@ -569,6 +569,24 @@ while True:
     except ValueError:
         continue
     kind = msg.get("type")
+    # `/rename NAME`, answered as Claude Code 2.1.310 does (a local command, no model call); FAKE_CLAUDE_RENAMED
+    # names a file each name is added to, so a test sees the running process renamed (hub/live_name.rs).
+    content = (msg.get("message") or {}).get("content") if kind == "user" else None
+    if isinstance(content, str) and content.startswith("/rename "):
+        name = content[len("/rename "):].strip()
+        if os.environ.get("FAKE_CLAUDE_RENAMED"):
+            with open(os.environ["FAKE_CLAUDE_RENAMED"], "a") as f:
+                f.write(name + "\n")
+        said = "Session renamed to: " + name
+        send({"type": "user", "isReplay": True, "uuid": msg.get("uuid"), "message": msg.get("message"),
+              "session_id": SESSION})
+        send({"type": "system", "subtype": "session_title_changed", "title": name, "session_id": SESSION})
+        send({"type": "assistant", "message": {"id": "rename", "model": "<synthetic>", "role": "assistant",
+              "content": [{"type": "text", "text": said}]}, "parent_tool_use_id": None, "session_id": SESSION,
+              "local_command_run": {"command": "rename", "args": name}})
+        send({"type": "result", "subtype": "success", "is_error": False, "num_turns": 0, "duration_api_ms": 0,
+              "result": said, "local_command": "rename", "session_id": SESSION})
+        continue
     # The answer to the late subagent's ask: the subagent says what it was answered.
     if kind == "control_response" and (msg.get("response") or {}).get("request_id") == "late-1":
         behavior = ((msg.get("response") or {}).get("response") or {}).get("behavior", "none")
