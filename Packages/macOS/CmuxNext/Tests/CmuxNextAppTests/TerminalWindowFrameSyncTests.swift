@@ -31,6 +31,11 @@ import Testing
 /// (wall clock from the wake to the end of the commit) and its blocked time (that wall time less the main thread's CPU
 /// time: time it was off the CPU, waiting).
 ///
+/// A sampled turn is a main run-loop pass that ended with Core Animation's commit pass, not a display refresh: while the
+/// test waits for rest it asks for commit after commit, so the run loop passes many times per refresh. So each failure
+/// names its turn number and its time after the press, and each summary gives, per terminal, the failed turns and the
+/// time of the last one (how long the old bounds stayed in the committed tree).
+///
 /// It needs a window on a display (a display worker: `cmux-ci run --display --label gui-session-v1`).
 @MainActor @Suite(.serialized, .closesItsWindows, .timeLimit(.minutes(1)),
                   .enabled(if: ["CMUX_TEST_REQUIRE_GUI", "CMUX_CI_DISPLAY_ROUTED"].contains { ProcessInfo.processInfo.environment[$0] == "1" }))
@@ -66,10 +71,10 @@ struct TerminalWindowFrameSyncTests {
         let found = Self.check(turns)
         print("S4 m14 Reduce Motion one-jump shrink: \(turns.count) committed turns over \(Self.text(turns.last?.at ?? 0)) ms; " +
               "p1 \(before[0].area) -> \(rest[0].area), p2 \(before[1].area) -> \(rest[1].area); " +
-              "bounds (a) failed in \(found.boundsTurns) turns, frame (b) in \(found.frameTurns); " +
+              "bounds (a) failed in \(found.boundsTurns) turns (\(found.kept)), frame (b) in \(found.frameTurns); " +
               "presenter \(TerminalFramePresenter.forWindow(screen.window).stats)")
         #expect(found.bounds.isEmpty,
-                "bounds check (a) failed in \(found.boundsTurns) of \(turns.count) committed turns (a terminal's layer is not its pane's area): \(found.bounds.prefix(8))")
+                "bounds check (a) failed in \(found.boundsTurns) of \(turns.count) committed turns (a terminal's layer is not its pane's area; turns per terminal: \(found.kept)): \(found.bounds.prefix(8))")
         #expect(found.frame.isEmpty,
                 "frame check (b) failed in \(found.frameTurns) of \(turns.count) committed turns (the shown frame is not the layer's size): \(found.frame.prefix(8))")
     }
@@ -101,7 +106,7 @@ struct TerminalWindowFrameSyncTests {
               "p2 took \(widths.count) widths; bounds (a) failed in \(found.boundsTurns) turns, frame (b) in \(found.frameTurns); " +
               "presenter \(TerminalFramePresenter.forWindow(screen.window).stats)")
         #expect(found.bounds.isEmpty,
-                "bounds check (a) failed in \(found.boundsTurns) of \(turns.count) committed turns of the spring (a terminal's layer is not its pane's area): \(found.bounds.prefix(8))")
+                "bounds check (a) failed in \(found.boundsTurns) of \(turns.count) committed turns of the spring (a terminal's layer is not its pane's area; turns per terminal: \(found.kept)): \(found.bounds.prefix(8))")
         #expect(found.frame.isEmpty,
                 "frame check (b) failed in \(found.frameTurns) of \(turns.count) committed turns of the spring (the shown frame is not the layer's size): \(found.frame.prefix(8))")
     }
@@ -230,16 +235,24 @@ struct TerminalWindowFrameSyncTests {
     // MARK: Checks
 
     /// The failures of checks (a) and (b) in `turns`, one line each, and how many turns had each.
-    static func check(_ turns: [TurnRecorder.Turn]) -> (bounds: [String], frame: [String], boundsTurns: Int, frameTurns: Int) {
+    static func check(_ turns: [TurnRecorder.Turn]) -> (bounds: [String], frame: [String], boundsTurns: Int, frameTurns: Int, kept: String) {
         var bounds: [String] = [], frame: [String] = []
         var boundsTurns = 0, frameTurns = 0
+        // Per terminal: the committed turns in which its layer was not its pane's area (kept old bounds).
+        var keptTurns = Array(repeating: 0, count: turns.first?.terminals.count ?? 0)
+        var keptUntil = Array(repeating: 0.0, count: keptTurns.count)
         for turn in turns {
             var boundsFailed = false, frameFailed = false
             for (index, terminal) in turn.terminals.enumerated() {
                 let name = "turn \(turn.index) (+\(text(turn.at)) ms) p\(index + 1)\(terminal.waiting ? " (its new size waits for its frame)" : "")"
                 if !terminal.layer.isNear(terminal.area) {
                     boundsFailed = true
-                    bounds.append("\(name): bounds check (a): layer \(terminal.layer) px, pane area \(terminal.area) px")
+                    if keptTurns.indices.contains(index) {
+                        keptTurns[index] += 1
+                        keptUntil[index] = max(keptUntil[index], turn.at)
+                    }
+                    bounds.append("\(name): bounds check (a): layer \(terminal.layer) px, pane area \(terminal.area) px, " +
+                                  "shown frame \(terminal.shown.map { "\($0)" } ?? "none") px")
                 }
                 if let shown = terminal.shown {
                     if !shown.isNear(terminal.layer) {
@@ -254,7 +267,8 @@ struct TerminalWindowFrameSyncTests {
             if boundsFailed { boundsTurns += 1 }
             if frameFailed { frameTurns += 1 }
         }
-        return (bounds, frame, boundsTurns, frameTurns)
+        let kept = keptTurns.indices.map { "p\($0 + 1) \(keptTurns[$0]) turns, last at +\(text(keptUntil[$0])) ms" }.joined(separator: "; ")
+        return (bounds, frame, boundsTurns, frameTurns, kept)
     }
 
     static func text(_ ms: Double) -> String { String(format: "%.2f", ms) }
