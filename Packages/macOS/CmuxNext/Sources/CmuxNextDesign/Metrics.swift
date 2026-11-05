@@ -111,7 +111,8 @@ public struct Metrics {
     /// `sidebar.borderWidth`); 0 when off or under `appearance.borders` none.
     public static var sidebarBorderWidth: CGFloat {
         let border = DesignSettings.shared.sidebarBorder
-        return border.shows ? lineWidth(border.width.map(scale) ?? dividerThickness) : 0
+        // The goo look's band runs unbroken over the sidebar and the tabs (Leo: "the implicit top bar of everything").
+        return border.shows && GooMorphVariant.tunable.value == .off ? lineWidth(border.width.map(scale) ?? dividerThickness) : 0
     }
     public static var dividerHitWidth: CGFloat { MetricTunables.dividerHitWidth.value }
 

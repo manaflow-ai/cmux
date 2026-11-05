@@ -1,5 +1,5 @@
 {
- "title": "Thunderdome r2 C, goo morph (Debug chrome.gooMorph): off, drop, pool and slime at rest, then sidebar close/open, tab switch and new tab per look with the frame probe, and slow-motion mid-flight frames. cmux-ci capture SHA --state scripts/cmux-next/media/states/goo-morph.json --video",
+ "title": "Thunderdome r2 C, goo morph (Debug chrome.gooMorph): off, drop, pool and slime at rest, then sidebar close/open, tab switch and new tab per look with the frame probe, and slow-motion mid-flight frames; it ends on pool for the light and dark stills. cmux-ci capture SHA --state scripts/cmux-next/media/states/goo-morph.json --video",
  "launch_args": [
   "--showcase"
  ],
@@ -677,17 +677,16 @@
    "shot": false
   },
   {
-   "title": "Goo morph off",
+   "title": "pool at rest, the light and dark stills",
    "rpc": {
     "method": "debug.tunables",
     "params": {
      "action": "set",
      "key": "chrome.gooMorph",
-     "value": "off"
+     "value": "pool"
     }
    },
-   "wait": 0.5,
-   "shot": false
+   "wait": 1
   }
  ]
 }
