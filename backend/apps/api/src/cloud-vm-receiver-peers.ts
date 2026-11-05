@@ -11,7 +11,9 @@ import { currentPolicy } from "./domains/team-policy.ts"
 
 /**
  * `desktop`: CloudDO sets it only for a machine whose daemon advertises CLOUD_DESKTOP_CAPABILITY (an image whose
- * receiver knows the service). Then the creator's own peers also get `desktop`; no other member's peer ever does.
+ * receiver knows the service). Then the creator's own peers also get `desktop` when the machine is on the creator's
+ * personal team; no other member's peer ever does. A shared-team machine is `team` for everyone (connect_info's
+ * vm_kind), and the receiver refuses a desktop token that is not vmk=owner, so its policy never names desktop either.
  */
 export interface VmReceiverPeerTarget { creator: string; origin: string; deadline: number; policy: NativeVmReceiverPolicy; desktop?: boolean }
 interface Deps extends PeerDeps { project: string; origin(): string | undefined; tenant(): Promise<VmApiTenant | null>; allowed(): ReadonlyArray<string> }
@@ -53,7 +55,7 @@ export const vmReceiverPeers = async (d: Deps, target: VmReceiverPeerTarget): Pr
   // The selected peers' owners are read once more, all at once, as the last await (policy.peers is at most 128).
   const final = await fenceIdentities(d, selected.map(({ host }) => host), target.deadline)
   if (d.now() >= target.deadline || stamp() !== graph || creator() !== baseline) return null
-  const now = d.now(), allowed = d.allowed(), peers: VmReceiverPeers["peers"] = []
+  const now = d.now(), allowed = d.allowed(), peers: VmReceiverPeers["peers"] = [], ownerMachine = d.team === personalTeamIdFor(target.creator)
   let expires = policy.expiresAt
   for (const { native, host } of selected) {
     const identity = final.get(host.id) ?? null
@@ -61,7 +63,7 @@ export const vmReceiverPeers = async (d: Deps, target: VmReceiverPeerTarget): Pr
     const rules = vmRuleServices(native.allow)
     if (!rules) continue
     const services: Array<"daemon" | "ssh" | "desktop"> = (rules as Array<"daemon" | "ssh">).filter((s) => allowed.includes(s) && (s !== "daemon" || allowed.includes("ssh")))
-    if (target.desktop === true && host.owner_user === target.creator && host.kind !== "server") services.push("desktop")
+    if (target.desktop === true && ownerMachine && host.owner_user === target.creator && host.kind !== "server") services.push("desktop")
     if (!services.length) continue
     expires = Math.min(expires, identity.expires_at ?? Infinity)
     peers.push({ host: host.id, user: host.owner_user!, install: host.enrolled_by, device: native.deviceId,

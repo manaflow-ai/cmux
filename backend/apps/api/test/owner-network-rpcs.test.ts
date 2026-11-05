@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers"
 import { runInDurableObject } from "cloudflare:test"
 import { describe, expect, it } from "vitest"
 import { installAuthorityVersion, withInstallAuthority } from "../src/domains/user-authority.ts"
-import type { UserState } from "../src/domains/user.ts"
+import { personalTeamIdFor, type UserState } from "../src/domains/user.ts"
 import type { TeamState } from "../src/domains/team.ts"
 import { hostNetworkTarget, hostNetworkTargetOwner } from "../src/host-network-target.ts"
 import { vmReceiverPeers } from "../src/cloud-vm-receiver-peers.ts"
@@ -203,18 +203,19 @@ describe("TeamDO Native reads with live authority", () => {
   const MESH = "mesh_" + "0".repeat(26), DEVICE = "dev_" + "0".repeat(26), ORIGIN = "https://vm.example.test", TENANT = "team_native"
   const wg = btoa(String.fromCharCode(...new Uint8Array(32).fill(9)))
   const p: Principal = { kind: "install", identity: INSTALL, user: USER, team: TEAM, install: INSTALL, grant: GRANT, install_kind: "mac", grant_classes: ["read", "mutate-own", "execute"] }
-  const world = async () => {
+  /** `team` is the shared TEAM by default; the creator's personal team (personalTeamIdFor) makes the machine an owner machine. */
+  const world = async (team = TEAM) => {
     const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]) as CryptoKeyPair
     const key = await crypto.subtle.exportKey("jwk", pair.publicKey) as JsonWebKey
     let version = 1, incarnation = "generation:1:aaaaaaaaaaaaaaaaaaaaaa", generation = "1"
-    let state = { team: { id: TEAM, kind: "stack", display_name: "Team" }, members: { [USER]: { user: USER, role: "owner", display_name: "O" } }, hosts: {
+    let state = { team: { id: team, kind: team === TEAM ? "stack" : "personal", display_name: "Team" }, members: { [USER]: { user: USER, role: "owner", display_name: "O" } }, hosts: {
       [HOST]: { id: HOST, name: "Mac", platform: "macos", owner_user: USER, enrolled_by: INSTALL, enrolled_at: 1, wg_public_key: wg,
         network: { state: "confirmed", tenant: TENANT, mesh: MESH, device: DEVICE, confirmed_at: 1, install_grant: GRANT } } } } as unknown as TeamState
     let revoked = false
     const identity = (): NetworkIdentityView | null => revoked ? null : ({ key, kind: "mac", expires_at: null, authority_version: String(version).padStart(64, "0"), op_classes: ["read", "mutate-own", "execute"] })
     const rows = { get: (table: string, k: string) => table !== "member_authority" ? undefined : k === "@generation" ? { row: { generation } } : k === USER ? { row: { incarnation } } : undefined } as never
     return {
-      point: installPublicPoint(key), state: () => state, rows, identity,
+      team, point: installPublicPoint(key), state: () => state, rows, identity,
       /** The install's grant goes read -> none -> read: same classes, a new incarnation. */
       regrant: () => { version++ },
       /** The member leaves and rejoins with the same role. */
@@ -323,8 +324,8 @@ describe("TeamDO Native reads with live authority", () => {
     policyDigest: "a".repeat(64), peers: [{ deviceId: DEVICE, wgPublicKey: wg, installPublicKey: w.point, allow: [{ protocol: "tcp", port: 22 }, { protocol: "tcp", port: 4100 }] }] } }) as never
   const peerDeps = (w: Awaited<ReturnType<typeof world>>, second?: () => void, first?: () => void, last?: () => void) => {
     let calls = 0, tenants = 0
-    return { team: TEAM, project: "project", state: w.state, rows: w.rows, now: Date.now, origin: () => ORIGIN,
-      tenant: async () => { const call = tenants++; if (call === 0) first?.(); if (call === 1 && last) { await new Promise((r) => setTimeout(r, 5)); last() } return { team: TEAM, project: "project", tenant: TENANT } }, allowed: () => ["daemon", "ssh"],
+    return { team: w.team, project: "project", state: w.state, rows: w.rows, now: Date.now, origin: () => ORIGIN,
+      tenant: async () => { const call = tenants++; if (call === 0) first?.(); if (call === 1 && last) { await new Promise((r) => setTimeout(r, 5)); last() } return { team: w.team, project: "project", tenant: TENANT } }, allowed: () => ["daemon", "ssh"],
       identity: async () => w.identity(),
       identities: async (_user: string, entries: ReadonlyArray<unknown>) => { if (calls++ === 1) second?.(); return entries.map(() => w.identity()) } }
   }
@@ -337,7 +338,7 @@ describe("TeamDO Native reads with live authority", () => {
   })
 
   it("adds desktop to the creator's own peer only when the machine serves a desktop", async () => {
-    const w = await world()
+    const w = await world(personalTeamIdFor(USER))
     expect(await vmReceiverPeers(peerDeps(w), { ...(peerTarget(w) as object), desktop: true } as never))
       .toMatchObject({ peers: [{ user: USER, services: ["daemon", "ssh", "desktop"] }] })
     expect(await vmReceiverPeers(peerDeps(w), { ...(peerTarget(w) as object), desktop: false } as never))
@@ -347,6 +348,14 @@ describe("TeamDO Native reads with live authority", () => {
     noPorts.policy = { ...noPorts.policy, peers: noPorts.policy.peers.map((peer) => ({ ...peer, allow: [] })) }
     expect(await vmReceiverPeers(peerDeps(w), { ...noPorts, desktop: true } as never))
       .toMatchObject({ peers: [{ user: USER, services: ["desktop"] }] })
+  })
+
+  // A shared-team machine is vm_kind team even for its creator, and the receiver refuses a desktop token
+  // that is not vmk=owner, so the policy never names desktop there: the two answers agree.
+  it("never adds desktop on a shared-team machine, even for its creator", async () => {
+    const w = await world()
+    expect(await vmReceiverPeers(peerDeps(w), { ...(peerTarget(w) as object), desktop: true } as never))
+      .toMatchObject({ peers: [{ user: USER, services: ["daemon", "ssh"] }] })
   })
 
   it("drops a peer whose install authority changes between the two identity snapshots", async () => {
@@ -417,6 +426,7 @@ describe("TeamDO Native reads with live authority", () => {
       schemaVersion: 1, tenantId: TENANT, vmId: "vm_" + "1".repeat(26), meshId: MESH, ipv4: "10.128.0.5", aclVersion: 1, checkedAt: Date.now(), expiresAt: Date.now() + 20_000, policyDigest: "a".repeat(64),
       peers: [{ deviceId: DEVICE, wgPublicKey: wg, installPublicKey: installPublicPoint(uKey), allow }, { deviceId: V_DEVICE, wgPublicKey: vWg, installPublicKey: installPublicPoint(vKey), allow }] } } as never
     const answer = await vmReceiverPeers(deps, target)
-    expect(answer?.peers.map((peer) => [peer.user, peer.services])).toEqual([[USER, ["daemon", "ssh", "desktop"]], [V, ["daemon", "ssh"]]])
+    // A shared team: no peer gets desktop, the creator's included (the creator's personal team admits no other member's peer at all).
+    expect(answer?.peers.map((peer) => [peer.user, peer.services])).toEqual([[USER, ["daemon", "ssh"]], [V, ["daemon", "ssh"]]])
   })
 })
