@@ -98,10 +98,6 @@ root = "scripts/journeys/tui-kit/rust"
 run = true
 
 [[workspace]]
-root = "workers/cmux-vm/mesh/agent"
-run = true
-
-[[workspace]]
 root = "cmux-tui/bindings/bootstrap/rust-sdk"
 run = true
 

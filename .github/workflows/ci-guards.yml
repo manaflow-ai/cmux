@@ -478,6 +478,10 @@ jobs:
             CMUX_TEST_REGISTRY_BASE_SHA="$(git rev-parse FETCH_HEAD)"
             args=(--base-sha "$CMUX_TEST_REGISTRY_BASE_SHA")
           fi
+          # A push only warns: the pull request that adds an unregistered test is the one that fails.
+          if [[ "${GITHUB_EVENT_NAME:-}" == push ]]; then
+            args+=(--warn-only)
+          fi
           python3 scripts/ci/validate_test_execution_registry.py "${args[@]+"${args[@]}"}"
 
       - name: Validate Python test execution registry blast radius
@@ -1833,6 +1837,10 @@ jobs:
       - name: Validate nightly-next signs and publishes on cmux15 first
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_signing_on_cmux15.py
+
+      - name: Validate one-mini mode runs every nightly job on the one nightly mini
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_one_mini.py
 
       - name: Validate the nightly-next build takes an idle owned Mac or a moving Blacksmith label
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

@@ -27,7 +27,7 @@ private typealias JSON = CmuxNextSettings.JSONValue
 /// first frame after its page painted (first contentful paint, or its load ended); the spans
 /// include Chromium's main-thread steps (`CEFBenchMarks`: `cef.create_window`, `cef.tab_add`, ...).
 /// `link_right` opens `url` (default example.com) from the focused pane as a link opened to the right (split right):
-/// visible once the window shows another pane. `dock_respawn` docks the focused pane's lone tab into a new left
+/// visible once the window shows another pane, `page_ms` once that pane's page painted. `dock_respawn` docks the focused pane's lone tab into a new left
 /// dock and leaves a fresh terminal (a lone chat's new tab, ``ChatColumnPlacement``): visible once the window shows another pane.
 @MainActor
 enum DebugInstantCreateBench {
@@ -73,8 +73,11 @@ enum DebugInstantCreateBench {
         let keyMilliseconds = BenchSpans.ms(.now - start)
         let visible = await frames.settled(until: { before.changed(command, Probe(controller)) }, start: start, window: 0, deadline: 5_000)
         let chrome = visible == nil || command != .newBrowser ? nil : await frames.settled(until: { Probe(controller).browser != nil }, start: start, window: 0, deadline: 5_000)
-        let page = visible == nil || command != .newBrowser ? nil
-            : await frames.settled(until: { Probe(controller).pagePainted(services) }, start: start, window: 0, deadline: 5_000)
+        // A link or browser opened to the right: its new pane's page (any shown pane of the window), first paint or load end.
+        let opensRight = command == .linkRight || command == .splitBrowser
+        let page = visible == nil || (command != .newBrowser && !opensRight) ? nil
+            : await frames.settled(until: { opensRight ? Probe.anyPagePainted(controller, services) : Probe(controller).pagePainted(services) },
+                                   start: start, window: 0, deadline: 5_000)
         let confirmed = visible == nil ? nil
             : await frames.settled(until: { Probe(controller).confirmed(command) }, start: start, window: 0, deadline: 5_000)
         let spans = BenchSpans.end()
@@ -118,6 +121,15 @@ enum DebugInstantCreateBench {
             selected = focused?.stripModel.selectedID?.rawValue
             if let focused, focused.view.hostsContent, focused.stripModel.selectedID?.rawValue == tab,
                case .browser(let entry) = focused.currentContent { browser = entry }
+        }
+
+        /// Whether a pane of the window shows a browser whose page painted (``pagePainted(_:)``).
+        static func anyPagePainted(_ controller: WindowController, _ services: AppServices) -> Bool {
+            controller.content?.panes.values.contains { pane in
+                guard pane.view.hostsContent, case .browser(let entry) = pane.currentContent else { return false }
+                if case .finished = entry.tab.state.phase { return true }
+                return services.cache.cef.benchMarks.firstPaints[entry.tab.id.rawValue] != nil
+            } ?? false
         }
 
         /// The shown browser's page painted content (Chromium's first contentful paint) or loaded.

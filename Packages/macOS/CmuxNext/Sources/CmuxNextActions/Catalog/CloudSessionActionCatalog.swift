@@ -19,7 +19,7 @@ nonisolated enum CloudSessionActionCatalog: ActionCatalogGroup {
         // the machine holds from boot, so the first reply never waits for this Mac's link to the machine.
         var relay = ActionDescriptor(
             id: "cloudRelayChat",
-            title: String(localized: "action.cloudRelayChat", defaultValue: "Chat on Cloud Machine over the Relay…", table: "CloudSessionActions", bundle: .module),
+            title: String(localized: "action.cloudRelayChat", defaultValue: "Chat on Cloud Machine via the Relay…", table: "CloudSessionActions", bundle: .module),
             description: "Sends --prompt to --agent (claude, codex, ...) on a Cloud machine (--target machine:<id>) over the machine's relay, with no link to the machine, and answers when the turn ends: session_id (the machine's acpmux session), reply, stop_reason, first_text_ms and total_ms. A turn still running after 35 s answers what came so far with ended: false and goes on in that session while the app runs. delivered: false means the prompt never reached the machine (no machine took it, or the relay refused it). --cwd is the folder there; --prompt-id makes a resend run once.",
             keywords: ["vm", "cloud", "agent", "chat", "relay", "prompt", "claude", "codex"], category: .cloud, symbol: "bubble.left.and.text.bubble.right",
             surfaces: [.palette], arguments: [agent, prompt, cwd, promptID], targets: [.machine], cliName: "cloud relay-chat",

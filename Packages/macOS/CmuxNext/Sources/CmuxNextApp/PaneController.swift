@@ -85,7 +85,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         var takesNewTabs = true
     }
 
-    /// A pane's strip model and views, made ahead out of every window (``IdleSpare``: their init cost 3.5 ms of a New Column's key turn).
+    /// A pane's strip model and views made ahead and parked hidden in the layout (``IdleSpare``: init and window walk were 5.5 ms of a New Column's key turn).
     struct Spare {
         let stripModel = TabStripModel()
         let view: PaneContentView

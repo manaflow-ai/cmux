@@ -1,0 +1,13 @@
+{
+  "title": "Diff files tree",
+  "settings": {"appearance": {"background": "hokusai-great-wave"}},
+  "steps": [
+    {"title": "Launch", "wait": 3},
+    {"title": "Make the diff's repository", "daemon": true,
+     "cmux": ["terminal", "current", "write", "--text",
+              "clear; bash {repo}/scripts/cmux-next/media/fixtures/diff-file-tree-repo.sh /tmp/cmux-tour-diff-file-tree && echo FIXTURE-READY\r"],
+     "wait": 4, "shot": false},
+    {"title": "Diff files tree: one tree per folder, whole names, no folder highlight",
+     "cmux": ["browser", "open-diff-viewer", "--path", "/tmp/cmux-tour-diff-file-tree"], "wait": 8}
+  ]
+}
