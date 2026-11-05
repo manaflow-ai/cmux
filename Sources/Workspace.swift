@@ -10053,7 +10053,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// query (the subscription cache lags ~1s, which would let a just-started
     /// command slip through), falling back to the cached state when the link is
     /// down. The pane is removed by the resulting `%layout-change` (or
-    /// `%window-close` for the window's last pane), never locally.
+    /// `%unlinked-window-close` for the window's last pane), never locally.
     func requestRemoteTmuxPaneClose(windowMirror: RemoteTmuxWindowMirror, tmuxPaneId: Int) {
         guard CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmCloseIncludingSafety(
             requiresConfirmation: true, source: .tabCloseButton

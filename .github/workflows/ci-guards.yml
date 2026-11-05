@@ -120,6 +120,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py
 
+      - name: Validate the deleted-test guard
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_test_integrity.py
+
       - name: Validate machine-failure detection for focused reruns
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_machine_failure.py
@@ -1687,6 +1691,10 @@ jobs:
         run: |
           python3 tests/test_ci_cli_contract_verb_guard.py
           python3 scripts/check-cli-contract-verbs.py
+
+      - name: Validate Cloud VM contract option coverage
+        if: ${{ matrix.group == 'quality-determinism' }}
+        run: python3 tests/test_cli_contract_vm_options.py -v
 
       - name: Validate socket capability parity
         if: ${{ matrix.group == 'quality-determinism' }}
