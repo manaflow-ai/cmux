@@ -41,7 +41,13 @@ const server = Bun.serve({
 });
 const base = `http://127.0.0.1:${server.port}`;
 
-const browser = await chromium.launch();
+// System Google Chrome, as runner.ts launches it, never Playwright's bundled build.
+const browser = await chromium.launch({
+  headless: true,
+  ...(process.env.CMUX_CHROME_HEADLESS_SHELL
+    ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
+    : { channel: "chrome" }),
+});
 const results: Record<string, unknown>[] = [];
 try {
   for (const id of chosen) {
