@@ -1639,6 +1639,19 @@ class M14ContractTests(unittest.TestCase):
         self.assertEqual((row["scaled"], row["scaled_ranges"], row["fail_ranges"]), (3, "20-22", "20-22"))
         self.assertEqual(self.m6("strip-squeeze", "page")["fail_by_rule"]["E5"], 0)  # m6 has no squeeze rule
 
+    def test_the_squeeze_rule_needs_one_scale_for_all_three_rings(self):
+        # R-HARNESS review of 7cfd91442ece: an overlay (a menu over p2's left edge, ab-s4pin-44ab81a
+        # px-keys-lowprompt-jjk-3kz-sw-terminals-on-s025 frames 264-433) leaves ring 1 at its rest width and reads rings 2
+        # and 3 at 1 px: not a squeeze. A squeeze scales all three rings by one factor.
+        rest = [2.0, 4.0, 6.0]
+        self.assertFalse(jp.m14_squeezed({"status": "found", "rings": [2.0, 1.0, 1.0]}, rest))  # covered, not scaled
+        self.assertTrue(jp.m14_squeezed({"status": "found", "rings": [1.0, 2.0, 3.0]}, rest))  # half size
+        self.assertFalse(jp.m14_squeezed({"status": "found", "rings": [2.0, 4.0, 6.0]}, rest))  # at rest
+        self.assertFalse(jp.m14_squeezed({"status": "found", "rings": [1.0, 4.0, 6.0]}, rest))  # only ring 1 narrower
+        self.assertFalse(jp.m14_squeezed({"status": "cut", "rings": [1.0, 2.0, 3.0]}, rest))  # a cut side is no measure
+        self.assertFalse(jp.m14_squeezed({"status": "found", "rings": [0.0, 2.0, 3.0]}, rest))  # ring 1 not found
+        self.assertTrue(jp.m14_squeezed({"status": "found", "rings": [34.0, 17.0, 17.0]}, [68.0, 34.0, 34.0]))  # a terminal
+
     def test_a_shell_gap_is_its_own_class(self):
         row = self.m14("gap2", "terminal")
         self.assertEqual((row["gap"], row["gap_ranges"], row["fail_ranges"]), (6, "20-25", "20-25"))
@@ -1670,6 +1683,8 @@ class M14ContractTests(unittest.TestCase):
 KNOWN_RUN = Path("/work/tmp/resize-videos/runs/ab-s4pin-44ab81a-20261105T000715Z-cmux22")
 KNOWN_HELD = KNOWN_RUN / "px-keys-held-2-sw-terminals/video/px-keys-held-2-sw-terminals-on-s1"
 KNOWN_CLEAN = KNOWN_RUN / "px-keys-rk-3t-sw-terminals/video/px-keys-rk-3t-sw-terminals-on-s1"
+# A menu covers rings 2 and 3 of p2's left edge from frame 264 (ring 1 not): R-HARNESS's review of 7cfd91442ece.
+KNOWN_COVERED = KNOWN_RUN / "px-keys-lowprompt-jjk-3kz-sw-terminals/video/px-keys-lowprompt-jjk-3kz-sw-terminals-on-s025"
 
 
 @unittest.skipUnless(Path(f"{KNOWN_HELD}.mov.scan").is_file() and Path(f"{KNOWN_CLEAN}.mov.scan").is_file(),
@@ -1689,6 +1704,11 @@ class M14KnownFilmTests(unittest.TestCase):
         missing = set(range(411, 539)) - jp_frames(row["fail_ranges"])
         self.assertEqual(missing, set(), f"frames of the old narrow page that m14 passes: {sorted(missing)[:20]}")
         self.assertGreaterEqual(row["worst_px"], 1000)
+
+    @unittest.skipUnless(Path(f"{KNOWN_COVERED}.mov.scan").is_file(), f"{KNOWN_COVERED} is not on this machine")
+    def test_rings_under_a_menu_are_not_a_squeeze(self):
+        page = jp.judge(str(KNOWN_COVERED))["m14"]["kinds"]["page"]
+        self.assertEqual(page["scaled"], 0, page.get("scaled_ranges"))
 
     def test_a_clean_terminal_film_passes(self):
         kinds = self.clean["m14"]["kinds"]
