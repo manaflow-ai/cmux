@@ -1,4 +1,4 @@
-//! A host a test started ends with that test's process (`host/test_owner.rs`): hosts outlive their
+//! A host a test started ends with that test's process (`daemon/owner_exit.rs`): hosts outlive their
 //! daemon on purpose, so a test killed before its teardown left its hosts and their stand-in
 //! harnesses running for days (about 23 on one lane VM, 2026-11-03).
 
@@ -30,7 +30,7 @@ async fn a_host_ends_with_the_test_process_that_started_it() {
     // The hermetic environment (`daemon_env::tokio_command`), as a daemon's host launch gives.
     let mut host = daemon_env::tokio_command(&dir, daemon_env::Agents::StandIn)
         .arg(agent_host::HOST_ARG)
-        .env("ACPMUX_TEST_HOST_OWNER_PID", owner.id().to_string())
+        .env("ACPMUX_TEST_OWNER_PID", owner.id().to_string())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
