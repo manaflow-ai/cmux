@@ -28,11 +28,6 @@
 // image viewer; while it is edited each has a remove control, and Save keeps only the images left
 // (Leo, 2026-10-21). A video is one tile, and one row of tiles at most, the rest a "+N".
 //
-// A prompt the person sent to steer (Return mid-turn) that acpmux queued instead (`steerQueued`:
-// the running turn is another agent's, hub/turns.rs `agents_turn_held`) says "Queued until the
-// agent's turn ends", and its Steer stays in view, not only on hover: one click sends it now
-// (Leo, 2026-11-05: "hey what the is my thing auto queuing rn?").
-//
 // After a failed turn acpmux pauses the queue: a note above the rows says so, with Resume.
 //
 // Prompts the pane holds for the folder's trust answer (trustHeld.ts) come last, after one note,
@@ -144,8 +139,6 @@ function reveal(list: HTMLElement, row: HTMLElement) {
   if (Math.abs(to - list.scrollTop) > 0.5) list.scrollTop = to;
 }
 
-/// The text a row shows, whole: the prompt, or for acpmux's resume of a subagent its label, name and
-/// error. Never the resume's raw prompt, which names the agent id and tells the agent how to resume it.
 /// The lengths of a prompt's videos by name, as its parts carry them, for their tiles (QueuedImages.tsx).
 function videoLengths(entry: QueuedEntry): ReadonlyMap<string, number> | undefined {
   const videos = (entry.inlineParts ?? []).flatMap((part) =>
@@ -154,6 +147,8 @@ function videoLengths(entry: QueuedEntry): ReadonlyMap<string, number> | undefin
   return videos.length ? new Map(videos) : undefined;
 }
 
+/// The text a row shows, whole: the prompt, or for acpmux's resume of a subagent its label, name and
+/// error. Never the resume's raw prompt, which names the agent id and tells the agent how to resume it.
 export function shownText(entry: QueuedEntry, t: Translate, skills?: SkillCatalog): string {
   const retry = entry.retry;
   if (!retry) return withoutSkillDollars(entry.prompt, skills);
@@ -1020,11 +1015,6 @@ export function ComposerQueue({
                 {t("composer.steering")}
               </span>
             )}
-            {entry.steerQueued && !entry.next && (
-              <span className="acpmux-queued-kind" data-kind="waits">
-                {t("composer.queuedUntilTurnEnds")}
-              </span>
-            )}
             {entry.retry ? (
               <>
                 <span className="acpmux-queued-kind" data-kind="retry">
@@ -1149,7 +1139,6 @@ export function ComposerQueue({
             className="acpmux-queued"
             key={entry.id}
             data-prompt-id={entry.id}
-            data-steer-queued={entry.steerQueued && !entry.next ? "" : undefined}
             aria-keyshortcuts={theirs(entry) ? undefined : "Enter Alt+ArrowUp Alt+ArrowDown Delete"}
             {...rovingTabStopProps(false, (event) => rowKeyDown(event, entry, index))}
           >

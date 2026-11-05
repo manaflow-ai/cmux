@@ -248,8 +248,8 @@ const pictured = {
   ],
 };
 
-// Leo's message (2026-11-05): three screen recordings (8, 7 and 8 frames), sent to steer and
-// queued behind another agent's turn. acpmux lists each video's frames as images; the card draws
+// Leo's message (2026-11-05): three screen recordings (8, 7 and 8 frames), queued behind a
+// running turn. acpmux lists each video's frames as images; the card draws
 // one tile per attachment, a video at its first frame with its length, in one row ("uh this was a
 // weird preview idk i guess i accidentally queued?").
 const recording = (name: string, seconds: number, count: number) => ({
@@ -280,7 +280,6 @@ const recordings = [
 const withVideos = {
   id: "q1",
   prompt: "When I click and drag a workspace on the sidebar, it, like, briefly flickers for a bit.",
-  steerQueued: true as const,
   images: recordings.flatMap((video) => video.frames),
   inlineParts: [
     {
@@ -1805,7 +1804,7 @@ export default agentPaneEntry({
       snapshot: chat(working, { isWorking: true, queue: [pictured, { id: "q2", prompt: "And update the README" }] }),
     },
     "queued-videos": {
-      note: 'Leo\'s message with three screen recordings (23 frames), sent to steer and queued behind another agent\'s turn: three tiles in one row (each video one tile at its first frame, with its length), "Queued until the agent\'s turn ends" before its text, and Steer in view (Leo, 2026-11-05: "uh this was a weird preview idk i guess i accidentally queued?").',
+      note: 'Leo\'s message with three screen recordings (23 frames), queued behind a running turn: three tiles in one row, each video one tile at its first frame with its length (Leo, 2026-11-05: "uh this was a weird preview idk i guess i accidentally queued?").',
       snapshot: chat(working, { isWorking: true, queue: [withVideos, { id: "q2", prompt: "And update the README" }] }),
     },
     "queued-images-edit": {

@@ -621,22 +621,9 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 /* acpmux's ask to resume a failed subagent (ComposerQueue.tsx `entry.retry`): "Resume subagent"
    before the subagent's name, the prompt's own words never drawn (Leo, 2026-10-30: "this looks weird
    and unrendered"). Opened, the error follows on its own line. */
-.acpmux-queued-kind[data-kind="retry"],
-.acpmux-queued-kind[data-kind="waits"] {
+.acpmux-queued-kind[data-kind="retry"] {
   vertical-align: top;
   margin-right: 6px;
-}
-/* A steer acpmux queued (ComposerQueue.tsx `steerQueued`): "Queued until the agent's turn ends"
-   leads its text, and its Steer shows without hover, so one click sends it now; the row's other
-   actions still show on hover only. */
-.acpmux-queued[data-steer-queued] .acpmux-queued-actions {
-  opacity: 1;
-}
-@media (hover: hover) {
-  .acpmux-queued[data-steer-queued]:not(:hover, :focus-within, :has([data-popup-open]))
-    .acpmux-queued-action:not([data-action="steer"]) {
-    visibility: hidden;
-  }
 }
 .acpmux-queued-detail {
   display: block;

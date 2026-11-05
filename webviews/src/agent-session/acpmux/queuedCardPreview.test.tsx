@@ -1,16 +1,13 @@
-// A queued prompt's card stays one compact line of attachments, and a steer acpmux queued says why
-// it waits. Leo, 2026-11-05, after a message with three screen recordings queued behind a busy turn
-// and its card drew every frame of each video (23 thumbnails over three rows): "uh this was a weird
-// preview idk i guess i accidentally queued?" and "hey what the is my thing auto queuing rn?".
-// The prompt queued because the running turn was another agent's (acpmux hub/turns.rs
-// `agents_turn_held`, Leo 2026-11-04), so Return's steer waited; its row now says so and keeps Steer.
+// A queued prompt's card stays one compact line of attachments. Leo, 2026-11-05, after a message
+// with three screen recordings queued behind a busy turn and its card drew every frame of each
+// video (23 thumbnails over three rows): "uh this was a weird preview idk i guess i accidentally
+// queued?".
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ComposerQueue } from "./ComposerQueue";
 import { queuedTiles } from "./QueuedImages";
-import { mergeQueue } from "./direct";
 import type { QueuedPromptImage } from "./model";
 
 let dom: JSDOM | undefined;
@@ -96,21 +93,6 @@ test("two videos of one name stay two tiles", () => {
   expect(tiles.map((tile) => (tile.kind === "video" ? tile.ids.length : 0))).toEqual([3, 2]);
 });
 
-test("a steer acpmux queued stays one through acpmux's list", () => {
-  const had = [
-    { id: "p-1", prompt: "steered", steerQueued: true as const },
-    { id: "p-2", prompt: "queued" },
-  ];
-  const merged = mergeQueue(had, [
-    { promptId: "p-2", prompt: "queued" },
-    { promptId: "p-1", prompt: "steered" },
-  ]);
-  expect(merged.map((entry) => [entry.id, entry.steerQueued === true])).toEqual([
-    ["p-2", false],
-    ["p-1", true],
-  ]);
-});
-
 test("Leo's queued message draws five tiles in one row, never its 23 frames", async () => {
   const container = await render([{ id: "p-1", prompt: "look at these", images: LEOS }]);
   const row = container.querySelector('[data-prompt-id="p-1"]')!;
@@ -125,66 +107,4 @@ test("past one row's tiles, the rest is one +N", async () => {
   const row = container.querySelector('[data-prompt-id="p-1"]')!;
   expect(row.querySelectorAll(".acpmux-queued-image-slot").length).toBe(5);
   expect(row.querySelector(".acpmux-queued-images-more")?.textContent).toBe("multiplayer.more(5)");
-});
-
-test("a steer acpmux queued says it waits for the turn, with Steer in view", async () => {
-  const container = await render([
-    { id: "p-1", prompt: "steered", steerQueued: true },
-    { id: "p-2", prompt: "queued with ⌘Return" },
-  ]);
-  const steered = container.querySelector<HTMLElement>('[data-prompt-id="p-1"]')!;
-  expect(steered.querySelector('.acpmux-queued-kind[data-kind="waits"]')?.textContent).toBe(
-    "composer.queuedUntilTurnEnds",
-  );
-  expect(steered.dataset.steerQueued).toBe("");
-  expect(steered.querySelector('[data-action="steer"]')).not.toBeNull();
-  const plain = container.querySelector<HTMLElement>('[data-prompt-id="p-2"]')!;
-  expect(plain.querySelector('[data-kind="waits"]')).toBeNull();
-  expect(plain.dataset.steerQueued).toBeUndefined();
-});
-
-const settle = async (done: () => boolean) => {
-  for (let tries = 0; tries < 500 && !done(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 0));
-};
-
-test("a prompt sent to steer that acpmux queues is steerQueued; one sent to queue is not", async () => {
-  installDom();
-  const { AcpmuxDirectClient } = await import("./direct");
-  const { MockAcpmuxSocket, mockHost } = await import("./mock");
-  // The turn never ends, so the mock queues whatever comes after it, steer or not, as acpmux does
-  // behind another agent's turn.
-  let socket: InstanceType<typeof MockAcpmuxSocket> | undefined;
-  let snapshot: { queue: { id: string; prompt: string; steerQueued?: true }[]; isWorking?: boolean } = { queue: [] };
-  const client = await AcpmuxDirectClient.connect(
-    mockHost,
-    (next) => (snapshot = next as typeof snapshot),
-    undefined,
-    () => (socket = new MockAcpmuxSocket(() => new Promise<void>(() => undefined))) as unknown as WebSocket,
-  );
-  try {
-    void client.send("start the work").catch(() => undefined);
-    await settle(() => Boolean(snapshot.isWorking));
-    void client.send("steer this", [], "p-steer", undefined, undefined, true).catch(() => undefined);
-    void client.send("after the turn", [], "p-queue").catch(() => undefined);
-    await settle(() => snapshot.queue.length === 2);
-    expect(snapshot.queue.map((entry) => [entry.id, entry.steerQueued === true])).toEqual([
-      ["p-steer", true],
-      ["p-queue", false],
-    ]);
-    // An edit of its text (acpmux's queue_updated) and another prompt sent now (queue_order) keep it.
-    const sessionId = (snapshot as { summary?: { sessionId?: string } }).summary?.sessionId ?? "";
-    const host = socket as unknown as { emit(target: string, step: unknown): void };
-    host.emit(sessionId, { mux: "queue_updated", msg: { promptId: "p-steer", text: "steer this, edited" } });
-    host.emit(sessionId, {
-      mux: "queue_order",
-      msg: { order: ["p-queue", "p-steer"], next: true, promptId: "p-queue" },
-    });
-    await settle(() => snapshot.queue[0]?.id === "p-queue");
-    expect(snapshot.queue.map((entry) => [entry.prompt, entry.steerQueued === true])).toEqual([
-      ["after the turn", false],
-      ["steer this, edited", true],
-    ]);
-  } finally {
-    client.close?.();
-  }
 });

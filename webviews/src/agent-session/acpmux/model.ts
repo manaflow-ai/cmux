@@ -294,12 +294,6 @@ export type QueuedPrompt = {
   /// hub/cancel.rs): it waits until the person's next turn completes or the queue is resumed, not
   /// for the turn to end, and its card says so (conversation/QueuedMessageCard.tsx).
   heldByStop?: true;
-  /// The person sent it to steer (Return mid-turn) and acpmux queued it instead: the running turn
-  /// is another agent's (hub/turns.rs `agents_turn_held`) or takes no steer now. Its row says it
-  /// waits for the turn to end and keeps Steer (Send now) in view (ComposerQueue.tsx). Only the page
-  /// that sent it knows (direct.ts `steerSends`): after a reload, or in another pane on the chat, the
-  /// row is a plain queued prompt, whose Steer is on hover as before.
-  steerQueued?: true;
   /// A guest's prompt that waits for the owner's Approve or Decline (acpmux `awaitingOwner`,
   /// `_acpmux/queue_approve`): it never runs until approved (conversation/QueuedMessageCard.tsx).
   awaitingOwner?: boolean;
