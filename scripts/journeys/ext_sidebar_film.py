@@ -24,7 +24,7 @@ Steps (`do`):
   film_presses    {scenario, pairs?, gap?, record?, insert_key?, remove_key?}
                                           PAIRS (default 10) times: Cmd-N (a new workspace row: insert), then
                                           Cmd-Shift-W (Close Workspace on the new, selected row: remove), each under a
-                                          film of RECORD seconds (default 1.0) and GAP seconds apart (default 0.8).
+                                          film of RECORD seconds (default 1.2) and GAP seconds apart (default 0.8).
                                           Before and after each press the whole row list (debug.sidebar_rows rows, every
                                           row of the list, realized or not) is kept, outside the film. Writes
                                           film-SCENARIO.json in the journey folder (run.py fetches it) and returns the
@@ -149,7 +149,7 @@ def film_one(j, key, modifiers, record):
 def step_film_presses(j, step):
     films = _films(j)
     scenario = step["scenario"]
-    pairs, gap, record = int(step.get("pairs", 10)), float(step.get("gap", 0.8)), float(step.get("record", 1.0))
+    pairs, gap, record = int(step.get("pairs", 10)), float(step.get("gap", 0.8)), float(step.get("record", 1.2))
     insert_key = step.get("insert_key", {"key": "n", "modifiers": ["cmd"]})
     remove_key = step.get("remove_key", {"key": "w", "modifiers": ["cmd", "shift"]})
     presses = []
@@ -157,6 +157,9 @@ def step_film_presses(j, step):
         for kind, press in (("insert", insert_key), ("remove", remove_key)):
             before_ws = workspace_ids(j)
             before_rows = row_list(j)
+            # A key typed while the app holds keys for a terminal being made (CreationInputCoordinator, after Cmd-N)
+            # waits for it: the press would then move inside its film. Each press starts past that hold.
+            held = j.outwait_creation_hold(getattr(j, "last_key_at", 0.0))
             time.sleep(0.3)  # the row list read settles before the film
             shot = film_one(j, press["key"], press.get("modifiers", []), record)
             want = len(before_ws) + (1 if kind == "insert" else -1)
@@ -176,7 +179,7 @@ def step_film_presses(j, step):
             shot.update({"scenario": scenario, "index": len(presses), "pair": index, "kind": kind,
                          "workspaces_before": len(before_ws), "workspaces_after": len(after_ws),
                          "added": sorted(set(after_ws) - set(before_ws)), "removed": sorted(set(before_ws) - set(after_ws)),
-                         "fallback_action": fallback, "rows_before": before_rows, "rows_after": after_rows})
+                         "fallback_action": fallback, "waited_out_hold_s": held, "rows_before": before_rows, "rows_after": after_rows})
             shot["measure"] = measure(shot["frames"])
             presses.append(shot)
             time.sleep(gap)
