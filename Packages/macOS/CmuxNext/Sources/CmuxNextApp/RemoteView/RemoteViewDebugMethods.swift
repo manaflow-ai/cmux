@@ -4,8 +4,8 @@ import CmuxNextRemoteView
 import CmuxNextRemoteViewSessions
 import Foundation
 
-/// `remote_view.state`, `remote_view.connect` and `remote_view.mode` (every build): the live
-/// Cloud desktop tabs (``RemoteViewTabsControl``, `cloudOnly`). `debug.remote_view` (development
+/// `remote_view.state` and `remote_view.mode` (every build; `mode` takes only `view`, Hand back):
+/// the live Cloud desktop tabs (``RemoteViewTabsControl``, `cloudOnly`). `debug.remote_view` (development
 /// builds): every remote view tab, for live checks of the desktop pane (cx-wb5.75), with the same
 /// actions plus `open` {url, pane?}, which opens `url` (a `cmux://remote-view` record) in a new tab
 /// of `pane`, else the active window's focused pane, else the first window's. Connect stands in
@@ -15,7 +15,7 @@ struct RemoteViewDebugMethods {
     let services: AppServices
 
     func register(on router: ControlRouter?) {
-        router?.register(["state", "connect", "mode"].map { action in
+        router?.register(["state", "mode"].map { action in
             .async("remote_view.\(action)") { call in
                 var params = call.params
                 params["action"] = .string(action)

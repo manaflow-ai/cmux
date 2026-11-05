@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 @testable import CmuxNextRemoteView
 @testable import CmuxNextRemoteViewSessions
+import CmuxNextSettings
 import Foundation
 import Testing
 
@@ -157,5 +158,58 @@ import Testing
         #expect(session.selectMode(.control), "the mode in force changes nothing")
         #expect(made == [false, true])
         session.end()
+    }
+
+    /// Take over on a hidden tab whose session still runs in its hide grace ends that session;
+    /// showing the tab again starts a new one in control instead of resuming the watching one.
+    @Test func takeOverWhileHiddenEndsTheHiddenSession() throws {
+        var made: [Bool] = []
+        let record = try #require(RemoteViewTabRecord(host: "vm-1", target: .virtual, mode: .view, cloudDesktop: true, cloudRd: true))
+        let maybeSession = RemoteViewPageSession.make(record: record, closeTab: {}, cloudRd: { _ in
+            { control in
+                made.append(control)
+                return RemoteRdStreamTransport(carrier: RecordingCarrier(), hello: RemoteRdHello.cloudDesktop(install: "test"),
+                                               startKey: "k", control: control)
+            }
+        })
+        let session = try #require(maybeSession)
+        session.resume()
+        session.pause()
+        #expect(session.isLiveWhileHidden)
+        #expect(session.selectMode(.control))
+        #expect(!session.isLiveWhileHidden, "the watching session ended")
+        #expect(made == [false])
+        session.resume()
+        #expect(made == [false, true], "shown again: a new session, in control")
+        session.end()
+    }
+
+    /// A Cloud desktop tab opens watching whatever `mode=` its record carries.
+    @Test func aCloudDesktopRecordInControlStillOpensWatching() throws {
+        var made: [Bool] = []
+        let record = try #require(RemoteViewTabRecord(host: "vm-1", target: .virtual, mode: .control, cloudDesktop: true, cloudRd: true))
+        let maybeSession = RemoteViewPageSession.make(record: record, closeTab: {}, cloudRd: { _ in
+            { control in
+                made.append(control)
+                return RemoteRdStreamTransport(carrier: RecordingCarrier(), hello: RemoteRdHello.cloudDesktop(install: "test"),
+                                               startKey: "k", control: control)
+            }
+        })
+        let session = try #require(maybeSession)
+        #expect(made == [false])
+        #expect(session.paneForTesting.state.requestedMode == .view)
+        #expect(!session.nextSessionControls)
+        session.end()
+    }
+
+    /// The release methods (`cloudOnly`) never press Connect and never take control; Hand back
+    /// goes through.
+    @Test func theReleaseSurfaceRefusesConnectAndControl() async {
+        let connect = await RemoteViewTabsControl.answer(["action": "connect"], cloudOnly: true)
+        #expect(connect.objectValue?["error"] != nil)
+        let control = await RemoteViewTabsControl.answer(["action": "mode", "tab": "t", "mode": "control"], cloudOnly: true)
+        #expect(control.objectValue?["error"]?.stringValue?.contains("person") == true)
+        let view = await RemoteViewTabsControl.answer(["action": "mode", "tab": "t", "mode": "view"], cloudOnly: true)
+        #expect(view.objectValue?["error"]?.stringValue == "no live session on that tab")
     }
 }

@@ -106,13 +106,14 @@ public final class RemoteViewPageSession {
         let rdSource = RemoteRdDebugSource(first)
         source = rdSource
         rd = (rdSource, make)
-        rdControl = record.mode == .control
+        rdControl = Self.startsInControl(record)
         #if DEBUG
         vnc = nil
         #endif
         keepsSessionWhenHidden = record.cloudDesktop
         pane = RemoteDesktopPane(hostName: displayName ?? record.host, source: rdSource,
-                                 inputSink: RemoteRdDebugInputSink(source: rdSource), initialMode: record.mode,
+                                 inputSink: RemoteRdDebugInputSink(source: rdSource),
+                                 initialMode: Self.startsInControl(record) ? .control : .view,
                                  viaCloudTunnel: record.cloudDesktop, modeControl: record.cloudDesktop ? .takeOver : .toggle)
         pane.handlers.stop = { [weak self] in
             self?.rdStopped = true
@@ -126,14 +127,29 @@ public final class RemoteViewPageSession {
         pane.upstreamControl = rdSource
     }
 
+    /// Whether `record`'s first session is in control. A Cloud desktop always opens watching,
+    /// whatever `mode=` its URL carries: only the person's Take over gives it their input.
+    static func startsInControl(_ record: RemoteViewTabRecord) -> Bool {
+        !record.cloudDesktop && record.mode == .control
+    }
+
     /// Take over (`control`) or Hand back: the session ends and a new one starts in that mode
     /// (`cmux.rd/1` fixes a session's mode at its start, and the host gives the person's input
     /// to the desktop only in a control session). A hidden or stopped tab only keeps the mode
-    /// for its next session.
+    /// for its next session; a hidden one still live in its hide grace ends that session now, so
+    /// showing it again starts fresh in the new mode rather than resuming the old one.
     private func switchMode(control: Bool) {
         guard rd != nil, control != rdControl else { return }
         rdControl = control
-        guard visible, !rdStopped else { return }
+        // The transport made for the first session (or the live one) is in the old mode.
+        rdUsed = true
+        guard visible, !rdStopped else {
+            if liveWhileHidden {
+                hiddenStop?.cancel()
+                endHiddenSession()
+            }
+            return
+        }
         pane.stop()
         pane.apply(.restartForMode)
         startRd()
@@ -153,6 +169,9 @@ public final class RemoteViewPageSession {
 
     /// The pane (tests).
     var paneForTesting: RemoteDesktopPane { pane }
+
+    /// Whether a hidden tab's session still runs in its hide grace (tests).
+    var isLiveWhileHidden: Bool { liveWhileHidden }
 
     #if DEBUG
     /// An RFB compatibility host: decoded frames, fitted to the pane, on the
@@ -322,7 +341,7 @@ public final class RemoteViewPageSession {
                             displayName: String? = nil) -> RemoteViewPageSession? {
         if record.cloudRd {
             guard RemoteViewAvailability().isCloudRdAvailable, let make = cloudRd?(record.host),
-                  let first = make(record.mode == .control) else { return nil }
+                  let first = make(startsInControl(record)) else { return nil }
             return RemoteViewPageSession(record: record, first: first, make: make, closeTab: closeTab, displayName: displayName)
         }
         #if DEBUG

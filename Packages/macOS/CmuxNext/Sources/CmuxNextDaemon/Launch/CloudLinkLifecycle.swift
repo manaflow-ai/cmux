@@ -116,6 +116,7 @@ public final class CloudLinkLifecycle {
             if ensured.status != "running" { report["link_changed"] = await notifyLinkChanged() }
             return .object(report)
         } catch {
+            socket = nil
             logger.error("cloud link ensure failed: \(String(describing: error), privacy: .public)")
             return .object(["error": .string(String(describing: error))])
         }
