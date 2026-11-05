@@ -37,7 +37,13 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
 }
 
 function parse(file: string, text: string): ts.SourceFile {
-  return ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, file.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  return ts.createSourceFile(
+    file,
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
 }
 
 function walk(node: ts.Node, visit: (node: ts.Node) => void): void {
@@ -59,8 +65,12 @@ function wrappers(source: ts.SourceFile, senders: Map<string, boolean>): Map<str
     if (ts.isFunctionDeclaration(node) && node.name) {
       name = node.name.text;
       fn = node;
-    } else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer &&
-      (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))) {
+    } else if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))
+    ) {
       name = node.name.text;
       fn = node.initializer;
     }
@@ -157,8 +167,12 @@ function sentMethods(files: { path: string; text: string }[]): Sent[] {
       if (ts.isFunctionDeclaration(node) && node.name) {
         name = node.name.text;
         fn = node;
-      } else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer &&
-        (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))) {
+      } else if (
+        ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        node.initializer &&
+        (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))
+      ) {
         name = node.name.text;
         fn = node.initializer;
       }
@@ -167,7 +181,8 @@ function sentMethods(files: { path: string; text: string }[]): Sent[] {
       fn.parameters.forEach((parameter, index) => {
         if (!ts.isIdentifier(parameter.name)) return;
         const initial = parameter.initializer;
-        if (initial && ts.isIdentifier(initial) && senders.has(initial.text)) callbacks.set(parameter.name.text, senders.get(initial.text)!);
+        if (initial && ts.isIdentifier(initial) && senders.has(initial.text))
+          callbacks.set(parameter.name.text, senders.get(initial.text)!);
         else if (passed.get(name!)?.has(index)) callbacks.set(parameter.name.text, true);
       });
       if (callbacks.size === 0) return;
@@ -178,7 +193,13 @@ function sentMethods(files: { path: string; text: string }[]): Sent[] {
         if (!callee || !callbacks.has(callee) || !arg) return;
         if (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)) {
           const at = `${path}:${source.getLineAndCharacterOfPosition(inner.getStart()).line + 1}`;
-          sent.push({ at, method: arg.text, prefix: false, keys: literalKeys(inner.arguments[1]), direct: callbacks.get(callee)! });
+          sent.push({
+            at,
+            method: arg.text,
+            prefix: false,
+            keys: literalKeys(inner.arguments[1]),
+            direct: callbacks.get(callee)!,
+          });
         }
       });
     });
@@ -193,14 +214,22 @@ function directActions(text: string): Set<string> {
   walk(parse("App.tsx", text), (node) => {
     if (!ts.isBinaryExpression(node) || node.operatorToken.kind !== ts.SyntaxKind.EqualsToken) return;
     const left = node.left;
-    if (ts.isPropertyAccessExpression(left) && left.name.text === "cmuxAcpmuxActions" && ts.isObjectLiteralExpression(node.right)) {
+    if (
+      ts.isPropertyAccessExpression(left) &&
+      left.name.text === "cmuxAcpmuxActions" &&
+      ts.isObjectLiteralExpression(node.right)
+    ) {
       for (const property of node.right.properties) {
         const name = property.name;
         if (name && (ts.isIdentifier(name) || ts.isStringLiteral(name))) names.add(name.text);
       }
     }
-    if (ts.isElementAccessExpression(left) && ts.isPropertyAccessExpression(left.expression) &&
-      left.expression.name.text === "cmuxAcpmuxActions" && ts.isStringLiteral(left.argumentExpression)) {
+    if (
+      ts.isElementAccessExpression(left) &&
+      ts.isPropertyAccessExpression(left.expression) &&
+      left.expression.name.text === "cmuxAcpmuxActions" &&
+      ts.isStringLiteral(left.argumentExpression)
+    ) {
       names.add(left.argumentExpression.text);
     }
   });
@@ -215,7 +244,12 @@ function handlerNames(files: { path: string; text: string }[]): Map<string, stri
     const source = parse(path, text);
     const consts = new Map<string, string>();
     walk(source, (node) => {
-      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && ts.isStringLiteral(node.initializer)) {
+      if (
+        ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        node.initializer &&
+        ts.isStringLiteral(node.initializer)
+      ) {
         consts.set(node.name.text, node.initializer.text);
       }
     });
@@ -231,7 +265,8 @@ function handlerNames(files: { path: string; text: string }[]): Map<string, stri
       }
       if (ts.isFunctionDeclaration(node) && node.name && /^find\w*Handler$/.test(node.name.text)) {
         for (const parameter of node.parameters) {
-          if (parameter.initializer && ts.isStringLiteral(parameter.initializer)) found.set(parameter.initializer.text, at(parameter));
+          if (parameter.initializer && ts.isStringLiteral(parameter.initializer))
+            found.set(parameter.initializer.text, at(parameter));
         }
       }
     });
@@ -248,7 +283,8 @@ const pageOnly = new Set([...Object.keys(contract.legacyOnly), ...Object.keys(co
 
 /// Why `sent` would be refused, or null when the app takes it.
 function refusal(sent: Sent, direct: Set<string>): string | null {
-  const known = (method: string) => appMethods.has(method) || pageOnly.has(method) || (sent.direct && direct.has(method));
+  const known = (method: string) =>
+    appMethods.has(method) || pageOnly.has(method) || (sent.direct && direct.has(method));
   if (sent.prefix) {
     const any = [...appMethods, ...pageOnly].some((method) => method.startsWith(sent.method));
     return any ? null : `${sent.at}: no app method starts with '${sent.method}'`;
