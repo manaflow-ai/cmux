@@ -73,7 +73,8 @@ starts the worktree's webviews dev server on a port of its own (4290-4389) and r
 Projection Window** (`debug.projection`): a new window of the running app whose pages and agent panes
 load from that server. It is a real window of your app, so it has your settings, theme, backdrop,
 keys and the live daemon's terminals; its first workspace is in the worktree and shows the New Tab
-page. Saving a web
+page, which is native: pass `--page settings` (or `history`, `keybindings`, ...) to open a web page
+there too. Saving a web
 file in the worktree hot-reloads that window only (Vite HMR; React Fast Refresh keeps component
 state). Your other windows keep their pages, and `web-dev.json` is not touched. While a projection
 is open, newly opened pages use WebKit in every window, as with `web-dev.json`. Settings, theme and
