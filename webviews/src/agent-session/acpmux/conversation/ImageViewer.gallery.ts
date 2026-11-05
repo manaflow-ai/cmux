@@ -66,9 +66,11 @@ const underTabRow: Play = async (ctx) => {
         `The image is dimmed by ${node.className || node.tagName} (opacity ${style.opacity}, filter ${style.filter})`,
       );
   }
-  // The backdrop is light: the surface mix leaves the pane showing through (alpha well under 0.9).
-  const alpha = Number(/rgba?\([^)]*?,\s*([\d.]+)\)$/.exec(view.getComputedStyle(viewer).backgroundColor)?.[1] ?? 1);
-  if (alpha > 0.8) throw new Error(`The viewer's backdrop is ${alpha} opaque`);
+  // The backdrop is light: the surface mix leaves the pane showing through. Chromium computes the mix as
+  // `color(srgb r g b / a)`, other engines as `rgba(r, g, b, a)`; no alpha is opaque.
+  const background = view.getComputedStyle(viewer).backgroundColor;
+  const alpha = Number(/(?:\/|,\s*[\d.]+\s*,\s*[\d.]+\s*,)\s*([\d.]+)\s*\)$/.exec(background)?.[1] ?? 1);
+  if (alpha > 0.8) throw new Error(`The viewer's backdrop is ${alpha} opaque (${background})`);
 };
 
 export default agentPaneEntry({
