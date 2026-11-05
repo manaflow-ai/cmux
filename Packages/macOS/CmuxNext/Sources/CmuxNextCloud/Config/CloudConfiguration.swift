@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Native adapters for Rust's fetched NEXT Cloud client configuration.
@@ -64,6 +65,12 @@ public struct CloudConfiguration: Sendable, Equatable {
         credentialsDirectory(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
     }
 
+    // This build's own token files, under `cmux/<bundle id>`: a namespace of
+    // its own that predates ``BuildIdentity`` and is not that resolver's
+    // `cmux/builds/<key>`. Routing it through the resolver would move every
+    // existing build's token store and sign people out, so the literal root
+    // stays here (its `move` row in scripts/cmux-next/state-roots-baseline.tsv),
+    // and moving it is its own change with a migration.
     func credentialsDirectory(homeDirectory: URL) -> URL {
         let directory = homeDirectory
             .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
@@ -123,14 +130,32 @@ public struct CloudConfiguration: Sendable, Equatable {
     }
 
     public var nightlySession: NightlySession? {
-        guard runtimeSelection?.name == "prod", !isDebugBuild, bundleID == "com.cmuxterm.app.debug.next" else { return nil }
-        let nightly = "com.cmuxterm.app.nightly"
+        nightlySession(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
+    }
+
+    /// Pure counterpart of ``nightlySession``, for configuration contract tests.
+    func nightlySession(homeDirectory: URL) -> NightlySession? {
+        guard runtimeSelection?.name == "prod", !isDebugBuild, bundleID == Self.signedDEVBundleID else { return nil }
+        let nightly = BuildIdentity.nightlyBundleID
+        // NIGHTLY's own Application Support root, from the resolver keyed on
+        // NIGHTLY's identity (``BuildIdentity/appSupport(_:)``), never a literal
+        // root (per-build isolation S7, cx-is1kf.8). NIGHTLY is the one build
+        // that keeps the shared roots, so this stays the `cmux` directory while
+        // this signed DEV build's own roots are elsewhere.
+        let root = BuildIdentity(bundleID: nightly, bundledTag: nil)
+            .appSupport(Self.applicationSupportDirectory(homeDirectory: homeDirectory))
         return NightlySession(
             keychainService: "\(nightly).auth",
             accessGroup: "7WLXT3NR37.\(nightly)",
-            credentialsDirectory: FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
-                .appendingPathComponent(nightly, isDirectory: true))
+            credentialsDirectory: root.appendingPathComponent(nightly, isDirectory: true))
+    }
+
+    /// `~/Library/Application Support/cmux`: the directory
+    /// ``BuildIdentity/appSupport(_:)`` resolves a build's own state root under.
+    static func applicationSupportDirectory(homeDirectory: URL) -> URL {
+        homeDirectory
+            .appendingPathComponent("Library/Application Support", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
     }
 
     /// `<scheme>://auth-callback`. `/dev/null` stands in for a hand-built
