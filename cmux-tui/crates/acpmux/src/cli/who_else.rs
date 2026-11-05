@@ -77,7 +77,7 @@ fn params(args: &WhoElseArgs, cwd: &std::path::Path, env_session: Option<String>
 }
 
 /// What `who-else` prints for an answer.
-fn text(answer: &Value) -> String {
+pub(crate) fn text(answer: &Value) -> String {
     let list = |k: &str| answer.get(k).and_then(Value::as_array).into_iter().flatten();
     let rows: Vec<&Value> = list("sessions").collect();
     let mut out = String::new();

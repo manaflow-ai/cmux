@@ -94,6 +94,22 @@ fn a_session_that_edited_the_same_file_in_another_worktree_matches_first() {
 }
 
 #[test]
+fn one_edit_in_common_outranks_any_number_of_reads() {
+    let paths: Vec<String> = (0..11).map(|i| format!("src/f{i}.rs")).collect();
+    let q = Query {
+        files: paths.iter().map(|p| file(REPO, p, false, 0)).collect(),
+        ..Query::default()
+    };
+    let reader = candidate("reader", paths.iter().map(|p| file(REPO, p, false, 990)).collect());
+    let editor = candidate("editor", vec![file(REPO, "src/f0.rs", true, 900)]);
+    let mut rows: Vec<Value> =
+        [&reader, &editor].iter().filter_map(|c| row(&q, c, 1_000)).collect();
+    rank(&mut rows);
+    let names: Vec<&str> = rows.iter().map(|r| r["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["editor", "reader"]);
+}
+
+#[test]
 fn the_asker_and_its_own_sub_sessions_are_not_someone_else() {
     let q = Query {
         files: vec![file(REPO, "a", false, 0)],

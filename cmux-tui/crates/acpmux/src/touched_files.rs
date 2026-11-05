@@ -343,12 +343,14 @@ pub fn row(q: &Query, c: &Candidate, now: u64) -> Option<Value> {
         return None;
     }
     let edited = common.iter().filter(|f| edit(f)).count();
-    // Edits in common first, then reads, then the rest; recency breaks ties (`rank`).
-    let score = edited * 100
-        + (common.len() - edited) * 10
-        + usize::from(same_worktree) * 50
-        + usize::from(same_branch) * 50
-        + topic.len() * 5;
+    // Edits in common first, then reads, then the same place, then topic words: each level
+    // outranks any count of the next (eleven reads never beat one edit); recency breaks ties
+    // (`rank`). 16 bits a level.
+    let level = |n: usize| n.min(0xffff) as u64;
+    let score = level(edited) << 48
+        | level(common.len() - edited) << 32
+        | level(usize::from(same_worktree) + usize::from(same_branch)) << 16
+        | level(topic.len());
     let files: Vec<Value> = common
         .iter()
         .take(MAX_ROW_FILES)

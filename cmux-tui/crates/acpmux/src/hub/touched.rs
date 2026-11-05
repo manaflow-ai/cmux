@@ -239,6 +239,13 @@ impl Hub {
             return serde_json::from_value(q.clone())
                 .map_err(|e| RpcError::invalid_params(format!("query: {e}")));
         }
+        // A path is read from this machine's disk: only the local socket's mean anything here. A
+        // remote caller names keys, and hears so rather than an answer about other files.
+        if !local && ["files", "cwd"].iter().any(|k| params.get(*k).is_some()) {
+            return Err(RpcError::invalid_params(
+                "files and cwd are read only from this machine; name keys ([{repo, path}]) instead",
+            ));
+        }
         let now = crate::store::now_ms();
         let since_ms =
             params.get("sinceMs").and_then(Value::as_u64).unwrap_or(tf::DEFAULT_SINCE_MS);
@@ -252,7 +259,7 @@ impl Hub {
             None => None,
         };
         let asker = asker.map(|s| self.candidate(&s.meta()));
-        let raw = |k: &str| params.get(k).filter(|_| local);
+        let raw = |k: &str| params.get(k);
         let cwd: Option<PathBuf> = raw("cwd")
             .and_then(Value::as_str)
             .map(PathBuf::from)
