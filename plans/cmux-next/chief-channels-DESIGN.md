@@ -39,7 +39,7 @@ Builds on group chats with Chief (`chief-group-chats-DESIGN.md`), the Invite Peo
 | Who customizes the channel Chief | the channel creator and the creator's Chiefs (`chiefs` tool update) | the record lives in the creator's UserDO; other admins ask the creator |
 | When the channel Chief replies | wake policy `auto` (same as groups); `mentions` / `all` via Chiefs Reply | two people talking should not get a reply to every line |
 | Whose word it acts on | its owner's (CHIEF-DONE B3, 5a of group chats); others' messages are context | it holds the owner's tools |
-| Tools of a channel Chief | the creator's grant minus `spawn`, `workspaces`, `cloud_vms`, `browser` | a Chief seen by many people should not drive its owner's machines; the owner can widen it |
+| Tools of a channel Chief | a Cloud Chief's tools only (the `chiefs` grant on, so it can invite to its own channel on its owner's word); no Mac tools (`spawn`, `workspaces`, `cloud_vms`, `browser` are this Mac's daemon's, and a channel Chief is never a local Chief: gap 2) | a Chief seen by many people should not drive its owner's machines |
 | Archive the channel Chief | archives the record; the channel stays (a group without a Chief) | no data loss |
 | Channel limit | the 20-Chief cap counts channel Chiefs | bounded per user |
 
@@ -62,4 +62,5 @@ Builds on group chats with Chief (`chief-group-chats-DESIGN.md`), the Invite Peo
 ## 5. Gaps
 
 1. Channel admins other than the creator cannot edit the channel Chief's profile (record ownership).
-2. This Mac's local Chief cannot be a channel Chief yet (same as group chats gap 6.1).
+2. This Mac's local Chief cannot be a channel Chief yet (same as group chats gap 6.1); the daemon's chief_manage has no create_channel.
+3. The `invite` action and the Mac's New Channel invite through the owner's own session (`agent:<id> via chief` acting as the owner): the reach and role rules of participants.add and invite.create still apply, and the Chief acts only on its owner's word (effect-policy).
