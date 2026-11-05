@@ -109,16 +109,36 @@ class SyncTest(unittest.TestCase):
 
         def fake_run(argv, **kw):
             calls.append((argv, kw.get("input") or b""))
-            return mock.Mock(returncode=0, stdout=b"")
+            return mock.Mock(returncode=0, stdout=b"/Users/b" if "HOME" in argv[-1] else b"")
 
         with tempfile.TemporaryDirectory() as d, mock.patch.object(cl, "run", fake_run):
             builder = cl.Builder({"build_host": "h", "src": "~/cef/src", "out": "out/R",
                                   "target": "libcef", "session": "s1"}, Path(d))
             builder.sync(Path(d), ["third_party/blink/x.cc"])
         kinds = ["rsync" if argv[0] == "rsync" else "keep" if cl.KEEP_SCRIPT.encode() == data
-                 else "other" for argv, data in calls]
-        self.assertEqual(kinds, ["keep", "rsync"])
-        self.assertTrue(calls[0][0][-1].endswith("third_party/blink/x.cc"))
+                 else "home" for argv, data in calls]
+        self.assertEqual(kinds, ["home", "keep", "rsync"])
+        keep_cmd = calls[1][0][-1]
+        self.assertEqual(keep_cmd, "bash -s -- /Users/b/cef/src /Users/b/.cmux-chromium-live/s1 "
+                                   "third_party/blink/x.cc")
+        self.assertEqual(calls[2][0][-1], "h:/Users/b/cef/src/")
+
+    def test_a_crafted_path_reaches_the_host_as_one_word(self):
+        calls = []
+
+        def fake_run(argv, **kw):
+            calls.append(argv)
+            return mock.Mock(returncode=0, stdout=b'{"rc": 0}')
+
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(cl, "run", fake_run):
+            builder = cl.Builder({"build_host": "h", "src": "/x/$(touch pwned)", "out": "out/R",
+                                  "target": "libcef", "session": "s1"}, Path(d))
+            builder._home = "/Users/b"
+            builder.build()
+        self.assertIn("'/x/$(touch pwned)'", calls[0][-1])
+        self.assertEqual(cl.BUILT_BINARY_REL, "Chromium Embedded Framework.framework/Versions/A/"
+                                              "Chromium Embedded Framework")
+        self.assertNotIn("eval ", cl.BUILD_SCRIPT + cl.KEEP_SCRIPT + cl.RESTORE_SCRIPT)
 
 
 if __name__ == "__main__":

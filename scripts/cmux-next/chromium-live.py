@@ -54,6 +54,9 @@ import time
 
 FRAMEWORK_REL = Path("Contents/Frameworks/Chromium Embedded Framework.framework")
 BINARY_NAME = "Chromium Embedded Framework"
+# The framework binary as the build lays it out under the out dir (the link's own output is in obj/).
+BUILT_BINARY_REL = f"{BINARY_NAME}.framework/Versions/A/{BINARY_NAME}"
+STOP_WAIT_S = 900  # stop waits this long for a cycle in flight (a build) to finish
 DEFAULT_TARGET = "libcef"
 DEFAULT_OUT = "out/Release_GN_arm64"  # what the fleet CEF tree builds; the app links that build
 SCAN_INTERVAL_S = 0.25
@@ -200,7 +203,6 @@ def swap(app: Path, built: Path, gpu: bool = False) -> dict:
 BUILD_SCRIPT = r"""
 set -euo pipefail
 src="$1"; out="$2"; target="$3"; keep="$4"
-eval src="$src"; eval keep="$keep"
 mkdir -p "$keep/orig"
 cd "$src"
 case "$out" in out/*) ;; *) echo "out dir must be out/<name>" >&2; exit 64;; esac
@@ -223,7 +225,6 @@ printf '{"rc": %d, "build_seconds": %d, "binary": "%s", "sha256": "%s"}\n' "$rc"
 KEEP_SCRIPT = r"""
 set -euo pipefail
 src="$1"; keep="$2"; shift 2
-eval src="$src"; eval keep="$keep"
 mkdir -p "$keep/orig"
 cd "$src"
 # The tree's own copy of each path, kept once and before the edit lands, so stop can put it back.
@@ -239,7 +240,6 @@ done
 RESTORE_SCRIPT = r"""
 set -euo pipefail
 src="$1"; keep="$2"
-eval src="$src"; eval keep="$keep"
 [ -d "$keep/orig" ] || { echo 0; exit 0; }
 cd "$src"
 n=0
@@ -259,12 +259,31 @@ echo "$n"
 class Builder:
     def __init__(self, cfg: dict, state: Path):
         self.host = cfg["build_host"]
-        self.src = cfg["src"]
         self.out = cfg["out"]
         self.target = cfg["target"]
-        self.binary_rel = cfg.get("binary_rel", BINARY_NAME)
-        self.keep = f"~/.cmux-chromium-live/{cfg['session']}"
+        self.binary_rel = cfg.get("binary_rel", BUILT_BINARY_REL)
+        self._src = cfg["src"]
+        self._keep = f"~/.cmux-chromium-live/{cfg['session']}"
+        self._home: str | None = None
         self.state = state
+
+    def absolute(self, path: str) -> str:
+        """A build-host path with a leading ~ made absolute, so nothing is expanded by a shell."""
+        if path != "~" and not path.startswith("~/"):
+            return path
+        if self._home is None:
+            self._home = run(self.ssh() + ['printf %s "$HOME"']).stdout.decode().strip()
+            if not self._home.startswith("/"):
+                raise LiveError(f"{self.host}: could not read its home folder")
+        return self._home + path[1:]
+
+    @property
+    def src(self) -> str:
+        return self.absolute(self._src)
+
+    @property
+    def keep(self) -> str:
+        return self.absolute(self._keep)
 
     def ssh(self) -> list[str]:
         control = self.state / "ssh-%C"
@@ -272,8 +291,8 @@ class Builder:
                 "-o", f"ControlPath={control}", "-o", "ControlPersist=900", self.host]
 
     def remote(self, script: str, *args: str) -> str:
-        """Run script on the build host with args (a leading ~ expands there)."""
-        cmd = "bash -s -- " + " ".join(a if a.startswith("~/") else shlex.quote(a) for a in args)
+        """Run script on the build host; every argument reaches it as one quoted word."""
+        cmd = "bash -s -- " + " ".join(shlex.quote(a) for a in args)
         return run(self.ssh() + [cmd], input=script.encode()).stdout.decode(errors="replace")
 
     def sync(self, edits: Path, rels: list[str]) -> None:
@@ -283,7 +302,7 @@ class Builder:
         files_from.write_text(listing)
         rsh = shlex.join(self.ssh()[:-1])
         run(["rsync", "-a", "-z", "--files-from", str(files_from), "-e", rsh,
-             str(edits) + "/", f"{self.host}:{self.src}/"])
+             str(edits) + "/", f"{self.host}:{shlex.quote(self.src + '/')}"])
 
     def build(self) -> dict:
         script = f"BINARY={shlex.quote(self.binary_rel)}\n" + BUILD_SCRIPT
@@ -300,7 +319,7 @@ class Builder:
             shutil.copy2(previous[-1] / BINARY_NAME, dest)  # rsync sends only the delta
         rsh = shlex.join(self.ssh()[:-1])
         run(["rsync", "-a", "-z", "--inplace", "-e", rsh,
-             f"{self.host}:{self.src}/{report['binary']}", str(dest)])
+             f"{self.host}:{shlex.quote(self.src + '/' + report['binary'])}", str(dest)])
         if sha256(dest) != report["sha256"]:
             raise LiveError("the fetched framework does not match the build host's sha256")
         return dest
@@ -454,6 +473,13 @@ def command_stop(_args) -> int:
     pid = running_pid(state)
     if pid:
         (state / "stop").write_text("stop\n")
+        # Restore only once the watcher is gone, so a cycle in flight cannot send its edit after.
+        deadline = time.monotonic() + STOP_WAIT_S
+        while running_pid(state) == pid and time.monotonic() < deadline:
+            time.sleep(0.2)
+        if running_pid(state) == pid:
+            os.kill(pid, signal.SIGTERM)  # our own watcher, started by `start`
+            time.sleep(0.5)
     cfg_path = state / "config.json"
     if cfg_path.is_file():
         cfg = json.loads(cfg_path.read_text())
@@ -491,7 +517,7 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--src", required=True, help="chromium/src on the build host")
     st.add_argument("--out", default=DEFAULT_OUT)
     st.add_argument("--target", default=DEFAULT_TARGET)
-    st.add_argument("--binary-rel", default=BINARY_NAME,
+    st.add_argument("--binary-rel", default=BUILT_BINARY_REL,
                     help="the framework binary below OUT that the target links")
     st.add_argument("--edits")
     st.add_argument("--app")
