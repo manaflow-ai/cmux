@@ -118,8 +118,8 @@ describe("prod-gate", () => {
       expect(s.run).toContain("trap 'rm -f \"$key_file\"' EXIT");
       for (const call of s.run!.match(/^.*\bbun .*$/gm) ?? []) if (!call.includes("prod-copy.ts plan")) expect(call).toContain('FREESTYLE_API_KEY_FILE="$key_file" bun ');
     }
-    // No prod-copy step gets the raw key: the dev steps that do never run in prod-copy mode.
-    for (const s of bakeWf.jobs.bake!.steps.filter((s) => s.env?.FREESTYLE_API_KEY)) expect(s.if ?? "").toMatch(/inputs\.mode == 'bake'|inputs\.mode == 'repro'|inputs\.mode != 'prod-copy'/);
+    // No prod-copy step gets the raw key: the dev steps that do (bake, repro, first-session) never run in prod-copy mode.
+    for (const s of bakeWf.jobs.bake!.steps.filter((s) => s.env?.FREESTYLE_API_KEY)) expect(s.if ?? "").toMatch(/inputs\.mode == 'bake'|inputs\.mode == 'repro'|inputs\.mode == 'first-session'|inputs\.mode != 'prod-copy'/);
   });
 
   const refused: Array<[string, Record<string, unknown> | "missing", string, string?]> = [
