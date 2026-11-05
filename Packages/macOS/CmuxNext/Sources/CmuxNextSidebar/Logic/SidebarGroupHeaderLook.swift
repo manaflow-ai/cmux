@@ -80,16 +80,16 @@ public nonisolated enum SidebarGroupLineLayout: String, Sendable, CaseIterable, 
         default: .edge, code: "SidebarGroupLineLayout.tunable")
 }
 
-/// How a group with no color still reads as a group (`sidebar.noColorGroup`): one neutral surface behind its header and
+/// How a group with no color still reads as a group (`sidebar.noColorGroup`): one untinted glass pane behind its header and
 /// its members, no hue and no indent. Leo 2026-11-05: "if you're gonna allow the no color option ... you might as well
 /// have it be at least slightly distinguishing from, like, literally depicting it as if it were unhovered", "a
 /// differently highlighted, differently refracted, differently transparented thing ... a grouped up thing", and "we're
 /// not necessarily into that indentation thing". A colored group draws as before in every look.
 public nonisolated enum SidebarNoColorGroupLook: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// One flat, faint step of the sidebar's ink behind the block, under the rows' own hover and selection.
-    case tray
-    /// A fainter step with a hairline edge, a pane of glass laid over the block.
+    /// Untinted glass, as a glass header's pane with no color: a faint step of the sidebar's ink and a hairline rim.
     case glass
+    /// One flat, faint step of the sidebar's ink behind the block, no rim.
+    case tray
     /// Lit from the header: brightest behind it, fading down the members.
     case lit
     /// Nothing: the header and members draw as plain rows (the look since #32198).
@@ -97,8 +97,8 @@ public nonisolated enum SidebarNoColorGroupLook: String, Sendable, CaseIterable,
 
     public var tunableTitle: String {
         switch self {
+        case .glass: "Untinted glass"
         case .tray: "Faint tray"
-        case .glass: "Glass with an edge"
         case .lit: "Lit from the header"
         case .plain: "Plain rows"
         }
@@ -107,5 +107,58 @@ public nonisolated enum SidebarNoColorGroupLook: String, Sendable, CaseIterable,
     public static let tunable = Tunable<SidebarNoColorGroupLook>.choice(
         "sidebar.noColorGroup", .sidebar, "Group with no color",
         help: "How a group with no color reads as a group: a faint neutral surface behind its header and members, or plain rows.",
-        default: .tray, code: "SidebarNoColorGroupLook.tunable")
+        default: .glass, code: "SidebarNoColorGroupLook.tunable")
+}
+
+/// How the solid band header draws its color (`sidebar.groupGlass`). Leo 2026-11-05: "We can afford to put glass
+/// here, so why the f*** do we not have glass for this? ... still keeping the colors, it's just, like, but just make
+/// it glassier", "Why is it just one solid opaque block? Why does it not have any sort of rim at all?" Every glass look
+/// is the group's color raised in chroma (`GroupTint.glassRGB`) as a translucent wash with a hairline rim, the name in
+/// the theme's ink; the palette is unchanged.
+public nonisolated enum SidebarGroupGlass: String, Sendable, CaseIterable, Hashable, TunableChoice {
+    /// A clear tinted pane: a moderate wash of the color and a rim lit toward white.
+    case glass
+    /// More of the color, for a louder group.
+    case vivid
+    /// A frosted pane: less color under a pale veil, with a brighter rim.
+    case frost
+    /// The opaque bar before (cx-qno.22).
+    case solid
+
+    /// The share of the color the pane takes, dark and light.
+    public func tint(dark: Bool) -> Double {
+        switch self {
+        case .glass: dark ? 0.30 : 0.22
+        case .vivid: dark ? 0.44 : 0.34
+        case .frost: dark ? 0.18 : 0.14
+        case .solid: 1
+        }
+    }
+
+    /// A pale veil over the tint (frost only), dark and light.
+    public func veil(dark: Bool) -> Double { self == .frost ? (dark ? 0.06 : 0.40) : 0 }
+
+    /// The rim's opacity: the color lit toward white on dark, the color itself on light.
+    public func rim(dark: Bool) -> Double {
+        switch self {
+        case .glass: dark ? 0.38 : 0.42
+        case .vivid: dark ? 0.50 : 0.55
+        case .frost: dark ? 0.30 : 0.36
+        case .solid: 0
+        }
+    }
+
+    public var tunableTitle: String {
+        switch self {
+        case .glass: "Tinted glass"
+        case .vivid: "Vivid glass"
+        case .frost: "Frosted glass"
+        case .solid: "Solid bar"
+        }
+    }
+
+    public static let tunable = Tunable<SidebarGroupGlass>.choice(
+        "sidebar.groupGlass", .sidebar, "Group header glass",
+        help: "How a group header's bar draws its color: tinted, vivid or frosted glass with a rim, or the solid bar.",
+        default: .glass, code: "SidebarGroupGlass.tunable")
 }

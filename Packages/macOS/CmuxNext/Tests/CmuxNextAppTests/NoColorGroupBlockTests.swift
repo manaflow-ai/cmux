@@ -61,13 +61,14 @@ import Testing
         return try #require(GroupPaletteDefaultTests.views(GroupLineView.self, in: sidebar).first { $0.frame == frame })
     }
 
-    @Test func theTrayIsTheDefault() {
-        #expect(SidebarNoColorGroupLook.tunable.defaultValue == .tray)
+    @Test func untintedGlassIsTheDefault() {
+        #expect(SidebarNoColorGroupLook.tunable.defaultValue == .glass)
+        #expect(SidebarGroupGlass.tunable.defaultValue != .solid, "a group header is glass, not the opaque bar")
     }
 
     /// The block runs from the header's top to the last member's bottom at the header's x and width: no indent.
     @Test func anOpenGroupWithNoColorDrawsOneBlockBehindItsHeaderAndMembers() throws {
-        try Self.withLook(.tray) {
+        try Self.withLook(.glass) {
             let (sidebar, window) = Self.sidebar()
             defer { window.close() }
             let list = sidebar.list
@@ -84,7 +85,7 @@ import Testing
     }
 
     @Test func aCollapsedGroupWithNoColorBlocksItsHeader() throws {
-        try Self.withLook(.tray) {
+        try Self.withLook(.glass) {
             let (sidebar, window) = Self.sidebar()
             defer { window.close() }
             let header = try #require(sidebar.list.rowViews[.group(Self.folded)]).frame
@@ -96,7 +97,7 @@ import Testing
 
     /// Hover and selection are the rows' own fills: the block sits under every row, below the list's decorations.
     @Test func theBlockSitsUnderEveryRow() throws {
-        try Self.withLook(.tray) {
+        try Self.withLook(.glass) {
             let (sidebar, window) = Self.sidebar()
             defer { window.close() }
             let list = sidebar.list
@@ -111,7 +112,7 @@ import Testing
     }
 
     @Test func aColoredGroupKeepsItsRail() throws {
-        try Self.withLook(.tray) {
+        try Self.withLook(.glass) {
             let (sidebar, window) = Self.sidebar()
             defer { window.close() }
             let rail = try Self.lineView(sidebar, Self.colored)

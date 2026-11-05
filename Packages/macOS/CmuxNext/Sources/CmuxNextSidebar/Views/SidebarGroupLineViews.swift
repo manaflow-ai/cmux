@@ -204,7 +204,9 @@ final class GroupLineView: NSView {
         performWithTheme {
             // Under the solid band, the band's rest color (Leo 2026-10-19: bar and line are one color);
             // the quieter looks keep the dot's color.
-            let line = look.style == .band ? color.lineFill(themed: look.themed) : color.lineColor(themed: look.themed)
+            // Under a glass band, the pane's vivid color (`GroupTint.glassRGB`), so rail and rim read as one group.
+            let line = look.style != .band ? color.lineColor(themed: look.themed)
+                : look.glass == .solid || color.isNone ? color.lineFill(themed: look.themed) : color.glassRGB(themed: look.themed).nsColor
             layer?.backgroundColor = NSColor.clear.cgColor
             railShape.fillColor = line.withAlphaComponent(line.alphaComponent * strength).cgColor
         }
@@ -220,11 +222,11 @@ final class GroupLineView: NSView {
             railShape.fillColor = nil
             layer?.backgroundColor = switch look {
             case .tray: ink(dark ? 0.03 : 0.025)
-            case .glass: ink(dark ? 0.018 : 0.015)
+            case .glass: ink(dark ? 0.035 : 0.03)
             case .lit, .plain: NSColor.clear.cgColor
             }
             layer?.borderWidth = look == .glass ? 1 / (window?.backingScaleFactor ?? 2) : 0
-            layer?.borderColor = ink(dark ? 0.10 : 0.09)
+            layer?.borderColor = ink(dark ? 0.16 : 0.12) // the rim, as a glass header's (`SidebarGroupGlass.rim`)
             light.isHidden = look != .lit
             light.colors = [ink(dark ? 0.06 : 0.05), ink(0.012), ink(0.012)]
         }
@@ -253,12 +255,13 @@ final class GroupLineView: NSView {
         railShape.path = SidebarGroupLineShape.body(width: bounds.width, height: height)
     }
 
-    /// Reads `sidebar.groupHeader`, `sidebar.groupColors` and `sidebar.noColorGroup` and repaints once when either changes; one
+    /// Reads `sidebar.groupHeader`, `sidebar.groupColors`, `sidebar.noColorGroup` and `sidebar.groupGlass` and repaints once when either changes; one
     /// observation at a time.
-    private func observedLook() -> (style: SidebarGroupHeaderStyle, themed: Bool, noColor: SidebarNoColorGroupLook) {
+    private func observedLook() -> (style: SidebarGroupHeaderStyle, themed: Bool, noColor: SidebarNoColorGroupLook, glass: SidebarGroupGlass) {
         let read = {
             _ = SidebarTunables.groupChromeShapeOn
-            return (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme, SidebarNoColorGroupLook.tunable.value)
+            return (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme, SidebarNoColorGroupLook.tunable.value,
+                    SidebarGroupGlass.tunable.value)
         }
         guard !observesPalette else { return read() }
         observesPalette = true

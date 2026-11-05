@@ -105,15 +105,27 @@
   `SidebarRowsMoveOnRenderServerTests.collapsingAGroupClipsItsMembersInPlace`,
   `expandingAGroupOpensItsSlotOverTheMembersInPlace`, `aFoldWithoutMotionLeavesNoMask`.
 
+- 2026-11-05: group headers are glass, and the header name is the rows' size. Leo, verbatim: "We can afford to put
+  glass here, so why the f*** do we not have glass for this? Like, I mean, like, still keeping the colors, it's just,
+  like, but just make it glassier, you know? Like, the groups themselves. Why is it just one solid opaque block? Why
+  does it not have any sort of rim at all?" and "this strange f***ing font of the group on the side ... it just looks
+  sad". The band header (`sidebar.groupHeader` band) draws a translucent pane of its color with the chroma raised x1.3
+  (`GroupTint.glassRGB`), 30% dark / 22% light, a hairline rim (the color lit toward white on dark, the color itself on
+  light), and its name in the theme's ink, held at 4.5:1 over the pane. The rail under it takes the same vivid color.
+  Debug `sidebar.groupGlass`: `glass` (default), `vivid`, `frost`, `solid` (the opaque bar before). The palette, its
+  order and every color choice are unchanged. The name was 11 pt medium in the bare system face on the compact bar,
+  smaller than its own rows; it now takes `titleFont`'s size, semibold. The shared glass tokens belong to the
+  real-glass-material lane; these values move onto its tokens once they land. Gallery: `AANoColorGroupGalleryTests`
+  (today and the three glass looks over a busy wallpaper). Regression: `GroupHeaderGlassTests`.
 - 2026-11-05: a group with no color reads as a group: one faint neutral block behind its header and members, no hue
-  and no indent (`sidebar.noColorGroup`, default `tray`). Leo, verbatim: "if you're gonna allow the no color option,
+  and no indent (`sidebar.noColorGroup`, default `glass`: untinted glass, the header pane's rim). Leo, verbatim: "if you're gonna allow the no color option,
   which is, like, I find kind of weird, you might as well have it be at least slightly distinguishing from, like,
   literally depicting it as if it were unhovered", "a differently highlighted, differently refracted, differently
   transparented thing ... a grouped up thing", and "we're not necessarily into that indentation thing". The group's
   line view becomes its block (`SidebarGroupLine.isBlock`): from the header's top to the last shown member's bottom,
   the header's width, a collapsed group's header alone, under every row (below `decorations`) so hover, selection and
-  drop fills draw over it. The ink is the theme's text at 3% dark / 2.5% light, under the 6% / 5% hover. The Debug
-  choice keeps `glass` (fainter, hairline edge), `lit` (fades from the header) and `plain` (the look since #32198).
+  drop fills draw over it. The ink is the theme's text at 3.5% dark / 3% light with a hairline rim, under the 6% / 5% hover. The
+  Debug choice keeps `tray` (no rim), `lit` (fades from the header) and `plain` (the look since #32198).
   No hue comes back (#32198 and #32685 stand); a colored group keeps its rail. A tab group with no color washes its
   tabs in the theme's `sidebarStep`, no hue. Gallery: `AANoColorGroupGalleryTests`. Regression:
   `NoColorGroupBlockTests`, `GroupNoChosenColorTests.tabGroupWithNoColorDrawsNoDotAndNoUnderline`.
@@ -515,7 +527,8 @@ A workspace close removes only the workspace. The daemon close path and remote-c
 | Row close (X) | The original close: a small x at the row's trailing end, shown on hover, in its rounded box. Not the top-right "dog-ear" fold. | Lawrence 11405 ("revert styling back to original, for the X button") |
 | Group rail | The rail's left edge is the group header pill's left edge, at every depth, every density, light and dark. | Lawrence 11240, 11371, 11405 |
 | Group rail shape | Chrome's line on that edge: 2 pt, one capsule (see Left bar), the header bar's own color, a 6 pt cut below the header, down to the last member's bottom. Debug `sidebar.groupLineLayout`: `edge` (default, the row above), `joined` (no cut, the bar's bottom-left corner square: one L, band header only), `inside` (the header reaches the corner inset further left, 4 pt compact and 5 pt comfortable, capped at the list's edge: the line under its corner). Members never move. | Leo 2026-10-23 ("WTF HAPPENED TO FOLLOWING CHROME"; asks ask-5b16be6ee9, ask-40133bf821, ask-7e10ebd553), #24513 |
-| Group with no color | One faint neutral block (the theme ink, 3% dark / 2.5% light) behind the header and its members, the header's width, no hue and no indent; rows' hover and selection draw over it. Debug `sidebar.noColorGroup`: `tray` (default), `glass`, `lit`, `plain`. | Leo 2026-11-05 ("a grouped up thing"; "we're not necessarily into that indentation thing") |
+| Group header | A translucent pane of the group's color (chroma x1.3, 30% dark / 22% light) with a hairline rim; the name in the theme's ink at the rows' title size, semibold. Debug `sidebar.groupGlass`: `glass` (default), `vivid`, `frost`, `solid`. | Leo 2026-11-05 ("just make it glassier"; "Why does it not have any sort of rim at all?") |
+| Group with no color | Untinted glass behind the header and its members (the theme ink, 3.5% dark / 3% light, a hairline rim), the header's width, no hue and no indent; rows' hover and selection draw over it. Debug `sidebar.noColorGroup`: `glass` (default), `tray`, `lit`, `plain`. | Leo 2026-11-05 ("a grouped up thing"; "we're not necessarily into that indentation thing") |
 | Left bar: capsule, equal top/bottom rounding | The group rail beside member rows (`GroupLineView`, every place it draws: the list's lines and a lifted group's card) is one capsule: the layer's corner clip rounds all four corners by half the bar's width (`SidebarGroupLineShape`), so the top and bottom caps match, in light and dark, at every density and text size, in the line look and the connected (Chrome-Style Groups) look. Neither cap is clipped by the row, the scroll edge or a neighbour row. | Lawrence msg 19775 ("roundness of left bar needs to be better, like rounded on both top and bottom"); SidebarGroupRailCapsuleTests |
 | Row text | As far left as it originally was. A row with no icon starts its title at the row inset; no empty icon slot pushes it right. A top-level group's rows keep the ungrouped rows' left edge. Only nested groups step in. | Lawrence 11405 ("text needs to be as left as possible (how it originally was)"); #23975 |
 | Home unread | A blue dot, the same dot as other unread rows. No count badge. | Lawrence 11384 |

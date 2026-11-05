@@ -289,7 +289,10 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The Debug Settings look (`sidebar.groupHeader`, `sidebar.groupColors`, cx-7yywz) and line layout (its joined
     /// corner, `sidebar.groupLineLayout`); a change lays the header out and paints it again.
     private var look: (style: SidebarGroupHeaderStyle, themed: Bool) {
-        let read = { _ = SidebarStyle.groupLineLayout; return (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme) }
+        let read = {
+            _ = (SidebarStyle.groupLineLayout, SidebarGroupGlass.tunable.value)
+            return (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme)
+        }
         guard !observesLook else { return read() }
         observesLook = true
         return withObservationTracking(read) { [weak self] in
@@ -312,6 +315,8 @@ final class GroupHeaderRowView: SidebarRowView {
             let look = look
             // A group nobody colored draws as a plain row: no bar, only the row's own hover and drop fills.
             if look.style != .band || tint.isNone { return paintQuiet(tokens, look) }
+            let glass = SidebarGroupGlass.tunable.value
+            if glass != .solid { return paintGlass(tokens, look, glass) }
             let chip = tint.headerChip(themed: look.themed)
             var fill = chip.fill
             if isHovered { fill = tokens.hoverFill.composited(over: fill) }
@@ -342,6 +347,52 @@ final class GroupHeaderRowView: SidebarRowView {
             layer?.cornerRadius = SidebarStyle.rowCornerRadius
             CATransaction.commit()
         }
+    }
+
+    /// The band as tinted glass (`sidebar.groupGlass`; Leo 2026-11-05: "Why is it just one solid opaque block? Why does
+    /// it not have any sort of rim at all?"): the group's color raised in chroma (`GroupTint.glassRGB`) as a translucent
+    /// pane over whatever is behind the sidebar, a hairline rim, and the theme's ink, kept readable over the pane.
+    /// Hover and a drop step over the pane, as on the solid bar.
+    private func paintGlass(_ tokens: ThemeTokens, _ look: (style: SidebarGroupHeaderStyle, themed: Bool), _ glass: SidebarGroupGlass) {
+        let dark = tokens.isDark
+        let color = tint.glassRGB(themed: look.themed)
+        var fill = color.withAlpha(glass.tint(dark: dark))
+        let veil = glass.veil(dark: dark)
+        if veil > 0 { fill = Self.over(ThemeRGB.white.withAlpha(veil), fill) }
+        if isHovered { fill = Self.over(tokens.hoverFill, fill) }
+        if isDropTarget { fill = Self.over(tokens.pressedFill, fill) }
+        let shown = fill.composited(over: tokens.sidebarBackground)
+        let ink = ThemeTokens.readable(tokens.textPrimary.withAlpha(1), over: shown, minimum: ThemeTokens.minimumTextContrast)
+            .nsColor.withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
+        name.textColor = ink
+        count.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
+        glyph.symbolInk = ink
+        pin.contentTintColor = ink
+        chevron.contentTintColor = ink
+        moreButton.tintOverride = ink
+        addButton.tintOverride = ink
+        pinButton.tintOverride = ink
+        paintMachine(ink: ink)
+        dot.isHidden = true
+        ChromeHover.paint(pill, fill.nsColor, animated: fadesNextFill)
+        paintFill(nil)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        pill.borderWidth = 1 / (window?.backingScaleFactor ?? 2)
+        pill.borderColor = (dark ? color.mixed(toward: .white, 0.55) : color).withAlpha(glass.rim(dark: dark)).cgColor
+        pill.opacity = archived ? Float(SidebarStyle.archivedAlpha) : 1
+        layer?.borderColor = Palette.focusRing.cgColor
+        layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
+        layer?.cornerRadius = SidebarStyle.rowCornerRadius
+        CATransaction.commit()
+    }
+
+    /// `top` painted over `bottom`, both possibly translucent (source-over): the pane stays see-through.
+    private static func over(_ top: ThemeRGB, _ bottom: ThemeRGB) -> ThemeRGB {
+        let alpha = top.alpha + bottom.alpha * (1 - top.alpha)
+        guard alpha > 0 else { return top }
+        func mix(_ t: Double, _ b: Double) -> Double { (t * top.alpha + b * bottom.alpha * (1 - top.alpha)) / alpha }
+        return ThemeRGB(red: mix(top.red, bottom.red), green: mix(top.green, bottom.green), blue: mix(top.blue, bottom.blue), alpha: alpha)
     }
 
     /// The quieter headers (cx-7yywz): the name in primary ink (`tinted`: in the group's color) with
