@@ -957,8 +957,8 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-panel .acpmux-permission-edits{overscroll-behavior:auto}
 .acpmux-permission-edits .cv-edit-diff__body{max-height:calc(40vh - var(--cv-font-size,14px)*32/14 - 14px);overflow:hidden auto}
 .acpmux-permission-ask .acpmux-permission-buttons{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:var(--ds-space-2);margin:0;padding:var(--ds-space-3) var(--ds-space-4) var(--ds-space-4)}
-/* Deny keeps the leading edge (and any other option before it), the allows the trailing one. */
-.acpmux-permission-ask .acpmux-permission-buttons .acpmux-permission-deny{margin-inline-end:auto}
+/* Deny keeps the leading edge (and any other option before it), the allows the trailing one, as a pair. */
+.acpmux-permission-ask .acpmux-permission-allows{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:var(--ds-space-2);margin-inline-start:auto;max-width:100%}
 .acpmux-permission-ask .acpmux-permission-buttons button{display:inline-flex;align-items:center;flex:none;max-width:100%;min-height:var(--ds-control-row);box-sizing:border-box;border:0;border-radius:var(--ds-radius-popup);padding:var(--ds-space-1) var(--ds-space-3);white-space:nowrap;background:color-mix(in srgb,var(--agent-text) 10%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-body);font-weight:var(--weight-regular);line-height:20px;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-permission-ask .acpmux-permission-buttons button:hover{background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
 .acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-primary{background:var(--agent-text);color:var(--acpmux-base,var(--agent-accent-text,Canvas))}

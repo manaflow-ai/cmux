@@ -85,7 +85,11 @@ export function PermissionActionButton({
   shortcut,
   cardKey,
   ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { label: string; shortcut?: string; cardKey?: CardKey }) {
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  label: string;
+  shortcut?: string;
+  cardKey?: CardKey;
+}) {
   const { className, ...buttonProps } = props;
   return (
     <button
@@ -504,25 +508,32 @@ export function PermissionCard({
               onClick={() => deny()}
             />
           )}
-          {allowAlways && allowAlwaysLabel && (
-            <PermissionActionButton
-              label={allowAlwaysLabel}
-              shortcut={shortcuts && !alwaysAtSource ? allowChatShortcut : undefined}
-              title={alwaysAtSource ? t("permission.alwaysAtSource") : alwaysScope}
-              aria-describedby={[scopeText && targetId, alwaysScope && ruleId].filter(Boolean).join(" ") || undefined}
-              disabled={alwaysAtSource}
-              onClick={() => answer(allowAlways)}
-            />
-          )}
-          {allowOnce && (
-            <PermissionActionButton
-              label={t("permission.allowOnce")}
-              aria-describedby={scopeText ? targetId : undefined}
-              shortcut={shortcuts ? allowOnceShortcut : undefined}
-              cardKey={shortcuts ? ALLOW_KEY : undefined}
-              className="acpmux-permission-primary"
-              onClick={() => answer(allowOnce)}
-            />
+          {(allowAlways || allowOnce) && (
+            // The allows keep the trailing edge together, so a narrow card wraps them as a pair.
+            <span className="acpmux-permission-allows">
+              {allowAlways && allowAlwaysLabel && (
+                <PermissionActionButton
+                  label={allowAlwaysLabel}
+                  shortcut={shortcuts && !alwaysAtSource ? allowChatShortcut : undefined}
+                  title={alwaysAtSource ? t("permission.alwaysAtSource") : alwaysScope}
+                  aria-describedby={
+                    [scopeText && targetId, alwaysScope && ruleId].filter(Boolean).join(" ") || undefined
+                  }
+                  disabled={alwaysAtSource}
+                  onClick={() => answer(allowAlways)}
+                />
+              )}
+              {allowOnce && (
+                <PermissionActionButton
+                  label={t("permission.allowOnce")}
+                  aria-describedby={scopeText ? targetId : undefined}
+                  shortcut={shortcuts ? allowOnceShortcut : undefined}
+                  cardKey={shortcuts ? ALLOW_KEY : undefined}
+                  className="acpmux-permission-primary"
+                  onClick={() => answer(allowOnce)}
+                />
+              )}
+            </span>
           )}
         </div>
       )}

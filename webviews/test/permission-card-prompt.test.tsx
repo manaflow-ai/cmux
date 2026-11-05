@@ -436,7 +436,7 @@ test("the answer row is content-width buttons, never stretched to equal cells", 
   // Centred, so the label sits level with its Esc or ⌘ ↩ keycaps.
   expect(button).toContain("align-items:center");
   // Deny keeps the leading edge, the allows the trailing one, as Claude desktop's card.
-  expect(rule(".acpmux-permission-ask .acpmux-permission-buttons .acpmux-permission-deny")).toContain("margin-inline-end:auto");
+  expect(rule(".acpmux-permission-ask .acpmux-permission-allows")).toContain("margin-inline-start:auto");
 });
 
 // Leo 2026-11-04: "a temporary one-time sort of ask for, like if for whatever reason there's the
