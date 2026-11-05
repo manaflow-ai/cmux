@@ -11,7 +11,10 @@
 //! projection shows the machine running (a team `cloud.machine.upsert`, or
 //! another op's answer), or when its next read is due ([`read_delay`]). Each
 //! read is one `connect_info` of that machine, never a list; after
-//! [`MAX_READS`] it answers the machine-starting error.
+//! [`MAX_READS`] it answers the machine-starting error. A machine whose
+//! state the host pushes (`cloud.machine.state`, crate::api::events) wakes
+//! its op on the push; its reads are only a fallback, every
+//! [`PUSHED_READ_DELAY`], at most [`MAX_PUSHED_READS`].
 
 use super::ops::{LINK_UNAVAILABLE, link_failure_for, starting};
 use crate::api::models::MachineStatus;
@@ -35,9 +38,19 @@ pub(crate) const MACHINE_WAIT: &str = "cmux.cloud.internal.machine_wait";
 /// (`CloudAppLinks.connectTimeout`), so the answer reaches it.
 pub(crate) const MAX_READS: u32 = 45;
 
+/// The fallback read of a pushed machine: the push wakes the op first.
+pub(crate) const PUSHED_READ_DELAY: Duration = Duration::from_secs(10);
+
+/// Fallback reads of a pushed machine before its op gives up: about 90 s,
+/// the same bound as [`MAX_READS`].
+pub(crate) const MAX_PUSHED_READS: u32 = 9;
+
 /// The wait before read `attempt` (from 1): 1 s for the first 20 reads, then
-/// 3 s.
-pub(crate) fn read_delay(attempt: u32) -> Duration {
+/// 3 s; [`PUSHED_READ_DELAY`] for a machine whose state is pushed.
+pub(crate) fn read_delay(attempt: u32, pushed: bool) -> Duration {
+    if pushed {
+        return PUSHED_READ_DELAY;
+    }
     Duration::from_secs(if attempt <= 20 { 1 } else { 3 })
 }
 
@@ -111,7 +124,10 @@ impl<C: ControlPlane> Server<C> {
                 None
             }
             (Err(error), _) if error.code == MACHINE_WAIT => {
-                let Some(machine) = parked_machine.filter(|_| reads < MAX_READS) else {
+                let pushed =
+                    parked_machine.as_deref().is_some_and(|m| self.projection().is_pushed(m));
+                let max = if pushed { MAX_PUSHED_READS } else { MAX_READS };
+                let Some(machine) = parked_machine.filter(|_| reads < max) else {
                     return Some(Err(starting()));
                 };
                 if full {
@@ -122,7 +138,7 @@ impl<C: ControlPlane> Server<C> {
                 let attach = self.attach_mut();
                 let (fired, wake) = (Arc::clone(&due), attach.wake.clone());
                 let timer = attach.wait_clock.after(
-                    read_delay(attempt),
+                    read_delay(attempt, pushed),
                     Box::new(move || {
                         fired.store(true, Ordering::Release);
                         if let Some(wake) = wake {

@@ -70,7 +70,7 @@ DRAFT_SKIPPED: dict[str, tuple[str, ...]] = {
 }
 # Checks a merger reads as a pass when skipped; they must never skip drafts.
 NEVER_DRAFT_SKIPPED = (
-    "pr-capture-check.yml",
+    "pr-body-checks.yml",  # its pr-capture-check job
 )
 DRAFT = "!github.event.pull_request.draft"
 PR_EVENTS = ("pull_request", "pull_request_target")

@@ -1,8 +1,9 @@
 public import Foundation
 public import Observation
 
-/// The Add Device card's state (plans/cmux-next/add-device-DESIGN.md 2.3): which of the three ways
-/// shows, the network's computers that are not added yet, and the platform of a new device. The
+/// The Add Device card's state (plans/cmux-next/add-device-DESIGN.md 2.3): which way shows (the
+/// pair code first, ssh behind Advanced), the network's computers that are not added yet, and the
+/// platform of a new device. The
 /// card hands off to the Add Machine and Add Server cards, so there is still one enroll and one
 /// approval; this model only decides which one and with what. The click and the key run
 /// ``perform(_:)``.
@@ -21,12 +22,19 @@ public final class AddDeviceModel {
     public var platform: AddDevicePlatform = .macOrLinux
     /// The line was copied (the button says so until the platform or way changes).
     public private(set) var copied = false
-    /// The "Any machine: one line" way's state; nil while Labs `labs.machineJoin` is off.
+    /// The "Any machine" way's state; nil when the app offers no join (tests, a cmux without the CLI
+    /// seam), and then the card keeps its three ssh-first ways.
     public private(set) var joinLine: MachineJoinLineModel?
+    /// Signed in, the "Any machine" way offers Pair Another Machine (a code the new machine types,
+    /// no ssh) in place of the ticket line; signed out, the ticket line shows as before.
+    public private(set) var offersInvite = false
+    @ObservationIgnored private var openInvite: (() -> Void)?
 
     @ObservationIgnored private let services: AddDeviceServices
     /// The person picked a way: a late listing never moves them.
     @ObservationIgnored private var chosenByHand = false
+    /// The way the card was on before Advanced opened: closing Advanced goes back to it.
+    @ObservationIgnored private var beforeAdvanced: AddDeviceWay?
     @ObservationIgnored private var generation = 0
 
     @ObservationIgnored private let joinClock: @Sendable () -> Date
@@ -40,27 +48,47 @@ public final class AddDeviceModel {
         self.joinSleep = joinSleep
     }
 
-    /// The card opens: back to the network way, and the network's computers read again.
-    /// `way` opens on a way (the `machine.add` and `server.addServer` aliases, a CLI argument).
+    /// The card opens: back to the default way (``defaultWay``), and the network's computers read
+    /// again. `way` opens on a way (the `machine.add` and `server.addServer` aliases, a CLI argument).
     public func begin(way: AddDeviceWay? = nil) async {
         generation += 1
         let mine = generation
         joinLine?.close()
         joinLine = services.machineJoin().map { MachineJoinLineModel(service: $0, clock: joinClock, sleep: joinSleep) }
-        self.way = way.flatMap { ways.contains($0) ? $0 : nil } ?? .network
+        openInvite = joinLine == nil ? nil : services.pairAnotherMachine()
+        offersInvite = openInvite != nil
+        self.way = way.flatMap { allWays.contains($0) ? $0 : nil } ?? defaultWay
         chosenByHand = self.way == way
+        beforeAdvanced = nil
         copied = false
         candidates = .loading
         let listing = await services.list()
         guard mine == generation else { return }
         candidates = listing.map(Candidates.loaded) ?? .unavailable
-        if !chosenByHand, available.isEmpty { self.way = .newDevice }
+        // Only the ssh-first card moves to setup when the network has nothing to add; the pair code
+        // works whatever the network lists.
+        if !chosenByHand, self.way == .network, available.isEmpty { self.way = .newDevice }
     }
 
-    /// The ways the card offers: the three, plus "Any machine: one line" with Labs `labs.machineJoin` on.
+    /// The way the card opens on: the pair code (no ssh) when the app offers it, else the network.
+    public var defaultWay: AddDeviceWay { joinLine == nil ? .network : .joinLine }
+
+    /// The ways the card's switch shows. With the join offered: "Any machine" (the pair code) first,
+    /// then "It shows a code" and "Set up a new device"; ssh moves behind Advanced
+    /// (``advancedWays``). Without it, the three ssh-first ways as before.
     public var ways: [AddDeviceWay] {
-        AddDeviceWay.allCases.filter { $0 != .joinLine || joinLine != nil }
+        joinLine == nil ? [.network, .code, .newDevice] : [.joinLine, .code, .newDevice]
     }
+
+    /// The ways behind the Advanced disclosure: ssh (``AddDeviceWay/network``, Add Machine's enroll),
+    /// which still works as before. Empty when the switch already shows it.
+    public var advancedWays: [AddDeviceWay] { joinLine == nil ? [] : [.network] }
+
+    /// Every way the card can show, in the switch or behind Advanced.
+    public var allWays: [AddDeviceWay] { ways + advancedWays }
+
+    /// Advanced is open: the card shows one of ``advancedWays`` (the switch then has no selection).
+    public var showsAdvanced: Bool { advancedWays.contains(way) }
 
     /// The computers the network way lists, the person's own first.
     public var available: [DeviceListing.Available] {
@@ -81,10 +109,22 @@ public final class AddDeviceModel {
     }
 
     public func choose(_ way: AddDeviceWay) {
-        guard ways.contains(way) else { return }
+        guard allWays.contains(way) else { return }
         chosenByHand = true
         copied = false
+        if advancedWays.contains(way), !showsAdvanced { beforeAdvanced = self.way }
         self.way = way
+    }
+
+    /// The Advanced disclosure: opening it shows ssh (``AddDeviceWay/network``); closing it goes back
+    /// to the way the card was on.
+    public func toggleAdvanced() {
+        guard let advanced = advancedWays.first else { return }
+        if showsAdvanced {
+            choose(beforeAdvanced.flatMap { ways.contains($0) ? $0 : nil } ?? defaultWay)
+        } else {
+            choose(advanced)
+        }
     }
 
     public func choose(_ platform: AddDevicePlatform) {
@@ -159,6 +199,14 @@ public final class AddDeviceModel {
             services.showMachines()
             closeCard()
             return true
+        case .toggleAdvanced:
+            toggleAdvanced()
+            return false
+        case .pairAnotherMachine:
+            guard let openInvite else { return false }
+            closeCard()
+            openInvite()
+            return true
         case .done, .cancel:
             closeCard()
             return true
@@ -173,7 +221,8 @@ public final class AddDeviceModel {
     }
 
     private var joinLineButtons: [AddDeviceButton] {
-        switch joinLine?.phase {
+        if offersInvite { return [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .pairAnotherMachine, key: .return)] }
+        return switch joinLine?.phase {
         case .showing: [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .copyJoinLine, key: .return)]
         case .joined: [AddDeviceButton(action: .showMachines, key: nil), AddDeviceButton(action: .done, key: .return)]
         // Signed out, a new line would be refused again: Sign In instead (msg 3790).

@@ -3,7 +3,7 @@ import type { OwnerFrame, Principal } from "@cmux/ownership"
 import { authorizeDefaultMachine, defaultHandId, ensureDefaultHand, type DefaultChiefMachine, type DefaultHandScope } from "../chief-default-hand.ts"
 import { asDaemonUser, layoutSelector } from "../cloud-acpmux-guest.ts"
 import { handStub } from "../hand-api.ts"
-import type { HandReply, HandSummary, StoredEvent } from "../hand-wire.ts"
+import type { HandReply, StoredEvent } from "../hand-wire.ts"
 import type { ChiefBrainDO } from "./brain-do.ts"
 import { chiefRecord, chiefPrincipal, postText, typing } from "./brain-io.ts"
 import { writeConfig } from "./brain-store.ts"
@@ -11,6 +11,7 @@ import { clip, upsertStep } from "./brain-runs.ts"
 import { OWNER_APPROVAL_REQUIRED } from "./effect-policy.ts"
 import type { ChiefProfile } from "./prompts.ts"
 import { startMachineAgent, machineAgentEvents, stopMachineAgent } from "./brain-machine-acp.ts"
+import { declared } from "../do-stub.ts"
 
 export type MachineHarness = "claude" | "codex"
 export interface MachineRoute { binding: DefaultChiefMachine; harness: MachineHarness }
@@ -34,15 +35,16 @@ const MACHINE_STATE = (id: string) => `machine:${id}`
 const TRANSIENT = new Set(["chief.machine.transport_unavailable", "chief.machine.owner_unavailable", "chief.machine.hand_offline", "chief.machine.carrier_unavailable", "chief.machine.start_unavailable", "chief.machine.not_running", "chief.hand.offline", "owner.unreachable", "provisioning_pending"])
 export const machineRetryable = (error: unknown): boolean => !(error instanceof Error) || TRANSIENT.has(error.message) || !/^(chief\.machine\.|hand\.|revoked$|disabled$|other_chief$|chief_archived$|chief_placed$)/.test(error.message)
 export const authorizeMachineHand = async (env: Env, scope: DefaultHandScope, cwd?: string): Promise<void> => {
-  const hand = handStub(env, defaultHandId(scope)) as unknown as { info(c: { kind: "chief"; user: string; agent: string }): Promise<HandReply<HandSummary & { hello: { profile?: string; roots?: Array<string> } | null }>> }
+  const hand = declared(handStub(env, defaultHandId(scope)))
   const info = await hand.info({ kind: "chief", user: scope.owner, agent: scope.chief })
   if (!info.ok) throw new Error(info.error.code)
   // info() also returns a revoked hand for owner UI display. Its success is not authorization.
   if (info.value.revoked_at !== null || info.value.paired_at === null) throw new Error("hand.revoked")
   if (info.value.level !== "full") throw new Error("chief.machine.permission_required")
   if (!info.value.online) throw new Error("chief.machine.hand_offline")
-  if (info.value.profile !== "sandbox" || info.value.hello?.profile !== "sandbox") throw new Error("chief.machine.permission_required")
-  if (cwd && !info.value.hello.roots?.includes(cwd)) throw new Error("chief.machine.cwd_changed")
+  const hello = info.value.hello as { profile?: string; roots?: Array<string> } | null
+  if (info.value.profile !== "sandbox" || hello?.profile !== "sandbox") throw new Error("chief.machine.permission_required")
+  if (cwd && !hello.roots?.includes(cwd)) throw new Error("chief.machine.cwd_changed")
 }
 export const machineSignInURL = (raw: unknown, harness: MachineHarness): string | null => {
   if (typeof raw !== "string" || raw.length > 4096 || /[^\x21-\x7e]/.test(raw)) return null

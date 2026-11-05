@@ -65,6 +65,7 @@ pub mod session_queue;
 pub mod session_search;
 pub mod session_turn_cap;
 pub mod shutdown;
+pub mod who_else;
 pub mod stdio;
 pub(crate) mod steer_reply;
 pub mod task;

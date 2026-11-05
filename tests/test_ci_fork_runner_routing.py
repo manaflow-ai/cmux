@@ -92,7 +92,7 @@ UNGATED_BLACKSMITH_ALLOWED = {
 # stay on the trusted Blacksmith fallback for forks too; a hosted runner cannot
 # receive release credentials.
 RELEASE_PUBLICATION_JOBS = {
-    "publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names",
+    "publish-nightly", "publish-nightly-next-github",
 }
 # (workflow, dispatch input) -> why its Blacksmith default and choices may be
 # read before the fork branch.

@@ -37,6 +37,24 @@ nonisolated enum SidebarPriorityActionCatalog: ActionCatalogGroup {
                 arguments: [chatArgument], targets: chat,
                 surfacePlan: rowPlan(.identity, 20, label: t("menu.sidebar.priority.snooze", "Snooze for 1 Hour"))
             ),
+            // Move a chat one place earlier or later in the Priority view; it keeps that place, as a drag
+            // there does. No default key (a focused row's own is Control-Option-Up/Down, and those keys are
+            // Previous/Next Turn in an agent chat): a person binds one in cmux-next.json. Not a menu row:
+            // one step of a repeated move.
+            ActionDescriptor(
+                id: "sidebar.priority.moveEarlier", title: t("action.sidebar.priority.moveEarlier", "Move Chat Earlier in Priority…"),
+                keywords: ["sidebar", "priority", "chat", "agent", "move", "earlier", "up", "reorder"],
+                category: .sidebar, symbol: "arrow.up", surfaces: [.palette, .keyboard],
+                arguments: [chatArgument], targets: chat,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .stepAdjust)
+            ),
+            ActionDescriptor(
+                id: "sidebar.priority.moveLater", title: t("action.sidebar.priority.moveLater", "Move Chat Later in Priority…"),
+                keywords: ["sidebar", "priority", "chat", "agent", "move", "later", "down", "reorder"],
+                category: .sidebar, symbol: "arrow.down", surfaces: [.palette, .keyboard],
+                arguments: [chatArgument], targets: chat,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .stepAdjust)
+            ),
         ]
     }
 

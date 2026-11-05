@@ -14,8 +14,7 @@ enum WorkspaceCreation {
     /// too, `repair` releases it (it stays, empty, with the terminal error).
     /// Only while it is empty: a first tab the daemon made after its reply's
     /// deadline is the person's workspace, never closed with it.
-    @MainActor
-    private static func closeHalfCreated(_ key: WorkspaceKey, on connection: DaemonConnection, repair: EmptyWorkspaceRepair) async throws {
+    @MainActor private static func closeHalfCreated(_ key: WorkspaceKey, on connection: DaemonConnection, repair: EmptyWorkspaceRepair) async throws {
         do {
             try await WorkspaceClose.close(key, terminals: [], on: connection, reason: .sessionEnd, ifEmpty: true)
         } catch {
@@ -28,8 +27,7 @@ enum WorkspaceCreation {
     /// (`terminal`) on `connection`, owned by `repair` while it runs: a
     /// failure closes the workspace (its terminals with it) and the repair
     /// never fills it.
-    @MainActor
-    static func create<T>(
+    @MainActor static func create<T>(
         _ key: WorkspaceKey,
         name: String?,
         on connection: DaemonConnection,
@@ -60,8 +58,7 @@ enum WorkspaceCreation {
     /// by `repair` like ``create(_:name:on:repair:terminal:)``: a failure
     /// closes the workspace. A late create reply asks again until `giveUp`
     /// (``DaemonConnection/retryingLateReplies(_:until:_:)``).
-    @MainActor
-    static func createWithFirstTab<T>(
+    @MainActor static func createWithFirstTab<T>(
         _ key: WorkspaceKey,
         name: String?,
         on connection: DaemonConnection,
@@ -91,8 +88,7 @@ enum WorkspaceCreation {
     /// A person's new workspace on the New Tab page (`opensNewTabPage`),
     /// starting in `cwd`; nil when `spawn` gets a terminal instead (it runs a
     /// command, or `daemon` cannot host the page).
-    @MainActor
-    static func newTabPage(_ spawn: WorkspaceSpawn, _ key: WorkspaceKey, cwd: String?, on daemon: DaemonService,
+    @MainActor static func newTabPage(_ spawn: WorkspaceSpawn, _ key: WorkspaceKey, cwd: String?, on daemon: DaemonService,
                            repair: EmptyWorkspaceRepair, tabs: AgentTabStore) async throws -> String? {
         guard opensPage(spawn, on: daemon, tabs: tabs), let connection = daemon.connection else { return nil }
         return try await createWithFirstTab(key, name: spawn.name, on: connection, repair: repair) { created in
@@ -106,22 +102,23 @@ enum WorkspaceCreation {
         }
     }
 
+    /// The refusal ``sessionTab(_:in:host:linked:mutationID:until:on:tabs:)`` would give, known before any workspace is made.
+    @MainActor static func sessionTabRefusal(host: String?, on daemon: DaemonService, tabs: AgentTabStore) -> String? {
+        guard tabs.holdsTabs(daemon) else { return RefusalStrings.agentTabsUnsupported }
+        guard daemon.isLocal else { return RefusalStrings.agentTabMachineMismatch } // never another machine's workspace (cx-k21v)
+        return AgentTabStore.hostRefusal(host, localHost: tabs.localHost, chiefHost: tabs.chiefHost, daemonIsLocal: true)
+    }
+
     /// `session`'s chat as the first tab of `created` (the New Tab page's first chat, and
     /// `agent.openSessionWorkspace`'s only tab: no terminal beside it, Leo 2026-10-28). The record
     /// is on `host` (this Mac's acpmux, or a Chief home's `chief:<id>`); `linked` binds the tab
     /// like a `cmux://session/<id>` link (its page refuses a session the daemon does not have).
     /// Returns the tab's key.
-    @MainActor
-    static func sessionTab(_ session: String, in created: WorkspaceMutationResult, host: String? = nil, linked: Bool = false,
+    @MainActor static func sessionTab(_ session: String, in created: WorkspaceMutationResult, host: String? = nil, linked: Bool = false,
                            mutationID: String? = nil, until giveUp: ContinuousClock.Instant? = nil, on daemon: DaemonService,
                            tabs: AgentTabStore) async throws -> String {
         guard let connection = daemon.connection, let localHost = tabs.localHost else { throw DaemonError.notConnected }
-        guard tabs.holdsTabs(daemon) else { throw AgentTabRefusal(message: RefusalStrings.agentTabsUnsupported) }
-        // A session of this Mac never opens in a workspace of another machine (cx-k21v).
-        guard daemon.isLocal else { throw AgentTabRefusal(message: RefusalStrings.agentTabMachineMismatch) }
-        if let refusal = AgentTabStore.hostRefusal(host, localHost: localHost, chiefHost: tabs.chiefHost, daemonIsLocal: true) {
-            throw AgentTabRefusal(message: refusal)
-        }
+        if let refusal = sessionTabRefusal(host: host, on: daemon, tabs: tabs) { throw AgentTabRefusal(message: refusal) }
         // A chat of that acpmux: its tab shows it as soon as the tree lists it.
         let record = AgentSessionRef(host: host ?? localHost, hostName: tabs.localHostName, session: session)
         let request = NewConversationTabRequest(agentSession: record, workspace: created.workspace,

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# nightly.yml publish-nightly-next-github-names: "Move the nightly-next tag to the published build". Moved out of the workflow to keep nightly.yml under
+# nightly.yml publish-nightly-next-github: "Move the nightly-next tag to the published build". Moved out of the workflow to keep nightly.yml under
 # its size budget (tests/test_workflow_file_size.py); the step's env: still sets every input.
 set -euo pipefail
 "$RUNNER_TEMP/still-newest" || exit 0

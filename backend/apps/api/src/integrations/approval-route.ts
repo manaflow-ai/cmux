@@ -2,14 +2,7 @@ import type { Principal } from "@cmux/ownership"
 import type { Env } from "../env.ts"
 import { signInRules, ssoRefusal, withSsoSession } from "../policy-gate.ts"
 import type { SignInRules } from "../team-do.ts"
-import type { ApprovalSource } from "../domains/feed-approvals.ts"
-
-interface FeedStub {
-  approvalPosterOf(user: string, request: string): Promise<{ team: string; source: ApprovalSource } | null>
-}
-interface TeamStub {
-  readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<{ ok: boolean }>
-}
+import { declared } from "../do-stub.ts"
 
 /** The target team's sign-in rules and SSO session lookup (policy-gate.ts); tests inject them. */
 export interface RouteDeps {
@@ -37,14 +30,14 @@ export const approvalRoute = async (env: Env, reader: Principal, params: unknown
   const request = (params as { request?: unknown } | null)?.request
   const stay = { reader, owner: "cloud:ConnectionDO" as const }
   if (reader.kind !== "session" || !reader.user || typeof request !== "string") return stay
-  const feed = env.FEED_DO.get(env.FEED_DO.idFromName(reader.user)) as unknown as FeedStub
+  const feed = env.FEED_DO.get(env.FEED_DO.idFromName(reader.user))
   const poster = await feed.approvalPosterOf(reader.user, request)
   if (!poster) return stay
   const owner = poster.source === "cloud" ? ("cloud:CloudDO" as const) : ("cloud:ConnectionDO" as const)
   const team = poster.team
   if (team === reader.team) return { reader, owner }
   const asMember: Principal = { ...reader, team }
-  const teamDO = env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as TeamStub
+  const teamDO = declared(env.TEAM_DO.get(env.TEAM_DO.idFromName(team)))
   const member = await teamDO.readOp(team, asMember, "team.members.list", { limit: 1 })
   if (!member.ok) return stay
   const rules = await deps.rules(env, team, reader.user)
@@ -67,7 +60,7 @@ const membershipProbe = (user: string, team: string): Principal => ({ identity: 
  * SSO created (the feed records the answering session's `sso_team`). False ends it denied.
  */
 export const answerAdmitted = async (env: Env, team: string, user: string, params: unknown, deps: RouteDeps = live): Promise<boolean> => {
-  const teamDO = env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as TeamStub
+  const teamDO = declared(env.TEAM_DO.get(env.TEAM_DO.idFromName(team)))
   if (!(await teamDO.readOp(team, membershipProbe(user, team), "team.members.list", { limit: 1 })).ok) return false
   const rules = await deps.rules(env, team, user)
   return !rules.sso_required || (params as AnswerParams | null)?.sso_team === team
@@ -81,7 +74,7 @@ export const answerAdmitted = async (env: Env, team: string, user: string, param
 export const answerPrincipal = async (env: Env, principal: Principal, op: string, params: unknown, deps: RouteDeps = live): Promise<Principal> => {
   const item = (params as { item?: unknown } | null)?.item
   if (op !== "feed.answer" || principal.kind !== "session" || !principal.user || typeof item !== "string") return principal
-  const feed = env.FEED_DO.get(env.FEED_DO.idFromName(principal.user)) as unknown as { integrationItemTeam(user: string, item: string): Promise<string | null> }
+  const feed = env.FEED_DO.get(env.FEED_DO.idFromName(principal.user))
   const team = await feed.integrationItemTeam(principal.user, item)
   if (!team || team === principal.team) return principal
   return deps.sso(env, principal, team)

@@ -424,6 +424,11 @@ pub struct SessionMeta {
     /// once each, oldest first. A fork starts with none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pull_requests: Vec<String>,
+    /// The files this session's tool calls read and edited, by repository and path there
+    /// (`touched_files.rs`, `hub/touched.rs`): at most `touched_files::MAX_FILES`, the least
+    /// recently touched dropped first. A fork starts with none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub touched_files: Vec<crate::touched_files::TouchedFile>,
     /// The session whose agent started this one with its `start_session`
     /// tool (`hub/subsessions.rs`), with its short name and depth. `None`
     /// for a session a person or client started. Never copied to a fork.
@@ -1058,7 +1063,7 @@ mod journal_store;
 pub(crate) use journal_store::open_with_journal;
 mod log_sync;
 #[cfg(test)]
-pub(crate) use journal_store::PAUSE_AFTER_LOG_WRITE;
+pub(crate) use journal_store::pause_next_log_write_on_this_thread;
 pub(crate) use log_sync::SyncFailed;
 #[cfg(all(test, unix))]
 mod sync_model;
@@ -1831,7 +1836,7 @@ fn sync_directory(path: &Path) -> Result<()> {
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
         .open(path)?;
-    dir.sync_all().map_err(SyncFailed)?;
+    log_sync::sync_full(&dir).map_err(SyncFailed)?;
     #[cfg(test)]
     sync_model::folder_synced(path);
     Ok(())
@@ -2136,9 +2141,13 @@ mod head_tests;
 #[cfg(all(test, unix))]
 mod journal_meta_tests;
 #[cfg(all(test, unix))]
+mod journal_pause_tests;
+#[cfg(all(test, unix))]
 mod journal_store_tests;
 #[cfg(all(test, unix))]
 mod journal_sync_tests;
+#[cfg(all(test, unix))]
+mod journal_write_back_tests;
 
 impl LocalStore {
     /// `Store::scan`, and with `strict` `Store::scan_strict`.
