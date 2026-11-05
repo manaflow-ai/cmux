@@ -278,7 +278,9 @@ final class ScreenContentView: NSView {
             && paneFrames.values.contains { $0.rect != $0.targetRect }
         motionState.retarget(structural: structural, inFlight: inFlight, departing: departing, zooming: zooming, splitting: !arrivals.isEmpty, hasFrames: paneFrames.values.contains { $0.rect != $0.targetRect })
         // An animated width or ratio change (a preset, an equalize) is carried too: its camera may re-anchor (M8).
-        let carried = !arrivals.isEmpty || departing || returning || (animate && !structural)
+        // A viewport resize under a spring (`rebasing`) is not: each frame moves with its target, and putting it
+        // back where it showed (`settleCarried`) would undo that and leave it chasing the moved target.
+        let carried = !arrivals.isEmpty || departing || returning || (animate && !structural && !rebasing)
         // Strip springs run in strip coordinates and fixed ones in the view's: a moved strip origin (a dock
         // that came or went) or a pane changing sides (a zoom shows its pane fixed) keeps it where it showed.
         let offset = scroll.value
