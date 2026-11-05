@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Live code in the app, end to end on a fleet Mac (Packages/macOS/CmuxNext/Sources/CmuxNextLiveCode):
-# builds the bench configuration with CMUX_LIVE_CODE_BUILD=1, launches it with a live folder,
-# shows the right sidebar's vault, then edits VaultListView.swift twice (its background red, then
-# blue), compiles each edit into a patch (scripts/live-code/patch.py) and times the edit to the
-# redraw. The window's snapshots before and after each patch are counted for red and blue pixels.
+# builds the bench configuration with CMUX_LIVE_CODE_BUILD=1, launches it with a live folder (it
+# opens on Home), then edits HomeHostView.updateLayer twice (Home's background red, then blue),
+# compiles each edit into a patch (scripts/live-code/patch.py) and times the edit to the redraw. The window's snapshots before and after each patch are counted for red and blue pixels.
 #   scripts/measure/live-code-app.sh OUT     (OUT: the log, the snapshots and result.json)
 set -euo pipefail
 out="$(mkdir -p "${1:?usage: live-code-app.sh OUT}" && cd "$1" && pwd)"

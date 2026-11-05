@@ -329,6 +329,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextBookmarks",
                 "CmuxNextAgentActivity",
                 "CmuxNextScreenshots",
+                "CmuxNextLiveCode",
                 "CmuxNextAgentLanes",
                 "CmuxNextChiefViews",
                 "CmuxNextAgentCursor",
@@ -1232,7 +1233,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: uiSwiftSettings
         ),
         // Live code in the app: loads a patch of the app's own Swift functions without a rebuild or
-        // a relaunch, and redraws the views that ask (Sources/CmuxNextLiveCode/LiveCode.swift).
+        // a relaunch, and redraws its windows (Sources/CmuxNextLiveCode/LiveCode.swift).
         .target(
             name: "CmuxNextLiveCode",
             dependencies: ["CmuxNextCompat"],
@@ -1419,8 +1420,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesignTokens",
                 // The shared overflow button's ⋮ glyph (OverflowButton, action.more.vertical).
                 "CmuxNextIcons",
-                // liveCodeRedraw(): a view redraws after a live code patch.
-                "CmuxNextLiveCode",
                 "CmuxNextWakeups",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 // cmux-motion's curves and color mix for ColorTransition (cx-3rf4z).

@@ -14,8 +14,8 @@ ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "cmux-next"))
 from bench_launch import BenchApp  # noqa: E402
 
-VIEW = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultListView.swift")
-ORIGINAL = ".background(colors.background)"
+VIEW = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift")
+ORIGINAL = "layer?.backgroundColor = nil"
 
 
 def pixels(png):
@@ -102,11 +102,11 @@ def main():
     try:
         app.launch()
         result["pid"] = app.process.pid
-        app.rpc("action.run", {"action": "toggleRightSidebar"})
         time.sleep(3)
         result["generations"].append(snap(0))
-        result["generations"].append(patch(1, ORIGINAL, ".background(Color.red)"))
-        result["generations"].append(patch(2, ".background(Color.red)", ".background(Color.blue)"))
+        red, blue = "layer?.backgroundColor = NSColor.systemRed.cgColor", "layer?.backgroundColor = NSColor.systemBlue.cgColor"
+        result["generations"].append(patch(1, ORIGINAL, red))
+        result["generations"].append(patch(2, red, blue))
         # Live means the same process all along (cmuxterm-hq#7149 L3: same pid).
         result["same_pid"] = app.process.poll() is None and app.process.pid in app.running_pids()
     finally:

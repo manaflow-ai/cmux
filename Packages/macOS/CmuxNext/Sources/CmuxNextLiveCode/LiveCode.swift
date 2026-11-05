@@ -2,24 +2,24 @@
 // rebuild or a relaunch, as the view shell does (Prototypes/ViewShell/README.md, "Live code"). A
 // patch is edited files compiled against this build and linked as a dylib
 // (scripts/live-code/patch.py); dropped into the live folder, it is loaded, every function it
-// defines that the app also defines is repointed to the new one (Interposer.swift), and the views
-// that read ``LiveCode/generation`` redraw. It works only in a build linked for it (`-interposable`,
-// exported symbols, CmuxNextApp unoptimized; reload.sh with CMUX_LIVE_CODE_BUILD=1).
+// defines that the app also defines is repointed to the new one (Interposer.swift), and every
+// window redraws. It works only in a build linked for it (`-interposable`, exported symbols,
+// CmuxNextApp unoptimized; reload.sh with CMUX_LIVE_CODE_BUILD=1).
 //
-// It starts only in a Debug or bench build, when CMUX_LIVE_CODE_DIR names the live folder, at
-// the first use of ``LiveCode/shared`` (a view's `liveCodeRedraw()`, CmuxNextDesign). The proof of
-// the path comes first (scripts/measure/live-code-app.sh); the check of who may publish a patch
-// (cmux#13742) comes before a NIGHTLY watches.
+// The app delegate holds the one instance. It watches only in a Debug or bench build, when
+// CMUX_LIVE_CODE_DIR names the live folder. The proof of the path comes first
+// (scripts/measure/live-code-app.sh); the check of who may publish a patch (cmux#13742) comes
+// before a NIGHTLY watches.
+import AppKit
 import CmuxNextCompat
 import Foundation
-public import Observation
 
-/// What the views observe: `generation` goes up after each applied patch.
-@MainActor @Observable
+/// The live folder's watcher: applies each new patch, then redraws every window.
+@MainActor
 public final class LiveCode {
-    /// Watches the folder CMUX_LIVE_CODE_DIR names, from its first use (a view's `liveCodeRedraw()`).
-    /// Only Debug and bench builds watch until a patch's signed pointer is checked (cmux#13742).
-    public static let shared: LiveCode = {
+    /// Watches the folder CMUX_LIVE_CODE_DIR names. Only Debug and bench builds watch until a
+    /// patch's signed pointer is checked (cmux#13742).
+    public static func fromEnvironment() -> LiveCode {
         let live = LiveCode()
         #if DEBUG || CMUX_BENCH_HOOKS
         if let path = ProcessInfo.processInfo.environment["CMUX_LIVE_CODE_DIR"], !path.isEmpty {
@@ -27,14 +27,15 @@ public final class LiveCode {
         }
         #endif
         return live
-    }()
+    }
 
+    /// Patches applied so far.
     public private(set) var generation = 0
-    @ObservationIgnored private var folder: LiveFolder?
-    @ObservationIgnored private var source: (any DispatchSourceFileSystemObject)?
-    @ObservationIgnored private var loaded = Set<String>()
+    private var folder: LiveFolder?
+    private var source: (any DispatchSourceFileSystemObject)?
+    private var loaded = Set<String>()
     /// Each replaced function's newest code (Interposer.apply).
-    @ObservationIgnored private var current: [String: UnsafeRawPointer] = [:]
+    private var current: [String: UnsafeRawPointer] = [:]
 
     /// Watches `folder` for patch dylibs (`*.dylib`, each a new name) and applies each once. The
     /// folder's disk work runs off the main thread; only the patch is applied on the main actor.
@@ -59,10 +60,20 @@ public final class LiveCode {
         say("watching \(folder.url.path)")
     }
 
-    /// After a generation's views are rebuilt: a view that reads ``generation`` calls this when its
-    /// new view appears, so the harness can time the edit to the redraw.
-    public func drawn() {
+    /// Every window's views draw and lay out again, now: their next `updateLayer`, `draw` and
+    /// `layout` run the patch's code. Says when, so the harness can time the edit to the redraw.
+    private func redraw() {
+        for window in NSApp.windows where window.isVisible {
+            if let content = window.contentView { Self.invalidate(content) }
+            window.displayIfNeeded()
+        }
         say("redrawn generation=\(generation) at=\(Date().timeIntervalSince1970)")
+    }
+
+    private static func invalidate(_ view: NSView) {
+        view.needsDisplay = true
+        view.needsLayout = true
+        for subview in view.subviews { invalidate(subview) }
     }
 
     private func say(_ line: String) {
@@ -94,6 +105,7 @@ public final class LiveCode {
             generation += 1
             let ms = Int((Date().timeIntervalSince(started) * 1000).rounded())
             say("applied \(patch.lastPathComponent) functions=\(count) load_ms=\(ms) at=\(Date().timeIntervalSince1970)")
+            redraw()
         } catch {
             say("\(patch.lastPathComponent) refused: \(error)")
         }

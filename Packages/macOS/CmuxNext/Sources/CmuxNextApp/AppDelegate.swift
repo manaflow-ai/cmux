@@ -11,6 +11,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextImportCards
 import CmuxNextKeepAwake
+import CmuxNextLiveCode
 import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextWebUpdates
@@ -27,6 +28,7 @@ import os
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var environment: AppEnvironment
+    private let liveCode = LiveCode.fromEnvironment() // Debug and bench, with CMUX_LIVE_CODE_DIR only
     /// The daemon's first connect attempt, begun in `main`.
     private var daemonPrestart: DaemonPrestart?
     /// Resolves once before any auth or daemon is constructed; cancelled on quit.
