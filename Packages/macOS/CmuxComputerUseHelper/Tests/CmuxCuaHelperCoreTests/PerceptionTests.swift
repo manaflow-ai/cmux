@@ -443,7 +443,8 @@ extension PerceptionTests {
             var chunk = [UInt8](repeating: 0, count: 4096)
             let count = Darwin.read(client, &chunk, chunk.count)
             try #require(count > 0)
-            lines += try #require(buffer.append(Data(chunk.prefix(count))))
+            let more = buffer.append(Data(chunk.prefix(count)))
+            lines += try #require(more)
         }
         let ids = lines.dropFirst().map { HelperWire.object($0)?["id"] as? Int }
         #expect(ids == [1, 2], "replies in the order of the calls")
