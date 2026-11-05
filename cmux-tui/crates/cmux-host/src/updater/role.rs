@@ -7,6 +7,7 @@ use std::fs;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
@@ -61,6 +62,12 @@ enum Msg {
 /// worker and never stop.
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 
+/// Held from a worker's last [`stopped`] look through the flip and the
+/// queued restarts, and by a stop while it bumps [`GENERATION`]: once a stop
+/// returns, no worker flips or restarts anything; a stop that comes during
+/// one waits for it (a rename and a few `--no-block` systemctl calls).
+static COMMIT: Mutex<()> = Mutex::new(());
+
 thread_local! {
     static WORKER_GENERATION: Cell<Option<u64>> = const { Cell::new(None) };
 }
@@ -88,8 +95,28 @@ impl UpdaterRole {
 
     fn halt(&mut self, deadline: Instant) -> Result<(), RoleError> {
         let Some(worker) = self.worker.take() else { return Ok(()) };
-        GENERATION.fetch_add(1, Ordering::SeqCst);
         let _ = worker.tx.send(Msg::Stop);
+        // Bump the generation under COMMIT, so a flip in progress finishes
+        // first and none starts after.
+        loop {
+            match COMMIT.try_lock() {
+                Ok(_commit) => {
+                    GENERATION.fetch_add(1, Ordering::SeqCst);
+                    break;
+                }
+                Err(std::sync::TryLockError::Poisoned(e)) => {
+                    let _commit = e.into_inner();
+                    GENERATION.fetch_add(1, Ordering::SeqCst);
+                    break;
+                }
+                Err(std::sync::TryLockError::WouldBlock) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    return Err(RoleError("updater was flipping at the deadline".to_owned()));
+                }
+            }
+        }
         match worker.done.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
             Err(RecvTimeoutError::Timeout) => {
                 // The worker kills its download and stops before it changes
@@ -321,14 +348,17 @@ fn check_inner(paths: &Paths) -> Outcome {
             Err(e) => Some(Outcome::Busy(vec![e])),
         },
     };
+    let commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
     let last =
         last.or_else(|| stopped().then(|| Outcome::Failed("the updater stopped".to_owned())));
     if let Some(outcome) = last {
+        drop(commit);
         disarm_guard();
         clear_pending(paths);
         return outcome;
     }
     if let Err(e) = store::flip(paths, plan.to) {
+        drop(commit);
         disarm_guard();
         clear_pending(paths);
         return Outcome::Failed(format!("flipping to profile {}: {e}", plan.to));
@@ -341,6 +371,7 @@ fn check_inner(paths: &Paths) -> Outcome {
         &plan.commit[..12]
     ));
     restart_after_flip(&store_binary(&plan.old_cmux_tui));
+    drop(commit);
     Outcome::Updating(plan.commit)
 }
 
@@ -590,6 +621,11 @@ fn rollback(paths: &Paths, pending: &Pending, why: &str, in_host: bool) {
     if load_pending(paths).as_ref() != Some(pending) {
         return;
     }
+    // A stopped worker leaves the rollback to the guard.
+    let _commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
+    if stopped() {
+        return;
+    }
     log(&format!("rolling {} back to profile {}: {why}", pending.commit, pending.from));
     if let Err(e) = store::flip(paths, pending.from) {
         log(&format!("flipping back to profile {}: {e}", pending.from));
@@ -670,7 +706,7 @@ fn disarm_guard() {
 /// Restarts what runs `old` (the binary just replaced): the work user's
 /// acpmux, the other `cmux-*` system services, and last `cmux-host.service`.
 fn restart_after_flip(old: &Path) {
-    if !user_systemctl(&["restart", ACPMUX_UNIT]) {
+    if !user_systemctl(&["restart", "--no-block", ACPMUX_UNIT]) {
         log("restarting the work user's acpmux.service failed (none on this image?)");
     }
     for unit in services_running(old) {
