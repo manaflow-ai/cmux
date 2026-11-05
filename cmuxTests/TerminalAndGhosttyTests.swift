@@ -5367,15 +5367,17 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         let unchangedMarker = UInt64.random(in: 1...UInt64.max)
         let changedMarker = UInt64.random(in: 1...UInt64.max)
 
-        func recordDiagnosticMarker(_ traceID: UInt64) async {
-            let target = await diagnostics.processedCount() + 1
-            diagnostics.record(DiagnosticEvent(.error, traceID: traceID))
-            while await diagnostics.processedCount() < target {
+        func waitForDiagnosticMarker(_ traceID: UInt64) async {
+            while await !diagnostics.snapshot().events.contains(where: { $0.traceID == traceID }) {
                 await Task.yield()
             }
         }
 
-        await recordDiagnosticMarker(unchangedMarker)
+        // Layout invalidated by the settling attaches runs now, not on a display
+        // cycle while this test is suspended inside the measured interval.
+        contentView.layoutSubtreeIfNeeded()
+        diagnostics.record(DiagnosticEvent(.error, traceID: unchangedMarker))
+        await waitForDiagnosticMarker(unchangedMarker)
         for _ in 0..<5 {
             hostedView.attachSurface(surface)
             hostedView.syncKeyStateIndicator(text: surface.currentKeyStateIndicatorText)
@@ -5391,10 +5393,14 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         hostedView.setBackgroundColor(.systemRed)
         XCTAssertEqual(hostedView.backgroundView.layer?.backgroundColor, NSColor.systemRed.cgColor)
 
+        // No suspension from the first marker to the end marker: the resize
+        // also marks the view for layout, and a display cycle running that layout
+        // inside the interval would add a pass this test did not ask for.
         hostedView.frame.size.width -= 40
         hostedView.attachSurface(surface)
         XCTAssertLessThan(hostedView.surfaceView.frame.width, initialFrame.width)
-        await recordDiagnosticMarker(changedMarker)
+        diagnostics.record(DiagnosticEvent(.error, traceID: changedMarker))
+        await waitForDiagnosticMarker(changedMarker)
 
         let events = await diagnostics.snapshot().events
         let startIndex = try XCTUnwrap(events.firstIndex { $0.traceID == unchangedMarker })
