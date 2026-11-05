@@ -141,10 +141,14 @@ import Testing
         #expect(plain?.messages == [.init(sender: "coordinator", text: "[Leo] said hi")])
     }
 
-    @Test func noticeShowsItsBodyWithoutHeadAndLinks() throws {
-        let provenance = try json(#"{"kind":"notice","from":"fromAgent","fromName":"land-ci","notice":{"sender":"land-ci","severity":"warn","title":"CI red"}}"#)
+    @Test func noticeShowsTitleBodyAndLinksWithoutItsRenderedFraming() throws {
+        let provenance = try json(#"{"kind":"notice","from":"fromAgent","fromName":"land-ci","notice":{"sender":"land-ci","severity":"warn","title":"CI red","links":[{"url":"https://example.com/run/1","label":"run"}]}}"#)
         let text = "[notice from land-ci · WARN] CI red\nThe web lint failed on base.\nLinks: https://example.com/run/1 (run)"
-        #expect(AgentIncoming.parse(text: text, provenance: provenance)?.messages == [.init(sender: "land-ci", text: "The web lint failed on base.")])
+        #expect(AgentIncoming.parse(text: text, provenance: provenance)?.messages
+            == [.init(sender: "land-ci", text: "**CI red**\n\nThe web lint failed on base.\n\n[run](https://example.com/run/1)")])
+        // A notice whose provenance carries no title reads as sent: nothing it said is lost.
+        let bare = try json(#"{"kind":"notice","from":"fromAgent","fromName":"land-ci"}"#)
+        #expect(AgentIncoming.parse(text: text, provenance: bare)?.messages.first?.text == text)
     }
 
     @Test func unknownKindFromAnAgentAddressIsItsCard() throws {
@@ -152,6 +156,9 @@ import Testing
         #expect(AgentIncoming.parse(text: "hello", provenance: provenance)?.messages == [.init(sender: "lane-z", text: "hello")])
         // An unknown kind from no agent address stays the person's.
         #expect(AgentIncoming.parse(text: "hello", provenance: try json(#"{"kind":"future_kind","from":"s-1"}"#)) == nil)
+        // A kind known as the person's stays theirs, whatever its address.
+        #expect(AgentIncoming.parse(text: "hello", provenance: try json(#"{"kind":"person_message","from":"acp:s-2","fromName":"Ana"}"#)) == nil)
+        #expect(AgentIncoming.parse(text: relayed(body), provenance: try json(#"{"kind":"person_message","from":"acp:s-2"}"#)) == nil)
     }
 
     /// A relayed message steered into a running turn shares its id: the person's prompt stays the

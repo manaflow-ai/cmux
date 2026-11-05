@@ -109,16 +109,21 @@ extension AgentIncoming {
             // Links line (the Mac's `noticeBody`).
             guard let name = provenance?["notice"]?["sender"]?.nonEmpty ?? provenance?["fromName"]?.nonEmpty
                 ?? provenance?["from"]?.nonEmpty else { break }
-            return AgentIncoming(messages: [Message(sender: name, text: noticeBody(body))], harness: harness,
-                                 messageID: relay?.id, raw: text)
+            return AgentIncoming(messages: [Message(sender: name, text: noticeMarkdown(body, notice: provenance?["notice"]))],
+                                 harness: harness, messageID: relay?.id, raw: text)
         default:
-            // A kind this build doesn't know, from an agent's address (`acp:…`, or a named sender).
-            if fromAgentAddress(provenance), let from = provenance?["from"]?.nonEmpty {
+            // A kind this build doesn't know, from an agent's address (`acp:…`, or a named sender). A
+            // kind it knows as the person's (`person_message`, `auto_resume`) stays theirs.
+            if !knownKinds.contains(kind ?? ""), fromAgentAddress(provenance), let from = provenance?["from"]?.nonEmpty {
                 return one(provenance?["fromName"]?.nonEmpty ?? from, body)
             }
         }
         return relay.map { one($0.sender, $0.body) }
     }
+
+    /// Every provenance kind this build reads, the person's included (acpmux author.rs, hub/auto_resume.rs):
+    /// only a kind outside it falls back on the sender's address.
+    private static let knownKinds: Set<String> = agentKinds.union(["inbox_notice", "agent_digest", "person_message", "auto_resume"])
 
     /// Provenance kinds acpmux gives only another agent's message (or a tool's notice).
     private static let agentKinds: Set<String> = ["agent_message", "session_message", "subsession_message", "task_result", "lane_report", "notice"]
@@ -126,7 +131,10 @@ extension AgentIncoming {
     /// Whether acpmux recorded the message as another agent's: its provenance says so, or (an older
     /// acpmux with none) it came by `acpmux send` at a shell, a peer or the outbox.
     static func fromAgent(provenance: JSONValue?, client: String?) -> Bool {
-        if let provenance { return (provenance["kind"]?.stringValue.map(agentKinds.contains) ?? false) || fromAgentAddress(provenance) }
+        if let provenance {
+            let kind = provenance["kind"]?.stringValue
+            return kind.map(agentKinds.contains) ?? false || (!knownKinds.contains(kind ?? "") && fromAgentAddress(provenance))
+        }
         guard let client else { return false }
         return ["acpmux-cli#", "acpmux-peer#", "acpmux-outbox#"].contains { client.hasPrefix($0) }
     }
@@ -247,16 +255,36 @@ extension AgentIncoming {
         return said == full || said == full.split(separator: "/").last.map(String.init) || full == said.split(separator: "/").last.map(String.init)
     }
 
+    /// A notice as the card's Markdown: its title in bold, its body, then its links, from the
+    /// provenance's `notice` (the rendered head and Links line are the same, written for the agent).
+    static func noticeMarkdown(_ text: String, notice: JSONValue?) -> String {
+        let title = notice?["title"]?.nonEmpty
+        let links = (notice?["links"]?.arrayValue ?? []).compactMap { link -> String? in
+            guard let url = link["url"]?.stringValue, url.hasPrefix("https://"), !url.contains(where: \.isWhitespace) else { return nil }
+            let label = link["label"]?.nonEmpty?.replacingOccurrences(of: "]", with: "") ?? url
+            return "[\(label)](\(url))"
+        }
+        // Without the structured parts, the notice reads as sent rather than losing them.
+        guard let title else { return text.trimmed }
+        let parts = ["**\(title)**", noticeLines(text), links.joined(separator: " · ")]
+        return parts.filter { !$0.isEmpty }.joined(separator: "\n\n")
+    }
+
     /// A notice prompt's body without the rendered head (`[notice from SENDER( on HOST)?( · FIRE| · WARN)?] TITLE`)
     /// and the closing `Links: …` line, which the card doesn't draw (the Mac's `noticeBody`).
     static func noticeBody(_ text: String) -> String {
+        let body = noticeLines(text)
+        return body.isEmpty ? text.trimmed : body
+    }
+
+    /// The lines of a notice between its rendered head and Links line, empty when it has none.
+    static func noticeLines(_ text: String) -> String {
         var lines = text.trimmed.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         if let first = lines.first, match(first, #"^\[notice from [\w.@/:-]{1,64}(?: on [A-Za-z0-9._-]{1,64})?(?: · (?:FIRE|WARN))?\][ \t]+\S"#) {
             lines.removeFirst()
         }
         if let last = lines.last, match(last.trimmed, #"^Links:[ \t]+https://\S+"#) { lines.removeLast() }
-        let body = lines.joined(separator: "\n").trimmed
-        return body.isEmpty ? text.trimmed : body
+        return lines.joined(separator: "\n").trimmed
     }
 }
 
