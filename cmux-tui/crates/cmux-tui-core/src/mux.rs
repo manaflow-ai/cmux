@@ -961,6 +961,13 @@ impl Mux {
             .cloned()
     }
 
+    /// Whether another thread holds the workspace registry lock now (tests: the control of a hold a person's key must
+    /// not wait for).
+    #[cfg(test)]
+    pub(crate) fn workspace_registry_held_for_test(&self) -> bool {
+        matches!(self.workspace_registry.try_lock(), Err(std::sync::TryLockError::WouldBlock))
+    }
+
     #[cfg(test)]
     pub(crate) fn remove_surface_runtime_for_test(&self, id: SurfaceId) -> Option<Arc<Surface>> {
         self.state.lock().unwrap().surfaces.remove(&id)

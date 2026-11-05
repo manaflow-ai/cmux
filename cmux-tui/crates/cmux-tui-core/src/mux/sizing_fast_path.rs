@@ -195,6 +195,13 @@ impl SizingMutex {
             Err(poison) => Err(PoisonError::new(SizingGuard::new(poison.into_inner()))),
         }
     }
+
+    /// Whether another thread holds the sizing lock now (tests: the control of a hold a person's key must not wait
+    /// for).
+    #[cfg(test)]
+    pub(in crate::mux) fn held_for_test(&self) -> bool {
+        matches!(self.value.try_lock(), Err(std::sync::TryLockError::WouldBlock))
+    }
 }
 
 /// A held [`SizingMutex`]. When it drops it republishes the entries it touched, before the mutex is released.

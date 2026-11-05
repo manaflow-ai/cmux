@@ -134,10 +134,12 @@ fn hosted_surface_with(
 const HOST_STALL: Duration = Duration::from_millis(600);
 
 /// A key while another client's large paste to the same hosted terminal is in its socket write and the host reads
-/// nothing for [`HOST_STALL`]: how long the key took to return, and the frame kinds the host then read, in order.
-/// The host drains on its own thread after the stall, so a key that waits for the paste cannot hang the test.
+/// nothing for [`HOST_STALL`]: how long the key took to return, the frame kinds the host then read, in order, and
+/// whether the paste was still in its write when the key returned (the test's control: a paste that was not blocked
+/// would let the key pass and prove nothing). The host drains on its own thread after the stall, so a key that waits
+/// for the paste cannot hang the test.
 #[cfg(unix)]
-fn key_behind_a_blocked_paste() -> (Duration, Vec<MessageKind>) {
+fn key_behind_a_blocked_paste() -> (Duration, Vec<MessageKind>, bool) {
     let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port");
     // Far larger than the socket buffer: its write blocks while the host reads nothing.
     let paste = vec![b'p'; 8 * 1024 * 1024];
@@ -163,8 +165,9 @@ fn key_behind_a_blocked_paste() -> (Duration, Vec<MessageKind>) {
         // The person's key: it answers when the port took it.
         surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the key was accepted");
         let took = started.elapsed();
+        let paste_in_write = !pasting.is_finished();
         pasting.join().unwrap().expect("the paste was written");
-        (took, reader.join().unwrap())
+        (took, reader.join().unwrap(), paste_in_write)
     })
 }
 
@@ -176,7 +179,12 @@ fn key_behind_a_blocked_paste() -> (Duration, Vec<MessageKind>) {
 #[cfg(unix)]
 #[test]
 fn a_key_does_not_wait_for_another_writers_blocked_host_socket() {
-    let (took, kinds) = key_behind_a_blocked_paste();
+    let (took, kinds, paste_in_write) = key_behind_a_blocked_paste();
+    assert!(
+        paste_in_write,
+        "control: the paste was no longer in its write when the key returned; nothing blocked the host socket, so \
+         this test proves nothing"
+    );
     assert!(
         took < Duration::from_millis(100),
         "the key waited {took:?} for another writer's blocked host socket"

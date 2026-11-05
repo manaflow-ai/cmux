@@ -133,6 +133,42 @@ impl TypingConnection {
 /// Holds one lock on another thread and runs `hold` while it holds it.
 type Holder = fn(&Arc<Mux>, &dyn Fn());
 
+/// Whether another thread holds a holder's lock now: the control of a hold. A holder that stopped taking its lock
+/// would let every key pass and prove nothing, so each hold must be seen from another thread while the keys go in.
+type HeldProbe = fn(&Arc<Mux>) -> bool;
+
+fn client_registry_held(mux: &Arc<Mux>) -> bool {
+    matches!(mux.control_clients.state.try_lock(), Err(std::sync::TryLockError::WouldBlock))
+}
+
+fn session_held(mux: &Arc<Mux>) -> bool {
+    matches!(mux.state.try_lock(), Err(std::sync::TryLockError::WouldBlock))
+}
+
+fn workspace_registry_held(mux: &Arc<Mux>) -> bool {
+    mux.workspace_registry_held_for_test()
+}
+
+fn link_peers_held(mux: &Arc<Mux>) -> bool {
+    matches!(mux.remote_relay().peers.try_lock(), Err(std::sync::TryLockError::WouldBlock))
+}
+
+fn proxy_authors_held(mux: &Arc<Mux>) -> bool {
+    mux.control_clients.agent_sessions.proxy_authors_held_for_test()
+}
+
+fn creating_inputs_held(mux: &Arc<Mux>) -> bool {
+    mux.creating_inputs_held_for_test()
+}
+
+fn client_sizing_held(mux: &Arc<Mux>) -> bool {
+    mux.client_sizing_held_for_test()
+}
+
+fn activity_held(mux: &Arc<Mux>) -> bool {
+    mux.activity.held_for_test()
+}
+
 fn hold_client_registry(mux: &Arc<Mux>, hold: &dyn Fn()) {
     let _held = mux.control_clients.state.lock().unwrap_or_else(|e| e.into_inner());
     hold();
@@ -201,33 +237,53 @@ fn hold_session_behind_a_creating_input_reader(mux: &Arc<Mux>, hold: &dyn Fn()) 
 }
 
 /// How long two keys took to reach their PTY while another thread held one lock (the later key's arrival from the
-/// first key's submit; `Duration::MAX` when a key never arrived), on a connection that `connection` is.
-fn key_wait_while_held(connection: &TypingConnection, index: usize, holder: Holder) -> Duration {
+/// first key's submit; `Duration::MAX` when a key never arrived), on a connection that `connection` is. Panics when
+/// `held` does not see the lock held while the keys go in (the hold's control: a holder that stopped taking its lock
+/// would let the keys pass and prove nothing).
+fn key_wait_while_held(
+    connection: &TypingConnection,
+    index: usize,
+    holder: Holder,
+    held: HeldProbe,
+    name: &str,
+) -> Duration {
     let first = b'a' + u8::try_from(index * 2).unwrap_or(0);
     let second = first + 1;
-    let (held, holding) = mpsc::channel();
+    let (holding_tx, holding) = mpsc::channel();
     let (release, released) = mpsc::channel::<()>();
     let mux = connection.mux.clone();
     let other = std::thread::spawn(move || {
         holder(&mux, &|| {
-            let _ = held.send(());
+            let _ = holding_tx.send(());
             let _ = released.recv_timeout(HOLD);
         });
     });
     holding.recv().expect("the other thread took its lock");
+    // The control, before the keys: the lock is held now, by the other thread.
+    let held_before = held(&connection.mux);
     let started = Instant::now();
     let (first_id, second_id) = (format!("{index}-first"), format!("{index}-second"));
     connection.submit(&first_id, first);
     connection.submit(&second_id, second);
     let first_at = connection.arrival(first);
     let second_at = connection.arrival(second);
+    // And after them: the hold lasted while the keys went in (a key that arrived after the hold ended proves nothing).
+    let held_after = held(&connection.mux);
     let _ = release.send(());
     other.join().expect("the lock holder ended");
     connection.settle(&[first_id.as_str(), second_id.as_str()]);
-    match (first_at, second_at) {
+    let waited = match (first_at, second_at) {
         (Some(first_at), Some(second_at)) => first_at.max(second_at) - started,
         _ => Duration::MAX,
-    }
+    };
+    // A key that waited outlasts the hold (`HOLD`), so only a key that did not wait needs the hold after it; the
+    // caller fails a key that waited.
+    assert!(
+        held_before && (held_after || waited >= BUDGET),
+        "control: {name} was not held while the keys went in (before {held_before}, after {held_after}, keys took \
+         {waited:?}); the hold does not reach its lock, so this test proves nothing"
+    );
+    waited
 }
 
 /// A connection whose first key took the long way already: every key after it must not wait.
@@ -238,12 +294,13 @@ fn warmed(connection: TypingConnection) -> TypingConnection {
     connection
 }
 
-/// Sends two keys while another thread holds each lock in turn, and fails when a key waited for one of them.
-fn assert_keys_wait_for_none(locks: &[(&str, Holder)]) {
+/// Sends two keys while another thread holds each lock in turn, and fails when a key waited for one of them, or when
+/// a lock was not held while its keys went in.
+fn assert_keys_wait_for_none(locks: &[(&str, Holder, HeldProbe)]) {
     let connection = warmed(TypingConnection::open());
     let mut waits = Vec::new();
-    for (index, (name, holder)) in locks.iter().copied().enumerate() {
-        let waited = key_wait_while_held(&connection, index, holder);
+    for (index, (name, holder, held)) in locks.iter().copied().enumerate() {
+        let waited = key_wait_while_held(&connection, index, holder, held, name);
         eprintln!("SHARED-LOCKS key wait while {name} is held {HOLD:?}: {waited:?}");
         waits.push((name, waited));
     }
@@ -269,6 +326,7 @@ fn a_key_waits_for_no_client_registry_lock() {
     assert_keys_wait_for_none(&[(
         "client registry (ClientRegistry.state)",
         hold_client_registry as Holder,
+        client_registry_held as HeldProbe,
     )]);
 }
 
@@ -281,8 +339,8 @@ fn a_key_waits_for_neither_the_link_peers_nor_the_proxy_authors_lock() {
     let peers = "link peers (RemoteRelayState.peers)";
     let authors = "host proxy authors (AgentSessions.proxy_authors)";
     assert_keys_wait_for_none(&[
-        (peers, hold_link_peers as Holder),
-        (authors, hold_proxy_authors as Holder),
+        (peers, hold_link_peers as Holder, link_peers_held as HeldProbe),
+        (authors, hold_proxy_authors as Holder, proxy_authors_held as HeldProbe),
     ]);
 }
 
@@ -294,8 +352,8 @@ fn a_key_waits_for_no_creating_input_lock() {
     let creating = "creating input (CreatingInputs.terminals)";
     let behind = "session (Mux.state) behind a creating-input reader";
     assert_keys_wait_for_none(&[
-        (creating, hold_creating_inputs as Holder),
-        (behind, hold_session_behind_a_creating_input_reader as Holder),
+        (creating, hold_creating_inputs as Holder, creating_inputs_held as HeldProbe),
+        (behind, hold_session_behind_a_creating_input_reader as Holder, session_held as HeldProbe),
     ]);
 }
 
@@ -309,8 +367,8 @@ fn a_key_waits_for_neither_the_sizing_nor_the_activity_lock() {
     let sizing = "client sizing (Mux.client_sizing)";
     let activity = "VM activity stream (ActivityStream)";
     assert_keys_wait_for_none(&[
-        (sizing, hold_client_sizing as Holder),
-        (activity, hold_activity as Holder),
+        (sizing, hold_client_sizing as Holder, client_sizing_held as HeldProbe),
+        (activity, hold_activity as Holder, activity_held as HeldProbe),
     ]);
 }
 
@@ -340,7 +398,13 @@ fn after_a_respawn_keys_wait_for_no_sizing_lock_again() {
         !removed.skips_sizing_note(connection.client),
         "the replaced runtime still publishes the sizing fast path"
     );
-    let waited = key_wait_while_held(&connection, 0, hold_client_sizing);
+    let waited = key_wait_while_held(
+        &connection,
+        0,
+        hold_client_sizing,
+        client_sizing_held,
+        "client sizing (Mux.client_sizing)",
+    );
     eprintln!(
         "SHARED-LOCKS after a respawn, key wait while client sizing is held {HOLD:?}: {waited:?}"
     );
@@ -620,8 +684,12 @@ fn after_another_views_click_a_key_takes_the_grid_back() {
 #[test]
 fn a_key_waits_for_neither_the_session_nor_the_workspace_registry_lock() {
     assert_keys_wait_for_none(&[
-        ("session (Mux.state)", hold_session as Holder),
-        ("workspace registry (Mux.workspace_registry)", hold_workspace_registry as Holder),
+        ("session (Mux.state)", hold_session as Holder, session_held as HeldProbe),
+        (
+            "workspace registry (Mux.workspace_registry)",
+            hold_workspace_registry as Holder,
+            workspace_registry_held as HeldProbe,
+        ),
     ]);
 }
 

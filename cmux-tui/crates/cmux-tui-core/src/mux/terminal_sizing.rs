@@ -391,6 +391,13 @@ impl Mux {
         hold();
     }
 
+    /// Whether another thread holds the client sizing lock now (tests: the control of
+    /// [`Self::hold_client_sizing_for_test`]).
+    #[cfg(test)]
+    pub(crate) fn client_sizing_held_for_test(&self) -> bool {
+        self.client_sizing.held_for_test()
+    }
+
     /// Pins the `latest` policy on the workspace that shows `surface`, for
     /// tests about latest-activity semantics (`latest` is also the default; the pin keeps
     /// such a test independent of the default).

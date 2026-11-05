@@ -98,6 +98,12 @@ impl ActivityStream {
         hold();
     }
 
+    /// Whether another thread holds the stream's lock now (tests: the control of [`Self::hold_for_test`]).
+    #[cfg(test)]
+    pub(crate) fn held_for_test(&self) -> bool {
+        matches!(self.shared.state.try_lock(), Err(std::sync::TryLockError::WouldBlock))
+    }
+
     /// The last person's input time, in Unix milliseconds (tests).
     #[cfg(test)]
     pub(crate) fn user_input_ms_for_test(&self) -> Option<u64> {

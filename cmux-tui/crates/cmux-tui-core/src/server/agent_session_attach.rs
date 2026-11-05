@@ -192,6 +192,13 @@ impl AgentSessions {
         hold();
     }
 
+    /// Whether another thread holds the host proxy authors now (tests: the control of
+    /// [`Self::hold_proxy_authors_for_test`]).
+    #[cfg(test)]
+    pub(crate) fn proxy_authors_held_for_test(&self) -> bool {
+        matches!(self.proxy_authors.try_lock(), Err(std::sync::TryLockError::WouldBlock))
+    }
+
     /// The connection ended: every attachment of it closes.
     pub(crate) fn disconnect(&self, client: u64) {
         self.inventory_watches.disconnect(client);
