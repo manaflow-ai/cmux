@@ -420,9 +420,14 @@ private final class ScriptedViewHost {
                 "\($0) \(inSessions.contains($0) ? 1 : 0) \(marked.contains($0) ? "1" : "")"
             }
         }
-        if command.hasPrefix("unlink-window -k -t"), let index = command.split(separator: ":").last.flatMap({ Int($0) }),
-           let windowId = linkedIntoView.first(where: { indexInView($0) == index }) {
-            linkedIntoView.removeAll { $0 == windowId }
+        if command.hasPrefix("unlink-window -k -t") {
+            // The view's copy is named by its index (`view:3`) or by its id (`'view:@2'`).
+            let target = command.split(separator: ":").last.map {
+                $0.trimmingCharacters(in: CharacterSet(charactersIn: "' "))
+            }
+            let windowId = target.flatMap { $0.hasPrefix("@") ? $0 : nil }
+                ?? target.flatMap { Int($0) }.flatMap { index in linkedIntoView.first { indexInView($0) == index } }
+            if let windowId { linkedIntoView.removeAll { $0 == windowId } }
         }
         if command.hasPrefix("link-window") {
             let tokens = command.split(separator: " ").map(String.init)
