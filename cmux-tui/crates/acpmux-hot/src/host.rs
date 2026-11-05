@@ -133,10 +133,13 @@ pub fn daemon() -> Option<&'static HotModule> {
         }
         let path = std::env::var_os(crate::ENV)?;
         match HotModule::new(Path::new(&path), Options::default()) {
-            Ok(slot) => {
-                slot.watch(Duration::from_millis(100));
-                Some(slot)
-            }
+            Ok(slot) => match slot.watch(Duration::from_millis(100)) {
+                Ok(_) => Some(slot),
+                Err(e) => {
+                    eprintln!("acpmux-hot: no watcher thread: {e}");
+                    None
+                }
+            },
             Err(e) => {
                 eprintln!("acpmux-hot: not loading {}: {e}", Path::new(&path).display());
                 None
@@ -259,25 +262,22 @@ impl HotModule {
 
     /// Watches the file from a background thread, polling its size, mtime and inode every `every`,
     /// and reloads when one changes. The thread ends when the last handle to the slot is dropped.
-    pub fn watch(&self, every: Duration) -> std::thread::JoinHandle<()> {
+    pub fn watch(&self, every: Duration) -> std::io::Result<std::thread::JoinHandle<()>> {
         let weak: Weak<Shared> = Arc::downgrade(&self.0);
-        std::thread::Builder::new()
-            .name("acpmux-hot-watch".into())
-            .spawn(move || {
-                let mut last = None;
-                loop {
-                    let Some(shared) = weak.upgrade() else { return };
-                    let now = stamp(&shared.path);
-                    if now.is_some() && now != last {
-                        last = now;
-                        if let Err(e) = HotModule(shared).reload() {
-                            eprintln!("acpmux-hot: {e}");
-                        }
+        std::thread::Builder::new().name("acpmux-hot-watch".into()).spawn(move || {
+            let mut last = None;
+            loop {
+                let Some(shared) = weak.upgrade() else { return };
+                let now = stamp(&shared.path);
+                if now.is_some() && now != last {
+                    last = now;
+                    if let Err(e) = HotModule(shared).reload() {
+                        eprintln!("acpmux-hot: {e}");
                     }
-                    std::thread::sleep(every);
                 }
-            })
-            .expect("spawn acpmux-hot-watch")
+                std::thread::sleep(every);
+            }
+        })
     }
 
     /// `write_journal::classify::is_pure_read` from the live module; `None`: run native code.
@@ -306,10 +306,10 @@ impl HotModule {
         };
         let answer = CACHED.with(|cell| {
             let mut cached = cell.borrow_mut();
-            if cached.as_ref().map(|c| c.generation) != Some(loaded.generation) {
-                *cached = Some(instantiate(shared, &loaded)?);
-            }
-            let Some(c) = cached.as_mut() else { unreachable!("set above") };
+            let c = match cached.take() {
+                Some(c) if c.generation == loaded.generation => cached.insert(c),
+                _ => cached.insert(instantiate(shared, &loaded)?),
+            };
             arm(shared, &mut c.store)?;
             let answer = f(&mut c.store, &c.hot);
             if answer.is_err() {

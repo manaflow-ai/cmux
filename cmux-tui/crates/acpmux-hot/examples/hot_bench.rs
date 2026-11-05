@@ -79,7 +79,7 @@ fn swaps(
 ) {
     place(good, live);
     let slot = HotModule::new(live, Options::default()).expect("slot");
-    let _watcher = slot.watch(Duration::from_millis(5));
+    let _watcher = slot.watch(Duration::from_millis(5)).expect("watcher");
     wait_until(|| slot.live().is_some(), "first load");
 
     let stop = Arc::new(AtomicBool::new(false));

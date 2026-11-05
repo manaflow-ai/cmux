@@ -30,7 +30,8 @@ impl bindings::Guest for Hot {
 
     fn is_pure_read(command: String) -> bool {
         if cfg!(feature = "trap") {
-            panic!("acpmux-hot-guest built with `trap`");
+            // A wasm trap, as a guest panic would be (panic = "abort").
+            core::arch::wasm32::unreachable();
         }
         if cfg!(feature = "spin") {
             let mut n: u64 = 0;
