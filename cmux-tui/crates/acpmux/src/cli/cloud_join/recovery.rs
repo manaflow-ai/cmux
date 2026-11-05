@@ -120,7 +120,7 @@ fn valid_name(name: &str) -> bool {
 
 // Sync every ancestor, including newly created custom state roots. A leaf
 // directory fsync alone does not make that directory's own name durable.
-fn sync_ancestors(dir: &Path) -> Result<()> {
+pub(super) fn sync_ancestors(dir: &Path) -> Result<()> {
     sync_ancestors_with(dir, |path| {
         std::fs::File::open(path)?.sync_all()?;
         Ok(())
