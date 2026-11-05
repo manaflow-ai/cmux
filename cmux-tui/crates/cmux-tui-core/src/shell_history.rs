@@ -241,7 +241,7 @@ mod tests {
     }
 
     #[test]
-    fn the_tracker_keeps_the_newest_command_with_a_line_until_reset() {
+    fn the_tracker_keeps_the_last_command_with_a_line_until_reset() {
         let mut tracker = CommandTracker::default();
         tracker.apply(ShellMark::CommandStart, 1_000, &mut Typed("npm test"));
         tracker.apply(ShellMark::CommandEnd { exit_code: Some(1) }, 4_000, &mut Typed(""));

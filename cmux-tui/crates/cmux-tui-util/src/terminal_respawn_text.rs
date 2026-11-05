@@ -128,7 +128,7 @@ mod tests {
     }
 
     #[test]
-    fn the_marker_names_a_freed_shells_last_command_and_its_exit() {
+    fn the_marker_names_a_freed_shells_last_command_and_exit() {
         assert_eq!(
             marker(Some(Ran::Last { command: "npm\u{1b} test", exit_code: Some(1) })),
             "\u{2014} session restored \u{b7} last: npm test \u{b7} exit 1 \u{2014}"
