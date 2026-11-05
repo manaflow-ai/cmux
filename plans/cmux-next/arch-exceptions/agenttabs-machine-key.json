@@ -1,7 +1,7 @@
 {
   "date": "2026-11-05",
   "row": "app_lines",
-  "allow": 167,
+  "allow": 180,
   "why": "AgentTabs machine-qualified routing keeps duplicate machine tab IDs isolated while preserving existing App ownership boundaries.",
   "author": "lane/agenttabs-machine-key",
   "owner": "p0-machines-r3",
