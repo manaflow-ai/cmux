@@ -45,20 +45,77 @@ fn names_route(literal: &str, routes: &[Vec<String>]) -> bool {
     })
 }
 
-/// `"/v1/..."` literals in a Rust source, outside comments.
+/// The string literals of a Rust source that start `/v1/`, with comments (`//` to the end of the line,
+/// `/* */` blocks) and char literals skipped, so a route named in a comment is not a call.
 fn literals(text: &str) -> Vec<String> {
+    let chars: Vec<char> = text.chars().collect();
     let mut found = Vec::new();
-    for line in text.lines() {
-        let code = line.trim_start();
-        if code.starts_with("//") {
-            continue;
-        }
-        let mut rest = line;
-        while let Some(start) = rest.find("\"/v1/") {
-            let tail = &rest[start + 1..];
-            let end = tail.find('"').unwrap_or(tail.len());
-            found.push(tail[..end].to_owned());
-            rest = &tail[end..];
+    let mut index = 0;
+    while index < chars.len() {
+        let next = chars.get(index + 1).copied();
+        match chars[index] {
+            '/' if next == Some('/') => {
+                while index < chars.len() && chars[index] != '\n' {
+                    index += 1;
+                }
+            }
+            '/' if next == Some('*') => {
+                index += 2;
+                while index + 1 < chars.len() && !(chars[index] == '*' && chars[index + 1] == '/') {
+                    index += 1;
+                }
+                index += 2;
+            }
+            // A raw string (`r"..."`, `r#"..."#`): to its closing quote and as many `#`.
+            'r' if !index.checked_sub(1).is_some_and(|before| chars[before].is_alphanumeric() || chars[before] == '_')
+                && {
+                    let mut probe = index + 1;
+                    while chars.get(probe) == Some(&'#') {
+                        probe += 1;
+                    }
+                    chars.get(probe) == Some(&'"')
+                } =>
+            {
+                index += 1;
+                let mut hashes = 0;
+                while chars[index] == '#' {
+                    hashes += 1;
+                    index += 1;
+                }
+                index += 1;
+                let mut literal = String::new();
+                while index < chars.len()
+                    && !(chars[index] == '"' && (0..hashes).all(|offset| chars.get(index + 1 + offset) == Some(&'#')))
+                {
+                    literal.push(chars[index]);
+                    index += 1;
+                }
+                index += 1 + hashes;
+                if literal.starts_with("/v1/") {
+                    found.push(literal);
+                }
+            }
+            // A char literal ('"', '\'') never opens a string; a lifetime ('a) is one quote.
+            '\'' if next == Some('\\') => index += 4,
+            '\'' if chars.get(index + 2) == Some(&'\'') => index += 3,
+            '"' => {
+                let mut literal = String::new();
+                index += 1;
+                while index < chars.len() && chars[index] != '"' {
+                    if chars[index] == '\\' {
+                        index += 1;
+                    }
+                    if let Some(&character) = chars.get(index) {
+                        literal.push(character);
+                    }
+                    index += 1;
+                }
+                if literal.starts_with("/v1/") {
+                    found.push(literal);
+                }
+                index += 1;
+            }
+            _ => index += 1,
         }
     }
     found
@@ -139,4 +196,6 @@ fn a_literal_names_a_route_by_its_template() {
     assert!(!names_route("/v1/machines/{}/paws", &routes));
     assert!(!names_route("/v1/artifacts", &routes));
     assert_eq!(literals("let a = \"/v1/auth/token\";\n    // \"/v1/y\""), ["/v1/auth/token"]);
+    assert_eq!(literals("let x = 1; // see \"/v1/auth/token\"\n/* \"/v1/a\" */ let q = '\"'; f(\"/v1/b\")"), ["/v1/b"]);
+    assert_eq!(literals("let r = r#\"say \"hi\" /v1/no\"#; f(r\"/v1/raw\"); for_r(\"/v1/c\")"), ["/v1/raw", "/v1/c"]);
 }

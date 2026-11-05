@@ -90,8 +90,8 @@ nonisolated final class TerminalLinkFilter: Sendable {
 }
 
 /// `ghostty_surface_link_filter_cb`: userdata is the surface's ``SurfaceBridge``.
-nonisolated func ghosttyLinkFilter(_ userdata: UnsafeMutableRawPointer?, _ text: UnsafePointer<CChar>?, _ length: UInt) -> Bool {
-    guard let bridge = SurfaceBridge.from(userdata), let text else { return true }
+nonisolated func ghosttyLinkFilter(_ userdata: UnsafeMutableRawPointer?, _ text: UnsafePointer<CChar>, _ length: UInt) -> Bool {
+    guard let bridge = SurfaceBridge.from(userdata) else { return true }
     // The folder comes from the view, which pushes it on every pwd report and surface swap.
     let bytes = UnsafeRawBufferPointer(start: UnsafeRawPointer(text), count: Int(length))
     return bridge.linkFilter.isLink(String(decoding: bytes, as: UTF8.self))

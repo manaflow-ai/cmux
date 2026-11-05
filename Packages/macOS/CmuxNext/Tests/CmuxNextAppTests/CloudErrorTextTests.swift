@@ -56,7 +56,7 @@ struct CloudErrorTextTests {
     ])
     func aFailedResumeReadsAsTheErrorText(error: CloudAPIError) async {
         let f = CloudIdlePauseTests.pausedMachine(reason: .idle)
-        f.session.resumer = { _ in throw error }
+        f.session.resumer = { _, _ in throw error }
         f.session.attach(origin: .user)
         let session = f.session
         for await busy in ObservationStream({ session.resuming }) where !busy { break }

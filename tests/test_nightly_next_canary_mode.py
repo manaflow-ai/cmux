@@ -302,15 +302,20 @@ class VerdictDurabilityTests(unittest.TestCase):
                 (bin_dir / "doc").write_text(document)
             (bin_dir / "curl").write_text(f"""#!/bin/bash
 out=
-while [ $# -gt 0 ]; do [ "$1" = -o ] && {{ out=$2; shift; }}; shift; done
+while [ $# -gt 0 ]; do [ "$1" = -o ] && {{ out=$2; shift; }}; case "$1" in https://*) echo "$1" >> {tmp}/urls ;; esac; shift; done
 [ -f {tmp}/doc ] || {{ echo "curl: (22) 404" >&2; exit 22; }}
 cp {tmp}/doc "$out"
 """)
             (bin_dir / "curl").chmod(0o755)
+            env = yaml.safe_load((ROOT / ".github/workflows/nightly-next-canary.yml").read_text())["env"]
             result, output = self.run_step("pick", "Read the build's durable verdict",
-                                           {"BUILD": "4100", "NIGHTLY_NEXT_FEED": "https://x/nightly-next/next/appcast-arm64.xml"},
+                                           {"BUILD": "4100", "NIGHTLY_NEXT_FEED": env["NIGHTLY_NEXT_FEED"],
+                                            "NIGHTLY_NEXT_VERDICTS_BASE": env["NIGHTLY_NEXT_VERDICTS_BASE"]},
                                            path=bin_dir)
             self.assertEqual(result.returncode, 0, result.stderr)
+            # The verdicts' folder nightly-next-verdict.yml writes (nightly-next/next/verdicts/), not the feed's.
+            self.assertTrue((bin_dir / "urls").read_text().startswith(
+                "https://files-next.cmux.com/nightly-next/next/verdicts/4100.json?"), (bin_dir / "urls").read_text())
             return output
 
     def test_a_step_writes_nothing_where_the_tests_run(self):

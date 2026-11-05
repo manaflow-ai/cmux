@@ -40,6 +40,8 @@ extension CloudMachine {
                   idlePause: idlePause, lastChangeFailure: Self.changeFailure(value["error"]))
         serverRevision = value["revision"]?.stringValue
         createdBy = value["creator"]?.stringValue
+        // The contract's `created_at` (epoch ms); the classic decoder's `createdAt` is never in this record.
+        createdAt = value["created_at"]?.doubleValue.map { Date(timeIntervalSince1970: $0 / 1000) }
     }
 
     /// The backend's `pause_reason` (`pauseReason` from an older app server): why cmux paused the

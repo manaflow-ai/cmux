@@ -9,52 +9,13 @@ struct AgentPaneThoughtTunablesTests {
         #expect(AgentPaneThoughtHeader.allCases.map(\.rawValue) == ["duration", "preview"])
         #expect(AgentPaneTunables.thoughtHeader.descriptor.key == "agentPane.debug.thoughtHeader")
         #expect(AgentPaneTunables.thoughtHeader.defaultValue == .duration)
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, thoughtHeader: .duration)
+        #expect(AgentPaneTunables.attributes(topStripStyle: .default, thoughtHeader: .duration)
             .isEmpty)
     }
 
     @Test func previewHeaderSetsItsAttribute() {
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, thoughtHeader: .preview)
+        #expect(AgentPaneTunables.attributes(topStripStyle: .default, thoughtHeader: .preview)
             == ["thought-header": "preview"])
-    }
-
-    @Test func liveViewportIsOnByDefaultAndOffSetsItsAttribute() {
-        #expect(AgentPaneTunables.liveThoughtViewport.descriptor.key == "agentPane.debug.liveThoughtViewport")
-        #expect(AgentPaneTunables.liveThoughtViewport.defaultValue == true)
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, liveThoughtViewport: true)
-            .isEmpty)
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, liveThoughtViewport: false)
-            == ["live-thought-viewport": "off"])
-    }
-
-    /// A mouse wheel's notch glides the transcript (webviews acpmux/wheelGlide.ts) by default, which
-    /// sets no attribute; off, `data-wheel-glide="off"`.
-    @Test func wheelGlideIsOnByDefaultAndOffSetsItsAttribute() {
-        #expect(AgentPaneTunables.wheelGlide.descriptor.key == "agentPane.debug.wheelGlide")
-        #expect(AgentPaneTunables.wheelGlide.defaultValue == true)
-        #expect(AgentPaneTunables.all.contains { $0.key == "agentPane.debug.wheelGlide" })
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, wheelGlide: true).isEmpty)
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, wheelGlide: false)
-            == ["wheel-glide": "off"])
-    }
-
-    /// A streaming reply grows by whole words (webviews conversation/RevealedMarkdown.tsx) by
-    /// default, which sets no attribute; off, `data-stream-words="off"`.
-    @Test func streamWordsIsOnByDefaultAndOffSetsItsAttribute() {
-        #expect(AgentPaneTunables.streamWords.descriptor.key == "agentPane.debug.streamWords")
-        #expect(AgentPaneTunables.streamWords.defaultValue == true)
-        #expect(AgentPaneTunables.all.contains { $0.key == "agentPane.debug.streamWords" })
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, streamWords: true).isEmpty)
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, streamWords: false)
-            == ["stream-words": "off"])
-    }
-
-    /// On by default, setting nothing; off sets `data-fold-long-thoughts="off"`.
-    @Test func foldIsOnByDefaultAndOffSetsItsAttribute() {
-        #expect(AgentPaneTunables.foldLongThoughts.descriptor.key == "agentPane.debug.foldLongThoughts")
-        #expect(AgentPaneTunables.foldLongThoughts.defaultValue == true)
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: false, topStripStyle: .default)
-            == ["fold-long-thoughts": "off"])
     }
 
     /// Every finished thought folds by default (Leo 2026-10-20); the older tall-only folds set
@@ -63,17 +24,26 @@ struct AgentPaneThoughtTunablesTests {
         #expect(AgentPaneThoughtFoldThreshold.allCases.map(\.rawValue) == ["every", "viewport", "codex"])
         #expect(AgentPaneTunables.thoughtFoldThreshold.descriptor.key == "agentPane.debug.thoughtFoldThreshold")
         #expect(AgentPaneTunables.thoughtFoldThreshold.defaultValue == .every)
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, thoughtFoldThreshold: .every)
+        #expect(AgentPaneTunables.attributes(topStripStyle: .default, thoughtFoldThreshold: .every)
             .isEmpty)
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, thoughtFoldThreshold: .viewport)
+        #expect(AgentPaneTunables.attributes(topStripStyle: .default, thoughtFoldThreshold: .viewport)
             == ["thought-fold-threshold": "viewport"])
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, thoughtFoldThreshold: .codex)
+        #expect(AgentPaneTunables.attributes(topStripStyle: .default, thoughtFoldThreshold: .codex)
             == ["thought-fold-threshold": "codex"])
     }
 
     @Test func listedInDebugSettings() {
         #expect(AgentPaneTunables.all.contains { $0.key == "agentPane.debug.thoughtFoldThreshold" })
         #expect(AgentPaneTunables.all.contains { $0.key == "agentPane.debug.thoughtHeader" })
-        #expect(AgentPaneTunables.all.contains { $0.key == "agentPane.debug.liveThoughtViewport" })
+    }
+
+    /// The fold, the live viewport, word streaming and wheel glide always run; their Debug switches
+    /// are gone (Leo 2026-11-05).
+    @Test func theRemovedSwitchesAreNotListed() {
+        let removed: Set = [
+            "agentPane.debug.foldLongThoughts", "agentPane.debug.liveThoughtViewport",
+            "agentPane.debug.streamWords", "agentPane.debug.wheelGlide",
+        ]
+        #expect(!AgentPaneTunables.all.contains { removed.contains($0.key) })
     }
 }

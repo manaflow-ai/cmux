@@ -2,7 +2,7 @@
 // all N. A file in the chat's folder opens in a tab; a link opens beside the chat.
 import type { Translate } from "../../i18n";
 import type { SummarySource, SummarySourceKind } from "../../summary/sessionSummary";
-import { SOURCES_SHOWN, scopedPath } from "../SourcesSection";
+import { SOURCES_SHOWN, scopedPath, sourceLabels } from "../SourcesSection";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
 import { nativeExternalUrl, safeExternalUrl } from "./links";
 import { extraFolderName } from "../../extraFolders";
@@ -49,13 +49,14 @@ export function sourcesSection(
     title: extraFolderName(folder),
     help: folder,
   }));
-  const sourceRows = shown.map((source): NativeInfoRow => {
+  const labels = sourceLabels(t, sources);
+  const sourceRows = shown.map((source, index): NativeInfoRow => {
     const path = source.kind === "file" ? scopedPath(source.label, cwd) : undefined;
     const failure = path ? input.failures?.[path] : undefined;
     const row: NativeInfoRow = {
       id: source.image ? `image:${source.image.id}` : `${source.kind}:${source.url ?? source.label}`,
       symbol: SYMBOLS[source.kind ?? "url"],
-      title: source.label || t("image.viewer"),
+      title: labels[index] || t("image.viewer"),
       ...(failure ? { subtitle: failure, tone: "failed" as const, help: failure } : {}),
     };
     if (path && onOpenFile && !failure)
