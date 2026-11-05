@@ -11,7 +11,8 @@ import CmuxNextWakeups
 /// Core Animation commit of the main run loop until `visible`: ``lastCommitted``, the end of the first commit after which
 /// the model holds the result, a lower bound for when it shows (the render server shows a committed frame without the main
 /// thread, so `visible` alone overstates a frame committed while the main thread then stays busy; CMD-N FIRST FRAME, STATUS
-/// 14067). It is nil when the result first held in the visible tick's own pass, before that pass committed. Only a
+/// 14067). It is nil when the result first held in the visible tick's own pass, before that pass committed; it can be set
+/// while `visible` stays nil (the result held after one commit and never on a tick before the deadline). Only a
 /// condition that reads, and does nothing else, may watch commits.
 @MainActor
 public final class BenchFrames {
