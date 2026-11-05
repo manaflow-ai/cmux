@@ -244,7 +244,9 @@ setup="mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '$pubkey' >>~/.ssh/authorized
 setup+=" && echo lume | sudo -S sh -c 'echo \"lume ALL=(ALL) NOPASSWD: ALL\" >/etc/sudoers.d/cu-eval && chmod 440 /etc/sudoers.d/cu-eval'"
 lume ssh "$vm" -t 60 "$setup" >"$out/key.log" 2>&1 || { finish "could not install the run's key in the guest (key.log)"; exit 4; }
 # -n everywhere but the copy, which reads the archive from stdin: ssh must not eat the step's stdin.
-ssh_opts=(-i "$keydir/id" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=error)
+# A guest that stops answering ends a call within about 40 s instead of hanging past the deadline.
+ssh_opts=(-i "$keydir/id" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=error
+  -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=2)
 guest() { ssh "${ssh_opts[@]}" "lume@$ip" "$@"; }
 guest_n() { ssh -n "${ssh_opts[@]}" "lume@$ip" "$@"; }
 guest_n true || { finish "ssh with the run's key failed"; exit 4; }
