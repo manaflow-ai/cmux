@@ -274,30 +274,29 @@ extension AgentPaneHostError {
         if let refusal = error as? any AgentPaneHostRefusal { return refusal.userMessage }
         return switch error as? AgentPaneHostError {
         case .acpmuxNotFound:
-            String(
-                format: String(localized: "agentPane.error.notInstalled", defaultValue: "acpmux was not found. Install it on your PATH or in one of these folders: %@.", bundle: .module),
-                AcpmuxEnvironment.installDirectories.joined(separator: ", ")
-            )
-        case .daemonFailed(let logPath, let cause):
+            // The folders it looked in stay in the log (`AcpmuxEnvironment.installDirectories`).
+            String(localized: "agentPane.error.notInstalled", defaultValue: "cmux couldn't find its agent service. Reinstall cmux to fix this.", bundle: .module)
+        // The daemon's log path is for a bug report, not the chat's line: it stays in the failure log.
+        case .daemonFailed(_, let cause):
             if let because = cause.userText {
-                String(format: String(localized: "agentPane.error.daemonFailedBecause", defaultValue: "cmux cannot reach acpmux: %1$@. Its log is at %2$@.", bundle: .module), because, logPath)
+                String(format: String(localized: "agentPane.error.daemonFailedBecause", defaultValue: "cmux couldn't start its agent service: %@.", bundle: .module), because)
             } else {
-                String(format: String(localized: "agentPane.error.daemonFailed", defaultValue: "acpmux did not start. Its log is at %@.", bundle: .module), logPath)
+                String(localized: "agentPane.error.daemonFailed", defaultValue: "cmux couldn't start its agent service.", bundle: .module)
             }
         case .daemonRestarting:
-            String(localized: "agentPane.error.daemonRestarting", defaultValue: "acpmux is restarting on the new version. This chat connects when it is back.", bundle: .module)
+            String(localized: "agentPane.error.daemonRestarting", defaultValue: "The agent service is restarting after an update. This chat connects when it's back.", bundle: .module)
         case .daemonStopped:
-            String(localized: "agentPane.error.daemonStopped", defaultValue: "acpmux stopped.", bundle: .module)
+            String(localized: "agentPane.error.daemonStopped", defaultValue: "The agent service stopped.", bundle: .module)
         case .chiefStopped:
             String(localized: "agentPane.error.chiefStopped", defaultValue: "The Chief is not running. Reopen cmux and open Home to start it.", bundle: .module)
         case .chiefStarting:
             String(localized: "agentPane.error.chiefStarting", defaultValue: "The Chief is starting. This chat connects when it is up.", bundle: .module)
         case .daemonRefused(let holder?, _, _, _, _):
-            String(format: String(localized: "agentPane.error.daemonHeldByOtherBuild", defaultValue: "acpmux belongs to %@, and this build may not use it. Quit that app, then try again.", bundle: .module), holder)
+            String(format: String(localized: "agentPane.error.daemonHeldByOtherBuild", defaultValue: "%1$@ is using the agent service, so this cmux can't. Quit %1$@, then try again.", bundle: .module), holder)
         case .daemonRefused(_, _, _, _, _):
-            String(localized: "agentPane.error.daemonRefused", defaultValue: "Another acpmux service is using this socket. It will reconnect when that service is ready.", bundle: .module)
+            String(localized: "agentPane.error.daemonRefused", defaultValue: "Another copy of cmux is using the agent service. This chat connects when it's free.", bundle: .module)
         case .timedOut, nil:
-            String(localized: "agentPane.error.timedOut", defaultValue: "acpmux did not answer in time.", bundle: .module)
+            String(localized: "agentPane.error.timedOut", defaultValue: "The agent service didn't answer in time.", bundle: .module)
         }
     }
 }
