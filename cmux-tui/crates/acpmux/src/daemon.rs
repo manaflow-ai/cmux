@@ -428,7 +428,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // A machine credential copied here from another box (`cli/cloud_join/host_fingerprint.rs`)
     // is marked cloned and this box gets its own node key, before the WireGuard transport and
     // the mesh relay read either.
-    let clone_unsettled = match crate::cli::cloud_join::settle_clone_at_start() {
+    // Off the async workers: it may wait a bounded while for the join lock.
+    let settled = tokio::task::spawn_blocking(crate::cli::cloud_join::settle_clone_at_start)
+        .await
+        .unwrap_or_else(|e| Err(anyhow!("clone check task: {e}")));
+    let clone_unsettled = match settled {
         Ok(crate::cli::cloud_join::CloneCheck::Cloned) => {
             tracing::warn!(
                 "machine credential was copied from another machine: not used here; this machine has a new node key. Paste a new join line to join it."

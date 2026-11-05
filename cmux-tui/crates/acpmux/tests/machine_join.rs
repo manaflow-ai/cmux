@@ -666,14 +666,15 @@ async fn leave_with_the_hub_down_changes_nothing_unless_local_only() {
     server.join().unwrap();
 }
 
-/// A record copied from another box, as a daemon start on this one left it.
-fn cloned_record(home: &Path, origin: &str) -> Vec<u8> {
+/// A record copied from another box: `marked` as a daemon start here left it (with this box's
+/// own fresh key already in place), or unmarked as the copy arrived (the original's key).
+fn cloned_record(home: &Path, origin: &str, marked: bool) -> Vec<u8> {
     // The copied node key: the original box's.
     let key = home.join("node.wg.key");
-    std::fs::write(&key, [7u8; 32]).unwrap();
+    std::fs::write(&key, if marked { [9u8; 32] } else { [7u8; 32] }).unwrap();
     std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o600)).unwrap();
     let path = home.join(FINAL);
-    std::fs::write(&path, json!({"credential":CREDENTIAL,"machine_id":"machine_original","team_id":"team_test","name":"test","hub_origin":origin,"last_heartbeat":null,"revoked":false,"wgPublicKey":"original-key","credential_generation":1,"host_fingerprint":"another-box","cloned":true}).to_string()).unwrap();
+    std::fs::write(&path, json!({"credential":CREDENTIAL,"machine_id":"machine_original","team_id":"team_test","name":"test","hub_origin":origin,"last_heartbeat":null,"revoked":false,"wgPublicKey":"original-key","credential_generation":1,"host_fingerprint":"another-box","cloned":marked}).to_string()).unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
     std::fs::read(&path).unwrap()
 }
@@ -684,7 +685,7 @@ async fn status_on_a_copied_home_says_cloned_and_never_sends_the_originals_crede
     // Any request here would be the original box's credential leaving the copy.
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
-    let original = cloned_record(home.path(), &origin);
+    let original = cloned_record(home.path(), &origin, true);
     let result = tokio::time::timeout(
         Duration::from_secs(10),
         cli(home.path()).args(["host", "join", "--status", "--json"]).output(),
@@ -703,7 +704,7 @@ async fn status_on_a_copied_home_says_cloned_and_never_sends_the_originals_crede
     assert_eq!(body["credentialPresent"], false);
     assert_eq!(body["wgPublicKey"], Value::Null);
     assert!(
-        std::fs::read(home.path().join("node.wg.key")).unwrap() == [7u8; 32],
+        std::fs::read(home.path().join("node.wg.key")).unwrap() == [9u8; 32],
         "status only reports"
     );
     listener.set_nonblocking(true).unwrap();
@@ -726,7 +727,8 @@ async fn a_new_join_on_a_copy_gets_its_own_credential_without_touching_the_origi
         let home = tempfile::tempdir().unwrap();
         let (origin, server) =
             hub(vec![Step::Redeem(200), Step::Live(None)], home.path(), &consent.root);
-        cloned_record(home.path(), &origin);
+        // As the copy arrived: the join itself finds the mismatch and replaces the key.
+        cloned_record(home.path(), &origin, false);
         let output = join(home.path(), Some(&origin), true, replace).await;
         assert_exit(&output, 0);
         let answer: Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -737,6 +739,11 @@ async fn a_new_join_on_a_copy_gets_its_own_credential_without_touching_the_origi
         assert!(record.get("cloned").is_none());
         assert!(std::fs::read(home.path().join("node.wg.key")).unwrap() != [7u8; 32]);
         assert!(record["wgPublicKey"] != "original-key");
+        // Not the public half of the copied key.
+        use base64::Engine as _;
+        let copied = x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from([7u8; 32]));
+        let copied = base64::engine::general_purpose::STANDARD.encode(copied.as_bytes());
+        assert!(record["wgPublicKey"] != copied.as_str());
         assert_complete(home.path(), &origin);
         server.join().unwrap();
     }

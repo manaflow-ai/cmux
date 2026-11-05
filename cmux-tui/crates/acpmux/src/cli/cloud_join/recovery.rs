@@ -28,7 +28,8 @@ struct Pending {
 const COPIED: &str = "machine-join.pending.copied.json";
 
 /// Sets aside a pending join proposed on another box, before anything could send its
-/// credential. A pending file with no fingerprint (an older build's) is kept. The caller
+/// credential. A pending file with no fingerprint (an older build's) cannot be told apart and
+/// is kept and resumed as before; the daemon-start check covers the record it completes. The caller
 /// holds the join lock.
 fn set_aside_copied_pending(current: Option<&str>) -> Result<bool> {
     let Some(p) = read()? else { return Ok(false) };
