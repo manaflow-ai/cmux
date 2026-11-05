@@ -5,7 +5,8 @@ const fixture = globalThis as {
   cmuxAcpmuxMockSlowMs?: number;
 };
 
-const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+/** The mock's delay for the slow method: only this one is held; every other mock delay is instant. */
+const SLOW_MS = 600;
 
 afterEach(() => {
   delete fixture.cmuxAcpmuxMockSlowMethod;
@@ -16,16 +17,29 @@ test("a slow but open daemon answers after the request progress threshold", asyn
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   fixture.cmuxAcpmuxMockSlowMethod = "_acpmux/process/kill";
-  fixture.cmuxAcpmuxMockSlowMs = 600;
-  const socket = new MockAcpmuxSocket(() => Promise.resolve());
+  fixture.cmuxAcpmuxMockSlowMs = SLOW_MS;
+  // The daemon's reply waits until the test releases it, so it arrives after the request's
+  // deadline on any machine, however slow, with no wall-clock wait.
+  let releaseReply = () => {};
+  const replyHeld = new Promise<void>((resolve) => {
+    releaseReply = resolve;
+  });
+  const socket = new MockAcpmuxSocket((ms) => (ms === SLOW_MS ? replyHeld : Promise.resolve()));
+  let sawWaiting = () => {};
+  const waiting = new Promise<void>((resolve) => {
+    sawWaiting = resolve;
+  });
+  let latest: { daemonWaitingSince?: number } | undefined;
   const client = await AcpmuxDirectClient.connect(
     mockHost,
-    () => undefined,
+    (snapshot) => {
+      latest = snapshot;
+      if (snapshot.daemonWaitingSince !== undefined) sawWaiting();
+    },
     undefined,
     () => socket as unknown as WebSocket,
   );
   try {
-    const started = performance.now();
     const request = (
       client as unknown as {
         request(method: string, params: Record<string, unknown>, deadline: number): Promise<unknown>;
@@ -35,12 +49,21 @@ test("a slow but open daemon answers after the request progress threshold", asyn
       { sessionId: mockHost.sessionId, processId: `${mockHost.sessionId}/process` },
       20,
     );
-    // The client holds the first attach snapshot briefly; observe after that hold while the
-    // deliberately slow reply is still outstanding.
-    await wait(350);
+    // The 20 ms deadline passes while the reply is held. On an open socket it is a progress
+    // threshold: the pane shows the daemon is waiting, and the request stays pending. A deadline
+    // that fails the request settles it here instead, and the test fails with that error.
+    await Promise.race([
+      waiting,
+      request.then(() => {
+        throw new Error("the request settled before the daemon replied");
+      }),
+    ]);
+    releaseReply();
     await expect(request).resolves.toEqual({});
-    expect(performance.now() - started).toBeGreaterThan(20);
+    // The reply clears the waiting state.
+    expect(latest?.daemonWaitingSince).toBeUndefined();
   } finally {
+    releaseReply();
     client.close();
   }
 });

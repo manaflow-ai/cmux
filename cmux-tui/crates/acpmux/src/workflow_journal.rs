@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const FORMAT: u32 = 1;
 const RUNTIME_ABI: &str = "cmux-code-mode-workflow/1";
@@ -31,6 +31,11 @@ struct Entry {
     fingerprint: String,
     result: Option<Result<Value, Value>>,
     completed_at: Option<usize>,
+}
+
+struct CorruptTail {
+    offset: u64,
+    bytes: Vec<u8>,
 }
 
 /// The next activity is either already finished or belongs to this stable identity.
@@ -52,6 +57,7 @@ pub struct Journal {
     // Held for the entire interpreter execution, not just an individual append.
     _owner: File,
     file: File,
+    path: PathBuf,
     id: String,
     source: String,
     entries: Vec<Entry>,
@@ -61,6 +67,7 @@ pub struct Journal {
     poisoned: bool,
     stop: Option<Stop>,
     completions: usize,
+    corrupt_tail: Option<CorruptTail>,
 }
 
 impl Drop for Journal {
@@ -131,6 +138,7 @@ impl Journal {
         let mut journal = Self {
             _owner: owner,
             file,
+            path,
             id: String::new(),
             source: String::new(),
             entries: Vec::new(),
@@ -140,6 +148,7 @@ impl Journal {
             poisoned: false,
             stop: None,
             completions: 0,
+            corrupt_tail: None,
         };
         journal.restore()?;
         if journal.source != source {
@@ -208,6 +217,39 @@ impl Journal {
         Ok(())
     }
 
+    /// Records an operator-confirmed outcome for a final journal line that was
+    /// durably delimited but could not be decoded. The original bytes are kept
+    /// beside the journal before they are removed from the replay stream.
+    ///
+    /// This is deliberately separate from [`Self::complete`]: a corrupt line
+    /// may already describe an effect that ran, so retrying it is never safe.
+    pub fn repair_corrupt_tail(&mut self, id: &str, result: Result<Value, Value>) -> Result<()> {
+        if self.poisoned {
+            bail!("workflow journal failed a write; reopen it before continuing");
+        }
+        let tail = self
+            .corrupt_tail
+            .as_ref()
+            .context("workflow journal has no repairable corrupt final record")?;
+        let ordinal = self.ordinal(id).context("unknown workflow activity")?;
+        let entry = self.entries.get(ordinal).context("unknown workflow activity")?;
+        if entry.result.is_some() {
+            bail!("workflow activity already has an outcome");
+        }
+
+        preserve_corrupt_tail(&self.path, &tail.bytes)?;
+        self.file.set_len(tail.offset)?;
+        self.file.sync_all()?;
+        self.append(&Record::Completed { id: id.into(), result: result.clone() })?;
+        if let Some(entry) = self.entries.get_mut(ordinal) {
+            entry.result = Some(result);
+            entry.completed_at = Some(self.completions);
+        }
+        self.completions += 1;
+        self.corrupt_tail = None;
+        Ok(())
+    }
+
     /// Identity reserved by the most recent successful begin, including a replay.
     pub fn last_id(&self) -> Option<&str> {
         self.cursor.checked_sub(1).and_then(|n| self.entries.get(n)).map(|entry| entry.id.as_str())
@@ -256,6 +298,11 @@ impl Journal {
         if self.poisoned {
             bail!("workflow journal failed a write; reopen it before continuing");
         }
+        if self.corrupt_tail.is_some() {
+            bail!(
+                "workflow journal has an unrepaired corrupt final record; inspect its preserved bytes and call repair_corrupt_tail"
+            );
+        }
         Ok(())
     }
 
@@ -287,8 +334,23 @@ impl Journal {
                 self.file.sync_all()?;
                 break;
             }
-            let record: Record =
-                serde_json::from_slice(&line).context("corrupt workflow journal")?;
+            let record = match serde_json::from_slice::<Record>(&line) {
+                Ok(record) => record,
+                Err(error) => {
+                    // A newline-terminated final write can still be garbled
+                    // after power loss. Keep it out of replay, but retain the
+                    // bytes for an explicit repair if an unfinished activity
+                    // gives the operator a stable identity to inspect.
+                    if !reader.fill_buf()?.is_empty()
+                        || !self.entries.iter().any(|entry| entry.result.is_none())
+                    {
+                        return Err(error).context("corrupt workflow journal");
+                    }
+                    self.corrupt_tail =
+                        Some(CorruptTail { offset: complete_bytes, bytes: line.clone() });
+                    break;
+                }
+            };
             match record {
                 Record::Run { format, runtime, id, source } => {
                     if complete_bytes != 0
@@ -332,6 +394,36 @@ impl Journal {
             bail!("workflow journal has no run header");
         }
         Ok(())
+    }
+}
+
+fn preserve_corrupt_tail(path: &Path, bytes: &[u8]) -> Result<()> {
+    let sidecar = path.with_file_name("activities.jsonl.corrupt");
+    match crate::config::private_state_create_new(&sidecar) {
+        Ok(mut file) => {
+            file.write_all(bytes)?;
+            file.sync_all()?;
+            #[cfg(unix)]
+            File::open(path.parent().context("workflow journal has no parent")?)?.sync_all()?;
+            Ok(())
+        }
+        Err(error)
+            if error
+                .root_cause()
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|error| error.kind() == std::io::ErrorKind::AlreadyExists) =>
+        {
+            let existing = std::fs::read(&sidecar).with_context(|| {
+                format!("read preserved corrupt workflow journal {}", sidecar.display())
+            })?;
+            if existing == bytes {
+                Ok(())
+            } else {
+                bail!("preserved corrupt workflow journal bytes differ")
+            }
+        }
+        Err(error) => Err(error)
+            .with_context(|| format!("preserve corrupt workflow journal {}", sidecar.display())),
     }
 }
 

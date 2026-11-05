@@ -1,6 +1,7 @@
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCloudCredentials
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -58,6 +59,67 @@ struct CloudStartChatLoginTests {
         start.remoteSwitch = true
         start.guestStdout = "vm-kind:team\n"
         #expect(start.reason == .guestNotOwner && !start.guestTakesLogin)
+    }
+
+    /// A machine created just now has no guest kind until its guest binds: the start reads it again, as the
+    /// transfer does, instead of skipping the login. A recorded kind or a failed exec is read once.
+    @Test func aNewMachinesGuestKindIsReadAgainUntilItBinds() async throws {
+        var start = Decision(dogfood: true, setting: nil, harness: nil, signedIn: true)
+        start.callerOwns = true
+        let guest = Guest(["vm-kind:\n", "vm-kind:\n", "vm-kind:owner\n"])
+        try await start.readGuest(exec: { _ in await guest.read() }, pause: { await guest.pause() })
+        let (reads, pauses) = await guest.counts
+        #expect(start.guestKind == "owner" && start.guestTakesLogin && reads == 3 && pauses == 2)
+        for answer in ["vm-kind:team\n", nil] {
+            var other = Decision(dogfood: true, setting: nil, harness: nil, signedIn: true)
+            other.callerOwns = true
+            let once = Guest([answer])
+            try await other.readGuest(exec: { _ in await once.read() }, pause: { await once.pause() })
+            let (onceReads, oncePauses) = await once.counts
+            #expect(onceReads == 1 && oncePauses == 0)
+        }
+    }
+
+    /// The kind read's budget holds in elapsed time: a guest whose exec is slow is cut off at the budget, not
+    /// after the read in flight finishes, and the start goes on without a kind (no login is copied).
+    ///
+    /// The budget runs on a ``ManualClock`` the test advances by hand, and the slow exec waits on a second
+    /// one the test never advances, so the only way the read can end is the budget cutting it off: nothing
+    /// here waits on real time, and a read that waited for its exec hangs the test instead of passing on a
+    /// fast runner.
+    @Test func aSlowGuestKindReadIsCutOffAtTheBudget() async throws {
+        var start = Decision(dogfood: true, setting: nil, harness: nil, signedIn: true)
+        start.callerOwns = true
+        let budget = Duration.milliseconds(200)
+        let clock = ManualClock(), slowExec = ManualClock()
+        // The budget's deadline is the only thing that ever waits on `clock`: once it is set, the budget passes.
+        let passTheBudget = Task { try await clock.waitForSleeper(); clock.advance(by: budget) }
+        try await start.readGuest(exec: { _ in await Self.guestKindTooSlowToAnswer(waitingOn: slowExec) },
+                                  pause: {}, budget: budget, clock: clock)
+        try await passTheBudget.value
+        // Cut off at the budget: the read in flight was cancelled (it left `slowExec`) and its answer was
+        // never taken, so the start goes on with no kind, and the budget is all the time the read spent.
+        #expect(!start.guestTakesLogin && start.guestStdout == nil)
+        #expect(slowExec.sleeperCount == 0 && clock.now.offset == budget)
+    }
+
+    /// A guest exec too slow to answer within the read's budget: it waits on a clock its test never
+    /// advances, so it answers only if the read waits for it instead of cutting it off.
+    nonisolated static func guestKindTooSlowToAnswer(waitingOn clock: ManualClock) async -> String? {
+        try? await clock.sleep(for: .seconds(2))
+        return "vm-kind:\n"
+    }
+
+    /// A scripted guest: its kind answers in order (the last repeats), and how many reads and pauses it saw.
+    actor Guest {
+        var answers: [String?], reads = 0, pauses = 0
+        init(_ answers: [String?]) { self.answers = answers }
+        var counts: (Int, Int) { (reads, pauses) }
+        func read() -> String? {
+            reads += 1
+            return answers.count > 1 ? answers.removeFirst() : answers.first ?? nil
+        }
+        func pause() { pauses += 1 }
     }
 
     /// The decision's rules and their cases are Rust's (cmux-cloud-start-core `harness_login`); this

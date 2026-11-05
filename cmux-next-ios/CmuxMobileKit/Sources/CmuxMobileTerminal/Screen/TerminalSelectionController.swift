@@ -37,7 +37,26 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
     private var pressedLink: URL?
 
     private(set) var selection: TerminalTextSelection? {
-        didSet { if selection != oldValue { redraw() } }
+        didSet {
+            guard selection != oldValue else { return }
+            redraw()
+            selectionChanged(selection)
+        }
+    }
+
+    /// Every change of the selection (a handle drag, a tap that ends it): Copy Mode follows it.
+    var selectionChanged: (TerminalTextSelection?) -> Void = { _ in }
+    /// The handles show (off for Copy Mode's lone cursor cell).
+    var showsHandles = true {
+        didSet { if showsHandles != oldValue { redraw() } }
+    }
+
+    /// Shows `selection` from code (Copy Mode's cursor and visual selection), with no menu.
+    func show(_ selection: TerminalTextSelection?, handles: Bool) {
+        menu?.dismissMenu()
+        pressedLink = nil
+        showsHandles = handles
+        self.selection = selection
     }
 
     /// The view the selection lives in: the scroll view (shell), or the TUI
@@ -127,8 +146,8 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         let start = rectFor(selection.start), end = rectFor(selection.end)
         startHandle.place(caretTop: CGPoint(x: start.minX, y: start.minY), height: start.height)
         endHandle.place(caretTop: CGPoint(x: end.maxX, y: end.minY), height: end.height)
-        startHandle.isHidden = false
-        endHandle.isHidden = false
+        startHandle.isHidden = !showsHandles
+        endHandle.isHidden = !showsHandles
     }
 
     // MARK: Gestures
@@ -140,6 +159,7 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         case .began:
             guard let cell = cellAt(point) else { return }
             pressedLink = openLink == nil ? nil : linkAt(cell)
+            showsHandles = true
             selection = TerminalTextSelection.word(at: cell, line: rowText(cell.row) ?? "", columns: columns())
             UISelectionFeedbackGenerator().selectionChanged()
         case .changed:
@@ -301,6 +321,7 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         let rows = documentRows()
         guard !rows.isEmpty else { return }
         pressedLink = nil
+        showsHandles = true
         selection = TerminalTextSelection.all(originRow: rows.lowerBound, endRow: rows.upperBound, columns: columns())
         showMenu()
     }

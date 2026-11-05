@@ -90,7 +90,9 @@ fn hosted_receipted_input_requests_pipeline_through_surface_reader() {
 
 /// A hosted surface on a fake host connection (the host end is the second value).
 #[cfg(unix)]
-fn hosted_typing_surface(name: &str) -> (Arc<Mux>, Arc<Surface>, std::os::unix::net::UnixStream) {
+pub(super) fn hosted_typing_surface(
+    name: &str,
+) -> (Arc<Mux>, Arc<Surface>, std::os::unix::net::UnixStream) {
     hosted_surface_with(name, |_| {})
 }
 
@@ -276,6 +278,8 @@ fn input_to_a_hosted_terminal_with_no_input_route_fails_and_does_not_panic() {
 fn a_frame_sent_after_a_key_the_port_holds_reaches_the_host_after_it() {
     let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-order-barrier");
     let pty = surface.as_pty().expect("a terminal");
+    // The key must be a frame the port's writer holds: no inline write.
+    pty.input_port.queue_every_write_for_test();
     let resume = pty.input_port.pause_writes_for_test();
     surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
     std::thread::scope(|scope| {
@@ -359,8 +363,9 @@ fn an_automation_write_gets_the_error_of_its_frame() {
     });
 }
 
-/// Keys to a hosted terminal on the input port reach the host once each, in the order they were typed (the port's
-/// one writer thread), and a key the port took returns before the host read anything (#34544 review).
+/// Keys to a hosted terminal on the input port reach the host once each, in the order they were typed, and a key the
+/// port took returns before the host read anything (#34544 review). An idle port writes each key on its own turn
+/// (`input_port_inline.rs`); the order holds the same way when the port's writer writes them.
 #[cfg(unix)]
 #[test]
 fn keys_on_the_input_port_reach_the_host_once_each_in_order() {
@@ -926,7 +931,7 @@ fn dead_host_route() -> input_port::InputRoute {
 
 /// Waits (at most 5 s) until `ready` holds, or fails the test with `what`.
 #[cfg(unix)]
-fn wait_until(what: &str, ready: impl Fn() -> bool) {
+pub(super) fn wait_until(what: &str, ready: impl Fn() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(5);
     while !ready() {
         assert!(Instant::now() < deadline, "timed out waiting until {what}");
@@ -963,6 +968,8 @@ fn input_payloads(frames: &[Frame]) -> Vec<Vec<u8>> {
 /// does not depend on how fast a new thread starts (#35082 review 2, should-do 4). Returns the pause's sender.
 #[cfg(unix)]
 fn running_paused_writer(surface: &Surface, pty: &PtySurface) -> std::sync::mpsc::Sender<()> {
+    // The key must be a frame the port's writer holds: no inline write.
+    pty.input_port.queue_every_write_for_test();
     let resume = pty.input_port.pause_writes_for_test();
     surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
     wait_until("the writer took the key", || pty.input_port.queued_frames_for_test() == 0);
@@ -1109,6 +1116,8 @@ fn writes_queued_behind_a_lost_host_fail_together() {
 fn receipted_input_sent_after_a_key_the_port_holds_reaches_the_host_after_it() {
     let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-receipted-order");
     let pty = surface.as_pty().expect("a terminal");
+    // The key must be a frame the port's writer holds: no inline write.
+    pty.input_port.queue_every_write_for_test();
     let resume = pty.input_port.pause_writes_for_test();
     surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
     std::thread::scope(|scope| {
@@ -1140,6 +1149,8 @@ fn receipted_input_sent_after_a_key_the_port_holds_reaches_the_host_after_it() {
 fn a_write_whose_wait_ends_before_the_port_takes_it_is_never_written() {
     let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-reply-timeout");
     let pty = surface.as_pty().expect("a terminal");
+    // The key must be a frame the port's writer holds: no inline write.
+    pty.input_port.queue_every_write_for_test();
     pty.input_port.set_reply_wait_for_test(Duration::from_millis(300));
     let resume = pty.input_port.pause_writes_for_test();
     // The writer holds a key at its pause; the write queues behind it.
@@ -1260,6 +1271,8 @@ fn a_write_waiting_for_a_reconnect_fails_when_the_reader_gives_up() {
 fn a_viewer_size_behind_a_key_the_port_holds_goes_after_it_without_waiting() {
     let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-viewer-size");
     let pty = surface.as_pty().expect("a terminal");
+    // The key must be a frame the port's writer holds: no inline write.
+    pty.input_port.queue_every_write_for_test();
     let resume = pty.input_port.pause_writes_for_test();
     surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
     wait_until("the writer took the key", || pty.input_port.queued_frames_for_test() == 0);
@@ -1293,6 +1306,8 @@ fn a_viewer_size_settle_ends_by_its_own_deadline_behind_a_held_frame() {
             attachment.viewer_size_acks = true;
         });
     let pty = surface.as_pty().expect("a terminal");
+    // The key must be a frame the port's writer holds: no inline write.
+    pty.input_port.queue_every_write_for_test();
     surface.resize(97, 31).expect("the first viewer size was sent");
     let resume = pty.input_port.pause_writes_for_test();
     surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
@@ -1317,6 +1332,8 @@ fn a_viewer_size_settle_ends_by_its_own_deadline_behind_a_held_frame() {
 fn the_input_ports_writer_runs_at_user_interactive_qos_once_it_carries_a_persons_key() {
     let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-writer-qos");
     let pty = surface.as_pty().expect("a terminal");
+    // The key must be a frame the port's writer holds: no inline write.
+    pty.input_port.queue_every_write_for_test();
     let interactive = libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE as u32;
     surface.write_bytes(b"a").expect("automation's write was written");
     let automation = pty.input_port.writer_qos_for_test();
@@ -1340,6 +1357,8 @@ fn the_input_ports_writer_runs_at_user_interactive_qos_once_it_carries_a_persons
 /// reconnect (the route it writes on is dead).
 #[cfg(unix)]
 fn a_size_queued_then_a_reconnect_wait(surface: &Surface, pty: &PtySurface) {
+    // The key must be a frame the port's writer holds: no inline write.
+    pty.input_port.queue_every_write_for_test();
     let resume = pty.input_port.pause_writes_for_test();
     surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
     wait_until("the writer took the key", || pty.input_port.queued_frames_for_test() == 0);

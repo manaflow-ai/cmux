@@ -71,7 +71,10 @@ const snapshot = chat(
 /// before the next: at the transcript's end an opening pushes the rows above it up by design
 /// (#32644), which the shift gate exempts only for the step's own target (`data-bottom-stack-fold`). Two
 /// raw clicks in one task started both openings outside any step, so their push-up was scored as
-/// shift in the wait that followed.
+/// shift in the wait that followed. A step settles after a few frames, before the fold's glide ends,
+/// so each click first lets the last fold finish (`foldsLanded`): a click during the glide stops it
+/// part-way (App.tsx `beginBottomStackFold`) and the rows above jumped the 2-4 px it had left, a
+/// shift scored in some runs and not others by frame timing alone.
 const openWaiting: Play = async (ctx) => {
   // The delivered ones sit in one "Received N messages" row (#32720): open it too.
   const received = ".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle";
@@ -80,9 +83,20 @@ const openWaiting: Play = async (ctx) => {
     await ctx.click({ selector: received });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received").length >= 3);
   await ctx.waitFor(() => ctx.document.querySelector(".cv-pending__toggle"));
+  await foldsLanded(ctx);
   if (ctx.document.querySelector('.cv-pending__toggle[aria-expanded="false"]'))
     await ctx.click({ selector: ".cv-pending__toggle" });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received").length >= 5);
+  await foldsLanded(ctx);
+};
+
+/// Every finite animation on the page has ended (a looping one, the streaming reply's, never does).
+/// Not a step: it waits out the tail of the fold the last step already measured.
+const foldsLanded: Play = async (ctx) => {
+  const finite = ctx.document
+    .getAnimations()
+    .filter((animation) => Number.isFinite(animation.effect?.getComputedTiming().endTime ?? Number.POSITIVE_INFINITY));
+  await Promise.all(finite.map((animation) => animation.finished.catch(() => undefined)));
 };
 
 /// Opens the fanout-infra report, the long one with a table.

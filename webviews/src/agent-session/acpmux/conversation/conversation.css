@@ -3689,10 +3689,10 @@ button.cv-video-frames__frame:focus-visible {
   white-space: nowrap;
   user-select: none;
 }
-/* Pointing at the sender's name lights only the name (its own pill below), never the whole line. */
-.cv-received > .cv-disclosure__line:hover:not(:has(.cv-agent-tag.is-open:hover)),
-.cv-received > .cv-disclosure__line:focus-within:not(:has(.cv-agent-tag.is-open:focus)),
-.cv-received > .cv-disclosure__line:has([aria-haspopup="menu"]:is([aria-expanded="true"], [data-popup-open])) {
+/* No plate under the line on hover, as a sent message's and a tool's line have none (cmux#28113
+   gave received lines one): pointing at it reveals its actions only, and pointing at the sender's
+   name lights only the name (its own pill below). Keyboard focus keeps the plate, so focus shows. */
+.cv-received > .cv-disclosure__line:has(:focus-visible):not(:has(.cv-agent-tag.is-open:focus)) {
   background: color-mix(in srgb, var(--cv-text) 6%, transparent);
 }
 .cv-received .cv-disclosure__toggle {
@@ -3727,11 +3727,8 @@ button.cv-video-frames__frame:focus-visible {
   display: inline-flex;
   align-items: center;
   padding-inline-start: var(--ds-space-2);
-  background: linear-gradient(
-    to right,
-    transparent,
-    color-mix(in srgb, var(--cv-text) 6%, var(--acpmux-base, var(--cv-bg))) var(--ds-space-2)
-  );
+  /* The pane's own ground, with no plate under the line, so the actions cover the preview's tail. */
+  background: linear-gradient(to right, transparent, var(--acpmux-base, var(--cv-bg)) var(--ds-space-2));
   opacity: 0;
   pointer-events: none;
 }
@@ -6304,7 +6301,7 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   max-width: calc(100% - var(--cv-chevron-glyph, 12px) - var(--ds-space-4, 16px));
 }
 /* The selection's Reply chip (SelectionReply.tsx): a small pill over the selection's end, as
-   Claude's and ChatGPT's. It shows on the selection's end with no fade-in and goes when the
+   Claude's and ChatGPT's, placed where no transcript text is under it. It shows on the selection's end with no fade-in and goes when the
    selection does. `icon` draws the glyph alone. */
 .cv-selection-reply {
   position: fixed;
@@ -6357,4 +6354,13 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   color: var(--cv-text-dim);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+/* Under a finished subagent's line (SubagentDoneLine.tsx) the reply is the line's own continuation
+   on the stack's grid: no margin of its own (the row's frame gives the run gap after it), the notes'
+   20px lines at the rows' text column, so model.ts `reactionReplyHeight` is its drawn height and the
+   next row keeps the one row pitch (design/chat-transcript.md "One-line row pitch"). cmux#33283 gave
+   it a 4px and 6px margin the estimate never counted. */
+.cv-tools > .cv-reaction-reply {
+  margin: 0;
+  line-height: 20px;
 }

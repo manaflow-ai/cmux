@@ -16,7 +16,9 @@ use cmux_cloud_wire::{
 use cmux_link::dial::Service;
 use cmux_link::elapsed::{Deadline, Elapsed};
 use cmux_link::keyset::{Keyset, read_answer};
-use cmux_link::native_token::{NativeBinding, NativePeer, NativePolicy, ReceiverTime};
+use cmux_link::native_token::{
+    MAX_ADMIT_MS, MAX_POLICY_LEASE_MS, NativeBinding, NativePeer, NativePolicy, ReceiverTime,
+};
 use cmux_server::cloud_http::RequestDeadline;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -30,8 +32,21 @@ pub use reply::ReceiverBinding;
 
 pub const POLICY_OP: &str = CloudVmNetworkPolicyOp::NAME;
 pub const REQUEST_BUDGET: Duration = Duration::from_secs(20);
+/// The host agent's socket answers when a read fails (receiver_agent.rs).
+pub const POLICY_UNAVAILABLE: &str = "cloud.vm.network_policy.unavailable";
+pub const POLICY_REFUSED: &str = "cloud.vm.network_policy.refused";
 const SAFE: i64 = 9_007_199_254_740_991;
 const UNAVAILABLE: &str = "VM receiving authority unavailable";
+/// The control plane answered and refused this VM's receiving authority (403,
+/// a reply for another binding, epoch or generation, or changed bound files).
+/// Unlike [`UNAVAILABLE`] (no answer in time), this revokes a retained policy.
+pub const REFUSED: &str = "VM receiving authority refused";
+
+/// Whether a failed receiving read is a refusal (revoke now) rather than the
+/// control plane not answering (keep the current policy under local admission).
+pub fn is_refusal(error: &str) -> bool {
+    error == REFUSED
+}
 
 // A required nullable wire field must distinguish an explicit closed generation
 // from a malformed reply. Serde's generated Option alone accepts missing fields.
@@ -64,6 +79,11 @@ impl ReceiverSnapshot {
         &self.keys
     }
 
+    /// When the read that made this snapshot started (active clock).
+    pub fn started(&self) -> Instant {
+        self.started
+    }
+
     /// Active-clock scheduling projection. Authority checks must use `time`;
     /// this Instant alone cannot account for time spent suspended.
     pub fn expires(&self) -> Instant {
@@ -79,6 +99,29 @@ impl ReceiverSnapshot {
             Some(source) => active.max(source.elapsed()?),
             None => active,
         })
+    }
+
+    /// Whether the control plane granted local admission: the receiver keeps
+    /// this policy through failed renewals until `admit_until`. False when the
+    /// field is absent (the kill switch) or no later than the lease end.
+    pub fn admits_locally(&self) -> bool {
+        self.policy.admit_until.is_some_and(|until| until > self.policy.expires_at)
+    }
+
+    /// Wall-clock milliseconds when this policy's authority ends.
+    fn authority_end_ms(&self) -> i64 {
+        if self.admits_locally() {
+            self.policy.admit_until.unwrap_or(self.policy.expires_at)
+        } else {
+            self.policy.expires_at
+        }
+    }
+
+    /// Active-clock projection of the authority end (scheduling and logs only;
+    /// the verifier enforces the end itself).
+    pub fn admitted_until(&self) -> Instant {
+        self.started
+            + Duration::from_millis((self.authority_end_ms() - self.policy.checked_at) as u64)
     }
 
     pub fn elapsed_deadline(&self) -> Option<Deadline> {
@@ -112,7 +155,9 @@ impl ReceiverSnapshot {
             team: p.team.clone(),
             authority_version: p.authority_version.clone(),
             checked_at_ms: p.checked_at as u64,
-            expires_at_ms: p.expires_at as u64,
+            // The verifier's authority runs to the admission end; the shorter
+            // lease above only schedules the next read.
+            expires_at_ms: self.authority_end_ms() as u64,
             request_started: self.started,
             peers: p
                 .peers
@@ -204,28 +249,38 @@ impl<H: Http> CloudClient<H> {
             self.request_until("/v1/read", Some(&body), Some(&token), &deadline)?;
         if status != 200 {
             self.clear_token();
-            return Err(UNAVAILABLE.into());
+            // 403 is the control plane refusing this VM's authority; any other
+            // status is it not answering usefully, which local admission rides out.
+            return Err(if status == 403 { REFUSED } else { UNAVAILABLE }.into());
         }
         // Check before the required-field adapter normalizes policy into Value.
-        let _: UniqueJson = serde_json::from_slice(&bytes).map_err(|_| UNAVAILABLE)?;
+        // An answered 200 that does not parse or match is a refusal, never a
+        // reason to keep older authority.
+        let _: UniqueJson = serde_json::from_slice(&bytes).map_err(|_| REFUSED)?;
         let read: ReadResponse<RequiredPolicy> =
-            serde_json::from_slice(&bytes).map_err(|_| UNAVAILABLE)?;
+            serde_json::from_slice(&bytes).map_err(|_| REFUSED)?;
         if read.op != POLICY_OP
             || read.stream != format!("cloud:{}", self.bound().team)
             || read.revision.is_empty()
             || read.revision.len() > 20
             || !read.revision.bytes().all(|b| b.is_ascii_digit())
         {
-            return Err(UNAVAILABLE.into());
+            return Err(REFUSED.into());
         }
         let binding =
-            ReceiverBinding::from_original(self.bound(), wg_public, &self.install_public_jwk())?;
-        validate(&read.value.0, &binding)?;
+            ReceiverBinding::from_original(self.bound(), wg_public, &self.install_public_jwk())
+                .map_err(|_| REFUSED)?;
+        validate(&read.value.0, &binding).map_err(|_| REFUSED)?;
         let (status, bytes) = self.request_until("/v1/cloud/keyset", None, None, &deadline)?;
         // Reject duplicate JSON object keys, including duplicate key ids, before
         // the shared keyset parser can normalize them into a map.
-        let _: UniqueJson = serde_json::from_slice(&bytes).map_err(|_| UNAVAILABLE)?;
-        let keys = read_answer(status, &[], &bytes).map_err(|_| UNAVAILABLE)?;
+        // A keyset that did not answer (5xx, 429) is no answer; an answered
+        // keyset that does not parse or validate refuses.
+        if status != 200 {
+            return Err(if status == 403 { REFUSED } else { UNAVAILABLE }.into());
+        }
+        let _: UniqueJson = serde_json::from_slice(&bytes).map_err(|_| REFUSED)?;
+        let keys = read_answer(status, &[], &bytes).map_err(|_| REFUSED)?;
         let snapshot = ReceiverSnapshot {
             policy: read.value.0,
             keys,
@@ -259,7 +314,10 @@ fn validate(p: &CloudVmNetworkPolicyView, b: &ReceiverBinding) -> Result<(), Str
         || p.checked_at > SAFE
         || p.expires_at > SAFE
         || p.expires_at <= p.checked_at
-        || p.expires_at - p.checked_at > 30_000
+        || p.expires_at - p.checked_at > MAX_POLICY_LEASE_MS as i64
+        || p.admit_until.is_some_and(|until| {
+            until < p.expires_at || until > SAFE || until - p.checked_at > MAX_ADMIT_MS as i64
+        })
         || !hex(&p.policy_digest, 64)
         || !hex(&p.authority_version, 64)
         || p.receiver_generation.as_ref().is_some_and(|generation| !hex(generation, 64))

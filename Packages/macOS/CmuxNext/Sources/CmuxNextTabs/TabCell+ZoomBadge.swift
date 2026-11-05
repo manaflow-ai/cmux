@@ -66,7 +66,7 @@ extension TabCell {
         zoomLayer.opacity = 1
         if let zoomBackgroundLayer {
             zoomBackgroundLayer.frame = glyph.insetBy(dx: -Self.audioFillOutset, dy: -Self.audioFillOutset)
-            zoomBackgroundLayer.cornerRadius = max(0, metrics.cornerRadius - Metrics.space1)
+            zoomBackgroundLayer.cornerRadius = metrics.nestedCornerRadius(zoomBackgroundLayer.frame, in: bounds)
             zoomBackgroundLayer.opacity = 1
         }
         return titleEnd - size - Metrics.space2

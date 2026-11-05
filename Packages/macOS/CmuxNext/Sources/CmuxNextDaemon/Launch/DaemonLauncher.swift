@@ -197,15 +197,17 @@ public struct DaemonLauncher: Sendable {
     /// The Chief owner's `server ensure` environment: the user's basic
     /// variables only, never a build's `CMUX_*` identity; the brain's tools socket (chief.*) and
     /// what the owner needs to run the other Chiefs' brains (`CMUX_TUI_CHIEF_BRAINS`). Also the
-    /// R-LIFECYCLE keepers switch from the app's launch knob (``DaemonDiagnosticKnobs``): the Chief
-    /// owner follows the same rule as the app's own daemon, so its off switch must reach it too.
+    /// R-LIFECYCLE keepers switch from the app's launch knobs (``DaemonDiagnosticKnobs``): the Chief
+    /// owner follows the same rules as the app's own daemon, so its off switch must reach it too.
     static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
         let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", "CMUX_TUI_CHIEF_TOOLS_SOCKET",
                     "CMUX_TUI_CHIEF_BRAINS"]
         var environment = base.filter { kept.contains($0.key) }
         let knobs = DaemonDiagnosticKnobs(processEnvironment: base).daemonEnvironment
-        if let keepers = knobs[DaemonDiagnosticKnobs.ownerKeepersDaemonName] {
-            environment[DaemonDiagnosticKnobs.ownerKeepersDaemonName] = keepers
+        for name in DaemonDiagnosticKnobs.chiefOwnerDaemonNames {
+            if let value = knobs[name] {
+                environment[name] = value
+            }
         }
         return environment
     }
@@ -317,6 +319,12 @@ public struct DaemonLauncher: Sendable {
     /// directory, config file and a fixed runtime base.
     func ensureEnvironment() async -> [String: String] {
         var environment = await environmentProvider()
+        // This authority is only for the app launcher's ensure call. The
+        // daemon strips it before spawning the detached owner, so terminals
+        // cannot later switch a shared owner back to their own backend.
+        if environment["CMUX_NEXT_CLOUD_RUNTIME"] == "1" {
+            environment["CMUX_NEXT_CLOUD_LAUNCHER"] = "1"
+        }
         if let stateDirectory = configuration.stateDirectory { environment["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
         if let configFile = configuration.configFile { environment["CMUX_TUI_CONFIG"] = configFile.path }
         // XDG_RUNTIME_DIR would win over TMPDIR in cmux-tui's socket lookup.
@@ -334,10 +342,14 @@ public struct DaemonLauncher: Sendable {
             try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true,
                                                     attributes: [.posixPermissions: 0o700])
         }
-        if let running = await runningOwner() { return running }
-        // The probe runs while the environment is gathered.
-        async let reapGrace = supportsReapGrace()
+        // A NEXT app launch is authoritative for backend selection. Skip the
+        // status fast path so `server ensure` can replace a daemon left alive
+        // by the previous app launch; terminal processes never receive the
+        // one-shot launcher marker.
         let environment = await ensureEnvironment()
+        if environment["CMUX_NEXT_CLOUD_LAUNCHER"] != "1",
+           let running = await runningOwner() { return running }
+        async let reapGrace = supportsReapGrace()
         // The bundled binary reports restore progress (`--restore-progress`): the app
         // then waits while the owner restores and gives up only when the
         // progress stops for `ensureTimeout` (cx-n3bs). An external binary

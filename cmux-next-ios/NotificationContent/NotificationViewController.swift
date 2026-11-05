@@ -6,8 +6,9 @@ import UserNotificationsUI
 
 /// The long-press view of every cmux notification (verify/rich-push.md
 /// "Expanded view"). It has no link to the Mac: what it sends goes to the
-/// App Group outbox, and the app (opened by `performNotificationDefaultAction`)
-/// sends it over that Mac's link, asking Face ID for an answer or an Allow.
+/// App Group outbox (or, in a build without the App Group, the push keychain
+/// group under this notification's request id: `PushHandover`), and the app (opened by `performNotificationDefaultAction`)
+/// sends it over that Mac's link, signing an answer or an Allow.
 ///
 /// Replying is the system's own text field at the bottom (the category's
 /// Reply action), which sends in the background. As in Messages, "+" in the
@@ -17,6 +18,7 @@ final class NotificationViewController: UIViewController, @MainActor UNNotificat
     private let model = NotificationContentModel()
     private var host: UIHostingController<NotificationContentView>?
     private var loading: Task<Void, Never>?
+    private var sending: Task<Void, Never>?
     override func viewDidLoad() {
         super.viewDidLoad()
         let host = UIHostingController(rootView: NotificationContentView(model: model))
@@ -81,7 +83,7 @@ final class NotificationViewController: UIViewController, @MainActor UNNotificat
         }
     }
 
-    /// Buttons go on to the app delegate, which owns delivery (and Face ID).
+    /// Buttons go on to the app delegate, which owns delivery (and signing).
     func didReceive(_ response: UNNotificationResponse, completionHandler completion: @escaping (UNNotificationContentExtensionResponseOption) -> Void) {
         completion(.dismissAndForwardAction)
     }
@@ -92,12 +94,17 @@ final class NotificationViewController: UIViewController, @MainActor UNNotificat
             extensionContext?.performNotificationDefaultAction()
             return
         }
-        do {
-            try model.outbox?.put(reply)
-            model.sent = true
-        } catch {
-            model.failure = String(localized: "Couldn't hand this to cmux. Open the app to answer.")
+        // One reply per long look: a second tap while the first is handed over does nothing.
+        // The write finishes before the app opens: the app takes the reply on that open.
+        guard sending == nil else { return }
+        sending = Task { [weak self, model] in
+            do {
+                try await model.handOver(reply)
+                model.sent = true
+            } catch {
+                model.failure = String(localized: "Couldn't hand this to cmux. Open the app to answer.")
+            }
+            self?.extensionContext?.performNotificationDefaultAction()
         }
-        extensionContext?.performNotificationDefaultAction()
     }
 }
