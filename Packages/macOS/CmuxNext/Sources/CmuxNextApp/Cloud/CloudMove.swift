@@ -90,7 +90,8 @@ struct CloudMove {
         // the card goes when the chat moved.
         let asks = services.cloud.moveAsks
         let carded = asks.hasCard(tabID)
-        if !carded { toast(toastID, CloudMoveStrings.moving, duration: Self.working) }
+        // A failure toast an earlier move without a card left up (with its Retry) goes too.
+        if carded { CmuxToastCenter.shared.close(id: toastID) } else { toast(toastID, CloudMoveStrings.moving, duration: Self.working) }
         asks.moveStarted(tabID, services: services)
         let work: ActionWork = Task { @MainActor in
             do {
@@ -152,7 +153,8 @@ struct CloudMove {
         if CloudMachineUpdate.requested(invocation) {
             try await CloudMachineUpdate.run(services, name: name, socket: machineSocket, cli: cli, toast: "cloud-move-" + tab.id,
                                              retry: .update(machineID: machine.machineID))
-            toast("cloud-move-" + tab.id, CloudMoveStrings.moving, duration: Self.working)
+            // Back to Moving, unless the chat's card says the move (``perform``).
+            if !services.cloud.moveAsks.hasCard(tab.id) { toast("cloud-move-" + tab.id, CloudMoveStrings.moving, duration: Self.working) }
         }
         let remote = try await sync(folder, to: machineSocket, machine: name, cli: cli, retry: again)
         let owner = await Self.ownerAnswer(machine)
