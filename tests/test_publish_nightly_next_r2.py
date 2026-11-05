@@ -50,6 +50,38 @@ def feed(*items: tuple, channel: dict | None = None, source: dict | None = None)
             f"<channel>{body}</channel></rss>")
 
 
+class SignatureTests(unittest.TestCase):
+    """The DMG's EdDSA signature, written beside it so an app can check a build the feed dropped."""
+
+    def setUp(self) -> None:
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+
+    def write(self, name: str, text: str) -> Path:
+        path = Path(self.dir.name) / name
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_the_named_dmg_signature_and_length_are_written(self) -> None:
+        dmg = "cmux-nightly-next-macos-arm64-200.dmg"
+        arm = self.write("appcast-arm64.xml", feed((200, GH + dmg, 5), (100, GH + "cmux-nightly-next-macos-arm64-100.dmg", 4)))
+        legacy = self.write("appcast.xml", feed((200, GH + dmg, 5)))
+        out = Path(self.dir.name) / f"{dmg}.signature.json"
+        self.assertEqual(r2.signature([arm, legacy, Path(self.dir.name) / "missing.xml"], dmg, out), 0)
+        self.assertEqual(json.loads(out.read_text()), {"name": dmg, "edSignature": "sig", "length": 5})
+
+    def test_feeds_that_disagree_or_lack_the_dmg_or_its_signature_fail(self) -> None:
+        dmg = "cmux-nightly-next-macos-arm64-200.dmg"
+        out = Path(self.dir.name) / "out.json"
+        a = self.write("a.xml", feed((200, GH + dmg, 5)))
+        b = self.write("b.xml", feed((200, GH + dmg, 6)))
+        self.assertEqual(r2.signature([a, b], dmg, out), 1)
+        self.assertEqual(r2.signature([a], "cmux-nightly-next-macos-arm64-300.dmg", out), 1)
+        unsigned = self.write("c.xml", feed((200, GH + dmg, 5)).replace(' sparkle:edSignature="sig"', ""))
+        self.assertEqual(r2.signature([unsigned], dmg, out), 1)
+        self.assertFalse(out.exists())
+
+
 class RewriteTests(unittest.TestCase):
     def setUp(self) -> None:
         self.dir = tempfile.TemporaryDirectory()

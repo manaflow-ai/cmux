@@ -27380,6 +27380,137 @@
         }
       }
     },
+    "updater.channels.switchUnsigned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That build was published before downloads carried a signature to check, so it can only be installed if this Mac kept it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نُشر ذلك الإصدار قبل أن تحمل التنزيلات توقيعًا يمكن التحقق منه، لذا لا يمكن تثبيته إلا إذا احتفظ به هذا الـ Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta verzija je objavljena prije nego što su preuzimanja imala potpis za provjeru, pa se može instalirati samo ako ju je ovaj Mac zadržao."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det build blev udgivet, før downloads havde en signatur at kontrollere, så det kan kun installeres, hvis denne Mac har gemt det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Build wurde veröffentlicht, bevor Downloads eine prüfbare Signatur hatten. Er lässt sich nur installieren, wenn dieser Mac ihn aufbewahrt hat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esa compilación se publicó antes de que las descargas llevaran una firma que comprobar, así que solo se puede instalar si este Mac la conservó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce build a été publié avant que les téléchargements portent une signature à vérifier ; il ne peut être installé que si ce Mac l’a conservé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella build è stata pubblicata prima che i download avessero una firma da verificare, quindi si può installare solo se questo Mac l’ha conservata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドはダウンロードに検証用の署名が付く前に公開されたため、この Mac に保存されている場合のみインストールできます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំណែនោះត្រូវបានចេញផ្សាយមុនពេលការទាញយកមានហត្ថលេខាសម្រាប់ពិនិត្យ ដូច្នេះវាអាចដំឡើងបានតែប្រសិនបើ Mac នេះបានរក្សាទុកវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 빌드는 다운로드에 확인할 서명이 붙기 전에 게시되어, 이 Mac에 보관된 경우에만 설치할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det bygget ble publisert før nedlastinger hadde en signatur å kontrollere, så det kan bare installeres hvis denne Macen har tatt vare på det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta kompilacja została opublikowana, zanim pobrania miały podpis do sprawdzenia, więc można ją zainstalować tylko wtedy, gdy ten Mac ją zachował."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essa build foi publicada antes de os downloads terem uma assinatura para verificar, então só pode ser instalada se este Mac a guardou."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта сборка опубликована до того, как у загрузок появилась проверяемая подпись, поэтому её можно установить, только если этот Mac её сохранил."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บิลด์นั้นเผยแพร่ก่อนที่การดาวน์โหลดจะมีลายเซ็นให้ตรวจสอบ จึงติดตั้งได้เฉพาะเมื่อ Mac เครื่องนี้เก็บไว้เท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu derleme, indirmeler doğrulanacak bir imza taşımadan önce yayımlandı; yalnızca bu Mac onu sakladıysa yüklenebilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цю збірку опубліковано до того, як завантаження отримали підпис для перевірки, тому її можна встановити, лише якщо цей Mac її зберіг."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bản dựng đó được phát hành trước khi bản tải xuống có chữ ký để kiểm tra, nên chỉ cài được nếu máy Mac này đã giữ lại nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该版本发布时下载内容尚未附带可校验的签名，因此只有在这台 Mac 保留了它时才能安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該版本發布時下載內容尚未附帶可驗證的簽章，因此只有在這台 Mac 保留了它時才能安裝。"
+          }
+        }
+      }
+    },
     "updater.channels.switchGone": {
       "extractionState": "manual",
       "localizations": {
