@@ -134,6 +134,8 @@ public struct WindowTitlebar {
     ///   sidebar under the lights): the card starts `gutter` below their row
     ///   (the lights and the toolbar band's buttons on their line).
     public static func cardTopInset(of root: NSView, minimal: Bool, gutter: CGFloat, clearsTrafficLights: Bool = false) -> CGFloat {
+        // The flush corner (`chrome.cornerFlush`): the top row's pills on the lights' line in every titlebar style.
+        if let inset = CornerFlushChrome.topInset(of: root) { return inset }
         guard minimal, let window = root.window, let lights = trafficLightsFrame(in: window) else { return gutter }
         let local = root.convert(lights, from: nil)
         if clearsTrafficLights {

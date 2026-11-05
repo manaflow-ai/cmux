@@ -41,6 +41,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// `sidePins`); their constants are the main pane's gutter.
     var mainPaneEdges: [NSLayoutConstraint] = []
     private var mainPaneObservation: Task<Void, Never>?
+    let cornerFlush = CornerFlushChrome(frame: .zero)
     let sidebar: SidebarContainerView
     /// The edge the sidebar sits on (`sidebar.side`, R109).
     var sidebarSide: SidebarSide = .left {

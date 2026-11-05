@@ -1,0 +1,198 @@
+{
+ "title": "Corner flush: Flush (comfortable)",
+ "settings": {
+  "appearance": {
+   "density": "comfortable"
+  }
+ },
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3
+  },
+  {
+   "title": "Corner flush flush",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.cornerFlush",
+     "value": "flush"
+    }
+   },
+   "shot": false,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "Workspace docs",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "docs"
+   ],
+   "shot": false
+  },
+  {
+   "title": "Workspace api",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "api"
+   ],
+   "shot": false
+  },
+  {
+   "title": "Workspace Corner",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Corner"
+   ],
+   "shot": false
+  },
+  {
+   "title": "Show it",
+   "cmux": [
+    "workspace",
+    "name:Corner",
+    "focus"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Name the first tab",
+   "cmux": [
+    "workspace",
+    "name:Corner",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "rename",
+    "shell"
+   ],
+   "shot": false,
+   "optional": "a name only for the later focus step"
+  },
+  {
+   "title": "Browser tab Docs",
+   "cmux": [
+    "tab",
+    "create",
+    "browser",
+    "--url",
+    "https://example.com",
+    "--name",
+    "Docs",
+    "--workspace",
+    "name:Corner"
+   ],
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Browser tab API",
+   "cmux": [
+    "tab",
+    "create",
+    "browser",
+    "--url",
+    "https://example.org",
+    "--name",
+    "API",
+    "--workspace",
+    "name:Corner"
+   ],
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Browser tab Notes",
+   "cmux": [
+    "tab",
+    "create",
+    "browser",
+    "--url",
+    "https://example.net",
+    "--name",
+    "Notes",
+    "--workspace",
+    "name:Corner"
+   ],
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Focus the first tab",
+   "cmux": [
+    "workspace",
+    "name:Corner",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "name:shell",
+    "focus"
+   ],
+   "wait": 1,
+   "shot": false,
+   "optional": "the first tab may already be selected"
+  },
+  {
+   "title": "Flush: the first tab selected",
+   "wait": 2
+  },
+  {
+   "title": "Select the second tab",
+   "cmux": [
+    "workspace",
+    "name:Corner",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "name:Docs",
+    "focus"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "Select the third tab",
+   "cmux": [
+    "workspace",
+    "name:Corner",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "name:API",
+    "focus"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "Back to the first tab",
+   "cmux": [
+    "workspace",
+    "name:Corner",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "name:shell",
+    "focus"
+   ],
+   "wait": 2
+  }
+ ]
+}

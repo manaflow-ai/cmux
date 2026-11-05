@@ -88,7 +88,7 @@ extension WindowRootView {
     func observeMainPane() -> Task<Void, Never> {
         Task { [weak self] in
             for await _ in ObservationStream({ () -> [CGFloat] in [Metrics.mainPaneGutter, Metrics.mainPaneCornerRadius,
-                                                Metrics.mainPaneChromeShade(isDark: false), Metrics.mainPaneChromeShade(isDark: true), Metrics.floatingPanes ? 1 : 0] }) {
+                                                Metrics.mainPaneChromeShade(isDark: false), Metrics.mainPaneChromeShade(isDark: true), Metrics.chromeShapeKey] }) {
                 self?.applyMainPane()
             }
         }
@@ -108,8 +108,8 @@ extension WindowRootView {
         for (side, constraints) in sidePins {
             for constraint in constraints where constraint.firstItem === contentHost {
                 switch constraint.firstAttribute {
-                case .leading: constraint.constant = gutter + (side == .right && constraint.secondItem === self ? panel : 0)
-                case .trailing: constraint.constant = -gutter - (side == .left && constraint.secondItem === self ? panel : 0)
+                case .leading: constraint.constant = constraint.secondItem === self ? gutter + (side == .right ? panel : 0) : CornerFlush.current.sidebarGap ?? gutter
+                case .trailing: constraint.constant = -(constraint.secondItem === self ? gutter + (side == .left ? panel : 0) : CornerFlush.current.sidebarGap ?? gutter)
                 default: break
                 }
             }
@@ -157,8 +157,7 @@ extension WindowRootView {
         if contentHost.setCornerRadius(radius), let window {
             NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
         }
-        let alpha = Metrics.mainPaneChromeShade(isDark: themeTokens.isDark)
-        mainPaneShade.update(card: contentHost.frame, radius: radius, alpha: alpha)
+        cornerFlush.apply(content: contentHost, radius: radius, isDark: themeTokens.isDark, page: presentsPage, sidebarOnLeft: sidebarSide == .left, shade: mainPaneShade, in: self)
     }
 }
 

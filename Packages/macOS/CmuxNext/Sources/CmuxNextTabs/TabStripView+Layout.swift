@@ -353,6 +353,7 @@ extension TabStripView {
             cell.accessibility.setAccessibilityFrameInParentSpace(tabsClip.convert(cell.frame, to: self))
             trailing = max(trailing, place.maxX)
         }
+        updateCornerFlush(tabY: tabY, tabHeight: tabHeight)
         updateOcclusion()
         layoutPinnedDivider(mapping: mapping, tabY: tabY, tabHeight: tabHeight, pixel: pixel)
         for group in groups.chips.keys {
