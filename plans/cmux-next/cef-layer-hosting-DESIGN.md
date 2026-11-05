@@ -158,18 +158,23 @@ With the switch on (Debug Settings, default off; read when each resize begins an
 
 1. Every page window is hosted (`CEFLayerHosting.isEnabled` is `layerHosting || framesOwnedByCommit`).
 2. A key resize no longer holds the page (`CEFTabContentView.holdPage(for:)`): the chrome follows its pane (S3) and the
-   page lays out at its page area in every frame; `beginPageSync(.keyResize)` gives each page window over the pane
-   (the page's, a docked DevTools') the drag deadline until the spring lands.
-3. A divider drag lays the page out live with the same wait (`beginPageSync(.drag)`), whatever `dragResize` says. This is
-   #26595's `resizeSync` mode (Austin Wang; carried by Leo's #29679), made the S5 path.
-4. The wait: `browserResize.dragResizeDeadline` (16 ms) capped at half the shortest display frame (4 ms with a 120 Hz
-   display, `CEFResizeSyncDeadline`), on the main thread inside the commit (Chromium's own pre-commit handler pumps the
-   UI thread's resize tasks there; it checks the deadline between whole tasks). A frame the page misses shows its last
-   frame for that one commit; the next commit asks again at that frame's size. No timer, no hold of an old size.
+   page lays out at its page area in every frame (`beginPageSync(.keyResize)` until the spring lands).
+3. A divider drag lays the page out live (`beginPageSync(.drag)`), whatever `dragResize` says. This is #26595's
+   `resizeSync` path (Austin Wang; carried by Leo's #29679), made the S5 path.
+4. The main thread never waits for the page. Chromium's resize wait is its `CATransactionCoordinator` pre-commit handler,
+   which runs on Chromium's UI thread, and in cmux that is the app's main thread (`CEFMessagePump`). So with S5 on every
+   pane deadline (`syncDeadline`, `dragResizeDeadline`) is replaced by `motion.frameOwner.pagesWait`, 0 by default
+   (`CEFLayerHosting.waitMs`). API 27's 0 means no pre-commit wait, no GPU CA transaction and no post-commit wait. The
+   main thread commits each frame at once; the page window's resize reaches Chromium in that turn; the GPU's frame at the
+   new size shows through the hosted context when it is drawn, with no app commit needed. Until then the page shows its
+   last frame inside its pane (the hosted root takes the page window's size; the GPU layer keeps the frame's size), not
+   stretched; the next frame catches up. `pagesWait` above 0 is for measurement films only (the cost of a same-frame page).
 
-Known limit: the wait runs on the main thread, as Chrome's own `CATransactionCoordinator` does, not off it as viz's
-surface deadline does. Moving it off the main thread needs the fork to present the page's frame through a fence the
-embedder's commit waits on in the render server (a later fork API); until then the half-frame cap is the bound.
+Known limit: a page frame drawn after the pane's commit shows one or more refreshes later, so S5 at `pagesWait` 0 shows
+the page at its pane's size from Chromium's next frame, not always in the pane's own frame. A same-frame page without a
+main-thread wait needs a fork call that hands the wait to the render server (the page's frame as a fence the embedder's
+commit waits on there, as viz's surface synchronization does inside Chrome's GPU process). That is the next fork API,
+owned by S5; the films with S5 on say how many frames a page lags.
 
 Red test: `CEFPageFrameOwnerTests` (switch by key, so it compiles before it exists). Evidence and dates: the S5 PR.
 

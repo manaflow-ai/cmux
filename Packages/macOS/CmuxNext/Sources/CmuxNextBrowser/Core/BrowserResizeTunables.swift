@@ -79,14 +79,24 @@ public nonisolated struct BrowserResizeTunables {
     /// Off (the default): FRAME OWNER S5 is off; the rows above decide. On (cmux-ad m14, Lawrence 2026-11-05: "in every
     /// frame every browser shows live pixels rendered at that frame's pane size"): every Chromium page is hosted in the
     /// window's own layer tree (fork API 26, as `layerHosting` on), and in a key resize and a divider drag it never keeps an
-    /// old size: it lays out at its pane's size in every frame and each page window holds that frame's commit for its frame
-    /// at that size, up to `dragResizeDeadline` capped at half the shortest display frame (fork API 27). It overrides
-    /// `dragResize` and `keyResizeTopLeft`. Read when each resize begins and when a page is shown, so one build films OFF
-    /// and ON. Deleted after the ON films pass (S5 ON, then the switch-deletion PR).
+    /// old size: it lays out at its pane's size in every frame. The main thread never waits for the page (`pagesWait`, 0):
+    /// until Chromium's frame at the new size comes, the page shows its last frame inside its pane, never stretched. It
+    /// overrides `dragResize`, `keyResizeTopLeft` and a hosted page's `syncDeadline`. Read when each resize begins and when
+    /// a page is shown, so one build films OFF and ON. Deleted after the ON films pass (the switch-deletion PR).
     public static let framesOwnedByCommit = Tunable<Bool>.toggle(
         "motion.frameOwner.pages", section, "Page frame and size in one commit",
-        help: "A Chromium page draws in the window's own layers and, in a keyboard resize or a divider drag, lays out at its pane's size in every frame; each frame waits for the page's frame at that size up to the divider drag wait, at most half a display frame. Needs Chromium fork API 27. Off: the rows above decide. Applies from the next resize; hosting applies when a page is shown next.",
+        help: "A Chromium page draws in the window's own layers and, in a keyboard resize or a divider drag, lays out at its pane's size in every frame. The app never waits for the page: until its frame at the new size comes, the page shows its last frame inside its pane. Needs Chromium fork API 26. Off: the rows above decide. Applies from the next resize; hosting applies when a page is shown next.",
         default: false, code: "BrowserResizeTunables.framesOwnedByCommit")
+
+    /// With `framesOwnedByCommit` on, how long a pane resize may hold the commit for a page's frame at the new size (fork
+    /// API 27). 0 (the default, the main-thread rule): never. Chromium runs that wait on its UI thread, which is the app's
+    /// main thread (`CATransactionCoordinator`'s pre-commit handler), so a value above 0 is for measurement films only
+    /// (what a same-frame page costs), capped at half the shortest display frame. The off-main same-frame page needs a fork
+    /// call that hands the wait to the render server (plans/cmux-next/cef-layer-hosting-DESIGN.md, S5). Deleted with S5.
+    public static let pagesWait = Tunable<Double>.number(
+        "motion.frameOwner.pagesWait", section, "Page wait on the main thread (measurement)",
+        help: "With Page frame and size in one commit on: how long each pane resize frame may wait on the main thread for a page to draw at the new size. 0 (the default) never waits; above 0 is for measurement only, at most half a display frame.",
+        default: 0, range: 0...0.016, step: 0.001, unit: .seconds, code: "BrowserResizeTunables.pagesWait")
 
     /// `dragResize` as the override file holds it when Chromium starts, even when a restored tab starts
     /// Chromium before the store's own read of the file landed (`TunableStore.settledOverride`).
@@ -103,7 +113,7 @@ public nonisolated struct BrowserResizeTunables {
 
     public static var all: [TunableDescriptor] {
         [pageBackdrop.descriptor, layerHosting.descriptor, syncDeadline.descriptor, liveResizeDeadline.descriptor, dragResize.descriptor,
-         dragResizeDeadline.descriptor, keyResizeTopLeft.descriptor, framesOwnedByCommit.descriptor]
+         dragResizeDeadline.descriptor, keyResizeTopLeft.descriptor, framesOwnedByCommit.descriptor, pagesWait.descriptor]
     }
 }
 

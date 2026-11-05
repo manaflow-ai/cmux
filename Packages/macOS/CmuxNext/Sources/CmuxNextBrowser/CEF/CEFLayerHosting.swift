@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// Layer hosting (fork API 26) of the page window over one ``CEFHostView``:
 /// asks the fork for the page window's Core Animation context and shows it in
@@ -119,9 +120,9 @@ final class CEFLayerHosting {
     init(isEnabled: @escaping () -> Bool = { BrowserResizeTunables.layerHosting.value || BrowserResizeTunables.framesOwnedByCommit.value },
          schedule: @escaping Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
          makePage: @escaping (CGRect) -> CEFHostedPageView = { CEFHostedPageView(frame: $0) },
-         resizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.syncDeadline.value * 1_000).rounded()) },
+         resizeDeadlineMs: @escaping () -> Int32 = { CEFLayerHosting.waitMs(BrowserResizeTunables.syncDeadline) },
          liveResizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.liveResizeDeadline.value * 1_000).rounded()) },
-         dragResizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.dragResizeDeadline.value * 1_000).rounded()) },
+         dragResizeDeadlineMs: @escaping () -> Int32 = { CEFLayerHosting.waitMs(BrowserResizeTunables.dragResizeDeadline) },
          refreshIntervals: @escaping () -> [Double] = { NSScreen.screens.map(\.minimumRefreshInterval) }) {
         self.isEnabled = isEnabled
         self.resizeDeadlineMs = resizeDeadlineMs
@@ -130,6 +131,13 @@ final class CEFLayerHosting {
         self.refreshIntervals = refreshIntervals
         self.schedule = schedule
         self.makePage = makePage
+    }
+
+    /// A pane wait tunable in whole ms; with S5 on (`motion.frameOwner.pages`) `motion.frameOwner.pagesWait` instead, 0 by
+    /// default: the main thread never waits for a page in a pane resize (Chromium's wait runs on the main thread).
+    static func waitMs(_ tunable: Tunable<Double>) -> Int32 {
+        let seconds = BrowserResizeTunables.framesOwnedByCommit.value ? BrowserResizeTunables.pagesWait.value : tunable.value
+        return Int32((seconds * 1_000).rounded())
     }
 
     /// Whether a refused request waits for the tracker's next read.

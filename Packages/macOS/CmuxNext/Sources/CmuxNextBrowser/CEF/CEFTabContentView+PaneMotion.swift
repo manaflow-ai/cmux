@@ -21,9 +21,9 @@ protocol BrowserPagePaneMotionHolding: NSView {
 /// during the hold holds again (`resumePageHold`).
 ///
 /// With `motion.frameOwner.pages` on (FRAME OWNER S5, cmux-ad m14; latched when the hold begins) nothing holds: the page
-/// follows its pane's page area in every frame, at that frame's size, and its page windows wait (bounded) for their frame at
-/// each size (`beginPageSync(.keyResize)`, `CEFTabContentView+PageSync`) until the hold ends. Every shown page follows then,
-/// with docked DevTools, a side panel or a fit too, so the chrome around it is never held whole.
+/// follows its pane's page area in every frame, at that frame's size, hosted in the window's layers, with no main-thread wait
+/// for its frame (`beginPageSync(.keyResize)`, `CEFTabContentView+PageSync`) until the hold ends. Every shown page follows
+/// then, with docked DevTools, a side panel or a fit too, so the chrome around it is never held whole.
 extension CEFTabContentView: BrowserPagePaneMotionHolding {
     var holdsPageInPaneMotion: Bool {
         pageMotionHold != nil || canStartPageHold || (Self.pagesOwnedByCommit && window != nil && tab != nil)
@@ -47,7 +47,7 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
             return
         }
         if pageMotionHold == nil, Self.pagesOwnedByCommit {
-            // S5: no hold. The page lays out at the page area in every frame, and its page windows wait for each size.
+            // S5: no hold. The page lays out at the page area in every frame (no main-thread wait for its frame).
             beginPageSync(.keyResize)
         }
         if pageFollowsPane {

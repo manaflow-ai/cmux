@@ -12,14 +12,14 @@ nonisolated enum CEFPageSyncReason: Hashable, Sendable {
 /// new pane size, so the page shows that size in the same commit as its pane (`CEFLayerHosting.paneResizeDrag`).
 ///
 /// FRAME OWNER REFACTOR S5 (`motion.frameOwner.pages`, cmux-ad m14): in a key resize and in a divider drag the page never
-/// keeps an old size (no hold, no anchored old frame). Its host view takes the pane's page area in every frame, the page
-/// is hosted in the window's own layer tree (fork API 26, ``CEFLayerHosting``), and each of its page windows holds the
-/// frame's Core Animation commit for its frame at that size up to `browserResize.dragResizeDeadline`, capped at half the
-/// shortest display frame (``CEFResizeSyncDeadline``), the bound of Chromium's own pre-commit wait
-/// (`CATransactionCoordinator`). A frame the page misses shows its last frame for that one commit, never a held one.
+/// keeps an old size (no hold, no anchored old frame). Its host view takes the pane's page area in every frame and the
+/// page is hosted in the window's own layer tree (fork API 26, ``CEFLayerHosting``), so the page window's resize goes to
+/// Chromium in the same turn and its frame at that size lands through the hosted context as soon as the GPU draws it.
+/// The main thread never waits for it: Chromium's resize wait (`CATransactionCoordinator`) runs on its UI thread, which is
+/// the main thread, so S5's deadline is `motion.frameOwner.pagesWait`, 0 by default (`CEFLayerHosting.waitMs`). Until the
+/// frame comes the page shows its last frame inside its pane, unscaled; the next frame catches up.
 ///
-/// A drag and a key resize can overlap (a key press during a drag): the page windows wait while either runs and stop when
-/// the last ends.
+/// A drag and a key resize can overlap (a key press during a drag): the shares last while either runs and end with the last.
 extension CEFTabContentView {
     /// S5 is on: Chromium pages follow their pane in every frame of a key resize and of a drag. Read when each resize
     /// begins, so a flip applies from the next one and one build films both.
