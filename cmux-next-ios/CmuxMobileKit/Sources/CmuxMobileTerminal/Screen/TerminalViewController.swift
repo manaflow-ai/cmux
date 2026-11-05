@@ -2115,6 +2115,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         updateViewport(visibleMinY: scrollView.contentOffset.y)
         if !settingOffset { scroll.scrolled(offsetY: scrollView.contentOffset.y, bottomOffsetY: maxOffsetY) }
+        // The reader moved to within a screen of the oldest row held: a Mac
+        // terminal that attached with its latest screen first brings older
+        // rows (never for the page's own placement or a short document).
+        if scrollView.isTracking || scrollView.isDecelerating,
+           scrollView.contentOffset.y < -scrollView.contentInset.top + scrollView.bounds.height {
+            model.session.loadOlderHistory()
+        }
         // A fling that reaches the bottom follows from there: while output
         // streams the deceleration would otherwise run on against a growing
         // end and leave the page short of it. The fling keeps its rubber

@@ -28,8 +28,8 @@ const GUEST_PATH = /^\/v1\/cloud\/machines\/(vm_[a-z0-9]{20})\/(exec|fs\/(?:dir|
 /** The machine routes only cmux-platform serves (cmux-api has no handler for them). */
 const PLATFORM_ONLY_PATHS: ReadonlyArray<RegExp> = [/^\/v1\/cloud\/bind$/, /^\/v1\/cloud\/keyset$/, ACPMUX_PATH, CLIENT_SESSION_PATH, GUEST_PATH, TRAJECTORY_PATH]
 
-/** NEXT Cloud's machine routes outside the op path (bind, keyset, keyed acpmux start, client session, guest exec and files, trajectories), the platform's Native network target read (cmux-platform NativeNetwork.ts) and the platform's remote off switch for the Mac's login copy (cmux-platform LoginCopySwitch.ts), which have no op and no route here. */
-const CLOUD_PATHS: ReadonlyArray<RegExp> = [...PLATFORM_ONLY_PATHS, /^\/v1\/host\/network\/target$/, /^\/v1\/cloud\/harness-login-copy$/]
+/** NEXT Cloud's machine routes outside the op path (bind, keyset, keyed acpmux start, client session, guest exec and files, trajectories), the platform's Native network target read (cmux-platform NativeNetwork.ts), the platform's remote off switch for the Mac's login copy (cmux-platform LoginCopySwitch.ts) and its client config (the app's origins and the backend's create capabilities, cmux-platform Http.ts), which have no op and no route here. Unbound, the client config answers 404 here as before and the app keeps its built-in table. */
+const CLOUD_PATHS: ReadonlyArray<RegExp> = [...PLATFORM_ONLY_PATHS, /^\/v1\/host\/network\/target$/, /^\/v1\/cloud\/harness-login-copy$/, /^\/v1\/client-config$/]
 
 /** Whether a path is a NEXT Cloud machine route only cmux-platform serves. */
 export const isCloudPath = (path: string): boolean => PLATFORM_ONLY_PATHS.some((p) => p.test(path))

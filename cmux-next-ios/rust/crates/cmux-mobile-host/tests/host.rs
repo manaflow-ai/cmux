@@ -35,6 +35,8 @@ struct Fixture {
     mac_id: String,
     /// Pairing on: this Mac's identity key (`mac_identity`).
     mac_key: Option<String>,
+    /// Pairing on: what machines did here (`activity.rs`).
+    activity: Option<Arc<cmux_mobile_host::activity::Activity>>,
     root: std::path::PathBuf,
     outside: std::path::PathBuf,
     uploads: std::path::PathBuf,
@@ -218,7 +220,7 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
     };
     let mut services = services;
     let mac_id = uuid::Uuid::new_v4().to_string();
-    let (mut trust, mut events, mut mac_key) = (None, None, None);
+    let (mut trust, mut events, mut mac_key, mut activity) = (None, None, None, None);
     if pairing {
         let (trust_tx, trust_rx) = tokio::sync::watch::channel(loaded.then(DeviceTrust::default));
         let (events_tx, events_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -232,7 +234,12 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
                     let _ = events_tx.send(event);
                 }),
             )
-            .with_identity(tokio::sync::watch::channel(Some(identity)).1),
+            .with_identity(tokio::sync::watch::channel(Some(identity)).1)
+            .with_activity({
+                let log = Arc::new(cmux_mobile_host::activity::Activity::memory());
+                activity = Some(Arc::clone(&log));
+                log
+            }),
         );
         trust = Some(trust_tx);
         events = Some(tokio::sync::Mutex::new(events_rx));
@@ -260,6 +267,7 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
         events,
         mac_id,
         mac_key,
+        activity,
         root: root.path().to_path_buf(),
         outside: outside.path().to_path_buf(),
         uploads: uploads.path().to_path_buf(),
@@ -1308,6 +1316,21 @@ async fn a_mac_opens_only_what_this_mac_granted_it() {
     fixture.trust.as_ref().unwrap().send_replace(Some(DeviceTrust::default()));
     let mut gone = link.open("machine", serde_json::json!({})).await.unwrap();
     assert_eq!(drain(&mut gone).await.1, "revoked");
+
+    // Activity has every pairing attempt and every request, allowed or refused.
+    let logged: Vec<(String, String)> = fixture
+        .activity
+        .as_ref()
+        .unwrap()
+        .recent()
+        .into_iter()
+        .map(|entry| (entry.service, entry.decision))
+        .collect();
+    let has = |service: &str, decision: &str| logged.contains(&(service.to_owned(), decision.to_owned()));
+    assert!(has("auth", "allowed"), "{logged:?}");
+    assert!(has("file-preview", "not_granted"), "{logged:?}");
+    assert!(has("machine", "allowed"), "{logged:?}");
+    assert!(has("machine", "revoked"), "{logged:?}");
 }
 
 fn keys_like(keys: &PhoneKeys) -> PhoneKeys {
