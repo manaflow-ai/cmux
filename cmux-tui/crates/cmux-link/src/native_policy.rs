@@ -14,7 +14,10 @@ pub(super) fn cloud_services(services: &[Service]) -> bool {
     !services.is_empty()
         && services.len() <= 3
         && services.iter().all(|s| matches!(s, Service::Daemon | Service::Ssh | Service::Desktop))
-        && services.iter().enumerate().all(|(i, s)| !services[..i].contains(s))
+        && services
+            .iter()
+            .enumerate()
+            .all(|(i, s)| !services.get(..i).is_some_and(|seen| seen.contains(s)))
 }
 
 impl NativeBinding {

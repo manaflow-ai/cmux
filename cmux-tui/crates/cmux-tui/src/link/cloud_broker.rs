@@ -180,7 +180,10 @@ impl ConnectInfoSource for BrokerSource {
             || services.is_empty()
             || services.len() > 3
             || services.contains(&Service::OwnerSession)
-            || services.iter().enumerate().any(|(i, s)| services[..i].contains(s))
+            || services
+                .iter()
+                .enumerate()
+                .any(|(i, s)| services.get(..i).is_some_and(|seen| seen.contains(s)))
         {
             return Err(ConnectInfoError::Forbidden);
         }
