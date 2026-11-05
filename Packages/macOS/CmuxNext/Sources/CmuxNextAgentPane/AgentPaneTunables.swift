@@ -235,14 +235,6 @@ public nonisolated struct AgentPaneTunables {
         help: "Agent chats show the live plan card and the recap card.",
         default: false, code: "AgentPaneTunables.sessionStatus")
 
-    /// Side sessions: the composer's `/btw <question>` opens a read-only side session about the chat
-    /// beside it, and the palette offers Ask a Side Question… when the gate is on.
-    /// On by default; the page reads it from the header state (``AgentPaneHeaderState/sideSessions``).
-    public static let sideSessions = Tunable<Bool>.toggle(
-        "agentPane.debug.sideSessions", PageTunables.section, "Side sessions (/btw)",
-        help: "The composer's /btw opens a read-only side session beside the chat, and the palette offers Ask a Side Question….",
-        default: true, code: "AgentPaneTunables.sideSessions")
-
     /// Thoughts fold once done (webviews conversation/ThoughtRow.tsx): the thoughts
     /// ``thoughtFoldThreshold`` picks fold to one line that opens to their text. On by default (Leo
     /// 2026-10-18, #20963) and then sets nothing on the page; off (`data-fold-long-thoughts="off"`)
@@ -457,17 +449,6 @@ public nonisolated struct AgentPaneTunables {
         help: "Visual treatment for the session sidebar's latest-reply hover preview: card, quiet, or outline.",
         default: .card, code: "AgentPaneTunables.sidebarPreviewVariant")
 
-    /// Whether a prompt the daemon dropped with its connection before acpmux took it (an acpmux
-    /// restart, a reset socket) goes again on the pane's next connection, under its promptId, so
-    /// acpmux runs it at most once (``AgentPanePromptJournal``). On by default: the page waits for
-    /// the prompt to show on that connection instead of saying "Not sent" (webviews lostPrompt.ts;
-    /// Leo, 2026-10-21: "why does it say it's not responding?"). Off, the page says "Not sent" once
-    /// its wait for the prompt runs out, and gives it back.
-    public static let lostPromptReplay = Tunable<Bool>.toggle(
-        "agentPane.debug.lostPromptReplay", PageTunables.section, "Send again a prompt a dropped connection lost",
-        help: "A prompt acpmux never took because its connection dropped goes again on the next connection.",
-        default: true, code: "AgentPaneTunables.lostPromptReplay")
-
     public static var all: [TunableDescriptor] {
         [
             agentPairGuard.descriptor,
@@ -482,7 +463,6 @@ public nonisolated struct AgentPaneTunables {
             harnessSwitchInStartedChat.descriptor,
             liveLineBelow.descriptor,
             liveThoughtViewport.descriptor,
-            lostPromptReplay.descriptor,
             modelMenu.descriptor,
             harnessPlacement.descriptor,
             needsYou.descriptor,
@@ -499,7 +479,6 @@ public nonisolated struct AgentPaneTunables {
             nativeSessionInfo.descriptor,
             sidebarPreviewVariant.descriptor,
             scrollerFade.descriptor,
-            sideSessions.descriptor,
             streamWords.descriptor,
             subagentTray.descriptor,
             suggestedTasks.descriptor,

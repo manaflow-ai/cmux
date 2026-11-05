@@ -777,7 +777,6 @@ import { failedRuns, failedSendText, type FailedRun } from "./sendFailure";
 import { clientWaiter, lostPrompt, resentAfterLoss } from "./lostPrompt";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
-import { useSideSessions } from "./aside/sideSessions";
 import { BtwNotes, type BtwRow as InlineBtwRow } from "./aside/btwNotes";
 import { BtwAside } from "./aside/BtwAside";
 import { askBtwQuestion } from "./btwCapability";
@@ -9899,10 +9898,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           }),
     [quick],
   );
-  // `/btw` opens a read-only side session beside the chat; the Debug toggle is an explicit
-  // kill switch, and the Quick Composer has none.
-  const sideSessions = useSideSessions();
-  const opensSideSessions = !quick && sideSessions;
+  // `/btw` opens a read-only side session beside the chat; the Quick Composer has none.
+  const opensSideSessions = !quick;
   const opensSideSessionsRef = useRef(opensSideSessions);
   opensSideSessionsRef.current = opensSideSessions;
   // A side session (New side chat's, or one `/btw` opened): its composer answers in it.
