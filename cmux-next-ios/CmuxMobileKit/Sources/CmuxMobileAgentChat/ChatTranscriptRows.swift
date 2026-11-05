@@ -19,6 +19,8 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         /// says where what is shown starts instead of when the session started.
         case sessionStart(Date, earlier: Bool)
         case prompt(text: String, attachments: [AgentAttachment], at: Date, isLast: Bool)
+        /// The turn's prompt is another agent's message: its card (AgentIncomingCard), not the person's bubble.
+        case incoming(AgentIncoming, at: Date)
         /// One block of the agent message `messageID` (the whole message is copied).
         case block(messageID: String, block: MarkdownBlock)
         case thought(text: String, isLive: Bool)
@@ -166,14 +168,22 @@ final class ChatTranscriptBuilder {
             rows.append(ChatRow(id: "session-start", turnID: turnID, kind: .sessionStart(turn.promptAt, earlier: context.earlierHistory), gap: 0))
         }
         rows.append(ChatRow(id: "u-\(turnID)", turnID: turnID,
-                            kind: .prompt(text: turn.prompt, attachments: turn.attachments, at: turn.promptAt, isLast: context.isLast),
+                            kind: turn.incoming.map { .incoming($0, at: turn.promptAt) }
+                                ?? .prompt(text: turn.prompt, attachments: turn.attachments, at: turn.promptAt, isLast: context.isLast),
                             gap: context.isFirst ? 0 : (context.followsActions ? 18 : 24)))
         let turnRows = turn.rows
         let running = turn.status == .running
+        // The agent's own wrap-up call (WrapUp.swift) is the card, not a row of its work, and goes
+        // before a tagged ask in its prose. Where nothing can answer it, it keeps its recap alone.
+        let wrote = turn.status == .completed ? NextStepAsk.lastWrapUp(turnRows) : nil
+        var wrapUp = wrote
+        if let ask = wrapUp, !ask.question.isEmpty, !context.isLast, context.nextPrompt == nil {
+            wrapUp = ask.recap.map { NextStepAsk(tag: ask.tag, recap: $0, question: "", detail: nil, options: [], rest: "") }
+        }
         // A finished turn's answer that ends on one tagged ask: the ask draws as a card under it.
         var nextStep: (rowID: String, ask: NextStepAsk)?
         // An earlier turn's card shows only with the reply that answered it (the Mac's rule).
-        if turn.status == .completed, context.isLast || context.nextPrompt != nil,
+        if wrote == nil, turn.status == .completed, context.isLast || context.nextPrompt != nil,
            let index = turnRows.lastIndex(where: { if case .message = $0 { true } else { false } }),
            case .message(_, let markdown) = turnRows[index], let ask = NextStepAsk.parse(markdown) {
             nextStep = (turnRows[index].id, ask)
@@ -198,9 +208,11 @@ final class ChatTranscriptBuilder {
             case .thought(_, let text):
                 add(row.id, .thought(text: text, isLive: running && isLastRow))
             case .tool(let call):
-                add(row.id, .tool(call))
+                // A wrap-up call's row goes only where its card draws in its place.
+                if wrapUp == nil || !NextStepAsk.drawsWrapUp(call) { add(row.id, .tool(call)) }
             case .toolGroup(_, let calls):
-                add(row.id, .toolGroup(calls, turnRunning: running))
+                let shown = wrapUp == nil ? calls : calls.filter { !NextStepAsk.drawsWrapUp($0) }
+                if !shown.isEmpty { add(row.id, .toolGroup(shown, turnRunning: running)) }
             case .edit(let call):
                 if call.isRunning {
                     add(row.id, .edit(call, files: nil))
@@ -218,6 +230,10 @@ final class ChatTranscriptBuilder {
             case .subagents(_, let ids):
                 add(row.id, .subagents(ids))
             }
+        }
+        if let wrapUp {
+            let answer = wrapUp.question.isEmpty ? nil : context.nextPrompt.map { wrapUp.chosenAnswer($0) }
+            add("n-\(turnID)", .nextStep(wrapUp, answer: answer, canAnswer: answer == nil && context.isLast))
         }
         if running, turnRows.needsWorkingIndicator, !context.askOpen {
             add("w-\(turnID)", .working(label: turn.retry?.label ?? "Working", since: turn.startedAt))
