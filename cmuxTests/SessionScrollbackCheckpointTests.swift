@@ -571,7 +571,7 @@ struct SessionScrollbackCheckpointCoordinatorTests {
         harness.canCheckpoint = true
         harness.advanceToNextCheckpoint()
         #expect(coordinator.tickIfDue())
-        #expect(harness.lastRemovals.isEmpty)
+        #expect(harness.batches.dropFirst().allSatisfy { $0.removals.isEmpty })
     }
 
     /// A capture can run for several main-queue turns. A file that already went

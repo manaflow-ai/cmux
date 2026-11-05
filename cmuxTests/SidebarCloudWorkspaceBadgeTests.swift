@@ -157,9 +157,14 @@ struct SidebarCloudWorkspaceBadgeTests {
         #expect(store.records(for: workspaces[0]).map(\.panelID) == [panels[0]])
 
         // A captured panel stays captured when it moves; an uncaptured one stays pending.
+        let emptyWorkspace = UUID()
+        let movedToEmpty = store.move(panelID: panels[0], to: emptyWorkspace)
+        #expect(movedToEmpty)
+        #expect(store.records(for: workspaces[0]).isEmpty)
+        #expect(store.records(for: emptyWorkspace).map(\.panelID) == [panels[0]])
+        #expect(!store.hasUncapturedRecords(for: emptyWorkspace))
         let movedCaptured = store.move(panelID: panels[0], to: workspaces[2])
         #expect(movedCaptured)
-        #expect(store.records(for: workspaces[0]).isEmpty)
         #expect(Set(store.records(for: workspaces[2]).map(\.panelID)) == [panels[0], panels[2]])
         store.markRecordsCaptured(for: workspaces[2])
         #expect(!store.hasUncapturedRecords(for: workspaces[2]))
