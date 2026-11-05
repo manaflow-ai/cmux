@@ -6,12 +6,17 @@ fixed scenarios on one Mac, and writes numbers a later run can diff key by key
 
 ```
 cmux-ci run --class exclusive --measurement --label measure --label gui-session-v1 --script scripts/measure/screen-stream-eval.sh \
-  --ref SHA --artifact artifacts/screen-stream-eval/results.json [--arg=targets=rd,webrtc] [--arg=samples=200] [--arg=repeats=3]
+  --ref SHA --artifact artifacts/screen-stream-eval/results.json [--arg=targets=rd,webrtc] [--arg=samples=200] [--arg=repeats=3] \
+  [--arg=input-frame-now=1]
 ```
 
-`.github/workflows/screen-stream-eval.yml` runs it every day at the feat-cmux-next tip. It
-uploads `results.json` and a `summary.md` that shows each number's change against the last
-scheduled run.
+`input-frame-now=1` starts the rd host with `--input-frame-now 1` (an input lifts its frame-rate cap
+for 100 ms), for a before/after against a run without it at the same commit.
+
+`.github/workflows/screen-stream-eval.yml` runs it every day at the feat-cmux-next tip, started by
+main's `screen-stream-eval-dispatch.yml` (scheduled workflows run only from the default branch). It
+uploads `results.json` and a `summary.md` that shows each number's change against the last daily
+run (the last successful one that dispatcher started).
 
 ## Scenarios (fixed)
 

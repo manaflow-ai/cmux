@@ -12,7 +12,7 @@
 # reports, and exits non-zero only when it could not measure at all (3: no grant; 4: no target ran;
 # 5: no target measured a window).
 set -uo pipefail
-targets="rd,webrtc" samples=200 repeats=3 lan="" viewer_of="" peer_token=""
+targets="rd,webrtc" samples=200 repeats=3 lan="" viewer_of="" peer_token="" input_frame_now=0
 for arg in "$@"; do
   case "$arg" in
     targets=*) targets="${arg#targets=}" ;;
@@ -23,10 +23,15 @@ for arg in "$@"; do
     lan=*) lan="${arg#lan=}" ;;
     viewer-of=*) viewer_of="${arg#viewer-of=}" ;;
     peer-token=*) peer_token="${arg#peer-token=}" ;;
+    # input-frame-now=1: the rd host lifts its frame-rate cap after each input (--input-frame-now 1),
+    # for a before/after against the default.
+    input-frame-now=*) input_frame_now="${arg#input-frame-now=}" ;;
     *) echo "screen-stream-eval.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
 [[ "$samples" =~ ^[0-9]+$ ]] || { echo "screen-stream-eval.sh: samples= is a number" >&2; exit 2; }
+[[ "$input_frame_now" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: input-frame-now= is 0 or 1" >&2; exit 2; }
+export EVAL_RD_INPUT_FRAME_NOW="$input_frame_now"
 [[ "$repeats" =~ ^[1-9][0-9]*$ ]] || { echo "screen-stream-eval.sh: repeats= is a number from 1" >&2; exit 2; }
 ipv4='^([0-9]{1,3}\.){3}[0-9]{1,3}$'
 for value in "$lan" "$viewer_of"; do
@@ -45,6 +50,12 @@ peer_port=4180
 # From the script's place, not the cwd: inside the launcher app (below) the cwd is /.
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
+# The rd host takes options it does not know without a word, so input-frame-now=1 at a commit whose host
+# lacks --input-frame-now (before #36690) would measure the default and call it the bypass: refuse it.
+if [[ "$input_frame_now" == 1 ]] && ! grep -q 'flag("input-frame-now")' cmux-tui/crates/cmux-rd-host/src/host.rs 2>/dev/null; then
+  echo "screen-stream-eval.sh: input-frame-now=1, but this commit's rd host has no --input-frame-now" >&2
+  exit 2
+fi
 here="$root/scripts/measure/screen-stream-eval"
 out="$root/artifacts/screen-stream-eval"
 work="$root/.build/screen-stream-eval"
@@ -71,6 +82,7 @@ link_arg=()
 [[ -n "$lan" ]] && link_arg=(link "lan: host at $lan, viewer on a second Mac")
 run=$(run_json host "$(scutil --get ComputerName 2>/dev/null || hostname)" cpu "$(sysctl -n machdep.cpu.brand_string)" \
   macos "$(sw_vers -productVersion)" rev "$(git rev-parse HEAD)" display "$display" samples "$samples" repeats "$repeats" \
+  rd_input_frame_now "$input_frame_now" \
   ${link_arg[@]+"${link_arg[@]}"})
 echo "SCREEN-STREAM-EVAL-MACHINE $run"
 
@@ -181,10 +193,16 @@ if [[ -n "$lan" ]]; then
   printf '%s\n' "$peer_token" >"$work/peer-token"
   chmod 600 "$work/peer-token"
   python3 -I "$here/peer.py" serve "$lan" "$peer_port" "$work/peer-token" "$work/peer" >"$work/peer.log" 2>&1 &
-  pids+=("$!")
+  server=$!
+  pids+=("$server")
   echo "SCREEN-STREAM-EVAL-STAGE peer waiting for the viewer Mac at $lan:$peer_port"
   for _ in $(seq 1 360); do
     [[ -s "$work/peer/agent.json" ]] && break
+    # A server that could not bind (an address this Mac lacks, a port in use) ends at once: say so.
+    if ! kill -0 "$server" 2>/dev/null; then
+      finish "two Macs: the peer server on $lan:$peer_port stopped ($(tail -1 "$work/peer.log" 2>/dev/null))"
+      exit 4
+    fi
     sleep 5 # bounded wait for the viewer Mac's step to start and build (30 min)
   done
   if [[ ! -s "$work/peer/agent.json" ]]; then
