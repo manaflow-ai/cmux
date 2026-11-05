@@ -8,6 +8,12 @@
 //! that verb's checks, keys and deadlines:
 //!
 //! 1. `cloud list-machines`: refuses at once when the app is signed out of cmux.
+//!
+//! With `--wait`, the relay-first chat (cmuxterm-hq#7086) comes next: `cloud relay-chat` sends the prompt over
+//! HTTPS to the socket the machine holds from boot. A machine that does not exist yet (no `--target`, or a
+//! `--name` no machine has) is made first with `cloud new-machine [--name N]`. Steps 2-4 run only when the
+//! prompt certainly never reached the machine, on the machine the relay was tried on.
+//!
 //! 2. `cloud start-session (--name N | --target T) --agent A [--cwd D]`: takes the machine (or
 //!    creates it) and opens the chat's tab in the machine's workspace, a real chat in the app.
 //!    Without `--name` or `--target` it creates a new small machine with a new name, so the chat
@@ -548,35 +554,7 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
         Err(error) => return app_failure(error),
     };
     if at(&started, "pending").as_bool() == Some(true) {
-        let again = again_command(request, &machine);
-        let stage = start_stage(runner, &started);
-        if stage.is_final() {
-            return failed(
-                "cloud.start_failed",
-                format!(
-                    "the machine failed to start ({}); running the command again will not help. \
-                     Start a new one: {}",
-                    stage.describe(),
-                    again_command(request, &Machine::New)
-                ),
-                json!({"stage": stage.json(), "machine_name": at(&started, "machine_name"),
-                       "machine_id": stage.machine_id.map_or_else(|| at(&started, "machine_id").clone(), Value::String),
-                       "app": at(&started, "text")}),
-                1,
-            );
-        }
-        return failed(
-            "cloud.start_pending",
-            format!(
-                "the machine is still starting (stuck at: {}); the chat opens in its workspace when it is up. \
-                 Run the same command again to keep waiting: {again}",
-                stage.describe()
-            ),
-            json!({"again": again, "machine_name": at(&started, "machine_name"),
-                   "machine_id": stage.machine_id.clone().map_or_else(|| at(&started, "machine_id").clone(), Value::String),
-                   "stage": stage.json(), "app": at(&started, "text")}),
-            75,
-        );
+        return start_pending(runner, request, &machine, &started);
     }
     let (Some(machine_id), Some(session)) =
         (at(&started, "machine_id").as_str(), at(&started, "session_id").as_str())
@@ -760,6 +738,45 @@ fn wait_turn(
     }
 }
 
+/// The answer for a start the app answered `pending` for: where it is stuck, and the same command again to keep
+/// waiting, or a new machine when this one will not come up.
+fn start_pending(
+    runner: &mut dyn Runner,
+    request: &Request,
+    machine: &Machine,
+    started: &Value,
+) -> Outcome {
+    let again = again_command(request, machine);
+    let stage = start_stage(runner, started);
+    if stage.is_final() {
+        return failed(
+            "cloud.start_failed",
+            format!(
+                "the machine failed to start ({}); running the command again will not help. \
+                 Start a new one: {}",
+                stage.describe(),
+                again_command(request, &Machine::New)
+            ),
+            json!({"stage": stage.json(), "machine_name": at(started, "machine_name"),
+                   "machine_id": stage.machine_id.map_or_else(|| at(started, "machine_id").clone(), Value::String),
+                   "app": at(started, "text")}),
+            1,
+        );
+    }
+    failed(
+        "cloud.start_pending",
+        format!(
+            "the machine is still starting (stuck at: {}); the chat opens in its workspace when it is up. \
+             Run the same command again to keep waiting: {again}",
+            stage.describe()
+        ),
+        json!({"again": again, "machine_name": at(started, "machine_name"),
+               "machine_id": stage.machine_id.clone().map_or_else(|| at(started, "machine_id").clone(), Value::String),
+               "stage": stage.json(), "app": at(started, "text")}),
+        75,
+    )
+}
+
 /// What the relay-first chat came to.
 enum Relayed {
     /// The command's answer: the reply, a failure, or a turn the link path waits on.
@@ -788,29 +805,17 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
                 .find(|row| at(row, "title").as_str() == Some(name.as_str()));
             match row.and_then(|row| at(row, "machine_id").as_str()) {
                 Some(id) => id.to_owned(),
-                // A name no machine has yet: `cloud start-session --name` makes it.
-                None => return Relayed::Fallback(None),
+                // A name no machine has yet: made here under that name, so its first chat still goes the relay way.
+                None => match new_machine(runner, request, Some(name)) {
+                    Ok(id) => id,
+                    Err(outcome) => return Relayed::Answered(outcome),
+                },
             }
         }
-        Machine::New => {
-            let made = match step_result(&runner.cmux(&words(&["cloud", "new-machine", "--json"])))
-            {
-                Ok(made) => made,
-                Err(error) => return Relayed::Answered(app_failure(error)),
-            };
-            match at(&made, "machine_id").as_str() {
-                Some(id) if at(&made, "pending").as_bool() != Some(true) => id.to_owned(),
-                _ => {
-                    return Relayed::Answered(failed(
-                        "cloud.start_pending",
-                        "the new machine is still being made; find it with `cmux cloud list-machines`, \
-                         then run this command again with --target machine:ID",
-                        json!({"app": made, "list": "cmux cloud list-machines --json"}),
-                        75,
-                    ));
-                }
-            }
-        }
+        Machine::New => match new_machine(runner, request, None) {
+            Ok(id) => id,
+            Err(outcome) => return Relayed::Answered(outcome),
+        },
     };
     let mut args = words(&["cloud", "relay-chat", "--target"]);
     args.push(format!("machine:{machine_id}"));
@@ -916,6 +921,42 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
     };
     let message = at(&relayed, "error_message").as_str().unwrap_or("the turn failed").to_owned();
     Relayed::Answered(failed(code, message, json!({"answer": answer}), exit))
+}
+
+/// `cloud new-machine` for the relay chat, under the command's name when it gave one: the machine's id, or the
+/// command's answer when the create failed or is still on its way.
+fn new_machine(
+    runner: &mut dyn Runner,
+    request: &Request,
+    name: Option<&str>,
+) -> Result<String, Outcome> {
+    let mut args = words(&["cloud", "new-machine"]);
+    if let Some(name) = name {
+        args.extend(["--name".to_owned(), name.to_owned()]);
+    }
+    args.push("--json".to_owned());
+    let made = step_result(&runner.cmux(&args)).map_err(app_failure)?;
+    if let Some(id) = at(&made, "machine_id").as_str()
+        && at(&made, "pending").as_bool() != Some(true)
+    {
+        return Ok(id.to_owned());
+    }
+    Err(match name {
+        // The same command finds the machine again by its name, and sends the chat once it is up.
+        Some(name) => start_pending(
+            runner,
+            request,
+            &Machine::Named(name.to_owned()),
+            &json!({"machine_name": name, "machine_id": at(&made, "machine_id"), "text": at(&made, "text")}),
+        ),
+        None => failed(
+            "cloud.start_pending",
+            "the new machine is still being made; find it with `cmux cloud list-machines`, \
+             then run this command again with --target machine:ID",
+            json!({"app": made, "list": "cmux cloud list-machines --json"}),
+            75,
+        ),
+    })
 }
 
 /// The app has no `cloud relay-chat` (an older app): the CLI's own usage error, or the app's unknown action.
