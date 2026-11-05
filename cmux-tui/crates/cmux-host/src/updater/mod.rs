@@ -269,6 +269,9 @@ pub fn busy_sessions_in(ls: &str) -> Option<Vec<String>> {
             s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0
                 || !s.get("turn").unwrap_or(&Value::Null).is_null()
                 || matches!(s.get("status").and_then(Value::as_str), Some("running" | "waiting"))
+                // An agent start under way: restarting acpmux now ends it (a Cloud chat's first
+                // session/new answered daemon_closed when an update restarted the daemon mid-start).
+                || s.get("starting").and_then(Value::as_bool) == Some(true)
         })
         .map(|s| s.get("name").and_then(Value::as_str).unwrap_or("?").to_owned())
         .collect();

@@ -244,11 +244,13 @@ fn busy_sessions_follow_acpmux_rules() {
         {"name": "turn", "status": "idle", "turn": {"id": 1}},
         {"name": "running", "status": "running"},
         {"name": "asks", "status": "idle", "pendingPermissions": 1},
+        {"name": "starting", "status": "idle", "turn": null, "starting": true},
+        {"name": "started", "status": "ready", "turn": null, "starting": false},
         {"name": "peer", "status": "running", "peer": "mac"},
     ]});
     assert_eq!(
         busy_sessions_in(&ls.to_string()).unwrap(),
-        vec!["turn".to_owned(), "running".to_owned(), "asks".to_owned()]
+        vec!["turn".to_owned(), "running".to_owned(), "asks".to_owned(), "starting".to_owned()]
     );
     assert_eq!(busy_sessions_in("{\"sessions\": []}").unwrap(), Vec::<String>::new());
     assert!(busy_sessions_in("not json").is_none());

@@ -91,6 +91,12 @@ fn only_the_daemons_own_turns_and_permission_prompts_make_it_busy() {
         {"name": "parent-sub", "status": "running", "turn": {"startedAt": 1}, "startedBy": "parent", "depth": 1},
     ]});
     assert_eq!(busy_sessions(&family.to_string(), None), Some(vec!["parent-sub".into()]));
+    // An agent start under way (its spawn lease held) is busy: a restart would end it.
+    let starting = json!({"sessions": [
+        {"name": "starting", "status": "idle", "turn": null, "starting": true},
+        {"name": "started", "status": "ready", "turn": null, "starting": false},
+    ]});
+    assert_eq!(busy_sessions(&starting.to_string(), None), Some(vec!["starting".into()]));
     assert_eq!(busy_sessions(r#"{"sessions": []}"#, None), Some(vec![]));
     assert_eq!(busy_sessions("", None), None, "unreadable is not idle");
     assert_eq!(
