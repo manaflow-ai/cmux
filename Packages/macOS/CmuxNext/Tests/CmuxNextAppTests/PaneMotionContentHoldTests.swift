@@ -91,25 +91,28 @@ import Testing
         }
     }
 
-    /// Content the provider holds (an agent chat; Leo's 2026-10-20 hold): a shrinking pane's content keeps
-    /// its starting width until the spring lands, then lays out once at the landed size.
-    @Test func withTheHoldOnAShrinkingPaneKeepsItsContentWidthUntilItLands() {
+    /// Content the provider holds (an agent chat): it lays out once per spring, never on every frame (Leo 2026-10-20),
+    /// and that one layout is at its rest size on the spring's first frame, never at the landing: a chat beside a split
+    /// opening on the right does not wait for the split to land (Leo 2026-11-05: "the main pane waits for the right
+    /// pane to shift before it shifts. Like, why are you waiting?").
+    @Test func withTheHoldOnAShrinkingPaneLaysItsContentOutOnceAtItsRestSizeOnTheFirstFrame() {
         let column = Screen(holdsContent: true)
-        let before = column.page.frame.size
         column.host.restSize = CGSize(width: 200, height: 300)
         column.host.restOffset = .zero
         column.host.isOnLayoutSpring = true
         column.host.frame = CGRect(x: 0, y: 0, width: 300, height: 300)
-        #expect(column.page.frame.size == before, "held content laid out at the frame's width: \(column.page.frame)")
+        #expect(column.page.frame.width == 184, "the chat waits for the landing at its start width: \(column.page.frame)")
+        #expect(column.page.frame.minX == 8, "the chat is not pinned at the edge that stays: \(column.page.frame)")
+        column.host.frame = CGRect(x: 0, y: 0, width: 250, height: 300)
+        #expect(column.page.frame.width == 184, "the chat reflowed on a spring frame: \(column.page.frame)")
         column.host.frame = CGRect(x: 0, y: 0, width: 200, height: 300)
         column.host.isOnLayoutSpring = false
-        #expect(column.page.frame.width == 184, "one layout at the landed size: \(column.page.frame)")
+        #expect(column.page.frame.width == 184, "the landing changed the chat's layout: \(column.page.frame)")
     }
 
-    /// An ordinary moving shrink (such as unzooming a right-hand chat) also has a nonzero rest
-    /// offset, but it must retain the painted page until landing. Only the explicit handoff flag
-    /// may seed the held size with the narrower target.
-    @Test func anOrdinaryMovingShrinkDoesNotUseHandoffTargetSizing() {
+    /// An ordinary moving shrink (such as unzooming a right-hand chat) takes its rest size on its first frame too,
+    /// pinned at the edge nearer its rest, as a handoff does.
+    @Test func anOrdinaryMovingShrinkTakesItsRestSizeFromTheFirstFrame() {
         let column = Screen(hostFrame: CGRect(x: 400, y: 0, width: 400, height: 300), holdsContent: true)
         column.host.restSize = CGSize(width: 200, height: 300)
         column.host.restOffset = CGVector(dx: -200, dy: 0)
@@ -117,10 +120,10 @@ import Testing
         column.host.isOnLayoutSpring = true
         column.host.frame = CGRect(x: 300, y: 0, width: 300, height: 300)
         column.host.layoutSubtreeIfNeeded()
-        #expect(column.page.frame.width == 384, "ordinary shrink reflowed at its moving width: \(column.page.frame)")
+        #expect(column.page.frame.width == 184, "ordinary shrink waits for its landing: \(column.page.frame)")
         column.host.frame = CGRect(x: 200, y: 0, width: 200, height: 300)
         column.host.isOnLayoutSpring = false
-        #expect(column.page.frame.width == 184, "ordinary shrink did not release at landing: \(column.page.frame)")
+        #expect(column.page.frame.width == 184, "ordinary shrink changed at its landing: \(column.page.frame)")
     }
 
     /// A handoff moves an already painted full-width chat into its narrower final pane. The first
@@ -137,10 +140,9 @@ import Testing
         column.host.isOnLayoutSpring = false
     }
 
-    /// A right-pane close can be reopened before its spring lands. The content keeps the widest
-    /// target announced by that motion, rather than falling back to live resize at the reopened
-    /// target, and releases it only for the final layout.
-    @Test func aRetargetedSpringKeepsTheLargestContentSizeUntilItLands() {
+    /// A right-pane close can be reopened before its spring lands. The content lays out once more, at the reopened
+    /// target, when the spring retargets (a terminal hears its grid there too), never on the frames after it.
+    @Test func aRetargetedSpringLaysOutOnceAtTheNewRest() {
         let column = Screen(hostFrame: CGRect(x: 0, y: 0, width: 200, height: 300), holdsContent: true)
         column.host.restSize = CGSize(width: 400, height: 300)
         column.host.restOffset = .zero
@@ -148,22 +150,22 @@ import Testing
         column.host.announceRest()
         #expect(column.page.frame.width == 384, "the close target was not held: \(column.page.frame)")
 
-        // Reopen before landing, then present two intermediate widths. The page must keep the
-        // close target's painted width through both frames instead of reflowing at each one.
+        // Reopen before landing, then present two intermediate widths: one layout at the reopened target, then none.
         column.host.restSize = CGSize(width: 200, height: 300)
         column.host.announceRest()
+        #expect(column.page.frame.width == 184, "the retarget waits for the landing: \(column.page.frame)")
         for width in [260.0, 220.0] as [CGFloat] {
             column.host.frame = CGRect(x: 0, y: 0, width: width, height: 300)
             column.host.layoutSubtreeIfNeeded()
-            #expect(column.page.frame.width == 384, "retargeted content resized at \(width): \(column.page.frame)")
+            #expect(column.page.frame.width == 184, "retargeted content resized at \(width): \(column.page.frame)")
         }
         column.host.frame = CGRect(x: 0, y: 0, width: 200, height: 300)
         column.host.isOnLayoutSpring = false
-        #expect(column.page.frame.width == 184, "the hold did not release at landing: \(column.page.frame)")
+        #expect(column.page.frame.width == 184, "the landing changed the content: \(column.page.frame)")
     }
 
-    /// Open and close each resize the live page once, at the landing frame. An interruption in
-    /// either direction keeps that painted page attached and at the largest announced size.
+    /// Open and close each resize the live page once, at the spring's start, never per frame or at the landing. An
+    /// interruption lays it out once more, at the new target, and keeps the painted page attached throughout.
     @Test func openCloseAndInterruptedPaneMotionNeverShowsBlankOrReflowsPerFrame() {
         let column = Screen(hostFrame: CGRect(x: 0, y: 0, width: 200, height: 300), holdsContent: true)
         var sizes: [CGFloat] = []
@@ -199,9 +201,9 @@ import Testing
         column.host.frame = CGRect(x: 0, y: 0, width: 200, height: 300)
         column.host.isOnLayoutSpring = false
         record("close landed")
-        #expect(Set(sizes).count == 2, "close did not release once at landing: \(sizes)")
+        #expect(Set(sizes).count == 1, "close reflowed after its start: \(sizes)")
 
-        // Open, then close before landing. The held width remains stable through the retarget.
+        // Open, then close before landing: one layout at the open's start, one at the retarget.
         sizes.removeAll()
         column.host.restSize = CGSize(width: 400, height: 300)
         column.host.isOnLayoutSpring = true
