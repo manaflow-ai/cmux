@@ -364,6 +364,8 @@
         "Republish deltas and revised appcasts": {"nightly_only": "republishes deltas to GitHub release"},
         "Upload revised appcasts to R2": {"nightly_only": "uploads revised appcasts to R2"},
         "Upload revised nightly-next appcasts to R2": {"nightly_only": "uploads nightly-next appcasts to R2"}},
+      "dispatch-published-in": {
+        "Ask for this build's published-in run": {"nightly_only": "dispatches nightly.yml with nightly_next_post_publish (tests/test_nightly_next_post_publish.py)"}},
       "published-in": {
         "Add the workflow commit's new step scripts to an older build tree": {"plumbing": true, "note": "only runs when the build tree predates the step scripts it calls"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},

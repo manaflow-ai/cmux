@@ -62,11 +62,13 @@ that landed in the user's window. **Clean** is delivered with none of those.
 `input-ab/trials.jsonl` and every app's log. results.json (schema `cmux.cu-driver-eval/1`,
 docstrings of `eval.py` and `input_ab.py`):
 
-- `run`: `at`, `host`, `cpu`, `macos`, `rev`, `display`, `reps`, and `blocked` when nothing ran.
+- `run`: `at`, `host`, `cpu`, `macos`, `rev`, `display`, `screen` (the main display in points), `reps`, and `blocked` when nothing ran.
 - `suites.input_ab`: `arms`, `targets`, `grants`, `errors`, `rows["ARM|TARGET|GESTURE|CONDITION"]`
   (`n`, `delivered`, `delivered_rate`, `clean`, `clean_rate`, `duplicates`, `focus_steals`,
   `key_losses`, `raises`, `pointer_moved`, `stray`, `loc_err_max`, `call_ms_p50`, `unsupported`,
-  `errors`) and `wins[TARGET][GESTURE]`.
+  `errors`), `wins[TARGET][GESTURE]`, and `obstruction`: the first driver refusal of the run
+  because a window was in front, with every on-screen window at that moment (owner, number, layer,
+  alpha, frame), or null.
 
 A count nobody could measure is null, never left out, so two runs line up key by key.
 
@@ -75,7 +77,9 @@ A count nobody could measure is null, never left out, so two runs line up key by
 The first stage of the bench: the pinned Lume (`pins.json` `lume`) clones the pinned
 `trycua/macos-tahoe-cua:26.5.2` image (`image`; a moved tag is refused) for one run, sets 6 CPUs,
 12 GB and 1920x1080, boots it headless, records what the guest has (`vm.json`: macOS, display,
-SIP, Xcode tools, Homebrew, Python, Node), then deletes the clone. Given `base_url=`, the team's
+SIP, Xcode tools, Homebrew, Python, Node), then deletes the clone. The image keeps the 1024 x 768 mode it
+was saved with whatever framebuffer Lume gives it, so the A/B switches the guest to 1920 x 1080 points
+first (`CU_DRIVER_EVAL_DISPLAY`, `cu-eval-inject display-mode`). Given `base_url=`, the team's
 Claude route, the step first checks that the worker reaches it and stops when it does not. Lume's image cache stays on the worker, so the 23 GB pull happens once. Lume pulls by tag
 only, so the digest it logs for the manifest it fetched must equal the pin, or the base is deleted.
 

@@ -234,10 +234,10 @@ for (const [kind, toolKind] of GROUP_KINDS)
         return callback.call(context, value, at, array);
       }) as U[];
     });
-    const enabled = thoughtLayout.enabled;
-    const renderProbe = spyOn(thoughtLayout, "enabled").mockImplementation(() => {
+    const threshold = thoughtLayout.threshold;
+    const renderProbe = spyOn(thoughtLayout, "threshold").mockImplementation(() => {
       thoughtRenders += 1;
-      return enabled();
+      return threshold();
     });
     const thoughtParts = thoughts.thoughtParts;
     const thoughtProbe = spyOn(thoughts, "thoughtParts").mockImplementation((text) => {

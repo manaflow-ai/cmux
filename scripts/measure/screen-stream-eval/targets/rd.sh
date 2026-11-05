@@ -15,7 +15,7 @@ host_start() {
   head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' >"$EVAL_STATE/token"
   chmod 600 "$EVAL_STATE/token"
   : >"$EVAL_STATE/host.log"
-  "$rd" host --owner owner --bind 127.0.0.1 --port "$port" --token-fd 3 3<"$EVAL_STATE/token" \
+  "$rd" host --owner owner --bind 127.0.0.1 --port "$port" --token-fd 3 3< <(cat "$EVAL_STATE/token") \
     >>"$EVAL_STATE/host.log" 2>&1 &
   echo $! >"$EVAL_STATE/host.pid"
   for _ in $(seq 1 100); do
@@ -29,7 +29,7 @@ host_start() {
 }
 
 bench() {
-  "$rd" bench --addr "127.0.0.1:$port" --user owner --token-fd 3 "$@" 3<"$EVAL_STATE/token"
+  "$rd" bench --addr "127.0.0.1:$port" --user owner --token-fd 3 "$@" 3< <(cat "$EVAL_STATE/token")
 }
 
 case "$verb" in
