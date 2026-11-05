@@ -315,6 +315,7 @@ struct TerminalSurfaceCommitSizeTests {
                 session.view.autoresizingMask = [.width, .height]
                 container.addSubview(session.view)
                 session.view.layoutSubtreeIfNeeded() // sync-layout: the attach's own layout pass
+                RendererFocus.apply(session.surfaceView)
                 io.send(.output(Data(text.utf8)))
                 sessions.append(session)
             }
@@ -462,6 +463,7 @@ struct TerminalSurfaceCommitSizeTests {
                 throw error
             }
             container.layoutSubtreeIfNeeded() // sync-layout: the first size, before the text
+            RendererFocus.apply(session.surfaceView)
             let line = String(repeating: "x", count: 30)
             io.send(.output(Data(("\u{1b}[?25l" + Array(repeating: line, count: 6).joined(separator: "\r\n")).utf8)))
             let shown = await waitShown(width: 600)

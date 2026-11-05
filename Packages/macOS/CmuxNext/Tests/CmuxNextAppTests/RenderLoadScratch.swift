@@ -1,4 +1,5 @@
 import AppKit
+import GhosttyNextKit
 import Testing
 @testable import CmuxNextTerminal
 
@@ -6,6 +7,11 @@ import Testing
 /// thread is the cause of its red runs. `threads` busy threads at the main thread's QoS; 0 runs without load.
 nonisolated final class RenderLoad: @unchecked Sendable {
     static let threads = 4 * ProcessInfo.processInfo.activeProcessorCount
+    /// The load threads' QoS.
+    static let qos: QualityOfService = .userInteractive
+    /// Tell Ghostty each test surface is focused, so its renderer thread runs at userInteractive (Ghostty's
+    /// Thread.setQosClass: visible + unfocused is userInitiated, visible + focused is userInteractive).
+    static let focusSurfaces = false
     static let shared = RenderLoad()
     private let lock = NSLock()
     private var on = false
@@ -28,7 +34,7 @@ nonisolated final class RenderLoad: @unchecked Sendable {
                 }
                 if x == 42 { print("") }
             }
-            thread.qualityOfService = .userInteractive
+            thread.qualityOfService = Self.qos
             thread.start()
         }
     }
@@ -48,7 +54,7 @@ enum CommitSizeTrace {
         RenderLoad.shared.start()
         var load = [Double](repeating: 0, count: 3)
         getloadavg(&load, 3)
-        presenter.note("begin load-threads=\(RenderLoad.threads) cpus=\(ProcessInfo.processInfo.activeProcessorCount) loadavg=\(load.map { String(format: "%.2f", $0) }.joined(separator: ","))")
+        presenter.note("begin focus=\(RenderLoad.focusSurfaces) qos=\(RenderLoad.qos.rawValue) load-threads=\(RenderLoad.threads) cpus=\(ProcessInfo.processInfo.activeProcessorCount) loadavg=\(load.map { String(format: "%.2f", $0) }.joined(separator: ","))")
     }
 
     static func end(_ window: NSWindow) {
@@ -61,5 +67,14 @@ enum CommitSizeTrace {
         let lines = presenter.trace ?? []
         presenter.trace = nil
         print("TRACE-BEGIN \(name) (\(lines.count) lines)\n" + lines.map { "TRACE \(name) \($0)" }.joined(separator: "\n") + "\nTRACE-END \(name)")
+    }
+}
+
+@MainActor
+enum RendererFocus {
+    /// After the surface joined its window (cmux sent focus false there: the window is never key).
+    static func apply(_ view: TerminalSurfaceView) {
+        guard RenderLoad.focusSurfaces, let surface = view.surface else { return }
+        ghostty_surface_set_focus(surface, true)
     }
 }
