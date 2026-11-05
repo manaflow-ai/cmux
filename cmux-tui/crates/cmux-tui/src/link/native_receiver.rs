@@ -22,6 +22,8 @@ use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, oneshot};
 use zeroize::Zeroizing;
 
+#[cfg(test)]
+use super::host_inbound::serve_host_inbound;
 use super::host_inbound::{HostIdentity, HostRefused, StreamTrace, serve_host_inbound_traced};
 
 const MAX_STREAMS: usize = 4096;
@@ -137,7 +139,9 @@ impl NativeReceiver {
             return;
         }
         if !self.peers.contains_key(&key) {
-            eprintln!("cmux link: receiver dropped a stream: its key is no peer of the current policy");
+            eprintln!(
+                "cmux link: receiver dropped a stream: its key is no peer of the current policy"
+            );
             return;
         }
         let Some(id) = self.serial.checked_add(1) else { return };
@@ -293,9 +297,12 @@ pub(super) fn stream_ended_line(
     trace: &StreamTrace,
     outcome: Option<&Result<(), HostRefused>>,
 ) -> String {
-    let service = trace.service.map_or_else(|| "no hello".to_string(), |s| format!("{s:?}").to_lowercase());
+    let service =
+        trace.service.map_or_else(|| "no hello".to_string(), |s| format!("{s:?}").to_lowercase());
     let how = match outcome {
-        None => "closed by the receiver (its peer left the policy, or the receiver stopped)".to_string(),
+        None => {
+            "closed by the receiver (its peer left the policy, or the receiver stopped)".to_string()
+        }
         Some(Err(HostRefused::Token)) => match trace.token {
             Some(why) => format!("refused: token {why:?}"),
             None => "refused: token".to_string(),

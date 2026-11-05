@@ -223,8 +223,12 @@ async fn serve_traced(
 #[tokio::test]
 async fn a_refused_stream_says_which_check_refused_it() {
     let host = host().await;
-    let (result, trace, line) =
-        serve_traced(&host, "{\"service\":\"daemon\",\"link_token\":\"bad\",\"epoch\":4}\n", &GoodToken).await;
+    let (result, trace, line) = serve_traced(
+        &host,
+        "{\"service\":\"daemon\",\"link_token\":\"bad\",\"epoch\":4}\n",
+        &GoodToken,
+    )
+    .await;
     assert_eq!(result, Err(HostRefused::Token));
     assert_eq!(trace.token, Some(TokenRefused::Invalid));
     assert!(line.contains("receiver stream 7 (daemon)"), "{line}");
@@ -235,13 +239,21 @@ async fn a_refused_stream_says_which_check_refused_it() {
     assert_eq!(trace.token, Some(TokenRefused::Missing));
     assert!(line.ends_with("refused: token Missing"), "{line}");
 
-    let (_, _, line) =
-        serve_traced(&host, "{\"service\":\"daemon\",\"link_token\":\"good\",\"epoch\":3}\n", &GoodToken).await;
+    let (_, _, line) = serve_traced(
+        &host,
+        "{\"service\":\"daemon\",\"link_token\":\"good\",\"epoch\":3}\n",
+        &GoodToken,
+    )
+    .await;
     assert!(line.ends_with("refused: StaleEpoch"), "{line}");
 
     // The token passed but no session daemon listens at the entry.
-    let (result, trace, line) =
-        serve_traced(&host, "{\"service\":\"daemon\",\"link_token\":\"good\",\"epoch\":4}\n", &GoodToken).await;
+    let (result, trace, line) = serve_traced(
+        &host,
+        "{\"service\":\"daemon\",\"link_token\":\"good\",\"epoch\":4}\n",
+        &GoodToken,
+    )
+    .await;
     assert_eq!(result, Err(HostRefused::Inbound(InboundRefused::EntryUnavailable)));
     assert_eq!(trace.spliced, None);
     assert!(line.ends_with("refused: Inbound(EntryUnavailable)"), "{line}");
@@ -253,7 +265,9 @@ async fn a_refused_stream_says_which_check_refused_it() {
 async fn a_spliced_stream_reports_its_bytes_each_way() {
     let host = host().await;
     let (mut peer, link_side) = tokio::io::duplex(64 * 1024);
-    peer.write_all(b"{\"service\":\"ssh\",\"link_token\":\"good\",\"epoch\":4}\nabc").await.unwrap();
+    peer.write_all(b"{\"service\":\"ssh\",\"link_token\":\"good\",\"epoch\":4}\nabc")
+        .await
+        .unwrap();
     peer.shutdown().await.unwrap();
     let me = HostIdentity {
         host: "host_vm1",
@@ -270,7 +284,14 @@ async fn a_spliced_stream_reports_its_bytes_each_way() {
         got
     };
     let (result, got) = tokio::join!(
-        serve_host_inbound_traced(link_side, [5; 32], from("inst_mac"), &GoodToken, &me, &mut trace),
+        serve_host_inbound_traced(
+            link_side,
+            [5; 32],
+            from("inst_mac"),
+            &GoodToken,
+            &me,
+            &mut trace
+        ),
         sshd
     );
     assert_eq!(result, Ok(()));

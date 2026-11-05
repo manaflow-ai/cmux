@@ -70,8 +70,15 @@ pub(super) async fn serve_host_inbound<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    serve_host_inbound_traced(stream, peer_key, peer_addr, verifier, me, &mut StreamTrace::default())
-        .await
+    serve_host_inbound_traced(
+        stream,
+        peer_key,
+        peer_addr,
+        verifier,
+        me,
+        &mut StreamTrace::default(),
+    )
+    .await
 }
 
 /// [`serve_host_inbound`], recording in `trace` what the stream came to.
